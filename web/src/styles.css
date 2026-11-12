@@ -2945,3 +2945,6 @@ select.meet-timer-btn option { color: #202124; }
 .chat-bookmark-x:hover { color: var(--text); }
 .followup-late { color: var(--danger); font-weight: 600; }
 .followup-set { margin: 4px 0 8px; }
+.msg-nudge { grid-column: 1 / -1; color: var(--warning-text, #b06000); font-weight: 500; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .msg-nudge { color: #fdd663; } }
+:root[data-theme="dark"] .msg-nudge { color: #fdd663; }

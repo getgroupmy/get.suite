@@ -2332,6 +2332,9 @@ test('nudges: mail from people, 3 to 14 days old, not answered, for Home; Not no
   assert.deepEqual(mine(n), ['Can you check the invoice?']);
   const it = n.items.find((x) => x.subject === `Can you check the invoice?${run}`);
   assert.equal(it.from.email, 'kim@partner.example');
+  // The Inbox list marks the same one.
+  const listed = ((await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages || []).filter((x) => x.subject.endsWith(run));
+  assert.deepEqual(listed.filter((x) => x.nudge).map((x) => x.subject.slice(0, -run.length)), ['Can you check the invoice?']);
   assert.equal((await olivia('POST', `/api/mail/nudges/${it.uid}/dismiss`)).status, 200);
   assert.deepEqual(mine((await olivia('GET', '/api/mail/nudges')).body), [], 'Not now');
   assert.equal((await olivia('POST', '/api/mail/nudges/abc/dismiss')).status, 400);

@@ -533,6 +533,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.snoozedUntil ? <span className="snoozed-until" title={`Comes back ${whenText(m.snoozedUntil)}`}><Icon name="clock" size={14} /> {formatDate(m.snoozedUntil)}</span> : m.date ? formatDate(m.date) : ''}</span>
                   <span className="msg-subject ellipsis">{(m.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => <LabelChip key={l.id} label={l} />)}{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
                   {shared && (m.assignee || m.done) && <span className="msg-assign small">{m.done ? <span className="pill done">✓ Done</span> : null}{m.assignee && <span className="pill" title={`Given to ${m.assignee.name}`}>→ {m.assignee.id === user.id ? 'You' : m.assignee.name}</span>}</span>}
+                  {m.nudge && <span className="msg-nudge small">Received {Math.max(3, Math.floor((Date.now() - m.date) / 864e5))} days ago. Reply?</span>}
                   {shared && m.notes > 0 && <span className="msg-assign small"><span className="pill" title={`${m.notes} internal note${m.notes === 1 ? '' : 's'}`}>💬 {m.notes}</span></span>}
                 </button>
               </li>
