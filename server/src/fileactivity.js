@@ -56,7 +56,14 @@ export function activityOf(fileId, limit = 100, before = null) {
  * What others did lately to files someone can open (not in the trash), newest first: [{ id, action, at, details,
  * user_name, file: { id, name, kind } }]. `can(fileId)` says whether they can open it; `before` pages back.
  */
-export function recentActivityFor(userId, can, { limit = 100, before = null, days = 30 } = {}) {
+/** The kinds Drive → Activity can be narrowed to, and the actions in each. */
+export const ACTIVITY_KINDS = {
+  new: ['create', 'upload', 'copy', 'request'], edit: ['edit', 'version'], share: ['share', 'transfer'],
+  move: ['move', 'rename', 'trash', 'restore'], other: ['lock', 'unlock', 'approval'],
+};
+
+export function recentActivityFor(userId, can, { limit = 100, before = null, days = 30, by = null, kind = null } = {}) {
+  const actions = kind ? ACTIVITY_KINDS[kind] : null;
   const out = [];
   let cursor = before ?? Number.MAX_SAFE_INTEGER;
   const since = Date.now() - days * 864e5;
@@ -64,7 +71,9 @@ export function recentActivityFor(userId, can, { limit = 100, before = null, day
   for (let round = 0; round < 20 && out.length < limit; round++) {
     const rows = q(`SELECT a.id, a.action, a.at, a.details, a.file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name
                     FROM file_activity a JOIN files f ON f.id = a.file_id LEFT JOIN users u ON u.id = a.user_id
-                    WHERE a.id < ? AND a.at >= ? AND COALESCE(a.user_id, '') <> ? AND f.trashed = 0 ORDER BY a.id DESC LIMIT 500`).all(cursor, since, userId);
+                    WHERE a.id < ? AND a.at >= ? AND COALESCE(a.user_id, '') <> ? AND f.trashed = 0
+                      AND (? IS NULL OR a.user_id = ?) AND (? IS NULL OR a.action IN (SELECT value FROM json_each(?)))
+                    ORDER BY a.id DESC LIMIT 500`).all(cursor, since, userId, by, by, actions && 1, actions ? JSON.stringify(actions) : '[]');
     if (!rows.length) break;
     cursor = rows.at(-1).id;
     for (const r of rows) {

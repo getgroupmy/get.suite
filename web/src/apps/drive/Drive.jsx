@@ -1475,15 +1475,32 @@ function ActivityLine({ a, onOpen }) {
 }
 
 /** Drive → Activity: what others did lately to files you can open, by day, newest first; Show older pages back. */
+const ACTIVITY_KINDS = [['', 'Any change'], ['new', 'Made or added'], ['edit', 'Edited'], ['share', 'Shared'], ['move', 'Moved, renamed or trashed'], ['other', 'Locked or approvals']];
 function RecentActivity() {
   const [list, setList] = useState(null);
   const [more, setMore] = useState(false);
-  const load = useCallback(() => get('/files/activity/recent').then((l) => { setList(l); setMore(l.length >= 100); }).catch(() => setList([])), []);
+  const [by, setBy] = useState('');
+  const [kind, setKind] = useState('');
+  const [people, setPeople] = useState([]);
+  useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
+  const qs = `${by ? `&by=${by}` : ''}${kind ? `&kind=${kind}` : ''}`;
+  const load = useCallback(() => get(`/files/activity/recent?${qs.slice(1)}`).then((l) => { setList(l); setMore(l.length >= 100); }).catch(() => setList([])), [qs]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => onLive((m) => { if (m.type === 'files-changed' || m.type === 'content-changed' || m.type === 'live-connected') load(); }), [load]);
-  const older = async () => { const l = await get(`/files/activity/recent?before=${list.at(-1).id}`).catch(() => []); setList([...list, ...l]); setMore(l.length >= 100); };
+  const older = async () => { const l = await get(`/files/activity/recent?before=${list.at(-1).id}${qs}`).catch(() => []); setList([...list, ...l]); setMore(l.length >= 100); };
+  const filters = (
+    <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <select aria-label="Who" value={by} onChange={(e) => setBy(e.target.value)}>
+        <option value="">Anyone</option>
+        {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <select aria-label="What" value={kind} onChange={(e) => setKind(e.target.value)}>
+        {ACTIVITY_KINDS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+      </select>
+    </div>
+  );
   if (!list) return <p className="muted">Loading…</p>;
-  if (!list.length) return <p className="muted">Nothing new from others in the last 30 days on files you can open.</p>;
+  if (!list.length) return <div className="stack">{filters}<p className="muted">{by || kind ? 'Nothing like that in the last 30 days.' : 'Nothing new from others in the last 30 days on files you can open.'}</p></div>;
   const days = [];
   for (const a of list) {
     const day = new Date(a.at).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
@@ -1493,6 +1510,7 @@ function RecentActivity() {
   return (
     <div className="stack drive-activity">
       <p className="muted small" style={{ margin: 0 }}>What others did in the last 30 days to files you can open.</p>
+      {filters}
       {days.map((d) => (
         <section key={d.day} aria-label={d.day}>
           <h3 className="small muted">{d.day}</h3>

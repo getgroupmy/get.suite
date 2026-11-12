@@ -11746,3 +11746,21 @@ test('Drive → Activity: what others did lately to files you can open, not your
   await b('PATCH', `/api/files/${inside}`, { trashed: true });
   assert.ok(!(await a('GET', '/api/files/activity/recent')).body.some((x) => x.file.id === inside), 'trashed files drop out');
 });
+
+test('Drive → Activity narrowed to one person or one kind of change', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['rfla', 'Flt Ann'], ['rflb', 'Flt Ben'], ['rflc', 'Flt Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'rfla@acme.com')).id;
+  const bid = (await login(b, 'rflb@acme.com')).id;
+  const cid = (await login(c, 'rflc@acme.com')).id;
+  const folder = (await b('POST', '/api/files/folder', { name: 'Flt room' })).body.id;
+  await b('PUT', `/api/files/${folder}/shares`, { shares: [{ user_id: aid, role: 'editor' }, { user_id: cid, role: 'editor' }] });
+  const d = (await c('POST', '/api/files/new', { kind: 'doc', name: 'Flt doc', parent_id: folder })).body.id;
+  await b('PATCH', `/api/files/${d}`, { name: 'Flt doc 2' });
+  const get = async (qs) => (await a('GET', `/api/files/activity/recent?${qs}`)).body.filter((x) => x.file.name.startsWith('Flt'));
+  assert.deepEqual((await get(`by=${cid}`)).map((x) => `${x.user_name}:${x.action}`), ['Flt Cy:create']);
+  assert.deepEqual((await get('kind=move')).map((x) => `${x.user_name}:${x.action}`), ['Flt Ben:rename']);
+  assert.deepEqual((await get('kind=share')).map((x) => x.action), ['share']);
+  assert.deepEqual((await get(`kind=new&by=${bid}`)).map((x) => x.file.name), ['Flt room']);
+  assert.equal((await a('GET', '/api/files/activity/recent?kind=nope')).status, 400);
+});
