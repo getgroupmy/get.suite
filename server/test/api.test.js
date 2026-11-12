@@ -12451,3 +12451,30 @@ test('contacts: LinkedIn’s Connections.csv imports (notes lines before the hea
   assert.ok(arr.find((x) => x.name === 'Omar Haddad'), 'no address: kept by name');
   assert.deepEqual((await c('POST', '/api/contacts/import', csv, { raw: true, headers: { 'content-type': 'text/csv' } })).body, { added: 0, skipped: 2 });
 });
+
+test('notes: import HTML files (Apple Notes, OneNote, Keep’s .html): title, text, ticked boxes as a checklist; Keep’s .json wins over its .html', async () => {
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'htmlnotes', domain: 'acme.com', name: 'Html Notes', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'htmlnotes@acme.com');
+  const apple = '<!DOCTYPE html><html><head><title>Garden plan</title><style>p{color:red}</style><script>alert(1)</script></head><body><h1>Garden plan</h1><p>Tomatoes &amp; basil&nbsp;by the wall</p><ul><li>Order seeds</li><li>Fix fence</li></ul><img src="x.png"></body></html>';
+  const list = '<html><body><h2>Shopping</h2><div><input type="checkbox" checked> Milk</div><div><input type="checkbox"> Eggs</div></body></html>';
+  const keepHtml = '<html><body><div class="note"><div class="title">From Keep</div><div class="content">html copy</div></div></body></html>';
+  const keepJson = JSON.stringify({ title: 'From Keep', textContent: 'json copy', isTrashed: false, isArchived: false, isPinned: false, color: 'DEFAULT', labels: [] });
+  const r = await a('POST', '/api/notes/import', { files: [
+    { name: 'Garden plan.html', text: apple }, { name: 'shop.htm', text: list },
+    { name: 'From Keep.html', text: keepHtml }, { name: 'From Keep.json', text: keepJson },
+    { name: 'Untitled.html', text: '<html><body><p>Just a line</p></body></html>' },
+  ] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.added, 4);
+  const notes = (await a('GET', '/api/notes')).body;
+  const g = notes.find((n) => n.title === 'Garden plan');
+  assert.equal(g.body, 'Tomatoes & basil by the wall\n• Order seeds\n• Fix fence\n[picture]');
+  assert.ok(!/alert|color/.test(g.body), 'no script or style text');
+  assert.deepEqual(notes.find((n) => n.title === 'Shopping').items.map((i) => [i.text, i.done]), [['Milk', true], ['Eggs', false]]);
+  const keep = notes.filter((n) => n.title === 'From Keep');
+  assert.equal(keep.length, 1);
+  assert.equal(keep[0].body, 'json copy');
+  assert.equal(notes.find((n) => n.title === 'Untitled').body, 'Just a line', 'no title: the file name');
+});

@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
 import { sendTo } from '../hub.js';
-import { notesFromEnex } from '../evernote.js';
+import { notesFromEnex, noteFromHtml } from '../evernote.js';
 import { notify as bell } from '../notifications.js';
 import { insertFile, receiveUpload } from './files.js';
 import fs from 'node:fs';
@@ -389,9 +389,10 @@ export default function noteRoutes() {
   // ones in Keep's trash, are skipped.
   r.post('/import', (req, res) => {
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
-    if (!files.length) throw bad('Choose some .md, .txt or Google Keep .json files');
+    if (!files.length) throw bad('Choose some .md, .txt, .html, Evernote .enex or Google Keep .json files');
     if (files.length > 2000) throw bad('Up to 2,000 files at a time');
     const have = q('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?').get(req.user.id).n;
+    const keepJson = new Set(files.filter((f) => /\.json$/i.test(String(f?.name || ''))).map((f) => String(f.name).replace(/\.json$/i, '').toLowerCase()));
     const all = files.flatMap((f) => {
       // Evernote (.enex): many notes in one file.
       if (/\.enex$/i.test(String(f?.name || ''))) {
@@ -400,7 +401,14 @@ export default function noteRoutes() {
         if (found.error) throw bad(`“${f.name}”: ${found.error}`);
         return found.notes.map((n) => ({ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }));
       }
-      if (String(f?.text ?? '').length > 200000) throw bad(`“${f?.name || 'A file'}” is too big for a note`);
+      if (String(f?.text ?? '').length > 200000 && !/\.html?$/i.test(String(f?.name || ''))) throw bad(`“${f?.name || 'A file'}” is too big for a note`);
+      if (/\.html?$/i.test(String(f?.name || ''))) {
+        // Google Keep's Takeout has an .html beside each .json: when both came, the .json (with colour, labels…) is used.
+        if (keepJson.has(String(f.name).replace(/\.html?$/i, '').toLowerCase())) return [];
+        if (String(f?.text ?? '').length > 2e6) throw bad(`“${f.name}” is too big for a note`);
+        const n = noteFromHtml(f.text, f.name);
+        return [{ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }];
+      }
       if (/\.json$/i.test(String(f?.name || ''))) {
         let k = null; try { k = JSON.parse(f.text); } catch { throw bad(`“${f.name}” isn't a Google Keep note`); }
         const n = keepNote(k);
