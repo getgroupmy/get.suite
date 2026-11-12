@@ -874,6 +874,28 @@ export default function chatRoutes() {
     res.json(rows.map((r) => ({ ...r, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private, dm_key: undefined, dm_name: undefined })));
   });
 
+  // Conversations by name: channels (by name or topic) you can see or browse, archived ones last, and your
+  // direct messages (by the other person's name or username). For the Search everything box.
+  r.get('/conversations/search', (req, res) => {
+    const text = String(req.query.q || '').trim().toLowerCase().replace(/^#/, '');
+    if (text.length < 2) return res.json([]);
+    const me = req.user.id;
+    const rows = q(`SELECT c.id, c.name, c.topic, c.private, c.archived_at, c.dm_key,
+                      (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
+                      (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
+                      (SELECT un.name FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
+                      (SELECT un.username FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_username
+                    FROM channels c
+                    WHERE ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?) OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))`)
+      .all(me, me, req.user.org_id, me);
+    const like = (x) => String(x || '').toLowerCase().includes(text);
+    const hits = rows.filter((c) => (c.dm_key ? like(c.dm_name) || like(c.dm_username) : like(c.name) || like(c.topic)));
+    hits.sort((x, y) => !!x.archived_at - !!y.archived_at || (y.last_at || 0) - (x.last_at || 0));
+    res.json(hits.slice(0, 20).map((c) => (c.dm_key
+      ? { id: c.id, dm: true, name: c.dm_name || 'Notes to self', last_at: c.last_at }
+      : { id: c.id, dm: false, name: c.name, topic: c.topic || null, private: !!c.private, archived: !!c.archived_at, member_count: c.member_count, last_at: c.last_at })));
+  });
+
   // Threads you're in (you started the message or replied), in the conversations you can still see,
   // latest reply first: the message, where it is, how many replies, the last one and how many of them
   // are new to you (from others since you last read that conversation).

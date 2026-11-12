@@ -1,5 +1,5 @@
 // The search box in the top bar. As you type it looks everywhere at once (files, chat, tasks, notes,
-// events, contacts and colleagues) and lists the best few of each; Enter (with nothing picked) searches
+// events, forms, chat conversations by name, contacts and colleagues) and lists the best few of each; Enter (with nothing picked) searches
 // Drive in full, as before.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -23,10 +23,10 @@ export async function searchAll(text) {
   const safe = (p) => p.catch(() => []);
   const mailOn = await mailEnabled();
   const mailIn = (folder) => (mailOn ? safe(get(`/mail/messages?folder=${encodeURIComponent(folder)}&q=${qs}`).then((r) => r.messages.map((m) => ({ ...m, folder })))) : Promise.resolve([]));
-  const [files, chat, tasks, notes, events, contacts, people, inbox, sent, forms] = await Promise.all([
+  const [files, chat, tasks, notes, events, contacts, people, inbox, sent, forms, convs] = await Promise.all([
     safe(get(`/files?view=search&q=${qs}`)), safe(get(`/chat/search?q=${qs}`)), safe(get(`/tasks/search?q=${qs}`)), safe(get(`/notes?q=${qs}`)),
     safe(get(`/events/search?q=${qs}`)), safe(get('/contacts')), safe(get('/users/directory')), mailIn('INBOX'), mailIn('Sent'),
-    safe(get(`/forms/search?q=${qs}`)),
+    safe(get(`/forms/search?q=${qs}`)), safe(get(`/chat/conversations/search?q=${qs}`)),
   ]);
   const mail = [...inbox, ...sent].sort((a, b) => (b.date || 0) - (a.date || 0));
   const has = (...xs) => xs.some((x) => String(x || '').toLowerCase().includes(low));
@@ -36,6 +36,9 @@ export async function searchAll(text) {
     ['Mail', mail.map((m) => ({ key: `m${m.folder}${m.uid}`, icon: 'mail', title: m.subject || '(no subject)',
       sub: `${m.folder === 'Sent' ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || '')}${m.date ? ` · ${when(m.date)}` : ''}`,
       to: `/mail/${encodeURIComponent(m.folder)}/${m.uid}` }))],
+    ['Conversations', convs.map((c) => ({ key: `v${c.id}`, icon: c.dm ? 'person' : 'chat', title: c.dm ? c.name : `${c.private ? '🔒 ' : '#'}${c.name}`,
+      sub: c.dm ? `Direct message${c.last_at ? ` · ${when(c.last_at)}` : ''}` : [c.archived ? 'Archived' : null, c.topic, c.private ? `${c.member_count} member${c.member_count === 1 ? '' : 's'}` : 'Channel'].filter(Boolean).join(' · '),
+      to: `/chat/${c.id}` }))],
     ['Chat', chat.map((m) => ({ key: `c${m.id}`, icon: 'chat', title: m.body, sub: `${m.user_name || ''} · ${m.where} · ${when(m.created_at)}`,
       to: `/chat/${m.channel_id}?msg=${m.parent_id || m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}` }))],
     ['Tasks', tasks.map((t) => ({ key: `t${t.id}`, icon: 'check', title: `${t.done ? '✓ ' : ''}${t.title}`, sub: t.list_name, to: `/tasks/${t.list_id}?task=${t.id}` }))],

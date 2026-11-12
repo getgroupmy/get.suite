@@ -11129,3 +11129,31 @@ test('notes: label colours, each person’s own', async () => {
   assert.equal((await a('PUT', '/api/notes/label-colors', { label: 'Work', color: '#abcdef' })).status, 400);
   assert.equal((await a('PUT', '/api/notes/label-colors', { color: '#1a73e8' })).status, 400);
 });
+
+test('conversation search: channels by name or topic you can see, direct messages by name; archived last', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['convfa', 'Conv Finder'], ['convfb', 'Pelican Person']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'convfa@acme.com')).id;
+  const bid = (await login(b, 'convfb@acme.com')).id;
+  const open = (await a('POST', '/api/chat/channels', { name: 'pelican-launch' })).body.id;
+  const topical = (await a('POST', '/api/chat/channels', { name: 'misc-conv', topic: 'All things Pelican' })).body.id;
+  const old = (await a('POST', '/api/chat/channels', { name: 'pelican-2025' })).body.id;
+  await a('POST', `/api/chat/channels/${old}/messages`, { body: 'newest message, but archived' });
+  await a('PATCH', `/api/chat/channels/${old}`, { archived: true });
+  const priv = (await a('POST', '/api/chat/channels', { name: 'pelican-secret', private: true })).body.id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const found = (await a('GET', '/api/chat/conversations/search?q=%23PELICAN')).body;
+  assert.deepEqual(new Set(found.map((c) => c.id)), new Set([open, topical, old, priv, dm]));
+  assert.equal(found.at(-1).id, old, 'archived last');
+  assert.equal(found.find((c) => c.id === dm).name, 'Pelican Person');
+  assert.equal(found.find((c) => c.id === dm).dm, true);
+  assert.equal(found.find((c) => c.id === priv).private, true);
+  const theirs = (await b('GET', '/api/chat/conversations/search?q=pelican')).body;
+  assert.ok(!theirs.some((c) => c.id === priv), 'not a private channel they are not in');
+  assert.ok(!theirs.some((c) => c.id === dm), 'their own name does not find it');
+  assert.equal((await b('GET', '/api/chat/conversations/search?q=conv finder')).body.find((c) => c.id === dm).name, 'Conv Finder', 'the other person');
+  assert.equal((await b('GET', '/api/chat/conversations/search?q=convfa')).body[0].id, dm, 'by username');
+  assert.deepEqual((await a('GET', '/api/chat/conversations/search?q=p')).body, [], 'two letters at least');
+  assert.ok(!(await owner('GET', '/api/chat/conversations/search?q=pelican')).body.some((c) => c.id === dm), 'not someone else’s direct message');
+  assert.ok(aid);
+});
