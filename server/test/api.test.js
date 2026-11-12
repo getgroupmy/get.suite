@@ -4818,6 +4818,25 @@ test('forms: import questions from another form (new ids, section jumps kept wit
   assert.equal((await b('POST', `/api/forms/${target.id}/import`, { from: src.id })).status, 404, 'only into a form you work on');
 });
 
+test('forms: search finds yours and those you edit by title, description, questions or options', async () => {
+  const a = client(), b = client();
+  for (const local of ['fsa', 'fsb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+  await login(a, 'fsa@acme.com'); await login(b, 'fsb@acme.com');
+  const lunch = (await a('POST', '/api/forms', { title: 'Team lunch', questions: [{ id: 'q1', type: 'choice', title: 'Where shall we eat?', options: ['Pizzeria Roma', 'Sushi bar'] }] })).body;
+  await a('POST', '/api/forms', { title: 'Office survey', questions: [{ id: 'q1', type: 'short', title: 'Desk height' }] });
+  const theirs = (await b('POST', '/api/forms', { title: 'Lunch order (Ben)' })).body;
+  const titles = async (who, qs) => (await who('GET', `/api/forms/search?q=${encodeURIComponent(qs)}`)).body.map((f) => f.title);
+  assert.deepEqual(await titles(a, 'lunch'), ['Team lunch'], 'not someone else\'s');
+  assert.deepEqual(await titles(a, 'roma'), ['Team lunch'], 'an option');
+  assert.deepEqual(await titles(a, 'desk height'), ['Office survey'], 'all the words, in a question');
+  assert.deepEqual(await titles(a, 'x'), [], 'two letters at least');
+  await b('POST', `/api/forms/${theirs.id}/editors`, { email: 'fsa@acme.com' });
+  assert.deepEqual((await titles(a, 'lunch')).sort(), ['Lunch order (Ben)', 'Team lunch'], 'and those you edit');
+  const hit = (await a('GET', '/api/forms/search?q=team')).body[0];
+  assert.equal(hit.id, lunch.id);
+  assert.equal(hit.responses, 0);
+});
+
 test('forms: a theme (colour, tinted page, font, header picture) shown to people filling it in, and kept on a copy', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'fthm', domain: 'acme.com', name: 'Theo Theme', password: 'password123' })).status, 201);

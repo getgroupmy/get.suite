@@ -261,6 +261,10 @@ The box at the bottom right of a spreadsheet, beside the sheet tabs, shows it sm
 
 - **Print or save as PDF** (⋮ menu) prints the sheet, or just the selected cells (chosen for you when several are selected), on A4 or Letter, portrait or landscape, with or without gridlines. Values print as they're shown (formatted numbers, dates and formula results), with bold, colours, fills, alignment, borders, merged cells and column widths. Hidden and filtered-out rows and columns are left out. Choose "Save as PDF" in the print dialog for a PDF.
 
+## Find and replace (Sheets)
+
+**Ctrl+F** (or ⋮ → **Find and replace**) finds text in the sheet: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case*, *Whole cell* and *Search formulas* narrow it down. **Ctrl+H** adds **Replace** and **Replace all**, for those who can edit.
+
 ## Rows, columns and sorting (Sheets)
 
 - **Select** a whole row or column by clicking its number or letter; Shift-click to select several.
@@ -671,7 +675,7 @@ A shared drive belongs to a team (Marketing, Finance, a client project) rather t
 
 ## Search everything
 
-The search box at the top looks everywhere at once as you type (two letters or more): **files** (names and what's inside), **mail** (Inbox and Sent, when email is on), **chat** messages, **tasks**, **notes**, calendar **events**, your **contacts** and **people** in the company, a few of each with how many there are. Click one, or pick it with the arrow keys and Enter, to open it where it lives: a document opens, a chat message is shown in its conversation, a task, note or event opens in its app. Enter with nothing picked (or **Search Drive for …**) runs the full Drive search with its filters, as before. Escape closes the list.
+The search box at the top looks everywhere at once as you type (two letters or more): **files** (names and what's inside), **mail** (Inbox and Sent, when email is on), **chat** messages, **tasks**, **notes**, calendar **events**, **forms** (yours and those you edit, by title, description, questions or options, with how many responses), your **contacts** and **people** in the company, a few of each with how many there are. Click one, or pick it with the arrow keys and Enter, to open it where it lives: a document opens, a chat message is shown in its conversation, a task, note or event opens in its app. Enter with nothing picked (or **Search Drive for …**) runs the full Drive search with its filters, as before. Escape closes the list.
 
 - **Quick actions:** type what you want to do and it's offered first, under **Actions**: *new doc*, *sheet* or *slides* makes one and opens it; *compose* or *email* starts a message; *meeting* or *event* opens a new event; *tasks*, *notes*, *meet*, *settings* (and *admin* for admins) go there.
 - **Recent searches:** clicking into the empty box lists your last eight searches (kept with your account, so they're on every computer); click one to search again, × to forget it, or **Clear** for all. A search is remembered when you open one of its results or press Enter.

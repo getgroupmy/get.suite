@@ -23,9 +23,10 @@ export async function searchAll(text) {
   const safe = (p) => p.catch(() => []);
   const mailOn = await mailEnabled();
   const mailIn = (folder) => (mailOn ? safe(get(`/mail/messages?folder=${encodeURIComponent(folder)}&q=${qs}`).then((r) => r.messages.map((m) => ({ ...m, folder })))) : Promise.resolve([]));
-  const [files, chat, tasks, notes, events, contacts, people, inbox, sent] = await Promise.all([
+  const [files, chat, tasks, notes, events, contacts, people, inbox, sent, forms] = await Promise.all([
     safe(get(`/files?view=search&q=${qs}`)), safe(get(`/chat/search?q=${qs}`)), safe(get(`/tasks/search?q=${qs}`)), safe(get(`/notes?q=${qs}`)),
     safe(get(`/events/search?q=${qs}`)), safe(get('/contacts')), safe(get('/users/directory')), mailIn('INBOX'), mailIn('Sent'),
+    safe(get(`/forms/search?q=${qs}`)),
   ]);
   const mail = [...inbox, ...sent].sort((a, b) => (b.date || 0) - (a.date || 0));
   const has = (...xs) => xs.some((x) => String(x || '').toLowerCase().includes(low));
@@ -40,6 +41,7 @@ export async function searchAll(text) {
     ['Tasks', tasks.map((t) => ({ key: `t${t.id}`, icon: 'check', title: `${t.done ? '✓ ' : ''}${t.title}`, sub: t.list_name, to: `/tasks/${t.list_id}?task=${t.id}` }))],
     ['Notes', notes.map((n) => ({ key: `n${n.id}`, icon: 'note', title: n.title || (n.body || (n.items || []).map((i) => i.text).join(', ')).slice(0, 80), sub: n.labels.join(', '), to: '/notes', state: { openNote: n.id } }))],
     ['Events', events.map((e) => ({ key: `e${e.id}:${e.start}`, icon: 'calendar', title: e.title, sub: `${when(e.start)}${e.location ? ` · ${e.location}` : ''}`, to: '/calendar', state: { openEvent: e } }))],
+    ['Forms', forms.map((f) => ({ key: `o${f.id}`, icon: 'form', title: f.title, sub: [`${f.responses} response${f.responses === 1 ? '' : 's'}`, f.closed ? 'not taking answers' : null, f.owner_name].filter(Boolean).join(' · '), to: `/forms/${f.id}` }))],
     ['Contacts', contacts.filter((c) => has(c.name, c.email, c.company, c.phone)).map((c) => ({ key: `k${c.id}`, icon: 'person', title: c.name || c.email, sub: [c.email, c.company].filter(Boolean).join(' · '), to: `/contacts?q=${encodeURIComponent(c.name || c.email)}` }))],
     ['People', people.filter((p) => has(p.name, p.username)).map((p) => ({ key: `p${p.id}`, icon: 'people', title: p.name, sub: p.username, to: `/contacts?q=${encodeURIComponent(p.name)}` }))],
   ].map(([name, list]) => [name, list.slice(0, PER_GROUP), list.length]).filter(([, list]) => list.length);

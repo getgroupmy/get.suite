@@ -534,6 +534,16 @@ export default function formRoutes() {
       .all(req.user.id, req.user.id).map((f) => summaryRow(f, req.user.id)));
   });
 
+  // Your forms (and those you edit) whose title, description or questions have all the words: for Search everything.
+  r.get('/search', (req, res) => {
+    const words = String(req.query.q || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+    if (!words.length || words.join('').length < 2) return res.json([]);
+    const rows = q(`SELECT f.*, u.name AS owner_name FROM forms f JOIN users u ON u.id = f.owner_id
+                    WHERE f.owner_id = ? OR f.id IN (SELECT form_id FROM form_editors WHERE user_id = ?) ORDER BY f.updated_at DESC`).all(req.user.id, req.user.id);
+    const text = (f) => [f.title, f.description, ...JSON.parse(f.questions || '[]').flatMap((qu) => [qu.title, qu.help, ...(qu.options || [])])].join(' ').toLowerCase();
+    res.json(rows.filter((f) => { const t = text(f); return words.every((w) => t.includes(w)); }).slice(0, 20).map((f) => summaryRow(f, req.user.id)));
+  });
+
   // Forms to start from: the gallery under New form.
   r.get('/templates', (req, res) => res.json(templateList()));
 
