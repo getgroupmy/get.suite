@@ -1271,6 +1271,27 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Rename several at once: { ids, find, replace, match_case, prefix, suffix, base, number, start, preview }. Each is checked on its own
   // (you need to be able to edit it); with preview nothing changes. [{ id, from, to }] or [{ id, from, error }].
   r.post('/rename-many', (req, res) => {
+    // { names: { id: name } } sets each name as given (Undo after renaming several: their names before).
+    if (req.body?.names && typeof req.body.names === 'object') {
+      const entries = Object.entries(req.body.names).slice(0, 500);
+      if (!entries.length) throw bad('Choose what to rename');
+      const out = [];
+      tx(() => {
+        for (const [id, name] of entries) {
+          let f;
+          try { f = loadFile(id, req.user, 'editor'); } catch { out.push({ id, error: 'You can’t rename this one' }); continue; }
+          let n;
+          try { n = cleanName(name); } catch (e) { out.push({ id, from: f.name, error: e.message }); continue; }
+          if (n === f.name) { out.push({ id, from: f.name, to: n, same: true }); continue; }
+          const to = uniqueName(f.parent_id, f.owner_id, n);
+          q('UPDATE files SET name = ?, updated_at = ? WHERE id = ?').run(to, now(), f.id);
+          recordActivity(f.id, req.user.id, 'rename', { from: f.name, to });
+          out.push({ id, from: f.name, to });
+        }
+      });
+      for (const x of out) if (x.to && !x.same) notify(x.id, { type: 'files-changed' });
+      return res.json(out);
+    }
     const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [])];
     if (!ids.length) throw bad('Choose what to rename');
     if (ids.length > 500) throw bad('At most 500 at a time');

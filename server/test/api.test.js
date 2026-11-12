@@ -11391,3 +11391,19 @@ test('rename several: one new name for all, numbered in name order with the same
   assert.deepEqual((await a('POST', '/api/files/rename-many', { ids: ids.slice(0, 2), number: true, start: 7, preview: true })).body.map((x) => x.to), ['Holiday 02 7', 'Holiday 10 8']);
   assert.equal((await a('POST', '/api/files/rename-many', { ids, number: true, start: -1 })).status, 400);
 });
+
+test('rename several, undone: the names before are put back as they were', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['rnmu', 'Ren Undo'], ['rnmv', 'Ren Other']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rnmu@acme.com'); await login(b, 'rnmv@acme.com');
+  const folder = (await a('POST', '/api/files/folder', { name: 'Undo here' })).body.id;
+  const x = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Alpha', parent_id: folder })).body.id;
+  const y = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Beta', parent_id: folder })).body.id;
+  const done = (await a('POST', '/api/files/rename-many', { ids: [x, y], prefix: 'Old ' })).body;
+  const back = Object.fromEntries(done.map((d) => [d.id, d.from]));
+  const r = (await a('POST', '/api/files/rename-many', { names: back })).body;
+  assert.deepEqual(r.map((d) => d.to), ['Alpha', 'Beta']);
+  assert.equal((await a('GET', `/api/files/${x}`)).body.name, 'Alpha');
+  assert.equal((await b('POST', '/api/files/rename-many', { names: { [x]: 'Hijack' } })).body[0].error, 'You can’t rename this one');
+  assert.equal((await a('POST', '/api/files/rename-many', { names: {} })).status, 400);
+});

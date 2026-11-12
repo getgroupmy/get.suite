@@ -602,7 +602,12 @@ export default function Drive() {
           navigate(openPath(f));
         } catch (e) { toast(e.message, 'error'); }
       }} />}
-      {dialog?.type === 'rename-many' && <RenameMany files={dialog.files} onClose={() => setDialog(null)} onDone={(n) => { setDialog(null); setChecked(new Set()); toast(`Renamed ${n}`); load(); }} />}
+      {dialog?.type === 'rename-many' && <RenameMany files={dialog.files} onClose={() => setDialog(null)} onDone={(changed) => {
+        setDialog(null); setChecked(new Set()); load();
+        // Undo puts each name back as it was.
+        const back = Object.fromEntries(changed.map((x) => [x.id, x.from]));
+        toast(`Renamed ${changed.length}`, 'info', { action: { label: 'Undo', onClick: () => post('/files/rename-many', { names: back }).then(() => { toast('Names put back'); load(); }).catch((e) => toast(e.message, 'error')) } });
+      }} />}
       {dialog?.type === 'bulk-label' && <PromptModal title={`Label ${dialog.files.length} item${dialog.files.length === 1 ? '' : 's'}`} label="Label" confirm="Add label"
         message={myLabels.length ? `Yours so far: ${myLabels.map((l) => l.name).join(', ')}. Their other labels stay.` : 'A label of your own, to find them again from the left.'}
         onClose={() => setDialog(null)} onSubmit={async (label) => {
@@ -1510,7 +1515,7 @@ function RenameMany({ files, onClose, onDone }) {
   const changing = (preview || []).filter((x) => x.to && !x.same);
   const go = async () => {
     setBusy(true);
-    try { const out = await post('/files/rename-many', { ids, ...r }); onDone(out.filter((x) => x.to && !x.same).length); }
+    try { const out = await post('/files/rename-many', { ids, ...r }); onDone(out.filter((x) => x.to && !x.same)); }
     catch (e) { toast(e.message, 'error'); setBusy(false); }
   };
   const set = (k) => (e) => setR({ ...r, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
