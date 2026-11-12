@@ -236,6 +236,13 @@ function MorningSummary() {
           </select> <span className="muted">({tz})</span></label>
         )}
         {d.hour !== null && (
+          <label className="check small"><input type="checkbox" checked={!!d.weekdays} onChange={async (e) => {
+            const weekdays = e.target.checked;
+            setD({ ...d, weekdays });
+            try { await put('/users/me/digest/days', { weekdays }); toast(weekdays ? 'Monday to Friday only' : 'Every day'); } catch (err) { setD({ ...d, weekdays: !weekdays }); toast(err.message, 'error'); }
+          }} /> Weekdays only (not on Saturday or Sunday)</label>
+        )}
+        {d.hour !== null && (
           <fieldset className="digest-parts">
             <legend className="small muted">What's in it</legend>
             {DIGEST_PARTS.map(([key, label]) => (

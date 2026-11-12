@@ -1369,6 +1369,19 @@ test('morning summary: sent once a day after the chosen hour, from the person to
   await olivia('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
 });
 
+test('morning summary: weekdays only skips Saturday and Sunday', async () => {
+  const { sendDueDigests } = await import('../src/digest.js');
+  assert.equal((await olivia('PUT', '/api/users/me/digest', { hour: 0, tz: 'UTC' })).status, 200);
+  assert.deepEqual((await olivia('PUT', '/api/users/me/digest/days', { weekdays: true })).body, { weekdays: true });
+  assert.equal((await olivia('GET', '/api/users/me/digest')).body.weekdays, true);
+  const sat = Date.UTC(2031, 0, 4, 9), mon = Date.UTC(2031, 0, 6, 9); // a Saturday and the Monday after
+  assert.equal(await sendDueDigests(sat), 0, 'not on a Saturday');
+  assert.equal(await sendDueDigests(mon), 1, 'on the Monday');
+  await olivia('PUT', '/api/users/me/digest/days', { weekdays: false });
+  assert.equal(await sendDueDigests(Date.UTC(2031, 0, 11, 9)), 1, 'every day again: Saturday too');
+  await olivia('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
+});
+
 test('chat emails: unread direct messages and mentions are emailed after a while; read ones are not', async () => {
   const { sendChatEmails, WAIT_MS } = await import('../src/chatmail.js');
   const { q } = await import('../src/db.js');

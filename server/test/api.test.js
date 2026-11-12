@@ -11831,3 +11831,14 @@ test('morning summary: each person chooses which parts it has', async () => {
   assert.deepEqual((await a('PUT', '/api/users/me/digest/parts', { off: [] })).body.off, []);
   assert.match(digestFor(made.body.id).text, /No events today\./);
 });
+
+test('morning summary: weekdays only (Saturday and Sunday by the local date)', async () => {
+  const { isWeekend } = await import('../src/digest.js');
+  assert.deepEqual(['2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16'].map(isWeekend), [false, true, true, false]);
+  const a = client();
+  await owner('POST', '/api/users', { local: 'dgwk', domain: 'acme.com', name: 'Dgw Ann', password: 'password123' });
+  await login(a, 'dgwk@acme.com');
+  assert.equal((await a('GET', '/api/users/me/digest')).body.weekdays, false);
+  assert.deepEqual((await a('PUT', '/api/users/me/digest/days', { weekdays: true })).body, { weekdays: true });
+  assert.equal((await a('GET', '/api/users/me/digest')).body.weekdays, true);
+});

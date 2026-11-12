@@ -12,7 +12,7 @@ import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
 
-for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT'], ['digest_off', 'TEXT']]) {
+for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT'], ['digest_off', 'TEXT'], ['digest_weekdays', 'INTEGER']]) {
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === col)) q(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
 }
 
@@ -113,6 +113,9 @@ export async function sendDigest(userId, t = Date.now()) {
   return d;
 }
 
+/** Is a local date ("2026-11-14") a Saturday or Sunday? */
+export const isWeekend = (date) => [0, 6].includes(new Date(`${date}T12:00:00Z`).getUTCDay());
+
 let running = false;
 /** Send the summaries that are due: past each person's hour, once per local day. */
 export async function sendDueDigests(t = Date.now()) {
@@ -120,9 +123,10 @@ export async function sendDueDigests(t = Date.now()) {
   running = true;
   let n = 0;
   try {
-    for (const u of q('SELECT id, digest_hour, digest_tz, digest_last FROM users WHERE digest_hour IS NOT NULL AND disabled = 0').all()) {
+    for (const u of q('SELECT id, digest_hour, digest_tz, digest_last, digest_weekdays FROM users WHERE digest_hour IS NOT NULL AND disabled = 0').all()) {
       const { date, hour } = localNow(t, zoneOrUtc(u.digest_tz || 'UTC'));
       if (hour < u.digest_hour || u.digest_last === date) continue;
+      if (u.digest_weekdays && isWeekend(date)) continue; // Monday to Friday only
       q('UPDATE users SET digest_last = ? WHERE id = ?').run(date, u.id); // once a day, even if sending fails
       try { await sendDigest(u.id, t); n++; } catch (e) { console.error('[digest]', e.message); }
     }

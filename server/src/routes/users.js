@@ -421,7 +421,13 @@ export default function userRoutes() {
   // The morning summary email: { hour: 0–23 or null (off), tz }; and one now ({ preview } without email).
   r.get('/me/digest', (req, res) => {
     const u = q('SELECT digest_hour, digest_tz FROM users WHERE id = ?').get(req.user.id);
-    res.json({ hour: u.digest_hour, tz: u.digest_tz, mail: mailEnabled(), off: digestOff(req.user.id) });
+    res.json({ hour: u.digest_hour, tz: u.digest_tz, mail: mailEnabled(), off: digestOff(req.user.id), weekdays: !!q('SELECT digest_weekdays FROM users WHERE id = ?').get(req.user.id).digest_weekdays });
+  });
+  // Monday to Friday only ({ weekdays: true }), or every day.
+  r.put('/me/digest/days', (req, res) => {
+    const weekdays = !!req.body?.weekdays;
+    q('UPDATE users SET digest_weekdays = ? WHERE id = ?').run(weekdays ? 1 : 0, req.user.id);
+    res.json({ weekdays });
   });
   // Which parts to leave out of it: { off: ['chat', 'drive'] } (events, tasks, chat, comments, drive).
   r.put('/me/digest/parts', (req, res) => {
