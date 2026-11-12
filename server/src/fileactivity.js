@@ -51,3 +51,29 @@ export function activityOf(fileId, limit = 100, before = null) {
             WHERE a.file_id = ? AND a.id < ? ORDER BY a.id DESC LIMIT ?`).all(fileId, before ?? Number.MAX_SAFE_INTEGER, limit)
     .map((a) => ({ ...a, details: a.details ? JSON.parse(a.details) : null }));
 }
+
+/**
+ * What others did lately to files someone can open (not in the trash), newest first: [{ id, action, at, details,
+ * user_name, file: { id, name, kind } }]. `can(fileId)` says whether they can open it; `before` pages back.
+ */
+export function recentActivityFor(userId, can, { limit = 100, before = null, days = 30 } = {}) {
+  const out = [];
+  let cursor = before ?? Number.MAX_SAFE_INTEGER;
+  const since = Date.now() - days * 864e5;
+  const seen = new Map(); // fileId → can open
+  for (let round = 0; round < 20 && out.length < limit; round++) {
+    const rows = q(`SELECT a.id, a.action, a.at, a.details, a.file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name
+                    FROM file_activity a JOIN files f ON f.id = a.file_id LEFT JOIN users u ON u.id = a.user_id
+                    WHERE a.id < ? AND a.at >= ? AND COALESCE(a.user_id, '') <> ? AND f.trashed = 0 ORDER BY a.id DESC LIMIT 500`).all(cursor, since, userId);
+    if (!rows.length) break;
+    cursor = rows.at(-1).id;
+    for (const r of rows) {
+      if (!seen.has(r.file_id)) seen.set(r.file_id, !!can(r.file_id));
+      if (!seen.get(r.file_id)) continue;
+      const { file_id: id, file_name: name, file_kind: kind, ...a } = r;
+      out.push({ ...a, details: a.details ? JSON.parse(a.details) : null, file: { id, name, kind } });
+      if (out.length >= limit) break;
+    }
+  }
+  return out;
+}

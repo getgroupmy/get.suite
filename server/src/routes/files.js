@@ -4,7 +4,7 @@ import { filesFor, fileRulesStop } from '../dlp.js';
 import crypto from 'node:crypto';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
 import { MAX_SHARE_DAYS } from '../shareexpiry.js';
-import { recordActivity, activityOf, folderActivityOf } from '../fileactivity.js';
+import { recordActivity, activityOf, folderActivityOf, recentActivityFor } from '../fileactivity.js';
 import { isWatching, setWatching } from '../filewatch.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
@@ -1786,6 +1786,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
     const c = countText(docText(withoutSuggestions(stored))); // pending suggestions aren't in it yet
     res.json({ ...c, minutes: readingMinutes(c.words) });
+  });
+
+  // Drive → Activity: what others did lately (30 days) to files you can open, newest first; ?before=<id> pages back.
+  r.get('/activity/recent', (req, res) => {
+    const before = /^\d+$/.test(String(req.query.before || '')) ? Number(req.query.before) : null;
+    res.json(recentActivityFor(req.user.id, (id) => roleFor(id, req.user.id), { before }));
   });
 
   // What happened to it, newest first (anyone who can open it sees this).

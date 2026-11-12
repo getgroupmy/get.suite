@@ -11718,3 +11718,31 @@ test('activity comes 100 at a time, newest first; ?before= gives the older ones'
   assert.equal((await a('GET', `/api/files/${d}/activity?before=${fileFirst.at(-1).id}`)).body.length, 21);
   assert.equal((await a('GET', `/api/files/${d}/activity?before=nonsense`)).body.length, 100, 'ignored');
 });
+
+test('Drive → Activity: what others did lately to files you can open, not your own doings, not what you can’t open', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['rcta', 'Rec Ann'], ['rctb', 'Rec Ben'], ['rctc', 'Rec Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'rcta@acme.com')).id;
+  await login(b, 'rctb@acme.com');
+  await login(c, 'rctc@acme.com');
+  const shared = (await b('POST', '/api/files/folder', { name: 'Rec shared' })).body.id;
+  await b('PUT', `/api/files/${shared}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  const inside = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Rec inside', parent_id: shared })).body.id;
+  await b('PATCH', `/api/files/${inside}`, { name: 'Rec inside 2' });
+  await c('POST', '/api/files/new', { kind: 'doc', name: 'Rec secret' });
+  const mine = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Rec mine' })).body.id;
+  await a('PATCH', `/api/files/${mine}`, { name: 'Rec mine 2' });
+
+  const feed = (await a('GET', '/api/files/activity/recent')).body;
+  const names = feed.map((x) => `${x.user_name}:${x.action}:${x.file.name}`);
+  assert.equal(names[0], 'Rec Ben:rename:Rec inside 2', 'newest first');
+  assert.ok(names.includes('Rec Ben:create:Rec inside 2'));
+  assert.ok(names.includes('Rec Ben:share:Rec shared'));
+  assert.ok(!names.some((n) => n.includes('Rec secret')), 'not what she can’t open');
+  assert.ok(!names.some((n) => n.startsWith('Rec Ann:')), 'not her own doings');
+  assert.equal(feed[0].file.kind, 'doc');
+  // Paging, and the trash.
+  assert.deepEqual((await a('GET', `/api/files/activity/recent?before=${feed[0].id}`)).body.map((x) => x.id), feed.slice(1).map((x) => x.id));
+  await b('PATCH', `/api/files/${inside}`, { trashed: true });
+  assert.ok(!(await a('GET', '/api/files/activity/recent')).body.some((x) => x.file.id === inside), 'trashed files drop out');
+});

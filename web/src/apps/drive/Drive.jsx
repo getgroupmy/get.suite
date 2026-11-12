@@ -26,7 +26,7 @@ function useDriveRoute() {
   const [params] = useSearchParams();
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
-  if (['drives', 'shared', 'recent', 'starred', 'trash', 'approvals', 'signatures'].includes(parts[0])) return { view: parts[0] };
+  if (['drives', 'shared', 'recent', 'starred', 'trash', 'approvals', 'signatures', 'activity'].includes(parts[0])) return { view: parts[0] };
   if (parts[0] === 'label' && parts[1]) return { view: 'label', label: decodeURIComponent(parts[1]) };
   if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '', filters: Object.fromEntries(FILTERS.map(([k]) => [k, params.get(k) || ''])) };
   return { view: 'mine', folderId: null };
@@ -90,7 +90,7 @@ export function goesIn(at, now = Date.now()) {
   const days = Math.ceil((at - now) / 864e5);
   return days <= 1 ? (days <= 0 ? 'Soon' : 'Tomorrow') : `In ${days} days`;
 }
-const TITLES = { drives: 'Shared drives', shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures' };
+const TITLES = { drives: 'Shared drives', shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures', activity: 'Activity' };
 const DRAG_TYPE = 'application/x-workspace-files';
 
 export default function Drive() {
@@ -135,7 +135,7 @@ export default function Drive() {
   const setLabelColor = async (label, color) => { try { await put('/files/labels/color', { label, color }); loadLabels(); } catch (e) { toast(e.message, 'error'); } };
 
   const load = useCallback(async () => {
-    if (route.view === 'approvals' || route.view === 'signatures') { setFiles([]); return; } // their own lists (Approvals.jsx, Signatures.jsx)
+    if (['approvals', 'signatures', 'activity'].includes(route.view)) { setFiles([]); return; } // their own lists (Approvals.jsx, Signatures.jsx)
     try {
       let url = `/files?view=${route.view}`;
       if (route.folderId) url += `&parent=${route.folderId}`;
@@ -438,6 +438,7 @@ export default function Drive() {
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
         <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" /><span className="grow">Approvals</span>{waitingCount > 0 && <span className="count" aria-label={`${waitingCount} waiting for you`}>{waitingCount}</span>}</NavLink>
         <NavLink to="/drive/signatures" className="subnav-item"><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>✍️</span><span className="grow">Signatures</span>{signCount > 0 && <span className="count" aria-label={`${signCount} waiting for your signature`}>{signCount}</span>}</NavLink>
+        <NavLink to="/drive/activity" className="subnav-item"><Icon name="restore" />Activity</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {myLabels.length > 0 && <div className="subnav-title">Labels</div>}
         {myLabels.map((l) => (
@@ -484,7 +485,7 @@ export default function Drive() {
               <Icon name="people" /> Members
             </button>
           )}
-          {!['approvals', 'signatures'].includes(route.view) && (
+          {!['approvals', 'signatures', 'activity'].includes(route.view) && (
             <div className="drive-layout" role="group" aria-label="Show files as">
               <button type="button" className={look.layout === 'list' ? 'on' : ''} aria-pressed={look.layout === 'list'} onClick={() => changeLook({ layout: 'list' })} title="List"><Icon name="menu" size={18} /><span className="sr-only">List</span></button>
               <button type="button" className={look.layout === 'grid' ? 'on' : ''} aria-pressed={look.layout === 'grid'} onClick={() => changeLook({ layout: 'grid' })} title="Grid"><Icon name="apps" size={18} /><span className="sr-only">Grid</span></button>
@@ -531,7 +532,7 @@ export default function Drive() {
         )}
         {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : folder.role === 'commenter' ? 'view and comment' : 'edit'}</p>}
 
-        {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
+        {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : route.view === 'activity' ? <RecentActivity /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />
@@ -1464,9 +1465,49 @@ function DocLength({ fileId }) {
 const ITEM_LINK = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
 const ITEM = '\u0001'; // stands for the item's name while a line is put together
 
+/** One line of activity, the item's name (when it says which) opening it. */
+function ActivityLine({ a, onOpen }) {
+  const navigate = useNavigate();
+  if (!a.file) return activityText(a);
+  const [before, after] = activityText(a, ITEM).split(ITEM);
+  return <>{before}<button type="button" className="link-btn" title={`Open ${a.file.name}`}
+    onClick={() => { onOpen?.(); navigate(ITEM_LINK[a.file.kind]?.(a.file.id) || `/drive?preview=${a.file.id}`); }}>“{a.file.name}”</button>{after}</>;
+}
+
+/** Drive → Activity: what others did lately to files you can open, by day, newest first; Show older pages back. */
+function RecentActivity() {
+  const [list, setList] = useState(null);
+  const [more, setMore] = useState(false);
+  const load = useCallback(() => get('/files/activity/recent').then((l) => { setList(l); setMore(l.length >= 100); }).catch(() => setList([])), []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => onLive((m) => { if (m.type === 'files-changed' || m.type === 'content-changed' || m.type === 'live-connected') load(); }), [load]);
+  const older = async () => { const l = await get(`/files/activity/recent?before=${list.at(-1).id}`).catch(() => []); setList([...list, ...l]); setMore(l.length >= 100); };
+  if (!list) return <p className="muted">Loading…</p>;
+  if (!list.length) return <p className="muted">Nothing new from others in the last 30 days on files you can open.</p>;
+  const days = [];
+  for (const a of list) {
+    const day = new Date(a.at).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+    if (days.at(-1)?.day !== day) days.push({ day, items: [] });
+    days.at(-1).items.push(a);
+  }
+  return (
+    <div className="stack drive-activity">
+      <p className="muted small" style={{ margin: 0 }}>What others did in the last 30 days to files you can open.</p>
+      {days.map((d) => (
+        <section key={d.day} aria-label={d.day}>
+          <h3 className="small muted">{d.day}</h3>
+          <ul className="file-activity">
+            {d.items.map((a) => <li key={a.id}><span><ActivityLine a={a} /></span> <span className="muted small">{new Date(a.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></li>)}
+          </ul>
+        </section>
+      ))}
+      {more && <button type="button" className="link-btn small" style={{ alignSelf: 'start' }} onClick={older}>Show older</button>}
+    </div>
+  );
+}
+
 /** What happened to a file, or in a folder (to it and what's inside, each item's name opening it), newest first. */
 function Activity({ fileId, onOpen }) {
-  const navigate = useNavigate();
   const [list, setList] = useState(null);
   const [all, setAll] = useState(false);
   const [more, setMore] = useState(false); // a full page came back, so there may be older ones
@@ -1477,18 +1518,12 @@ function Activity({ fileId, onOpen }) {
   };
   if (!list?.length) return null;
   const shown = all ? list : list.slice(0, 5);
-  const line = (a) => {
-    if (!a.file) return activityText(a);
-    const [before, after] = activityText(a, ITEM).split(ITEM);
-    return <>{before}<button type="button" className="link-btn" title={`Open ${a.file.name}`}
-      onClick={() => { onOpen?.(); navigate(ITEM_LINK[a.file.kind]?.(a.file.id) || `/drive?preview=${a.file.id}`); }}>“{a.file.name}”</button>{after}</>;
-  };
   return (
     <div className="stack" style={{ gap: 4 }}>
       <span className="muted small">Activity</span>
       <ul className="file-activity" aria-label="Activity">
         {shown.map((a) => (
-          <li key={a.id}><span>{line(a)}</span> <span className="muted small" title={new Date(a.at).toLocaleString()}>{new Date(a.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span></li>
+          <li key={a.id}><span><ActivityLine a={a} onOpen={onOpen} /></span> <span className="muted small" title={new Date(a.at).toLocaleString()}>{new Date(a.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span></li>
         ))}
       </ul>
       <div className="row" style={{ gap: 12 }}>
