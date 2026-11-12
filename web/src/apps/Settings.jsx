@@ -243,6 +243,13 @@ function MorningSummary() {
           }} /> Weekdays only (not on Saturday or Sunday)</label>
         )}
         {d.hour !== null && (
+          <label className="check small"><input type="checkbox" checked={!!d.skip_empty} onChange={async (e) => {
+            const skip = e.target.checked;
+            setD({ ...d, skip_empty: skip });
+            try { await put('/users/me/digest/days', { skip_empty: skip }); toast(skip ? 'Only on days with something in it' : 'Every time, even with nothing in it'); } catch (err) { setD({ ...d, skip_empty: !skip }); toast(err.message, 'error'); }
+          }} /> Only when there's something in it</label>
+        )}
+        {d.hour !== null && (
           <fieldset className="digest-parts">
             <legend className="small muted">What's in it</legend>
             {DIGEST_PARTS.map(([key, label]) => (

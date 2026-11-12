@@ -11839,7 +11839,7 @@ test('morning summary: weekdays only (Saturday and Sunday by the local date)', a
   await owner('POST', '/api/users', { local: 'dgwk', domain: 'acme.com', name: 'Dgw Ann', password: 'password123' });
   await login(a, 'dgwk@acme.com');
   assert.equal((await a('GET', '/api/users/me/digest')).body.weekdays, false);
-  assert.deepEqual((await a('PUT', '/api/users/me/digest/days', { weekdays: true })).body, { weekdays: true });
+  assert.deepEqual((await a('PUT', '/api/users/me/digest/days', { weekdays: true })).body, { weekdays: true, skip_empty: false });
   assert.equal((await a('GET', '/api/users/me/digest')).body.weekdays, true);
 });
 
@@ -11873,4 +11873,20 @@ test('morning summary: links to open each thing, when the server knows its addre
   assert.doesNotMatch(digestFor(aid, Date.now(), '').text, /https?:\/\//, 'no address, no links');
   // "Send me one now" (here a preview: no email) links to where it was asked from.
   assert.match((await a('POST', '/api/users/me/digest/send', { preview: true })).body.text, /Open Workspace: http:\/\/127\.0\.0\.1:\d+\/home|Open Workspace: http/);
+});
+
+test('morning summary: knows when there is nothing in it', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const a = client();
+  const u = (await owner('POST', '/api/users', { local: 'dgem', domain: 'acme.com', name: 'Dge Ann', password: 'password123' })).body;
+  await login(a, 'dgem@acme.com');
+  await a('PUT', '/api/users/me/digest/parts', { off: ['chat', 'comments', 'drive'] });
+  assert.equal(digestFor(u.id).empty, true);
+  const { lists } = (await a('GET', '/api/tasks/lists')).body;
+  await a('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Due now', due: new Date().toISOString().slice(0, 10) });
+  assert.equal(digestFor(u.id).empty, false, 'a task due');
+  await a('PUT', '/api/users/me/digest/parts', { off: ['tasks', 'chat', 'comments', 'drive'] });
+  assert.equal(digestFor(u.id).empty, true, 'tasks left out');
+  assert.deepEqual((await a('PUT', '/api/users/me/digest/days', { skip_empty: true })).body, { weekdays: false, skip_empty: true });
+  assert.equal((await a('GET', '/api/users/me/digest')).body.skip_empty, true);
 });

@@ -421,13 +421,14 @@ export default function userRoutes() {
   // The morning summary email: { hour: 0–23 or null (off), tz }; and one now ({ preview } without email).
   r.get('/me/digest', (req, res) => {
     const u = q('SELECT digest_hour, digest_tz FROM users WHERE id = ?').get(req.user.id);
-    res.json({ hour: u.digest_hour, tz: u.digest_tz, mail: mailEnabled(), off: digestOff(req.user.id), weekdays: !!q('SELECT digest_weekdays FROM users WHERE id = ?').get(req.user.id).digest_weekdays });
+    res.json({ hour: u.digest_hour, tz: u.digest_tz, mail: mailEnabled(), off: digestOff(req.user.id), ...(({ digest_weekdays: w, digest_skip_empty: e }) => ({ weekdays: !!w, skip_empty: !!e }))(q('SELECT digest_weekdays, digest_skip_empty FROM users WHERE id = ?').get(req.user.id)) });
   });
-  // Monday to Friday only ({ weekdays: true }), or every day.
+  // When it comes: { weekdays: true } Monday to Friday only; { skip_empty: true } only when there's something in it.
   r.put('/me/digest/days', (req, res) => {
-    const weekdays = !!req.body?.weekdays;
-    q('UPDATE users SET digest_weekdays = ? WHERE id = ?').run(weekdays ? 1 : 0, req.user.id);
-    res.json({ weekdays });
+    if ('weekdays' in (req.body || {})) q('UPDATE users SET digest_weekdays = ? WHERE id = ?').run(req.body.weekdays ? 1 : 0, req.user.id);
+    if ('skip_empty' in (req.body || {})) q('UPDATE users SET digest_skip_empty = ? WHERE id = ?').run(req.body.skip_empty ? 1 : 0, req.user.id);
+    const u = q('SELECT digest_weekdays, digest_skip_empty FROM users WHERE id = ?').get(req.user.id);
+    res.json({ weekdays: !!u.digest_weekdays, skip_empty: !!u.digest_skip_empty });
   });
   // Which parts to leave out of it: { off: ['chat', 'drive'] } (events, tasks, chat, comments, drive).
   r.put('/me/digest/parts', (req, res) => {

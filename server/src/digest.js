@@ -12,7 +12,7 @@ import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
 
-for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT'], ['digest_off', 'TEXT'], ['digest_weekdays', 'INTEGER']]) {
+for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT'], ['digest_off', 'TEXT'], ['digest_weekdays', 'INTEGER'], ['digest_skip_empty', 'INTEGER']]) {
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === col)) q(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
 }
 
@@ -88,7 +88,9 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     lines.push('');
   }
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
-  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length };
+  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length,
+    // Nothing in the parts it has: no events, tasks, unread chat, comments or Drive changes.
+    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + comments.length + drive.length) };
 }
 
 const PATH = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
@@ -132,12 +134,13 @@ export async function sendDueDigests(t = Date.now()) {
   running = true;
   let n = 0;
   try {
-    for (const u of q('SELECT id, digest_hour, digest_tz, digest_last, digest_weekdays FROM users WHERE digest_hour IS NOT NULL AND disabled = 0').all()) {
+    for (const u of q('SELECT id, digest_hour, digest_tz, digest_last, digest_weekdays, digest_skip_empty FROM users WHERE digest_hour IS NOT NULL AND disabled = 0').all()) {
       const { date, hour } = localNow(t, zoneOrUtc(u.digest_tz || 'UTC'));
       if (hour < u.digest_hour || u.digest_last === date) continue;
       if (u.digest_weekdays && isWeekend(date)) continue; // Monday to Friday only
       if (offAllDay(u.id, date)) continue; // on holiday: no summary
       q('UPDATE users SET digest_last = ? WHERE id = ?').run(date, u.id); // once a day, even if sending fails
+      if (u.digest_skip_empty && digestFor(u.id, t).empty) continue; // nothing to say today
       try { await sendDigest(u.id, t); n++; } catch (e) { console.error('[digest]', e.message); }
     }
   } finally { running = false; }

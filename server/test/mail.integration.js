@@ -1372,7 +1372,7 @@ test('morning summary: sent once a day after the chosen hour, from the person to
 test('morning summary: weekdays only skips Saturday and Sunday', async () => {
   const { sendDueDigests } = await import('../src/digest.js');
   assert.equal((await olivia('PUT', '/api/users/me/digest', { hour: 0, tz: 'UTC' })).status, 200);
-  assert.deepEqual((await olivia('PUT', '/api/users/me/digest/days', { weekdays: true })).body, { weekdays: true });
+  assert.equal((await olivia('PUT', '/api/users/me/digest/days', { weekdays: true })).body.weekdays, true);
   assert.equal((await olivia('GET', '/api/users/me/digest')).body.weekdays, true);
   const sat = Date.UTC(2031, 0, 4, 9), mon = Date.UTC(2031, 0, 6, 9); // a Saturday and the Monday after
   assert.equal(await sendDueDigests(sat), 0, 'not on a Saturday');
@@ -1386,6 +1386,13 @@ test('morning summary: weekdays only skips Saturday and Sunday', async () => {
   q("INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, status, half, created_at) VALUES ('to-dg-2', ?, '2031-01-15', '2031-01-15', 'UTC', 'vacation', 'approved', 'am', ?)").run(me.id, Date.now());
   assert.equal(await sendDueDigests(Date.UTC(2031, 0, 13, 9)), 0, 'on holiday');
   assert.equal(await sendDueDigests(Date.UTC(2031, 0, 15, 9)), 1, 'a half day: yes');
+  // Only when there's something in it: Olivia's has nothing on a far-off day once chat, comments and Drive are left out.
+  await olivia('PUT', '/api/users/me/digest/parts', { off: ['chat', 'comments', 'drive'] });
+  assert.deepEqual((await olivia('PUT', '/api/users/me/digest/days', { skip_empty: true })).body, { weekdays: false, skip_empty: true });
+  assert.equal(await sendDueDigests(Date.UTC(2031, 0, 16, 9)), 0, 'nothing in it, not sent');
+  await olivia('PUT', '/api/users/me/digest/days', { skip_empty: false });
+  assert.equal(await sendDueDigests(Date.UTC(2031, 0, 17, 9)), 1, 'sent again when asked for every time');
+  await olivia('PUT', '/api/users/me/digest/parts', { off: [] });
   await olivia('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
 });
 
