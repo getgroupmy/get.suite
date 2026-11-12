@@ -393,7 +393,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <button type="button" className="subnav-item" onClick={() => setSharingOpen(true)}><Icon name="share" /><span className="grow">Share my calendar</span></button>
         <button type="button" className="subnav-item" onClick={() => setPrintOpen(true)}><Icon name="print" /><span className="grow">Print or save as PDF</span></button>
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
-        <input ref={importInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
+        <input ref={importInput} type="file" accept=".ics,.csv,text/calendar,text/csv" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
         </>}
         {!acting && <MyCalendars calendars={myCals} me={me} people={people.filter((p) => p.id !== me.id)} onChanged={() => { loadCals(); load(); }} onImport={importIcs}
@@ -1698,7 +1698,7 @@ function MyCalendars({ calendars: all, me, people = [], onChanged, onImport, onT
         </ul>
       </>}
       {sharing && <ShareOneCalendar calendar={calendars.find((c) => c.id === sharing.id) || sharing} people={people} onClose={() => setSharing(null)} onChanged={onChanged} />}
-      <input ref={fileInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import into this calendar"
+      <input ref={fileInput} type="file" accept=".ics,.csv,text/calendar,text/csv" hidden aria-label="Calendar file to import into this calendar"
         onChange={async (e) => { const file = e.target.files[0]; e.target.value = ''; await onImport(file, importFor.current); onChanged(); }} />
       {editing && <CalendarForm calendar={editing} onClose={() => setEditing(null)}
         onSave={(body) => run(async () => { if (editing.id) await patch(`/events/calendars/${editing.id}`, body); else await post('/events/calendars', body); setEditing(null); }, editing.id ? null : `Added “${body.name}”`)} />}

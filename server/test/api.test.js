@@ -12371,3 +12371,31 @@ test('tasks: Asana’s CSV export imports into a list: sections, subtasks as ste
   const { q } = await import('../src/db.js');
   assert.deepEqual(q('SELECT name FROM task_sections WHERE list_id = ? ORDER BY position').all(list).map((x) => x.name), ['Doing', 'Done']);
 });
+
+test('calendar: import a calendar exported as CSV (Outlook / Google layout), in your time zone; twice adds nothing', async () => {
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'calcsvimp', domain: 'acme.com', name: 'Cal Csv', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'calcsvimp@acme.com');
+  const csv = '"Subject","Start Date","Start Time","End Date","End Time","All day event","Reminder on/off","Description","Location"\r\n'
+    + '"Budget review","12/3/2026","9:30:00 AM","12/3/2026","11:00:00 AM","False","False","Q1, Q2 numbers","Room 4"\r\n'
+    + '"Offsite","12/10/2026","","12/11/2026","","True","False","",""\r\n'
+    + '"Late call","2026-12-04","16:00","","","","","",""\r\n'
+    + '"","12/5/2026","","","","","","",""\r\n';
+  const r = await a('POST', '/api/events/import?tz=Europe/Berlin', csv, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { added: 3, skipped: 0, failed: 0 });
+  const { q } = await import('../src/db.js');
+  const evs = Object.fromEntries(q('SELECT e.* FROM events e JOIN users u ON u.id = e.owner_id WHERE u.email = ?').all('calcsvimp@acme.com').map((e) => [e.title, e]));
+  const b = evs['Budget review'];
+  assert.equal(new Date(b.start).toISOString(), '2026-12-03T08:30:00.000Z', '9:30 in Berlin');
+  assert.equal(b.end - b.start, 90 * 60000);
+  assert.equal(b.description, 'Q1, Q2 numbers');
+  assert.equal(b.location, 'Room 4');
+  assert.equal(evs.Offsite.all_day, 1);
+  assert.equal(Math.round((evs.Offsite.end - evs.Offsite.start) / 864e5), 2, 'both days');
+  assert.equal(evs['Late call'].end - evs['Late call'].start, 3600000, 'an hour when no end is given');
+  assert.deepEqual((await a('POST', '/api/events/import?tz=Europe/Berlin', csv, { raw: true, headers: { 'content-type': 'text/csv' } })).body, { added: 0, skipped: 3, failed: 0 });
+  const bad = await a('POST', '/api/events/import', 'Name,Email\r\nAnn,ann@x.com\r\n', { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.equal(bad.status, 400);
+});
