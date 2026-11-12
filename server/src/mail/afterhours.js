@@ -63,6 +63,26 @@ export function fullRecipients(user, emails) {
   return out;
 }
 
+/** Whether someone's vacation reply is on today: { until, subject } or null. */
+function awayToday(userId, now = Date.now()) {
+  const today = new Date(now).toISOString().slice(0, 10);
+  const v = q('SELECT subject, start_date, end_date FROM vacations WHERE user_id = ? AND enabled = 1').get(userId);
+  if (!v || (v.start_date && v.start_date > today) || (v.end_date && v.end_date < today)) return null;
+  return { until: v.end_date || null, subject: String(v.subject || '').slice(0, 120) };
+}
+
+/** The same by id (a Chat direct message): [{ id, name, until, subject }], colleagues only. */
+export function awayOfIds(user, ids, now = Date.now()) {
+  const out = [];
+  for (const id of new Set(ids || [])) {
+    if (!id || id === user.id) continue;
+    const who = q('SELECT id, name FROM users WHERE id = ? AND org_id = ? AND disabled = 0').get(id, user.org_id);
+    const a = who && awayToday(who.id, now);
+    if (a) out.push({ id: who.id, name: who.name, ...a });
+  }
+  return out;
+}
+
 /**
  * Colleagues on a message whose vacation reply is on today (Mail → Vacation reply): [{ email, name, until, subject }],
  * `until` the last day (YYYY-MM-DD) or null when it has no end. Dates as the mail server keeps them (UTC).

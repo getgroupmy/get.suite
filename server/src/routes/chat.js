@@ -20,7 +20,7 @@ import { insertFile } from './files.js';
 import { conversationText, conversationHtml } from '../chatexport.js';
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 import { contactCard, colleagueCard, addContactFrom } from './contacts.js';
-import { afterHoursOfIds } from '../mail/afterhours.js';
+import { afterHoursOfIds, awayOfIds } from '../mail/afterhours.js';
 
 // Where each person has read up to in each conversation (for unread counts), and emoji reactions.
 q(`CREATE TABLE IF NOT EXISTS channel_reads (
@@ -880,6 +880,12 @@ export default function chatRoutes() {
     const c = loadChannel(req.params.id, req.user);
     const other = c.dm_key ? dmOther(c, req.user.id) : null;
     res.json(other ? afterHoursOfIds(req.user, [other]) : []);
+  });
+  // A direct message with a colleague whose vacation reply (Mail) is on today: until when.
+  r.get('/channels/:id/away', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const other = c.dm_key ? dmOther(c, req.user.id) : null;
+    res.json(other ? awayOfIds(req.user, [other]) : []);
   });
 
   // Conversations by name: channels (by name or topic) you can see or browse, archived ones last, and your

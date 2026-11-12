@@ -11265,3 +11265,21 @@ test('tips while writing mail: on to begin with; each person can turn them off',
   assert.equal((await owner('GET', '/api/auth/me')).body.user.mail_tips, true, 'only theirs');
   assert.deepEqual((await u('PUT', '/api/users/me/mail-tips', { on: true })).body, { mail_tips: true });
 });
+
+test('chat away: a direct message with a colleague whose vacation reply is on says until when; not in channels', async () => {
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['awaya', 'Away Ann'], ['awayb', 'Away Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'awaya@acme.com');
+  const bid = (await login(b, 'awayb@acme.com')).id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  assert.deepEqual((await a('GET', `/api/chat/channels/${dm}/away`)).body, []);
+  const end = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+  q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'Hiking', 'x', NULL, ?, 0)`).run(bid, end);
+  assert.deepEqual((await a('GET', `/api/chat/channels/${dm}/away`)).body, [{ id: bid, name: 'Away Ben', until: end, subject: 'Hiking' }]);
+  assert.deepEqual((await b('GET', `/api/chat/channels/${dm}/away`)).body, [], 'Ann is not away');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'away-room' })).body.id;
+  assert.deepEqual((await a('GET', `/api/chat/channels/${ch}/away`)).body, []);
+  q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(bid);
+  assert.deepEqual((await a('GET', `/api/chat/channels/${dm}/away`)).body, []);
+});

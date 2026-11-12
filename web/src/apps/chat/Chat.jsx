@@ -353,10 +353,14 @@ export default function Chat() {
   // A direct message with a colleague whose working day is over (by the hours they've set): say so, and offer
   // to schedule what you write for when it starts. Checked when the conversation opens, and every 5 minutes.
   const [lateDm, setLateDm] = useState(null);
+  const [awayDm, setAwayDm] = useState(null); // their vacation reply (Mail) is on today
   useEffect(() => {
-    setLateDm(null);
+    setLateDm(null); setAwayDm(null);
     if (!channelId || !current?.dm_user_id) return undefined;
-    const check = () => get(`/chat/channels/${channelId}/after-hours`).then((r) => setLateDm(r[0] || null)).catch(() => {});
+    const check = () => {
+      get(`/chat/channels/${channelId}/after-hours`).then((r) => setLateDm(r[0] || null)).catch(() => {});
+      get(`/chat/channels/${channelId}/away`).then((r) => setAwayDm(r[0] || null)).catch(() => {});
+    };
     check();
     const t = setInterval(check, 5 * 60e3);
     return () => clearInterval(t);
@@ -753,6 +757,11 @@ export default function Chat() {
             </ul>
           )}
           {typing.line}
+          {awayDm && !current.archived_at && (
+            <p className="chat-late small" role="status">
+              <span aria-hidden="true">🌴</span> <strong>{awayDm.name}</strong> is away{awayDm.until ? ` until ${new Date(`${awayDm.until}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}{awayDm.subject && <span className="muted"> (“{awayDm.subject}”)</span>}.
+            </p>
+          )}
           {lateDm && !current.archived_at && (
             <p className="chat-late small" role="status">
               <span aria-hidden="true">🌙</span> It's {lateDm.local} for <strong>{lateDm.name}</strong>, outside their working hours.{' '}
