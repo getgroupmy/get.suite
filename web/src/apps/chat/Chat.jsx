@@ -23,6 +23,7 @@ import { noteTyping, typingIn, typingText } from './typing.js';
 import { newFromId, newCount, belowText } from './unread.js';
 import { nextConversation, lastEditable } from './keys.js';
 import { jumpChoices, jumpItems } from './switcher.js';
+import { mergeLatest, sameMessages } from './mergelatest.js';
 
 /**
  * "Kim is typing…": tells the others while you type here (at most every 2.5 seconds; clearing the
@@ -64,6 +65,8 @@ export default function Chat() {
   const { channelId } = useParams();
   const [params] = useSearchParams();
   const jumpTo = params.get('msg'); // a message to show (from search), with its thread if it's a reply
+  const jumpRef = useRef(jumpTo); jumpRef.current = jumpTo; // for live handlers
+  const channelRef = useRef(channelId); channelRef.current = channelId;
   const jumpThread = params.get('thread');
   const [search, setSearch] = useState(null); // { q, results }
   const navigate = useNavigate();
@@ -278,6 +281,14 @@ export default function Chat() {
       loadChannels();
     } else if (m.type === 'channels-changed' || m.type === 'live-connected') {
       loadChannels();
+      // Back online (or just connected): bring in what was sent meanwhile, unless looking at older messages.
+      if (m.type === 'live-connected' && channelId && !jumpRef.current) {
+        const id = channelId;
+        get(`/chat/channels/${id}/messages`).then((latest) => {
+          if (id !== channelRef.current) return;
+          setMessages((list) => { const next = mergeLatest(list, latest); return sameMessages(list, next) ? list : next; });
+        }).catch(() => {});
+      }
     }
   }), [channelId, threadId]);
 
@@ -338,7 +349,7 @@ export default function Chat() {
   const [unreadsOpen, setUnreadsOpen] = useState(false);
   const loadUnreads = useCallback(() => get('/chat/unreads').then(setUnreads).catch(() => {}), []);
   useEffect(() => { if (unreadsOpen) loadUnreads(); }, [unreadsOpen, loadUnreads]);
-  useEffect(() => onLive((m) => { if (unreadsOpen && (m.type === 'message' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow')) loadUnreads(); }), [unreadsOpen, loadUnreads]);
+  useEffect(() => onLive((m) => { if (unreadsOpen && (m.type === 'live-connected' || m.type === 'message' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow')) loadUnreads(); }), [unreadsOpen, loadUnreads]);
   useEffect(() => { if (channelId && picked()) setUnreadsOpen(false); }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps
   const unreadTotal = channels.filter((c) => !c.muted && !c.left).reduce((n, c) => n + (unread[c.id] || 0), 0);
   const setSave = (id, on) => put(`/chat/messages/${id}/saved`, { saved: on }).then(() => { loadSaved(); toast(on ? 'Saved for later (🔖 Saved in the list)' : 'Removed from Saved'); }).catch((e) => toast(e.message, 'error'));
