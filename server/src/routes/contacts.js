@@ -416,7 +416,14 @@ export default function contactRoutes() {
 
   // Download all your contacts, as vCards (phones, Outlook, Apple) or CSV (Gmail, spreadsheets).
   r.get('/export', (req, res) => {
-    const list = q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id);
+    // ?ids=a,b: just those (the ones ticked in the list); otherwise all of yours.
+    const ids = req.query.ids !== undefined ? new Set(String(req.query.ids).split(',').map((x) => x.trim()).filter(Boolean)) : null;
+    if (ids && !ids.size) throw bad('No contacts selected');
+    let list = q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id);
+    if (ids) {
+      list = list.filter((c) => ids.has(c.id));
+      if (list.length < ids.size) throw notFound('Contact not found');
+    }
     const csv = req.query.format === 'csv';
     res.setHeader('Content-Type', csv ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contacts.${csv ? 'csv' : 'vcf'}"`);

@@ -12528,3 +12528,30 @@ test('notes: import a .zip (a downloaded .zip of notes, or Google Keep’s Takeo
   assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'pics.zip', base64: (await empty.generateAsync({ type: 'nodebuffer' })).toString('base64') }] })).status, 400);
   assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'bad.zip', base64: 'aGVsbG8=' }] })).status, 400);
 });
+
+test('contacts: export only the ticked ones (?ids=), as vCard or CSV; someone else’s refused', async () => {
+  const a = client(), b = client();
+  for (const [c, local] of [[a, 'cexpsel'], [b, 'cexpsel2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(c, `${local}@acme.com`);
+  }
+  const ids = [];
+  for (const [name, email] of [['Ada Lovelace', 'ada@example.com'], ['Brian Eno', 'brian@example.com'], ['Cleo Laine', 'cleo@example.com']]) {
+    const r = await a('POST', '/api/contacts', { name, email });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    ids.push(r.body.id);
+  }
+  const vcf = await a('GET', `/api/contacts/export?ids=${ids[0]},${ids[2]}`);
+  assert.equal(vcf.status, 200);
+  assert.equal((vcf.body.match(/BEGIN:VCARD/g) || []).length, 2);
+  assert.match(vcf.body, /Ada Lovelace/);
+  assert.match(vcf.body, /Cleo Laine/);
+  assert.doesNotMatch(vcf.body, /Brian Eno/);
+  const csv = await a('GET', `/api/contacts/export?format=csv&ids=${ids[1]}`);
+  assert.equal(csv.body.trim().split(/\r?\n/).length, 2);
+  assert.match(csv.body, /Brian Eno,brian@example.com/);
+  assert.equal((await a('GET', '/api/contacts/export?ids=')).status, 400);
+  assert.equal((await b('GET', `/api/contacts/export?ids=${ids[0]}`)).status, 404, 'not someone else’s');
+  assert.equal((await a('GET', '/api/contacts/export')).body.match(/BEGIN:VCARD/g).length, 3, 'without ids: all of them');
+});

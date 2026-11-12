@@ -198,6 +198,10 @@ export default function Contacts() {
               </select>
               <button type="button" className="btn small" onClick={() => many({ action: 'star' }, (r) => `${nPeople(r.changed)} starred`)}>★ Star</button>
               <button type="button" className="btn small" onClick={() => many({ action: 'unstar' }, (r) => `${nPeople(r.changed)} unstarred`)}>☆ Unstar</button>
+              <Menu trigger={(p) => <button type="button" className="btn small" {...p}><Icon name="download" size={16} /> Export selected</button>} items={[
+                { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?ids=${[...picked].join(',')}`; } },
+                { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?format=csv&ids=${[...picked].join(',')}`; } },
+              ]} />
               <button type="button" className="btn small danger" onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
               <button type="button" className="link-btn small" onClick={() => setPicked(new Set())}>Clear</button>
             </div></caption>
