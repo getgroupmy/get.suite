@@ -417,8 +417,11 @@ export default function noteRoutes() {
       if (!/\.zip$/i.test(String(f?.name || '')) || typeof f?.base64 !== 'string') { files.push(f); continue; }
       let zip;
       try { zip = await (await import('jszip')).default.loadAsync(Buffer.from(f.base64, 'base64')); } catch { throw bad(`“${f.name}” can’t be opened`); }
-      const inside = Object.values(zip.files).filter((x) => !x.dir && /\.(md|markdown|txt|json|enex|html?)$/i.test(x.name) && !/(^|\/)(__MACOSX|\.)/.test(x.name)
+      let inside = Object.values(zip.files).filter((x) => !x.dir && /\.(md|markdown|txt|json|enex|html?)$/i.test(x.name) && !/(^|\/)(__MACOSX|\.)/.test(x.name)
         && !/(^|\/)archive_browser\.html$/i.test(x.name) && !/(^|\/)Keep\/Labels\.txt$/i.test(x.name)); // Google Takeout's own index and Keep's label list
+      // A whole Download your data .zip: only its Notes/ folder (not its chat, forms, README or the one-file Notes.md).
+      const takeout = /Your Workspace data/.test(await zip.file('README.txt')?.async('string') || '') && inside.some((x) => x.name.startsWith('Notes/'));
+      if (takeout) inside = inside.filter((x) => x.name.startsWith('Notes/'));
       if (!inside.length) throw bad(`There are no notes in “${f.name}”`);
       if (inside.length > 5000) throw bad(`“${f.name}” has more than 5,000 files`);
       // Pictures a Markdown note shows from the same .zip ("![](Trip files/picture-1.jpg)", as Download (.zip) writes) come with it.

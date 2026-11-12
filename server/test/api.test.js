@@ -12723,3 +12723,29 @@ test('takeout: Notes/ has each note as Markdown with its pictures (as Download (
   assert.ok(zip.file('Notes.md'), 'the one-file version is still there');
   assert.match(await zip.file('README.txt').async('string'), /Notes\/ +each note as Markdown with its pictures/);
 });
+
+test('notes: a whole Download your data .zip imports only its notes (with pictures), not its chat, forms or Notes.md', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = client(), b = client();
+  for (const [c, local] of [[a, 'tkin1'], [b, 'tkin2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(c, `${local}@acme.com`);
+  }
+  const trip = (await a('POST', '/api/notes', { title: 'Trip', body: 'Beach day' })).body.id;
+  await a('POST', `/api/notes/${trip}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } });
+  await a('POST', '/api/notes', { title: 'Groceries', items: [{ text: 'Milk', done: false }] });
+  const gone = (await a('POST', '/api/notes', { title: 'Binned', body: 'x' })).body.id;
+  await a('DELETE', `/api/notes/${gone}`);
+  await a('POST', '/api/forms', { title: 'Survey', questions: [{ id: 'q', type: 'short', title: 'Name?' }] });
+  const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const JSZip = (await import('jszip')).default;
+  assert.doesNotMatch(await (await JSZip.loadAsync(zip)).file('Notes.md').async('string'), /Binned/, 'Notes.md leaves out the trash too');
+  const r = await b('POST', '/api/notes/import', { files: [{ name: 'Workspace data.zip', base64: zip.toString('base64') }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.added, 2);
+  const notes = (await b('GET', '/api/notes')).body;
+  assert.deepEqual(notes.map((n) => n.title).sort(), ['Groceries', 'Trip']);
+  assert.equal(notes.find((n) => n.title === 'Trip').pictures.length, 1);
+  assert.deepEqual(notes.find((n) => n.title === 'Groceries').items.map((i) => i.text), ['Milk']);
+});

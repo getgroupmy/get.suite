@@ -109,7 +109,7 @@ export function eventTemplatesJson(userId) {
 
 /** Your notes as one Markdown file. */
 export function notesMarkdown(userId) {
-  const notes = q('SELECT * FROM notes WHERE owner_id = ? ORDER BY archived, pinned DESC, position DESC').all(userId);
+  const notes = q('SELECT * FROM notes WHERE owner_id = ? AND trashed_at IS NULL ORDER BY archived, pinned DESC, position DESC').all(userId);
   return notes.map((n) => {
     const labels = JSON.parse(n.labels || '[]');
     const items = n.items ? JSON.parse(n.items) : null;
