@@ -1387,7 +1387,7 @@ test('morning summary: weekdays only skips Saturday and Sunday', async () => {
   assert.equal(await sendDueDigests(Date.UTC(2031, 0, 13, 9)), 0, 'on holiday');
   assert.equal(await sendDueDigests(Date.UTC(2031, 0, 15, 9)), 1, 'a half day: yes');
   // Only when there's something in it: Olivia's has nothing on a far-off day once chat, comments and Drive are left out.
-  await olivia('PUT', '/api/users/me/digest/parts', { off: ['chat', 'comments', 'drive'] });
+  await olivia('PUT', '/api/users/me/digest/parts', { off: ['dates', 'chat', 'comments', 'drive'] });
   assert.deepEqual((await olivia('PUT', '/api/users/me/digest/days', { skip_empty: true })).body, { weekdays: false, skip_empty: true });
   assert.equal(await sendDueDigests(Date.UTC(2031, 0, 16, 9)), 0, 'nothing in it, not sent');
   await olivia('PUT', '/api/users/me/digest/days', { skip_empty: false });

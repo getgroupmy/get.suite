@@ -11826,7 +11826,7 @@ test('morning summary: each person chooses which parts it has', async () => {
   d = digestFor(made.body.id);
   assert.doesNotMatch(d.text, /events today|Today \(/);
   assert.match(d.text, /No tasks due\./);
-  assert.equal((await a('PUT', '/api/users/me/digest/parts', { off: ['events', 'tasks', 'chat', 'comments', 'drive'] })).status, 400, 'at least one stays');
+  assert.equal((await a('PUT', '/api/users/me/digest/parts', { off: ['events', 'tasks', 'dates', 'chat', 'comments', 'drive'] })).status, 400, 'at least one stays');
   assert.equal((await a('PUT', '/api/users/me/digest/parts', {})).status, 400);
   assert.deepEqual((await a('PUT', '/api/users/me/digest/parts', { off: [] })).body.off, []);
   assert.match(digestFor(made.body.id).text, /No events today\./);
@@ -11880,13 +11880,29 @@ test('morning summary: knows when there is nothing in it', async () => {
   const a = client();
   const u = (await owner('POST', '/api/users', { local: 'dgem', domain: 'acme.com', name: 'Dge Ann', password: 'password123' })).body;
   await login(a, 'dgem@acme.com');
-  await a('PUT', '/api/users/me/digest/parts', { off: ['chat', 'comments', 'drive'] });
+  await a('PUT', '/api/users/me/digest/parts', { off: ['dates', 'chat', 'comments', 'drive'] });
   assert.equal(digestFor(u.id).empty, true);
   const { lists } = (await a('GET', '/api/tasks/lists')).body;
   await a('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Due now', due: new Date().toISOString().slice(0, 10) });
   assert.equal(digestFor(u.id).empty, false, 'a task due');
-  await a('PUT', '/api/users/me/digest/parts', { off: ['tasks', 'chat', 'comments', 'drive'] });
+  await a('PUT', '/api/users/me/digest/parts', { off: ['tasks', 'dates', 'chat', 'comments', 'drive'] });
   assert.equal(digestFor(u.id).empty, true, 'tasks left out');
   assert.deepEqual((await a('PUT', '/api/users/me/digest/days', { skip_empty: true })).body, { weekdays: false, skip_empty: true });
   assert.equal((await a('GET', '/api/users/me/digest')).body.skip_empty, true);
+});
+
+test('morning summary: contacts’ birthdays and dates today', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const a = client();
+  const u = (await owner('POST', '/api/users', { local: 'dgbd', domain: 'acme.com', name: 'Dgb Ann', password: 'password123' })).body;
+  await login(a, 'dgbd@acme.com');
+  const today = new Date().toISOString().slice(5, 10);
+  assert.equal((await a('POST', '/api/contacts', { name: 'Ada Birthday', birthday: `1990-${today}` })).status, 201);
+  await a('POST', '/api/contacts', { name: 'Not Today', birthday: today === '01-01' ? '1990-06-15' : '1990-01-01' });
+  const d = digestFor(u.id, Date.now(), 'https://ws.example.com');
+  assert.equal(d.dates, 1);
+  assert.match(d.text, new RegExp(`Birthdays and dates today:\\n  🎂 Ada Birthday’s birthday \\(${new Date().getUTCFullYear() - 1990}\\)\\n\\s+https://ws\\.example\\.com/contacts\\?q=Ada%20Birthday`));
+  assert.doesNotMatch(d.text, /Not Today/);
+  await a('PUT', '/api/users/me/digest/parts', { off: ['dates'] });
+  assert.doesNotMatch(digestFor(u.id).text, /Birthdays and dates/);
 });

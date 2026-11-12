@@ -11,13 +11,14 @@ import { smtpFor } from './mail/imap.js';
 import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
+import { datesOn } from './contactreminders.js';
 
 for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT'], ['digest_off', 'TEXT'], ['digest_weekdays', 'INTEGER'], ['digest_skip_empty', 'INTEGER']]) {
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === col)) q(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
 }
 
 /** The parts of the summary, which each person can leave out. */
-export const DIGEST_PARTS = ['events', 'tasks', 'chat', 'comments', 'drive'];
+export const DIGEST_PARTS = ['events', 'tasks', 'dates', 'chat', 'comments', 'drive'];
 /** The parts someone left out of their summary. */
 export function digestOff(userId) {
   try { return JSON.parse(q('SELECT digest_off FROM users WHERE id = ?').get(userId)?.digest_off || '[]').filter((p) => DIGEST_PARTS.includes(p)); } catch { return []; }
@@ -69,6 +70,13 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     for (const k of tasks) lines.push(`  ${k.due < date ? `Overdue (${k.due})` : k.due_time ? `Today ${k.due_time}` : 'Today'}  ${k.title}  [${k.list}]`);
     lines.push('');
   }
+  let dates = [];
+  if (!off.has('dates')) { try { dates = datesOn(userId, date); } catch { dates = []; } } // no contacts yet
+  if (dates.length) {
+    lines.push(`Birthdays and dates today:`);
+    for (const x of dates) lines.push(`  ${x.what === 'birthday' ? `🎂 ${x.name}’s birthday${x.years ? ` (${x.years})` : ''}` : `${x.name}: ${x.what}${x.years ? ` (${x.years} years)` : ''}`}${link(`/contacts?q=${encodeURIComponent(x.name)}`)}`);
+    lines.push('');
+  }
   if (unread && !off.has('chat')) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.${link('/chat')}`, '');
   const comments = off.has('comments') ? [] : commentsFor(user);
   if (comments.length) {
@@ -90,7 +98,7 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
   return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length,
     // Nothing in the parts it has: no events, tasks, unread chat, comments or Drive changes.
-    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + comments.length + drive.length) };
+    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + dates.length + comments.length + drive.length), dates: dates.length };
 }
 
 const PATH = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };

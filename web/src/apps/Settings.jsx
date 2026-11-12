@@ -211,7 +211,7 @@ function Appearance() {
 
 /** A second time zone beside the hours in Calendar. */
 /** Whether owners and editors see when you open their files. */
-const DIGEST_PARTS = [['events', "Today's events"], ['tasks', 'Tasks due or overdue'], ['chat', 'Unread chat messages'], ['comments', 'Comments for you'], ['drive', 'What others changed in Drive']];
+const DIGEST_PARTS = [['events', "Today's events"], ['tasks', 'Tasks due or overdue'], ['dates', 'Contacts’ birthdays and dates'], ['chat', 'Unread chat messages'], ['comments', 'Comments for you'], ['drive', 'What others changed in Drive']];
 /** The morning summary email: on at an hour of your choosing, in this browser's time zone, with the parts you tick. */
 function MorningSummary() {
   const toast = useToast();
