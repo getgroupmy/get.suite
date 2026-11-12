@@ -51,6 +51,7 @@ export function tasksFromCsv(text) {
   const rows = parseCsv(text);
   if (!rows.length) return { error: 'The file is empty' };
   const head = rows[0].map((h) => h.trim().toLowerCase());
+  if (head.includes('type') && head.includes('content')) return fromTodoist(rows, head);
   const col = Object.fromEntries(Object.entries(COLUMNS).map(([k, names]) => [k, names.map((n) => head.indexOf(n)).find((i) => i >= 0) ?? -1]));
   if (col.title < 0) return { error: 'The first row must name the columns, with one called Task (or Title or Name)' };
   const get = (r, k) => (col[k] >= 0 ? String(r[col[k]] ?? '').trim() : '');
@@ -73,6 +74,34 @@ export function tasksFromCsv(text) {
     });
   }
   if (!tasks.length) return { error: 'No tasks found: the Task column is empty' };
+  if (tasks.length > MAX_TASK_IMPORT) return { error: `At most ${MAX_TASK_IMPORT} tasks can be brought in at once` };
+  return { tasks, skipped };
+}
+
+/**
+ * Todoist's CSV export (a project's ⋯ → Export as a template, or a backup): TYPE (task, section, note), CONTENT, DESCRIPTION,
+ * PRIORITY (1 highest … 4 none), INDENT (2 and more: a subtask, kept as a step), DATE. Sections become sections, notes
+ * (comments) go into the task's notes, and @labels in a task become tags.
+ */
+function fromTodoist(rows, head) {
+  const at = (n) => head.indexOf(n);
+  const [type, content, desc, prio, indent, date] = ['type', 'content', 'description', 'priority', 'indent', 'date'].map(at);
+  const get = (r, i) => (i >= 0 ? String(r[i] ?? '').trim() : '');
+  const tasks = [];
+  let section = null, last = null, skipped = 0;
+  for (const r of rows.slice(1)) {
+    const kind = get(r, type).toLowerCase(), text = get(r, content);
+    if (kind === 'section') { section = text.slice(0, 100) || null; continue; }
+    if (kind === 'note') { if (last && text) last.notes = `${last.notes ? `${last.notes}\n\n` : ''}${text}`.slice(0, 10000); continue; }
+    if (kind !== 'task' || !text) { if (kind || text) skipped++; continue; }
+    const labels = [...text.matchAll(/(?:^|\s)@([\p{L}\p{N}_-]+)/gu)].map((m) => m[1].toLowerCase()).filter((x) => /^\p{L}[\p{L}\p{N}_-]{0,29}$/u.test(x));
+    const title = text.replace(/(?:^|\s)@[\p{L}\p{N}_-]+/gu, '').trim().slice(0, 500) || text.slice(0, 500);
+    if (Number(get(r, indent)) > 1 && last) { if (last.steps.length < 100) last.steps.push({ title, done: false }); continue; }
+    const p = { 1: 'high', 2: 'medium', 3: 'low' }[get(r, prio)];
+    last = { title, notes: get(r, desc).slice(0, 10000) || null, due: dateOf(get(r, date)), due_time: null, start: null, section, tags: [...new Set(labels)].slice(0, 10), done: false, important: false, steps: [], ...(p && { priority: p }) };
+    tasks.push(last);
+  }
+  if (!tasks.length) return { error: 'No tasks found in that Todoist file' };
   if (tasks.length > MAX_TASK_IMPORT) return { error: `At most ${MAX_TASK_IMPORT} tasks can be brought in at once` };
   return { tasks, skipped };
 }

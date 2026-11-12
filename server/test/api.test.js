@@ -12316,3 +12316,32 @@ test('notes: import from Evernote (.enex): several notes in one file, to-dos as 
   assert.equal(notes.find((n) => n.title === 'Meeting notes').body, 'Budget is & stays tight\n\n• Hire in Q2');
   assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'x.enex', text: '<html>no</html>' }] })).status, 400);
 });
+
+test('tasks: Todoist’s CSV export imports into a list: sections, subtasks as steps, comments in notes, @labels as tags, priority', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tdst', domain: 'acme.com', name: 'Tod Ann', password: 'password123' })).status, 201);
+  await login(a, 'tdst@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'From Todoist' })).body.id;
+  const csv = 'TYPE,CONTENT,DESCRIPTION,PRIORITY,INDENT,AUTHOR,RESPONSIBLE,DATE,DATE_LANG,TIMEZONE\r\n'
+    + 'section,Planning,,,,,,,,\r\n'
+    + 'task,Book venue @events,Call three places,1,1,,,2026-12-01,en,\r\n'
+    + 'task,Get quotes,,4,2,,,,,\r\n'
+    + 'note,Ask about parking,,,,,,,,\r\n'
+    + ',,,,,,,,,\r\n'
+    + 'section,Later,,,,,,,,\r\n'
+    + 'task,Send invites,,4,1,,,every monday,en,\r\n';
+  const r = await a('POST', `/api/tasks/lists/${list}/import`, csv, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.added, 2);
+  const got = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body;
+  const tasks = Array.isArray(got) ? got : got.tasks;
+  const venue = tasks.find((t) => t.title === 'Book venue');
+  assert.equal(venue.notes, 'Call three places\n\nAsk about parking');
+  assert.equal(venue.due, '2026-12-01');
+  assert.deepEqual(venue.tags, ['events']);
+  assert.equal(venue.priority, 'high', 'Todoist p1');
+  assert.deepEqual(venue.steps.map((s) => s.title), ['Get quotes']);
+  assert.equal(tasks.find((t) => t.title === 'Send invites').due, null, 'a repeating date in words isn’t a date');
+  const { q } = await import('../src/db.js');
+  assert.deepEqual(q('SELECT name FROM task_sections WHERE list_id = ? ORDER BY position').all(list).map((x) => x.name), ['Planning', 'Later']);
+});
