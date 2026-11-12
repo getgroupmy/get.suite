@@ -2989,3 +2989,6 @@ select.meet-timer-btn option { color: #202124; }
 
 /* Comments: mentioned people who are away */
 .mention-away { margin: 4px 0 0; }
+
+.digest-parts { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.digest-parts legend { padding: 0; margin-bottom: 4px; }

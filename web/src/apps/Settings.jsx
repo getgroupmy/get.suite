@@ -211,7 +211,8 @@ function Appearance() {
 
 /** A second time zone beside the hours in Calendar. */
 /** Whether owners and editors see when you open their files. */
-/** The morning summary email: on at an hour of your choosing, in this browser's time zone. */
+const DIGEST_PARTS = [['events', "Today's events"], ['tasks', 'Tasks due or overdue'], ['chat', 'Unread chat messages'], ['comments', 'Comments for you'], ['drive', 'What others changed in Drive']];
+/** The morning summary email: on at an hour of your choosing, in this browser's time zone, with the parts you tick. */
 function MorningSummary() {
   const toast = useToast();
   const [d, setD] = useState(null);
@@ -234,7 +235,20 @@ function MorningSummary() {
             {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
           </select> <span className="muted">({tz})</span></label>
         )}
-        <p className="muted small" style={{ margin: 0 }}>Today's events, tasks due or overdue, how many chat messages are waiting, comments for you, and what others changed in Drive since yesterday, from your own mailbox to your inbox.</p>
+        {d.hour !== null && (
+          <fieldset className="digest-parts">
+            <legend className="small muted">What's in it</legend>
+            {DIGEST_PARTS.map(([key, label]) => (
+              <label key={key} className="check small"><input type="checkbox" checked={!d.off?.includes(key)} onChange={async (e) => {
+                const before = d.off || [];
+                const off = e.target.checked ? before.filter((x) => x !== key) : [...before, key];
+                setD({ ...d, off });
+                try { await put('/users/me/digest/parts', { off }); } catch (err) { setD({ ...d, off: before }); toast(err.message, 'error'); }
+              }} /> {label}</label>
+            ))}
+          </fieldset>
+        )}
+        <p className="muted small" style={{ margin: 0 }}>From your own mailbox to your inbox.</p>
       </>}
       <div className="row">
         <button type="button" className="btn small" onClick={async () => { try { const r = await post('/users/me/digest/send', { preview: !d.mail }); setPreview(r.text); if (r.sent) toast('Sent to your inbox'); } catch (e) { toast(e.message, 'error'); } }}>{d.mail ? 'Send me one now' : 'Show what it would say'}</button>

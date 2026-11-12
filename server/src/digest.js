@@ -12,8 +12,20 @@ import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
 
-for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT']]) {
+for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT'], ['digest_off', 'TEXT']]) {
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === col)) q(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
+}
+
+/** The parts of the summary, which each person can leave out. */
+export const DIGEST_PARTS = ['events', 'tasks', 'chat', 'comments', 'drive'];
+/** The parts someone left out of their summary. */
+export function digestOff(userId) {
+  try { return JSON.parse(q('SELECT digest_off FROM users WHERE id = ?').get(userId)?.digest_off || '[]').filter((p) => DIGEST_PARTS.includes(p)); } catch { return []; }
+}
+export function setDigestOff(userId, off) {
+  const list = [...new Set((Array.isArray(off) ? off : []).map(String))].filter((p) => DIGEST_PARTS.includes(p));
+  q('UPDATE users SET digest_off = ? WHERE id = ?').run(list.length ? JSON.stringify(list) : null, userId);
+  return list;
 }
 
 /** The local date ("2026-11-09") and hour at time t in a time zone. */
@@ -43,15 +55,20 @@ export function digestFor(userId, t = Date.now()) {
                       AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)`).get(userId, user.org_id, userId, userId).n;
   const time = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
   const dayName = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(from + 12 * 36e5));
+  const off = new Set(digestOff(userId));
   const lines = [`Good morning, ${user.name.split(' ')[0]}. Here's ${dayName}.`, ''];
-  lines.push(events.length ? `Today (${events.length} event${events.length === 1 ? '' : 's'}):` : 'No events today.');
-  for (const e of events) lines.push(`  ${e.all_day ? 'All day' : `${time(e.start)}–${time(e.end)}`}  ${e.title}${e.location ? ` (${e.location})` : ''}${e.my_status === 'needs' ? ' — not answered yet' : ''}`);
-  lines.push('');
-  lines.push(tasks.length ? `Tasks due (${tasks.length}):` : 'No tasks due.');
-  for (const k of tasks) lines.push(`  ${k.due < date ? `Overdue (${k.due})` : k.due_time ? `Today ${k.due_time}` : 'Today'}  ${k.title}  [${k.list}]`);
-  lines.push('');
-  if (unread) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.`, '');
-  const comments = commentsFor(user);
+  if (!off.has('events')) {
+    lines.push(events.length ? `Today (${events.length} event${events.length === 1 ? '' : 's'}):` : 'No events today.');
+    for (const e of events) lines.push(`  ${e.all_day ? 'All day' : `${time(e.start)}–${time(e.end)}`}  ${e.title}${e.location ? ` (${e.location})` : ''}${e.my_status === 'needs' ? ' — not answered yet' : ''}`);
+    lines.push('');
+  }
+  if (!off.has('tasks')) {
+    lines.push(tasks.length ? `Tasks due (${tasks.length}):` : 'No tasks due.');
+    for (const k of tasks) lines.push(`  ${k.due < date ? `Overdue (${k.due})` : k.due_time ? `Today ${k.due_time}` : 'Today'}  ${k.title}  [${k.list}]`);
+    lines.push('');
+  }
+  if (unread && !off.has('chat')) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.`, '');
+  const comments = off.has('comments') ? [] : commentsFor(user);
   if (comments.length) {
     lines.push(`Comments for you (${comments.length}):`);
     for (const c of comments.slice(0, 6)) {
@@ -61,7 +78,7 @@ export function digestFor(userId, t = Date.now()) {
     if (comments.length > 6) lines.push(`  and ${comments.length - 6} more (Home → Comments for you)`);
     lines.push('');
   }
-  const drive = driveChanges(userId, t);
+  const drive = off.has('drive') ? [] : driveChanges(userId, t);
   if (drive.length) {
     lines.push(`Changed in Drive since yesterday (${drive.length} file${drive.length === 1 ? '' : 's'}):`);
     for (const f of drive.slice(0, 8)) lines.push(`  “${f.name}”: ${f.what}`);

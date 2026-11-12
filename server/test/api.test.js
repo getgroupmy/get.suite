@@ -11810,3 +11810,24 @@ test('morning summary: open comments that @mention you or are assigned to you', 
   assert.equal(d.comments, 1, 'resolved ones go');
   assert.doesNotMatch(digestFor((await b('GET', '/api/auth/me')).body.user.id).text, /Comments for you/, 'Ben: none');
 });
+
+test('morning summary: each person chooses which parts it has', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'dgpa', domain: 'acme.com', name: 'Dgp Ann', password: 'password123' });
+  await login(a, 'dgpa@acme.com');
+  assert.deepEqual((await a('GET', '/api/users/me/digest')).body.off, []);
+  let d = digestFor(made.body.id);
+  assert.match(d.text, /No events today\./);
+  assert.match(d.text, /No tasks due\./);
+  const r = await a('PUT', '/api/users/me/digest/parts', { off: ['events', 'drive', 'events', 'nonsense'] });
+  assert.deepEqual(r.body.off, ['events', 'drive'], 'known parts, once each');
+  assert.deepEqual((await a('GET', '/api/users/me/digest')).body.off, ['events', 'drive']);
+  d = digestFor(made.body.id);
+  assert.doesNotMatch(d.text, /events today|Today \(/);
+  assert.match(d.text, /No tasks due\./);
+  assert.equal((await a('PUT', '/api/users/me/digest/parts', { off: ['events', 'tasks', 'chat', 'comments', 'drive'] })).status, 400, 'at least one stays');
+  assert.equal((await a('PUT', '/api/users/me/digest/parts', {})).status, 400);
+  assert.deepEqual((await a('PUT', '/api/users/me/digest/parts', { off: [] })).body.off, []);
+  assert.match(digestFor(made.body.id).text, /No events today\./);
+});

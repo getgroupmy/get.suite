@@ -3,7 +3,7 @@ import { checkFull } from '../mail/storage.js';
 import { activePerDay } from '../activedays.js';
 import { syncCompanyGroupAliases } from '../groups.js';
 import { mailEnabled } from '../mail/config.js';
-import { digestFor, sendDigest } from '../digest.js';
+import { digestFor, sendDigest, digestOff, setDigestOff, DIGEST_PARTS } from '../digest.js';
 import { zoneOrUtc } from '../ics.js';
 import { disable as disableTwoFactor } from '../twofactor.js';
 import { audit } from '../audit.js';
@@ -421,7 +421,13 @@ export default function userRoutes() {
   // The morning summary email: { hour: 0–23 or null (off), tz }; and one now ({ preview } without email).
   r.get('/me/digest', (req, res) => {
     const u = q('SELECT digest_hour, digest_tz FROM users WHERE id = ?').get(req.user.id);
-    res.json({ hour: u.digest_hour, tz: u.digest_tz, mail: mailEnabled() });
+    res.json({ hour: u.digest_hour, tz: u.digest_tz, mail: mailEnabled(), off: digestOff(req.user.id) });
+  });
+  // Which parts to leave out of it: { off: ['chat', 'drive'] } (events, tasks, chat, comments, drive).
+  r.put('/me/digest/parts', (req, res) => {
+    if (!Array.isArray(req.body?.off)) throw bad('Say which parts to leave out');
+    if (req.body.off.length >= DIGEST_PARTS.length && DIGEST_PARTS.every((p) => req.body.off.includes(p))) throw bad('Keep at least one part in the summary');
+    res.json({ off: setDigestOff(req.user.id, req.body.off) });
   });
   r.put('/me/digest', (req, res) => {
     const hour = req.body?.hour === null || req.body?.hour === undefined || req.body?.hour === '' ? null : Number(req.body.hour);
