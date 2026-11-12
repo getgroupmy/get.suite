@@ -366,6 +366,22 @@ async function specialFolder(client, use) {
   return boxes.find((b) => b.specialUse === use)?.path || null;
 }
 
+/** A saved email's bytes ready to put in a folder: { source, messageId, date, flags }, or null if it isn't one. */
+function emlOf(buf) {
+  const top = buf.subarray(0, 64 * 1024).toString('latin1');
+  const head = top.split(/\r?\n\r?\n/)[0];
+  const lines = head.split(/\r?\n/).filter((l) => !/^[ \t]/.test(l));
+  if (!buf.length || !/\r?\n\r?\n/.test(top) || !lines.every((l) => /^[!-9;-~]+:/.test(l) || /^From /.test(l)) || !/^(from|subject|date|message-id):/im.test(head)) return null;
+  const dateHead = /^Date:[ \t]*(.+)$/im.exec(head)?.[1];
+  const status = /^Status:[ \t]*(.*)$/im.exec(head)?.[1];
+  return {
+    source: Buffer.from(buf.toString('latin1').replace(/^From [^\r\n]*\r?\n/, '').replace(/\r?\n/g, '\r\n'), 'latin1'),
+    messageId: /^Message-ID:[ \t]*(<[^>\r\n]+>)/im.exec(head)?.[1] || null,
+    date: dateHead && !Number.isNaN(Date.parse(dateHead)) ? new Date(Date.parse(dateHead)) : undefined,
+    flags: status !== undefined && !status.includes('R') ? [] : ['\\Seen'],
+  };
+}
+
 function uidList(v) {
   const arr = (Array.isArray(v) ? v : [v]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
   if (!arr.length) throw bad('No messages selected');
@@ -1515,25 +1531,44 @@ export default function webmailRoutes() {
 
   // A saved email (.eml, from another mail program or a download here) put into a folder as it is: its own date,
   // read unless it says otherwise. One already in the folder (the same Message-ID) is skipped.
-  r.post('/messages/upload', express.raw({ type: () => true, limit: '30mb' }), async (req, res) => {
+  r.post('/messages/upload', express.raw({ type: () => true, limit: '200mb' }), async (req, res) => {
     const folder = str(req.query.folder || 'INBOX', { name: 'folder' });
     const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ''));
-    const head = buf.subarray(0, 64 * 1024).toString('latin1').split(/\r?\n\r?\n/)[0];
-    const lines = head.split(/\r?\n/).filter((l) => !/^[ \t]/.test(l));
-    if (!buf.length || !/\r?\n\r?\n/.test(buf.subarray(0, 64 * 1024).toString('latin1')) || !lines.every((l) => /^[!-9;-~]+:/.test(l) || /^From /.test(l))
-      || !/^(from|subject|date|message-id):/im.test(head)) throw bad('That isn’t an email file (.eml)');
-    const source = Buffer.from(buf.toString('latin1').replace(/^From [^\r\n]*\r?\n/, '').replace(/\r?\n/g, '\r\n'), 'latin1');
-    const messageId = /^Message-ID:[ \t]*(<[^>\r\n]+>)/im.exec(head)?.[1] || null;
-    const dateHead = /^Date:[ \t]*(.+)$/im.exec(head)?.[1];
-    const date = dateHead && !Number.isNaN(Date.parse(dateHead)) ? new Date(Date.parse(dateHead)) : undefined;
-    const added = await withFolder(req.user, folder, async (c) => {
-      if (messageId && (await c.search({ header: { 'message-id': messageId } }, { uid: true })).length) return false;
-      const status = /^Status:[ \t]*(.*)$/im.exec(head)?.[1];
-      const flags = status !== undefined && !status.includes('R') ? [] : ['\\Seen'];
-      await c.append(folder, source, flags, date);
-      return true;
-    });
-    res.status(added ? 201 : 200).json({ added: added ? 1 : 0, skipped: added ? 0 : 1 });
+    // A .zip of .eml files (as **Download (.zip)** makes): every email in it, others left out.
+    let emails;
+    if (buf.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))) {
+      let zip;
+      try { zip = await (await import('jszip')).default.loadAsync(buf); } catch { throw bad('That .zip can’t be opened'); }
+      const entries = Object.values(zip.files).filter((f) => !f.dir && /\.eml$/i.test(f.name) && !/(^|\/)(__MACOSX|\.)/.test(f.name));
+      if (!entries.length) throw bad('There are no emails (.eml files) in that .zip');
+      if (entries.length > 2000) throw bad('Up to 2,000 emails at a time');
+      emails = [];
+      let total = 0;
+      for (const f of entries) {
+        const b = await f.async('nodebuffer');
+        total += b.length;
+        if (total > 500 * 1024 * 1024) throw bad('The emails in that .zip come to more than 500 MB: upload it in parts');
+        emails.push({ name: f.name.split('/').pop(), eml: emlOf(b) });
+      }
+    } else {
+      if (buf.length > 30 * 1024 * 1024) throw bad('An email can be up to 30 MB');
+      const eml = emlOf(buf);
+      if (!eml) throw bad('That isn’t an email file (.eml)');
+      emails = [{ eml }];
+    }
+    let added = 0, skipped = 0;
+    const failed = [];
+    // In batches, so a big .zip doesn't run into the time limit of one mail-server operation.
+    for (let i = 0; i < emails.length; i += 50) {
+      await withFolder(req.user, folder, async (c) => {
+        for (const { name, eml } of emails.slice(i, i + 50)) {
+          if (!eml) { failed.push(name); continue; }
+          if (eml.messageId && (await c.search({ header: { 'message-id': eml.messageId } }, { uid: true })).length) { skipped++; continue; }
+          try { await c.append(folder, eml.source, eml.flags, eml.date); added++; } catch { failed.push(name); }
+        }
+      });
+    }
+    res.status(added ? 201 : 200).json({ added, skipped, ...(failed.length && { failed }) });
   });
 
   // Snooze until a time: into the Snoozed folder (made if needed), back to the Inbox when due.

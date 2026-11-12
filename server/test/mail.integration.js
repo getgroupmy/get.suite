@@ -2588,3 +2588,26 @@ test('download several messages as one .zip of .eml files, dated and named by su
   // Back in: the same messages are skipped.
   assert.deepEqual((await olivia('POST', '/api/mail/messages/upload?folder=Zipped', text, { raw: true, headers: { 'content-type': 'message/rfc822' } })).body, { added: 0, skipped: 1 });
 });
+
+test('upload a .zip of .eml files (as Download (.zip) makes): each one in; repeats skipped; other files and broken emails listed', async () => {
+  const JSZip = (await import('jszip')).default;
+  const tag = `ZipUp ${Date.now()}`;
+  const eml = (n) => `From: A <a@example.org>\r\nTo: olivia@acme.com\r\nSubject: ${tag} ${n}\r\nDate: Tue, 03 Mar 2015 10:00:00 +0000\r\nMessage-ID: <${tag.replace(/\s/g, '')}-${n}@example.org>\r\n\r\nBody ${n}\r\n`;
+  const zip = new JSZip();
+  zip.file('2015-03-03 one.eml', eml('one'));
+  zip.file('sub/2015-03-03 two.eml', eml('two'));
+  zip.file('broken.eml', 'not an email at all');
+  zip.file('readme.txt', 'hello');
+  zip.file('__MACOSX/._one.eml', 'junk');
+  const buf = await zip.generateAsync({ type: 'nodebuffer' });
+  await olivia('POST', '/api/mail/folders', { name: 'From zip' });
+  const up = () => olivia('POST', '/api/mail/messages/upload?folder=From%20zip', buf, { raw: true, headers: { 'content-type': 'application/zip' } });
+  const r = await up();
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { added: 2, skipped: 0, failed: ['broken.eml'] });
+  assert.deepEqual((await up()).body, { added: 0, skipped: 2, failed: ['broken.eml'] });
+  const subjects = (await olivia('GET', '/api/mail/messages?folder=From%20zip')).body.messages.map((m) => m.subject).sort();
+  assert.deepEqual(subjects, [`${tag} one`, `${tag} two`]);
+  const none = new JSZip(); none.file('a.txt', 'x');
+  assert.equal((await olivia('POST', '/api/mail/messages/upload?folder=From%20zip', await none.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
+});

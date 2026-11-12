@@ -122,7 +122,12 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     let added = 0, skipped = 0;
     const bad = [];
     for (const f of files) {
-      try { const r = await postBlob(`/mail/messages/upload?folder=${encodeURIComponent(target)}`, f, 'message/rfc822'); added += r.added; skipped += r.skipped; }
+      try {
+        const zip = /\.zip$/i.test(f.name);
+        const r = await postBlob(`/mail/messages/upload?folder=${encodeURIComponent(target)}`, f, zip ? 'application/zip' : 'message/rfc822');
+        added += r.added; skipped += r.skipped;
+        if (r.failed?.length) bad.push(`${zip ? `${f.name}: ` : ''}${r.failed.length === 1 ? `${r.failed[0]} isn’t an email` : `${r.failed.length} files aren’t emails (${r.failed.slice(0, 3).join(', ')}${r.failed.length > 3 ? '…' : ''})`}`);
+      }
       catch (e) { bad.push(`${f.name}: ${e.message}`); }
     }
     const name = folders.find((x) => x.path === target)?.name || target;
@@ -333,9 +338,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
       setDropAt(null);
       if (emlTarget && e.dataTransfer.files?.length) {
         e.preventDefault();
-        const all = [...e.dataTransfer.files], eml = all.filter((f) => /\.eml$/i.test(f.name));
+        const all = [...e.dataTransfer.files], eml = all.filter((f) => /\.(eml|zip)$/i.test(f.name));
         if (eml.length) uploadEml(eml, emlTarget);
-        if (eml.length < all.length) toast('Only emails saved as .eml files can be dropped here', 'error');
+        if (eml.length < all.length) toast('Only emails saved as .eml files (or a .zip of them) can be dropped here', 'error');
         return;
       }
       if (!onDrop) return;
@@ -413,7 +418,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               {(followable || (!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED)) && (
                 <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
                   ...(followable ? [{ label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) }] : []),
-                  ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
+                  ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml or .zip)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                     { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
@@ -427,7 +432,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           <button className="subnav-item" onClick={() => setScheduledOpen(true)}><Icon name="clock" /><span className="grow">Scheduled</span>
             <span className={`count ${scheduled.some((m) => m.status === 'failed') ? 'error' : 'muted'}`}>{scheduled.length}</span></button>
         )}
-        <input ref={emlInput} type="file" accept=".eml,message/rfc822" multiple hidden aria-label="Emails to upload" onChange={(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) uploadEml(fs, emlFolder.current); }} />
+        <input ref={emlInput} type="file" accept=".eml,.zip,message/rfc822,application/zip" multiple hidden aria-label="Emails to upload" onChange={(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) uploadEml(fs, emlFolder.current); }} />
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
         {!shared && searches.length > 0 && <>
           <div className="subnav-title">Searches</div>
