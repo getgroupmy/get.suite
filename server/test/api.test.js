@@ -12066,3 +12066,23 @@ test('download your data: Chat/ has each conversation you are in, as text', asyn
   assert.equal(sum.conversations, chats.length, 'the summary counts them');
   assert.equal(typeof sum.comments, 'number');
 });
+
+test('download your data: Forms/ has each of your forms, its questions and responses', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tkfa', domain: 'acme.com', name: 'Tkf Ann', password: 'password123' })).status, 201);
+  await login(a, 'tkfa@acme.com');
+  const made = (await a('POST', '/api/forms', { title: 'Lunch poll', questions: [{ id: 'q1', type: 'choice', title: 'Food?', options: ['Pizza', 'Sushi'], required: true }, { id: 'q2', type: 'short', title: 'Why' }] })).body;
+  await a('PUT', `/api/forms/${made.id}`, { audience: 'public' });
+  const tok = (await a('GET', `/api/forms/${made.id}`)).body.token;
+  const anon = client();
+  const sent = await anon('POST', `/api/public/forms/${tok}`, { answers: { q1: 'Sushi', q2: '=fresh' } });
+  assert.equal(sent.status, 201, JSON.stringify(sent.body));
+  const zip = await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body);
+  const qs = await zip.file('Forms/Lunch poll - questions.md').async('string');
+  assert.match(qs, /# Lunch poll\n[\s\S]*1\. Food\? \* {2}_\(choice\)_\n {3}- Pizza\n {3}- Sushi\n2\. Why {2}_\(short\)_/);
+  const csv = await zip.file('Forms/Lunch poll - responses.csv').async('string');
+  assert.match(csv, /Food\?/);
+  assert.match(csv, /Sushi,'=fresh/, 'answers defused');
+  assert.equal((await a('GET', '/api/takeout/summary')).body.forms, 1);
+});

@@ -2,6 +2,7 @@
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
 import { conversationFor } from './chat.js';
+import { formsForExport } from './forms.js';
 import { conversationText } from '../chatexport.js';
 import { Router } from 'express';
 import fs from 'node:fs';
@@ -100,6 +101,7 @@ export default function takeoutRoutes() {
       notes: n('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?'),
       comments: q('SELECT COUNT(*) AS n FROM file_comments c JOIN files f ON f.id = c.file_id WHERE c.author_id = ? OR f.owner_id = ?').get(me, me).n,
       conversations: conversationsOf(me).length,
+      forms: n('SELECT COUNT(*) AS n FROM forms WHERE owner_id = ?'),
       // Email (null when this server has none, or the mail server can't be reached just now).
       mail: mailEnabled() ? (await mailboxCounts(who).catch(() => null))?.messages ?? null : null,
     });
@@ -167,6 +169,15 @@ export default function takeoutRoutes() {
     // Chat: each conversation you're in (direct messages, private channels, channels you've joined or written in), as text.
     const seenNames = new Set();
     const reader = q('SELECT * FROM users WHERE id = ?').get(me);
+    // Forms: each of yours, its questions and its responses.
+    const formNames = new Set();
+    for (const f of formsForExport(me)) {
+      let base = safe(f.title), n = 1;
+      while (formNames.has(base.toLowerCase())) base = `${safe(f.title)} (${++n})`;
+      formNames.add(base.toLowerCase());
+      zip.file(`Forms/${base} - questions.md`, f.questions);
+      zip.file(`Forms/${base} - responses.csv`, f.csv);
+    }
     const convs = conversationsOf(me);
     for (const { id } of convs) {
       try {
@@ -184,7 +195,8 @@ export default function takeoutRoutes() {
       'Tasks.csv     your task lists, for a spreadsheet',
       'Notes.md      your notes',
       'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',
-      'Chat/         each conversation you are in, as text', mailNote].join('\r\n'));
+      'Chat/         each conversation you are in, as text',
+      'Forms/        each of your forms: its questions, and its responses for a spreadsheet', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');

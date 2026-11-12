@@ -390,6 +390,19 @@ const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updat
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
   .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), ...(r.email && { email: r.email }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
 
+/** Someone's forms, for Download your data: [{ title, questions (Markdown), csv (the responses) }]. */
+export function formsForExport(userId) {
+  return q('SELECT * FROM forms WHERE owner_id = ? ORDER BY created_at').all(userId).map(parse).map((f) => {
+    const lines = [`# ${f.title}`, ...(f.description ? ['', f.description] : []), ''];
+    f.questions.forEach((qu, i) => {
+      lines.push(`${i + 1}. ${qu.title || '(untitled)'}${qu.required ? ' *' : ''}  _(${qu.type})_`);
+      for (const o of qu.options || []) lines.push(`   - ${typeof o === 'object' ? o.label ?? o.text ?? JSON.stringify(o) : o}`);
+    });
+    const csv = responseTable(f, responsesOf(f.id)).map((row) => row.map(csvCell).join(',')).join('\r\n');
+    return { title: f.title, questions: `${lines.join('\n')}\n`, csv: `\ufeff${csv}\r\n`, responses: q('SELECT COUNT(*) AS n FROM form_responses WHERE form_id = ?').get(f.id).n };
+  });
+}
+
 /** The table of responses: a header row, then one row per response. */
 export function responseTable(form, responses, { withPeople = form.audience === 'org' || responses.some((r) => r.user) } = {}) {
   const quiz = !!form.quiz;
