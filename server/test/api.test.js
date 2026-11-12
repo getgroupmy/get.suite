@@ -11991,3 +11991,23 @@ test('search everything finds comments, on files you can open', async () => {
   await b('PATCH', `/api/files/${doc}`, { trashed: true });
   assert.equal((await a('GET', '/api/comments/search?q=zanzibar')).body.length, 0, 'not in the trash');
 });
+
+test('comment search uses a word index: words and their beginnings, accents ignored; edits and deletes kept in step', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'cfts', domain: 'acme.com', name: 'Cft Ann', password: 'password123' })).status, 201);
+  await login(a, 'cfts@acme.com');
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Cft doc' })).body.id;
+  const c = (await a('POST', `/api/comments/${doc}`, { body: 'Café Brontosaurus menu', anchor: { quote: 'x' } })).body.comment;
+  const ids = async (text) => (await a('GET', `/api/comments/search?q=${encodeURIComponent(text)}`)).body.map((x) => x.id);
+  assert.deepEqual(await ids('cafe'), [c.id], 'accents ignored');
+  assert.deepEqual(await ids('bronto'), [c.id], 'the start of a word');
+  assert.deepEqual(await ids('menu brontosaurus'), [c.id], 'all the words, any order');
+  assert.deepEqual(await ids('saurus'), [], 'not the middle of a word');
+  await a('PATCH', `/api/comments/${doc}/${c.id}`, { body: 'Tea Stegosaurus menu' });
+  assert.deepEqual(await ids('bronto'), [], 'an edit replaces the words');
+  assert.deepEqual(await ids('stego'), [c.id]);
+  await a('DELETE', `/api/comments/${doc}/${c.id}`);
+  assert.deepEqual(await ids('stego'), []);
+  const { q } = await import('../src/db.js');
+  assert.equal(q('SELECT COUNT(*) AS n FROM comment_text WHERE comment_id = ?').get(c.id).n, 0, 'its words go with it');
+});

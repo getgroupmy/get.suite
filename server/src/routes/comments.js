@@ -11,6 +11,7 @@ import { myFirstList } from './tasks.js';
 import { canReach } from '../tenancy.js';
 import { sendTo } from '../hub.js';
 import { sendDirect } from './chat.js';
+import { ftsQuery } from '../search.js';
 
 q(`CREATE TABLE IF NOT EXISTS file_comments (
   id TEXT PRIMARY KEY,
@@ -39,6 +40,9 @@ q(`CREATE TABLE IF NOT EXISTS file_comment_mentions (
 q('CREATE INDEX IF NOT EXISTS file_comment_mentions_user ON file_comment_mentions(username)').run();
 if (!q('PRAGMA table_info(file_comments)').all().some((x) => x.name === 'mentions_indexed')) q('ALTER TABLE file_comments ADD COLUMN mentions_indexed INTEGER NOT NULL DEFAULT 0').run();
 q('CREATE INDEX IF NOT EXISTS file_comments_unindexed ON file_comments(mentions_indexed) WHERE mentions_indexed = 0').run();
+// Their words, for Search everything (full-text, accents ignored), filled in the same lazy way; gone with the comment.
+q("CREATE VIRTUAL TABLE IF NOT EXISTS comment_text USING fts5(comment_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
+q('CREATE TRIGGER IF NOT EXISTS comment_text_gone AFTER DELETE ON file_comments BEGIN DELETE FROM comment_text WHERE comment_id = old.id; END').run();
 
 // Emoji reactions on comments (👍 instead of a "Thanks!" reply): one of each emoji per person.
 q(`CREATE TABLE IF NOT EXISTS file_comment_reactions (
@@ -171,13 +175,15 @@ function mention(user, file, body, commentId, already = new Set()) {
 }
 
 /** Open comment threads for someone across files they can open: assigned to them, or where someone else @mentioned them. Newest first. */
-/** Note who the comments written or changed since the last time @mention. */
+/** Note who the comments written or changed since the last time @mention, and their words for search. */
 export function indexMentions() {
   const rows = q('SELECT id, body FROM file_comments WHERE mentions_indexed = 0 LIMIT 5000').all();
   if (!rows.length) return 0;
   tx(() => {
     for (const r of rows) {
       q('DELETE FROM file_comment_mentions WHERE comment_id = ?').run(r.id);
+      q('DELETE FROM comment_text WHERE comment_id = ?').run(r.id);
+      q('INSERT INTO comment_text (comment_id, body) VALUES (?, ?)').run(r.id, String(r.body));
       for (const name of new Set([...String(r.body).matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))) q('INSERT OR IGNORE INTO file_comment_mentions (comment_id, username) VALUES (?, ?)').run(r.id, name);
       q('UPDATE file_comments SET mentions_indexed = 1 WHERE id = ?').run(r.id);
     }
@@ -217,15 +223,17 @@ export default function commentRoutes() {
   // else @mentioned you. Newest first: [{ thread_id, file: { id, name, kind }, body, author_name, at, assigned, link }].
   r.get('/for-me', (req, res) => res.json(commentsFor(req.user)));
 
-  // Search everything: comments (and replies) whose words have this, on files you can open, newest first, up to 8.
+  // Search everything: comments (and replies) with these words (or words starting so; accents ignored), on files you can open, newest first, up to 8.
   r.get('/search', (req, res) => {
-    const text = String(req.query.q || '').trim().toLowerCase();
-    if (text.length < 2) return res.json([]);
-    const like = `%${text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    const text = String(req.query.q || '').trim();
+    const fts = text.length >= 2 ? ftsQuery(text) : null;
+    if (!fts) return res.json([]);
+    indexMentions();
     const rows = q(`SELECT c.id, c.thread_id, c.file_id, c.body, c.created_at, c.edited_at, u.name AS author_name, root.resolved
                     FROM file_comments c JOIN file_comments root ON root.id = COALESCE(c.thread_id, c.id) JOIN files f ON f.id = c.file_id
                     LEFT JOIN users u ON u.id = c.author_id
-                    WHERE f.trashed = 0 AND lower(c.body) LIKE ? ESCAPE '\\' ORDER BY COALESCE(c.edited_at, c.created_at) DESC LIMIT 300`).all(like);
+                    WHERE f.trashed = 0 AND c.id IN (SELECT comment_id FROM comment_text WHERE comment_text MATCH ? LIMIT 2000)
+                    ORDER BY COALESCE(c.edited_at, c.created_at) DESC LIMIT 300`).all(fts);
     const out = [], can = new Map();
     for (const c of rows) {
       if (!can.has(c.file_id)) can.set(c.file_id, !!roleFor(c.file_id, req.user.id));
