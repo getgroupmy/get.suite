@@ -2,12 +2,15 @@
 // <updated/><tag/>…</note>…</en-export>. Each note as { title, body, items, labels, created_at, updated_at }: a note made of
 // to-dos (<en-todo checked="true"/>) becomes a checklist; otherwise its text, a line per paragraph.
 import { parseDocument, DomUtils } from 'htmlparser2';
+import { createHash } from 'node:crypto';
+
+const PICTURES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 const BLOCK = /^(div|p|br|li|h[1-6]|tr|blockquote|pre|en-note|ul|ol|table)$/;
 const stamp = (v) => { const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(String(v || '').trim()); return m ? Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null; };
 
 /** ENML (Evernote's HTML) as lines of text, to-dos marked "[ ] " / "[x] ". */
-export function enmlLines(enml, { html = false } = {}) {
+export function enmlLines(enml, { html = false, shown = null } = {}) {
   const doc = html ? (typeof enml === 'string' ? parseDocument(enml, { decodeEntities: true }) : enml)
     : parseDocument(String(enml || '').replace(/&nbsp;/g, '&#160;'), { xmlMode: true, decodeEntities: true }); // ENML is XHTML: <en-todo/> closes itself
   let out = '';
@@ -15,7 +18,7 @@ export function enmlLines(enml, { html = false } = {}) {
     if (n.type === 'text') { out += n.data; return; }
     if (n.type !== 'tag') { for (const c of n.children || []) walk(c); return; }
     if (n.name === 'en-todo') { out += n.attribs?.checked === 'true' ? '[x] ' : '[ ] '; return; }
-    if (n.name === 'en-media') { out += '[attachment] '; return; }
+    if (n.name === 'en-media') { if (!shown?.has(String(n.attribs?.hash || '').toLowerCase())) out += '[attachment] '; return; } // a picture brought in as one isn't marked in the text
     if (/^(script|style|head|title|noscript|template)$/.test(n.name)) return;
     if (n.name === 'input' && n.attribs?.type === 'checkbox') { out += n.attribs.checked !== undefined ? '[x] ' : '[ ] '; return; }
     if (n.name === 'img') { out += '[picture] '; return; }
@@ -35,7 +38,14 @@ export function notesFromEnex(xml) {
   const text = (n, tag) => { const el = DomUtils.getElementsByTagName(tag, n.children, false)[0]; return el ? DomUtils.textContent(el) : ''; };
   return {
     notes: notes.map((n) => {
-      const lines = enmlLines(text(n, 'content'));
+      // Its pictures: <resource><data encoding="base64">…</data><mime>image/png</mime></resource>, matched to <en-media hash="md5"/>.
+      const pictures = DomUtils.getElementsByTagName('resource', n.children, false).flatMap((r) => {
+        const mime = text(r, 'mime').trim().toLowerCase().replace('image/jpg', 'image/jpeg');
+        if (!PICTURES.includes(mime)) return [];
+        const data = Buffer.from(text(r, 'data').replace(/\s+/g, ''), 'base64');
+        return data.length && data.length <= 10 * 1024 * 1024 ? [{ mime, data, hash: createHash('md5').update(data).digest('hex') }] : [];
+      }).slice(0, 10);
+      const lines = enmlLines(text(n, 'content'), { shown: new Set(pictures.map((p) => p.hash)) });
       const todos = lines.filter((l) => /^\[( |x)\] /.test(l.trim()));
       const isList = todos.length > 0 && todos.length >= lines.filter((l) => l.trim()).length / 2;
       return {
@@ -44,8 +54,9 @@ export function notesFromEnex(xml) {
         items: isList ? lines.filter((l) => l.trim()).map((l) => { const m = /^\[( |x)\] (.*)$/.exec(l.trim()); return m ? { text: m[2], done: m[1] === 'x' } : { text: l.trim(), done: false }; }) : null,
         labels: DomUtils.getElementsByTagName('tag', n.children, false).map((t) => DomUtils.textContent(t).trim()).filter(Boolean),
         created_at: stamp(text(n, 'created')), updated_at: stamp(text(n, 'updated')),
+        pictures: pictures.map(({ mime, data }) => ({ mime, data })),
       };
-    }).filter((x) => x.title || x.body || (x.items || []).length),
+    }).filter((x) => x.title || x.body || (x.items || []).length || x.pictures.length),
   };
 }
 

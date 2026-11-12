@@ -12651,3 +12651,26 @@ test('notes: Google Keep’s Takeout .zip brings each note’s photos (its “at
   const pic = await a('GET', `/api/notes/${wb.id}/pictures/${wb.pictures[0].id || wb.pictures[0]}`, undefined, { binary: true });
   assert.equal(pic.headers.get('content-type'), 'image/jpeg');
 });
+
+test('notes: Evernote pictures (.enex resources) come in as the note’s pictures; other attachments stay marked', async () => {
+  const crypto = await import('node:crypto');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const pdf = Buffer.from('%PDF-1.4 tiny');
+  const md5 = (b) => crypto.createHash('md5').update(b).digest('hex');
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'enexpics', domain: 'acme.com', name: 'Enex Pics', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'enexpics@acme.com');
+  const enex = `<?xml version="1.0" encoding="UTF-8"?><en-export>
+<note><title>Site visit</title><content><![CDATA[<en-note><div>Roof looks fine</div><en-media type="image/png" hash="${md5(png)}"/><en-media type="application/pdf" hash="${md5(pdf)}"/></en-note>]]></content>
+<resource><data encoding="base64">${png.toString('base64').replace(/(.{20})/g, '$1\n')}</data><mime>image/png</mime></resource>
+<resource><data encoding="base64">${pdf.toString('base64')}</data><mime>application/pdf</mime></resource></note>
+</en-export>`;
+  const r = await a('POST', '/api/notes/import', { files: [{ name: 'Work.enex', text: enex }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const n = (await a('GET', '/api/notes')).body.find((x) => x.title === 'Site visit');
+  assert.equal(n.pictures.length, 1);
+  assert.equal(n.body, 'Roof looks fine\n[attachment]', 'the PDF is still marked; the picture isn’t');
+  const pic = await a('GET', `/api/notes/${n.id}/pictures/${n.pictures[0].id || n.pictures[0]}`, undefined, { binary: true });
+  assert.ok(pic.body.equals(png));
+});
