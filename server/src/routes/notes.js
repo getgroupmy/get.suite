@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
 import { sendTo } from '../hub.js';
+import { notesFromEnex } from '../evernote.js';
 import { notify as bell } from '../notifications.js';
 import { insertFile, receiveUpload } from './files.js';
 import fs from 'node:fs';
@@ -383,7 +384,7 @@ export default function noteRoutes() {
     res.json([...all].sort((a, b) => a.localeCompare(b)));
   });
 
-  // Import notes from Markdown or text files, or from Google Keep (the .json files in Google Takeout's Keep folder,
+  // Import notes from Markdown or text files, from Evernote (.enex, many notes each), or from Google Keep (the .json files in Google Takeout's Keep folder,
   // keeping colour, pin, archive and dates): { files: [{ name, text }] } (up to 2,000, 200 KB each). Empty ones, and
   // ones in Keep's trash, are skipped.
   r.post('/import', (req, res) => {
@@ -391,15 +392,23 @@ export default function noteRoutes() {
     if (!files.length) throw bad('Choose some .md, .txt or Google Keep .json files');
     if (files.length > 2000) throw bad('Up to 2,000 files at a time');
     const have = q('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?').get(req.user.id).n;
-    const notes = files.map((f) => {
+    const all = files.flatMap((f) => {
+      // Evernote (.enex): many notes in one file.
+      if (/\.enex$/i.test(String(f?.name || ''))) {
+        if (String(f?.text ?? '').length > 20e6) throw bad(`“${f.name}” is too big: export fewer notes at a time`);
+        const found = notesFromEnex(f.text);
+        if (found.error) throw bad(`“${f.name}”: ${found.error}`);
+        return found.notes.map((n) => ({ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }));
+      }
       if (String(f?.text ?? '').length > 200000) throw bad(`“${f?.name || 'A file'}” is too big for a note`);
       if (/\.json$/i.test(String(f?.name || ''))) {
         let k = null; try { k = JSON.parse(f.text); } catch { throw bad(`“${f.name}” isn't a Google Keep note`); }
         const n = keepNote(k);
-        return n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) };
+        return [n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }];
       }
-      return String(f?.text ?? '').trim() ? noteFromMarkdown(f.text, f?.name) : null; // a blank file isn't a note
-    }).filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length));
+      return [String(f?.text ?? '').trim() ? noteFromMarkdown(f.text, f?.name) : null]; // a blank file isn't a note
+    });
+    const notes = all.filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length));
     if (have + notes.length > MAX_NOTES) throw bad(`You can have up to ${MAX_NOTES} notes`);
     const t = now();
     let top = topFor(req.user.id);
@@ -412,7 +421,7 @@ export default function noteRoutes() {
       }
     });
     sendTo([req.user.id], { type: 'notes-changed' });
-    res.status(201).json({ added: notes.length, skipped: files.length - notes.length });
+    res.status(201).json({ added: notes.length, skipped: all.length - notes.length }); // empty ones, and ones in Keep's trash
   });
 
   r.post('/', (req, res) => {

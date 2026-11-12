@@ -12294,3 +12294,25 @@ test('tasks: import a Trello board: its lists as sections, cards as tasks with c
   assert.equal(q('SELECT s.name FROM tasks t JOIN task_sections s ON s.id = t.section_id WHERE t.title = ?').get('Pick fonts').name, 'To do');
   assert.equal((await a('POST', '/api/tasks/import/trello', { data: { hello: 1 } })).status, 400);
 });
+
+test('notes: import from Evernote (.enex): several notes in one file, to-dos as checklists, tags, dates', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'enex', domain: 'acme.com', name: 'Ever Ann', password: 'password123' })).status, 201);
+  await login(a, 'enex@acme.com');
+  const enex = `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE en-export SYSTEM "http://xml.evernote.com/pub/evernote-export3.dtd"><en-export>
+<note><title>Packing</title><content><![CDATA[<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE en-note SYSTEM "http://xml.evernote.com/pub/enml2.dtd"><en-note><div><en-todo checked="true"/>Passport</div><div><en-todo/>Charger&nbsp;cable</div></en-note>]]></content><created>20240105T101500Z</created><updated>20240106T080000Z</updated><tag>Travel</tag><tag>Lists</tag></note>
+<note><title>Meeting notes</title><content><![CDATA[<en-note><div>Budget is &amp; stays tight</div><div><br/></div><ul><li>Hire in Q2</li></ul></en-note>]]></content></note>
+<note><title></title><content><![CDATA[<en-note><div></div></en-note>]]></content></note>
+</en-export>`;
+  const r = await a('POST', '/api/notes/import', { files: [{ name: 'My Notes.enex', text: enex }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { added: 2, skipped: 0 }, 'an empty note isn’t one');
+  const notes = (await a('GET', '/api/notes')).body;
+  const p = notes.find((n) => n.title === 'Packing');
+  assert.deepEqual(p.items.map((i) => [i.text, i.done]), [['Passport', true], ['Charger cable', false]]);
+  assert.deepEqual(p.labels, ['Travel', 'Lists']);
+  assert.equal(p.created_at, Date.UTC(2024, 0, 5, 10, 15));
+  assert.equal(p.updated_at, Date.UTC(2024, 0, 6, 8));
+  assert.equal(notes.find((n) => n.title === 'Meeting notes').body, 'Budget is & stays tight\n\n• Hire in Q2');
+  assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'x.enex', text: '<html>no</html>' }] })).status, 400);
+});
