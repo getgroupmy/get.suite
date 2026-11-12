@@ -12114,3 +12114,22 @@ test('download your data: Mail settings/ with filters as Sieve, signatures and t
   assert.equal(await zip.file('Mail settings/templates/Thanks.html').async('string'), '<!doctype html><meta charset="utf-8"><title>Thank you &amp; welcome</title>\n<p>Thanks!</p>\n');
   assert.deepEqual(JSON.parse(await zip.file('Calendar templates.json').async('string')), [{ name: '1:1', title: 'One to one', minutes: 30 }]);
 });
+
+test('event templates: import adds new ones, skips ones already here, numbers clashing names, drops calendars that aren’t yours', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'etia', domain: 'acme.com', name: 'Eti Ann', password: 'password123' })).status, 201);
+  await login(a, 'etia@acme.com');
+  await a('POST', '/api/events/templates', { name: 'Standup', event: { title: 'Standup', minutes: 15 } });
+  const mine = (await a('GET', '/api/events/templates')).body[0];
+  const { id: _id, ...asExported } = mine;
+  const res = await a('POST', '/api/events/templates/import', { templates: [asExported, { name: 'Standup', title: 'Other standup', minutes: 30 }, { name: 'Review', title: 'Review', minutes: 60, calendar_id: 'someone-elses', guests: ['kim@acme.com'] }] });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body, { added: 2, skipped: 1 });
+  const list = (await a('GET', '/api/events/templates')).body;
+  assert.deepEqual(list.map((t) => t.name), ['Review', 'Standup', 'Standup (2)']);
+  const review = list.find((t) => t.name === 'Review');
+  assert.equal(review.calendar_id, null, 'not a calendar of hers');
+  assert.deepEqual(review.guests, ['kim@acme.com']);
+  assert.equal((await a('POST', '/api/events/templates/import', { templates: [] })).status, 400);
+  assert.equal((await a('POST', '/api/events/templates/import', { templates: [{ name: 'Bad', minutes: 1 }] })).status, 400, 'checked like any template');
+});

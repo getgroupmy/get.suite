@@ -99,6 +99,22 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [editing, setEditing] = useState(null);
   // Your own calendars besides the main one; the hidden ones' events stay off the views.
   const [myCals, setMyCals] = useState([]);
+  // Moving event templates between servers: Export gives Calendar templates.json (as Download your data does), Import reads one back.
+  const tplFileRef = useRef(null);
+  const exportTemplates = () => {
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(templates.map(({ id, ...t }) => t), null, 2)}\n`], { type: 'application/json' })); // eslint-disable-line no-unused-vars
+    const a = document.createElement('a'); a.href = url; a.download = 'Calendar templates.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const importTemplates = async (file) => {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const r = await post('/events/templates/import', { templates: Array.isArray(data) ? data : data?.templates });
+      loadTemplates();
+      toast(r.added ? `Added ${r.added} template${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already here)` : ''}` : 'Those templates are all here already');
+    } catch (e) { toast(e instanceof SyntaxError ? 'That isn’t a templates file (Calendar templates.json)' : e.message, 'error'); }
+  };
   // Your event templates, for "From a template" on the left.
   const [templates, setTemplates] = useState([]);
   const loadTemplates = useCallback(() => { if (acting) { setTemplates([]); return; } get('/events/templates').then(setTemplates).catch(() => {}); }, [acting]);
@@ -362,8 +378,13 @@ function Calendar({ acting = null, managed = [], onPick }) {
         {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); loadHolidays(); }} onChanged={() => { load(); refreshTimeOff(); loadHolidays(); }} />}
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
-        {templates.length > 0 && <Menu trigger={(p) => <button type="button" className="subnav-item" {...p}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📋</span><span className="grow">From a template…</span></button>}
-          items={templates.map((t) => ({ label: t.name, onClick: () => fromTemplate(t) }))} />}
+        {!acting && <Menu trigger={(p) => <button type="button" className="subnav-item" {...p}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📋</span><span className="grow">{templates.length ? 'From a template…' : 'Templates…'}</span></button>}
+          items={[
+            ...templates.map((t) => ({ label: t.name, onClick: () => fromTemplate(t) })),
+            ...(templates.length ? ['-', { label: 'Export templates', icon: 'download', onClick: exportTemplates }] : []),
+            { label: 'Import templates…', icon: 'upload', onClick: () => tplFileRef.current?.click() },
+          ]} />}
+        <input ref={tplFileRef} type="file" accept=".json,application/json" hidden aria-label="Import event templates" onChange={(e) => { importTemplates(e.target.files[0]); e.target.value = ''; }} />
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
