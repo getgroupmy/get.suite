@@ -420,6 +420,20 @@ export default function noteRoutes() {
             if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: null, mime, data });
           }
         }
+        if (/\.html?$/i.test(x.name)) {
+          // An HTML note's <img src="…"> pointing at a picture in the same .zip.
+          const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
+          for (const m of text.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
+            const src = m[1];
+            if (/^(data|https?):/i.test(src) || src.includes('..') || pictures.some((p) => p.src === src)) continue;
+            let rel; try { rel = decodeURI(src); } catch { continue; }
+            const entry = zip.file(dir + rel) || zip.file(rel);
+            const mime = MIME[String(rel.split('.').pop()).toLowerCase()];
+            if (!entry || !mime || pictures.length >= MAX_PICTURES) continue;
+            const data = await entry.async('nodebuffer');
+            if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: null, src, mime, data });
+          }
+        }
         if (/\.(md|markdown)$/i.test(x.name)) {
           const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
           for (const m of text.matchAll(/^!\[[^\]]*\]\(<?([^)>\s]+)>?\)\s*$/gm)) {
@@ -450,8 +464,8 @@ export default function noteRoutes() {
       if (/\.html?$/i.test(String(f?.name || ''))) {
         // Google Keep's Takeout has an .html beside each .json: when both came, the .json (with colour, labels…) is used.
         if (keepJson.has(String(f.name).replace(/\.html?$/i, '').toLowerCase())) return [];
-        if (String(f?.text ?? '').length > 2e6) throw bad(`“${f.name}” is too big for a note`);
-        const n = noteFromHtml(f.text, f.name);
+        if (String(f?.text ?? '').length > 20e6) throw bad(`“${f.name}” is too big for a note`);
+        const n = noteFromHtml(f.text, f.name, { files: new Map((f.pictures || []).map((p) => [p.src, p])) });
         return [{ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }];
       }
       if (/\.json$/i.test(String(f?.name || ''))) {

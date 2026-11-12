@@ -12674,3 +12674,31 @@ test('notes: Evernote pictures (.enex resources) come in as the note’s picture
   const pic = await a('GET', `/api/notes/${n.id}/pictures/${n.pictures[0].id || n.pictures[0]}`, undefined, { binary: true });
   assert.ok(pic.body.equals(png));
 });
+
+test('notes: HTML notes keep their pictures: data: URLs in the page, or files beside it in a .zip', async () => {
+  const JSZip = (await import('jszip')).default;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'htmlpics', domain: 'acme.com', name: 'Html Pics', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'htmlpics@acme.com');
+  const inline = `<html><head><title>Sketch</title></head><body><p>Layout idea</p><img src="data:image/png;base64,${png.toString('base64')}"><img src="https://example.com/x.png"></body></html>`;
+  const r1 = await a('POST', '/api/notes/import', { files: [{ name: 'Sketch.html', text: inline }] });
+  assert.equal(r1.status, 201, JSON.stringify(r1.body));
+  let notes = (await a('GET', '/api/notes')).body;
+  const sk = notes.find((n) => n.title === 'Sketch');
+  assert.equal(sk.pictures.length, 1);
+  assert.equal(sk.body, 'Layout idea\n[picture]', 'the web picture isn’t fetched: still marked');
+  const zip = new JSZip();
+  zip.file('Apple Notes/Garden.html', '<html><body><h1>Garden</h1><p>Roses</p><img src="Garden%20media/rose.png"></body></html>');
+  zip.file('Apple Notes/Garden media/rose.png', png);
+  const r2 = await a('POST', '/api/notes/import', { files: [{ name: 'notes.zip', base64: (await zip.generateAsync({ type: 'nodebuffer' })).toString('base64') }] });
+  assert.equal(r2.status, 201, JSON.stringify(r2.body));
+  assert.equal(r2.body.added, 1);
+  notes = (await a('GET', '/api/notes')).body;
+  const g = notes.find((n) => n.title === 'Garden');
+  assert.equal(g.body, 'Roses');
+  assert.equal(g.pictures.length, 1);
+  const pic = await a('GET', `/api/notes/${g.id}/pictures/${g.pictures[0].id || g.pictures[0]}`, undefined, { binary: true });
+  assert.ok(pic.body.equals(png));
+});
