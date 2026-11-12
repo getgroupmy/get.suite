@@ -11295,3 +11295,23 @@ test('event check: an invited colleague whose vacation reply covers the day show
   assert.deepEqual((await at('2031-03-05T10:00:00Z')).body.map((x) => [x.name, x.away]), [['Event Ben', { until: '2031-03-07' }]]);
   assert.deepEqual((await at('2031-03-10T10:00:00Z')).body, [], 'back by then');
 });
+
+test('status from a vacation reply: away until its last day, when the calendar says nothing; the calendar and a set status win', async () => {
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client();
+  const aid = (await owner('POST', '/api/users', { local: 'vst', domain: 'acme.com', name: 'Vac Status', password: 'password123' })).body.id;
+  assert.equal((await owner('POST', '/api/users', { local: 'vsu', domain: 'acme.com', name: 'Vac Viewer', password: 'password123' })).status, 201);
+  await login(a, 'vst@acme.com'); await login(b, 'vsu@acme.com');
+  const statusOfA = async () => (await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).status;
+  const end = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+  q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'x', 'x', NULL, ?, 0)`).run(aid, end);
+  const st = await statusOfA();
+  assert.deepEqual([st.emoji, st.text, st.auto, st.until], ['🌴', 'Away', true, Date.parse(`${end}T23:59:59Z`)]);
+  assert.equal((await b('GET', `/api/users/${aid}/card`)).body.status.text, 'Away', 'on their card too');
+  const now = Date.now();
+  await a('POST', '/api/events', { title: 'Deep', kind: 'focus', start: now - 60e3, end: now + 30 * 6e4 });
+  assert.equal((await statusOfA()).text, 'Focusing', 'the calendar first');
+  await a('PUT', '/api/users/me/status', { emoji: '🍕', text: 'Lunch', until: now + 36e5 });
+  assert.equal((await statusOfA()).text, 'Lunch');
+  q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(aid);
+});

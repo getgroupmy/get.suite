@@ -378,7 +378,15 @@ export function calendarStatus(userId, t = Date.now()) {
       if (!best || rank[kind] > rank[best.kind] || (rank[kind] === rank[best.kind] && o.end > best.until)) best = { kind, until: o.end };
     }
   }
-  if (!best) return null;
+  if (!best) {
+    // Nothing on the calendar right now, but their vacation reply (Mail) is on today: away, until its last day.
+    const today = new Date(t).toISOString().slice(0, 10);
+    const v = q('SELECT start_date, end_date FROM vacations WHERE user_id = ? AND enabled = 1').get(userId);
+    if (v && !(v.start_date && v.start_date > today) && !(v.end_date && v.end_date < today)) {
+      return { emoji: '🌴', text: 'Away', until: v.end_date ? Date.parse(`${v.end_date}T23:59:59Z`) : null, auto: true };
+    }
+    return null;
+  }
   const say = { ooo: ['🌴', 'Out of office'], focus: ['🎯', 'Focusing'], meeting: ['📅', 'In a meeting'] }[best.kind];
   return { emoji: say[0], text: say[1], until: best.until, auto: true };
 }
