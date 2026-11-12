@@ -1089,19 +1089,41 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // A copy of one file you may take away: next to it if you can add there (or in `parentId` given), else in My Drive.
+  // A copy of a file, or of a folder with everything in it that this person can open and may take away
+  // (the rest is left out and counted as `skipped`). The room for all of it is checked first.
+  const MAX_COPY = 2000;
   function copyOne(user, fileId, wantParent) {
     const f = loadFile(fileId, user);
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
-    if (f.kind === 'folder') throw bad('Folders can’t be copied yet; copy the files in it');
+    if (f.is_drive) throw bad('A shared drive can’t be copied; copy the folders in it');
     const row = q('SELECT * FROM files WHERE id = ?').get(f.id);
     const parentId = wantParent !== undefined ? resolveParent(wantParent, user)
       : row.parent_id && atLeast(roleFor(row.parent_id, user.id) || '', 'editor') ? row.parent_id : null;
-    checkQuota(user.org_id, row.size || 0, user.id);
-    let storage = null;
-    if (row.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, row.storage), path.join(FILES_DIR, storage)); }
-    const id = insertFile({ owner: user.id, parentId, name: `Copy of ${row.name}`, kind: row.kind, mime: row.mime, size: row.size, storage, content: row.content, activity: { action: 'copy', details: { from: row.name } } });
+    // Gather what goes: [{ row, children }] with the size and count of it all.
+    let count = 0; let size = 0; let skipped = 0;
+    const gather = (r) => {
+      if (++count > MAX_COPY) throw bad(`That folder holds more than ${MAX_COPY} items; copy parts of it`);
+      size += r.kind === 'file' ? r.size || 0 : 0;
+      const kids = r.kind !== 'folder' ? [] : q('SELECT * FROM files WHERE parent_id = ? AND trashed = 0 ORDER BY name').all(r.id).filter((k) => {
+        const role = roleFor(k.id, user.id);
+        if (role && mayTakeAway(k, role)) return true;
+        skipped++; return false;
+      });
+      return { row: r, children: kids.map(gather) };
+    };
+    const tree = gather(row);
+    checkQuota(user.org_id, size, user.id);
+    const put = ({ row: r, children }, parent, name) => {
+      let storage = null;
+      if (r.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, r.storage), path.join(FILES_DIR, storage)); }
+      const id = insertFile({ owner: user.id, parentId: parent, name, kind: r.kind, mime: r.mime, size: r.size, storage, content: r.content, activity: { action: 'copy', details: { from: r.name } } });
+      if (r.kind === 'folder' && (r.color || r.description)) q('UPDATE files SET color = ?, description = ? WHERE id = ?').run(r.color, r.description, id);
+      for (const c of children) put(c, id, c.row.name);
+      return id;
+    };
+    const id = tx(() => put(tree, parentId, `Copy of ${row.name}`));
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
-    return loadFile(id, user);
+    return { ...loadFile(id, user), ...(row.kind === 'folder' && { copied: count, skipped }) };
   }
 
   r.post('/:id/copy', (req, res) => {
@@ -1109,12 +1131,13 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Copies of several at once: { ids, parent_id? }. The room for all of them is checked first; then each is
-  // copied on its own: [{ id, copy }] or [{ id, error }] (folders, files you may not copy).
+  // copied on its own: [{ id, copy }] or [{ id, error }] (shared drives, files you may not copy).
   r.post('/copy-many', (req, res) => {
     const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [])];
     if (!ids.length) throw bad('Choose what to copy');
     if (ids.length > 200) throw bad('At most 200 at a time');
-    const total = ids.reduce((n, id) => n + (q("SELECT size FROM files WHERE id = ? AND kind = 'file'").get(id)?.size || 0), 0);
+    const total = ids.reduce((n, id) => n + (q(`WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id WHERE f.trashed = 0)
+      SELECT COALESCE(SUM(f.size), 0) AS n FROM files f JOIN t ON t.id = f.id WHERE f.kind = 'file'`).get(id)?.n || 0), 0);
     checkQuota(req.user.org_id, total, req.user.id);
     const out = ids.map((id) => {
       try { return { id, copy: publicFile(copyOne(req.user, id, req.body.parent_id)) }; } catch (e) { return { id, error: e.message }; }

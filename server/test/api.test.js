@@ -11430,7 +11430,7 @@ test('Drive undo: what moving and trashing are undone with (back to the folder o
   assert.ok((await a('GET', `/api/files?view=mine${''}`)).body.some((f) => f.id === atRoot && 'parent_id' in f), 'the list gives parent_id for Undo');
 });
 
-test('copy several at once: each copied next to it; folders and files you may not copy are skipped with a reason', async () => {
+test('copy several at once: each copied next to it; files you may not copy are skipped with a reason', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cpma', 'Copy Ann'], ['cpmb', 'Copy Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
   const aid = (await login(a, 'cpma@acme.com')).id;
@@ -11447,8 +11447,47 @@ test('copy several at once: each copied next to it; folders and files you may no
   assert.equal(byId[d1].copy.name, 'Copy of Letter');
   assert.equal(byId[d1].copy.parent_id, folder, 'next to the original');
   assert.equal(byId[d2].copy.kind, 'sheet');
-  assert.match(byId[folder].error, /Folders can’t be copied/);
+  assert.equal(byId[folder].copy.name, 'Copy of Templates', 'folders are copied too');
+  assert.equal(byId[folder].copy.copied, 5, 'the folder, the two files and the two copies made first');
   assert.ok(byId[locked].error, 'a viewer can’t take it away when downloads are off');
   assert.equal((await a('GET', `/api/files?view=mine&parent=${folder}`)).body.filter((f) => f.name.startsWith('Copy of')).length, 2);
   assert.equal((await a('POST', '/api/files/copy-many', { ids: [] })).status, 400);
+});
+
+test('copying a folder copies what is in it, sub-folders and uploads included, leaving out the trashed and what may not be taken', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cpfa', 'Fold Ann'], ['cpfb', 'Fold Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'cpfa@acme.com')).id;
+  await login(b, 'cpfb@acme.com');
+  // Ben's folder, shared with Ann as a viewer, with a sub-folder, an upload, a doc, a trashed doc and a no-download doc.
+  const top = (await b('POST', '/api/files/folder', { name: 'Project' })).body.id;
+  await b('PATCH', `/api/files/${top}`, { color: '#d93025' });
+  const sub = (await b('POST', '/api/files/folder', { name: 'Notes', parent_id: top })).body.id;
+  const up = (await b('POST', `/api/files/upload?parent=${sub}&name=plan.txt`, 'the plan', { raw: true })).body.id;
+  await b('POST', '/api/files/new', { kind: 'doc', name: 'Brief', parent_id: top, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Brief text' }] }] } });
+  const gone = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Old', parent_id: top })).body.id;
+  await b('PATCH', `/api/files/${gone}`, { trashed: true });
+  const locked = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Secret', parent_id: top })).body.id;
+  await b('PATCH', `/api/files/${locked}`, { no_download: true });
+  await b('PUT', `/api/files/${top}/shares`, { shares: [{ user_id: aid, role: 'viewer' }] });
+
+  const r = await a('POST', `/api/files/${top}/copy`, {});
+  assert.equal(r.status, 201);
+  assert.equal(r.body.name, 'Copy of Project');
+  assert.equal(r.body.owner_id, aid, 'the copy is Ann’s');
+  assert.equal(r.body.parent_id, null, 'in My Drive: she can’t add to Ben’s folder');
+  assert.equal(r.body.color, '#d93025', 'the colour comes along');
+  assert.deepEqual([r.body.copied, r.body.skipped], [4, 1]);
+  const kids = (await a('GET', `/api/files?view=mine&parent=${r.body.id}`)).body;
+  assert.deepEqual(kids.map((f) => f.name).sort(), ['Brief', 'Notes']);
+  const notes = kids.find((f) => f.name === 'Notes');
+  const inner = (await a('GET', `/api/files?view=mine&parent=${notes.id}`)).body;
+  assert.equal(inner.length, 1);
+  assert.notEqual(inner[0].id, up);
+  assert.equal((await a('GET', `/api/files/${inner[0].id}/raw`)).body, 'the plan', 'the upload’s bytes are copied');
+  const brief = (await a('GET', `/api/files/${kids.find((f) => f.name === 'Brief').id}/content`)).body;
+  assert.match(JSON.stringify(brief), /Brief text/, 'the document’s words are copied');
+  // The original is untouched.
+  assert.equal((await b('GET', `/api/files?view=mine&parent=${top}`)).body.length, 3);
+  assert.equal((await a('POST', '/api/files/nope/copy', {})).status, 404);
 });

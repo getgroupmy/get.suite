@@ -188,12 +188,13 @@ export default function Drive() {
     setChecked(new Set());
     load();
   }
-  // Copies of several at once (next to each); Undo moves the copies to the trash.
+  // Copies of several at once (next to each; a folder with what is in it); Undo moves the copies to the trash.
   async function copyMany(list) {
     try {
       const out = await post('/files/copy-many', { ids: list.map((f) => f.id) });
       for (const x of out.filter((y) => y.error)) toast(`${list.find((f) => f.id === x.id)?.name}: ${x.error}`, 'error');
       const copies = out.filter((x) => x.copy).map((x) => x.copy);
+      for (const c of copies.filter((x) => x.skipped)) toast(`${c.name}: ${c.skipped} item${c.skipped === 1 ? ' was' : 's were'} left out because you can’t copy ${c.skipped === 1 ? 'it' : 'them'}`, 'error');
       if (copies.length) {
         toast(copies.length === 1 ? 'Made a copy' : `Made ${copies.length} copies`, 'info', { action: { label: 'Undo', onClick: async () => {
           for (const c of copies) { try { await patch(`/files/${c.id}`, { trashed: true }); } catch (e) { toast(e.message, 'error'); } }
@@ -383,7 +384,7 @@ export default function Drive() {
       pdfPart(f) === 'pdf' && { label: 'Fill & sign…', icon: 'edit', onClick: () => setDialog({ type: 'pdf-sign', files: [f] }) },
       pdfPart(f) === 'pdf' && { label: 'Organise pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-organize', files: [f] }) },
       pdfPart(f) === 'pdf' && !viewOnly(f) && { label: 'Extract pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-extract', files: [f] }) },
-      f.kind !== 'folder' && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
+      !f.is_drive && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: () => copyMany([f]) },
       { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
       f.kind !== 'folder' && '-',
       f.kind !== 'folder' && canEdit && !f.locked_at && { label: 'Lock (stop changes)', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: true }), 'Locked: nobody can change it until it’s unlocked') },
@@ -514,7 +515,7 @@ export default function Drive() {
               <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
               <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
-              {picked.length > 1 && picked.every((f) => f.kind !== 'folder') && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
+              {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
                 {picked.length > 1 && <button className="btn small" onClick={() => setDialog({ type: 'rename-many', files: picked })}><Icon name="edit" size={16} /> Rename</button>}
