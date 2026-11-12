@@ -39,6 +39,7 @@ import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { parseCsv } from '../contactfiles.js';
 import { brokenProtections } from '../sheetprotect.js';
+import { renamed } from '../bulkrename.js';
 
 // Office files that open as Docs, Sheets and Slides (and download back in the same format).
 const OFFICE = {
@@ -1265,6 +1266,38 @@ export default function fileRoutes({ maxUploadBytes }) {
     notify(f.id, { type: 'file-locked', id: f.id, locked_at: after.locked_at, by_name: req.user.name });
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     res.json(publicFile(after));
+  });
+
+  // Rename several at once: { ids, find, replace, match_case, prefix, suffix, preview }. Each is checked on its own
+  // (you need to be able to edit it); with preview nothing changes. [{ id, from, to }] or [{ id, from, error }].
+  r.post('/rename-many', (req, res) => {
+    const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [])];
+    if (!ids.length) throw bad('Choose what to rename');
+    if (ids.length > 500) throw bad('At most 500 at a time');
+    const rule = { find: String(req.body.find || '').slice(0, 255), replace: String(req.body.replace || '').slice(0, 255), matchCase: !!req.body.match_case,
+      prefix: String(req.body.prefix || '').slice(0, 100), suffix: String(req.body.suffix || '').slice(0, 100) };
+    if (!rule.find && !rule.prefix && !rule.suffix) throw bad('Say what to change: text to find, or text to add before or after');
+    const out = [];
+    const touched = new Set();
+    tx(() => {
+      for (const id of ids) {
+        let f;
+        try { f = loadFile(id, req.user, 'editor'); } catch { out.push({ id, from: null, error: 'You can’t rename this one' }); continue; }
+        if (f.is_drive) { out.push({ id, from: f.name, error: 'Shared drives are renamed one at a time' }); continue; }
+        const want = renamed(f.name, f.kind, rule);
+        if (want === f.name) { out.push({ id, from: f.name, to: f.name, same: true }); continue; }
+        let n;
+        try { n = cleanName(want); } catch (e) { out.push({ id, from: f.name, error: e.message }); continue; }
+        if (req.body.preview) { out.push({ id, from: f.name, to: n }); continue; }
+        const to = uniqueName(f.parent_id, f.owner_id, n);
+        q('UPDATE files SET name = ?, updated_at = ? WHERE id = ?').run(to, now(), f.id);
+        recordActivity(f.id, req.user.id, 'rename', { from: f.name, to });
+        touched.add(f.id);
+        out.push({ id, from: f.name, to });
+      }
+    });
+    for (const id of touched) notify(id, { type: 'files-changed' });
+    res.json(out);
   });
 
   r.patch('/:id', (req, res) => {

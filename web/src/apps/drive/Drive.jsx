@@ -479,6 +479,7 @@ export default function Drive() {
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
+                {picked.length > 1 && <button className="btn small" onClick={() => setDialog({ type: 'rename-many', files: picked })}><Icon name="edit" size={16} /> Rename</button>}
                 <button className="btn small danger" onClick={() => bulk((f) => patch(`/files/${f.id}`, { trashed: true }), (n) => `Moved ${n} to trash`)}><Icon name="trash" size={16} /> Trash</button>
               </>}
             </>}
@@ -601,6 +602,7 @@ export default function Drive() {
           navigate(openPath(f));
         } catch (e) { toast(e.message, 'error'); }
       }} />}
+      {dialog?.type === 'rename-many' && <RenameMany files={dialog.files} onClose={() => setDialog(null)} onDone={(n) => { setDialog(null); setChecked(new Set()); toast(`Renamed ${n}`); load(); }} />}
       {dialog?.type === 'bulk-label' && <PromptModal title={`Label ${dialog.files.length} item${dialog.files.length === 1 ? '' : 's'}`} label="Label" confirm="Add label"
         message={myLabels.length ? `Yours so far: ${myLabels.map((l) => l.name).join(', ')}. Their other labels stay.` : 'A label of your own, to find them again from the left.'}
         onClose={() => setDialog(null)} onSubmit={async (label) => {
@@ -1488,5 +1490,54 @@ function MatchText({ text }) {
     <span className="match small muted">
       {parts.map((p, i) => (p.startsWith('\u0001') ? <mark key={i}>{p.slice(1, -1)}</mark> : p))}
     </span>
+  );
+}
+
+/** Rename several at once: find and replace in the names, text before and after, with a preview of every new name. */
+function RenameMany({ files, onClose, onDone }) {
+  const toast = useToast();
+  const [r, setR] = useState({ find: '', replace: '', match_case: false, prefix: '', suffix: '' });
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const ids = files.map((f) => f.id);
+  const any = r.find || r.prefix || r.suffix;
+  useEffect(() => {
+    if (!any) { setPreview(null); return undefined; }
+    let live = true;
+    const t = setTimeout(() => post('/files/rename-many', { ids, ...r, preview: true }).then((x) => { if (live) setPreview(x); }).catch(() => {}), 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [r]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changing = (preview || []).filter((x) => x.to && !x.same);
+  const go = async () => {
+    setBusy(true);
+    try { const out = await post('/files/rename-many', { ids, ...r }); onDone(out.filter((x) => x.to && !x.same).length); }
+    catch (e) { toast(e.message, 'error'); setBusy(false); }
+  };
+  const set = (k) => (e) => setR({ ...r, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  return (
+    <Modal wide title={`Rename ${files.length} items`} onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy || !changing.length} onClick={go}>{changing.length ? `Rename ${changing.length}` : 'Rename'}</button></>}>
+      <div className="stack">
+        <div className="row wrap" style={{ gap: 12 }}>
+          <label className="field grow"><span>Find</span><input value={r.find} onChange={set('find')} autoFocus /></label>
+          <label className="field grow"><span>Replace with</span><input value={r.replace} onChange={set('replace')} disabled={!r.find} /></label>
+        </div>
+        <label className="check"><input type="checkbox" checked={r.match_case} onChange={set('match_case')} disabled={!r.find} /> Match case</label>
+        <div className="row wrap" style={{ gap: 12 }}>
+          <label className="field grow"><span>Add before</span><input value={r.prefix} onChange={set('prefix')} placeholder="2026 " /></label>
+          <label className="field grow"><span>Add after</span><input value={r.suffix} onChange={set('suffix')} placeholder=" (final)" /></label>
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>Text added after goes before a file's extension (report.pdf → report (final).pdf). A name that's taken in the same folder gets a number.</p>
+        <table className="files rename-preview" aria-label="New names">
+          <thead><tr><th>Now</th><th>Becomes</th></tr></thead>
+          <tbody>
+            {(preview || files.map((f) => ({ id: f.id, from: f.name, to: f.name, same: true }))).map((x) => (
+              <tr key={x.id}><td className="ellipsis">{x.from ?? files.find((f) => f.id === x.id)?.name}</td>
+                <td className={x.error ? 'error small' : x.same ? 'muted' : ''}>{x.error || (x.same ? 'unchanged' : x.to)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
   );
 }

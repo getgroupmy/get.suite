@@ -11350,3 +11350,27 @@ test('availability of several: only those away or outside their hours, colleague
   assert.deepEqual((await a('GET', '/api/users/availability')).body, []);
   q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(bid);
 });
+
+test('rename several Drive files at once: preview first, then each renamed (only what you can edit), clashes kept apart', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['rnma', 'Ren Ann'], ['rnmb', 'Ren Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rnma@acme.com');
+  const bid = (await login(b, 'rnmb@acme.com')).id;
+  const folder = (await a('POST', '/api/files/folder', { name: 'Quarter' })).body.id;
+  const mk = async (name) => (await a('POST', '/api/files/new', { kind: 'doc', name, parent_id: folder })).body.id;
+  const d1 = await mk('Q3 plan'), d2 = await mk('Q3 budget'), d3 = await mk('Q4 plan');
+  const theirs = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Q3 notes' })).body.id;
+  await b('PUT', `/api/files/${theirs}/shares`, { shares: [{ user_id: (await a('GET', '/api/auth/me')).body.user.id, role: 'viewer' }] });
+  const ids = [d1, d2, d3, theirs];
+  const pv = (await a('POST', '/api/files/rename-many', { ids, find: 'q3', replace: 'Q4', preview: true })).body;
+  assert.deepEqual(pv.map((x) => [x.from, x.to ?? x.error]), [['Q3 plan', 'Q4 plan'], ['Q3 budget', 'Q4 budget'], ['Q4 plan', 'Q4 plan'], [null, 'You can’t rename this one']]);
+  assert.equal((await a('GET', `/api/files/${d1}`)).body.name, 'Q3 plan', 'preview changes nothing');
+  const done = (await a('POST', '/api/files/rename-many', { ids, find: 'q3', replace: 'Q4' })).body;
+  assert.equal(done.find((x) => x.id === d1).to, 'Q4 plan (1)', 'Q4 plan was taken in that folder');
+  assert.equal((await a('GET', `/api/files/${d2}`)).body.name, 'Q4 budget');
+  assert.equal((await b('GET', `/api/files/${theirs}`)).body.name, 'Q3 notes', 'only an editor renames');
+  assert.equal((await a('POST', '/api/files/rename-many', { ids: [d2], suffix: ' (final)' })).body[0].to, 'Q4 budget (final)');
+  assert.equal((await a('POST', '/api/files/rename-many', { ids: [d2] })).status, 400, 'nothing to change');
+  assert.equal((await a('POST', '/api/files/rename-many', { ids: [d2], find: 'budget', replace: 'a/b' })).body[0].error, 'Name contains invalid characters');
+  void bid;
+});
