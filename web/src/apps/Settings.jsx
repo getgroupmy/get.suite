@@ -439,12 +439,12 @@ function MailAttachCheck() {
   useEffect(() => { if (mail?.enabled) get('/mail/attach-check').then((r) => { setV(r); setWords(r.words.join(', ')); }).catch(() => {}); }, [mail?.enabled]);
   if (!mail?.enabled || v === undefined) return null;
   const save = async (body, msg) => {
-    try { const r = await put('/mail/attach-check', body); setV(r); setWords(r.words.join(', ')); toast(msg); } catch (e) { toast(e.message, 'error'); }
+    try { const r = await put('/mail/attach-check', body); setV(r); setWords(r.words.join(', ')); toast(msg); return true; } catch (e) { toast(e.message, 'error'); return false; }
   };
   return (
     <section className="card stack" aria-labelledby="mattach-h">
       <h2 id="mattach-h">Forgotten attachments</h2>
-      <label className="check"><input type="checkbox" checked={v.on} onChange={(e) => save({ on: e.target.checked }, 'Saved')} /> Ask before sending when a message says something is attached but nothing is</label>
+      <label className="check"><input type="checkbox" checked={v.on} onChange={(e) => { const was = v; setV({ ...v, on: e.target.checked }); save({ on: e.target.checked }, 'Saved').then((ok) => { if (!ok) setV(was); }); }} /> Ask before sending when a message says something is attached but nothing is</label>
       <p className="muted small" style={{ margin: 0 }}>It looks for words such as <em>attached</em>, <em>see attachment</em>, <em>enclosed</em> or <em>PFA</em> in what you wrote (not in what you're replying to). Add words of your own below, such as another language's.</p>
       <form className="row wrap" onSubmit={(e) => { e.preventDefault(); save({ words }, 'Your words are saved'); }}>
         <label className="field grow"><span>Your own words</span>
