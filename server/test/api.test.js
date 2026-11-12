@@ -11509,3 +11509,28 @@ test('Copy to: copies put in another folder keep their names (numbered if taken)
   assert.equal((await a('POST', `/api/files/${doc}/copy`, { parent_id: null })).body.name, 'Report', 'to My Drive');
   assert.equal((await a('GET', `/api/files?view=mine&parent=${from}`)).body.length, 3, 'the originals stay');
 });
+
+test('editing a comment: only its author, marked edited, and people newly @mentioned in the edit are told (not again those already)', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['cmea', 'Edit Ann'], ['cmeb', 'Edit Ben'], ['cmec', 'Edit Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cmea@acme.com');
+  const bid = (await login(b, 'cmeb@acme.com')).id;
+  const cid = (await login(c, 'cmec@acme.com')).id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Edit plan' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }, { user_id: cid, role: 'commenter' }] });
+  const made = (await a('POST', `/api/comments/${doc.id}`, { body: 'Over to @cmeb@acme.com', anchor: { quote: 'plan' } })).body;
+  assert.deepEqual(made.notified, ['cmeb@acme.com']);
+  const id = made.comment.id;
+  assert.equal(made.comment.edited_at, null);
+  assert.equal((await b('PATCH', `/api/comments/${doc.id}/${id}`, { body: 'mine now' })).status, 403);
+  const e = await a('PATCH', `/api/comments/${doc.id}/${id}`, { body: 'Over to @cmeb@acme.com and @cmec@acme.com' });
+  assert.equal(e.status, 200);
+  assert.equal(e.body.body, 'Over to @cmeb@acme.com and @cmec@acme.com');
+  assert.ok(e.body.edited_at, 'marked edited');
+  assert.deepEqual(e.body.notified, ['cmec@acme.com'], 'only the newly mentioned');
+  const bell = (await c('GET', '/api/notifications')).body;
+  assert.ok((bell.items || bell).some((n) => /mentioned you in a comment on “Edit plan”/.test(n.title)), 'Cy got it in the bell');
+  const same = await a('PATCH', `/api/comments/${doc.id}/${id}`, { body: 'Over to @cmeb@acme.com and @cmec@acme.com' });
+  assert.equal(same.body.notified, undefined, 'no change, nobody told');
+  assert.equal((await a('PATCH', `/api/comments/${doc.id}/${id}`, { body: '  ' })).status, 400);
+});

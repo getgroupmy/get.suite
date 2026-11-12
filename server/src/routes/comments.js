@@ -110,10 +110,11 @@ function taskDone(taskId, done) {
   if (list) sendTo([list.owner_id], { type: 'tasks-changed', list_id: t.list_id });
 }
 
-/** Mentioned people: notify those who can open the file; say who can't. */
-function mention(user, file, body, commentId) {
+/** Mentioned people: notify those who can open the file; say who can't. `already`: mentioned before (an edit), not told again. */
+function mention(user, file, body, commentId, already = new Set()) {
   const notified = [], noAccess = [];
   for (const [, email] of body.matchAll(MENTION_RE)) {
+    if (already.has(email.toLowerCase())) continue;
     const u = q('SELECT id, name, username FROM users WHERE username = ? AND disabled = 0').get(email.toLowerCase());
     if (!u || u.id === user.id || notified.includes(u.username) || noAccess.includes(email.toLowerCase())) continue;
     if (!canReach(user, u.id) || !roleFor(file.id, u.id)) { noAccess.push(u.username); continue; }
@@ -159,9 +160,15 @@ export default function commentRoutes() {
     const f = loadFile(req.params.fileId, req.user, 'commenter');
     const c = q('SELECT * FROM file_comments WHERE id = ? AND file_id = ?').get(req.params.id, f.id);
     if (!c) throw notFound();
+    let told = null;
     if (req.body.body !== undefined) {
       if (c.author_id !== req.user.id) throw forbidden('Only the author can change a comment');
-      q('UPDATE file_comments SET body = ?, edited_at = ? WHERE id = ?').run(str(req.body.body, { required: true, name: 'Comment', max: 4000 }), now(), c.id);
+      const body = str(req.body.body, { required: true, name: 'Comment', max: 4000 });
+      if (body !== c.body) {
+        q('UPDATE file_comments SET body = ?, edited_at = ? WHERE id = ?').run(body, now(), c.id);
+        // People @mentioned for the first time in the edit are told; those mentioned before aren't told again.
+        told = mention(req.user, f, body, c.thread_id || c.id, new Set([...c.body.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase())));
+      }
     }
     if (req.body.anchor !== undefined) { // the commented cell moved (rows or columns inserted or deleted)
       if (c.thread_id) throw bad('Move the thread, not a reply');
@@ -173,7 +180,7 @@ export default function commentRoutes() {
       if (c.task_id) taskDone(c.task_id, !!req.body.resolved); // its task is ticked off (or back on)
     }
     changed(f.id);
-    res.json(listOf(f.id).find((x) => x.id === c.id));
+    res.json({ ...listOf(f.id).find((x) => x.id === c.id), ...told });
   });
 
   // React to a comment with an emoji, or take your reaction back (the same emoji again): anyone who can comment.

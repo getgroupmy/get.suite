@@ -67,6 +67,17 @@ const Body = ({ text }) => <p className="comment-body">{text.split(/(@[\w.+-]+@[
  */
 export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pending, onShow, labelOf, onDeleted, onClose }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const [editing, setEditing] = useState(null); // { id, text }: your own comment being changed
+  const saveEdit = async () => {
+    if (!editing?.text.trim()) return;
+    try {
+      const r = await patch(`/comments/${fileId}/${editing.id}`, { body: editing.text });
+      setEditing(null);
+      if (r.noAccess?.length) toast(`${r.noAccess.join(', ')} can't open this file, so they weren't told. Share it with them first.`, 'error');
+      else if (r.notified?.length) toast(`${r.notified.join(', ')} ${r.notified.length === 1 ? 'was' : 'were'} told by chat`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const [showResolved, setShowResolved] = useState(false);
   const [draft, setDraft] = useState('');
   const [replies, setReplies] = useState({});
@@ -120,9 +131,18 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
             <button type="button" className="link-btn small comment-where" onClick={(e) => { e.stopPropagation(); setActive(t.id); onShow(t); }}>{labelOf(t)}</button>
             {[t, ...t.replies].map((c) => (
               <div key={c.id} className="comment">
-                <div className="row comment-meta"><Avatar name={c.author_name || '?'} size={24} /><strong className="grow">{c.author_name || 'Someone'}</strong><span className="muted small">{formatDate(c.created_at)}</span>
+                <div className="row comment-meta"><Avatar name={c.author_name || '?'} size={24} /><strong className="grow">{c.author_name || 'Someone'}</strong><span className="muted small">{formatDate(c.created_at)}{c.edited_at ? ' · edited' : ''}</span>
+                  {canEdit && c.author_id === user?.id && editing?.id !== c.id && <button type="button" className="icon-btn" aria-label={`Edit comment by ${c.author_name}`} title="Edit" onClick={(e) => { e.stopPropagation(); setActive(t.id); setEditing({ id: c.id, text: c.body }); }}><Icon name="edit" size={16} /></button>}
                   {canEdit && <button type="button" className="icon-btn" aria-label={`Delete comment by ${c.author_name}`} onClick={async (e) => { e.stopPropagation(); await del(`/comments/${fileId}/${c.id}`); if (c.id === t.id) onDeleted?.(t); }}><Icon name="trash" size={16} /></button>}</div>
-                <Body text={c.body} />
+                {editing?.id === c.id
+                  ? <div className="stack comment-edit" onClick={(e) => e.stopPropagation()}>
+                    <MentionBox value={editing.text} onChange={(v) => setEditing({ ...editing, text: v })} label="Edit comment" autoFocus onSubmit={saveEdit} />
+                    <div className="row end">
+                      <button type="button" className="btn small" onClick={() => setEditing(null)}>Cancel</button>
+                      <button type="button" className="btn small primary" disabled={!editing.text.trim() || editing.text === c.body} onClick={saveEdit}>Save</button>
+                    </div>
+                  </div>
+                  : <Body text={c.body} />}
                 <Reactions fileId={fileId} c={c} canReact={canEdit} />
               </div>
             ))}
