@@ -63,6 +63,7 @@ export default function Settings() {
       <MailTidy />
       <MailNudges />
       <MailAttachCheck />
+      <MailTips />
       <CallRing />
       <KeyboardKeys />
       <Devices />
@@ -356,6 +357,26 @@ function CallRing() {
       <h2 id="ring-h">Calls</h2>
       <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Show calls on screen (📞 … is calling you, with Join and Can’t talk)</label>
       <p className="muted small" style={{ margin: 0 }}>Turned off, a call still reaches your notifications (and your phone, if notifications are on there), so you can join or call back when it suits you.</p>
+    </section>
+  );
+}
+
+/** Notes while writing mail (Include …?, after their working hours, away, full mailbox, many people, outside the company). */
+function MailTips() {
+  const toast = useToast();
+  const mail = useMailStatus();
+  const { user, setUser } = useAuth();
+  const [on, setOn] = useState(user.mail_tips !== false);
+  if (!mail?.enabled) return null;
+  const set = async (next) => {
+    setOn(next);
+    try { await put('/users/me/mail-tips', { on: next }); setUser({ ...user, mail_tips: next }); toast(next ? 'Tips while writing are on' : 'Tips while writing are off'); } catch (e) { setOn(!next); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="mtips-h">
+      <h2 id="mtips-h">Tips while writing</h2>
+      <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Show tips under the addresses as I write an email</label>
+      <p className="muted small" style={{ margin: 0 }}>People you usually include, colleagues outside their working hours, away or with a full mailbox, how many people a big message goes to, and who's outside the company. If your company asks before mail goes outside it, that question still comes.</p>
     </section>
   );
 }

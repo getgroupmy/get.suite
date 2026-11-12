@@ -301,6 +301,13 @@ export default function userRoutes() {
     res.json({ ring: on });
   });
 
+  // Tips while writing mail (Include …?, after their working hours, away, full mailbox, many people, outside the company): on or off.
+  r.put('/me/mail-tips', (req, res) => {
+    const on = req.body?.on !== false;
+    q('UPDATE users SET mail_tips_off = ? WHERE id = ?').run(on ? 0 : 1, req.user.id);
+    res.json({ mail_tips: on });
+  });
+
   // Single-key shortcuts (C to write, J/K, G then M, ? for the list): on or off. Shortcuts with Ctrl or ⌘ stay.
   r.put('/me/keys', (req, res) => {
     const on = req.body?.on !== false;

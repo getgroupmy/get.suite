@@ -11254,3 +11254,14 @@ test('event check: invited colleagues who are busy then, or for whom it is outsi
   assert.deepEqual((await at(day + 1 * 36e5, day + 2 * 36e5)).body, []);
   assert.equal((await at(day, day)).status, 400);
 });
+
+test('tips while writing mail: on to begin with; each person can turn them off', async () => {
+  const u = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tipsoff', domain: 'acme.com', name: 'Tips Off', password: 'password123' })).status, 201);
+  await login(u, 'tipsoff@acme.com');
+  assert.equal((await u('GET', '/api/auth/me')).body.user.mail_tips, true);
+  assert.deepEqual((await u('PUT', '/api/users/me/mail-tips', { on: false })).body, { mail_tips: false });
+  assert.equal((await u('GET', '/api/auth/me')).body.user.mail_tips, false);
+  assert.equal((await owner('GET', '/api/auth/me')).body.user.mail_tips, true, 'only theirs');
+  assert.deepEqual((await u('PUT', '/api/users/me/mail-tips', { on: true })).body, { mail_tips: true });
+});

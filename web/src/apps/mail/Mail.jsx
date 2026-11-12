@@ -1375,15 +1375,16 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   // "Include Kim?": people you usually write to together with those on the message (not for shared mailboxes).
   const [includes, setIncludes] = useState([]);
   const [waved, setWaved] = useState([]); // suggestions waved away for this message
+  const tipsOn = user?.mail_tips !== false; // Settings → Mail → Tips while writing
   useEffect(() => {
-    if (shared) return undefined;
+    if (shared || !tipsOn) { setIncludes([]); return undefined; }
     const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
     if (!emails.length) { setIncludes([]); return undefined; }
     let live = true;
     const t = setTimeout(() => get(`/mail/includes?to=${encodeURIComponent(emails.join(','))}&not=${encodeURIComponent(waved.join(','))}`)
       .then((r) => { if (live) setIncludes(r); }).catch(() => {}), 500);
     return () => { live = false; clearTimeout(t); };
-  }, [f.to, f.cc, f.bcc, waved, shared]);
+  }, [f.to, f.cc, f.bcc, waved, shared, tipsOn]);
   // Recipients outside the company (and new ones: never written to, not in your contacts): a notice, not a stop.
   const [outside, setOutside] = useState(null); // { company, outside: [{ email, new }] }
   useEffect(() => {
@@ -1400,7 +1401,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const audience = new Set([f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email))).size;
   useEffect(() => {
     const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
-    if (!emails.length) { setLate([]); setAway([]); setFull([]); return undefined; }
+    if (!emails.length || !tipsOn) { setLate([]); setAway([]); setFull([]); return undefined; }
     let live = true;
     const to = encodeURIComponent(emails.join(','));
     const t = setTimeout(() => {
@@ -1409,7 +1410,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
       get(`/mail/full?to=${to}`).then((r) => { if (live) setFull(r); }).catch(() => {});
     }, 500);
     return () => { live = false; clearTimeout(t); };
-  }, [f.to, f.cc, f.bcc]);
+  }, [f.to, f.cc, f.bcc, tipsOn]);
   // The company asks before mail goes outside it (Admin → Company settings): confirmed once per set of recipients.
   const outsideOk = useRef(false);
   const [outsideAsk, setOutsideAsk] = useState(null); // { list: [{ email, new }], next }
@@ -1559,7 +1560,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           <label className="compose-line"><span>Cc</span><AddressInput label="Cc" type="text" inputMode="email" value={f.cc} onChange={(v) => setF((x) => ({ ...x, cc: v }))} /></label>
           <label className="compose-line"><span>Bcc</span><AddressInput label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={(v) => setF((x) => ({ ...x, bcc: v }))} /></label>
         </>}
-        {outside?.outside?.length > 0 && (
+        {tipsOn && outside?.outside?.length > 0 && (
           <p className="compose-outside small" role="status">
             <span aria-hidden="true">⚠</span>
             <span>{outside.outside.length === 1 ? 'Going outside' : `${outside.outside.length} recipients outside`} {outside.company || 'the company'}: {outside.outside.map((o, i) => (
@@ -1573,7 +1574,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
             <span>{full.map((x) => x.name).join(', ')}{full.length === 1 ? '’s mailbox is' : '’s mailboxes are'} full: your message will come back {full.length === 1 ? 'from them' : 'from those'} until they make room.</span>
           </p>
         )}
-        {audience >= 25 && (
+        {tipsOn && audience >= 25 && (
           <p className="compose-away small" role="status"><span aria-hidden="true">👥</span><span>This goes to <strong>{audience} people</strong>.</span></p>
         )}
         {away.length > 0 && (
