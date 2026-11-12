@@ -419,6 +419,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
                   ...(followable ? [{ label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml or .zip)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
+                  ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'Download folder (.zip)', icon: 'download', onClick: () => { const l = document.createElement('a'); l.href = `/api/mail/messages-eml.zip?folder=${encodeURIComponent(f.path)}&all=1`; l.download = ''; l.click(); } }] : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                     { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },

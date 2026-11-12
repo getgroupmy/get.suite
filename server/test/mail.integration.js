@@ -2611,3 +2611,22 @@ test('upload a .zip of .eml files (as Download (.zip) makes): each one in; repea
   const none = new JSZip(); none.file('a.txt', 'x');
   assert.equal((await olivia('POST', '/api/mail/messages/upload?folder=From%20zip', await none.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
 });
+
+test('download a whole folder as a .zip of .eml files (?all=1); an empty one says so', async () => {
+  const JSZip = (await import('jszip')).default;
+  const tag = `AllZip ${Date.now()}`;
+  await olivia('POST', '/api/mail/folders', { name: 'Whole folder' });
+  for (const n of ['one', 'two', 'three']) {
+    const eml = `From: A <a@example.org>\r\nTo: olivia@acme.com\r\nSubject: ${tag} ${n}\r\nDate: Tue, 03 Mar 2015 10:00:00 +0000\r\nMessage-ID: <${tag.replace(/\s/g, '')}-${n}@example.org>\r\n\r\nBody ${n}\r\n`;
+    assert.equal((await olivia('POST', '/api/mail/messages/upload?folder=Whole%20folder', eml, { raw: true, headers: { 'content-type': 'message/rfc822' } })).status, 201);
+  }
+  const r = await olivia('GET', '/api/mail/messages-eml.zip?folder=Whole%20folder&all=1', undefined, { binary: true });
+  assert.equal(r.status, 200);
+  assert.match(decodeURIComponent(r.headers.get('content-disposition')), /Whole folder \(3 messages\)\.zip/);
+  const names = Object.keys((await JSZip.loadAsync(r.body)).files);
+  assert.deepEqual(names, [`2015-03-03 ${tag} one.eml`, `2015-03-03 ${tag} two.eml`, `2015-03-03 ${tag} three.eml`], 'oldest first');
+  await olivia('POST', '/api/mail/folders', { name: 'Nothing here' });
+  const empty = await olivia('GET', '/api/mail/messages-eml.zip?folder=Nothing%20here&all=1');
+  assert.equal(empty.status, 400);
+  assert.match(empty.body.error, /empty/);
+});
