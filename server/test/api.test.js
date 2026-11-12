@@ -12702,3 +12702,24 @@ test('notes: HTML notes keep their pictures: data: URLs in the page, or files be
   const pic = await a('GET', `/api/notes/${g.id}/pictures/${g.pictures[0].id || g.pictures[0]}`, undefined, { binary: true });
   assert.ok(pic.body.equals(png));
 });
+
+test('takeout: Notes/ has each note as Markdown with its pictures (as Download (.zip) gives them); trashed ones left out', async () => {
+  const JSZip = (await import('jszip')).default;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'tonotes', domain: 'acme.com', name: 'To Notes', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'tonotes@acme.com');
+  const trip = (await a('POST', '/api/notes', { title: 'Trip', body: 'Beach day' })).body.id;
+  await a('POST', `/api/notes/${trip}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } });
+  const gone = (await a('POST', '/api/notes', { title: 'Old idea', body: 'x' })).body.id;
+  assert.equal((await a('DELETE', `/api/notes/${gone}`)).status < 300, true);
+  const r = await a('GET', '/api/takeout', undefined, { binary: true });
+  assert.equal(r.status, 200);
+  const zip = await JSZip.loadAsync(r.body);
+  const names = Object.keys(zip.files).filter((f) => f.startsWith('Notes/') && !zip.files[f].dir).sort();
+  assert.deepEqual(names, ['Notes/Trip files/picture-1.png', 'Notes/Trip.md']);
+  assert.match(await zip.file('Notes/Trip.md').async('string'), /Beach day[\s\S]*!\[\]\(Trip%20files\/picture-1\.png\)/);
+  assert.ok(zip.file('Notes.md'), 'the one-file version is still there');
+  assert.match(await zip.file('README.txt').async('string'), /Notes\/ +each note as Markdown with its pictures/);
+});

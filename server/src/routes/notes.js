@@ -214,6 +214,27 @@ function shape(n, me) {
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
   };
 }
+/**
+ * Notes as files for a .zip: each as "<title>.md" (repeats numbered), its pictures in "<title> files/picture-1.jpg" beside it,
+ * shown in the Markdown. Used by Download (.zip) and by Download your data.
+ */
+export async function notesZipEntries(notes) {
+  const { uniqueNames, safeName } = await import('../mail/attzip.js');
+  const names = uniqueNames(notes.map((n) => `${safeName(n.title, 'Note').slice(0, 80)}.md`));
+  const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+  const out = [];
+  notes.forEach((n, i) => {
+    const dir = `${names[i].replace(/\.md$/, '')} files`;
+    const pics = q('SELECT storage, mime FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(n.id).flatMap((p, k) => {
+      try { return [{ path: `${dir}/picture-${k + 1}.${EXT[p.mime] || 'img'}`, data: fs.readFileSync(path.join(FILES_DIR, p.storage)) }]; } catch { return []; }
+    });
+    let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') });
+    if (pics.length) md = `${md.replace(/\s*$/, '')}\n\n${pics.map((p) => `![](${encodeURI(p.path)})`).join('\n')}\n`;
+    out.push({ path: names[i], data: md }, ...pics);
+  });
+  return out;
+}
+
 function load(id, user) {
   const n = q('SELECT * FROM notes WHERE id = ?').get(String(id));
   if (!n || (n.owner_id !== user.id && (n.trashed_at || !q('SELECT 1 FROM note_shares WHERE note_id = ? AND user_id = ?').get(n.id, user.id)))) throw notFound('Note not found');
@@ -575,22 +596,9 @@ export default function noteRoutes() {
     const notes = ids.map((id) => load(id, req.user)).filter((n) => !n.trashed_at);
     if (!notes.length) throw notFound('Note not found');
     if (req.query.check === '1') return res.json({ notes: notes.length });
-    const { uniqueNames, safeName } = await import('../mail/attzip.js');
     const JSZip = (await import('jszip')).default;
     const zip = new JSZip();
-    const names = uniqueNames(notes.map((n) => `${safeName(n.title, 'Note').slice(0, 80)}.md`));
-    const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
-    notes.forEach((n, i) => {
-      // Its pictures in a folder beside it ("Trip files/picture-1.jpg"), shown in the Markdown as images.
-      const dir = `${names[i].replace(/\.md$/, '')} files`;
-      const pics = q('SELECT storage, mime FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(n.id).flatMap((p, k) => {
-        try { return [{ path: `${dir}/picture-${k + 1}.${EXT[p.mime] || 'img'}`, data: fs.readFileSync(path.join(FILES_DIR, p.storage)) }]; } catch { return []; }
-      });
-      let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') });
-      if (pics.length) md = `${md.replace(/\s*$/, '')}\n\n${pics.map((p) => `![](${encodeURI(p.path)})`).join('\n')}\n`;
-      zip.file(names[i], md);
-      for (const p of pics) zip.file(p.path, p.data, { binary: true });
-    });
+    for (const e of await notesZipEntries(notes)) zip.file(e.path, e.data, { binary: typeof e.data !== 'string' });
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="notes.zip"; filename*=UTF-8''${encodeURIComponent(`Notes (${notes.length}).zip`)}`);

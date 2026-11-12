@@ -1,6 +1,7 @@
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
+import { notesZipEntries } from './notes.js';
 import { conversationFor } from './chat.js';
 import { userSieve } from '../mail/sieve.js';
 import { formsForExport } from './forms.js';
@@ -201,6 +202,10 @@ export default function takeoutRoutes() {
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
+    // Each note on its own too, with its pictures, as Notes' Download (.zip) gives them (and Import notes… takes back).
+    for (const e of await notesZipEntries(q('SELECT * FROM notes WHERE owner_id = ? AND trashed_at IS NULL ORDER BY archived, pinned DESC, position DESC').all(me))) {
+      zip.file(`Notes/${e.path}`, e.data, { binary: typeof e.data !== 'string' });
+    }
     zip.file('Comments.csv', `\ufeff${commentsCsv(me)}\r\n`);
     // Chat: each conversation you're in (direct messages, private channels, channels you've joined or written in), as text.
     const seenNames = new Set();
@@ -230,7 +235,8 @@ export default function takeoutRoutes() {
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Tasks.csv     your task lists, for a spreadsheet',
-      'Notes.md      your notes',
+      'Notes.md      your notes, all in one file',
+      'Notes/        each note as Markdown with its pictures (Notes → Import notes… takes them back)',
       'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',
       'Chat/         each conversation you are in, as text',
       'Forms/        each of your forms: its questions, and its responses for a spreadsheet',
