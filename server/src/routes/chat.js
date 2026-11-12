@@ -825,11 +825,15 @@ export default function chatRoutes() {
       });
     }
     const matched = new Set(), unmatched = new Set();
+    // ?channels=a,b: only those (by their Slack name); otherwise all.
+    const only = req.query.channels ? new Set(String(req.query.channels).split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)) : null;
+    if (only && !found.channels.some((c) => only.has(c.name.toLowerCase()))) throw bad('Pick at least one channel to bring in');
     let messages = 0, reactions = 0, reactionsLeft = 0;
     const made = [];
     tx(() => {
       for (const c of found.channels) {
         if (!c.messages.length && c.archived) continue;
+        if (only && !only.has(c.name.toLowerCase())) continue;
         let name = c.name;
         if (q('SELECT 1 FROM channels WHERE org_id = ? AND dm_key IS NULL AND lower(name) = lower(?)').get(org, name)) name = `${c.name} (Slack)`;
         for (let i = 2; q('SELECT 1 FROM channels WHERE org_id = ? AND dm_key IS NULL AND lower(name) = lower(?)').get(org, name); i++) name = `${c.name} (Slack ${i})`;

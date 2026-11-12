@@ -30,14 +30,14 @@ function SlackImport() {
   const look = async (file) => {
     if (!file) return;
     setBusy(true); setDone(null);
-    try { setCheck({ file, preview: await send(file, true) }); } catch (e) { toast(e.message, 'error'); }
+    try { const preview = await send(file, true); setCheck({ file, preview, picked: new Set(preview.channels.map((c) => c.name)) }); } catch (e) { toast(e.message, 'error'); }
     setBusy(false);
   };
-  const run = async (file) => {
+  const run = async (file, channels) => {
     if (!file) return;
     setBusy(true); setDone(null);
     try {
-      const res = await fetch('/api/chat/import/slack', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/zip' }, body: file });
+      const res = await fetch(`/api/chat/import/slack${channels ? `?channels=${encodeURIComponent(channels.join(','))}` : ''}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/zip' }, body: file });
       const r = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(r.error || 'The import didn’t work');
       setDone(r);
@@ -51,12 +51,23 @@ function SlackImport() {
       <p className="muted small" style={{ margin: 0 }}>In Slack: <em>Workspace settings → Import/export data → Export</em>, then download the .zip and pick it here. Its public channels come in with their messages, threads, reactions and dates; people are matched to yours by email, and anyone who isn't here keeps their Slack name. The history isn't marked unread.</p>
       <input ref={ref} type="file" accept=".zip,application/zip" hidden aria-label="Slack export" onChange={(e) => { look(e.target.files[0]); e.target.value = ''; }} />
       {check && (
-        <ConfirmModal title="Import from Slack?" danger={false} confirm={`Import ${check.preview.messages} messages`} onClose={() => setCheck(null)}
+        <ConfirmModal title="Import from Slack?" danger={false} onClose={() => setCheck(null)}
+          confirm={(() => { const n = check.preview.channels.filter((c) => check.picked.has(c.name)).reduce((t, c) => t + c.messages, 0); return `Import ${n} message${n === 1 ? '' : 's'}`; })()}
           message={`${check.preview.channels.length} channel${check.preview.channels.length === 1 ? '' : 's'} with ${check.preview.messages} message${check.preview.messages === 1 ? '' : 's'}; ${check.preview.people_matched} of ${check.preview.people_matched + check.preview.not_here.length} people who wrote in them are here (matched by email).`}
-          onConfirm={async () => { const f = check.file; setCheck(null); await run(f); }}>
-          <ul className="small" style={{ maxHeight: 200, overflow: 'auto', margin: '0 0 8px' }}>
-            {check.preview.channels.map((c) => <li key={c.name}>#{c.name}{c.renamed ? ` → #${c.name} (Slack), as the name is taken` : ''}: {c.messages} message{c.messages === 1 ? '' : 's'}{c.archived ? ' (archived)' : ''}</li>)}
-          </ul>
+          onConfirm={async () => {
+            if (!check.picked.size) throw new Error('Tick at least one channel');
+            const { file, picked, preview } = check; setCheck(null);
+            await run(file, picked.size === preview.channels.length ? null : [...picked]);
+          }}>
+          <fieldset className="small" style={{ maxHeight: 220, overflow: 'auto', margin: '0 0 8px', border: 0, padding: 0 }}>
+            <legend className="muted">Channels to bring in</legend>
+            {check.preview.channels.map((c) => (
+              <label key={c.name} className="check"><input type="checkbox" checked={check.picked.has(c.name)} onChange={(e) => {
+                const picked = new Set(check.picked); if (e.target.checked) picked.add(c.name); else picked.delete(c.name);
+                setCheck({ ...check, picked });
+              }} /> #{c.name}{c.renamed ? ` → #${c.name} (Slack), as the name is taken` : ''}: {c.messages} message{c.messages === 1 ? '' : 's'}{c.archived ? ' (archived)' : ''}</label>
+            ))}
+          </fieldset>
           {check.preview.not_here.length > 0 && <p className="muted small" style={{ marginTop: 0 }}>Not here, so their messages keep their Slack name: {check.preview.not_here.join(', ')}.</p>}
         </ConfirmModal>
       )}

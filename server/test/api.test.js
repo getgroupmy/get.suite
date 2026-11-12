@@ -12249,4 +12249,13 @@ test('chat: admins import a Slack export: channels, messages with their dates, t
   // Again: the name is taken now.
   assert.equal((await owner('POST', '/api/chat/import/slack', body, { raw: true, headers: { 'content-type': 'application/zip' } })).body.channels[0].name, 'slack-launch (Slack)');
   assert.equal((await owner('POST', '/api/chat/import/slack', Buffer.from('not a zip'), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
+  // Only some channels: by name; none of them known is refused.
+  const two = new JSZip();
+  two.file('channels.json', JSON.stringify([{ name: 'pick-a' }, { name: 'pick-b' }]));
+  two.file('pick-a/2024-01-01.json', JSON.stringify([{ type: 'message', user: 'U9', text: 'in a', ts: '1704100000.0' }]));
+  two.file('pick-b/2024-01-01.json', JSON.stringify([{ type: 'message', user: 'U9', text: 'in b', ts: '1704100000.0' }]));
+  const twoBody = await two.generateAsync({ type: 'nodebuffer' });
+  const some = await owner('POST', '/api/chat/import/slack?channels=pick-b', twoBody, { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.deepEqual(some.body.channels.map((c) => c.name), ['pick-b']);
+  assert.equal((await owner('POST', '/api/chat/import/slack?channels=nope', twoBody, { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
 });
