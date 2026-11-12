@@ -188,6 +188,22 @@ export default function Drive() {
     setChecked(new Set());
     load();
   }
+  // Copies of several at once (next to each); Undo moves the copies to the trash.
+  async function copyMany(list) {
+    try {
+      const out = await post('/files/copy-many', { ids: list.map((f) => f.id) });
+      for (const x of out.filter((y) => y.error)) toast(`${list.find((f) => f.id === x.id)?.name}: ${x.error}`, 'error');
+      const copies = out.filter((x) => x.copy).map((x) => x.copy);
+      if (copies.length) {
+        toast(copies.length === 1 ? 'Made a copy' : `Made ${copies.length} copies`, 'info', { action: { label: 'Undo', onClick: async () => {
+          for (const c of copies) { try { await patch(`/files/${c.id}`, { trashed: true }); } catch (e) { toast(e.message, 'error'); } }
+          toast('Copies moved to trash'); load();
+        } } });
+      }
+    } catch (e) { toast(e.message, 'error'); }
+    setChecked(new Set());
+    load();
+  }
   // Drag files onto a folder (in the list or the path above it) to move them there.
   const [dropOn, setDropOn] = useState(null);
   async function moveInto(ids, folderId) {
@@ -498,6 +514,7 @@ export default function Drive() {
               <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
               <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
+              {picked.length > 1 && picked.every((f) => f.kind !== 'folder') && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
                 {picked.length > 1 && <button className="btn small" onClick={() => setDialog({ type: 'rename-many', files: picked })}><Icon name="edit" size={16} /> Rename</button>}

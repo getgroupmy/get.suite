@@ -11429,3 +11429,26 @@ test('Drive undo: what moving and trashing are undone with (back to the folder o
   assert.ok(!(await a('GET', `/api/files/${atRoot}`)).body.trashed, 'out of the trash');
   assert.ok((await a('GET', `/api/files?view=mine${''}`)).body.some((f) => f.id === atRoot && 'parent_id' in f), 'the list gives parent_id for Undo');
 });
+
+test('copy several at once: each copied next to it; folders and files you may not copy are skipped with a reason', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cpma', 'Copy Ann'], ['cpmb', 'Copy Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'cpma@acme.com')).id;
+  await login(b, 'cpmb@acme.com');
+  const folder = (await a('POST', '/api/files/folder', { name: 'Templates' })).body.id;
+  const d1 = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Letter', parent_id: folder })).body.id;
+  const d2 = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Invoice', parent_id: folder })).body.id;
+  const locked = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Locked' })).body.id;
+  await b('PUT', `/api/files/${locked}/shares`, { shares: [{ user_id: aid, role: 'viewer' }] });
+  await b('PATCH', `/api/files/${locked}`, { no_download: true });
+  const r = await a('POST', '/api/files/copy-many', { ids: [d1, d2, folder, locked] });
+  assert.equal(r.status, 201);
+  const byId = Object.fromEntries(r.body.map((x) => [x.id, x]));
+  assert.equal(byId[d1].copy.name, 'Copy of Letter');
+  assert.equal(byId[d1].copy.parent_id, folder, 'next to the original');
+  assert.equal(byId[d2].copy.kind, 'sheet');
+  assert.match(byId[folder].error, /Folders can’t be copied/);
+  assert.ok(byId[locked].error, 'a viewer can’t take it away when downloads are off');
+  assert.equal((await a('GET', `/api/files?view=mine&parent=${folder}`)).body.filter((f) => f.name.startsWith('Copy of')).length, 2);
+  assert.equal((await a('POST', '/api/files/copy-many', { ids: [] })).status, 400);
+});

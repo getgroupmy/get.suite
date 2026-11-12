@@ -1088,19 +1088,38 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
-  r.post('/:id/copy', (req, res) => {
-    const f = loadFile(req.params.id, req.user);
+  // A copy of one file you may take away: next to it if you can add there (or in `parentId` given), else in My Drive.
+  function copyOne(user, fileId, wantParent) {
+    const f = loadFile(fileId, user);
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     if (f.kind === 'folder') throw bad('Folders can’t be copied yet; copy the files in it');
     const row = q('SELECT * FROM files WHERE id = ?').get(f.id);
-    const parentId = req.body?.parent_id !== undefined ? resolveParent(req.body.parent_id, req.user)
-      : row.parent_id && atLeast(roleFor(row.parent_id, req.user.id) || '', 'editor') ? row.parent_id : null;
-    checkQuota(req.user.org_id, row.size || 0, req.user.id);
+    const parentId = wantParent !== undefined ? resolveParent(wantParent, user)
+      : row.parent_id && atLeast(roleFor(row.parent_id, user.id) || '', 'editor') ? row.parent_id : null;
+    checkQuota(user.org_id, row.size || 0, user.id);
     let storage = null;
     if (row.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, row.storage), path.join(FILES_DIR, storage)); }
-    const id = insertFile({ owner: req.user.id, parentId, name: `Copy of ${row.name}`, kind: row.kind, mime: row.mime, size: row.size, storage, content: row.content, activity: { action: 'copy', details: { from: row.name } } });
+    const id = insertFile({ owner: user.id, parentId, name: `Copy of ${row.name}`, kind: row.kind, mime: row.mime, size: row.size, storage, content: row.content, activity: { action: 'copy', details: { from: row.name } } });
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
-    res.status(201).json(publicFile(loadFile(id, req.user)));
+    return loadFile(id, user);
+  }
+
+  r.post('/:id/copy', (req, res) => {
+    res.status(201).json(publicFile(copyOne(req.user, req.params.id, req.body?.parent_id)));
+  });
+
+  // Copies of several at once: { ids, parent_id? }. The room for all of them is checked first; then each is
+  // copied on its own: [{ id, copy }] or [{ id, error }] (folders, files you may not copy).
+  r.post('/copy-many', (req, res) => {
+    const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [])];
+    if (!ids.length) throw bad('Choose what to copy');
+    if (ids.length > 200) throw bad('At most 200 at a time');
+    const total = ids.reduce((n, id) => n + (q("SELECT size FROM files WHERE id = ? AND kind = 'file'").get(id)?.size || 0), 0);
+    checkQuota(req.user.org_id, total, req.user.id);
+    const out = ids.map((id) => {
+      try { return { id, copy: publicFile(copyOne(req.user, id, req.body.parent_id)) }; } catch (e) { return { id, error: e.message }; }
+    });
+    res.status(201).json(out);
   });
 
   // Breadcrumb path from the top-most folder this user can see.
