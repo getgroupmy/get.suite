@@ -23,10 +23,10 @@ export async function searchAll(text) {
   const safe = (p) => p.catch(() => []);
   const mailOn = await mailEnabled();
   const mailIn = (folder) => (mailOn ? safe(get(`/mail/messages?folder=${encodeURIComponent(folder)}&q=${qs}`).then((r) => r.messages.map((m) => ({ ...m, folder })))) : Promise.resolve([]));
-  const [files, chat, tasks, notes, events, contacts, people, inbox, sent, forms, convs] = await Promise.all([
+  const [files, chat, tasks, notes, events, contacts, people, inbox, sent, forms, convs, comments] = await Promise.all([
     safe(get(`/files?view=search&q=${qs}`)), safe(get(`/chat/search?q=${qs}`)), safe(get(`/tasks/search?q=${qs}`)), safe(get(`/notes?q=${qs}`)),
     safe(get(`/events/search?q=${qs}`)), safe(get('/contacts')), safe(get('/users/directory')), mailIn('INBOX'), mailIn('Sent'),
-    safe(get(`/forms/search?q=${qs}`)), safe(get(`/chat/conversations/search?q=${qs}`)),
+    safe(get(`/forms/search?q=${qs}`)), safe(get(`/chat/conversations/search?q=${qs}`)), safe(get(`/comments/search?q=${qs}`)),
   ]);
   const mail = [...inbox, ...sent].sort((a, b) => (b.date || 0) - (a.date || 0));
   const has = (...xs) => xs.some((x) => String(x || '').toLowerCase().includes(low));
@@ -41,6 +41,7 @@ export async function searchAll(text) {
       to: `/chat/${c.id}` }))],
     ['Chat', chat.map((m) => ({ key: `c${m.id}`, icon: 'chat', title: m.body, sub: `${m.user_name || ''} · ${m.where} · ${when(m.created_at)}`,
       to: `/chat/${m.channel_id}?msg=${m.parent_id || m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}` }))],
+    ['Comments', comments.map((c) => ({ key: `x${c.id}`, icon: 'chat', title: c.body, sub: `${c.author_name || 'Someone'} on “${c.file.name}”${c.resolved ? ' · resolved' : ''} · ${when(c.at)}`, to: c.link }))],
     ['Tasks', tasks.map((t) => ({ key: `t${t.id}`, icon: 'check', title: `${t.done ? '✓ ' : ''}${t.title}`, sub: t.list_name, to: `/tasks/${t.list_id}?task=${t.id}` }))],
     ['Notes', notes.map((n) => ({ key: `n${n.id}`, icon: 'note', title: n.title || (n.body || (n.items || []).map((i) => i.text).join(', ')).slice(0, 80), sub: n.labels.join(', '), to: '/notes', state: { openNote: n.id } }))],
     ['Events', events.map((e) => ({ key: `e${e.id}:${e.start}`, icon: 'calendar', title: e.title, sub: `${when(e.start)}${e.location ? ` · ${e.location}` : ''}`, to: '/calendar', state: { openEvent: e } }))],

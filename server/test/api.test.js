@@ -11968,3 +11968,26 @@ test('comments for you come from an index of who each comment mentions, kept up 
   await b('DELETE', `/api/comments/${doc}/cmx-imported`);
   assert.equal(q("SELECT COUNT(*) AS n FROM file_comment_mentions WHERE comment_id = 'cmx-imported'").get().n, 0, 'gone with the comment');
 });
+
+test('search everything finds comments, on files you can open', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['srcha', 'Csr Ann'], ['srchb', 'Csr Ben'], ['srchc', 'Csr Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'srcha@acme.com')).id;
+  await login(b, 'srchb@acme.com');
+  await login(c, 'srchc@acme.com');
+  const doc = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Csr doc' })).body.id;
+  await b('PUT', `/api/files/${doc}/shares`, { shares: [{ user_id: aid, role: 'viewer' }] });
+  const t = (await b('POST', `/api/comments/${doc}`, { body: 'The Zanzibar invoice is late', anchor: { quote: 'x' } })).body.comment;
+  const r = (await b('POST', `/api/comments/${doc}`, { body: 'zanzibar: paid now', thread_id: t.id })).body.comment;
+  const secret = (await c('POST', '/api/files/new', { kind: 'doc', name: 'Csr secret' })).body.id;
+  await c('POST', `/api/comments/${secret}`, { body: 'Zanzibar plans', anchor: { quote: 'y' } });
+  const found = (await a('GET', '/api/comments/search?q=ZANZIBAR')).body;
+  assert.deepEqual(found.map((x) => x.id), [r.id, t.id], 'newest first, any case, replies too');
+  assert.equal(found[0].thread_id, t.id);
+  assert.equal(found[0].link, `/docs/${doc}?comment=${t.id}`);
+  assert.equal(found[0].file.name, 'Csr doc');
+  assert.equal((await a('GET', '/api/comments/search?q=z')).body.length, 0, 'two letters at least');
+  assert.equal((await a('GET', '/api/comments/search?q=100%25')).status, 200, 'wildcards are just characters');
+  await b('PATCH', `/api/files/${doc}`, { trashed: true });
+  assert.equal((await a('GET', '/api/comments/search?q=zanzibar')).body.length, 0, 'not in the trash');
+});

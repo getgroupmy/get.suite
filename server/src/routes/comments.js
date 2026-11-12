@@ -217,6 +217,27 @@ export default function commentRoutes() {
   // else @mentioned you. Newest first: [{ thread_id, file: { id, name, kind }, body, author_name, at, assigned, link }].
   r.get('/for-me', (req, res) => res.json(commentsFor(req.user)));
 
+  // Search everything: comments (and replies) whose words have this, on files you can open, newest first, up to 8.
+  r.get('/search', (req, res) => {
+    const text = String(req.query.q || '').trim().toLowerCase();
+    if (text.length < 2) return res.json([]);
+    const like = `%${text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    const rows = q(`SELECT c.id, c.thread_id, c.file_id, c.body, c.created_at, c.edited_at, u.name AS author_name, root.resolved
+                    FROM file_comments c JOIN file_comments root ON root.id = COALESCE(c.thread_id, c.id) JOIN files f ON f.id = c.file_id
+                    LEFT JOIN users u ON u.id = c.author_id
+                    WHERE f.trashed = 0 AND lower(c.body) LIKE ? ESCAPE '\\' ORDER BY COALESCE(c.edited_at, c.created_at) DESC LIMIT 300`).all(like);
+    const out = [], can = new Map();
+    for (const c of rows) {
+      if (!can.has(c.file_id)) can.set(c.file_id, !!roleFor(c.file_id, req.user.id));
+      if (!can.get(c.file_id)) continue;
+      const file = q('SELECT id, name, kind FROM files WHERE id = ?').get(c.file_id);
+      const thread = c.thread_id || c.id;
+      out.push({ id: c.id, thread_id: thread, file, body: c.body, author_name: c.author_name, at: c.edited_at || c.created_at, resolved: !!c.resolved, link: linkTo(file, thread) });
+      if (out.length >= 8) break;
+    }
+    res.json(out);
+  });
+
   // When you last looked at this file's comments ({ seen_at }, null if never), and marking that you have now.
   r.get('/:fileId/seen', (req, res) => {
     const f = loadFile(req.params.fileId, req.user);
