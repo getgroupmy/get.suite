@@ -6,6 +6,7 @@ import { Avatar, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 import { useMentions, MentionedAway } from '../components/mentions.jsx';
 import { useAuth } from '../App.jsx';
+import { forYou, commentLink } from './commentsFilter.js';
 
 /** Comments of a file, kept up to date live. */
 export function useComments(fileId) {
@@ -93,14 +94,22 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
     else if (r.notified?.length) toast(`${r.notified.join(', ')} ${r.notified.length === 1 ? 'was' : 'were'} told by chat`);
     return r.comment;
   };
-  const shown = threads.filter((t) => showResolved || !t.resolved || t.id === active);
+  const [onlyMine, setOnlyMine] = useState(false);
+  const mine = forYou(threads, user);
+  const shown = (onlyMine ? mine : threads).filter((t) => showResolved || !t.resolved || t.id === active);
+  const copyLink = async (t) => {
+    try { await navigator.clipboard.writeText(commentLink(location.origin, location.pathname, fileId, t.id)); toast('Link to the comment copied: paste it in Chat or an email'); } catch { toast('Couldn’t copy the link', 'error'); }
+  };
 
   return (
     <aside className="comments-panel" aria-label="Comments">
       <div className="row comments-head">
         <h2 className="grow">Comments</h2>
-        <label className="check small"><input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} /> Show resolved</label>
         <button type="button" className="icon-btn" aria-label="Close comments" onClick={onClose}><Icon name="close" size={18} /></button>
+      </div>
+      <div className="row comments-filters">
+        <label className="check small" title="Comments that @mention you or are assigned to you"><input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} /> For you{mine.length ? ` (${mine.filter((t) => !t.resolved).length})` : ''}</label>
+        <label className="check small"><input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} /> Show resolved</label>
       </div>
       {pending && (
         <form className="comment-new stack" onSubmit={async (e) => {
@@ -124,11 +133,14 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
           </div>
         </form>
       )}
-      {!pending && shown.length === 0 && <p className="muted small">{threads.length ? 'No open comments.' : canEdit ? 'Select something and press Comment to start a conversation.' : 'No comments yet.'}</p>}
+      {!pending && shown.length === 0 && <p className="muted small">{onlyMine ? 'Nothing for you here: no open comment @mentions you or is assigned to you.' : threads.length ? 'No open comments.' : canEdit ? 'Select something and press Comment to start a conversation.' : 'No comments yet.'}</p>}
       <ol className="comment-threads">
         {shown.map((t) => (
           <li key={t.id} className={`comment-thread ${t.id === active ? 'active' : ''} ${t.resolved ? 'resolved' : ''}`} onClick={() => { setActive(t.id); onShow(t); }}>
-            <button type="button" className="link-btn small comment-where" onClick={(e) => { e.stopPropagation(); setActive(t.id); onShow(t); }}>{labelOf(t)}</button>
+            <div className="row comment-top">
+              <button type="button" className="link-btn small comment-where grow" onClick={(e) => { e.stopPropagation(); setActive(t.id); onShow(t); }}>{labelOf(t)}</button>
+              <button type="button" className="icon-btn" aria-label="Copy link to comment" title="Copy link to comment" onClick={(e) => { e.stopPropagation(); copyLink(t); }}><Icon name="link" size={16} /></button>
+            </div>
             {[t, ...t.replies].map((c) => (
               <div key={c.id} className="comment">
                 <div className="row comment-meta"><Avatar name={c.author_name || '?'} size={24} /><strong className="grow">{c.author_name || 'Someone'}</strong><span className="muted small">{formatDate(c.created_at)}{c.edited_at ? ' · edited' : ''}</span>
