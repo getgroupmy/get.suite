@@ -321,11 +321,24 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
 
   // Dropping dragged messages on a folder (moves them) or a label (puts it on them).
   const [dropAt, setDropAt] = useState(null);
-  const dropProps = (key, onDrop) => ({
-    onDragOver: (e) => { if (!e.dataTransfer.types.includes(MAIL_DRAG)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropAt !== key) setDropAt(key); },
+  // emlTarget: also take .eml files dragged from the computer, uploaded into that folder.
+  const dropProps = (key, onDrop, emlTarget = null) => ({
+    onDragOver: (e) => {
+      const files = emlTarget && e.dataTransfer.types.includes('Files');
+      if (!(onDrop && e.dataTransfer.types.includes(MAIL_DRAG)) && !files) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = files ? 'copy' : 'move'; if (dropAt !== key) setDropAt(key);
+    },
     onDragLeave: () => setDropAt((k) => (k === key ? null : k)),
     onDrop: (e) => {
       setDropAt(null);
+      if (emlTarget && e.dataTransfer.files?.length) {
+        e.preventDefault();
+        const all = [...e.dataTransfer.files], eml = all.filter((f) => /\.eml$/i.test(f.name));
+        if (eml.length) uploadEml(eml, emlTarget);
+        if (eml.length < all.length) toast('Only emails saved as .eml files can be dropped here', 'error');
+        return;
+      }
+      if (!onDrop) return;
       let d = null;
       try { d = JSON.parse(e.dataTransfer.getData(MAIL_DRAG)); } catch { return; }
       if (!d?.uids?.length || d.folder !== folder) return;
@@ -391,7 +404,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           return (
             <div key={f.path} className="folder-row">
               <button className={`subnav-item ${f.path === folder && !q && !labelId ? 'active' : ''} ${dropAt === f.path ? 'drop-here' : ''}`} onClick={() => { setSearch({}); go(f.path); }}
-                {...(f.path !== folder && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? dropProps(f.path, (d) => act('move', { uids: d.uids, to: f.path }, `${d.uids.length === 1 ? 'Moved' : `Moved ${d.uids.length} messages`} to ${f.name}`)) : {})}>
+                {...(f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? dropProps(f.path, f.path !== folder ? (d) => act('move', { uids: d.uids, to: f.path }, `${d.uids.length === 1 ? 'Moved' : `Moved ${d.uids.length} messages`} to ${f.name}`) : null, shared ? null : f.path) : {})}>
                 <Icon name={FOLDER_ICON[f.specialUse] || (f.path === SNOOZED ? 'clock' : 'folder')} /><span className="grow ellipsis">{f.name}</span>
                 {followable && followed.includes(f.path) && <Icon name="bell" size={14} className="followed" title="New-mail notifications on" />}
                 {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
@@ -465,7 +478,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         </>}
       </aside>
 
-      <section className="mail-list" ref={listRef} style={listWidth && (user?.mail_pane || 'right') === 'right' ? { width: listWidth } : undefined}>
+      <section className={`mail-list ${dropAt === '@list' ? 'drop-files' : ''}`} ref={listRef} {...(!shared && !q && !labelId && folders.find((x) => x.path === folder && x.specialUse !== '\\Drafts') && folder !== SNOOZED ? dropProps('@list', null, folder) : {})} style={listWidth && (user?.mail_pane || 'right') === 'right' ? { width: listWidth } : undefined}>
         <div className="mail-toolbar">
           <form className="mail-search" role="search" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get('q').trim(); setSearch(v ? { q: v } : {}); }}>
             <Icon name="search" size={18} />
