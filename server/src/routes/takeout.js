@@ -60,6 +60,17 @@ export function commentsCsv(userId) {
     .map((row) => row.map(csvCell).join(',')).join('\r\n');
 }
 
+/**
+ * The conversations someone is in that have messages, for the export: direct messages and private channels they're
+ * a member of, and public channels they joined or wrote in and haven't left (public channels keep no list of members).
+ */
+export function conversationsOf(userId) {
+  return q(`SELECT id FROM channels c WHERE (EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
+              OR (c.dm_key IS NULL AND c.private = 0 AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.user_id = ?)
+                  AND NOT EXISTS (SELECT 1 FROM chat_left l WHERE l.channel_id = c.id AND l.user_id = ?)))
+            AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.deleted_at IS NULL) ORDER BY c.created_at`).all(userId, userId, userId);
+}
+
 /** Your notes as one Markdown file. */
 export function notesMarkdown(userId) {
   const notes = q('SELECT * FROM notes WHERE owner_id = ? ORDER BY archived, pinned DESC, position DESC').all(userId);
@@ -87,6 +98,8 @@ export default function takeoutRoutes() {
       contacts: n('SELECT COUNT(*) AS n FROM contacts WHERE owner_id = ?'),
       tasks: n('SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE l.owner_id = ?'),
       notes: n('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?'),
+      comments: q('SELECT COUNT(*) AS n FROM file_comments c JOIN files f ON f.id = c.file_id WHERE c.author_id = ? OR f.owner_id = ?').get(me, me).n,
+      conversations: conversationsOf(me).length,
       // Email (null when this server has none, or the mail server can't be reached just now).
       mail: mailEnabled() ? (await mailboxCounts(who).catch(() => null))?.messages ?? null : null,
     });
@@ -154,11 +167,7 @@ export default function takeoutRoutes() {
     // Chat: each conversation you're in (direct messages, private channels, channels you've joined or written in), as text.
     const seenNames = new Set();
     const reader = q('SELECT * FROM users WHERE id = ?').get(me);
-    // (Public channels keep no list of members: those you've written in, and haven't left, count.)
-    const convs = q(`SELECT id FROM channels c WHERE (EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                       OR (c.dm_key IS NULL AND c.private = 0 AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.user_id = ?)
-                           AND NOT EXISTS (SELECT 1 FROM chat_left l WHERE l.channel_id = c.id AND l.user_id = ?)))
-                     AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.deleted_at IS NULL) ORDER BY c.created_at`).all(me, me, me);
+    const convs = conversationsOf(me);
     for (const { id } of convs) {
       try {
         const { title, messages } = conversationFor(id, reader);

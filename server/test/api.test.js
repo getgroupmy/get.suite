@@ -12039,6 +12039,7 @@ test('download your data: Comments.csv with the comments you wrote and those on 
   assert.match(lines[3], /^Ben sheet,B2,Tkc Ann,/, 'hers on someone else’s file');
   assert.equal(lines.length, 4, 'not Ben’s on his own sheet, nor Cy’s');
   assert.match(await zip.file('README.txt').async('string'), /Comments\.csv/);
+  assert.equal((await a('GET', '/api/takeout/summary')).body.comments, 3, 'the summary counts them');
 });
 
 test('download your data: Chat/ has each conversation you are in, as text', async () => {
@@ -12061,4 +12062,7 @@ test('download your data: Chat/ has each conversation you are in, as text', asyn
   assert.match(mine, /Yes please/);
   for (const n of chats) assert.doesNotMatch(await zip.file(n).async('string'), /Secret between Ben and Cy/, 'not others’ conversations');
   assert.match(await zip.file('README.txt').async('string'), /Chat\//);
+  const sum = (await a('GET', '/api/takeout/summary')).body;
+  assert.equal(sum.conversations, chats.length, 'the summary counts them');
+  assert.equal(typeof sum.comments, 'number');
 });
