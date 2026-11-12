@@ -12133,3 +12133,32 @@ test('event templates: import adds new ones, skips ones already here, numbers cl
   assert.equal((await a('POST', '/api/events/templates/import', { templates: [] })).status, 400);
   assert.equal((await a('POST', '/api/events/templates/import', { templates: [{ name: 'Bad', minutes: 1 }] })).status, 400, 'checked like any template');
 });
+
+test('notes: import from Google Keep (Takeout .json): text and checklists, colour, pin, archive, labels, dates; trashed and empty skipped', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'keepa', domain: 'acme.com', name: 'Keep Ann', password: 'password123' })).status, 201);
+  await login(a, 'keepa@acme.com');
+  const keep = [
+    { title: 'Groceries', listContent: [{ text: 'Milk', isChecked: false }, { text: 'Bread', isChecked: true }], color: 'YELLOW', isPinned: true, labels: [{ name: 'Home' }], createdTimestampUsec: 1700000000000000, userEditedTimestampUsec: 1700000500000000 },
+    { title: 'Old idea', textContent: 'Kites for the office', color: 'DEFAULT', isArchived: true },
+    { title: 'Binned', textContent: 'gone', isTrashed: true },
+    { title: '', textContent: '   ' },
+  ];
+  const r = await a('POST', '/api/notes/import', { files: [...keep.map((k, i) => ({ name: `note${i}.json`, text: JSON.stringify(k) })), { name: 'plain.md', text: '# From Markdown\nStill works' }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { added: 3, skipped: 2 });
+  const live = (await a('GET', '/api/notes')).body;
+  const g = live.find((n) => n.title === 'Groceries');
+  assert.deepEqual(g.items.map((i) => [i.text, i.done]), [['Milk', false], ['Bread', true]]);
+  assert.equal(g.color, '#fff8b8');
+  assert.equal(g.pinned, true);
+  assert.deepEqual(g.labels, ['Home']);
+  assert.equal(g.created_at, 1700000000000);
+  assert.equal(g.updated_at, 1700000500000);
+  assert.ok(!live.some((n) => n.title === 'Old idea'), 'archived ones go to the archive');
+  const arch = (await a('GET', '/api/notes?archived=1')).body.find((n) => n.title === 'Old idea');
+  assert.equal(arch.body, 'Kites for the office');
+  assert.equal(arch.color, null);
+  assert.ok(live.some((n) => n.title === 'From Markdown'), 'Markdown files alongside');
+  assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'bad.json', text: '{nope' }] })).status, 400);
+});

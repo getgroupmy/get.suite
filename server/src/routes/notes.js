@@ -72,6 +72,27 @@ q(`CREATE TABLE IF NOT EXISTS note_label_colors (
 export const LABEL_COLORS = ['#d93025', '#e8710a', '#f9ab00', '#188038', '#12b5cb', '#1a73e8', '#9334e6', '#e52592', '#5f6368'];
 
 /** Tidy a checklist from the client. */
+/** Google Keep's colours (its Takeout names them) → ours: the same palette. */
+const KEEP_COLORS = { RED: '#faafa8', ORANGE: '#f39f76', YELLOW: '#fff8b8', GREEN: '#e2f6d3', TEAL: '#b4ddd3', BLUE: '#d4e4ed', CERULEAN: '#aeccdc', DARK_BLUE: '#aeccdc', PURPLE: '#d3bfdb', PINK: '#f6e2dd', BROWN: '#e9e3d4', GRAY: '#efeff1' };
+/**
+ * A note from Google Keep (one of the .json files in Google Takeout's Keep folder) as one of ours:
+ * { title, body, items, color, pinned, archived, labels, created_at, updated_at }, or null for one in Keep's trash
+ * or with nothing in it.
+ */
+export function keepNote(k) {
+  if (!k || typeof k !== 'object' || k.isTrashed) return null;
+  const items = Array.isArray(k.listContent) ? k.listContent.map((x) => ({ text: String(x?.text ?? ''), done: !!x?.isChecked })) : null;
+  const title = String(k.title ?? '').slice(0, 300), body = String(k.textContent ?? '').slice(0, 20000);
+  if (!title.trim() && !body.trim() && !(items || []).some((i) => i.text.trim())) return null;
+  const usec = (v) => (Number(v) > 0 ? Math.round(Number(v) / 1000) : null);
+  return {
+    title, body: items ? '' : body, items, color: KEEP_COLORS[String(k.color || '').toUpperCase()] || null,
+    pinned: !!k.isPinned && !k.isArchived, archived: !!k.isArchived,
+    labels: (Array.isArray(k.labels) ? k.labels : []).map((l) => String(l?.name ?? l ?? '')).filter(Boolean),
+    created_at: usec(k.createdTimestampUsec), updated_at: usec(k.userEditedTimestampUsec),
+  };
+}
+
 export function cleanItems(list) {
   if (list === null) return null;
   if (!Array.isArray(list)) throw bad('items must be a list');
@@ -362,14 +383,21 @@ export default function noteRoutes() {
     res.json([...all].sort((a, b) => a.localeCompare(b)));
   });
 
-  // Import notes from Markdown or text files: { files: [{ name, text }] } (up to 100, 200 KB each). Empty ones are skipped.
+  // Import notes from Markdown or text files, or from Google Keep (the .json files in Google Takeout's Keep folder,
+  // keeping colour, pin, archive and dates): { files: [{ name, text }] } (up to 2,000, 200 KB each). Empty ones, and
+  // ones in Keep's trash, are skipped.
   r.post('/import', (req, res) => {
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
-    if (!files.length) throw bad('Choose some .md or .txt files');
-    if (files.length > 100) throw bad('Up to 100 files at a time');
+    if (!files.length) throw bad('Choose some .md, .txt or Google Keep .json files');
+    if (files.length > 2000) throw bad('Up to 2,000 files at a time');
     const have = q('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?').get(req.user.id).n;
     const notes = files.map((f) => {
       if (String(f?.text ?? '').length > 200000) throw bad(`“${f?.name || 'A file'}” is too big for a note`);
+      if (/\.json$/i.test(String(f?.name || ''))) {
+        let k = null; try { k = JSON.parse(f.text); } catch { throw bad(`“${f.name}” isn't a Google Keep note`); }
+        const n = keepNote(k);
+        return n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) };
+      }
       return String(f?.text ?? '').trim() ? noteFromMarkdown(f.text, f?.name) : null; // a blank file isn't a note
     }).filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length));
     if (have + notes.length > MAX_NOTES) throw bad(`You can have up to ${MAX_NOTES} notes`);
@@ -377,8 +405,9 @@ export default function noteRoutes() {
     let top = topFor(req.user.id);
     tx(() => {
       for (const n of [...notes].reverse()) { // the first file ends up first
-        q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, ?, ?)`)
-          .run(uid(), req.user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, JSON.stringify(n.labels), top, t, t, req.user.id);
+        q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, archived, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(uid(), req.user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, n.color || null, n.pinned ? 1 : 0, n.archived ? 1 : 0, JSON.stringify(n.labels),
+            top, n.created_at || t, n.updated_at || n.created_at || t, req.user.id);
         top += 1;
       }
     });

@@ -58,7 +58,7 @@ export default function Notes() {
   const [labelling, setLabelling] = useState(null);
   const [labelEdit, setLabelEdit] = useState(null); // { rename: label } or { remove: label }
   const [deleting, setDeleting] = useState(null);
-  const importRef = useRef(null); // Import notes…: .md and .txt files
+  const importRef = useRef(null); // Import notes…: .md and .txt files, and Google Keep's .json
   const [view, setView] = useState('grid'); // grid of cards, or one column (list): your choice, on every device
   const [sort, setSort] = useState('mine'); // your own order, last edited, newest or title
   const chooseSort = async (next) => { setSort(next); try { await put('/notes/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
@@ -164,13 +164,13 @@ export default function Notes() {
         ))}
         <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>
         <button type="button" className={`subnav-item ${where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, trash: true })}><Icon name="trash" /><span className="grow">Trash</span></button>
-        <button type="button" className="subnav-item" title="Markdown (.md) or text (.txt) files, one note each" onClick={() => importRef.current?.click()}><Icon name="upload" /><span className="grow">Import notes…</span></button>
-        <input ref={importRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple hidden aria-label="Notes to import" onChange={async (e) => {
+        <button type="button" className="subnav-item" title="Markdown (.md) or text (.txt) files, one note each, or notes from Google Keep (the .json files in its Google Takeout folder)" onClick={() => importRef.current?.click()}><Icon name="upload" /><span className="grow">Import notes…</span></button>
+        <input ref={importRef} type="file" accept=".md,.markdown,.txt,.json,text/markdown,text/plain,application/json" multiple hidden aria-label="Notes to import" onChange={async (e) => {
           const picked = [...e.target.files]; e.target.value = '';
           try {
             const files = await Promise.all(picked.map(async (f) => ({ name: f.name, text: await f.text() })));
             const r = await post('/notes/import', { files });
-            toast(`${r.added} note${r.added === 1 ? '' : 's'} imported${r.skipped ? ` (${r.skipped} empty file${r.skipped === 1 ? '' : 's'} skipped)` : ''}`);
+            toast(`${r.added} note${r.added === 1 ? '' : 's'} imported${r.skipped ? ` (${r.skipped} empty or deleted skipped)` : ''}`);
             setWhere({ archived: false, label: null, reminders: false }); load();
           } catch (err) { toast(err.message, 'error'); }
         }} />
