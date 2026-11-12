@@ -12580,3 +12580,48 @@ test('tasks: just the selected tasks as CSV (?ids=, across lists, in the order g
   assert.equal((await b('GET', `/api/tasks/export.csv?ids=${paint}`)).status, 404, 'not someone else’s');
   assert.equal((await a('GET', '/api/tasks/export.csv?ids=')).status, 400);
 });
+
+test('notes: the .zip download carries each note’s pictures in a folder beside it, shown in its Markdown', async () => {
+  const JSZip = (await import('jszip')).default;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'notezippic', domain: 'acme.com', name: 'Zip Pic', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'notezippic@acme.com');
+  const trip = (await a('POST', '/api/notes', { title: 'Trip', body: 'Beach day' })).body.id;
+  const plain = (await a('POST', '/api/notes', { title: 'Plain', body: 'No pictures' })).body.id;
+  for (let k = 0; k < 2; k++) assert.equal((await a('POST', `/api/notes/${trip}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } })).status, 201);
+  const r = await a('GET', `/api/notes/export.zip?ids=${trip},${plain}`, undefined, { binary: true });
+  assert.equal(r.status, 200);
+  const zip = await JSZip.loadAsync(r.body);
+  assert.deepEqual(Object.keys(zip.files).filter((f) => !zip.files[f].dir).sort(), ['Plain.md', 'Trip files/picture-1.png', 'Trip files/picture-2.png', 'Trip.md']);
+  const md = await zip.file('Trip.md').async('string');
+  assert.match(md, /Beach day/);
+  assert.match(md, /!\[\]\(Trip%20files\/picture-1\.png\)\n!\[\]\(Trip%20files\/picture-2\.png\)/);
+  assert.ok((await zip.file('Trip files/picture-1.png').async('nodebuffer')).equals(png));
+  assert.doesNotMatch(await zip.file('Plain.md').async('string'), /!\[/);
+});
+
+test('notes: a downloaded .zip with pictures imports back whole: text, label and pictures', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = client(), b = client();
+  for (const [c, local] of [[a, 'nrt1'], [b, 'nrt2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(c, `${local}@acme.com`);
+  }
+  const trip = (await a('POST', '/api/notes', { title: 'Trip', body: 'Beach day', labels: ['Travel'] })).body;
+  assert.deepEqual(trip.labels, ['Travel']);
+  for (let k = 0; k < 2; k++) await a('POST', `/api/notes/${trip.id}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } });
+  const zip = (await a('GET', `/api/notes/export.zip?ids=${trip.id}`, undefined, { binary: true })).body;
+  const r = await b('POST', '/api/notes/import', { files: [{ name: 'Notes (1).zip', base64: zip.toString('base64') }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.added, 1, 'the pictures aren’t notes of their own');
+  const got = (await b('GET', '/api/notes')).body.find((n) => n.title === 'Trip');
+  assert.equal(got.body, 'Beach day');
+  assert.deepEqual(got.labels, ['Travel']);
+  assert.equal(got.pictures.length, 2);
+  const pic = await b('GET', `/api/notes/${got.id}/pictures/${got.pictures[0].id || got.pictures[0]}`, undefined, { binary: true });
+  assert.equal(pic.status, 200);
+  assert.ok(pic.body.equals(png));
+});

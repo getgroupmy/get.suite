@@ -11,6 +11,7 @@ import { insertFile, receiveUpload } from './files.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
+import { checkQuota } from '../tenancy.js';
 import { myFirstList, addTasks } from './tasks.js';
 
 q(`CREATE TABLE IF NOT EXISTS notes (
@@ -399,7 +400,24 @@ export default function noteRoutes() {
         && !/(^|\/)archive_browser\.html$/i.test(x.name) && !/(^|\/)Keep\/Labels\.txt$/i.test(x.name)); // Google Takeout's own index and Keep's label list
       if (!inside.length) throw bad(`There are no notes in “${f.name}”`);
       if (inside.length > 5000) throw bad(`“${f.name}” has more than 5,000 files`);
-      for (const x of inside) files.push({ name: x.name.split('/').pop(), text: await x.async('string') });
+      // Pictures a Markdown note shows from the same .zip ("![](Trip files/picture-1.jpg)", as Download (.zip) writes) come with it.
+      const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+      for (const x of inside) {
+        const text = await x.async('string');
+        const pictures = [];
+        if (/\.(md|markdown)$/i.test(x.name)) {
+          const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
+          for (const m of text.matchAll(/^!\[[^\]]*\]\(<?([^)>\s]+)>?\)\s*$/gm)) {
+            let rel; try { rel = decodeURI(m[1]); } catch { continue; }
+            const entry = zip.file(dir + rel) || zip.file(rel);
+            const mime = MIME[String(rel.split('.').pop()).toLowerCase()];
+            if (!entry || !mime || pictures.length >= MAX_PICTURES) continue;
+            const data = await entry.async('nodebuffer');
+            if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: m[0], mime, data });
+          }
+        }
+        files.push({ name: x.name.split('/').pop(), text: pictures.reduce((t2, p2) => t2.replace(p2.line, ''), text).replace(/\n{3,}$/, '\n'), pictures });
+      }
     }
     if (!files.length) throw bad('Choose some .md, .txt, .html, Evernote .enex or Google Keep .json files');
     if (files.length > 2000) throw bad('Up to 2,000 files at a time');
@@ -426,20 +444,31 @@ export default function noteRoutes() {
         const n = keepNote(k);
         return [n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }];
       }
-      return [String(f?.text ?? '').trim() ? noteFromMarkdown(f.text, f?.name) : null]; // a blank file isn't a note
+      return [String(f?.text ?? '').trim() || f?.pictures?.length ? { ...noteFromMarkdown(f.text, f?.name), pictures: f.pictures || [] } : null]; // a blank file isn't a note
     });
     const notes = all.filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length));
     if (have + notes.length > MAX_NOTES) throw bad(`You can have up to ${MAX_NOTES} notes`);
     const t = now();
     let top = topFor(req.user.id);
-    tx(() => {
+    const picBytes = notes.reduce((sum, n) => sum + (n.pictures || []).reduce((x, p) => x + p.data.length, 0), 0);
+    if (picBytes) checkQuota(req.user.org_id, picBytes, req.user.id);
+    const written = [], pics = [];
+    try { tx(() => {
       for (const n of [...notes].reverse()) { // the first file ends up first
+        const noteId = uid();
+        for (const p of n.pictures || []) {
+          const storage = uid();
+          fs.writeFileSync(path.join(FILES_DIR, storage), p.data);
+          written.push(storage);
+          pics.push([uid(), noteId, storage, p.mime, p.data.length]);
+        }
         q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, archived, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(uid(), req.user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, n.color || null, n.pinned ? 1 : 0, n.archived ? 1 : 0, JSON.stringify(n.labels),
+          .run(noteId, req.user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, n.color || null, n.pinned ? 1 : 0, n.archived ? 1 : 0, JSON.stringify(n.labels),
             top, n.created_at || t, n.updated_at || n.created_at || t, req.user.id);
         top += 1;
       }
-    });
+      for (const p of pics) q('INSERT INTO note_pictures (id, note_id, storage, mime, size, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(...p, req.user.id, t);
+    }); } catch (e) { for (const f of written) fs.rmSync(path.join(FILES_DIR, f), { force: true }); throw e; }
     sendTo([req.user.id], { type: 'notes-changed' });
     res.status(201).json({ added: notes.length, skipped: all.length - notes.length }); // empty ones, and ones in Keep's trash
   });
@@ -517,11 +546,23 @@ export default function noteRoutes() {
     const notes = ids.map((id) => load(id, req.user)).filter((n) => !n.trashed_at);
     if (!notes.length) throw notFound('Note not found');
     if (req.query.check === '1') return res.json({ notes: notes.length });
-    const { attachmentsZip, safeName } = await import('../mail/attzip.js');
-    const buf = await attachmentsZip(notes.map((n) => ({
-      filename: `${safeName(n.title, 'Note').slice(0, 80)}.md`,
-      content: Buffer.from(noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') })),
-    })));
+    const { uniqueNames, safeName } = await import('../mail/attzip.js');
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+    const names = uniqueNames(notes.map((n) => `${safeName(n.title, 'Note').slice(0, 80)}.md`));
+    const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+    notes.forEach((n, i) => {
+      // Its pictures in a folder beside it ("Trip files/picture-1.jpg"), shown in the Markdown as images.
+      const dir = `${names[i].replace(/\.md$/, '')} files`;
+      const pics = q('SELECT storage, mime FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(n.id).flatMap((p, k) => {
+        try { return [{ path: `${dir}/picture-${k + 1}.${EXT[p.mime] || 'img'}`, data: fs.readFileSync(path.join(FILES_DIR, p.storage)) }]; } catch { return []; }
+      });
+      let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') });
+      if (pics.length) md = `${md.replace(/\s*$/, '')}\n\n${pics.map((p) => `![](${encodeURI(p.path)})`).join('\n')}\n`;
+      zip.file(names[i], md);
+      for (const p of pics) zip.file(p.path, p.data, { binary: true });
+    });
+    const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="notes.zip"; filename*=UTF-8''${encodeURIComponent(`Notes (${notes.length}).zip`)}`);
     res.end(buf);
