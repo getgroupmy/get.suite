@@ -2948,3 +2948,5 @@ select.meet-timer-btn option { color: #202124; }
 .msg-nudge { grid-column: 1 / -1; color: var(--warning-text, #b06000); font-weight: 500; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .msg-nudge { color: #fdd663; } }
 :root[data-theme="dark"] .msg-nudge { color: #fdd663; }
+.msg-list li { position: relative; }
+.msg-nudge-x { position: absolute; right: 14px; bottom: 8px; }

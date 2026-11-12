@@ -544,6 +544,16 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   {sentNudge.has(m.uid) && special === '\\Sent' && <span className="msg-nudge small">Sent {Math.max(3, Math.floor((Date.now() - m.date) / 864e5))} days ago. Follow up?</span>}
                   {shared && m.notes > 0 && <span className="msg-assign small"><span className="pill" title={`${m.notes} internal note${m.notes === 1 ? '' : 's'}`}>💬 {m.notes}</span></span>}
                 </button>
+                {(m.nudge || (sentNudge.has(m.uid) && special === '\\Sent')) && (
+                  <button type="button" className="link-btn small msg-nudge-x" aria-label={`Not now: ${m.subject || '(no subject)'}`} title="Don't suggest this one again"
+                    onClick={async () => {
+                      try {
+                        await post(`/mail/nudges/${m.uid}/dismiss?folder=${enc(folder)}`, {});
+                        if (m.nudge) setData((d) => d && { ...d, messages: d.messages.map((x) => (x.uid === m.uid ? { ...x, nudge: false } : x)) });
+                        setSentNudge((n) => { const next = new Set(n); next.delete(m.uid); return next; });
+                      } catch (e) { toast(e.message, 'error'); }
+                    }}>Not now</button>
+                )}
               </li>
             ))}
           </ul>
