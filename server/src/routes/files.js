@@ -4,7 +4,7 @@ import { filesFor, fileRulesStop } from '../dlp.js';
 import crypto from 'node:crypto';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
 import { MAX_SHARE_DAYS } from '../shareexpiry.js';
-import { recordActivity, activityOf } from '../fileactivity.js';
+import { recordActivity, activityOf, folderActivityOf } from '../fileactivity.js';
 import { isWatching, setWatching } from '../filewatch.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
@@ -1791,7 +1791,8 @@ export default function fileRoutes({ maxUploadBytes }) {
   // What happened to it, newest first (anyone who can open it sees this).
   r.get('/:id/activity', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    res.json(activityOf(f.id));
+    // A folder's covers what's in it too (up to 5,000 items deep).
+    res.json(f.kind === 'folder' ? folderActivityOf(f.id, subtreeIds(f.id).slice(0, 5000)) : activityOf(f.id));
   });
 
   r.get('/:id/shares', (req, res) => {

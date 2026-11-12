@@ -1428,26 +1428,27 @@ function TransferDialog({ file, onClose, onDone }) {
   );
 }
 
-/** One line of a file's activity, e.g. "Kim Park renamed it from Plan to Plan 2027". */
+/** One line of a file's activity, e.g. "Kim Park renamed it from Plan to Plan 2027" (in a folder's: "renamed “Plan”…"). */
 function activityText(a) {
+  const it = a.file ? `“${a.file.name}”` : 'it'; // in a folder's activity: which item inside it
   const who = a.user_name || (a.action === 'request' ? a.details?.from || 'Someone' : 'Someone');
   const d = a.details || {};
   switch (a.action) {
-    case 'create': return `${who} created it`;
-    case 'upload': return `${who} uploaded it`;
-    case 'request': return `${who} sent it through a file request`;
-    case 'copy': return `${who} made it as a copy of ${d.from}`;
-    case 'edit': return `${who} edited it`;
-    case 'rename': return `${who} renamed it from ${d.from} to ${d.to}`;
-    case 'move': return d.to ? `${who} moved it to ${d.to}` : `${who} moved it to My Drive`;
-    case 'trash': return `${who} moved it to the trash`;
-    case 'restore': return `${who} restored it from the trash`;
+    case 'create': return `${who} created ${it}`;
+    case 'upload': return `${who} uploaded ${it}`;
+    case 'request': return `${who} sent ${it} through a file request`;
+    case 'copy': return `${who} made ${it} as a copy of ${d.from}`;
+    case 'edit': return `${who} edited ${it}`;
+    case 'rename': return `${who} renamed ${it} from ${d.from} to ${d.to}`;
+    case 'move': return d.to ? `${who} moved ${it} to ${d.to}` : `${who} moved ${it} to My Drive`;
+    case 'trash': return `${who} moved ${it} to the trash`;
+    case 'restore': return `${who} restored ${it} from the trash`;
     case 'transfer': return `${who} made ${d.to} the owner`;
     case 'version': return `${who} brought back ${d.label ? `the version “${d.label}”` : `the version from ${new Date(d.saved_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}`;
-    case 'share': return [d.added?.length && `${who} shared it with ${d.added.join(', ')}`, d.removed?.length && `${d.added?.length ? 'and' : who} stopped sharing it with ${d.removed.join(', ')}`].filter(Boolean).join(' ') || `${who} changed who has it`;
-    case 'lock': return `${who} locked it`;
-    case 'unlock': return `${who} unlocked it`;
-    case 'approval': return d.asked ? `${who} asked ${d.asked.join(', ')} to approve it` : `${who} ${d.decision === 'approved' ? 'approved' : 'rejected'} it${d.comment ? `: “${d.comment}”` : ''}`;
+    case 'share': return [d.added?.length && `${who} shared ${it} with ${d.added.join(', ')}`, d.removed?.length && `${d.added?.length ? 'and' : who} stopped sharing ${it} with ${d.removed.join(', ')}`].filter(Boolean).join(' ') || `${who} changed who has ${it}`;
+    case 'lock': return `${who} locked ${it}`;
+    case 'unlock': return `${who} unlocked ${it}`;
+    case 'approval': return d.asked ? `${who} asked ${d.asked.join(', ')} to approve ${it}` : `${who} ${d.decision === 'approved' ? 'approved' : 'rejected'} ${it}${d.comment ? `: “${d.comment}”` : ''}`;
     default: return `${who}: ${a.action}`;
   }
 }
@@ -1461,7 +1462,7 @@ function DocLength({ fileId }) {
   return `${c.words.toLocaleString('en-GB')} ${c.words === 1 ? 'word' : 'words'}${c.minutes ? ` · ${c.minutes} min read` : ''}`;
 }
 
-/** What happened to a file, newest first (a few, then all). */
+/** What happened to a file, or in a folder (to it and what's inside), newest first (a few, then all). */
 function Activity({ fileId }) {
   const [list, setList] = useState(null);
   const [all, setAll] = useState(false);

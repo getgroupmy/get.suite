@@ -11670,3 +11670,28 @@ test('Drive lists say how many comment threads are new for you on each file', as
   await a('PATCH', `/api/comments/${d1}/${t1.id}`, { resolved: true });
   assert.equal((await list(b))['Dn one'], undefined, 'resolved threads don’t count');
 });
+
+test('a folder’s activity covers what happens inside it, saying which item; a file’s is its own', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['fata', 'Act Ann'], ['fatb', 'Act Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'fata@acme.com');
+  const bid = (await login(b, 'fatb@acme.com')).id;
+  const top = (await a('POST', '/api/files/folder', { name: 'Act top' })).body.id;
+  const sub = (await a('POST', '/api/files/folder', { name: 'Act sub', parent_id: top })).body.id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Act doc', parent_id: sub })).body.id;
+  await a('PUT', `/api/files/${top}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  await b('PATCH', `/api/files/${doc}`, { name: 'Act doc v2' });
+  await b('PATCH', `/api/files/${doc}`, { trashed: true });
+  const acts = (await b('GET', `/api/files/${top}/activity`)).body;
+  assert.equal(acts[0].action, 'trash');
+  assert.equal(acts[0].user_name, 'Act Ben');
+  assert.deepEqual(acts[0].file, { id: doc, name: 'Act doc v2', kind: 'doc' }, 'which item, as it’s called now');
+  assert.ok(acts.some((x) => x.action === 'rename' && x.file?.id === doc));
+  assert.ok(acts.some((x) => x.action === 'create' && x.file?.id === sub));
+  const own = acts.filter((x) => !x.file);
+  assert.ok(own.some((x) => x.action === 'share'), 'the folder’s own entries have no file');
+  // The sub-folder's covers only what's under it; a file's is its own, without a file field.
+  assert.ok((await b('GET', `/api/files/${sub}/activity`)).body.every((x) => !x.file || x.file.id === doc));
+  const docActs = (await b('GET', `/api/files/${doc}/activity`)).body;
+  assert.ok(docActs.length >= 2 && docActs.every((x) => !('file' in x)));
+});
