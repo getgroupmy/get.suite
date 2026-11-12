@@ -12198,3 +12198,46 @@ test('tasks: import from Google Tasks (Takeout Tasks.json): lists, order, notes,
   assert.equal((await a('POST', '/api/tasks/import/google', { data: { items: [] } })).status, 400);
   assert.equal((await a('POST', '/api/tasks/import/google', { data: 'nope' })).status, 400);
 });
+
+test('chat: admins import a Slack export: channels, messages with their dates, threads, people matched by email', async () => {
+  const JSZip = (await import('jszip')).default;
+  const { slackText } = await import('../src/slackimport.js');
+  assert.equal(slackText('Hi <@U1> see <#C2|launch>, <https://x.com|the plan> &amp; <!channel>', new Map([['U1', { name: 'Sia Lee' }]])), 'Hi @Sia Lee see #launch, the plan (https://x.com) & @channel');
+  const s = client();
+  const sid = (await owner('POST', '/api/users', { local: 'sialee', domain: 'acme.com', name: 'Sia Lee', password: 'password123' })).body.id;
+  await login(s, 'sialee@acme.com');
+  const zip = new JSZip();
+  const root = zip.folder('Acme Slack export');
+  root.file('users.json', JSON.stringify([{ id: 'U1', profile: { real_name: 'Sia Lee', email: 'SiaLee@acme.com' } }, { id: 'U2', profile: { real_name: 'Old Contractor', email: 'old@elsewhere.com' } }]));
+  root.file('channels.json', JSON.stringify([{ name: 'slack-launch', topic: { value: 'Launch plans' } }, { name: 'slack-old', is_archived: true }]));
+  root.file('slack-launch/2024-03-01.json', JSON.stringify([
+    { type: 'message', user: 'U1', text: 'Kick-off at 10', ts: '1709280000.000100' },
+    { type: 'message', subtype: 'channel_join', user: 'U2', text: '<@U2> has joined', ts: '1709280001.0' },
+    { type: 'message', user: 'U2', text: 'Ready, <@U1>', ts: '1709280060.000200', thread_ts: '1709280000.000100' },
+  ]));
+  root.file('slack-launch/2024-03-02.json', JSON.stringify([{ type: 'message', user: 'U1', text: 'Day two', ts: '1709366400.0', files: [{ name: 'plan.pdf' }] }]));
+  const body = await zip.generateAsync({ type: 'nodebuffer' });
+  assert.equal((await s('POST', '/api/chat/import/slack', body, { raw: true, headers: { 'content-type': 'application/zip' } })).status, 403, 'admins only');
+  const r = await owner('POST', '/api/chat/import/slack', body, { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.channels.map((c) => [c.name, c.messages]), [['slack-launch', 3]], 'empty archived channels skipped');
+  assert.equal(r.body.messages, 3);
+  assert.deepEqual([r.body.people_matched, r.body.people_not_here], [1, 1]);
+  const ch = r.body.channels[0].id;
+  const msgs = (await s('GET', `/api/chat/channels/${ch}/messages`)).body;
+  const list = Array.isArray(msgs) ? msgs : msgs.messages;
+  const kick = list.find((m) => m.body === 'Kick-off at 10');
+  assert.equal(kick.user_id, sid, 'matched by email');
+  assert.equal(kick.created_at, 1709280000000);
+  assert.ok(list.some((m) => m.body === 'Day two\n📎 plan.pdf'));
+  const { q } = await import('../src/db.js');
+  const reply = q('SELECT * FROM messages WHERE channel_id = ? AND parent_id IS NOT NULL').get(ch);
+  assert.equal(reply.body, 'Ready, @Sia Lee');
+  assert.equal(reply.bot, 'Old Contractor', 'not here: their Slack name');
+  assert.equal(reply.parent_id, kick.id, 'a thread reply');
+  const mine = (await s('GET', '/api/chat/channels')).body.channels.find((c) => c.id === ch);
+  assert.equal(mine.unread, 0, 'the history isn’t all unread');
+  // Again: the name is taken now.
+  assert.equal((await owner('POST', '/api/chat/import/slack', body, { raw: true, headers: { 'content-type': 'application/zip' } })).body.channels[0].name, 'slack-launch (Slack)');
+  assert.equal((await owner('POST', '/api/chat/import/slack', Buffer.from('not a zip'), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
+});

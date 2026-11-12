@@ -9,6 +9,9 @@ import { firstLink, previewFor } from '../linkpreview.js';
 import { mailEnabled } from '../mail/config.js';
 import { queueChatEmail } from '../chatmail.js';
 import express, { Router } from 'express';
+import JSZip from 'jszip';
+import { audit } from '../audit.js';
+import { readSlackExport } from '../slackimport.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -786,6 +789,56 @@ export default function chatRoutes() {
     deliver(c, req.user, { body: `📹 Started a video meeting: ${baseUrl(req)}/meet/${code}`, files: [], poll: null, parent: null });
     ringOthers(c, req.user, code);
     res.status(201).json({ channel_id: id, code, unreachable: unreachable(membersOf(c).filter((x) => x !== req.user.id)) });
+  });
+
+  // Admins: bring a Slack workspace export (its .zip) into Chat. Each public channel comes in as a channel (named
+  // "name (Slack)" when that name is taken), with its messages, threads and dates; people are matched by email to
+  // this company's, and anyone not here keeps their Slack name on their messages. Everyone's marked as having read
+  // the history, so it doesn't all show as unread.
+  r.post('/import/slack', express.raw({ type: () => true, limit: '500mb' }), async (req, res) => {
+    if (!req.user.is_admin) throw new HttpError(403, 'Admins only');
+    if (!req.body?.length) throw bad('Choose the .zip that Slack’s export gives');
+    let zip;
+    try { zip = await JSZip.loadAsync(req.body); } catch { throw bad('That isn’t a .zip file'); }
+    const files = new Map();
+    for (const f of Object.values(zip.files)) {
+      if (f.dir || !f.name.endsWith('.json')) continue;
+      const name = f.name.replace(/^[^/]+\/(?=(channels|users)\.json$|[^/]+\/\d{4}-\d{2}-\d{2}\.json$)/, ''); // a folder around it all
+      files.set(name, await f.async('string'));
+    }
+    const found = readSlackExport(files);
+    if (found.error) throw bad(found.error);
+    const org = req.user.org_id;
+    const byEmail = new Map(q('SELECT id, username FROM users WHERE org_id = ? AND disabled = 0').all(org).map((u) => [u.username.toLowerCase(), u.id]));
+    const who = (slackId) => { const email = found.users.get(slackId)?.email; return (email && byEmail.get(email)) || null; };
+    const matched = new Set(), unmatched = new Set();
+    let messages = 0;
+    const made = [];
+    tx(() => {
+      for (const c of found.channels) {
+        if (!c.messages.length && c.archived) continue;
+        let name = c.name;
+        if (q('SELECT 1 FROM channels WHERE org_id = ? AND dm_key IS NULL AND lower(name) = lower(?)').get(org, name)) name = `${c.name} (Slack)`;
+        for (let i = 2; q('SELECT 1 FROM channels WHERE org_id = ? AND dm_key IS NULL AND lower(name) = lower(?)').get(org, name); i++) name = `${c.name} (Slack ${i})`;
+        const id = uid();
+        const first = c.messages.length ? Math.round(Number(c.messages[0].ts) * 1000) : now();
+        q('INSERT INTO channels (id, org_id, name, created_by, created_at, topic, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, org, name, req.user.id, first, c.topic ? String(c.topic).slice(0, 250) : null, c.archived ? now() : null);
+        const ids = new Map(); // Slack ts → message id, for threads
+        for (const m of c.messages) {
+          const mid = uid(), at = Math.round(Number(m.ts) * 1000), user = who(m.user);
+          (user ? matched : unmatched).add(m.user || m.name);
+          ids.set(m.ts, mid);
+          q('INSERT INTO messages (id, channel_id, user_id, bot, body, created_at, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .run(mid, id, user, user ? null : m.name, m.text.slice(0, 40000), at, m.thread_ts ? ids.get(m.thread_ts) || null : null);
+          messages++;
+        }
+        for (const u of q('SELECT id FROM users WHERE org_id = ?').all(org)) q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(id, u.id, now());
+        made.push({ id, name, messages: c.messages.length });
+      }
+    });
+    sendTo(q('SELECT id FROM users WHERE org_id = ?').all(org).map((u) => u.id), { type: 'channels-changed' });
+    audit(req, 'chat.import', { details: { from: 'Slack', channels: made.length, messages } });
+    res.status(201).json({ channels: made, messages, people_matched: matched.size, people_not_here: unmatched.size });
   });
 
   // The whole conversation to keep: plain text (?format=txt) or a page (html), in the reader's time zone (?tz=).

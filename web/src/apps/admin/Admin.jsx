@@ -18,6 +18,35 @@ import AppsAdmin from './AppsAdmin.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { readFeatures } from '../calendar/roomfit.js';
 
+/** Bring a Slack workspace's export (.zip) into Chat: its public channels, messages and threads. */
+function SlackImport() {
+  const toast = useToast();
+  const ref = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+  const run = async (file) => {
+    if (!file) return;
+    setBusy(true); setDone(null);
+    try {
+      const res = await fetch('/api/chat/import/slack', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/zip' }, body: file });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(r.error || 'The import didn’t work');
+      setDone(r);
+      toast(`Imported ${r.channels.length} channel${r.channels.length === 1 ? '' : 's'} with ${r.messages} message${r.messages === 1 ? '' : 's'} from Slack`);
+    } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <h3 className="small" style={{ margin: '8px 0 0' }}>Moving from Slack</h3>
+      <p className="muted small" style={{ margin: 0 }}>In Slack: <em>Workspace settings → Import/export data → Export</em>, then download the .zip and pick it here. Its public channels come in with their messages, threads and dates; people are matched to yours by email, and anyone who isn't here keeps their Slack name. The history isn't marked unread.</p>
+      <input ref={ref} type="file" accept=".zip,application/zip" hidden aria-label="Slack export" onChange={(e) => { run(e.target.files[0]); e.target.value = ''; }} />
+      <div><button type="button" className="btn" disabled={busy} onClick={() => ref.current?.click()}><Icon name="upload" size={18} /> {busy ? 'Importing…' : 'Import from Slack…'}</button></div>
+      {done && <p className="small" role="status" style={{ margin: 0 }}>{done.channels.map((c) => `#${c.name}`).join(', ')}: {done.messages} messages. {done.people_matched} of {done.people_matched + done.people_not_here} people matched by email.</p>}
+    </div>
+  );
+}
+
 export default function Admin() {
   const { user } = useAuth();
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
@@ -580,6 +609,7 @@ function CompanySettings() {
           </select>
         </label>
         <p className="muted small" style={{ margin: 0 }}>Older messages (with their threads, reactions and polls) are deleted every hour, in your company's channels and in direct messages with your people. Files sent in chat stay in Drive. This can't be undone.</p>
+        <SlackImport />
       </div>
       <div className="card stack">
         <h2>Sign-in security</h2>
