@@ -12501,3 +12501,30 @@ test('notes: several as one .zip of Markdown files, named by title (repeats numb
   assert.equal((await b('GET', `/api/notes/export.zip?ids=${one}`)).status, 404, 'not someone else’s');
   assert.equal((await a('GET', '/api/notes/export.zip?ids=')).status, 400);
 });
+
+test('notes: import a .zip (a downloaded .zip of notes, or Google Keep’s Takeout): the notes in it, Takeout’s own files left out', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'notezipin', domain: 'acme.com', name: 'Zip In', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'notezipin@acme.com');
+  const zip = new JSZip();
+  zip.file('Shopping.md', '# Shopping\n\n- [x] Eggs\n- [ ] Milk\n');
+  zip.file('Takeout/archive_browser.html', '<html><body>Index</body></html>');
+  zip.file('Takeout/Keep/Labels.txt', 'Travel\nWork\n');
+  zip.file('Takeout/Keep/Trip.json', JSON.stringify({ title: 'Trip', textContent: 'Pack light', isTrashed: false, isArchived: false, isPinned: true, color: 'DEFAULT', labels: [{ name: 'Travel' }] }));
+  zip.file('Takeout/Keep/Trip.html', '<html><body><div class="title">Trip</div><div class="content">Pack light</div></body></html>');
+  zip.file('__MACOSX/._Shopping.md', 'junk');
+  zip.file('photo.jpg', 'not a note');
+  const base64 = (await zip.generateAsync({ type: 'nodebuffer' })).toString('base64');
+  const r = await a('POST', '/api/notes/import', { files: [{ name: 'takeout.zip', base64 }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.added, 2);
+  const notes = (await a('GET', '/api/notes')).body;
+  assert.deepEqual(notes.map((n) => n.title).sort(), ['Shopping', 'Trip']);
+  assert.deepEqual(notes.find((n) => n.title === 'Shopping').items.map((i) => [i.text, i.done]), [['Eggs', true], ['Milk', false]]);
+  assert.deepEqual(notes.find((n) => n.title === 'Trip').labels, ['Travel']);
+  const empty = new JSZip(); empty.file('a.jpg', 'x');
+  assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'pics.zip', base64: (await empty.generateAsync({ type: 'nodebuffer' })).toString('base64') }] })).status, 400);
+  assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'bad.zip', base64: 'aGVsbG8=' }] })).status, 400);
+});

@@ -387,8 +387,20 @@ export default function noteRoutes() {
   // Import notes from Markdown or text files, from Evernote (.enex, many notes each), or from Google Keep (the .json files in Google Takeout's Keep folder,
   // keeping colour, pin, archive and dates): { files: [{ name, text }] } (up to 2,000, 200 KB each). Empty ones, and
   // ones in Keep's trash, are skipped.
-  r.post('/import', (req, res) => {
-    const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  r.post('/import', async (req, res) => {
+    // A .zip (sent as base64: a downloaded .zip of notes, or Google Keep's Takeout) is opened here: the note files in it,
+    // in any folder, are imported as if chosen one by one.
+    const files = [];
+    for (const f of Array.isArray(req.body?.files) ? req.body.files : []) {
+      if (!/\.zip$/i.test(String(f?.name || '')) || typeof f?.base64 !== 'string') { files.push(f); continue; }
+      let zip;
+      try { zip = await (await import('jszip')).default.loadAsync(Buffer.from(f.base64, 'base64')); } catch { throw bad(`“${f.name}” can’t be opened`); }
+      const inside = Object.values(zip.files).filter((x) => !x.dir && /\.(md|markdown|txt|json|enex|html?)$/i.test(x.name) && !/(^|\/)(__MACOSX|\.)/.test(x.name)
+        && !/(^|\/)archive_browser\.html$/i.test(x.name) && !/(^|\/)Keep\/Labels\.txt$/i.test(x.name)); // Google Takeout's own index and Keep's label list
+      if (!inside.length) throw bad(`There are no notes in “${f.name}”`);
+      if (inside.length > 5000) throw bad(`“${f.name}” has more than 5,000 files`);
+      for (const x of inside) files.push({ name: x.name.split('/').pop(), text: await x.async('string') });
+    }
     if (!files.length) throw bad('Choose some .md, .txt, .html, Evernote .enex or Google Keep .json files');
     if (files.length > 2000) throw bad('Up to 2,000 files at a time');
     const have = q('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?').get(req.user.id).n;

@@ -164,11 +164,13 @@ export default function Notes() {
         ))}
         <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>
         <button type="button" className={`subnav-item ${where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, trash: true })}><Icon name="trash" /><span className="grow">Trash</span></button>
-        <button type="button" className="subnav-item" title="Markdown (.md) or text (.txt) files, one note each; Evernote exports (.enex); or notes from Google Keep (the .json files in its Google Takeout folder)" onClick={() => importRef.current?.click()}><Icon name="upload" /><span className="grow">Import notes…</span></button>
-        <input ref={importRef} type="file" accept=".md,.markdown,.txt,.json,.enex,.html,.htm,text/markdown,text/plain,application/json,text/html" multiple hidden aria-label="Notes to import" onChange={async (e) => {
+        <button type="button" className="subnav-item" title="Markdown (.md), text (.txt) or HTML files, one note each; Evernote exports (.enex); notes from Google Keep (its Google Takeout .zip, or the .json files in it); or a .zip of any of these" onClick={() => importRef.current?.click()}><Icon name="upload" /><span className="grow">Import notes…</span></button>
+        <input ref={importRef} type="file" accept=".md,.markdown,.txt,.json,.enex,.html,.htm,.zip,text/markdown,text/plain,application/json,text/html,application/zip" multiple hidden aria-label="Notes to import" onChange={async (e) => {
           const picked = [...e.target.files]; e.target.value = '';
           try {
-            const files = await Promise.all(picked.map(async (f) => ({ name: f.name, text: await f.text() })));
+            if (picked.some((f) => /\.zip$/i.test(f.name) && f.size > 18e6)) throw new Error('A .zip of notes can be up to 18 MB: unzip it and choose the files instead');
+            const b64 = async (f) => { const bytes = new Uint8Array(await f.arrayBuffer()); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+            const files = await Promise.all(picked.map(async (f) => (/\.zip$/i.test(f.name) ? { name: f.name, base64: await b64(f) } : { name: f.name, text: await f.text() })));
             const r = await post('/notes/import', { files });
             toast(`${r.added} note${r.added === 1 ? '' : 's'} imported${r.skipped ? ` (${r.skipped} empty or deleted skipped)` : ''}`);
             setWhere({ archived: false, label: null, reminders: false }); load();
