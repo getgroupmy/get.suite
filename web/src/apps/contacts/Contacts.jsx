@@ -205,6 +205,7 @@ export default function Contacts() {
                 { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?ids=${[...picked].join(',')}`; } },
                 { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?format=csv&ids=${[...picked].join(',')}`; } },
               ]} />
+              <button type="button" className="btn small" title="Each as a card in a Chat conversation: colleagues can add them to their contacts" onClick={() => setSending(chosen)}><Icon name="chat" size={16} /> Send in Chat…</button>
               <button type="button" className="btn small" onClick={() => printHtml(contactsPrintHtml(chosen, { title: 'Contacts' }))}><Icon name="print" size={16} /> Print</button>
               <button type="button" className="btn small danger" onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
               <button type="button" className="link-btn small" onClick={() => setPicked(new Set())}>Clear</button>
@@ -247,7 +248,7 @@ export default function Contacts() {
       {undoing && <UndoChangesDialog onClose={() => setUndoing(false)} onDone={() => { setUndoing(false); setTab('mine'); load(); }} />}
       {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><ContactLog contact={history} onChanged={load} /><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
       {qr && <ContactQr contact={qr} onClose={() => setQr(null)} />}
-      {sending && <SendContact contact={sending} onClose={() => setSending(null)} />}
+      {sending && <SendContact contacts={[sending].flat()} onClose={() => setSending(null)} />}
       {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They go to Trash for 30 days (and off your phone on its next sync)." onClose={() => setDeletingMany(false)}
         onConfirm={async () => {
@@ -736,7 +737,9 @@ function ContactQr({ contact, onClose }) {
   );
 }
 
-function SendContact({ contact, onClose }) {
+function SendContact({ contacts, onClose }) {
+  const contact = contacts[0];
+  const many = contacts.length > 1;
   const toast = useToast();
   const navigate = useNavigate();
   const [convs, setConvs] = useState(null);
@@ -754,13 +757,14 @@ function SendContact({ contact, onClose }) {
   async function submit(e) {
     e.preventDefault();
     try {
-      await post(`/chat/channels/${to}/contact`, contact.colleague ? { user_id: contact.id, body: note } : { contact_id: contact.id, body: note });
+      // Each as its own card (the message goes with the first), in order.
+      for (const [k, c] of contacts.entries()) await post(`/chat/channels/${to}/contact`, c.colleague ? { user_id: c.id, body: k ? '' : note } : { contact_id: c.id, body: k ? '' : note });
       onClose();
-      toast(`${contact.name} sent to ${name(convs.find((c) => c.id === to))}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/chat/${to}`) } });
+      toast(`${many ? `${contacts.length} contacts` : contact.name} sent to ${name(convs.find((c) => c.id === to))}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/chat/${to}`) } });
     } catch (err) { setError(err.message); }
   }
   return (
-    <Modal title={`Send ${contact.name} in Chat`} onClose={onClose}>
+    <Modal title={many ? `Send ${contacts.length} contacts in Chat` : `Send ${contact.name} in Chat`} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
         <p className="muted small" style={{ margin: 0 }}>{contact.colleague
           ? 'Everyone in the conversation sees their name, address, job title, department and work phone, and can add them to their own contacts.'
