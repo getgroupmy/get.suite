@@ -143,6 +143,31 @@ export function linkRoutes() {
     res.json(req.query.expired === '1' ? out : out.filter((l) => !l.expired));
   });
 
+  // Apply the company's rules to the links that already exist: links without a password (when one is required)
+  // stop; links that last too long (or never expire) are shortened to the limit from now. Owners are told what
+  // happened to theirs. { stopped, shortened }.
+  r.post('/enforce', requireAdmin, (req, res) => {
+    const rules = linkRules(req.user.org_id);
+    if (!rules.maxDays && !rules.password) throw bad('Set a rule first: an expiry limit or required passwords');
+    const rows = q(`SELECT l.*, f.name AS file_name FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by
+                    WHERE u.org_id = ? AND (l.expires_at IS NULL OR l.expires_at > ?)`).all(req.user.org_id, now());
+    const limit = rules.maxDays ? now() + rules.maxDays * 864e5 : null;
+    const told = new Map(); // owner → { stopped: [names], shortened: [names] }
+    const tell = (l, what) => { if (!told.has(l.created_by)) told.set(l.created_by, { stopped: [], shortened: [] }); told.get(l.created_by)[what].push(l.file_name); };
+    let stopped = 0, shortened = 0;
+    for (const l of rows) {
+      if (rules.password && !l.password_hash) { q('DELETE FROM share_links WHERE id = ?').run(l.id); stopped++; tell(l, 'stopped'); continue; }
+      if (limit && (l.expires_at === null || l.expires_at > limit)) { q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(limit, l.id); shortened++; tell(l, 'shortened'); }
+    }
+    for (const [owner, w] of told) {
+      const parts = [w.stopped.length && `stopped ${w.stopped.length} link${w.stopped.length === 1 ? '' : 's'} without a password (${w.stopped.slice(0, 5).join(', ')})`,
+        w.shortened.length && `shortened ${w.shortened.length} to ${rules.maxDays} day${rules.maxDays === 1 ? '' : 's'} (${w.shortened.slice(0, 5).join(', ')})`].filter(Boolean);
+      bell([owner], { kind: 'share', title: 'Your share links now follow the company’s rules', body: `An admin ${parts.join(' and ')}.`, link: '/drive', actor: req.user.name });
+    }
+    audit(req, 'link.enforce', { details: { stopped, shortened } });
+    res.json({ stopped, shortened });
+  });
+
   r.delete('/:id', (req, res) => {
     const l = q('SELECT * FROM share_links WHERE id = ?').get(req.params.id);
     if (!l) throw notFound('Link not found');

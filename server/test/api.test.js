@@ -561,6 +561,29 @@ test('calendar invitations: guests see the event, answer it, and only the organi
   assert.equal((await guest('POST', `/api/events/${ev.body.id}/rsvp`, { status: 'no' })).status, 404);
 });
 
+test('share link rules applied to existing links: no password → stopped, too long → shortened; owners told', async () => {
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Enforce Co', domain: 'enforce.com', admin_name: 'Eva Admin', admin_local: 'eva', admin_password: 'password123' })).status, 201);
+  const eva = client(); await login(eva, 'eva@enforce.com');
+  assert.equal((await eva('POST', '/api/users', { local: 'ned', domain: 'enforce.com', name: 'Ned Maker', password: 'password123' })).status, 201);
+  const ned = client(); await login(ned, 'ned@enforce.com');
+  const file = (await ned('POST', '/api/files/upload?name=plan.pdf', '%PDF', { raw: true })).body;
+  const open = (await ned('POST', '/api/links', { file_id: file.id })).body; // no password, no expiry
+  const forever = (await ned('POST', '/api/links', { file_id: file.id, password: 'pass-1234' })).body; // password, no expiry
+  const soon = (await ned('POST', '/api/links', { file_id: file.id, password: 'pass-1234', expires_at: Date.now() + 3 * 864e5 })).body;
+  assert.equal((await eva('POST', '/api/links/enforce')).status, 400, 'no rules yet');
+  assert.equal((await ned('POST', '/api/links/enforce')).status, 403, 'admins only');
+  await eva('PATCH', '/api/orgs/current', { link_max_days: 10, link_password: true });
+  assert.deepEqual((await eva('POST', '/api/links/enforce')).body, { stopped: 1, shortened: 1 });
+  const left = new Map((await eva('GET', '/api/links/all')).body.map((l) => [l.id, l]));
+  assert.equal(left.has(open.id), false, 'stopped');
+  assert.ok(Math.abs(left.get(forever.id).expires_at - Date.now() - 10 * 864e5) < 60e3, 'shortened to 10 days');
+  assert.equal(left.get(soon.id).expires_at, soon.expires_at, 'already within the rules: untouched');
+  const n = JSON.stringify((await ned('GET', '/api/notifications')).body);
+  assert.match(n, /Your share links now follow the company’s rules/);
+  assert.match(n, /stopped 1 link without a password \(plan\.pdf\) and shortened 1 to 10 days \(plan\.pdf\)/);
+  assert.deepEqual((await eva('POST', '/api/links/enforce')).body, { stopped: 0, shortened: 0 }, 'nothing left to do');
+});
+
 test('public share links: no account needed; expiry, password, folders, revoking, company switch', async () => {
   const pub = client(); // nobody signed in
   const sharer = client();
