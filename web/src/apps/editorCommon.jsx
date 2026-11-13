@@ -9,6 +9,8 @@ import { SignatureBanner, SendForSignature } from './docs/Signatures.jsx';
 import { useAuth } from '../App.jsx';
 import { createPortal } from 'react-dom';
 import SendInChat from '../components/SendInChat.jsx';
+import { useMailStatus } from '../mailStatus.js';
+import { DRAFT_KEY } from './docs/blocks.js';
 
 /**
  * Debounced autosave with optimistic concurrency.
@@ -95,6 +97,16 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const [signing, setSigning] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [chatting, setChatting] = useState(false); // Send in Chat: its link in a conversation
+  const mail = useMailStatus();
+  // Email: a new message in Mail with its link, or with it attached (Mail asks first: as Word, PDF…, or a link).
+  const emailIt = (asFile) => {
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const url = `${window.location.origin}${window.location.pathname}`;
+    const draft = asFile ? { subject: file.name, convert: { id: file.id, name: file.name, size: file.size, mime: file.mime, kind: file.kind } }
+      : { subject: file.name, html: `<p><a href="${esc(url)}">${esc(file.name)}</a></p>` };
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  };
   // Locked: nobody can change it (editors can lock; whoever locked it, or the owner, can unlock).
   const { user } = useAuth();
   const canUnlock = file?.locked_at && (file.locked_by === user?.id || file.role === 'owner');
@@ -107,6 +119,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const offered = takeOff ? (menu || []).filter((it) => !(it && typeof it === 'object' && /^(Print|Download|Make a copy|Save as)/.test(it.label || ''))) : menu;
   const items = menu && file ? [...offered, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
     { label: 'Send in Chat…', icon: 'send', onClick: () => setChatting(true) },
+    ...(mail?.enabled ? [{ label: 'Email link', icon: 'mail', onClick: () => emailIt(false) }, ...(takeOff ? [] : [{ label: 'Email as attachment…', icon: 'mail', onClick: () => emailIt(true) }])] : []),
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
     ...(file.role === 'owner' ? [{ label: 'Publish to the web…', icon: 'link', onClick: () => setPublishing(true) }] : []),
     ...(canEdit && icon === 'doc' && !file.locked_at ? [{ label: 'Send for signature…', icon: 'edit', onClick: () => setSigning(true) }] : []),
