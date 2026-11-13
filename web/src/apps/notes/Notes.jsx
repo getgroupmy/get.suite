@@ -246,7 +246,7 @@ export default function Notes() {
  {history && <NoteHistory note={history} onClose={() => setHistory(null)} onRestored={() => { setHistory(null); load(); toast('Earlier version restored (what was there is kept in the history)'); }} />}
       {sharing && <ShareNote note={sharing} onClose={() => { setSharing(null); load(); }} />}
       {labelling && <LabelNote note={labelling} all={labels} onSave={async (ls) => { await change(labelling, { labels: ls }); setLabelling(null); }} onClose={() => setLabelling(null)} />}
-      {picking && <PickTime note={picking} onClose={() => setPicking(null)} onPick={(t) => { change(picking, { remind_at: t }); toast(`Reminder set for ${reminderText(t)}`); setPicking(null); }} />}
+      {picking && <PickTime note={picking} onClose={() => setPicking(null)} onPick={(t, more) => { change(picking, { remind_at: t, ...more }); toast(`Reminder set for ${reminderText(t)}${more?.remind_repeat ? `, ${REPEAT_CHOICES.find(([k]) => k === more.remind_repeat)?.[1].toLowerCase()}` : ''}`); setPicking(null); }} />}
       {labelEdit?.rename && <PromptModal title="Rename label" label="Label name" initial={labelEdit.rename} confirm="Rename"
         message="On every note with it, yours and those shared with you. A name you already use joins the two."
         onClose={() => setLabelEdit(null)} onSubmit={async (to) => {
@@ -364,9 +364,18 @@ function PickTime({ note, onPick, onClose }) {
   const start = new Date(note.remind_at || quickTimes()[0][1]);
   const [v, setV] = useState(`${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`);
   const t = new Date(v).getTime();
+  const [repeat, setRepeat] = useState(note.remind_repeat || '');
+  const [reset, setReset] = useState(!!note.remind_reset);
+  const save = () => onPick(t, { remind_repeat: repeat || null, ...(repeat && { remind_tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(note.items && { remind_reset: reset }) }) });
   return (
-    <Modal title="Remind me" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!(t > Date.now())} onClick={() => onPick(t)}>Save</button></>}>
+    <Modal title="Remind me" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!(t > Date.now())} onClick={save}>Save</button></>}>
       <label className="field"><span>Day and time</span><input type="datetime-local" value={v} onChange={(e) => setV(e.target.value)} /></label>
+      <label className="field"><span>Repeat</span>
+        <select value={repeat} onChange={(e) => setRepeat(e.target.value)}>
+          {REPEAT_CHOICES.map(([k, label]) => <option key={k || 'none'} value={k || ''}>{k ? label.replace('Repeat ', '').replace(/^./, (c) => c.toUpperCase()) : label}</option>)}
+        </select>
+      </label>
+      {repeat && note.items && <label className="check"><input type="checkbox" checked={reset} onChange={(e) => setReset(e.target.checked)} /> Untick the list each time</label>}
       <p className="muted small">{note.shared.length ? 'Everyone the note is shared with gets the reminder too.' : 'You get a notification then.'}</p>
     </Modal>
   );
