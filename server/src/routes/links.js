@@ -26,7 +26,7 @@ const sameKey = (a, b) => typeof a === 'string' && a.length === b.length && cryp
 
 function describeLink(l) {
   return { id: l.id, token: l.token, file_id: l.file_id, mode: l.mode || 'view', created_at: l.created_at, expires_at: l.expires_at,
-    has_password: !!l.password_hash, opens: l.opens, last_opened: l.last_opened, expired: !!l.expires_at && l.expires_at <= now() };
+    has_password: !!l.password_hash, notify_open: !!l.notify_open, opens: l.opens, last_opened: l.last_opened, expired: !!l.expires_at && l.expires_at <= now() };
 }
 
 /** Is the item (or a folder above it, up to `stopAt`) in the trash? */
@@ -107,8 +107,9 @@ export function linkRoutes() {
     if (password.length > 200) throw bad('Password is too long');
     const link = { id: uid(), token: crypto.randomBytes(18).toString('base64url'), file_id: f.id, created_by: req.user.id, mode,
       created_at: now(), expires_at: expires, password_hash: password ? hashPassword(password) : null, opens: 0, last_opened: null };
-    q(`INSERT INTO share_links (id, token, file_id, created_by, created_at, expires_at, password_hash, mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(link.id, link.token, link.file_id, link.created_by, link.created_at, link.expires_at, link.password_hash, mode);
+    link.notify_open = req.body.notify_open ? 1 : 0;
+    q(`INSERT INTO share_links (id, token, file_id, created_by, created_at, expires_at, password_hash, mode, notify_open)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(link.id, link.token, link.file_id, link.created_by, link.created_at, link.expires_at, link.password_hash, mode, link.notify_open);
     audit(req, mode === 'upload' ? 'link.request' : 'link.create', { target: f.name, details: { password: !!password, expires: expires } });
     res.json(describeLink(link));
   });
@@ -121,7 +122,7 @@ export function linkRoutes() {
     const f = ownFile(l.file_id, req.user);
     if (!linksAllowed(req.user.org_id)) throw forbidden('Your company has turned off public links');
     const b = req.body || {};
-    if (!('expires_at' in b) && !('password' in b)) throw bad('Say what to change: expires_at or password');
+    if (!('expires_at' in b) && !('password' in b) && !('notify_open' in b)) throw bad('Say what to change: expires_at, password or notify_open');
     const out = { ...l };
     if ('expires_at' in b) {
       let expires = null;
@@ -142,7 +143,8 @@ export function linkRoutes() {
       out.password_hash = pw ? hashPassword(pw) : null;
     }
     checkRules(req.user.org_id, { expires: 'expires_at' in b ? out.expires_at : undefined, password: 'password' in b ? (out.password_hash ? 'set' : '') : undefined });
-    q('UPDATE share_links SET expires_at = ?, password_hash = ?, warned_at = ? WHERE id = ?').run(out.expires_at, out.password_hash, 'expires_at' in b ? null : l.warned_at, l.id); // a new expiry: warned again before it
+    if ('notify_open' in b) out.notify_open = b.notify_open ? 1 : 0;
+    q('UPDATE share_links SET expires_at = ?, password_hash = ?, warned_at = ?, notify_open = ? WHERE id = ?').run(out.expires_at, out.password_hash, 'expires_at' in b ? null : l.warned_at, out.notify_open, l.id); // a new expiry: warned again before it
     if ('expires_at' in b) audit(req, 'link.expiry', { target: f.name, details: { expires: out.expires_at } });
     if ('password' in b) audit(req, 'link.password', { target: f.name, details: { password: !!out.password_hash } });
     res.json(describeLink(out));
@@ -235,7 +237,15 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     const l = liveLink(req.params.token);
     const info = { name: l.name, kind: l.kind, owner_name: l.owner_name, org_name: l.org_name, expires_at: l.expires_at, locked: !unlocked(l, req) };
     if (info.locked) return res.json(info);
-    if (!req.query.folder) q('UPDATE share_links SET opens = opens + 1, last_opened = ? WHERE id = ?').run(now(), l.id);
+    if (!req.query.folder) {
+      q('UPDATE share_links SET opens = opens + 1, last_opened = ? WHERE id = ?').run(now(), l.id);
+      // "Tell me when it's opened": the first time, then at most once an hour.
+      if (l.notify_open && (!l.notified_at || now() - l.notified_at >= 3600e3)) {
+        q('UPDATE share_links SET notified_at = ? WHERE id = ?').run(now(), l.id);
+        const n = l.opens + 1;
+        bell([l.created_by], { kind: 'share', title: `Your link to ${l.name} was opened`, body: n === 1 ? 'For the first time.' : `It's been opened ${n} times.`, link: `/drive?share=${l.file_id}`, actor: null });
+      }
+    }
     if (l.mode === 'upload') return res.json({ ...info, mode: 'upload' }); // a file request: nothing in the folder is shown
     Object.assign(info, { mime: l.mime, size: l.size, updated_at: l.updated_at, root: l.file_id });
     if (l.kind === 'folder') {

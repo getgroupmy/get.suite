@@ -239,6 +239,9 @@ db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
 if (!hasColumn('share_links', 'mode')) db.exec("ALTER TABLE share_links ADD COLUMN mode TEXT NOT NULL DEFAULT 'view'"); // view, or upload (a file request: people send files into the folder)
 // When the owner was told a link expires within a day (cleared when its expiry changes).
 if (!hasColumn('share_links', 'warned_at')) db.exec('ALTER TABLE share_links ADD COLUMN warned_at INTEGER');
+// Tell the owner when the link is opened (notify_open), at most once an hour (notified_at: the last time).
+if (!hasColumn('share_links', 'notify_open')) db.exec('ALTER TABLE share_links ADD COLUMN notify_open INTEGER NOT NULL DEFAULT 0');
+if (!hasColumn('share_links', 'notified_at')) db.exec('ALTER TABLE share_links ADD COLUMN notified_at INTEGER');
 // Phone sync (CalDAV/CardDAV): the file name and UID a phone gave an event or contact, and the parts
 // of a contact card Workspace doesn't show (addresses, birthdays, more numbers), kept as they came.
 if (!hasColumn('events', 'dav_name')) db.exec('ALTER TABLE events ADD COLUMN dav_name TEXT');

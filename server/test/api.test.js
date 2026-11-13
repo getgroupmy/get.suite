@@ -613,6 +613,34 @@ test('share links about to end: the owner is told once, a day before; extending 
   assert.ok(day.id);
 });
 
+test('share links: “tell me when it’s opened”, the first time and then at most once an hour', async () => {
+  const { q } = await import('../src/db.js');
+  assert.equal((await owner('POST', '/api/users', { local: 'opener', domain: 'acme.com', name: 'Opal Opener', password: 'password123' })).status, 201);
+  const opal = client(); await login(opal, 'opener@acme.com');
+  const pub = client();
+  const file = (await opal('POST', '/api/files/upload?name=quote-v2.pdf', '%PDF', { raw: true })).body;
+  const quiet = (await opal('POST', '/api/links', { file_id: file.id })).body;
+  assert.equal(quiet.notify_open, false);
+  const told = () => (opal('GET', '/api/notifications')).then((r) => r.body.filter?.((n) => /^Your link to quote-v2\.pdf was opened/.test(n.title)) ?? (r.body.items || []).filter((n) => /^Your link to quote-v2\.pdf was opened/.test(n.title)));
+  await pub('GET', `/api/public/links/${quiet.token}`);
+  assert.equal((await told()).length, 0, 'not asked for');
+  const loud = (await opal('POST', '/api/links', { file_id: file.id, notify_open: true })).body;
+  assert.equal(loud.notify_open, true);
+  await pub('GET', `/api/public/links/${loud.token}`);
+  await pub('GET', `/api/public/links/${loud.token}`);
+  let t = await told();
+  assert.equal(t.length, 1, 'once within the hour');
+  assert.equal(t[0].body, 'For the first time.');
+  q('UPDATE share_links SET notified_at = notified_at - 3600e3 WHERE id = ?').run(loud.id);
+  await pub('GET', `/api/public/links/${loud.token}`);
+  t = await told();
+  assert.equal(t.length, 2);
+  assert.ok(t.some((n) => n.body === 'It\'s been opened 3 times.'), JSON.stringify(t));
+  // Turned on for an existing link, and off again.
+  assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: true })).body.notify_open, true);
+  assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: false })).body.notify_open, false);
+});
+
 test('public share links: no account needed; expiry, password, folders, revoking, company switch', async () => {
   const pub = client(); // nobody signed in
   const sharer = client();

@@ -959,6 +959,7 @@ function LinkSharing({ file }) {
   const [password, setPassword] = useState('');
   const [usePassword, setUsePassword] = useState(needPassword);
   const [uploadOnly, setUploadOnly] = useState(false); // a file request: people send files in, and see nothing
+  const [notifyOpen, setNotifyOpen] = useState(false); // tell me when it's opened
   const [pwFor, setPwFor] = useState(null); // the link whose password is being set
   const [busy, setBusy] = useState(false);
 
@@ -969,7 +970,7 @@ function LinkSharing({ file }) {
   async function create() {
     setBusy(true);
     try {
-      const l = await checkData((more) => post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }), ...(uploadOnly && { mode: 'upload' }), ...more }));
+      const l = await checkData((more) => post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }), ...(uploadOnly && { mode: 'upload' }), ...(notifyOpen && !uploadOnly && { notify_open: true }), ...more }));
       if (!l) { setBusy(false); return; }
       setLinks([...links, l]);
       setPassword(''); setUsePassword(false); setUploadOnly(false);
@@ -1020,6 +1021,9 @@ function LinkSharing({ file }) {
             </div>
             {!l.expired && <button type="button" className="icon-btn" aria-label="Copy link" title="Copy link" onClick={() => copy(l)}><Icon name="copy" size={18} /></button>}
             {!l.expired && mail?.enabled && <button type="button" className="icon-btn" aria-label="Email link" title={l.mode === 'upload' ? 'Email the file request to someone' : 'Email the link to someone'} onClick={() => emailLink(l)}><Icon name="mail" size={18} /></button>}
+            {l.mode !== 'upload' && !l.expired && <button type="button" className="icon-btn" aria-pressed={l.notify_open} aria-label="Tell me when it’s opened"
+              title={l.notify_open ? 'You’re told when it’s opened (at most once an hour). Click to stop.' : 'Tell me when it’s opened'}
+              onClick={async () => { try { const n = await patch(`/links/${l.id}`, { notify_open: !l.notify_open }); setLinks((list) => list.map((x) => (x.id === l.id ? n : x))); toast(n.notify_open ? 'You’ll be told when it’s opened' : 'No more notices about it being opened'); } catch (e) { toast(e.message, 'error'); } }}>{l.notify_open ? '🔔' : '🔕'}</button>}
             <button type="button" className="icon-btn" aria-label={l.has_password ? 'Change password' : 'Add a password'} title={l.has_password ? 'Change the password (whoever used the old one needs the new one)' : 'Add a password to this link'} onClick={() => setPwFor(l)}>🔑</button>
             {l.has_password && !needPassword && <button type="button" className="icon-btn" aria-label="Remove password" title="Remove the password: anyone with the link can open it" onClick={() => setPassword_(l, '')}>🔓</button>}
             <select className="small" value="" aria-label="Change expiry" title="Change how long it works (the same link)" onChange={(e) => e.target.value && changeExpiry(l, e.target.value)}>
@@ -1036,6 +1040,7 @@ function LinkSharing({ file }) {
         </select>
         <label className="check"><input type="checkbox" checked={usePassword} disabled={needPassword} onChange={(e) => setUsePassword(e.target.checked)} /> Password</label>
         {file.kind === 'folder' && <label className="check"><input type="checkbox" checked={uploadOnly} onChange={(e) => setUploadOnly(e.target.checked)} /> File request (upload only)</label>}
+        {!uploadOnly && <label className="check" title="A notification the first time someone opens it, then at most once an hour"><input type="checkbox" checked={notifyOpen} onChange={(e) => setNotifyOpen(e.target.checked)} /> Tell me when it’s opened</label>}
         {usePassword && <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" aria-label="Link password" autoComplete="off" />}
         <button type="button" className="btn" onClick={create} disabled={!links || busy || (usePassword && password.length < 6)}><Icon name={uploadOnly ? 'upload' : 'link'} size={18} /> {uploadOnly ? 'Create file request' : 'Create link'}</button>
       </div>
