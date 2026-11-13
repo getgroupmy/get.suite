@@ -353,7 +353,12 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const [showing, setShowing] = useState(null); // after the meeting: 'people' | 'chat'
   // The calendar event this meeting is for: its meeting notes, one click away (the organiser can start them).
   const [calEvent, setCalEvent] = useState(null);
-  useEffect(() => { if (phase === 'call' && !guest) get(`/meet/${code}/event`).then(setCalEvent).catch(() => setCalEvent(null)); }, [phase, code, guest]);
+  useEffect(() => {
+    if (phase !== 'call' || guest) return undefined;
+    const load = () => get(`/meet/${code}/event`).then(setCalEvent).catch(() => setCalEvent(null));
+    load();
+    return onLive((m) => { if (m.type === 'events-changed') load(); }); // e.g. the organiser has just started the notes
+  }, [phase, code, guest]);
   const openNotes = async () => {
     const win = window.open('about:blank', '_blank'); // opened now, while it's a click (a pop-up blocker allows it)
     try {
