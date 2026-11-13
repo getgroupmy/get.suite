@@ -48,3 +48,18 @@ test('a blank form to fill in on paper: circles, boxes, lines, grids, scales; se
   assert.match(html, /<span>Bad<\/span>[\s\S]*5<\/span><span>Great<\/span>/);
   assert.equal((html.match(/class="line"/g) || []).length, 1 + 4);
 });
+
+test('the summary as a report: counts with shares, grids, averages, written answers', async () => {
+  const { summaryPrintHtml } = await import('./formprint.js');
+  const html = summaryPrintHtml({ title: 'Lunch' }, [
+    { id: 'a', title: 'Pick', answered: 4, bars: [{ label: 'Soup <hot>', count: 3, share: 0.75 }, { label: 'Salad', count: 1, share: 0.25 }] },
+    { id: 'b', title: 'Rate', answered: 2, grid: [{ row: 'Food', bars: [{ label: 'Good', count: 2 }, { label: 'Poor', count: 0 }] }] },
+    { id: 'c', title: 'Score', answered: 2, average: 4.5, bars: [] },
+    { id: 'd', title: 'Notes', answered: 1, texts: ['line 1\nline 2'] },
+  ], { count: 4 });
+  assert.match(html, /4 responses/);
+  assert.match(html, /Soup &lt;hot&gt;<\/td><td class="bar"><span style="width:75%"><\/span><\/td><td class="n">3 \(75%\)/);
+  assert.match(html, /<th>Food<\/th><td>2<\/td><td>0<\/td>/);
+  assert.match(html, /2 answers · average 4\.5/);
+  assert.match(html, /line 1<br>line 2/);
+});

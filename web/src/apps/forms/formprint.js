@@ -72,3 +72,27 @@ export function blankFormHtml(form) {
     h2.section { font-size: 16px; break-before: page; margin: 0 0 6px; border-bottom: 1px solid #000; } .note { color: #555; font-size: 12px; margin: 0 0 16px; }
   </style></head><body><h1>${esc(form.title || 'Form')}</h1>${form.description ? `<p class="desc">${esc(form.description)}</p>` : ''}${anyRequired ? '<p class="note"><span class="req">*</span> Required</p>' : ''}${body}</body></html>`;
 }
+
+/** The Summary as a report to print: per question, how many answered, bars with counts and shares, grids, rankings, written answers. */
+export function summaryPrintHtml(form, summary, { count = 0, date = new Date() } = {}) {
+  const pct = (s) => `${Math.round(s * 100)}%`;
+  const bars = (list) => `<table class="bars">${list.map((b) => `<tr><td class="l">${esc(b.label)}</td><td class="bar"><span style="width:${pct(b.share)}"></span></td><td class="n">${b.count} (${pct(b.share)})</td></tr>`).join('')}</table>`;
+  const block = (s) => {
+    let inner = '';
+    if (s.grid) inner = `<table class="grid"><tr><th></th>${(s.grid[0]?.bars || []).map((b) => `<th>${esc(b.label)}</th>`).join('')}</tr>${s.grid.map((g) => `<tr><th>${esc(g.row)}</th>${g.bars.map((b) => `<td>${b.count}</td>`).join('')}</tr>`).join('')}</table>`;
+    else if (s.bars) inner = bars(s.bars);
+    else if (s.ranks) inner = `<ol>${s.ranks.map((r) => `<li>${esc(r.label)} <span class="m">${r.average == null ? 'not ranked' : `average place ${r.average}`}${r.first ? ` · first for ${r.first}` : ''}</span></li>`).join('')}</ol>`;
+    else if (s.files) inner = `<ul>${s.files.slice(0, 200).map((f) => `<li>📎 ${esc(f.name)}</li>`).join('')}</ul>`;
+    else if (s.texts) inner = `<ul>${s.texts.slice(0, 200).map((t) => `<li>${esc(t).replace(/\n/g, '<br>')}</li>`).join('')}</ul>${s.texts.length > 200 ? `<p class="m">…and ${s.texts.length - 200} more</p>` : ''}`;
+    const others = s.others?.length ? `<p class="m">Other: ${s.others.slice(0, 50).map(esc).join(' · ')}</p>` : '';
+    return `<section class="q"><h2>${esc(s.title || 'Untitled question')}</h2><p class="m">${s.answered === 1 ? '1 answer' : `${s.answered} answers`}${s.average !== undefined ? ` · average ${s.average}` : ''}</p>${inner}${others}</section>`;
+  };
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(form.title || 'Form')}: summary</title><style>
+    body { font: 13px/1.45 system-ui, sans-serif; color: #000; margin: 24px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    h1 { font-size: 20px; margin: 0; } h2 { font-size: 14px; margin: 0; } .m { color: #555; margin: 2px 0 6px; font-size: 12px; }
+    .q { margin: 0 0 18px; break-inside: avoid; } table.bars { border-collapse: collapse; width: 100%; } .bars td { padding: 2px 6px 2px 0; }
+    .bars .l { width: 30%; } .bars .bar { width: 50%; } .bars .bar span { display: block; height: 12px; background: #1a73e8; min-width: 1px; } .bars .n { white-space: nowrap; color: #333; }
+    table.grid { border-collapse: collapse; } .grid th, .grid td { border: 1px solid #ccc; padding: 3px 8px; text-align: center; } .grid tr th:first-child { text-align: left; }
+    ul, ol { margin: 4px 0 0; padding-left: 20px; }
+  </style></head><body><h1>${esc(form.title || 'Form')}</h1><p class="m">${count === 1 ? '1 response' : `${count} responses`} · ${esc(date.toLocaleDateString([], { dateStyle: 'long' }))}</p>${summary.map(block).join('')}</body></html>`;
+}

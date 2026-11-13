@@ -1,7 +1,7 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
 import { printHtml } from '../mail/mailprint.js';
-import { responsesPrintHtml, blankFormHtml } from './formprint.js';
+import { responsesPrintHtml, blankFormHtml, summaryPrintHtml } from './formprint.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, del, onLive, formatDate, uploadFile } from '../../api.js';
@@ -457,6 +457,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
         <a className="btn" href={`/api/forms/${form.id}/responses.csv`} download>Download CSV</a>
         <a className="btn" href={`/api/forms/${form.id}/responses.xlsx`} download>Download Excel</a>
         {responses.length > 0 && <button type="button" className="btn" title="Every response on its own page, with each question and answer" onClick={() => printHtml(responsesPrintHtml(form, responses, { when: formatDate }))}><Icon name="print" size={18} /> Print</button>}
+        {responses.length > 0 && <button type="button" className="btn" title="The Summary as a report: each question's counts, bars and averages" onClick={() => printHtml(summaryPrintHtml(form, summarize(form.questions, responses), { count: responses.length }))}><Icon name="print" size={18} /> Print summary</button>}
         {linked
           ? <span className="row linked-sheet"><a className="btn" href={`/sheets/${linked.id}`} target="_blank" rel="noreferrer"><Icon name="sheet" size={18} /> Linked spreadsheet</a>
             <button type="button" className="link-btn small" onClick={unlink}>Unlink</button></span>
