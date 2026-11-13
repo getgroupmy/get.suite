@@ -164,10 +164,19 @@ function AskToJoin({ code, here }) {
   // On a calendar event: those invited who aren't here yet, to ring all at once.
   const [missing, setMissing] = useState([]);
   const hereKey = here.join(',');
-  useEffect(() => { get(`/meet/${code}/missing`).then(setMissing).catch(() => setMissing([])); }, [code, hereKey]);
+  useEffect(() => {
+    const load = () => get(`/meet/${code}/missing`).then(setMissing).catch(() => setMissing([]));
+    load();
+    const t = setInterval(load, 30000); // answers to the invitation change meanwhile
+    return () => clearInterval(t);
+  }, [code, hereKey]);
   const ringMissing = async () => {
     setBusy(true);
-    try { const r = await post(`/meet/${code}/invite`, { user_ids: missing.slice(0, 8).map((p) => p.id) }); toast(`Ringing ${r.asked.join(', ')}…`); } catch (err) { toast(err.message, 'error'); }
+    try {
+      const asked = [];
+      for (let i = 0; i < missing.length; i += 8) asked.push(...(await post(`/meet/${code}/invite`, { user_ids: missing.slice(i, i + 8).map((p) => p.id) })).asked); // 8 at a time
+      toast(asked.length > 3 ? `Ringing ${asked.slice(0, 3).join(', ')} and ${asked.length - 3} more…` : `Ringing ${asked.join(', ')}…`);
+    } catch (err) { toast(err.message, 'error'); }
     setBusy(false);
   };
   const choices = people.filter((p) => !here.includes(p.id));
