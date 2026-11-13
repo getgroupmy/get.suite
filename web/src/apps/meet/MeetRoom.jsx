@@ -351,6 +351,17 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const [leftAt, setLeftAt] = useState(0);
   const [past] = useMeetPast(phase === 'left' && !guest ? code : null, leftAt);
   const [showing, setShowing] = useState(null); // after the meeting: 'people' | 'chat'
+  // The calendar event this meeting is for: its meeting notes, one click away (the organiser can start them).
+  const [calEvent, setCalEvent] = useState(null);
+  useEffect(() => { if (phase === 'call' && !guest) get(`/meet/${code}/event`).then(setCalEvent).catch(() => setCalEvent(null)); }, [phase, code, guest]);
+  const openNotes = async () => {
+    const win = window.open('about:blank', '_blank'); // opened now, while it's a click (a pop-up blocker allows it)
+    try {
+      const id = calEvent.notes?.id || (await post(`/events/${calEvent.id}/notes`, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone })).id;
+      if (!calEvent.notes) setCalEvent({ ...calEvent, notes: { id } });
+      if (win) win.location.href = `/docs/${id}`; else window.open(`/docs/${id}`, '_blank');
+    } catch (e) { win?.close(); toast(e.message, 'error'); }
+  };
   const noteLeft = () => { setStayed(startedRef.current ? Date.now() - startedRef.current : 0); setTimeout(() => setLeftAt(Date.now()), 600); };
   const [, tick] = useReducer((n) => n + 1, 0);
   const panelRef = useRef(panel);
@@ -633,6 +644,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           onClick={() => (sharing ? m.stopScreen() : m.shareScreen().catch(() => {}))}>🖥</button>}
         <button type="button" className={`meet-btn ${m.state.hand ? 'on' : ''}`} aria-pressed={m.state.hand} aria-label={m.state.hand ? 'Lower hand' : 'Raise hand'} onClick={() => m.setState({ hand: !m.state.hand })}>✋</button>
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>
+        {calEvent && (calEvent.notes || calEvent.organiser) && <button type="button" className="meet-btn" aria-label={calEvent.notes ? 'Open the meeting notes' : 'Take meeting notes'} title={calEvent.notes ? `Meeting notes for “${calEvent.title}”` : `Start meeting notes for “${calEvent.title}” (everyone invited can write in them)`} onClick={openNotes}>📝</button>}
         <button type="button" className={`meet-btn ${panel === 'devices' ? 'on' : ''}`} aria-label="Audio and video settings" title="Camera and microphone" onClick={() => setPanel(panel === 'devices' ? null : 'devices')}>⚙</button>
         <button type="button" className={`meet-btn ${panel === 'chat' ? 'on' : ''}`} aria-label={unread ? `Chat, ${unread} new` : 'Chat'} onClick={() => { setPanel(panel === 'chat' ? null : 'chat'); setUnread(0); }}>💬{unread > 0 && <span className="nav-badge">{unread}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'qa' ? 'on' : ''}`} aria-label={newQs ? `Questions, ${newQs} new` : 'Questions'} onClick={() => { setPanel(panel === 'qa' ? null : 'qa'); setNewQs(0); }}>❓{newQs > 0 && <span className="nav-badge">{newQs}</span>}</button>

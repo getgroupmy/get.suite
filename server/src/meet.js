@@ -14,6 +14,7 @@ import { notify } from './notifications.js';
 import { audit } from './audit.js';
 import { sendTo } from './hub.js';
 import { canReach } from './tenancy.js';
+import { roleFor } from './access.js';
 
 q(`CREATE TABLE IF NOT EXISTS meetings (
   code TEXT PRIMARY KEY,
@@ -213,6 +214,20 @@ export function meetRoutes() {
     notify(asked.map((u) => u.id), { kind: 'chat', title: `📞 ${req.user.name} is asking you to join “${title}”`, body: 'Tap to join the video meeting.', link: `/meet/${m.code}`, actor: req.user.name });
     res.json({ asked: asked.map((u) => u.name), already: people.filter((u) => here.has(u.id)).map((u) => u.name) });
   });
+  // The calendar event this meeting is for (yours, or one you're invited to and haven't said no to), nearest to now:
+  // its title, its meeting notes document (if there is one you can open), and whether you organise it.
+  r.get('/:code/event', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT code FROM meetings WHERE code = ?').get(req.params.code);
+    if (!m) throw notFound();
+    const evs = q(`SELECT e.id, e.title, e.start, e.owner_id, e.notes_id FROM events e WHERE e.meet_code = ? AND (e.owner_id = ?
+                   OR EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id AND g.user_id = ? AND g.status != 'no'))`).all(m.code, req.user.id, req.user.id);
+    if (!evs.length) return res.json(null);
+    const t = Date.now();
+    const ev = evs.sort((a, b) => Math.abs(a.start - t) - Math.abs(b.start - t))[0];
+    const notes = ev.notes_id && q('SELECT id, name FROM files WHERE id = ? AND trashed = 0').get(ev.notes_id);
+    res.json({ id: ev.id, title: ev.title, organiser: ev.owner_id === req.user.id, notes: notes && roleFor(notes.id, req.user.id) ? { id: notes.id, name: notes.name } : null });
+  });
+
   // For a meeting on a calendar event: who's invited (its organiser and guests, not those who said no) and isn't
   // in it now, to ring them all at once. Only for people in the meeting.
   r.get('/:code/missing', (req, res) => {

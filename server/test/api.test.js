@@ -13979,3 +13979,24 @@ test('calendar: running late is said in the event’s own channel too (Chat with
   const solo = (await a('POST', '/api/events', { title: 'No channel', start, end: start + 60e3, guests: ['latec2@acme.com'] })).body;
   assert.equal((await b('POST', `/api/events/${solo.id}/late`, { minutes: 5, at: start })).status, 200, 'fine without a channel');
 });
+
+test('meet: a meeting’s calendar event and its notes — for its organiser and guests coming', async () => {
+  const a = client(), b = client(), c = client(), d = client();
+  for (const [x, local] of [[a, 'mnot1'], [b, 'mnot2'], [c, 'mnot3'], [d, 'mnot4']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+    await login(x, `${local}@acme.com`);
+  }
+  const { code } = (await a('POST', '/api/meet', { title: 'Weekly' })).body;
+  const plain = (await a('POST', '/api/meet', { title: 'Ad hoc' })).body.code;
+  const start = Date.now() + 5 * 60e3;
+  const ev = (await a('POST', '/api/events', { title: 'Weekly review', start, end: start + 3600e3, meet_code: code, guests: ['mnot2@acme.com', 'mnot4@acme.com'] })).body;
+  await d('POST', `/api/events/${ev.id}/rsvp`, { status: 'no' });
+  assert.deepEqual((await a('GET', `/api/meet/${code}/event`)).body, { id: ev.id, title: 'Weekly review', organiser: true, notes: null });
+  assert.equal((await a('GET', `/api/meet/${plain}/event`)).body, null, 'a meeting without an event');
+  const notes = (await a('POST', `/api/events/${ev.id}/notes`, { tz: 'UTC' })).body;
+  const forB = (await b('GET', `/api/meet/${code}/event`)).body;
+  assert.equal(forB.organiser, false);
+  assert.equal(forB.notes.id, notes.id, 'a guest sees the notes (shared with them)');
+  assert.equal((await c('GET', `/api/meet/${code}/event`)).body, null, 'not for someone not on it');
+  assert.equal((await d('GET', `/api/meet/${code}/event`)).body, null, 'nor for a guest who said no');
+});
