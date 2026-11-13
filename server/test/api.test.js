@@ -672,6 +672,18 @@ test('share links: “tell me when it’s opened”, the first time and then at 
   assert.deepEqual((await opal('GET', '/api/links/mine')).body.map((l) => l.id), [loud.id]);
   assert.equal((await opal('GET', '/api/links/mine?expired=1')).body.length, 2);
   q('UPDATE share_links SET expires_at = NULL WHERE id = ?').run(quiet.id);
+  // Their own kind in the bell's settings: turned off, no “opened” notice; files shared with her still come.
+  const kinds = (await opal('GET', '/api/notifications/settings')).body.kinds;
+  assert.ok(kinds.some((k) => k.kind === 'link' && /Your share links/.test(k.label)));
+  await opal('PUT', '/api/notifications/settings', { off: ['link'] });
+  q('UPDATE share_links SET notified_at = notified_at - 3600e3 WHERE id = ?').run(loud.id);
+  await pub('GET', `/api/public/links/${loud.token}`);
+  assert.equal((await told()).length, 2, 'no new notice');
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'For Opal' })).body;
+  const opalId = (await opal('GET', '/api/auth/me')).body.user.id;
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: opalId, role: 'viewer' }] });
+  assert.ok(JSON.stringify((await opal('GET', '/api/notifications')).body).includes('For Opal'), 'shares still come');
+  await opal('PUT', '/api/notifications/settings', { off: [] });
   // Turned on for an existing link, and off again.
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: true })).body.notify_open, true);
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: false })).body.notify_open, false);

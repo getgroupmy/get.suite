@@ -63,7 +63,7 @@ export function warnExpiringLinks(at = now()) {
   for (const l of rows) {
     q('UPDATE share_links SET warned_at = ? WHERE id = ?').run(at, l.id);
     const hours = Math.max(1, Math.round((l.expires_at - at) / 3600e3));
-    bell([l.created_by], { kind: 'share', title: `Your link to ${l.name} stops working in ${hours} hour${hours === 1 ? '' : 's'}`, body: 'Open Share to give it longer (the link stays the same), or let it end.', link: `/drive?share=${l.file_id}`, actor: null });
+    bell([l.created_by], { kind: 'link', title: `Your link to ${l.name} stops working in ${hours} hour${hours === 1 ? '' : 's'}`, body: 'Open Share to give it longer (the link stays the same), or let it end.', link: `/drive?share=${l.file_id}`, actor: null });
   }
   return rows.length;
 }
@@ -187,7 +187,7 @@ export function linkRoutes() {
     for (const [owner, w] of told) {
       const parts = [w.stopped.length && `stopped ${w.stopped.length} link${w.stopped.length === 1 ? '' : 's'} without a password (${w.stopped.slice(0, 5).join(', ')})`,
         w.shortened.length && `shortened ${w.shortened.length} to ${rules.maxDays} day${rules.maxDays === 1 ? '' : 's'} (${w.shortened.slice(0, 5).join(', ')})`].filter(Boolean);
-      bell([owner], { kind: 'share', title: 'Your share links now follow the company’s rules', body: `An admin ${parts.join(' and ')}.`, link: '/drive', actor: req.user.name });
+      bell([owner], { kind: 'link', title: 'Your share links now follow the company’s rules', body: `An admin ${parts.join(' and ')}.`, link: '/drive', actor: req.user.name });
     }
     audit(req, 'link.enforce', { details: { stopped, shortened } });
     res.json({ stopped, shortened });
@@ -200,7 +200,7 @@ export function linkRoutes() {
     if (!who) throw notFound('Person not found');
     const ids = q('SELECT id FROM share_links WHERE created_by = ? AND (expires_at IS NULL OR expires_at > ?)').all(who.id, now()).map((x) => x.id);
     for (const id of ids) q('DELETE FROM share_links WHERE id = ?').run(id);
-    if (ids.length && who.id !== req.user.id) bell([who.id], { kind: 'share', title: `An admin stopped your ${ids.length === 1 ? 'link' : `${ids.length} links`} for people without an account`, body: `${req.user.name || req.user.username} stopped ${ids.length === 1 ? 'it' : 'them all'} in Admin → Share links; ${ids.length === 1 ? 'it no longer works' : 'they no longer work'}.`, link: '/drive/links', actor: req.user.name });
+    if (ids.length && who.id !== req.user.id) bell([who.id], { kind: 'link', title: `An admin stopped your ${ids.length === 1 ? 'link' : `${ids.length} links`} for people without an account`, body: `${req.user.name || req.user.username} stopped ${ids.length === 1 ? 'it' : 'them all'} in Admin → Share links; ${ids.length === 1 ? 'it no longer works' : 'they no longer work'}.`, link: '/drive/links', actor: req.user.name });
     audit(req, 'link.stopall', { target: who.name, details: { stopped: ids.length } });
     res.json({ stopped: ids.length });
   });
@@ -230,7 +230,7 @@ export function linkRoutes() {
     if (!adminHere) ownFile(l.file_id, req.user);
     else if (l.created_by !== req.user.id) {
       const f = q('SELECT name FROM files WHERE id = ?').get(l.file_id);
-      bell([l.created_by], { kind: 'share', title: `An admin stopped your link to ${f?.name || 'a file'}`, body: `${req.user.name || req.user.username} removed it in Admin → Share links; it no longer works.`, link: `/drive`, actor: req.user.name });
+      bell([l.created_by], { kind: 'link', title: `An admin stopped your link to ${f?.name || 'a file'}`, body: `${req.user.name || req.user.username} removed it in Admin → Share links; it no longer works.`, link: `/drive`, actor: req.user.name });
     }
     q('DELETE FROM share_links WHERE id = ?').run(l.id);
     audit(req, 'link.delete', { target: q('SELECT name FROM files WHERE id = ?').get(l.file_id)?.name });
@@ -280,7 +280,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
       if (l.notify_open && (!l.notified_at || now() - l.notified_at >= 3600e3)) {
         q('UPDATE share_links SET notified_at = ? WHERE id = ?').run(now(), l.id);
         const n = l.opens + 1;
-        bell([l.created_by], { kind: 'share', title: `Your link to ${l.name} was opened`, body: n === 1 ? 'For the first time.' : `It's been opened ${n} times.`, link: `/drive?share=${l.file_id}`, actor: null });
+        bell([l.created_by], { kind: 'link', title: `Your link to ${l.name} was opened`, body: n === 1 ? 'For the first time.' : `It's been opened ${n} times.`, link: `/drive?share=${l.file_id}`, actor: null });
       }
     }
     if (l.mode === 'upload') return res.json({ ...info, mode: 'upload' }); // a file request: nothing in the folder is shown
@@ -342,7 +342,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     const id = insertFile({ owner: l.created_by, parentId: l.file_id, name, kind: 'file', mime: mimeFor(name), size, storage, activity: { by: null, action: 'request', details: { from: from || null } } });
     q('UPDATE files SET description = ? WHERE id = ?').run(`Sent${from ? ` by ${from}` : ''} through a file request`, id);
     const saved = q('SELECT name FROM files WHERE id = ?').get(id).name;
-    bell([l.created_by], { kind: 'share', title: `${from || 'Someone'} sent “${saved}”`, body: `Into ${l.name} through a file request`, link: `/drive/folder/${l.file_id}`, actor: from || null });
+    bell([l.created_by], { kind: 'link', title: `${from || 'Someone'} sent “${saved}”`, body: `Into ${l.name} through a file request`, link: `/drive/folder/${l.file_id}`, actor: from || null });
     sendTo([l.created_by], { type: 'files-changed', parent_id: l.file_id });
     res.status(201).json({ name: saved, size });
   });
