@@ -10101,6 +10101,9 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   assert.ok(HOME_CARDS.includes('saved'), 'saved in chat');
   assert.ok(HOME_CARDS.includes('reminders'), 'chat reminders');
   assert.ok(HOME_CARDS.includes('notereminders'), 'note reminders');
+  assert.ok(HOME_CARDS.includes('meetings'), 'recent video meetings');
+  assert.equal((await a('PUT', '/api/users/me/home-layout', { hidden: ['meetings'] })).status, 200, 'the meetings card can be hidden');
+  await a('PUT', '/api/users/me/home-layout', { reset: true });
   assert.ok(HOME_CARDS.includes('office'), 'in the office today');
   const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
   assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');

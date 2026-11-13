@@ -17,6 +17,7 @@ const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minu
 
 import { placeText } from '../../components/workloc.js';
 import { greeting } from './greeting.js';
+import { Attendance, KeptChat } from '../../components/MeetHistory.jsx';
 import { upcoming, addDays, sinceText } from './dates.js';
 
 /** "tomorrow", "Mon 16 Nov" for a YYYY-MM-DD. */
@@ -28,7 +29,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -45,11 +46,12 @@ export default function Home() {
   const toast = useToast();
   const mail = useMailStatus();
   const [data, setData] = useState(null);
+  const [meetOpen, setMeetOpen] = useState(null); // { m, what: 'people' | 'chat' }: a recent meeting's Who joined or chat
   const load = useCallback(async () => {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders, meetings] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -66,6 +68,7 @@ export default function Home() {
       safe(get('/chat/saved'), []),
       safe(get('/chat/reminders'), []),
       safe(get('/notes?reminders=1'), []),
+      safe(get('/meet'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -89,6 +92,8 @@ export default function Home() {
       saved: saved.slice(0, 5), savedMore: Math.max(0, saved.length - 5),
       reminders: reminders.slice(0, 5), remindersMore: Math.max(0, reminders.length - 5),
       noteReminders: noteReminders.filter((n) => n.remind_at).slice(0, 5), noteRemindersMore: Math.max(0, noteReminders.length - 5),
+      // Video meetings used in the last week (yours, and ones you've been in), newest first.
+      meetings: (Array.isArray(meetings) ? meetings : []).filter((m) => m.people > 0 || m.last_used >= Date.now() - 7 * 864e5).slice(0, 4),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -296,6 +301,24 @@ export default function Home() {
                 })}
               </ul>
               {data.savedMore > 0 && <Link className="small" to="/chat?saved=1">and {data.savedMore} more</Link>}
+            </section>
+          )}
+          {data.meetings.length > 0 && (
+            <section className="card home-card" aria-label="Recent video meetings" {...cardProps('meetings')}>
+              <h2><Link to="/meet"><span aria-hidden="true">📹</span> Recent video meetings</Link></h2>
+              <ul className="home-list">
+                {data.meetings.map((m) => (
+                  <li key={m.code}>
+                    <span className="grow ellipsis" title={m.title || m.code}>{m.title || m.code}
+                      <span className="muted small"> · {m.people > 0 ? <span className="meet-live">● {m.people} in it</span> : formatDate(m.last_used)}</span></span>
+                    {m.chat_count > 0 && <button type="button" className="btn small" aria-label={`Chat from ${m.title || m.code}`} onClick={() => setMeetOpen({ m, what: 'chat' })}>💬 {m.chat_count}</button>}
+                    <button type="button" className="btn small" aria-label={`Who joined ${m.title || m.code}`} onClick={() => setMeetOpen({ m, what: 'people' })}>👥</button>
+                    <a className="btn small primary" href={`/meet/${m.code}`} target="_blank" rel="noreferrer" aria-label={`Join ${m.title || m.code}`}>Join</a>
+                  </li>
+                ))}
+              </ul>
+              {meetOpen?.what === 'people' && <Attendance meeting={meetOpen.m} onClose={() => setMeetOpen(null)} />}
+              {meetOpen?.what === 'chat' && <KeptChat meeting={meetOpen.m} onClose={() => setMeetOpen(null)} onDeleted={() => load()} />}
             </section>
           )}
           {data.noteReminders.length > 0 && (
