@@ -13597,3 +13597,38 @@ test('chat: where a file was shared, for its Details: conversations you can read
   assert.ok(near.some((m) => m.id === first.id), 'a link to a reply shows the conversation around the message it answers');
   assert.equal((await c('GET', `/api/chat/channels/${dm}/messages?around=${reply.id}`)).status, 404);
 });
+
+test('chat: Save to Drive copies an attachment into your Drive (My Drive or a folder you can edit)', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [x, local] of [[a, 'csav1'], [b, 'csav2'], [c, 'csav3']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'csav2@acme.com'").get().id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const up = (await a('POST', '/api/files/upload?name=report.txt', 'the report', { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+  const m = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Here', files: [up.id] })).body;
+  const save = (who, body = {}) => who('POST', `/api/chat/messages/${m.id}/files/${up.id}/save`, body);
+
+  const saved = await save(b);
+  assert.equal(saved.status, 201, JSON.stringify(saved.body));
+  assert.deepEqual([saved.body.name, saved.body.parent_id], ['report.txt', null], 'in My Drive');
+  const mine = (await b('GET', '/api/files')).body.find((f) => f.id === saved.body.id);
+  assert.equal(mine.role, 'owner', 'their own copy');
+  assert.equal((await b('GET', `/api/files/${saved.body.id}/raw`)).body, 'the report');
+  const again = (await save(b)).body;
+  assert.equal(again.name, 'report (1).txt', 'a second copy gets a new name');
+
+  const folder = (await b('POST', '/api/files/folder', { name: 'From chat' })).body.id;
+  assert.equal((await save(b, { parent_id: folder })).body.parent_id, folder, 'into a folder');
+  const theirs = (await a('POST', '/api/files/folder', { name: 'Not yours' })).body.id;
+  assert.equal((await save(b, { parent_id: theirs })).status, 404, 'not into a folder you cannot edit');
+  assert.equal((await save(a)).status, 400, 'the sender has it already');
+  assert.equal((await save(c)).status, 404, 'not for people outside the conversation');
+  assert.equal((await b('POST', `/api/chat/messages/${m.id}/files/${folder}/save`, {})).status, 404, 'only files attached to the message');
+  await a('PATCH', `/api/files/${up.id}`, { trashed: true });
+  assert.equal((await save(b)).status, 404, 'not once the original is in the trash');
+  assert.equal((await b('GET', `/api/files/${saved.body.id}/raw`)).body, 'the report', 'the copy stays');
+});

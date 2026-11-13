@@ -19,7 +19,7 @@ import { q, tx, FILES_DIR } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
-import { insertFile } from './files.js';
+import { insertFile, resolveParent } from './files.js';
 import { conversationText, conversationHtml, cardLines } from '../chatexport.js';
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 import { contactCard, colleagueCard, addContactFrom } from './contacts.js';
@@ -157,7 +157,7 @@ export function cleanPoll(p) {
   return { question, options: texts.map((text, i) => ({ id: `o${i + 1}`, text })), multi: !!p.multi };
 }
 import { sendTo, onlineUserIds } from '../hub.js';
-import { canReach, orgMemberIds } from '../tenancy.js';
+import { canReach, orgMemberIds, checkQuota } from '../tenancy.js';
 import { groupSlug } from '../groups.js';
 import { namesIn, userIdsIn, newCode, onCallEnded } from '../meet.js';
 import { baseUrl, focusUntil } from './calendar.js';
@@ -1760,6 +1760,19 @@ export default function chatRoutes() {
     const f = messageFile(req);
     if (!/\.zip$/i.test(f.name)) throw bad('Not a zip file');
     res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
+  });
+
+  // Save to Drive: a copy of a file someone attached, in your Drive (My Drive, or a folder you can edit).
+  r.post('/messages/:id/files/:fileId/save', (req, res) => {
+    const f = messageFile(req);
+    if (f.owner_id === req.user.id && req.body?.parent_id === undefined) throw bad('It’s already in your Drive');
+    const parentId = resolveParent(req.body?.parent_id || null, req.user);
+    checkQuota(req.user.org_id, f.size || 0, req.user.id);
+    const storage = uid();
+    fs.copyFileSync(path.join(FILES_DIR, f.storage), path.join(FILES_DIR, storage));
+    const id = insertFile({ owner: req.user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: f.name } } });
+    const saved = q('SELECT id, name, parent_id FROM files WHERE id = ?').get(id);
+    res.status(201).json({ ...saved });
   });
 
   r.get('/messages/:id/files/:fileId/eml', async (req, res) => {

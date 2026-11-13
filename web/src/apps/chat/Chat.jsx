@@ -14,6 +14,7 @@ import { DRAFT_KEY } from '../docs/blocks.js';
 import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
 import ConvFiles from './ConvFiles.jsx';
+import { saveToDrive } from './savefile.js';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { useCompanyEmoji, imageUrl, splitEmoji, customName, reloadEmoji } from './companyemoji.js';
@@ -1057,6 +1058,10 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Copy link to message" title="Copy link to message" onClick={copyLink}><Icon name="link" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
+        {m.files?.length > 0 && m.user_id !== user.id && (m.files.length === 1
+          ? <button type="button" className="icon-btn" aria-label={`Save ${m.files[0].name} to Drive`} title="Save to Drive" onClick={() => saveToDrive(toast, navigate, m.id, m.files[0])}><Icon name="folder" size={16} /></button>
+          : <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}
+            items={m.files.map((f) => ({ label: `Save “${f.name}” to Drive`, onClick: () => saveToDrive(toast, navigate, m.id, f) }))} />)}
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
         {(m.user_id === user.id || user.is_admin) && (

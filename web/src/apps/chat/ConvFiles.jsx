@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get, formatBytes } from '../../api.js';
+import { useAuth } from '../../App.jsx';
+import { useToast } from '../../components/ui.jsx';
+import { saveToDrive } from './savefile.js';
 import Icon from '../../components/Icon.jsx';
 
 const OPEN = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
@@ -13,6 +16,8 @@ export const fileHref = (f) => (f.how === 'attached' ? `/api/chat/messages/${f.m
 
 export default function ConvFiles({ channelId }) {
   const navigate = useNavigate();
+  const toast = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [list, setList] = useState(null);
@@ -45,6 +50,7 @@ export default function ConvFiles({ channelId }) {
                     <a href={fileHref(f)} target={f.how === 'attached' ? '_blank' : undefined} rel="noreferrer" onClick={(e) => { if (f.how !== 'attached') { e.preventDefault(); setOpen(false); navigate(fileHref(f)); } }}>{f.name}</a>
                     <span className="muted small">{f.how === 'attached' ? formatBytes(f.size) : (KIND_NAME[f.kind] || 'File')} · {f.user_name} · {new Date(f.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
                   </span>
+                  {f.how === 'attached' && f.user_id !== user.id && <button type="button" className="link-btn small" aria-label={`Save ${f.name} to Drive`} onClick={() => saveToDrive(toast, navigate, f.message_id, f)}>Save</button>}
                   <button type="button" className="link-btn small" aria-label={`Show ${f.name} in the conversation`} onClick={() => show(f)}>Show</button>
                 </li>
               ))}

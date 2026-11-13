@@ -212,7 +212,7 @@ function notify(fileId, payload) {
 }
 
 /** Parent folder for a new item; null means the user's root. */
-function resolveParent(parentId, user) {
+export function resolveParent(parentId, user) {
   if (!parentId) return null;
   const p = loadFile(parentId, user, 'editor');
   if (p.kind !== 'folder') throw bad('Parent is not a folder');

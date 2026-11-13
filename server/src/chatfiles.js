@@ -24,7 +24,7 @@ export function linkedFileIds(text) {
  * once (its latest mention). `query` narrows by name.
  */
 export function conversationFiles(channelId, userId, query = '') {
-  const rows = q(`SELECT m.id, m.parent_id, m.body, m.files, m.created_at, COALESCE(u.name, m.bot, 'Deleted user') AS user_name
+  const rows = q(`SELECT m.id, m.parent_id, m.user_id, m.body, m.files, m.created_at, COALESCE(u.name, m.bot, 'Deleted user') AS user_name
     FROM messages m LEFT JOIN users u ON u.id = m.user_id
     WHERE m.channel_id = ? AND m.deleted_at IS NULL AND (m.files IS NOT NULL OR m.body LIKE '%/%') ORDER BY m.created_at DESC, m.rowid DESC`).all(channelId);
   const seen = new Set();
@@ -35,7 +35,7 @@ export function conversationFiles(channelId, userId, query = '') {
     if (seen.has(f.id)) return;
     seen.add(f.id);
     if (needle && !f.name.toLowerCase().includes(needle)) return;
-    out.push({ id: f.id, name: f.name, kind: f.kind, mime: f.mime || null, size: f.size || 0, how, message_id: m.id, parent_id: m.parent_id || null, user_name: m.user_name, created_at: m.created_at });
+    out.push({ id: f.id, name: f.name, kind: f.kind, mime: f.mime || null, size: f.size || 0, how, message_id: m.id, parent_id: m.parent_id || null, user_id: m.user_id || null, user_name: m.user_name, created_at: m.created_at });
   };
   for (const m of rows) {
     if (out.length >= MAX_CONVERSATION_FILES) break;
