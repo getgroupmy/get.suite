@@ -5348,6 +5348,36 @@ test('Chat with people who have access: a shared file’s own private channel, f
   assert.equal(q('SELECT topic FROM channels WHERE id = ?').get(fc.id).topic, 'About the folder Tender 2027');
 });
 
+test('Chat with people it’s shared with: a shared note’s own channel', async () => {
+  const { q } = await import('../src/db.js');
+  const ids = {};
+  for (const l of ['ncha', 'nchb', 'nchc']) ids[l] = (await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: `Note ${l}`, password: 'password123' })).body.id;
+  const a = client(), b = client(), c = client();
+  await login(a, 'ncha@acme.com'); await login(b, 'nchb@acme.com'); await login(c, 'nchc@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Offsite menu', body: 'Vegetarian options' })).body;
+  assert.match((await a('POST', `/api/notes/${n.id}/chat`)).body.error, /Share the note with someone first/);
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.nchb] });
+  assert.equal((await c('POST', `/api/notes/${n.id}/chat`)).status, 404, 'not someone it isn’t shared with');
+  const made = (await b('POST', `/api/notes/${n.id}/chat`)).body;
+  const ch = q('SELECT * FROM channels WHERE id = ?').get(made.id);
+  assert.deepEqual([made.created, ch.name, ch.private, ch.topic], [true, 'offsite-menu', 1, 'About the note Offsite menu']);
+  assert.match((await a('GET', `/api/chat/channels/${made.id}/messages`)).body[0].body, new RegExp(`^For the note Offsite menu: .*/notes\\?note=${n.id}$`));
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.nchb, ids.nchc] });
+  assert.deepEqual((await c('POST', `/api/notes/${n.id}/chat`)).body, { id: made.id, created: false, added: 1 });
+});
+
+test('Chat with people who have access leaves out a share that has run out', async () => {
+  const { q } = await import('../src/db.js');
+  const ids = {};
+  for (const l of ['fexa', 'fexb', 'fexc']) ids[l] = (await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: `Exp ${l}`, password: 'password123' })).body.id;
+  const a = client(); await login(a, 'fexa@acme.com');
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Expiring access' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: ids.fexb, role: 'viewer' }, { user_id: ids.fexc, role: 'viewer' }] });
+  q('UPDATE shares SET expires_at = ? WHERE file_id = ? AND user_id = ?').run(Date.now() - 1000, doc.id, ids.fexc);
+  const made = (await a('POST', `/api/files/${doc.id}/chat`)).body;
+  assert.deepEqual(q('SELECT user_id FROM channel_members WHERE channel_id = ?').all(made.id).map((m) => m.user_id).sort(), [ids.fexa, ids.fexb].sort());
+});
+
 test('start page: Drive by default, Home if chosen', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'spage', domain: 'acme.com', name: 'Start Page', password: 'password123' })).status, 201);

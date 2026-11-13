@@ -52,6 +52,8 @@ if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_at')) q(
 for (const col of ['remind_repeat', 'remind_tz']) if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === col)) q(`ALTER TABLE notes ADD COLUMN ${col} TEXT`).run();
 // remind_reset: when a repeating reminder goes off, untick the checklist so it starts again.
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_reset')) q('ALTER TABLE notes ADD COLUMN remind_reset INTEGER NOT NULL DEFAULT 0').run();
+// A shared note's own Chat channel (Chat with people it's shared with), once made.
+if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'chat_channel_id')) q('ALTER TABLE notes ADD COLUMN chat_channel_id TEXT').run();
 
 // Pictures on a note (shown at the top of the card), stored like Drive files but not listed in Drive.
 q(`CREATE TABLE IF NOT EXISTS note_pictures (
@@ -663,6 +665,22 @@ export default function noteRoutes() {
     q('UPDATE notes SET items = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(set.items, now(), req.user.id, n.id);
     tell(n);
     res.json({ done: next.filter((x) => x.done).length, total: next.length });
+  });
+
+  // Chat with people it's shared with: a private channel for a shared note (its owner and everyone it's shared with),
+  // made once; the same one after, with anyone it was shared with since added. { id, created, added }.
+  r.post('/:id/chat', async (req, res) => {
+    const n = load(req.params.id, req.user);
+    if (n.trashed_at) throw notFound('Note not found');
+    const people = [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE note_id = ?').all(n.id).map((x) => x.user_id)];
+    if (new Set(people).size < 2) throw bad('Share the note with someone first');
+    const { eventChannel } = await import('./chat.js');
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const title = n.title || (n.body || '').split('\n')[0].slice(0, 60) || 'note';
+    const out = eventChannel(req.user, { existingId: n.chat_channel_id, title, people, link: `${base}/notes?note=${n.id}`,
+      topic: `About the note ${String(title).slice(0, 120)}`, intro: `For the note ${title}: ${base}/notes?note=${n.id}` });
+    if (out.id !== n.chat_channel_id) q('UPDATE notes SET chat_channel_id = ? WHERE id = ?').run(out.id, n.id);
+    res.json(out);
   });
 
   r.get('/:id/preview', (req, res) => {

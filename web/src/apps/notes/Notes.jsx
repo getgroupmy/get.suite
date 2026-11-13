@@ -439,6 +439,9 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           { label: 'Labels…', onClick: onLabel },
           { label: n.items ? 'Hide tick boxes' : 'Show tick boxes', icon: 'check', onClick: async () => { try { await post(`/notes/${n.id}/convert`, { to: n.items ? 'text' : 'checklist' }); } catch (e) { toast(e.message, 'error'); } } },
           ...(onChat ? [{ label: 'Send in Chat…', icon: 'chat', onClick: onChat }] : []),
+          ...(n.shared?.length || !n.mine ? [{ label: 'Chat with people it’s shared with', icon: 'chat', onClick: async () => {
+            try { const r = await post(`/notes/${n.id}/chat`, {}); toast(r.created ? 'A channel for this note, with everyone it’s shared with' : r.added ? `Added ${r.added} more to its channel` : 'The note’s channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+          } }] : []),
           { label: 'Copy link', icon: 'link', onClick: async () => { const url = noteLink(n); try { await navigator.clipboard.writeText(url); toast('Link to the note copied: people it’s shared with can open it'); } catch { toast(url); } } },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
           { label: 'Download (.md)', icon: 'download', onClick: () => { window.location.href = `/api/notes/${n.id}/export.md`; } },
