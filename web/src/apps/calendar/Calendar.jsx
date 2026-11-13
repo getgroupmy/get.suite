@@ -1465,8 +1465,12 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
     const { start, end, body } = read();
     if (end < start) return setError('The event ends before it starts');
     // With the auto-reply, the server turns it on for the event's days, along with saving it.
-    await applyEdit(event, f.ooo && autoReply ? { ...body, auto_reply: true } : body, which);
+    const saved = await applyEdit(event, f.ooo && autoReply ? { ...body, auto_reply: true } : body, which);
     if (f.ooo && autoReply) toast(`Email auto-reply on from ${f.startDate} to ${f.endDate}`);
+    // Planned from a conversation (Chat's 📅): the event goes there too, as a card for everyone in it.
+    if (!event.id && event.from_chat && saved?.id) {
+      try { await post(`/chat/channels/${event.from_chat}/messages`, { body: `📅 ${saved.title || 'Meeting'}: ${eventLink(saved)}` }); toast('Posted in the conversation too'); } catch { /* the conversation is gone or archived */ }
+    }
     onSaved();
   }
   async function remove(which) {

@@ -786,7 +786,7 @@ export default function Chat() {
                   const people = (await get(`/chat/channels/${current.id}/members`)).filter((p) => p.id !== user.id);
                   if (!people.length) { toast('There’s nobody else here to meet', 'error'); return; }
                   if (people.length > 20) { toast('At most 20 people: invite them from Calendar instead', 'error'); return; }
-                  await scheduleWith(people.map((p) => ({ id: p.id, email: p.username, name: p.name })), { navigate, toast, title: current.dm_key ? '' : current.name });
+                  await scheduleWith(people.map((p) => ({ id: p.id, email: p.username, name: p.name })), { navigate, toast, title: current.dm_key ? '' : current.name, fromChat: current.id });
                 } catch (e) { toast(e.message, 'error'); }
               }}><Icon name="calendar" /></button>}
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="Download conversation" title="Download this conversation" {...p}><Icon name="download" /></button>} items={[

@@ -3,7 +3,7 @@
 // and save. Without a suggestion, the next full hour.
 import { get } from '../api.js';
 
-export async function scheduleWith(people, { navigate, toast, title = '' }) {
+export async function scheduleWith(people, { navigate, toast, title = '', fromChat = null }) {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   let slot = null;
   if (people.length) {
@@ -11,6 +11,6 @@ export async function scheduleWith(people, { navigate, toast, title = '' }) {
   }
   const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
   const start = slot?.start ?? t.getTime();
-  navigate('/calendar', { state: { newEvent: { title, start, end: slot?.end ?? start + 30 * 60e3, all_day: 0, location: '', description: '', guests: people.map((p) => ({ email: p.email, name: p.name })) } } });
+  navigate('/calendar', { state: { newEvent: { title, start, end: slot?.end ?? start + 30 * 60e3, all_day: 0, location: '', description: '', guests: people.map((p) => ({ email: p.email, name: p.name })), ...(fromChat && { from_chat: fromChat }) } } });
   if (slot) toast(`The first half hour ${people.length > 1 ? 'you’re all' : 'you’re both'} free: ${new Date(start).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
 }
