@@ -50,3 +50,24 @@ test('only a day and time: no title; nothing to go on: null', () => {
   assert.equal(parseQuickEvent('Think about the roadmap', { today }), null);
   assert.equal(parseQuickEvent('', { today }), null);
 });
+
+const people = [
+  { name: 'Kim Park', username: 'kim@acme.com' }, { name: 'Ana Silva', username: 'ana@acme.com' },
+  { name: 'Sam Lee', username: 'sam@acme.com' }, { name: 'Sam Ortiz', username: 'sortiz@acme.com' },
+];
+test('guests: @colleagues (their name stays in the title) and email addresses', () => {
+  const e = parseQuickEvent('Lunch with @kim tomorrow 1pm', { today, people });
+  assert.deepEqual([e.title, e.guests], ['Lunch with Kim', ['kim@acme.com']]);
+  assert.deepEqual(parseQuickEvent('Review with @Ana Silva and @kim friday 10am', { today, people }).title, 'Review with Ana Silva and Kim');
+  assert.deepEqual(parseQuickEvent('Review with @Ana Silva and @kim friday 10am', { today, people }).guests, ['ana@acme.com', 'kim@acme.com']);
+  const out = parseQuickEvent('Kickoff with jo@client.com tomorrow 9am', { today, people });
+  assert.deepEqual([out.title, out.guests], ['Kickoff', ['jo@client.com']]);
+  assert.deepEqual(parseQuickEvent('Call @ana, bo@x.org and Lu@Y.io on monday 4pm', { today, people }).guests, ['ana@acme.com', 'bo@x.org', 'lu@y.io']);
+  assert.equal(parseQuickEvent('Call @ana, bo@x.org and Lu@Y.io on monday 4pm', { today, people }).title, 'Call Ana');
+});
+test('guests: an @name matching nobody, or two people, stays as typed', () => {
+  const e = parseQuickEvent('Sync with @sam tomorrow 3pm', { today, people });
+  assert.deepEqual([e.title, e.guests], ['Sync with @sam', []]);
+  assert.deepEqual(parseQuickEvent('Ping @zed tomorrow 3pm', { today, people }).guests, []);
+  assert.deepEqual(parseQuickEvent('Sync with @sortiz tomorrow 3pm', { today, people }).guests, ['sortiz@acme.com'], 'by address');
+});

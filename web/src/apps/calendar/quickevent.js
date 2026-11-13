@@ -1,7 +1,8 @@
 // Quick add (Calendar): "Lunch with Kim fri 1pm for 30m" becomes an event called "Lunch with Kim",
 // Friday 13:00–13:30. Days, times and repeats are read as Tasks' quick add reads them; on top of that
 // a time range ("3-4pm", "10:30 to 11:15", "from 9 to 11am") and a length ("for 45 minutes",
-// "for 2 hours", "for an hour") set the end. A day without a time is an all-day event.
+// "for 2 hours", "for an hour") set the end. A day without a time is an all-day event. "@kim" or "@Kim Park"
+// (a colleague) and email addresses become guests; the colleague's name stays in the title.
 import { parseQuickAdd } from '../tasks/quickadd.js';
 import { readCustom } from '../tasks/taskmath.js';
 
@@ -39,12 +40,49 @@ export function ruleFromRepeat(repeat, start) {
   return out;
 }
 
+const EMAIL = /(?<=^|[\s,(<])([a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?=$|[\s,)>])/i;
+
 /**
- * What a quick-add line makes: { title, start, end, all_day, rrule, found } (ms, local time), or null when
- * it names no day or time. `today` is "YYYY-MM-DD"; `minutes` the length when none is said.
+ * Guests in a line: "@kim", "@Kim Park" (from `people`: [{ name, username }]) and email addresses.
+ * Returns { text, guests: [email], names: [name] }: a colleague's "@…" becomes their name; an address is
+ * taken out (with a "with" or "and" left dangling before it). An "@word" matching nobody stays as typed.
  */
-export function parseQuickEvent(input, { today, minutes = 60 } = {}) {
-  let s = ` ${String(input || '').trim()} `;
+export function guestsIn(input, people = []) {
+  let s = ` ${input} `;
+  const guests = [];
+  const names = [];
+  const add = (email, name) => { const e = email.toLowerCase(); if (!guests.includes(e)) { guests.push(e); if (name) names.push(name); } };
+  const first = (p) => p.name?.toLowerCase().split(/\s+/)[0];
+  s = s.replace(/(^|[\s,(])@([\p{L}][\p{L}.'-]*)(?:\s+([\p{L}][\p{L}'-]*))?(?=$|[\s,.)])/gu, (all, pre, a, b) => {
+    const full = b && people.find((p) => p.name?.toLowerCase() === `${a} ${b}`.toLowerCase());
+    if (full) { add(full.username, full.name); return `${pre}${full.name}`; }
+    const w = a.toLowerCase();
+    const matches = people.filter((p) => first(p) === w || p.username?.toLowerCase().split('@')[0] === w || p.name?.toLowerCase() === w);
+    if (matches.length !== 1) return all; // nobody, or more than one Kim: as typed
+    add(matches[0].username, matches[0].name);
+    return `${pre}${matches[0].name.split(/\s+/)[0]}${b ? ` ${b}` : ''}`;
+  });
+  for (let m; (m = EMAIL.exec(s));) {
+    add(m[1]);
+    s = `${s.slice(0, m.index)} \u2043 ${s.slice(m.index + m[0].length)}`; // a mark where it was, tidied once dates are out
+  }
+  return { text: s.replace(/\s+/g, ' ').trim(), guests, names };
+}
+
+/** Where addresses were taken out: drop the marks, with a "with", "and" or comma left hanging before them. */
+function tidy(title) {
+  let t = ` ${title} `;
+  for (let i = 0; i < 20 && t.includes('\u2043'); i++) t = t.replace(/(?:\s*(?:,|\band\b|&|\bwith\b))*\s*\u2043\s*/i, ' ');
+  return t.replace(/\(\s*\)/g, '').replace(/\s+([,.])/g, '$1').replace(/[\s,]+$/, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * What a quick-add line makes: { title, start, end, all_day, rrule, guests, found } (ms, local time), or null when
+ * it names no day or time. `today` is "YYYY-MM-DD"; `minutes` the length when none is said; `people` who "@name" can be.
+ */
+export function parseQuickEvent(input, { today, minutes = 60, people = [] } = {}) {
+  const who = guestsIn(String(input || '').trim(), people);
+  let s = ` ${who.text} `;
   let length = null;
   let range = null; // [startMinutes, endMinutes]
   // A length: "for 45 minutes", "for 1.5 hours", "for an hour", "for half an hour".
@@ -68,7 +106,7 @@ export function parseQuickEvent(input, { today, minutes = 60 } = {}) {
   }
   // A placeholder word, so a line that is only a day and time ("tomorrow 3pm") isn't kept as typed.
   const q = parseQuickAdd(`${s} \u2042 `, { today, datesOnly: true });
-  q.title = q.title.replace(/\s*\u2042\s*/, ' ').trim();
+  q.title = tidy(q.title.replace(/\s*\u2042\s*/, ' '));
   const day = q.due || (range ? today : null);
   if (!day) return null;
   const found = [];
@@ -85,5 +123,6 @@ export function parseQuickEvent(input, { today, minutes = 60 } = {}) {
   found.push({ kind: 'when', start, end, all_day: allDay });
   const rrule = ruleFromRepeat(q.repeat, start);
   if (rrule) found.push({ kind: 'repeat', rule: rrule });
-  return { title: q.title, start, end, all_day: allDay, rrule, found };
+  if (who.guests.length) found.push({ kind: 'guests', emails: who.guests });
+  return { title: q.title, start, end, all_day: allDay, rrule, guests: who.guests, found };
 }

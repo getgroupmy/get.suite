@@ -2720,6 +2720,31 @@ test('rooms: end your meeting early to give the room back, or run on when nobody
   for (const r of [room, other]) await owner('DELETE', `/api/rooms/${r.id}`);
 });
 
+test('calendar quick add: "@name" picks from the directory (active colleagues only), and they can be invited by its address', async () => {
+  const a = client(), k = client();
+  for (const [local, name] of [['qaann', 'Quick Ann'], ['qakim', 'Quick Kim'], ['qaold', 'Quick Old']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'qaann@acme.com');
+  await login(k, 'qakim@acme.com');
+  let dir = (await a('GET', '/api/users/directory')).body;
+  const old = dir.find((u) => u.username === 'qaold@acme.com');
+  await owner('PATCH', `/api/users/${old.id}`, { disabled: true });
+  dir = (await a('GET', '/api/users/directory')).body;
+  assert.ok(!dir.some((u) => u.username === 'qaold@acme.com'), 'a turned-off account is not offered');
+  const kim = dir.find((u) => u.name === 'Quick Kim');
+  assert.equal(kim.username, 'qakim@acme.com');
+  // What the event window sends after "Lunch with @kim and jo@client.example tomorrow 1pm".
+  const t = Date.now() + 864e5;
+  // Without this server's email, an address outside it is refused with why (the event window shows it).
+  const out = await a('POST', '/api/events', { title: 'Lunch with Kim', start: t, end: t + 36e5, guests: [kim.username, 'jo@client.example'] });
+  assert.equal(out.status, 400);
+  assert.match(out.body.error, /jo@client\.example can't be invited: email is turned off/);
+  const ev = await a('POST', '/api/events', { title: 'Lunch with Kim', start: t, end: t + 36e5, guests: [kim.username] });
+  assert.equal(ev.status, 201, JSON.stringify(ev.body));
+  assert.deepEqual(ev.body.guests.map((g) => [g.email, !!g.external]), [['qakim@acme.com', false]]);
+  assert.ok((await k('GET', `/api/events?from=${t - 1}&to=${t + 36e5}`)).body.some((e) => e.title === 'Lunch with Kim'), 'on Kim\'s calendar');
+  await a('DELETE', `/api/events/${ev.body.id}`);
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);

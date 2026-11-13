@@ -376,7 +376,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         )}
         {acting && <div className="banner small" role="status"><strong>{acting.name}</strong>’s calendar: events you add, change or delete here are theirs (they’re told).</div>}
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
-        <QuickAdd minutes={newEventMinutes(me?.cal_prefs || DEFAULT_CAL_PREFS)} onPick={(ev) => { setAnchor(startOfDay(new Date(ev.start))); setEditing({ color: COLORS[0], location: '', description: '', ...ev }); }} onPlain={(t) => { newEvent(); setEditing((e) => (e ? { ...e, title: t } : e)); }} />
+        <QuickAdd minutes={newEventMinutes(me?.cal_prefs || DEFAULT_CAL_PREFS)} people={people.filter((p) => p.id !== me.id)} onPick={(ev) => { setAnchor(startOfDay(new Date(ev.start))); setEditing({ color: COLORS[0], location: '', description: '', ...ev }); }} onPlain={(t) => { newEvent(); setEditing((e) => (e ? { ...e, title: t } : e)); }} />
         {!acting && <>
         <button type="button" className="subnav-item" onClick={() => setTimeOff(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏖</span><span className="grow">Time off</span>{timeOffWaiting > 0 && <span className="timeoff-count" aria-label={`${timeOffWaiting} waiting for your answer`}>{timeOffWaiting}</span>}</button>
         {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); loadHolidays(); }} onChanged={() => { load(); refreshTimeOff(); loadHolidays(); }} />}
@@ -852,23 +852,23 @@ const whenLabel = (ev) => {
  * Quick add: "Lunch with Kim fri 1pm for 30m" — what's understood shows under the box, and Enter opens the
  * event filled in (to add guests, a room…, then Save). Words with no day or time open a new event with that title.
  */
-function QuickAdd({ minutes, onPick, onPlain }) {
+function QuickAdd({ minutes, people, onPick, onPlain }) {
   const [text, setText] = useState('');
-  const ev = text.trim() ? parseQuickEvent(text, { today: localToday(), minutes }) : null;
+  const ev = text.trim() ? parseQuickEvent(text, { today: localToday(), minutes, people }) : null;
   const go = (e) => {
     e.preventDefault();
     const t = text.trim();
     if (!t) return;
-    if (ev) onPick({ title: ev.title, start: ev.start, end: ev.end, all_day: ev.all_day, ...(ev.rrule && { rrule: ev.rrule }) });
+    if (ev) onPick({ title: ev.title, start: ev.start, end: ev.end, all_day: ev.all_day, ...(ev.rrule && { rrule: ev.rrule }), ...(ev.guests.length && { guests: ev.guests.map((email) => ({ email })) }) });
     else onPlain(t);
     setText('');
   };
   return (
     <form className="cal-quick" onSubmit={go}>
       <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Quick add: Lunch fri 1pm" aria-label="Quick add an event"
-        aria-describedby="cal-quick-what" title="Type what, when and how long: “Dentist tomorrow 10am for 45 minutes”, “Workshop 24 Nov 3-5pm”, “1:1 every 2 weeks on tue 10am”. Enter opens it to check and save." />
+        aria-describedby="cal-quick-what" title="Type what, when and how long: “Dentist tomorrow 10am for 45 minutes”, “Workshop 24 Nov 3-5pm”, “1:1 with @ana every 2 weeks on tue 10am” (@name or an address invites them). Enter opens it to check and save." />
       <div id="cal-quick-what" className="muted small" aria-live="polite">
-        {ev ? <>{ev.title ? <strong>{ev.title}</strong> : <em>No title</em>} · {whenLabel(ev)}{ev.rrule && ` · ${describeRule(ev.rrule, ev.start)}`}</> : text.trim() ? 'Add a day or time, like “tomorrow 3pm”' : ''}
+        {ev ? <>{ev.title ? <strong>{ev.title}</strong> : <em>No title</em>} · {whenLabel(ev)}{ev.rrule && ` · ${describeRule(ev.rrule, ev.start)}`}{ev.guests.length > 0 && ` · with ${ev.guests.map((g) => people.find((p) => p.username === g)?.name || g).join(', ')}`}</> : text.trim() ? 'Add a day or time, like “tomorrow 3pm”' : ''}
       </div>
     </form>
   );
@@ -1599,7 +1599,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           {guests.length > 0 && (
             <ul className="guest-chips" aria-label="Invited guests">
               {guests.map((g) => {
-                const known = (event.guests || []).find((x) => x.email === g);
+                const known = (event.guests || []).find((x) => x.email === g && x.status); // saved with an answer (not just named, as from a template or quick add)
                 const outside = known ? known.external : !directory.some((d) => d.username === g);
                 return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || known?.name || g}
                   {outside && <span className="muted small" title="Invited by email: they answer on a web page"> · by email</span>}
@@ -1626,7 +1626,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             </select>
           )}
           {guests.length > 0 && <span className="muted small">They'll see it in their calendar{event.id ? '' : ' and get an email'} and can answer Yes, Maybe or No.
-            {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
+            {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g && x.status); return k ? k.external : !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
         </div>}
         {!special && <RoomPicker eventId={event.id} people={guests.length + 1} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
