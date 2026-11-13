@@ -6468,6 +6468,15 @@ test('a shared email in Chat: found by search, kept in downloads, carried when f
   assert.deepEqual([rem.email_subject, rem.files, rem.channel, rem.dm], ['Pallet quotation', 0, 'general', false]);
   await kay('POST', `/api/chat/messages/${m.id}/remind`, { at: null });
   assert.equal((await kay('GET', '/api/chat/reminders')).body.some((x) => x.message_id === m.id), false);
+  // Taken out of a private channel: its messages' reminders aren't listed any more (nor sent).
+  const ua = await kay('POST', '/api/users', { local: 'remy', domain: 'keepco.com', name: 'Remy R', password: 'password123' });
+  const remy = client(); await login(remy, 'remy@keepco.com');
+  const priv = (await kay('POST', '/api/chat/channels', { name: `secret-${Date.now()}`, private: true, members: [ua.body.id] })).body.id;
+  const pm = (await kay('POST', `/api/chat/channels/${priv}/messages`, { body: 'Salary review numbers' })).body;
+  assert.equal((await remy('POST', `/api/chat/messages/${pm.id}/remind`, { at: Date.now() + 3600e3 })).status, 200);
+  assert.equal((await remy('GET', '/api/chat/reminders')).body.length, 1);
+  assert.equal((await kay('DELETE', `/api/chat/channels/${priv}/members/${ua.body.id}`)).status, 200);
+  assert.deepEqual((await remy('GET', '/api/chat/reminders')).body, [], 'not after leaving');
 });
 
 test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', async () => {

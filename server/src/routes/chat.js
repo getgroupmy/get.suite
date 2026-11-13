@@ -1596,7 +1596,10 @@ export default function chatRoutes() {
   r.get('/reminders', (req, res) => {
     res.json(q(`SELECT r.message_id, r.at, m.body, m.channel_id, m.parent_id, json_array_length(COALESCE(m.files, '[]')) AS files, json_extract(m.email, '$.subject') AS email_subject, u.name AS author, c.name AS channel, c.dm_key
                 FROM chat_reminders r JOIN messages m ON m.id = r.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
-                WHERE r.user_id = ? ORDER BY r.at`).all(req.user.id).map(({ dm_key, ...x }) => ({ ...x, dm: !!dm_key })));
+                WHERE r.user_id = ? ORDER BY r.at`).all(req.user.id)
+      // Only in conversations you can still see (not a private channel you were taken out of).
+      .filter((r) => { try { return !!loadChannel(r.channel_id, req.user); } catch { return false; } })
+      .map(({ dm_key, ...x }) => ({ ...x, dm: !!dm_key })));
   });
 
   // Pin a message to its conversation (or unpin it). Anyone in the conversation may; threads' replies can't be.

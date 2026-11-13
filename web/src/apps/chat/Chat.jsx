@@ -317,15 +317,16 @@ export default function Chat() {
 
   // Your reminders about messages (shown on them), kept up to date live.
   const [reminders, setReminders] = useState(new Map());
-  const loadReminders = useCallback(() => get('/chat/reminders').then((l) => setReminders(new Map(l.map((x) => [x.message_id, x.at])))).catch(() => {}), []);
+  const [reminderList, setReminderList] = useState([]); // the same, with each message (⏰ Reminders)
+  const loadReminders = useCallback(() => get('/chat/reminders').then((l) => { setReminders(new Map(l.map((x) => [x.message_id, x.at]))); setReminderList(l); }).catch(() => {}), []);
   useEffect(() => { loadReminders(); }, [loadReminders]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-reminders') loadReminders(); }), [loadReminders]);
 
   // Messages you've saved for later (yours alone), kept up to date live.
   const [saved, setSaved] = useState([]);
-  const [savedOpen, setSavedOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false); // true: Saved; 'reminders': ⏰ Reminders
   // /chat?saved=1 (Home's Saved in Chat): open with Saved showing.
-  useEffect(() => { if (params.get('saved') === '1') setSavedOpen(true); }, [params]);
+  useEffect(() => { if (params.get('saved') === '1') setSavedOpen(true); else if (params.get('reminders') === '1') setSavedOpen('reminders'); }, [params]);
   const loadSaved = useCallback(() => get('/chat/saved').then(setSaved).catch(() => {}), []);
   useEffect(() => { loadSaved(); }, [loadSaved]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-saved') loadSaved(); }), [loadSaved]);
@@ -516,7 +517,8 @@ export default function Chat() {
           <Icon name="search" size={18} />
           <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
-        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className={`subnav-item ${savedOpen === true ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className={`subnav-item ${savedOpen === 'reminders' ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen('reminders'); }}><span className="hash" aria-hidden="true">⏰</span><span className="grow">Reminders</span>{reminderList.length > 0 && <span className="count">{reminderList.length}</span>}</button>
         <button type="button" className={`subnav-item ${unreadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(true); }}><span className="hash" aria-hidden="true">📥</span><span className="grow">Unreads</span>{unreadTotal > 0 && <span className="badge" aria-label={`${unreadTotal} unread`}>{unreadTotal}</span>}</button>
         <button type="button" className={`subnav-item ${mentionsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setMentionsOpen(true); loadMentions(); }}><span className="hash" aria-hidden="true">@</span><span className="grow">Mentions</span>{unreadMentions > 0 && <span className="badge at" aria-label={`${unreadMentions} unread`}>{unreadMentions}</span>}</button>
         <button type="button" className="subnav-item chat-jump" onClick={() => setJumpOpen(true)} title="Jump to a conversation or person (Ctrl+K)"><span className="hash" aria-hidden="true">↪</span><span className="grow">Jump to…</span><kbd className="muted small">{/Mac|iP(hone|ad)/.test(navigator.platform) ? '⌘K' : 'Ctrl+K'}</kbd></button>
@@ -656,6 +658,24 @@ export default function Chat() {
               </ul>
             )}
           </div>
+        ) : savedOpen === 'reminders' && !search ? (
+          <div className="chat-results">
+            <div className="chat-head"><h1 className="grow">Reminders</h1><button type="button" className="icon-btn" aria-label="Close reminders" onClick={() => setSavedOpen(false)}><Icon name="close" /></button></div>
+            {!reminderList.length ? <Empty icon="chat" title="No reminders">Hover over a message and choose the clock to be reminded about it later. Only you see your reminders.</Empty> : (
+              <ul aria-label="Reminders">
+                {reminderList.map((r) => (
+                  <li key={r.message_id} className="row">
+                    <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); openResult({ id: r.message_id, channel_id: r.channel_id, parent_id: r.parent_id }); }}>
+                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`}{r.parent_id ? ' · in a thread' : ''}</span>
+                      <span><strong>{r.author || 'Someone'}</strong> {r.body || (r.files ? `📎 ${r.files} file${r.files === 1 ? '' : 's'}` : r.email_subject ? `✉ ${r.email_subject}` : '')}</span>
+                    </button>
+                    <button type="button" className="icon-btn" aria-label={`Cancel reminder: ${(r.body || r.email_subject || '').slice(0, 40)}`} title="Cancel the reminder"
+                      onClick={async () => { try { await post(`/chat/messages/${r.message_id}/remind`, { at: null }); toast('Reminder removed'); } catch (e) { toast(e.message, 'error'); } }}><Icon name="close" size={16} /></button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         ) : savedOpen && !search ? (
           <div className="chat-results">
             <div className="chat-head"><h1 className="grow">Saved</h1><button type="button" className="icon-btn" aria-label="Close saved" onClick={() => setSavedOpen(false)}><Icon name="close" /></button></div>
@@ -665,7 +685,7 @@ export default function Chat() {
                   <li key={r.message_id} className="row">
                     <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); openResult({ id: r.message_id, channel_id: r.channel_id, parent_id: r.parent_id }); }}>
                       <span className="muted small">{r.dm ? 'Direct message' : `#${r.channel}`}{r.parent_id ? ' · in a thread' : ''} · {new Date(r.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                      <span><strong>{r.author || 'Someone'}</strong> {r.body || (r.files ? `📎 ${r.files} file${r.files === 1 ? '' : 's'}` : '')}</span>
+                      <span><strong>{r.author || 'Someone'}</strong> {r.body || (r.files ? `📎 ${r.files} file${r.files === 1 ? '' : 's'}` : r.email_subject ? `✉ ${r.email_subject}` : '')}</span>
                     </button>
                     <button type="button" className="icon-btn" aria-label={`Remove from Saved: ${(r.body || '').slice(0, 40)}`} title="Remove from Saved" onClick={() => setSave(r.message_id, false)}><Icon name="close" size={16} /></button>
                   </li>

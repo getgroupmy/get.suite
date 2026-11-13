@@ -298,7 +298,7 @@ export default function Home() {
           )}
           {data.reminders.length > 0 && (
             <section className="card home-card" aria-label="Chat reminders" {...cardProps('reminders')}>
-              <h2><Link to="/chat"><span aria-hidden="true">⏰</span> Chat reminders</Link></h2>
+              <h2><Link to="/chat?reminders=1"><span aria-hidden="true">⏰</span> Chat reminders</Link></h2>
               <ul className="home-list">
                 {data.reminders.map((x) => {
                   const text = savedText(x);
