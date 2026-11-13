@@ -6,6 +6,7 @@ const PdfOrganizeDialog = lazy(() => import('./PdfOrganize.jsx'));
 import { BUILT_IN } from './templates.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar, useDataCheck } from '../../components/ui.jsx';
+import SendInChat from '../../components/SendInChat.jsx';
 import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
 import { SignaturesView, SendForSignature } from '../docs/Signatures.jsx';
@@ -664,7 +665,7 @@ export default function Drive() {
       {dialog?.type === 'pdf-organize' && <Suspense fallback={null}><PdfOrganizeDialog file={dialog.files[0]} canEdit={['owner', 'editor'].includes(dialog.files[0].role) && !dialog.files[0].locked_at} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
       {dialog?.type === 'pdf-send-sign' && <SendForSignature file={dialog.files[0]} onClose={(sent) => { setDialog(null); if (sent) load(); }} />}
       {dialog?.type === 'pdf-extract' && <PdfExtractDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} />}
-      {dialog?.type === 'chat' && <SendInChat files={dialog.files} linkTo={linkTo} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'chat' && <SendInChat items={dialog.files.map((f) => ({ name: f.name, url: linkTo(f) }))} what={dialog.files.length === 1 ? `“${dialog.files[0].name}”` : `${dialog.files.length} files`} onClose={() => setDialog(null)} />}
       {dialog?.type === 'copyto' && <MoveDialog copy files={dialog.files} onClose={() => setDialog(null)} onCopy={(to) => copyMany(dialog.files, to)} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
@@ -1706,48 +1707,3 @@ function RenameMany({ files, onClose, onDone }) {
   );
 }
 
-/**
- * Send in Chat: links to the files go into the chosen conversation's message box (its draft, after anything already
- * typed there), and the conversation opens to add a word and send; Chat then offers to share them with anyone there
- * who can't open them.
- */
-function SendInChat({ files, linkTo, onClose }) {
-  const navigate = useNavigate();
-  const [convs, setConvs] = useState(null);
-  const [to, setTo] = useState('');
-  const [error, setError] = useState('');
-  useEffect(() => {
-    get('/chat/channels').then((d) => {
-      const open = (d.channels || []).filter((c) => !c.archived_at);
-      setConvs(open);
-      setTo(open[0]?.id || '');
-    }).catch((e) => setError(e.message));
-  }, []);
-  const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
-  async function submit(e) {
-    e.preventDefault();
-    try {
-      const drafts = await get('/chat/drafts').catch(() => ({}));
-      const before = drafts[to]?.body?.trim();
-      const links = files.map((f) => `${f.name}: ${linkTo(f)}`).join('\n');
-      await put(`/chat/channels/${to}/draft`, { body: before ? `${before}\n${links}` : links, client: 'drive' });
-      onClose();
-      navigate(`/chat/${to}`);
-    } catch (err) { setError(err.message); }
-  }
-  return (
-    <Modal title={files.length === 1 ? `Send “${files[0].name}” in Chat` : `Send ${files.length} files in Chat`} onClose={onClose}>
-      <form className="stack" onSubmit={submit}>
-        <p className="muted small" style={{ margin: 0 }}>Links to them go in the conversation's message box, to add a word and send. Anyone there who can't open them is offered access when you send.</p>
-        <label className="field"><span>To</span>
-          <select value={to} onChange={(e) => setTo(e.target.value)} required disabled={!convs} aria-label="Conversation">
-            {(convs || []).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
-          </select>
-        </label>
-        {convs && !convs.length && <p className="muted small">You're not in any conversations yet.</p>}
-        {error && <p className="error">{error}</p>}
-        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Open in Chat</button></div>
-      </form>
-    </Modal>
-  );
-}

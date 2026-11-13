@@ -10,6 +10,7 @@ import { printHtml } from '../mail/mailprint.js';
 import { notePrintHtml, notesPrintHtml, noteEmail, notesEmail } from './noteprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
+import SendInChat from '../../components/SendInChat.jsx';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
@@ -76,6 +77,7 @@ export default function Notes() {
   const location = useLocation();
   const navigate = useNavigate();
   const mail = useMailStatus();
+  const [chatting, setChatting] = useState(null); // notes to send in Chat
   useEffect(() => {
     const id = location.state?.openNote;
     if (!id) return;
@@ -222,6 +224,7 @@ export default function Notes() {
                 try { localStorage.setItem(DRAFT_KEY, JSON.stringify(notesEmail([...pinned, ...others].filter((x) => picked.has(x.id)), noteLink))); } catch { toast('Your browser’s storage is off', 'error'); return; }
                 navigate('/mail?compose_doc=1');
               }}><Icon name="mail" size={16} /> Email</button>}
+              <button type="button" className="btn small" title="Links to the picked notes in a Chat conversation's message box (they show as note cards)" onClick={() => setChatting([...pinned, ...others].filter((x) => picked.has(x.id)))}><Icon name="chat" size={16} /> Send in Chat…</button>
               <button type="button" className="btn small" title="The picked notes on one printout, each on its own page" onClick={() => printHtml(notesPrintHtml([...pinned, ...others].filter((x) => picked.has(x.id))))}><Icon name="print" size={16} /> Print</button>
               <button type="button" className="btn small" title="Each note as a Markdown (.md) file, in one .zip" onClick={async () => {
                 const url = `/notes/export.zip?ids=${[...picked].map(encodeURIComponent).join(',')}`;
@@ -265,6 +268,7 @@ export default function Notes() {
       {deleting && <ConfirmModal title={deleting.mine ? 'Delete this note?' : 'Remove this note?'} confirm={deleting.mine ? 'Delete' : 'Remove'}
         message={deleting.mine ? (deleting.shared.length ? 'It goes for everyone it’s shared with too.' : 'This can’t be undone.') : 'It stays for its owner and the others it’s shared with.'}
         onClose={() => setDeleting(null)} onConfirm={async () => { await del(`/notes/${deleting.id}`); setDeleting(null); load(); }} />}
+      {chatting && <SendInChat items={chatting.map((x) => ({ name: x.title || 'Note', url: noteLink(x) }))} what={chatting.length === 1 ? 'the note' : `${chatting.length} notes`} onClose={() => setChatting(null)} />}
     </div>
   );
 }

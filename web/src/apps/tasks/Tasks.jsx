@@ -6,6 +6,7 @@ import { printHtml } from '../mail/mailprint.js';
 import { listPrintHtml, listEmail } from './listprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
+import SendInChat from '../../components/SendInChat.jsx';
 import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
@@ -134,6 +135,7 @@ export default function Tasks() {
   };
   const done = (tasks || []).filter((t) => t.done);
   const mail = useMailStatus();
+  const [chatting, setChatting] = useState(null); // tasks to send in Chat
   /** A new email in Mail with the list in it (handed over in this browser's storage, as Docs and Notes do). */
   const emailList = (withDone, only = null) => {
     const pick = (l) => (only ? l.filter((t) => only.has(t.id)) : l);
@@ -413,6 +415,7 @@ export default function Tasks() {
               <option value="">Move to…</option>
               {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
+            <button type="button" className="btn small" disabled={!picked.size} title="Links to these tasks in a Chat conversation's message box (they show as task cards)" onClick={() => setChatting((tasks || []).filter((t) => picked.has(t.id)))}><Icon name="chat" size={16} /> Send in Chat…</button>
             {mail?.enabled && <button type="button" className="btn small" disabled={!picked.size} title="A new email with just these tasks in it, as a list's email has them" onClick={() => emailList(true, picked)}><Icon name="mail" size={16} /> Email</button>}
             <button type="button" className="btn small" disabled={!picked.size} title="Just these tasks, printed (or saved as PDF) as a list prints"
               onClick={() => printHtml(listPrintHtml(list?.name || 'Tasks', open.filter((t) => picked.has(t.id)), done.filter((t) => picked.has(t.id))))}><Icon name="print" size={16} /> Print</button>
@@ -421,6 +424,7 @@ export default function Tasks() {
             <button type="button" className="btn small danger" disabled={!picked.size} onClick={() => setConfirmDelete(true)}><Icon name="trash" size={16} /> Delete</button>
           </div>
         )}
+        {chatting && <SendInChat items={chatting.map((t) => ({ name: t.title, url: taskLink(t) }))} what={chatting.length === 1 ? 'the task' : `${chatting.length} tasks`} onClose={() => setChatting(null)} />}
         {confirmDelete && <ConfirmModal title={`Delete ${nTasks(picked.size)}?`} confirm="Delete" message="They go for everyone on their lists." onClose={() => setConfirmDelete(false)}
           onConfirm={async () => { setConfirmDelete(false); await batch({ delete: true }, (n) => `${nTasks(n)} deleted`); }} />}
         {tasks === null ? null : list && view === 'timeline' ? (
