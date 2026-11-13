@@ -779,6 +779,7 @@ Send a file or a whole folder to someone who has no account, such as a client. I
 - **Keeping track:** the Share dialog lists each link with its expiry, whether it has a password, and how often it was opened. **Remove** stops a link at once.
 - **Links stop working by themselves** when they expire, when the file or folder goes to the trash (or is deleted), or when the owner's account is disabled. A file moved out of a shared folder is no longer reachable through that folder's link.
 - **Company switch:** Admin → Company settings → *Links for people without an account*. Turning it off immediately stops every link in the company; turning it back on restores the ones that haven't expired.
+- **For admins:** **Admin → Share links** lists every working link people in the company have made (tick *Show expired links too* for the rest): the file or folder, who made it, whether it's a view link or a file request and has a password, until when it works and how often it was opened. **Stop** ends one at once, and whoever made it gets a notification. (A company admin can also remove a link from a file they don't own this way.)
 - Only the owner of a file can create or remove its links. Link pages aren't indexed by search engines.
 
 ## Calendar

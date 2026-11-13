@@ -11,7 +11,7 @@ import path from 'node:path';
 import { q, FILES_DIR } from '../db.js';
 import { uid, now, bad, notFound, forbidden, HttpError, isInlineSafe, mimeFor } from '../util.js';
 import { roleFor, subtreeIds } from '../access.js';
-import { hashPassword, verifyPassword } from '../auth.js';
+import { hashPassword, verifyPassword, requireAdmin } from '../auth.js';
 import * as guard from '../security/guard.js';
 import { receiveUpload, insertFile, cleanName } from './files.js';
 import { notify as bell } from '../notifications.js';
@@ -119,10 +119,26 @@ export function linkRoutes() {
     res.json(describeLink(out));
   });
 
+  // Admin → Share links: every link made by someone in the company (newest first; expired ones only with ?expired=1),
+  // with its file, who made it, how often it was opened. Admins can stop any of them (DELETE below).
+  r.get('/all', requireAdmin, (req, res) => {
+    const rows = q(`SELECT l.*, f.name AS file_name, f.kind AS file_kind, f.trashed, u.name AS owner_name, u.username AS owner_email
+                    FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by
+                    WHERE u.org_id = ? ORDER BY l.created_at DESC LIMIT 1000`).all(req.user.org_id);
+    const out = rows.map((l) => ({ ...describeLink(l), file_name: l.file_name, file_kind: l.file_kind, trashed: !!l.trashed, owner_name: l.owner_name, owner_email: l.owner_email }));
+    res.json(req.query.expired === '1' ? out : out.filter((l) => !l.expired));
+  });
+
   r.delete('/:id', (req, res) => {
     const l = q('SELECT * FROM share_links WHERE id = ?').get(req.params.id);
     if (!l) throw notFound('Link not found');
-    ownFile(l.file_id, req.user);
+    // The file's owner, or an admin of the company whose member made the link.
+    const adminHere = req.user.is_admin && q('SELECT org_id FROM users WHERE id = ?').get(l.created_by)?.org_id === req.user.org_id;
+    if (!adminHere) ownFile(l.file_id, req.user);
+    else if (l.created_by !== req.user.id) {
+      const f = q('SELECT name FROM files WHERE id = ?').get(l.file_id);
+      bell([l.created_by], { kind: 'share', title: `An admin stopped your link to ${f?.name || 'a file'}`, body: `${req.user.name || req.user.username} removed it in Admin → Share links; it no longer works.`, link: `/drive`, actor: req.user.name });
+    }
     q('DELETE FROM share_links WHERE id = ?').run(l.id);
     audit(req, 'link.delete', { target: q('SELECT name FROM files WHERE id = ?').get(l.file_id)?.name });
     res.json({ ok: true });

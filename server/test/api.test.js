@@ -626,6 +626,24 @@ test('public share links: no account needed; expiry, password, folders, revoking
   // Both at once.
   const both = (await sharer('PATCH', `/api/links/${locked.id}`, { password: 'again-123', expires_at: later })).body;
   assert.deepEqual([both.has_password, both.expires_at], [true, later]);
+  // Admin → Share links: the company's admins see every link (here: the owner, an admin of Acme); members can't;
+  // another company's admin doesn't see Acme's. An admin can stop one, and its maker is told.
+  assert.equal((await sharer('GET', '/api/links/all')).status, 403);
+  const all = (await owner('GET', '/api/links/all')).body;
+  const mine = all.find((x) => x.id === locked.id);
+  assert.deepEqual([mine.file_name, mine.file_kind, mine.owner_name, mine.has_password, mine.mode], ['quote.pdf', 'file', 'Link Er', true, 'view']);
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Linkless', domain: 'linkless.com', admin_name: 'Lin Admin', admin_local: 'lin', admin_password: 'password123' })).status, 201);
+  const ginaC = client(); await login(ginaC, 'lin@linkless.com');
+  assert.equal((await ginaC('GET', '/api/links/all')).body.some((x) => x.id === locked.id), false, 'not another company');
+  assert.equal((await ginaC('DELETE', `/api/links/${link.id}`)).status, 404, 'nor stop it');
+  const spare = (await sharer('POST', '/api/links', { file_id: file.id })).body;
+  assert.equal((await owner('DELETE', `/api/links/${spare.id}`)).status, 200, 'an admin stops it');
+  assert.equal((await pub('GET', `/api/public/links/${spare.token}`)).status, 404);
+  assert.ok(JSON.stringify((await sharer('GET', '/api/notifications')).body).includes('An admin stopped your link to quote.pdf'));
+  // Expired ones only when asked.
+  q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, locked.id);
+  assert.equal((await owner('GET', '/api/links/all')).body.some((x) => x.id === locked.id), false);
+  assert.equal((await owner('GET', '/api/links/all?expired=1')).body.find((x) => x.id === locked.id).expired, true);
   q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, locked.id); // expired again, as below expects
 
   // Folders: browse inside, open files inside, nothing outside or in the trash.
@@ -656,7 +674,9 @@ test('public share links: no account needed; expiry, password, folders, revoking
   assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 200);
   await sharer('PATCH', `/api/files/${folder.id}`, { trashed: true });
   assert.equal((await pub('GET', `/api/public/links/${fl.token}/raw?item=${inside.id}`)).status, 404);
-  assert.equal((await owner('DELETE', `/api/links/${link.id}`)).status, 404, 'only the owner revokes');
+  assert.equal((await owner('POST', '/api/users', { local: 'linkpeer', domain: 'acme.com', name: 'Link Peer', password: 'password123' })).status, 201);
+  const peer = client(); await login(peer, 'linkpeer@acme.com');
+  assert.equal((await peer('DELETE', `/api/links/${link.id}`)).status, 404, 'only the owner (or an admin) revokes, not a colleague');
   assert.equal((await sharer('DELETE', `/api/links/${link.id}`)).status, 200);
   assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 404);
 });

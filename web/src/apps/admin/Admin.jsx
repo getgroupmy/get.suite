@@ -14,6 +14,7 @@ import StorageAdmin from './StorageAdmin.jsx';
 import ReportsAdmin from './ReportsAdmin.jsx';
 import SystemAdmin from './SystemAdmin.jsx';
 import DrivesAdmin from './DrivesAdmin.jsx';
+import LinksAdmin from './LinksAdmin.jsx';
 import AppsAdmin from './AppsAdmin.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { readFeatures } from '../calendar/roomfit.js';
@@ -82,7 +83,7 @@ export default function Admin() {
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
   const mail = useMailStatus();
-  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
+  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['links', 'Share links'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
 
   return (
     <div className="page">
@@ -102,6 +103,7 @@ export default function Admin() {
       {tab === 'reports' && <ReportsAdmin orgId={user.is_super && orgId !== user.org_id ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'storage' && <StorageAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'drives' && <DrivesAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
+      {tab === 'links' && <LinksAdmin />}
       {tab === 'apps' && <AppsAdmin />}
       {tab === 'security' && <SecurityAdmin />}
       {tab === 'system' && user.is_super && <SystemAdmin />}
