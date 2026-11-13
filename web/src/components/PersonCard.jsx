@@ -29,6 +29,17 @@ export default function PersonCard({ userId, onClose }) {
     } catch (e) { toast(e.message, 'error'); }
   };
   const message = async () => { const { id: dm } = await post('/chat/dm', { user_id: card.id }); onClose(); navigate(`/chat/${dm}`); };
+  // A new event with them invited, at the first half hour you're both free (within working hours), to change and save.
+  const schedule = async () => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    let slot = null;
+    try { slot = (await get(`/freebusy/suggest?users=${card.id}&duration=30&tz=${encodeURIComponent(tz)}`)).slots?.[0] || null; } catch { /* use the next hour */ }
+    const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
+    const start = slot?.start ?? t.getTime();
+    onClose();
+    navigate('/calendar', { state: { newEvent: { title: '', start, end: slot?.end ?? start + 30 * 60e3, all_day: 0, location: '', description: '', guests: [{ email: card.email, name: card.name }] } } });
+    if (slot) toast(`The first half hour you’re both free: ${new Date(start).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
+  };
   const seeCalendar = () => {
     try {
       const list = JSON.parse(localStorage.getItem('nw.calOthers') || '[]');
@@ -61,6 +72,7 @@ export default function PersonCard({ userId, onClose }) {
             <button type="button" className="btn primary" onClick={message}><Icon name="chat" size={16} /> Message</button>
             <button type="button" className="btn" onClick={callThem} title="A video call: they're rung, wherever they are in Workspace"><Icon name="video" size={16} /> Call</button>
             <button type="button" className="btn" onClick={() => { onClose(); navigate(`/mail?compose=${encodeURIComponent(card.email)}`); }}><Icon name="mail" size={16} /> Email</button>
+            <button type="button" className="btn" onClick={schedule} title="A new event with them, at the first time you're both free"><Icon name="calendar" size={16} /> Schedule a meeting</button>
             <button type="button" className="btn" onClick={seeCalendar}><Icon name="calendar" size={16} /> See their calendar</button>
           </div>
         )}
