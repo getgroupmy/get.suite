@@ -735,6 +735,7 @@ export default function Chat() {
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="Download conversation" title="Download this conversation" {...p}><Icon name="download" /></button>} items={[
               { label: 'As a web page (.html)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=html&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },
               { label: 'As plain text (.txt)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=txt&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },
+              { label: 'With its files (.zip)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=zip&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },
             ]} />
             {!current.dm_key && <button type="button" className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>}
           </div>

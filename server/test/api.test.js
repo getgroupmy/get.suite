@@ -13011,3 +13011,32 @@ test('takeout: bringing data in can run in the background (?background=1), its p
   assert.equal((await a('GET', `/api/takeout/restore/status?user=${bid}`)).status, 403, 'someone else’s: admins only');
   assert.equal((await owner('GET', `/api/takeout/restore/status?user=${bid}`)).body.status, 'done', 'an admin sees it');
 });
+
+test('chat: download a conversation with its files (.zip): the page, and each file shared in it (same names numbered)', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client(), b = client(), c = client();
+  for (const [x, local] of [[a, 'czip1'], [b, 'czip2'], [c, 'czip3']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'czip2@acme.com'").get().id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const other = (await a('POST', '/api/files/folder', { name: 'Other' })).body.id;
+  const up = async (name, text, parent = '') => (await a('POST', `/api/files/upload?name=${encodeURIComponent(name)}${parent ? `&parent=${parent}` : ''}`, text, { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+  const f1 = await up('notes.txt', 'first'), f2 = await up('notes.txt', 'second', other), f3 = await up('plan.txt', 'plan');
+  assert.equal(f2.name, 'notes.txt', 'the same name, in another folder');
+  assert.equal((await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Here you go', files: [f1.id, f3.id] })).status, 201);
+  assert.equal((await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'And the other', files: [f2.id] })).status, 201);
+  const r = await b('GET', `/api/chat/channels/${dm}/export?format=zip&tz=UTC`, undefined, { binary: true });
+  assert.equal(r.status, 200);
+  const zip = await JSZip.loadAsync(r.body);
+  const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort();
+  assert.equal(names.length, 4, names.join());
+  assert.ok(names.some((n) => /^Conversation with .+\.html$/.test(n)), names.join());
+  assert.deepEqual(names.filter((n) => n.startsWith('Files/')), ['Files/notes (2).txt', 'Files/notes.txt', 'Files/plan.txt']);
+  assert.equal(await zip.file('Files/notes.txt').async('string'), 'first');
+  assert.match(await zip.file(names.find((n) => n.endsWith('.html'))).async('string'), /Here you go/);
+  assert.equal((await c('GET', `/api/chat/channels/${dm}/export?format=zip`)).status, 404, 'not in it');
+});

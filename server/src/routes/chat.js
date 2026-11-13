@@ -868,8 +868,26 @@ export default function chatRoutes() {
   });
 
   // The whole conversation to keep: plain text (?format=txt) or a page (html), in the reader's time zone (?tz=).
-  r.get('/channels/:id/export', (req, res) => {
+  r.get('/channels/:id/export', async (req, res) => {
     const { title, messages } = conversationFor(req.params.id, req.user);
+    if (req.query.format === 'zip') {
+      // The page and every file shared in the conversation (still there), in a Files folder: to keep, or to hand over.
+      const c = loadChannel(req.params.id, req.user);
+      const ids = [...new Set(q('SELECT files FROM messages WHERE channel_id = ? AND files IS NOT NULL ORDER BY created_at').all(c.id)
+        .flatMap((m) => { try { return JSON.parse(m.files || '[]').map((f) => f.id); } catch { return []; } }).filter(Boolean))];
+      const found = ids.map((id) => q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(id)).filter(Boolean);
+      if (found.reduce((n, f) => n + (f.size || 0), 0) > 500 * 1024 * 1024) throw bad('The files in this conversation come to more than 500 MB: download them from the conversation instead');
+      const { uniqueNames, safeName } = await import('../mail/attzip.js');
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const base = title.replace(/^#/, '').replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 80) || 'Conversation';
+      zip.file(`${base}.html`, conversationHtml(title, messages, { tz: String(req.query.tz || 'UTC') }));
+      const names = uniqueNames(found.map((f) => safeName(f.name, 'file')));
+      found.forEach((f, i) => { try { zip.file(`Files/${names[i]}`, fs.readFileSync(path.join(FILES_DIR, f.storage)), { binary: true }); } catch { /* gone from disk: left out */ } });
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.zip`)}`);
+      return res.end(await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } }));
+    }
     const html = req.query.format !== 'txt';
     const file = `${title.replace(/^#/, '').replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 80) || 'Conversation'}.${html ? 'html' : 'txt'}`;
     res.setHeader('Content-Type', html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');
