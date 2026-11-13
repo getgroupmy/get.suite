@@ -1536,6 +1536,7 @@ const noteOf = (id) => {
 
 /** Links to notes in a message, shown as small note cards in the note's colour. */
 function NoteCards({ text }) {
+  const toast = useToast();
   const links = noteLinksIn(text);
   const [info, setInfo] = useState({});
   useEffect(() => {
@@ -1550,17 +1551,32 @@ function NoteCards({ text }) {
         const x = info[l.id];
         if (x === undefined) return null;
         if (!x) return <div key={l.id} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">A note you can’t see (it isn’t shared with you, or it was deleted)</span></div>;
+        // A checklist ticks right here (an item with its sub-items, as in Notes), for everyone the note is shared with.
+        const tick = async (it) => {
+          try {
+            await put(`/notes/${x.id}/items/${it.id}`, { done: !it.done });
+            noteInfo.delete(x.id);
+            const fresh = await noteOf(x.id);
+            setInfo((st) => ({ ...st, [l.id]: fresh }));
+          } catch (e) { toast(e.message, 'error'); }
+        };
+        const to = `/notes?note=${x.id}`;
+        const meta = [x.mine ? 'Your note' : `${x.owner_name}’s note`, x.items && `${x.items.done}/${x.items.total} done`, x.pictures > 0 && `🖼 ${x.pictures}`, x.archived && 'Archived'].filter(Boolean).join(' · ');
         return (
-          <Link key={l.id} className="msg-card msg-note" style={x.color ? { background: x.color, color: '#202124', borderLeftColor: '#5f6368' } : undefined} to={`/notes?note=${x.id}`} aria-label={`Note: ${x.title || 'Untitled note'}`}>
-            <span className="msg-card-meta"><Icon name="note" size={18} /> <strong>{x.title || 'Untitled note'}</strong></span>
+          <div key={l.id} className="msg-card msg-note" style={x.color ? { background: x.color, color: '#202124', borderLeftColor: '#5f6368' } : undefined} role="group" aria-label={`Note: ${x.title || 'Untitled note'}`}>
+            <Link className="msg-card-meta" to={to} style={{ color: 'inherit', textDecoration: 'none' }}><Icon name="note" size={18} /> <strong>{x.title || 'Untitled note'}</strong></Link>
             {x.items ? (
               <span className="small msg-card-list">
-                {x.items.first.map((it, i) => <span key={i} className={it.done ? 'done' : ''}>{it.done ? '☑' : '☐'} {it.text}</span>)}
-                {x.items.total > x.items.first.length && <span className="muted">+ {x.items.total - x.items.first.length} more</span>}
+                {x.items.first.map((it) => (
+                  <label key={it.id || it.text} className={`check ${it.done ? 'done' : ''}`} style={it.indent ? { marginLeft: 18 } : undefined}>
+                    <input type="checkbox" checked={it.done} disabled={!it.id} onChange={() => tick(it)} /> {it.text}
+                  </label>
+                ))}
+                {x.items.total > x.items.first.length && <Link className="muted" to={to}>+ {x.items.total - x.items.first.length} more</Link>}
               </span>
-            ) : x.body ? <span className="msg-card-text small">{x.body}</span> : null}
-            <span className="muted small">{[x.mine ? 'Your note' : `${x.owner_name}’s note`, x.items && `${x.items.done}/${x.items.total} done`, x.pictures > 0 && `🖼 ${x.pictures}`, x.archived && 'Archived'].filter(Boolean).join(' · ')}</span>
-          </Link>
+            ) : x.body ? <Link className="msg-card-text small" to={to} style={{ color: 'inherit', textDecoration: 'none' }}>{x.body}</Link> : null}
+            <Link className="muted small" to={to} style={{ textDecoration: 'none' }}>{meta}</Link>
+          </div>
         );
       })}
     </div>

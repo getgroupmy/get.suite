@@ -646,6 +646,25 @@ export default function noteRoutes() {
     res.setHeader('Content-Disposition', `attachment; filename="note.md"; filename*=UTF-8''${encodeURIComponent(name)}.md`);
     res.send(noteMarkdown(note));
   });
+  // Tick one item (and its sub-items, as in the note) or untick it, without sending the whole list: from a note's
+  // card in Chat, say. { done }. Kept in the version history like any other change.
+  r.put('/:id/items/:itemId', (req, res) => {
+    const n = load(req.params.id, req.user);
+    if (n.trashed_at) throw notFound('Note not found');
+    const items = n.items ? JSON.parse(n.items) : null;
+    const i = items ? items.findIndex((x) => x.id === req.params.itemId) : -1;
+    if (i < 0) throw notFound('That item isn’t on the list any more');
+    let end = i;
+    if (!items[i].indent) while (items[end + 1]?.indent) end++;
+    const done = !!req.body?.done;
+    const next = items.map((x, k) => (k >= i && k <= end ? { ...x, done } : x));
+    const set = { items: JSON.stringify(next) };
+    versionBefore(n, req.user.id, set);
+    q('UPDATE notes SET items = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(set.items, now(), req.user.id, n.id);
+    tell(n);
+    res.json({ done: next.filter((x) => x.done).length, total: next.length });
+  });
+
   r.get('/:id/preview', (req, res) => {
     const n = load(req.params.id, req.user);
     if (n.trashed_at) throw notFound('Note not found');
@@ -655,7 +674,7 @@ export default function noteRoutes() {
       id: n.id, title: n.title || '', color: n.color || null, archived: !!n.archived, mine: n.owner_id === req.user.id,
       owner_name: q('SELECT name FROM users WHERE id = ?').get(n.owner_id)?.name || null,
       body: items ? null : (body.length > 300 ? `${body.slice(0, 300)}…` : body),
-      items: items ? { done: items.filter((i) => i.done).length, total: items.length, first: items.slice(0, 5).map((i) => ({ text: String(i.text || '').slice(0, 120), done: !!i.done })) } : null,
+      items: items ? { done: items.filter((i) => i.done).length, total: items.length, first: items.slice(0, 5).map((i) => ({ id: i.id, text: String(i.text || '').slice(0, 120), done: !!i.done, ...(i.indent && { indent: 1 }) })) } : null,
       pictures: picturesOf(n.id).length, updated_at: n.updated_at,
     });
   });

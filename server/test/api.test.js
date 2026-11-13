@@ -5180,6 +5180,25 @@ test('notes: reminders reach everyone on the note, then clear', async () => {
   assert.deepEqual([off.remind_at, off.remind_repeat], [null, null]);
 });
 
+test('notes: tick one item (and its sub-items) without the whole list, as from a card in Chat', async () => {
+  const a = client(); const b = client(); const c = client();
+  const bid = (await owner('POST', '/api/users', { local: 'tickb', domain: 'acme.com', name: 'Tick B', password: 'password123' })).body.id;
+  for (const l of ['ticka', 'tickc']) await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: l, password: 'password123' });
+  await login(a, 'ticka@acme.com'); await login(b, 'tickb@acme.com'); await login(c, 'tickc@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Trip', items: [{ text: 'Pack' }, { text: 'Socks', indent: 1 }, { text: 'Charger', indent: 1 }, { text: 'Tickets' }] })).body;
+  const ids = n.items.map((i) => i.id);
+  const card = (await a('GET', `/api/notes/${n.id}/preview`)).body;
+  assert.deepEqual(card.items.first.map((i) => [i.id, !!i.indent]), [[ids[0], false], [ids[1], true], [ids[2], true], [ids[3], false]], 'the card knows each item');
+  assert.deepEqual((await a('PUT', `/api/notes/${n.id}/items/${ids[0]}`, { done: true })).body, { done: 3, total: 4 }, 'Pack, with Socks and Charger');
+  assert.deepEqual((await a('PUT', `/api/notes/${n.id}/items/${ids[1]}`, { done: false })).body, { done: 2, total: 4 }, 'a sub-item alone');
+  assert.equal((await b('PUT', `/api/notes/${n.id}/items/${ids[3]}`, { done: true })).status, 404, 'not shared with B yet');
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [bid] });
+  assert.deepEqual((await b('PUT', `/api/notes/${n.id}/items/${ids[3]}`, { done: true })).body, { done: 3, total: 4 }, 'someone it’s shared with');
+  assert.equal((await c('PUT', `/api/notes/${n.id}/items/${ids[3]}`, { done: false })).status, 404, 'nobody else');
+  assert.equal((await a('PUT', `/api/notes/${n.id}/items/nope`, { done: true })).status, 404);
+  assert.deepEqual((await a('GET', '/api/notes')).body.find((x) => x.id === n.id).items.map((i) => i.done), [true, false, true, true]);
+});
+
 test('start page: Drive by default, Home if chosen', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'spage', domain: 'acme.com', name: 'Start Page', password: 'password123' })).status, 201);
@@ -10439,7 +10458,8 @@ test('note links: a card for the owner and the people it is shared with, and nob
   const pa = (await a('GET', `/api/notes/${list.id}/preview`)).body;
   assert.equal(pa.title, 'Packing'); assert.equal(pa.mine, true); assert.equal(pa.body, null);
   assert.equal(pa.items.total, 6); assert.equal(pa.items.done, 1); assert.equal(pa.items.first.length, 5);
-  assert.deepEqual(pa.items.first[0], { text: 'Item 1', done: true });
+  assert.deepEqual({ text: pa.items.first[0].text, done: pa.items.first[0].done }, { text: 'Item 1', done: true });
+  assert.match(pa.items.first[0].id, /^[\w-]+$/, 'with its id, to tick it from the card');
   const pb = await b('GET', `/api/notes/${list.id}/preview`);
   assert.equal(pb.status, 200); assert.equal(pb.body.owner_name, 'Nl Ann'); assert.equal(pb.body.mine, false);
   const pt = (await a('GET', `/api/notes/${text.id}/preview`)).body;
