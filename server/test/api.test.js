@@ -13823,7 +13823,7 @@ test('meet: search kept meeting chats — all the words, only meetings you start
   assert.deepEqual((await find(a, 'συναντηση')).map((x) => x.text), ['ΣΥΝΑΝΤΗΣΗ αύριο'], 'other alphabets too');
 });
 
-test('notes: a note copied to a document brings its pictures (copied into My Drive, shown after the text)', async () => {
+test('notes: a note copied to a document brings its pictures (copied into a Pictures from notes folder, shown after the text)', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'npic1', domain: 'acme.com', name: 'npic1', password: 'password123' })).status, 201);
   await login(a, 'npic1@acme.com');
@@ -13835,7 +13835,17 @@ test('notes: a note copied to a document brings its pictures (copied into My Dri
   const doc = (await a('GET', `/api/files/${d.id}/content`)).body.content;
   assert.deepEqual(doc.content.map((x) => x.type), ['heading', 'paragraph', 'image', 'image'], 'pictures after the text');
   const mine = (await a('GET', '/api/files')).body;
-  const pic = mine.find((f) => f.id === doc.content[2].attrs.fileId);
-  assert.deepEqual([pic.name, pic.mime, pic.role], ['Whiteboard – picture 1.png', 'image/png', 'owner'], 'a picture of yours in My Drive');
+  const folder = mine.find((f) => f.name === 'Pictures from notes');
+  assert.equal(folder.kind, 'folder', 'a folder for them in My Drive');
+  assert.ok(mine.some((f) => f.id === d.id), 'the document itself in My Drive');
+  const inside = (await a('GET', `/api/files?parent=${folder.id}`)).body;
+  const pic = inside.find((f) => f.id === doc.content[2].attrs.fileId);
+  assert.deepEqual([pic.name, pic.mime, pic.role], ['Whiteboard – picture 1.png', 'image/png', 'owner'], 'a picture of yours, in that folder');
+  assert.ok(!mine.some((f) => /picture 1\.png$/.test(f.name)), 'not loose in My Drive');
+  const n2 = (await a('POST', '/api/notes', { title: 'Second' })).body;
+  await a('POST', `/api/notes/${n2.id}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } });
+  await a('POST', `/api/notes/${n2.id}/doc`);
+  assert.equal((await a('GET', '/api/files')).body.filter((f) => f.name === 'Pictures from notes').length, 1, 'the same folder the next time');
+  assert.equal((await a('GET', `/api/files?parent=${folder.id}`)).body.length, 3);
   assert.deepEqual([...(await a('GET', `/api/files/${pic.id}/raw`, undefined, { binary: true })).body], [...png], 'the same picture');
 });

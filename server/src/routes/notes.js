@@ -777,16 +777,19 @@ export default function noteRoutes() {
       ...(items ? (items.length ? [{ type: 'taskList', content: taskItems(items, para) }] : [])
         : String(n.body || '').split('\n').map((line) => para(line))),
     ];
-    // Its pictures come too: each copied into your My Drive (as a picture put in a document is), shown after the text.
+    // Its pictures come too: each copied into your Drive, shown after the text.
     const pics = q('SELECT * FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(n.id);
     checkQuota(req.user.org_id, pics.reduce((t, p) => t + p.size, 0), req.user.id);
     const name = (n.title || (n.body || '').split('\n')[0] || 'Note').slice(0, 120);
     const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
     const images = [];
+    // They go in one "Pictures from notes" folder in My Drive (made when first needed), not loose beside the document.
+    const picFolder = !pics.length ? null : q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Pictures from notes' AND trashed = 0").get(req.user.id)?.id
+      || insertFile({ owner: req.user.id, parentId: null, name: 'Pictures from notes', kind: 'folder' });
     for (const [i, p] of pics.entries()) {
       const storage = uid();
       try { fs.copyFileSync(path.join(FILES_DIR, p.storage), path.join(FILES_DIR, storage)); } catch { continue; }
-      const fileId = insertFile({ owner: req.user.id, parentId: null, name: `${name} – picture ${i + 1}.${ext[p.mime] || 'png'}`, kind: 'file', mime: p.mime, size: p.size, storage });
+      const fileId = insertFile({ owner: req.user.id, parentId: picFolder, name: `${name} – picture ${i + 1}.${ext[p.mime] || 'png'}`, kind: 'file', mime: p.mime, size: p.size, storage });
       images.push({ type: 'image', attrs: { fileId, alt: `${name} – picture ${i + 1}` } });
     }
     const all = [...content, ...images];
