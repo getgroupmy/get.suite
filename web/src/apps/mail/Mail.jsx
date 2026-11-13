@@ -32,6 +32,7 @@ import DrivePicker from '../../components/DrivePicker.jsx';
 import { parseAddresses } from '../../components/addresses.js';
 import { fileLinksIn } from '../chat/filelinks.js';
 import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
+import { withFreeTime } from '../../components/scheduleWith.js';
 import { eventFromEmail } from '../calendar/fromemail.js';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
 import { mentionsAttachment } from './attachcheck.js';
@@ -878,7 +879,12 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
         ]} />
         {sharing && <ShareInChat uid={uid} folder={folder} subject={m.subject} onClose={() => setSharing(false)} />}
-        <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={() => navigate('/calendar', { state: { newEvent: eventFromEmail(m, [user.username, ...mine]) } })}><Icon name="calendar" /></button>
+        <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={async () => {
+          // At the first time you and the colleagues on the email are all free (others can't be checked).
+          const { ev, moved } = await withFreeTime(eventFromEmail(m, [user.username, ...mine]));
+          navigate('/calendar', { state: { newEvent: ev } });
+          if (moved) toast(`The first hour you’re all free: ${new Date(ev.start).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
+        }}><Icon name="calendar" /></button>
         <button className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={() => addToTasksWithToast(toast, navigate, { title: m.subject || '(no subject)', link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } })}><Icon name="check" /></button>
         {!shared && <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
           ...labels.map((l) => {
