@@ -20,7 +20,7 @@ import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { mailKey, stepMessage, afterRemoval } from './mailkeys.js';
-import { printMessage } from './mailprint.js';
+import { printMessage, printDocuments, printHtml } from './mailprint.js';
 import { previewKind, stepPreview } from '../../components/viewkind.js';
 import FileViewer from '../../components/FileViewer.jsx';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
@@ -526,6 +526,14 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               Move to {tab === 'primary' ? 'Updates' : 'Primary'}</button>}
             <SnoozeMenu small onPick={(at) => act('snooze', { uids: sel, until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => setSnoozing(sel)} />
             {folder === SNOOZED && <button className="btn small" onClick={() => act('unsnooze', { uids: sel }, 'Back in the Inbox')}>Unsnooze</button>}
+            <button type="button" className="btn small" title="The selected messages on one printout, each on its own page (read ones stay as they were)" onClick={async () => {
+              if (sel.length > 50) { toast('Print up to 50 messages at a time', 'error'); return; }
+              try {
+                const list = [];
+                for (const uid of sel) list.push(await get(`/mail/messages/${uid}?folder=${enc(folder)}&peek=1${mailboxParam()}`));
+                printHtml(printDocuments(list));
+              } catch (e) { toast(e.message, 'error'); }
+            }}><Icon name="print" size={16} /> Print</button>
             <button type="button" className="btn small" title="Each message as an .eml file, in one .zip" onClick={() => downloadZip(`/mail/messages-eml.zip?folder=${enc(folder)}&uids=${sel.join(',')}${mailboxParam()}`)}>Download (.zip)</button>
             <button className="btn small danger" onClick={() => act('delete', { uids: sel }, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}>Delete</button>
           </div>

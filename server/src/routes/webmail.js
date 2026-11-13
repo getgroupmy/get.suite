@@ -1043,7 +1043,8 @@ export default function webmailRoutes() {
 
   r.get('/messages/:uid', async (req, res) => {
     const folder = String(req.query.folder || 'INBOX');
-    const { parsed: p, flags } = await loadMessage(req.user, folder, Number(req.params.uid), true);
+    // ?peek=1: read it without marking it read (printing several, say).
+    const { parsed: p, flags } = await loadMessage(req.user, folder, Number(req.params.uid), req.query.peek !== '1');
     res.json({
       uid: Number(req.params.uid), folder,
       subject: p.subject || '', date: p.date?.valueOf() ?? null,

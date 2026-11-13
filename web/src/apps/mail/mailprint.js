@@ -37,3 +37,13 @@ export function printHtml(html) {
   document.body.appendChild(frame);
   return frame;
 }
+
+/** Several messages on one printout, each starting a new page (each as printDocument lays it out). */
+export function printDocuments(list, opts) {
+  const pages = list.map((m) => printDocument(m, opts));
+  const head = /<head>([\s\S]*?)<title>/.exec(pages[0] || '')?.[1] || '<meta charset="utf-8">';
+  const style = /<style>([\s\S]*?)<\/style>/.exec(pages[0] || '')?.[1] || '';
+  const bodies = pages.map((p) => /<body>([\s\S]*)<\/body>/.exec(p)[1]);
+  return `<!doctype html><html><head>${head}<title>${list.length} ${list.length === 1 ? 'message' : 'messages'}</title><style>${style}
+section.msg + section.msg{break-before:page}</style></head><body>${bodies.map((b) => `<section class="msg">${b}</section>`).join('')}</body></html>`;
+}

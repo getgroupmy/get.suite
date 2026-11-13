@@ -2656,3 +2656,15 @@ test('bring in your data: its Mail/ .mbox files go into your mailbox, folders in
   const list = (await olivia('GET', `/api/mail/messages?folder=${encodeURIComponent(acme.path)}`)).body.messages;
   assert.ok(list.some((m) => m.subject === `${tag} acme`));
 });
+
+test('reading a message with ?peek=1 (printing several) leaves it unread; opening it marks it read', async () => {
+  const tag = `Peek ${Date.now()}`;
+  const eml = `From: A <a@example.org>\r\nSubject: ${tag}\r\nMessage-ID: <${tag.replace(/\s/g, '')}@example.org>\r\nStatus: O\r\n\r\nBody\r\n`;
+  assert.equal((await olivia('POST', '/api/mail/messages/upload?folder=INBOX', eml, { raw: true, headers: { 'content-type': 'message/rfc822' } })).status, 201);
+  const m = (await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages.find((x) => x.subject === tag);
+  assert.equal(m.seen, false);
+  assert.equal((await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX&peek=1`)).body.subject, tag);
+  assert.equal((await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages.find((x) => x.subject === tag).seen, false, 'still unread');
+  await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX`);
+  assert.equal((await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages.find((x) => x.subject === tag).seen, true);
+});
