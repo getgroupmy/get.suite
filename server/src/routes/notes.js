@@ -1,6 +1,8 @@
 // Notes: quick notes and checklists on coloured cards. Pin the important ones, give them labels, archive
 // what's done with, and share a note with colleagues to keep it together (everyone it's shared with can
 // change it; only its owner can delete it). Mounted at /api/notes.
+import { nextRemind, REPEATS } from '../noterepeat.js';
+import { zoneOrUtc } from '../ics.js';
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
@@ -46,6 +48,8 @@ q(`CREATE TABLE IF NOT EXISTS note_order (
 const topFor = (userId) => (q(`SELECT MAX(COALESCE(o.position, n.position)) AS p FROM notes n LEFT JOIN note_order o ON o.note_id = n.id AND o.user_id = ?
                                WHERE n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)`).get(userId, userId, userId).p ?? 0) + 1;
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_at')) q('ALTER TABLE notes ADD COLUMN remind_at INTEGER').run(); // a reminder, for everyone on the note
+// A reminder can repeat (daily, weekdays, weekly, monthly) at the same time in the time zone of whoever set it.
+for (const col of ['remind_repeat', 'remind_tz']) if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === col)) q(`ALTER TABLE notes ADD COLUMN ${col} TEXT`).run();
 
 // Pictures on a note (shown at the top of the card), stored like Drive files but not listed in Drive.
 q(`CREATE TABLE IF NOT EXISTS note_pictures (
@@ -209,7 +213,7 @@ const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE not
 function shape(n, me) {
   return {
     id: n.id, title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, color: n.color, pinned: !!n.pinned, archived: !!n.archived, trashed_at: n.trashed_at ?? null,
-    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, pictures: picturesOf(n.id).map((p) => p.id), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
+    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, remind_repeat: n.remind_repeat || null, pictures: picturesOf(n.id).map((p) => p.id), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
   };
@@ -273,11 +277,13 @@ function versionBefore(n, userId, set, t = now()) {
   if ((n.updated_by || n.owner_id) !== userId || t - n.updated_at >= QUIET_MS || !last) keepVersion(n);
 }
 
-/** Send the reminders that are due (to everyone on each note), then clear them. */
+/** Send the reminders that are due (to everyone on each note), then clear them (or move a repeating one on). */
 export function remindNotesDue(at = now()) {
   const due = q('SELECT * FROM notes WHERE remind_at IS NOT NULL AND remind_at <= ? AND trashed_at IS NULL ORDER BY remind_at LIMIT 100').all(at);
   for (const n of due) {
-    q('UPDATE notes SET remind_at = NULL WHERE id = ?').run(n.id);
+    // A repeating one moves on to its next time; the others are done.
+    const next = n.remind_repeat ? nextRemind(n.remind_at, n.remind_repeat, n.remind_tz, at) : null;
+    q('UPDATE notes SET remind_at = ?, remind_repeat = ? WHERE id = ?').run(next, next ? n.remind_repeat : null, n.id);
     const items = n.items ? JSON.parse(n.items).filter((i) => !i.done).map((i) => `☐ ${i.text}`).join('\n') : '';
     bell(team(n), { kind: 'note', title: `Reminder: ${n.title || (n.body || '').split('\n')[0].slice(0, 80) || 'a note'}`, body: (n.title ? n.body || items : items).slice(0, 200) || null, link: '/notes', actor: null });
     tell(n);
@@ -568,6 +574,14 @@ export default function noteRoutes() {
         set.remind_at = Math.round(t);
       }
     }
+    // { remind_repeat: 'daily' | 'weekdays' | 'weekly' | 'monthly' | null, remind_tz }: only with a reminder.
+    if (b.remind_repeat !== undefined) {
+      if (b.remind_repeat && !REPEATS.includes(b.remind_repeat)) throw bad('Repeat daily, weekdays, weekly or monthly');
+      set.remind_repeat = b.remind_repeat || null;
+      if (b.remind_tz !== undefined) set.remind_tz = zoneOrUtc(String(b.remind_tz || 'UTC'));
+    }
+    if (set.remind_at === null) set.remind_repeat = null; // taking the reminder off ends its repeating
+    if (set.remind_repeat && !(set.remind_at ?? n.remind_at)) throw bad('Set a time for the reminder first');
     const keys = Object.keys(set);
     if (keys.length) versionBefore(n, req.user.id, set);
     if (keys.length) q(`UPDATE notes SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ?, updated_by = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), req.user.id, n.id);

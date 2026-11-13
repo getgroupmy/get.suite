@@ -371,6 +371,9 @@ function PickTime({ note, onPick, onClose }) {
   );
 }
 
+/** How a reminder can repeat (the server's REPEATS), with what the menu says. */
+const REPEAT_CHOICES = [[null, 'Doesn’t repeat'], ['daily', 'Repeat daily'], ['weekdays', 'Repeat on weekdays'], ['weekly', 'Repeat weekly'], ['monthly', 'Repeat monthly']];
+
 function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory }) {
   const mail = useMailStatus();
   const navigate = useNavigate();
@@ -401,7 +404,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
       )}
       {(n.labels.length > 0 || n.shared.length > 0 || !n.mine || n.remind_at) && (
         <div className="note-chips">
-          {n.remind_at && <span className={`note-chip remind ${n.remind_at < Date.now() ? 'past' : ''}`}>⏰ {reminderText(n.remind_at)}<button type="button" className="chip-x" aria-label="Remove reminder" onClick={() => onRemind(null)}>×</button></span>}
+          {n.remind_at && <span className={`note-chip remind ${n.remind_at < Date.now() ? 'past' : ''}`}>⏰ {reminderText(n.remind_at)}{n.remind_repeat && <span title={REPEAT_CHOICES.find(([v]) => v === n.remind_repeat)?.[1]} aria-label={`repeats ${n.remind_repeat}`}> 🔁</span>}<button type="button" className="chip-x" aria-label="Remove reminder" onClick={() => onRemind(null)}>×</button></span>}
           {n.labels.map((l) => <span key={l} className={`note-chip ${labelColors[l] ? 'coloured' : ''}`} style={labelColors[l] ? { '--lc': labelColors[l] } : undefined}>{l}</span>)}
           {!n.mine && <span title={`Shared by ${n.owner?.name}`}><Avatar name={n.owner?.name} size={22} userId={n.owner?.id} /></span>}
           {n.shared.filter((u) => n.mine || u.id !== n.owner?.id).slice(0, 4).map((u) => <span key={u.id} title={u.name}><Avatar name={u.name} size={22} userId={u.id} /></span>)}
@@ -411,7 +414,9 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
         <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me" title="Remind me" {...p}><Icon name="bell" size={18} /></button>} items={[
           ...quickTimes().map(([label, t]) => ({ label: `${label} · ${reminderText(t)}`, onClick: () => onRemind(t) })),
           { label: 'Pick a day and time…', onClick: () => onRemind('pick') },
-          ...(n.remind_at ? [{ label: 'Remove reminder', onClick: () => onRemind(null) }] : []),
+          ...(n.remind_at ? [{ label: 'Remove reminder', onClick: () => onRemind(null) }, '-',
+            ...REPEAT_CHOICES.map(([v, label]) => ({ label: `${(n.remind_repeat || null) === v ? '✓ ' : ''}${label}`,
+              onClick: () => onChange({ remind_repeat: v, ...(v && { remind_tz: Intl.DateTimeFormat().resolvedOptions().timeZone }) }) }))] : []),
         ]} />
         <ColorPicker value={n.color || ''} onChange={(color) => onChange({ color: color || null })} />
         <PictureButton noteId={n.id} />

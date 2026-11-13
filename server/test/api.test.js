@@ -5155,6 +5155,17 @@ test('notes: reminders reach everyone on the note, then clear', async () => {
   }
   assert.equal((await a('GET', '/api/notes')).body.find((x) => x.id === n.id).remind_at, null, 'cleared once sent');
   assert.equal(remindNotesDue(at + 5000), 0, 'only once');
+  // Repeating: weekly, at the same time; it moves on after each, and taking it off ends the repeat.
+  assert.equal((await a('PATCH', `/api/notes/${n.id}`, { remind_repeat: 'weekly' })).status, 400, 'needs a time');
+  assert.equal((await a('PATCH', `/api/notes/${n.id}`, { remind_at: at + 864e5, remind_repeat: 'hourly' })).status, 400);
+  const w = (await a('PATCH', `/api/notes/${n.id}`, { remind_at: at + 864e5, remind_repeat: 'weekly', remind_tz: 'Asia/Kuala_Lumpur' })).body;
+  assert.deepEqual([w.remind_at, w.remind_repeat], [at + 864e5, 'weekly']);
+  assert.equal(remindNotesDue(at + 864e5 + 1000), 1);
+  const moved = (await a('GET', '/api/notes')).body.find((x) => x.id === n.id);
+  assert.deepEqual([moved.remind_at, moved.remind_repeat], [at + 8 * 864e5, 'weekly'], 'a week later');
+  assert.equal(remindNotesDue(at + 864e5 + 5000), 0, 'not again before then');
+  const off = (await a('PATCH', `/api/notes/${n.id}`, { remind_at: null })).body;
+  assert.deepEqual([off.remind_at, off.remind_repeat], [null, null]);
 });
 
 test('start page: Drive by default, Home if chosen', async () => {
