@@ -13906,3 +13906,32 @@ test('meet: ask colleagues to join from inside the meeting — their screen ring
     assert.deepEqual(hostLive.msgs.filter((m) => m.type === 'ring-declined').map((m) => [m.by, m.code]), [['Ben Asked', code]]);
   } finally { inMeet.close(); hostLive.close(); benLive.close(); }
 });
+
+test('meet: on a calendar event, who is invited and not in the meeting yet (not those who said no), to ring them all', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const cookieFor = async (local, name) => {
+    await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${local}@acme.com`, password: 'password123' }) });
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const org = await cookieFor('mmis1', 'Ann Organiser'), yes = await cookieFor('mmis2', 'Bo Coming'), no = await cookieFor('mmis3', 'Cat Declined');
+  await cookieFor('mmis4', 'Dan Pending');
+  const call = (cookie, method, url, body) => fetch(base + url, { method, headers: { cookie, 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+  const { code } = (await call(org, 'POST', '/api/meet', { title: 'Planning' })).body;
+  const start = Date.now();
+  const ev = (await call(org, 'POST', '/api/events', { title: 'Planning', start, end: start + 3600e3, meet_code: code, guests: ['mmis2@acme.com', 'mmis3@acme.com', 'mmis4@acme.com'] })).body;
+  await call(no, 'POST', `/api/events/${ev.id}/rsvp`, { status: 'no' });
+  assert.equal((await call(org, 'GET', `/api/meet/${code}/missing`)).status, 403, 'join the meeting first');
+  const open = (cookie) => new Promise((resolve, reject) => { const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } }); ws.on('open', () => resolve(ws)); ws.on('error', reject); });
+  const a = await open(org), b = await open(yes);
+  try {
+    await new Promise((r) => setTimeout(r, 250));
+    assert.deepEqual((await call(yes, 'GET', `/api/meet/${code}/missing`)).body.map((u) => u.name), ['Dan Pending'], 'Ann and Bo are in it; Cat said no');
+  } finally { a.close(); b.close(); }
+  await new Promise((r) => setTimeout(r, 250));
+  const solo = await open(yes);
+  try {
+    await new Promise((r) => setTimeout(r, 250));
+    assert.deepEqual((await call(yes, 'GET', `/api/meet/${code}/missing`)).body.map((u) => u.name), ['Ann Organiser', 'Dan Pending'], 'the organiser too, once gone');
+  } finally { solo.close(); }
+});

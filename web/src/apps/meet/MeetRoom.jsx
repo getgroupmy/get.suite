@@ -161,6 +161,15 @@ function AskToJoin({ code, here }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { get('/users/directory').then(setPeople).catch(() => setPeople([])); }, []);
+  // On a calendar event: those invited who aren't here yet, to ring all at once.
+  const [missing, setMissing] = useState([]);
+  const hereKey = here.join(',');
+  useEffect(() => { get(`/meet/${code}/missing`).then(setMissing).catch(() => setMissing([])); }, [code, hereKey]);
+  const ringMissing = async () => {
+    setBusy(true);
+    try { const r = await post(`/meet/${code}/invite`, { user_ids: missing.slice(0, 8).map((p) => p.id) }); toast(`Ringing ${r.asked.join(', ')}…`); } catch (err) { toast(err.message, 'error'); }
+    setBusy(false);
+  };
   const choices = people.filter((p) => !here.includes(p.id));
   const ask = async (e) => {
     e.preventDefault();
@@ -171,13 +180,15 @@ function AskToJoin({ code, here }) {
     try { await post(`/meet/${code}/invite`, { user_ids: [who.id] }); toast(`Ringing ${who.name}…`); setText(''); } catch (err) { toast(err.message, 'error'); }
     setBusy(false);
   };
-  return (
+  return (<>
+    {missing.length > 0 && <button type="button" className="btn small" disabled={busy} title={missing.map((p) => p.name).join(', ')} onClick={ringMissing}>
+      📞 Ring everyone invited who isn’t here ({missing.length})</button>}
     <form className="row meet-ask" onSubmit={ask}>
       <input className="grow" list="meet-ask-people" aria-label="Ask someone to join" placeholder="Ask someone to join…" value={text} onChange={(e) => setText(e.target.value)} />
       <datalist id="meet-ask-people">{choices.map((p) => <option key={p.id} value={`${p.name} (${p.username})`} />)}</datalist>
       <button type="submit" className="btn small" disabled={busy || !text.trim()}>📞 Ring</button>
     </form>
-  );
+  </>);
 }
 
 /** How loud your microphone is, live (so you can see it hears you before joining). */

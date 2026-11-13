@@ -213,6 +213,18 @@ export function meetRoutes() {
     notify(asked.map((u) => u.id), { kind: 'chat', title: `📞 ${req.user.name} is asking you to join “${title}”`, body: 'Tap to join the video meeting.', link: `/meet/${m.code}`, actor: req.user.name });
     res.json({ asked: asked.map((u) => u.name), already: people.filter((u) => here.has(u.id)).map((u) => u.name) });
   });
+  // For a meeting on a calendar event: who's invited (its organiser and guests, not those who said no) and isn't
+  // in it now, to ring them all at once. Only for people in the meeting.
+  r.get('/:code/missing', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT code FROM meetings WHERE code = ?').get(req.params.code);
+    if (!m) throw notFound();
+    const here = new Set(userIdsIn(m.code));
+    if (!here.has(req.user.id)) throw forbidden('Join the meeting first');
+    const rows = q(`SELECT DISTINCT u.id, u.name FROM events e JOIN users u ON u.id = e.owner_id WHERE e.meet_code = ? AND u.disabled = 0
+                    UNION SELECT DISTINCT u.id, u.name FROM events e JOIN event_guests g ON g.event_id = e.id JOIN users u ON u.id = g.user_id
+                    WHERE e.meet_code = ? AND g.status != 'no' AND u.disabled = 0 ORDER BY 2`).all(m.code, m.code);
+    res.json(rows.filter((u) => !here.has(u.id) && canReach(req.user, u.id)).map((u) => ({ id: u.id, name: u.name })));
+  });
   // "Can't talk" to an ask to join: the person who asked is told.
   r.post('/:code/invite/decline', (req, res) => {
     const m = validCode(req.params.code) && q('SELECT code FROM meetings WHERE code = ?').get(req.params.code);
