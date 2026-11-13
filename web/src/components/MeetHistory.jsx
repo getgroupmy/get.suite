@@ -12,7 +12,7 @@ export function KeptChat({ meeting, onClose, onDeleted }) {
   useEffect(() => { get(`/meet/${meeting.code}/chat`).then(setC).catch((e) => { toast(e.message, 'error'); onClose(); }); }, [meeting.code]); // eslint-disable-line react-hooks/exhaustive-deps
   const time = (t) => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   return (
-    <Modal title={`Chat from ${meeting.title || meeting.code}`} onClose={onClose} footer={<>
+    <Modal title={`Chat from ${meeting.title || c?.title || meeting.code}`} onClose={onClose} footer={<>
       {c?.can_delete && c.messages.length > 0 && <button type="button" className="btn danger" onClick={() => setAsking(true)}><Icon name="trash" size={16} /> Delete chat</button>}
       <a className="btn" href={`/api/meet/${meeting.code}/chat?format=txt`} download><Icon name="download" size={16} /> Download (.txt)</a>
       <button type="button" className="btn primary" onClick={onClose}>Done</button>

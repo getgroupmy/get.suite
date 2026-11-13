@@ -13798,3 +13798,23 @@ test('meet: whoever started the meeting can delete its kept chat; lines by someo
   const rows = Array.isArray(log) ? log : log.entries || log.rows || [];
   assert.ok(rows.some((e) => e.action === 'meet.chat_delete'), 'in the activity log');
 });
+
+test('meet: search kept meeting chats — all the words, only meetings you started or were in', async () => {
+  const a = client(), b = client();
+  for (const [x, local] of [[a, 'msrc1'], [b, 'msrc2']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+    await login(x, `${local}@acme.com`);
+  }
+  const { q } = await import('../src/db.js');
+  const { code } = (await a('POST', '/api/meet', { title: 'Supplier call' })).body;
+  const t = Date.now();
+  const line = (text, at) => q('INSERT INTO meeting_chat (code, room, user_id, name, text, at) VALUES (?, 0, NULL, ?, ?, ?)').run(code, 'msrc1', text, at);
+  line('The Zebrafinch invoice is late', t); line('Zebrafinch says Friday', t + 1); line('100% sure_about it', t + 2);
+  const find = async (who, words) => (await who('GET', `/api/meet/chat/search?q=${encodeURIComponent(words)}`)).body;
+  assert.deepEqual((await find(a, 'zebrafinch')).map((x) => x.text), ['Zebrafinch says Friday', 'The Zebrafinch invoice is late'], 'newest first, any case');
+  assert.deepEqual((await find(a, 'zebrafinch invoice')).map((x) => [x.text, x.title, x.code]), [['The Zebrafinch invoice is late', 'Supplier call', code]], 'all the words');
+  assert.deepEqual((await find(a, '100%')).map((x) => x.text), ['100% sure_about it'], '% is just a character');
+  assert.deepEqual(await find(a, '_'), [{ ...(await find(a, '100%'))[0] }], '_ too');
+  assert.deepEqual(await find(b, 'zebrafinch'), [], 'not for someone who was not there');
+  assert.deepEqual(await find(a, '  '), []);
+});

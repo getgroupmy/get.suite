@@ -1,6 +1,6 @@
 // Meet: /meet starts a meeting or joins one by its code; /meet/:code is the meeting itself (MeetRoom).
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { get, post, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { useToast } from '../../components/ui.jsx';
@@ -15,6 +15,14 @@ export default function Meet() {
   const [title, setTitle] = useState('');
   const [attendance, setAttendance] = useState(null); // the meeting whose "Who joined" is open
   const [chatOf, setChatOf] = useState(null); // the meeting whose kept chat is open
+  // /meet?chat=<code> (from Search everything): open that meeting's kept chat.
+  const [params, setParams] = useSearchParams();
+  const askedChat = params.get('chat');
+  useEffect(() => {
+    if (!askedChat) return;
+    setChatOf({ code: askedChat, title: recent?.find((m) => m.code === askedChat)?.title || '' });
+    setParams({}, { replace: true });
+  }, [askedChat]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { get('/meet').then(setRecent).catch(() => setRecent([])); }, []);
   const start = async (e) => {
     e?.preventDefault();
