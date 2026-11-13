@@ -6,7 +6,7 @@ import { get, post, put, patch, del, onLive, formatDate } from '../../api.js';
 import { savedText } from './savedtext.js';
 import { whenText as remindWhen } from '../../components/schedule.jsx';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, Modal, useToast } from '../../components/ui.jsx';
+import { Avatar, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { expandAll } from '../calendar/calmath.js';
@@ -28,6 +28,9 @@ function dayText(d) {
 }
 
 /** Home's cards, by key, as the Customize window names them. */
+/** Whether "Running late" fits an event now: timed, with someone else on it, from half an hour before until it ends. */
+export const lateOk = (e, now) => !e.all_day && e.my_status !== 'no' && now >= e.start - 30 * 60e3 && now <= e.end
+  && ((e.guests?.length || 0) > 0 || e.my_status != null); // guests on yours, or you're a guest
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
   signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
@@ -135,6 +138,8 @@ export default function Home() {
                       {nowOn && <span className="pill doing">Now</span>}
                       {e.meet_live?.length > 0 && <span className="meet-live small" title={e.meet_live.join(', ')}><span className="chat-live-dot" aria-hidden="true" /> {e.meet_live.length} in it</span>}
                       {e.meet_code && <a className="btn small" href={`/meet/${e.meet_code}`} target="_blank" rel="noreferrer" aria-label={`Join ${e.title}`}>Join</a>}
+                      {lateOk(e, now) && <Menu align="right" trigger={(p) => <button type="button" className="btn small" aria-label={`Running late for ${e.title}`} title="Running late" {...p}>⏱ Late</button>}
+                        items={[5, 10, 15, 30].map((n) => ({ label: `${n} minutes late`, onClick: async () => { try { await post(`/events/${e.id}/late`, { minutes: n, at: e.start }); toast(`Everyone on “${e.title}” knows you’re running ${n} minutes late`); } catch (err) { toast(err.message, 'error'); } } }))} />}
                     </li>
                   );
                 })}

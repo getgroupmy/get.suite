@@ -2,7 +2,7 @@
 // and the tab is in the background. Each reminder is shown once, even with several tabs open.
 import { useEffect } from 'react';
 import { isPaused } from './pause.js';
-import { get, onLive } from './api.js';
+import { get, post, onLive } from './api.js';
 import { expandAll } from './apps/calendar/calmath.js';
 import { desktopOn } from './mailNotify.js';
 
@@ -69,8 +69,11 @@ export function useEventReminders(enabled, { toast, openCalendar }) {
     const fire = async ({ key, ev }) => {
       if (stopped || isPaused() || !(await claim(key)) || stopped) return;
       const when = startsIn(ev);
-      toast(`${ev.title} ${when === 'now' ? 'is starting now' : `starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`, 'info',
-        ev.meet_code ? { action: { label: 'Join', onClick: () => window.open(`/meet/${ev.meet_code}`, '_blank', 'noopener') } } : undefined);
+      // Join (with a video meeting), and on an event with others: say you're running late, there and then.
+      const late = (n) => ({ label: `${n} min late`, onClick: () => post(`/events/${ev.id}/late`, { minutes: n, at: ev.start }).then(() => toast(`Everyone on “${ev.title}” knows you’re running ${n} minutes late`)).catch((e) => toast(e.message, 'error')) });
+      const others = (ev.guests?.length || 0) > 0 || ev.my_status != null; // guests on yours, or you're a guest
+      const actions = [...(ev.meet_code ? [{ label: 'Join', onClick: () => window.open(`/meet/${ev.meet_code}`, '_blank', 'noopener') }] : []), ...(others && !ev.all_day && ev.my_status !== 'no' ? [late(5), late(10)] : [])];
+      toast(`${ev.title} ${when === 'now' ? 'is starting now' : `starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`, 'info', actions.length ? { actions, duration: 20000 } : undefined);
       if (desktopOn() && document.hidden) {
         try {
           const n = new Notification(ev.title, { body: `${when === 'now' ? 'Starting now' : `Starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`, tag: `reminder-${key}`, icon: '/favicon.svg' });
