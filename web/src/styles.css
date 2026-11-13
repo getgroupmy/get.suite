@@ -1774,7 +1774,7 @@ button.usage:hover .muted { color: var(--text); }
 .meet-btn:hover { background: #4a4e51; }
 .meet-btn.off { background: #ea4335; }
 .meet-btn.on { background: #8ab4f8; color: #202124; }
-.meet-btn.leave { background: #ea4335; font-size: 15px; font-weight: 600; padding: 0 20px; }
+.meet-btn.leave { background: #c5221f; font-size: 15px; font-weight: 600; padding: 0 20px; }
 .meet-btn:disabled { opacity: .5; cursor: default; }
 .meet-btn .nav-badge { position: absolute; top: 2px; right: 2px; }
 .meet-reacts { display: flex; gap: 2px; background: #3c4043; border-radius: 24px; padding: 4px 6px; }
@@ -3007,3 +3007,5 @@ select.meet-timer-btn option { color: #202124; }
 .meet-chat.kept { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .meet-lobby-side select { color: var(--text); background: var(--surface); }
 .mic-meter { width: 100%; height: 8px; }
+.meet-lobby-side .field > span { color: #bdc1c6; }
+.meet-lobby-side .link-btn, .meet-lobby-side a { color: #8ab4f8; }
