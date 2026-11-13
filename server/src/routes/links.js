@@ -53,6 +53,21 @@ function checkRules(orgId, { expires, password }) {
   if (r.password && password !== undefined && !password) throw bad('Your company requires a password on links');
 }
 
+/** Tell owners about their links that stop working within a day (once each; not links made to last two days or
+ *  less, nor ones whose file is in the trash, nor in a company with links off). Returns how many were told. */
+export function warnExpiringLinks(at = now()) {
+  const rows = q(`SELECT l.id, l.file_id, l.created_by, l.expires_at, f.name FROM share_links l JOIN files f ON f.id = l.file_id
+                  JOIN users u ON u.id = l.created_by JOIN orgs o ON o.id = u.org_id
+                  WHERE l.expires_at > ? AND l.expires_at <= ? AND l.warned_at IS NULL AND l.expires_at - l.created_at > ?
+                    AND f.trashed = 0 AND u.disabled = 0 AND o.allow_links = 1`).all(at, at + 864e5, 2 * 864e5);
+  for (const l of rows) {
+    q('UPDATE share_links SET warned_at = ? WHERE id = ?').run(at, l.id);
+    const hours = Math.max(1, Math.round((l.expires_at - at) / 3600e3));
+    bell([l.created_by], { kind: 'share', title: `Your link to ${l.name} stops working in ${hours} hour${hours === 1 ? '' : 's'}`, body: 'Open Share to give it longer (the link stays the same), or let it end.', link: `/drive?share=${l.file_id}`, actor: null });
+  }
+  return rows.length;
+}
+
 /** Owner-side checks: the file exists, you own it, it can have links, and your company allows them. */
 function ownFile(fileId, user) {
   const f = q('SELECT id, kind, name, trashed FROM files WHERE id = ?').get(String(fileId || ''));
@@ -127,7 +142,7 @@ export function linkRoutes() {
       out.password_hash = pw ? hashPassword(pw) : null;
     }
     checkRules(req.user.org_id, { expires: 'expires_at' in b ? out.expires_at : undefined, password: 'password' in b ? (out.password_hash ? 'set' : '') : undefined });
-    q('UPDATE share_links SET expires_at = ?, password_hash = ? WHERE id = ?').run(out.expires_at, out.password_hash, l.id);
+    q('UPDATE share_links SET expires_at = ?, password_hash = ?, warned_at = ? WHERE id = ?').run(out.expires_at, out.password_hash, 'expires_at' in b ? null : l.warned_at, l.id); // a new expiry: warned again before it
     if ('expires_at' in b) audit(req, 'link.expiry', { target: f.name, details: { expires: out.expires_at } });
     if ('password' in b) audit(req, 'link.password', { target: f.name, details: { password: !!out.password_hash } });
     res.json(describeLink(out));

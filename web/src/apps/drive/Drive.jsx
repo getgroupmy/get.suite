@@ -276,6 +276,13 @@ export default function Drive() {
     setSearchParams({}, { replace: true });
     readShared().then((v) => { if (v) setSharedIn(v); });
   }, [searchParams, setSearchParams]);
+  // /drive?share=<file id>: its Share window (from "your link stops working soon").
+  useEffect(() => {
+    const id = searchParams.get('share');
+    if (!id) return;
+    setSearchParams({}, { replace: true });
+    get(`/files/${id}`).then((f) => setDialog({ type: 'share', file: f })).catch((e) => toast(e.message, 'error'));
+  }, [searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
   // /drive?preview=<file id>&comment=<id>: a file's preview (e.g. from a comment notification).
   useEffect(() => {
     const id = searchParams.get('preview');

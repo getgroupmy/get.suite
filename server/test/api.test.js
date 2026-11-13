@@ -584,6 +584,35 @@ test('share link rules applied to existing links: no password → stopped, too l
   assert.deepEqual((await eva('POST', '/api/links/enforce')).body, { stopped: 0, shortened: 0 }, 'nothing left to do');
 });
 
+test('share links about to end: the owner is told once, a day before; extending it warns again later', async () => {
+  const { warnExpiringLinks } = await import('../src/routes/links.js');
+  const { q } = await import('../src/db.js');
+  assert.equal((await owner('POST', '/api/users', { local: 'warner', domain: 'acme.com', name: 'Wes Warner', password: 'password123' })).status, 201);
+  const wes = client(); await login(wes, 'warner@acme.com');
+  const file = (await wes('POST', '/api/files/upload?name=brief.pdf', '%PDF', { raw: true })).body;
+  const t = Date.now();
+  const week = (await wes('POST', '/api/links', { file_id: file.id, expires_at: t + 7 * 864e5 })).body;
+  const day = (await wes('POST', '/api/links', { file_id: file.id, expires_at: t + 864e5 })).body; // made to last a day: no warning
+  const count = () => (q("SELECT COUNT(*) AS n FROM notifications WHERE user_id = (SELECT id FROM users WHERE username = 'warner@acme.com') AND title LIKE 'Your link to brief.pdf%'").get().n);
+  assert.equal(warnExpiringLinks(t), 0, 'nothing ends within a day yet');
+  const almost = t + 6.5 * 864e5; // 12 hours before the week's link ends
+  assert.equal(warnExpiringLinks(almost), 1, 'the week-long link, not the day-long one');
+  assert.equal(warnExpiringLinks(almost + 60e3), 0, 'once');
+  assert.equal(count(), 1);
+  const n = (await wes('GET', '/api/notifications')).body;
+  const note = JSON.stringify(n);
+  assert.match(note, /Your link to brief\.pdf stops working in 12 hours/);
+  assert.match(note, new RegExp(`/drive\\?share=${file.id}`));
+  // Given longer: it can warn again before the new end.
+  await wes('PATCH', `/api/links/${week.id}`, { expires_at: t + 14 * 864e5 });
+  assert.equal(warnExpiringLinks(t + 13.5 * 864e5), 1);
+  // A file in the trash: nothing.
+  await wes('PATCH', `/api/links/${week.id}`, { expires_at: t + 20 * 864e5 });
+  await wes('PATCH', `/api/files/${file.id}`, { trashed: true });
+  assert.equal(warnExpiringLinks(t + 19.5 * 864e5), 0);
+  assert.ok(day.id);
+});
+
 test('public share links: no account needed; expiry, password, folders, revoking, company switch', async () => {
   const pub = client(); // nobody signed in
   const sharer = client();
