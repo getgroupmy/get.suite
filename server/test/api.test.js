@@ -6432,6 +6432,34 @@ test('chat emails: refused without email; messages are queued only for people wh
   for (const p of [a, b]) await p('PUT', '/api/chat/keywords', { keywords: [] });
 });
 
+test('a shared email in Chat: found by search, kept in downloads, carried when forwarded', async () => {
+  const { q } = await import('../src/db.js');
+  const { postEmail } = await import('../src/routes/chat.js');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const me = q("SELECT * FROM users WHERE username = 'kay@keepco.com'").get();
+  const chans = (await kay('GET', '/api/chat/channels')).body.channels;
+  const gen = chans.find((c) => c.name === 'general').id;
+  const email = { from: { name: 'Nora Vendor', address: 'nora@vendor.example' }, to: [{ name: '', address: 'kay@keepco.com' }], cc_count: 0, subject: 'Pallet quotation', date: Date.UTC(2026, 10, 12, 9), text: 'Twelve pallets at the zebrawood rate.', attachments: ['quote.pdf'] };
+  const m = postEmail(gen, me, '', email);
+  assert.equal(m.email.subject, 'Pallet quotation');
+  assert.throws(() => postEmail('no-such-channel', me, '', email), /not found/i);
+  // Search: the subject, the sender, the text, together with words of the message.
+  for (const w of ['pallet quotation', 'nora', 'zebrawood', 'vendor.example']) {
+    const hits = (await kay('GET', `/api/chat/search?q=${encodeURIComponent(w)}`)).body;
+    assert.ok(hits.some((h) => h.id === m.id && h.email_subject === 'Pallet quotation'), w);
+  }
+  assert.equal((await kay('GET', '/api/chat/search?q=subject')).body.some((h) => h.id === m.id), false, 'not the card\'s field names');
+  // Downloaded: the card under the message.
+  const txt = (await kay('GET', `/api/chat/channels/${gen}/export?format=txt`)).body;
+  assert.match(txt, /✉ Email “Pallet quotation” from Nora Vendor <nora@vendor\.example>\n\s+Twelve pallets at the zebrawood rate\.\n\s+📎 quote\.pdf/);
+  assert.match((await kay('GET', `/api/chat/channels/${gen}/export`)).body, /✉ Email “Pallet quotation”/);
+  // Forwarded to a new channel: the card goes along.
+  const other = (await kay('POST', '/api/chat/channels', { name: `fwd-${Date.now()}` })).body.id;
+  const f = await kay('POST', `/api/chat/messages/${m.id}/forward`, { channel_id: other, body: 'FYI' });
+  assert.equal(f.status, 201, JSON.stringify(f.body));
+  assert.deepEqual(f.body.email, email);
+});
+
 test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', async () => {
   const kay = client(); await login(kay, 'kay@keepco.com');
   const ir = await kay('POST', '/api/users', { local: 'irb', domain: 'keepco.com', name: 'Ira Reader', password: 'password123' });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conversationText, conversationHtml, pollLine } from '../src/chatexport.js';
+import { conversationText, conversationHtml, pollLine, cardLines } from '../src/chatexport.js';
 
 const at = (iso) => Date.parse(iso);
 const msgs = [
@@ -24,4 +24,12 @@ test('HTML: escaped, replies set in', () => {
   assert.match(h, /<title>&lt;b&gt;DM&lt;\/b&gt;<\/title>/);
   assert.match(conversationHtml('#x', msgs), /class="m r"/);
   assert.equal(pollLine(null), '');
+});
+
+test('contacts and emails shared in a message, as lines (and on the page)', () => {
+  assert.deepEqual(cardLines({ contact: { name: 'Kim Park', title: 'Buyer', company: 'Northwind', email: 'kim@nw.example', phone: '+60 3 1234' } }), ['👤 Kim Park · Buyer, Northwind · kim@nw.example · +60 3 1234']);
+  assert.deepEqual(cardLines({ email: { from: { name: '', address: 'a@x.com' }, subject: '', text: 'One\n\nTwo', attachments: [] } }), ['✉ Email “(no subject)” from a@x.com', '   One', '', '   Two']);
+  assert.deepEqual(cardLines({}), []);
+  const html = conversationHtml('#x', [{ who: 'Ann', at: at('2026-11-09T08:05:00Z'), body: '', files: [], cards: ['✉ Email “<Q3>” from a@x.com', '   hi'] }]);
+  assert.match(html, /✉ Email “&lt;Q3&gt;” from a@x\.com\n   hi/);
 });

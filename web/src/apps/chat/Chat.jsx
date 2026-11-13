@@ -678,7 +678,7 @@ export default function Chat() {
                   <li key={r.id}>
                     <button type="button" className="chat-result" onClick={() => openResult(r)}>
                       <span className="muted small">{r.private ? '🔒 ' : ''}{r.where}{r.parent_id ? ' · in a thread' : ''} · {new Date(r.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                      <span><strong>{r.user_name || 'Someone'}</strong> <Highlighted text={r.body} words={search.q} /></span>
+                      <span><strong>{r.user_name || 'Someone'}</strong> <Highlighted text={r.body} words={search.q} />{r.email_subject != null && <span className="muted"> ✉ <Highlighted text={r.email_subject || '(no subject)'} words={search.q} /></span>}</span>
                     </button>
                   </li>
                 ))}

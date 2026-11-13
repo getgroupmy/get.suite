@@ -20,7 +20,7 @@ import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile } from './files.js';
-import { conversationText, conversationHtml } from '../chatexport.js';
+import { conversationText, conversationHtml, cardLines } from '../chatexport.js';
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 import { contactCard, colleagueCard, addContactFrom } from './contacts.js';
 import { afterHoursOfIds, awayOfIds } from '../mail/afterhours.js';
@@ -628,7 +628,7 @@ export function conversationFor(channelId, user) {
   const c = loadChannel(channelId, user);
   const rows = shape(q(`${MSG} WHERE m.channel_id = ? ORDER BY m.created_at`).all(c.id));
   const kept = (m) => ({ who: m.user_name || m.bot || 'Someone', at: m.created_at, body: m.body || '', edited: !!m.edited_at,
-    files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll });
+    files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll, cards: cardLines(m) });
   const replies = new Map();
   for (const m of rows) if (m.parent_id) { if (!replies.has(m.parent_id)) replies.set(m.parent_id, []); replies.get(m.parent_id).push(kept(m)); }
   const messages = rows.filter((m) => !m.parent_id).map((m) => ({ ...kept(m), replies: replies.get(m.id) || [] }));
@@ -977,8 +977,10 @@ export default function chatRoutes() {
     const words = String(req.query.q || '').toLowerCase().match(/[\p{L}\p{N}@._-]+/gu)?.slice(0, 8) || [];
     if (!words.length) return res.json([]);
     const me = req.user.id;
-    const like = words.map(() => "LOWER(m.body) LIKE ? ESCAPE '!'");
-    const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.body, m.created_at, u.name AS user_name, c.name AS channel_name, c.dm_key, c.private,
+    // The message, and an email shared in it (its subject, sender and text).
+    const text = "LOWER(m.body || COALESCE(' ' || json_extract(m.email, '$.subject') || ' ' || COALESCE(json_extract(m.email, '$.from.name'), '') || ' ' || COALESCE(json_extract(m.email, '$.from.address'), '') || ' ' || COALESCE(json_extract(m.email, '$.text'), ''), ''))";
+    const like = words.map(() => `${text} LIKE ? ESCAPE '!'`);
+    const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.body, m.created_at, json_extract(m.email, '$.subject') AS email_subject, u.name AS user_name, c.name AS channel_name, c.dm_key, c.private,
                       (SELECT un.name FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name
                     FROM messages m JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
                     WHERE ${like.join(' AND ')}
@@ -1094,7 +1096,7 @@ export default function chatRoutes() {
   });
 
   // Forward a message you can see to another conversation you can write in, with a note of your own if you like.
-  // Its files go with it (everyone there can open them from the message). Forwarding a forward passes on the original.
+  // Its files go with it (everyone there can open them from the message), and a contact or email card. Forwarding a forward passes on the original.
   r.post('/messages/:id/forward', (req, res) => {
     const src = q('SELECT m.*, u.name AS author FROM messages m LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(req.params.id);
     if (!src) throw notFound('Message not found');
@@ -1106,7 +1108,8 @@ export default function chatRoutes() {
     // A channel's name is shown; a direct message or private channel's isn't.
     const forwarded = earlier || { name: src.author || 'Deleted user', where: from.dm_key || from.private ? null : from.name, at: src.created_at, body: src.body || '' };
     const files = src.files ? JSON.parse(src.files) : [];
-    res.status(201).json(deliver(c, req.user, { body: note, files, poll: null, parent: null, forwarded }));
+    // A contact or an email shared in it goes along as the same card.
+    res.status(201).json(deliver(c, req.user, { body: note, files, poll: null, parent: null, forwarded, contact: src.contact ? JSON.parse(src.contact) : null, email: src.email ? JSON.parse(src.email) : null }));
   });
 
   // Send one of your contacts (or a company contact) into a conversation, with a note if you like. Everyone
