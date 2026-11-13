@@ -20,6 +20,7 @@ import { readShared } from '../../shareinbox.js';
 import { openUrl } from '../../components/DrivePicker.jsx';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
+import { linkEmail } from './linkemail.js';
 import { sortFiles, isPicture } from './drivesort.js';
 
 function useDriveRoute() {
@@ -934,6 +935,13 @@ export const linkUrl = (token) => `${window.location.origin}/s/${token}`;
 /** Links for people without an account: create (expiry, password), copy, remove. Changes apply at once. */
 function LinkSharing({ file }) {
   const toast = useToast();
+  const mail = useMailStatus();
+  const navigate = useNavigate();
+  // ✉: a new email with the link and what it's for (Compose takes it from this browser's storage).
+  const emailLink = (l) => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(linkEmail(file, l, linkUrl(l.token)))); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  };
   const [dataCheck, checkData] = useDataCheck();
   const { user } = useAuth();
   const [links, setLinks] = useState(null);
@@ -985,6 +993,7 @@ function LinkSharing({ file }) {
               </span>
             </div>
             {!l.expired && <button type="button" className="icon-btn" aria-label="Copy link" title="Copy link" onClick={() => copy(l)}><Icon name="copy" size={18} /></button>}
+            {!l.expired && mail?.enabled && <button type="button" className="icon-btn" aria-label="Email link" title={l.mode === 'upload' ? 'Email the file request to someone' : 'Email the link to someone'} onClick={() => emailLink(l)}><Icon name="mail" size={18} /></button>}
             <button type="button" className="icon-btn" aria-label="Remove link" title="Remove link" onClick={() => remove(l)}><Icon name="close" size={18} /></button>
           </li>
         ))}
