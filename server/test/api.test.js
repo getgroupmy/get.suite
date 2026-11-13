@@ -5251,6 +5251,40 @@ test('notes: tick one item (and its sub-items) without the whole list, as from a
   assert.deepEqual((await a('GET', '/api/notes')).body.find((x) => x.id === n.id).items.map((i) => i.done), [true, false, true, true]);
 });
 
+test('Chat with guests: an event’s own private channel, the same each time, with people invited since added', async () => {
+  const { q } = await import('../src/db.js');
+  const people = {};
+  for (const l of ['cwa', 'cwb', 'cwc', 'cwd']) {
+    people[l] = (await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: `Chat ${l}`, password: 'password123' })).body.id;
+  }
+  const a = client(), b = client(), c = client();
+  await login(a, 'cwa@acme.com'); await login(b, 'cwb@acme.com'); await login(c, 'cwc@acme.com');
+  const t = Date.now() + 2 * 864e5;
+  const ev = (await a('POST', '/api/events', { title: 'Supplier review: Q4!', start: t, end: t + 3600e3, guests: ['cwb@acme.com'] })).body;
+  assert.ok(ev.id, JSON.stringify(ev));
+  assert.equal((await c('POST', `/api/events/${ev.id}/chat`)).status, 404, 'not someone who can’t see it');
+  const first = await a('POST', `/api/events/${ev.id}/chat`);
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.created, true);
+  const ch = q('SELECT * FROM channels WHERE id = ?').get(first.body.id);
+  assert.deepEqual([ch.name, ch.private], ['supplier-review-q4', 1]);
+  assert.match(ch.topic, /^About Supplier review: Q4! · \d{4}-\d{2}-\d{2}$/);
+  const members = () => q('SELECT user_id FROM channel_members WHERE channel_id = ? ORDER BY user_id').all(first.body.id).map((m) => m.user_id).sort();
+  assert.deepEqual(members(), [people.cwa, people.cwb].sort(), 'the organiser and the colleague invited');
+  const msgs = (await b('GET', `/api/chat/channels/${first.body.id}/messages`)).body;
+  assert.match(msgs[0].body, new RegExp(`^For Supplier review: Q4!: .*/calendar\\?event=${ev.id}$`));
+  // A guest asks again: the same channel. Someone invited later is added.
+  const again = (await b('POST', `/api/events/${ev.id}/chat`)).body;
+  assert.deepEqual([again.id, again.created, again.added], [first.body.id, false, 0]);
+  await a('PATCH', `/api/events/${ev.id}`, { guests: ['cwb@acme.com', 'cwd@acme.com'] });
+  assert.deepEqual((await a('POST', `/api/events/${ev.id}/chat`)).body.added, 1);
+  assert.deepEqual(members(), [people.cwa, people.cwb, people.cwd].sort());
+  // A second event with the same title gets its own name.
+  const ev2 = (await a('POST', '/api/events', { title: 'Supplier review: Q4!', start: t, end: t + 3600e3, guests: ['cwb@acme.com'] })).body;
+  const second = (await a('POST', `/api/events/${ev2.id}/chat`)).body;
+  assert.equal(q('SELECT name FROM channels WHERE id = ?').get(second.id).name, 'supplier-review-q4-2');
+});
+
 test('start page: Drive by default, Home if chosen', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'spage', domain: 'acme.com', name: 'Start Page', password: 'password123' })).status, 201);

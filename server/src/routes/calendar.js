@@ -6,7 +6,7 @@ import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import { expand } from '../calmath.js';
 import { q, tx } from '../db.js';
-import { uid, str, int, bad, notFound, HttpError } from '../util.js';
+import { uid, str, int, bad, notFound, HttpError, forbidden } from '../util.js';
 import { canReach } from '../tenancy.js';
 import { sendTo } from '../hub.js';
 import crypto from 'node:crypto';
@@ -195,6 +195,8 @@ const attachmentsFor = (ev, userId) => (ev.attachments || []).map((a) => ({ ...a
 // When a series ends, for the range query: its last possible end (null = never, or "after N times").
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
+// The event's own Chat channel (Chat with guests), once made.
+if (!q('PRAGMA table_info(events)').all().some((c) => c.name === 'chat_channel_id')) q('ALTER TABLE events ADD COLUMN chat_channel_id TEXT').run();
 const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status, g.proposed_start, g.proposed_end, g.proposal_note, g.answer_note, g.join_how FROM event_guests g JOIN users u ON u.id = g.user_id
                                   WHERE g.event_id = ? ORDER BY u.name`).all(eventId);
 
@@ -859,6 +861,23 @@ export default function calendarRoutes() {
   };
 
   // A link to an event, pasted in Chat: what, when, where, who organises it and your answer, for a card.
+  // Chat with guests: the event's own private channel (the organiser and the colleagues invited; people outside
+  // the company aren't in Chat). Made the first time, the same one after, with anyone invited since added.
+  // For the organiser and the guests. { id, created, added }.
+  r.post('/:id/chat', async (req, res) => {
+    const row = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    const me = req.user.id;
+    if (!mayOpenEvent(row, me)) throw notFound();
+    const guests = guestsOf(row.id);
+    if (row.owner_id !== me && !guests.some((g) => g.id === me)) throw forbidden('Only the organiser and the guests can chat about it');
+    const { eventChannel } = await import('./chat.js');
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const when = new Date(row.start).toISOString().slice(0, 10);
+    const out = eventChannel(req.user, { existingId: row.chat_channel_id, title: row.title, when, people: [row.owner_id, ...guests.map((g) => g.id)], link: `${base}/calendar?event=${row.id}` });
+    if (out.id !== row.chat_channel_id) q('UPDATE events SET chat_channel_id = ? WHERE id = ?').run(out.id, row.id);
+    res.json(out);
+  });
+
   r.get('/:id/preview', (req, res) => {
     const row = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
     const me = req.user.id;

@@ -413,6 +413,35 @@ export function postEmail(channelId, user, body, email) {
   return deliver(c, user, { body: str(body, { max: 8000, name: 'Message' }) || '', files: [], poll: null, parent: null, email });
 }
 
+/**
+ * An event's own private channel (Calendar → Chat with guests): made once, named after the event, with the organiser
+ * and the colleagues invited; asked again, the same channel, with anyone invited since added. Returns its id.
+ * existingId: the channel the event already has (if it's still there). people: user ids (same company, not disabled).
+ */
+export function eventChannel(user, { existingId, title, when, people, link }) {
+  const ok = q(`SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND id IN (SELECT value FROM json_each(?))`).all(user.org_id, JSON.stringify([...new Set(people)])).map((u) => u.id);
+  const members = [...new Set([user.id, ...ok])];
+  const have = existingId && q('SELECT * FROM channels WHERE id = ? AND org_id = ? AND private = 1 AND archived_at IS NULL').get(existingId, user.org_id);
+  if (have) {
+    const added = members.filter((m) => !q('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(have.id, m));
+    for (const m of added) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(have.id, m);
+    if (added.length) sendTo(members, { type: 'channels-changed' });
+    return { id: have.id, created: false, added: added.length };
+  }
+  const base = (String(title || 'event').toLowerCase().normalize('NFKD').replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48)) || 'event';
+  let name = base;
+  for (let n = 2; q('SELECT 1 FROM channels WHERE name = ? AND org_id = ?').get(name, user.org_id); n++) name = `${base}-${n}`;
+  const id = uid();
+  tx(() => {
+    q('INSERT INTO channels (id, org_id, name, created_by, created_at, private, topic) VALUES (?, ?, ?, ?, ?, 1, ?)').run(id, user.org_id, name, user.id, now(), `About ${String(title || 'the event').slice(0, 120)}${when ? ` · ${when}` : ''}`);
+    for (const m of members) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(id, m);
+  });
+  sendTo(members, { type: 'channels-changed' });
+  const c = q('SELECT * FROM channels WHERE id = ?').get(id);
+  deliver(c, user, { body: `For ${title || 'the event'}: ${link}`, files: [], poll: null, parent: null });
+  return { id, created: true, added: members.length };
+}
+
 export function sendDirect(from, toUserId, body) {
   const other = q('SELECT id FROM users WHERE id = ? AND disabled = 0').get(toUserId);
   if (!other || other.id === from.id || !canReach(from, other.id)) return false;

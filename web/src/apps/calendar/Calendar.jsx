@@ -911,6 +911,22 @@ function SendEventInChat({ event, className }) {
   </>;
 }
 
+// Chat with guests: the event's own private channel (made the first time; the same one after, with anyone invited since).
+function ChatWithGuests({ event, className }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const colleagues = (event.guests || []).filter((g) => !g.external);
+  if (!colleagues.length) return null;
+  const go = async () => {
+    try {
+      const r = await post(`/events/${event.id}/chat`, {});
+      toast(r.created ? 'A channel for this event, with everyone invited from your company' : r.added ? `Added ${r.added} more to the event’s channel` : 'The event’s channel');
+      navigate(`/chat/${r.id}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  return <button type="button" className={className} onClick={go} title="A private channel for this event: you and the colleagues invited (made once; the same one after)">Chat with guests</button>;
+}
+
 function InvitationDialog({ event, onClose, onAnswered }) {
   const toast = useToast();
   const [reminders, setReminders] = useState(event.reminders || []);
@@ -941,7 +957,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
         <div><EmailGuests event={event} className="btn small" guestView /></div>
-        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /></p>
+        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
@@ -1586,6 +1602,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           {event.id && <EmailGuests event={event} className="btn" />}
           {event.id && <CopyEventLink event={event} className="btn" />}
           {event.id && <SendEventInChat event={event} className="btn" />}
+          {event.id && <ChatWithGuests event={event} className="btn" />}
           {event.id && <a className="btn" href={`/api/events/${event.id}/ics`} download title="A calendar file of this event, for Outlook, Apple or Google Calendar, or to pass on">Download (.ics)</a>}
           <div className="grow" />
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
