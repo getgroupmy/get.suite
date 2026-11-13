@@ -150,7 +150,7 @@ export default function Notes() {
   const card = (n) => <NoteCard key={n.id} labelColors={labelColors} note={n} drag={dragProps(n)} dragging={dragging === n.id} picked={picked.has(n.id)} picking={picked.size > 0} onPick={() => pickNote(n.id)}
     onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
-    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
+    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onChat={() => setChatting([n])} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
     onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast('Copied to a new document in My Drive', 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
@@ -384,7 +384,7 @@ function PickTime({ note, onPick, onClose }) {
 /** How a reminder can repeat (the server's REPEATS), with what the menu says. */
 const REPEAT_CHOICES = [[null, 'Doesn’t repeat'], ['daily', 'Repeat daily'], ['weekdays', 'Repeat on weekdays'], ['weekly', 'Repeat weekly'], ['monthly', 'Repeat monthly']];
 
-function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory }) {
+function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory, onChat }) {
   const mail = useMailStatus();
   const navigate = useNavigate();
   const toast = useToast();
@@ -438,6 +438,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           ...(done.length ? [{ label: 'Untick all items', onClick: () => onChange({ items: untickAll(items) }) }, { label: `Delete ticked items (${done.length})`, onClick: () => onChange({ items: dropTicked(items) }) }] : []),
           { label: 'Labels…', onClick: onLabel },
           { label: n.items ? 'Hide tick boxes' : 'Show tick boxes', icon: 'check', onClick: async () => { try { await post(`/notes/${n.id}/convert`, { to: n.items ? 'text' : 'checklist' }); } catch (e) { toast(e.message, 'error'); } } },
+          ...(onChat ? [{ label: 'Send in Chat…', icon: 'chat', onClick: onChat }] : []),
           { label: 'Copy link', icon: 'link', onClick: async () => { const url = noteLink(n); try { await navigator.clipboard.writeText(url); toast('Link to the note copied: people it’s shared with can open it'); } catch { toast(url); } } },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
           { label: 'Download (.md)', icon: 'download', onClick: () => { window.location.href = `/api/notes/${n.id}/export.md`; } },

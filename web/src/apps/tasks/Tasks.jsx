@@ -1,5 +1,6 @@
 // Tasks: your to-do lists and the ones colleagues share with you. Add a task with Enter, tick it
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
@@ -867,6 +868,7 @@ function ListLook({ list, onClose, onSaved }) {
 }
 
 function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onClose, onDelete, onMove, onReplaced, inMyDay, onMyDay }) {
+  const [chattingOne, setChattingOne] = useState(false); // Send in Chat, from here
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes || '');
   useEffect(() => { setTitle(task.title); }, [task.title]);
@@ -887,6 +889,8 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
       <div className="row"><strong className="grow">Details</strong>
         <button type="button" className={`icon-btn myday-btn ${inMyDay ? 'on' : ''}`} aria-pressed={!!inMyDay} aria-label={inMyDay ? 'Remove from My Day' : 'Add to My Day'} title={inMyDay ? 'In My Day (click to take it off)' : 'Add to My Day: your list for today'} onClick={() => onMyDay(!inMyDay)}>☀</button>
         <button type="button" className="icon-btn" aria-label="Copy link to task" title="Copy link to task (paste it in Chat, an email or a document)" onClick={copyLink}><Icon name="link" /></button>
+        <button type="button" className="icon-btn" aria-label="Send in Chat" title="Send in Chat: a link to it in a conversation (it shows as a task card)" onClick={() => setChattingOne(true)}><Icon name="chat" /></button>
+        {chattingOne && createPortal(<SendInChat items={[{ name: task.title, url: taskLink(task) }]} what="the task" onClose={() => setChattingOne(false)} />, document.body)}
         <button type="button" className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="close" /></button></div>
       <label className="field"><span>Task</span>
         <input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={saveTitle} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} maxLength={500} />
