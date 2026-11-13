@@ -14,7 +14,8 @@ import { DRAFT_KEY } from '../docs/blocks.js';
 import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
 import ConvFiles from './ConvFiles.jsx';
-import { saveToDrive } from './savefile.js';
+import { saveItems } from './savefile.js';
+import SaveToFolder from './SaveToFolder.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { useCompanyEmoji, imageUrl, splitEmoji, customName, reloadEmoji } from './companyemoji.js';
@@ -973,6 +974,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   const toast = useToast();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
+  const [savingTo, setSavingTo] = useState(null); // { messageId, file }: Save to a folder…
   const [card, setCard] = useState(false); // the author's card
   const toTask = () => addToTasksWithToast(toast, navigate, {
     // A shared email: its subject (and who it's from, in the notes) when the message has no words of its own.
@@ -998,6 +1000,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
         {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}
           onClose={() => setPicking(false)} onPick={(at) => { setPicking(false); remind(at); }} />}
+      {savingTo && <SaveToFolder messageId={savingTo.messageId} file={savingTo.file} onClose={() => setSavingTo(null)} />}
         {editing ? (
           <form className="msg-edit" onSubmit={(e) => { e.preventDefault(); onSaveEdit(); }}>
             <textarea autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => setEditText(e.target.value)}
@@ -1029,7 +1032,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
             {m.preview.description && <span className="small">{m.preview.description}</span>}
           </a>
         )}
-        {m.files?.length > 0 && <MessageFiles m={m} />}
+        {m.files?.length > 0 && <MessageFiles m={m} mine={m.user_id === user.id} />}
         {m.reactions?.length > 0 && (
           <div className="reactions">
             {m.reactions.map((r) => {
@@ -1058,10 +1061,8 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Copy link to message" title="Copy link to message" onClick={copyLink}><Icon name="link" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
-        {m.files?.length > 0 && m.user_id !== user.id && (m.files.length === 1
-          ? <button type="button" className="icon-btn" aria-label={`Save ${m.files[0].name} to Drive`} title="Save to Drive" onClick={() => saveToDrive(toast, navigate, m.id, m.files[0])}><Icon name="folder" size={16} /></button>
-          : <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}
-            items={m.files.map((f) => ({ label: `Save “${f.name}” to Drive`, onClick: () => saveToDrive(toast, navigate, m.id, f) }))} />)}
+        {m.files?.length > 0 && m.user_id !== user.id && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}
+          items={m.files.flatMap((f) => saveItems(toast, navigate, m.id, f, setSavingTo, m.files.length > 1))} />}
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
         {(m.user_id === user.id || user.is_admin) && (
@@ -2062,8 +2063,9 @@ function VoiceRecorder({ onDone }) {
 }
 
 /** A message's files: voice messages play here; pictures show; clicking a file opens the viewer when it can be shown. */
-function MessageFiles({ m }) {
+function MessageFiles({ m, mine }) {
   const [viewing, setViewing] = useState(null);
+  const [savingTo, setSavingTo] = useState(null);
   const at = (f, extra = '') => `/api/chat/messages/${m.id}/files/${f.id}${extra}`;
   const voice = (f) => /^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(f.mime);
   const items = m.files.filter((f) => !voice(f)).map((f) => ({ ...f, key: f.id, filename: f.name }));
@@ -2081,7 +2083,9 @@ function MessageFiles({ m }) {
         : <a key={f.id} className="msg-file" href={at(f, '?download')} title={previewKind(f.name) ? 'Open (Shift+click to download)' : 'Download'} onClick={(e) => open(e, f)}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
       {viewing !== null && items[viewing] && <FileViewer items={items} at={viewing}
         urls={{ view: (f) => at(f, '?view'), download: (f) => at(f, '?download'), office: (f) => `/chat/messages/${m.id}/files/${f.id}/preview`, zip: (f) => `/chat/messages/${m.id}/files/${f.id}/zip`, eml: (f) => `/chat/messages/${m.id}/files/${f.id}/eml` }}
+        onSave={mine ? undefined : (f) => setSavingTo({ messageId: m.id, file: f })}
         onStep={(dir) => setViewing(stepPreview(items, viewing, dir))} onClose={() => setViewing(null)} />}
+      {savingTo && <SaveToFolder messageId={savingTo.messageId} file={savingTo.file} onClose={() => setSavingTo(null)} />}
     </div>
   );
 }
