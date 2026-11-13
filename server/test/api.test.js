@@ -5273,6 +5273,9 @@ test('Chat with guests: an event’s own private channel, the same each time, wi
   assert.deepEqual(members(), [people.cwa, people.cwb].sort(), 'the organiser and the colleague invited');
   const msgs = (await b('GET', `/api/chat/channels/${first.body.id}/messages`)).body;
   assert.match(msgs[0].body, new RegExp(`^For Supplier review: Q4!: .*/calendar\\?event=${ev.id}$`));
+  // What it's about, at the top of the channel: the event, with a link to it.
+  const listed = (await b('GET', '/api/chat/channels')).body.channels.find((x) => x.id === first.body.id);
+  assert.deepEqual([listed.about_kind, listed.about_title, listed.about_path], ['event', 'Supplier review: Q4!', `/calendar?event=${ev.id}`]);
   // A guest asks again: the same channel. Someone invited later is added.
   const again = (await b('POST', `/api/events/${ev.id}/chat`)).body;
   assert.deepEqual([again.id, again.created, again.added], [first.body.id, false, 0]);
@@ -5337,11 +5340,15 @@ test('Chat with people who have access: a shared file’s own private channel, f
   const members = () => q('SELECT user_id FROM channel_members WHERE channel_id = ?').all(made.id).map((m) => m.user_id).sort();
   assert.deepEqual(members(), [ids.fcha, ids.fchb].sort());
   assert.match((await a('GET', `/api/chat/channels/${made.id}/messages`)).body[0].body, new RegExp(`^For Bid draft: .*/docs/${doc.id}$`));
+  const about = (await a('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id);
+  assert.deepEqual([about.about_kind, about.about_title, about.about_path], ['file', 'Bid draft', `/docs/${doc.id}`]);
+  await a('PATCH', `/api/files/${doc.id}`, { name: 'Bid final' });
   // Given access through its folder: added next time.
   await a('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: ids.fchc, role: 'viewer' }] });
   const again = (await a('POST', `/api/files/${doc.id}/chat`)).body;
   assert.deepEqual([again.id, again.created, again.added], [made.id, false, 1]);
   assert.deepEqual(members(), [ids.fcha, ids.fchb, ids.fchc].sort());
+  assert.equal((await a('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id).about_title, 'Bid final', 'renamed since: kept up to date');
   // A folder's channel links to the folder.
   const fc = (await a('POST', `/api/files/${folder.id}/chat`)).body;
   assert.match((await a('GET', `/api/chat/channels/${fc.id}/messages`)).body[0].body, new RegExp(`/drive/folder/${folder.id}$`));

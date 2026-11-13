@@ -1839,7 +1839,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
     const path = { doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}`, folder: `/drive/folder/${f.id}` }[f.kind] || `/drive?preview=${f.id}`;
     const row = q('SELECT chat_channel_id FROM files WHERE id = ?').get(f.id);
-    const out = eventChannel(req.user, { existingId: row?.chat_channel_id, title: f.name, people, link: `${base}${path}`,
+    const out = eventChannel(req.user, { kind: 'file', existingId: row?.chat_channel_id, title: f.name, people, link: `${base}${path}`,
       topic: `About ${f.kind === 'folder' ? 'the folder' : ''} ${String(f.name).slice(0, 120)}`.replace(/\s+/g, ' '), intro: `For ${f.name}: ${base}${path}` });
     if (out.id !== row?.chat_channel_id) q('UPDATE files SET chat_channel_id = ? WHERE id = ?').run(out.id, f.id);
     res.json(out);

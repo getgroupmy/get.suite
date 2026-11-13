@@ -64,6 +64,9 @@ function useTyping(channelId, parentId, meId) {
   return { line, onType, sent };
 }
 
+// What an own channel can be about (Chat with guests and the like), in words.
+const ABOUT_KIND = { event: 'event', list: 'task list', file: 'file', note: 'note' };
+
 export default function Chat() {
   const { channelId } = useParams();
   const [params] = useSearchParams();
@@ -716,7 +719,11 @@ export default function Chat() {
             <div className="grow" style={{ minWidth: 0 }}>
               <h1>{current.private && !current.dm_key ? `🔒 ${current.name}` : title}</h1>
               {current.dm_key && statusFor(current.dm_user_id) && <p className="chat-topic person-status" aria-label="Their status">{statusLine(statusFor(current.dm_user_id))}{statusFor(current.dm_user_id).until ? ` · ${untilText(statusFor(current.dm_user_id).until)}` : ''}</p>}
-              {!current.dm_key && (current.topic ? <p className="chat-topic muted small" title={current.topic}>{current.topic}</p> : !current.archived_at && <button type="button" className="link-btn small" onClick={() => setSettingsOpen(true)}>Add a topic</button>)}
+              {current.about_path ? (
+                <p className="chat-topic small" style={{ margin: 0 }}><Link to={current.about_path} title={`Open the ${ABOUT_KIND[current.about_kind] || 'item'} this channel is about`}>
+                  <span aria-hidden="true">{{ event: '📅', list: '☑', file: '📄', note: '🗒' }[current.about_kind] || '🔗'}</span> {current.about_title || 'Open'}</Link>
+                  <span className="muted"> · this channel’s {ABOUT_KIND[current.about_kind] || 'item'}</span></p>
+              ) : !current.dm_key && (current.topic ? <p className="chat-topic muted small" title={current.topic}>{current.topic}</p> : !current.archived_at && <button type="button" className="link-btn small" onClick={() => setSettingsOpen(true)}>Add a topic</button>)}
             </div>
             {!current.dm_key && <span className="muted small">{current.private ? `${current.member_count} member${current.member_count === 1 ? '' : 's'}` : 'Everyone'}</span>}
             {!current.dm_key && !current.private && !(current.name === 'general' && !current.created_by) && (current.left

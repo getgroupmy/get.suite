@@ -418,13 +418,19 @@ export function postEmail(channelId, user, body, email) {
  * and the colleagues invited; asked again, the same channel, with anyone invited since added. Returns its id.
  * existingId: the channel the event already has (if it's still there). people: user ids (same company, not disabled).
  */
-export function eventChannel(user, { existingId, title, when, people, link, topic = null, intro = null }) {
+// What an own channel is about (Chat with guests and the like): a kind (event, list, file, note), its title and its
+// address in Workspace (a path), shown at the top of the channel.
+for (const col of ['about_kind', 'about_title', 'about_path']) if (!q('PRAGMA table_info(channels)').all().some((c) => c.name === col)) q(`ALTER TABLE channels ADD COLUMN ${col} TEXT`).run();
+
+export function eventChannel(user, { existingId, title, when, people, link, topic = null, intro = null, kind = 'event' }) {
+  const path = (() => { try { const u = new URL(link); return `${u.pathname}${u.search}`; } catch { return null; } })();
   const ok = q(`SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND id IN (SELECT value FROM json_each(?))`).all(user.org_id, JSON.stringify([...new Set(people)])).map((u) => u.id);
   const members = [...new Set([user.id, ...ok])];
   const have = existingId && q('SELECT * FROM channels WHERE id = ? AND org_id = ? AND private = 1 AND archived_at IS NULL').get(existingId, user.org_id);
   if (have) {
     const added = members.filter((m) => !q('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(have.id, m));
     for (const m of added) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(have.id, m);
+    q('UPDATE channels SET about_kind = ?, about_title = ?, about_path = ? WHERE id = ?').run(kind, String(title || '').slice(0, 200), path, have.id); // renamed since, say
     if (added.length) sendTo(members, { type: 'channels-changed' });
     return { id: have.id, created: false, added: added.length };
   }
@@ -435,6 +441,7 @@ export function eventChannel(user, { existingId, title, when, people, link, topi
   tx(() => {
     q('INSERT INTO channels (id, org_id, name, created_by, created_at, private, topic) VALUES (?, ?, ?, ?, ?, 1, ?)').run(id, user.org_id, name, user.id, now(), topic || `About ${String(title || 'the event').slice(0, 120)}${when ? ` · ${when}` : ''}`);
     for (const m of members) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(id, m);
+    q('UPDATE channels SET about_kind = ?, about_title = ?, about_path = ? WHERE id = ?').run(kind, String(title || '').slice(0, 200), path, id);
   });
   sendTo(members, { type: 'channels-changed' });
   const c = q('SELECT * FROM channels WHERE id = ?').get(id);
@@ -683,7 +690,7 @@ export default function chatRoutes() {
 
   r.get('/channels', (req, res) => {
     const me = req.user.id;
-    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters,
+    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters, c.about_kind, c.about_title, c.about_path,
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
                       (SELECT mu.until FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted_until,

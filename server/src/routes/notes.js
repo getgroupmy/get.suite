@@ -677,7 +677,7 @@ export default function noteRoutes() {
     const { eventChannel } = await import('./chat.js');
     const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
     const title = n.title || (n.body || '').split('\n')[0].slice(0, 60) || 'note';
-    const out = eventChannel(req.user, { existingId: n.chat_channel_id, title, people, link: `${base}/notes?note=${n.id}`,
+    const out = eventChannel(req.user, { kind: 'note', existingId: n.chat_channel_id, title, people, link: `${base}/notes?note=${n.id}`,
       topic: `About the note ${String(title).slice(0, 120)}`, intro: `For the note ${title}: ${base}/notes?note=${n.id}` });
     if (out.id !== n.chat_channel_id) q('UPDATE notes SET chat_channel_id = ? WHERE id = ?').run(out.id, n.id);
     res.json(out);
