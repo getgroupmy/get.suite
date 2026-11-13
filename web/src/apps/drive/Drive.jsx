@@ -344,6 +344,22 @@ export default function Drive() {
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  // A link to an uploaded file (?file=<id>, as Copy links gives): open its preview over the folder it's in.
+  useEffect(() => {
+    const id = searchParams.get('file');
+    if (!id) return;
+    get(`/files/${encodeURIComponent(id)}`).then((f) => { if (f && f.kind === 'file') setDialog({ type: 'preview', file: f }); })
+      .catch(() => toast('You can’t open that file, or it’s gone', 'error'));
+    const next = new URLSearchParams(searchParams); next.delete('file'); setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('file')]);
+  // Links to what's selected, a line each ("Name: link"), for an email or a chat.
+  const copyLinks = async (files) => {
+    const link = (f) => `${location.origin}${openPath(f) || `/drive${f.parent_id ? `/folder/${f.parent_id}` : ''}?file=${f.id}`}`;
+    const text = files.map((f) => `${f.name}: ${link(f)}`).join('\n');
+    try { await navigator.clipboard.writeText(text); toast(files.length === 1 ? 'Link copied' : `${files.length} links copied`); } catch { toast(text); }
+  };
+
   function open(f) {
     const p = openPath(f);
     if (p) navigate(p);
@@ -525,6 +541,7 @@ export default function Drive() {
             </> : <>
               <button className="btn small" onClick={() => zip(picked.map((f) => f.id))}><Icon name="download" size={16} /> Download</button>
               <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
+              <button className="btn small" title="A link to each, a line each (only people who can open them get in)" onClick={() => copyLinks(picked)}><Icon name="link" size={16} /> Copy links</button>
               <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
               {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
