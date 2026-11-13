@@ -5,11 +5,14 @@ export function notePrintHtml(n) {
   const items = n.items ? `<ul>${n.items.map((i) => `<li class="${i.done ? 'done' : ''}${i.indent ? ' sub' : ''}"><span>${i.done ? '☑' : '☐'}</span> ${esc(i.text)}</li>`).join('')}</ul>` : '';
   const body = !n.items && n.body ? `<p>${esc(n.body).replace(/\n/g, '<br>')}</p>` : '';
   const labels = n.labels?.length ? `<p class="labels">${n.labels.map(esc).join(' · ')}</p>` : '';
+  // Its pictures, from this server (the print frame loads them before printing).
+  const pics = n.id && n.pictures?.length ? `<div class="pics">${n.pictures.map((p) => `<img src="/api/notes/${encodeURIComponent(n.id)}/pictures/${encodeURIComponent(p.id || p)}" alt="">`).join('')}</div>` : '';
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(n.title || 'Note')}</title><style>
     body { font: 14px/1.5 system-ui, sans-serif; color: #202124; margin: 24px; } h1 { font-size: 20px; margin: 0 0 10px; }
     ul { list-style: none; padding: 0; margin: 0; } li { padding: 2px 0; } li.sub { padding-left: 24px; } li.done { text-decoration: line-through; color: #5f6368; }
     .labels { color: #5f6368; font-size: 12px; margin-top: 16px; }
-  </style></head><body>${n.title ? `<h1>${esc(n.title)}</h1>` : ''}${body}${items}${labels}</body></html>`;
+    .pics img { display: block; max-width: 100%; max-height: 60vh; margin: 12px 0 0; break-inside: avoid; }
+  </style></head><body>${n.title ? `<h1>${esc(n.title)}</h1>` : ''}${pics}${body}${items}${labels}</body></html>`;
 }
 
 /**

@@ -30,3 +30,10 @@ test('several notes print together, each on its own page', () => {
   assert.match(html, /section\.note \+ section\.note \{ break-before: page; \}/);
   assert.match(html, /☑<\/span> Milk/);
 });
+
+test('a printed note shows its pictures, from this server', () => {
+  const html = notePrintHtml({ id: 'n 1', title: 'Trip', body: 'Beach', pictures: ['p1', { id: 'p2' }] });
+  assert.match(html, /<img src="\/api\/notes\/n%201\/pictures\/p1" alt="">/);
+  assert.match(html, /\/pictures\/p2"/);
+  assert.doesNotMatch(notePrintHtml({ title: 'No pics', body: 'x' }), /<img/);
+});
