@@ -15,6 +15,7 @@ import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
 import ConvFiles from './ConvFiles.jsx';
 import { saveItems, withFileState } from './savefile.js';
+import { scheduleWith } from '../../components/scheduleWith.js';
 import SaveToFolder from './SaveToFolder.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -779,6 +780,15 @@ export default function Chat() {
                 </div>
               )}
             </div>
+            {(current.dm_key || current.private) && !current.archived_at && <button type="button" className="icon-btn" aria-label="Schedule a meeting with this conversation" title="Schedule a meeting with everyone here, at the first time you're all free"
+              onClick={async () => {
+                try {
+                  const people = (await get(`/chat/channels/${current.id}/members`)).filter((p) => p.id !== user.id);
+                  if (!people.length) { toast('There’s nobody else here to meet', 'error'); return; }
+                  if (people.length > 20) { toast('At most 20 people: invite them from Calendar instead', 'error'); return; }
+                  await scheduleWith(people.map((p) => ({ id: p.id, email: p.username, name: p.name })), { navigate, toast, title: current.dm_key ? '' : current.name });
+                } catch (e) { toast(e.message, 'error'); }
+              }}><Icon name="calendar" /></button>}
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="Download conversation" title="Download this conversation" {...p}><Icon name="download" /></button>} items={[
               { label: 'As a web page (.html)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=html&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },
               { label: 'As plain text (.txt)', icon: 'download', onClick: () => { window.location.href = `/api/chat/channels/${current.id}/export?format=txt&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`; } },
