@@ -128,16 +128,19 @@ export function notesMarkdown(userId) {
  * A Download your data .zip brought back in, from its entries ([{ name, dir, buffer(), stream() }]): Drive (one new folder),
  * email (its .mbox files imported), calendar, contacts, task lists, notes and settings. What it added, by kind.
  */
-export async function restoreFrom(entries, user, tz = 'UTC') {
+export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) {
   const byName = new Map(entries.filter((e) => !e.dir).map((e) => [e.name, e]));
   const text = async (name) => { const e = byName.get(name); return e ? (await e.buffer()).toString('utf8') : undefined; };
   if (!/Your Workspace data/.test(await text('README.txt') || '')) throw bad('That isn’t a Download your data .zip from Workspace');
   const files = entries.filter((e) => !e.dir);
   const out = {};
+  onStep({ step: 'calendar' });
   const ics = await text('Calendar.ics');
   if (ics) { const r2 = importCalendar(user.id, ics, tz); out.calendar = r2.error ? { added: 0, skipped: 0 } : { added: r2.added, skipped: r2.skipped }; }
+  onStep({ step: 'contacts' });
   const vcf = await text('Contacts.vcf');
   if (vcf && /BEGIN:VCARD/i.test(vcf)) out.contacts = importContacts(user, vcf);
+  onStep({ step: 'tasks' });
   const csv = await text('Tasks.csv');
   if (csv) {
     try { const r2 = importTaskLists(user, csv); out.tasks = { lists: r2.lists.length, tasks: r2.lists.reduce((n, l) => n + l.tasks, 0) }; }
@@ -146,6 +149,7 @@ export async function restoreFrom(entries, user, tz = 'UTC') {
   // Settings that travel with you: mail filters, email templates, signatures and event templates (each skipped if already here).
   const tryImport = (fn) => { try { return fn(); } catch (e) { if (e.status === 400 || e.status === 403) return { added: 0, skipped: 0, error: e.message }; throw e; } };
   const json = async (name) => { const t = await text(name); if (!t) return null; try { return JSON.parse(t); } catch { return null; } };
+  onStep({ step: 'settings' });
   const rules = await json('Mail settings/filters.json');
   if (Array.isArray(rules) && rules.length) { const r2 = tryImport(() => importMailRules(user, { rules })); out.filters = { added: r2.added, skipped: r2.skipped, ...(r2.error && { error: r2.error }) }; }
   const unesc = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
@@ -180,7 +184,8 @@ export async function restoreFrom(entries, user, tz = 'UTC') {
     const written = [];
     const drop = () => { for (const w of written) fs.rmSync(path.join(FILES_DIR, w.storage), { force: true }); };
     try {
-      for (const w of toWrite) {
+      for (const [k, w] of toWrite.entries()) {
+        if (k % 20 === 0) onStep({ step: 'drive', done: k, total: toWrite.length });
         const one = { ...w, storage: uid() };
         written.push(one);
         await pipeline(w.e.stream(), fs.createWriteStream(path.join(FILES_DIR, one.storage)));
@@ -221,6 +226,7 @@ export async function restoreFrom(entries, user, tz = 'UTC') {
     }
   }
   // Notes: its Notes/ folder (with pictures), through Import notes… (which reads only Notes/ from a Download your data .zip).
+  onStep({ step: 'notes' });
   const noteEntries = files.filter((x) => x.name.startsWith('Notes/'));
   if (noteEntries.some((x) => x.name.endsWith('.md'))) {
     const nz = new JSZip();
@@ -231,6 +237,9 @@ export async function restoreFrom(entries, user, tz = 'UTC') {
   sendTo([user.id], { type: 'events-changed' });
   return out;
 }
+
+/** Background restores, by the account they go into (the latest one each; kept until the server restarts). */
+const restores = new Map();
 
 export default function takeoutRoutes() {
   const r = Router();
@@ -246,6 +255,11 @@ export default function takeoutRoutes() {
   // Bring a Download your data .zip back in (moving to another server, or after a mistake): its calendar, contacts, task lists
   // and notes are added to yours, skipping what's already here (events by their UID, contacts by address; lists come in as new ones).
   // Drive files and email have their own ways in (upload a folder; Mail → Import mail from its .mbox files).
+  // How the last background restore into this account (or ?user=, for an admin) went: { status, step, done, total, result | error }.
+  r.get('/restore/status', (req, res) => {
+    const who = whose(req);
+    res.json(restores.get(who.id) || { status: 'none' });
+  });
   r.post('/restore', express.raw({ type: () => true, limit: '200mb' }), async (req, res) => {
     // ?user=<id>: an admin bringing it into a colleague's account (Admin → Users → Bring in their data…).
     const who = whose(req);
@@ -264,8 +278,21 @@ export default function takeoutRoutes() {
       try { zip = await JSZip.loadAsync(buf); } catch { throw bad('That isn’t a .zip file'); }
       entries = Object.values(zip.files).map((e) => ({ name: e.name, dir: e.dir, buffer: () => e.async('nodebuffer'), stream: () => Readable.from((async function* () { yield await e.async('nodebuffer'); })()) })); // already in memory
     }
-    const out = await restoreFrom(entries, user, String(req.query.tz || 'UTC'));
-    audit(req, 'takeout.restore', { target: user.id === req.user.id ? null : user.username, details: out });
+    const tz = String(req.query.tz || 'UTC');
+    const target = user.id === req.user.id ? null : user.username;
+    if (req.query.background === '1') {
+      // In the background (a big one can take longer than a page waits): GET /restore/status says how it's going.
+      if (restores.get(user.id)?.status === 'running') throw bad('Your data is already being brought in');
+      const job = { status: 'running', step: 'starting', started_at: Date.now(), by: req.user.id };
+      restores.set(user.id, job);
+      const set = (x) => { Object.assign(job, x); sendTo([...new Set([user.id, req.user.id])], { type: 'restore-progress', user_id: user.id, restore: job }); };
+      restoreFrom(entries, user, tz, (p) => set({ step: p.step, done: p.done ?? null, total: p.total ?? null }))
+        .then((out) => { audit(req, 'takeout.restore', { target, details: out }); set({ status: 'done', result: out, finished_at: Date.now() }); })
+        .catch((e) => set({ status: 'failed', error: String(e.message || e).slice(0, 300), finished_at: Date.now() }));
+      return res.status(202).json(job);
+    }
+    const out = await restoreFrom(entries, user, tz);
+    audit(req, 'takeout.restore', { target, details: out });
     res.json(out);
   });
 

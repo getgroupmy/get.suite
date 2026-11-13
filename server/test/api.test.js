@@ -12981,3 +12981,33 @@ test('takeout: bring in a Download your data .zip that is in Drive (for one too 
   const notZip = await b('POST', '/api/files/upload?name=x.zip', 'hello', { raw: true, headers: { 'content-type': 'application/zip' } });
   assert.equal((await b('POST', `/api/takeout/restore?file_id=${notZip.body.id}`)).status, 400);
 });
+
+test('takeout: bringing data in can run in the background (?background=1), its progress and result from /restore/status', async () => {
+  const a = client(), b = client();
+  for (const [x, local] of [[a, 'bgr1'], [b, 'bgr2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  await a('POST', '/api/notes', { title: 'Background', body: 'It ran' });
+  await a('POST', '/api/files/folder', { name: 'Stuff' });
+  await a('POST', '/api/files/upload?name=a.txt', 'aaa', { raw: true, headers: { 'content-type': 'text/plain' } });
+  const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const up = (await b('POST', '/api/files/upload?name=data.zip', zip, { raw: true, headers: { 'content-type': 'application/zip' } })).body;
+  assert.deepEqual((await b('GET', '/api/takeout/restore/status')).body, { status: 'none' });
+  const r = await b('POST', `/api/takeout/restore?file_id=${up.id}&background=1`);
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  assert.equal(r.body.status, 'running');
+  const again = await b('POST', `/api/takeout/restore?file_id=${up.id}&background=1`);
+  assert.ok(again.status === 400 || again.status === 202, 'one at a time (or the first had already finished)');
+  let st;
+  for (let i = 0; i < 100; i++) { st = (await b('GET', '/api/takeout/restore/status')).body; if (st.status !== 'running') break; await new Promise((ok) => setTimeout(ok, 50)); }
+  assert.equal(st.status, 'done', JSON.stringify(st));
+  assert.equal(st.result.notes.added >= 1, true);
+  assert.equal(st.result.drive.files >= 1, true);
+  assert.ok((await b('GET', '/api/notes')).body.some((n) => n.title === 'Background'));
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'bgr2@acme.com'").get().id;
+  assert.equal((await a('GET', `/api/takeout/restore/status?user=${bid}`)).status, 403, 'someone else’s: admins only');
+  assert.equal((await owner('GET', `/api/takeout/restore/status?user=${bid}`)).body.status, 'done', 'an admin sees it');
+});
