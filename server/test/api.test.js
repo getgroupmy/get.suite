@@ -13772,3 +13772,29 @@ test('calendar: a guest that is not an email address is refused, not a server er
     assert.ok(r.status === 400 || (guests[0] === '' && r.status === 201), `${JSON.stringify(guests)}: ${r.status} ${JSON.stringify(r.body)}`);
   }
 });
+
+test('meet: whoever started the meeting can delete its kept chat; lines by someone on legal hold stay', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [x, local] of [[a, 'mdel1'], [b, 'mdel2'], [c, 'mdel3']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+    await login(x, `${local}@acme.com`);
+  }
+  const { q } = await import('../src/db.js');
+  const id = (local) => q('SELECT id FROM users WHERE email = ?').get(`${local}@acme.com`).id;
+  const { code } = (await a('POST', '/api/meet', { title: 'Retro' })).body;
+  const t = Date.now();
+  q('INSERT INTO meeting_attendance (id, code, user_id, name, email, joined_at, left_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run('att-mdel2', code, id('mdel2'), 'mdel2', 'mdel2@acme.com', t, t + 1000);
+  for (const [who, text] of [['mdel1', 'One'], ['mdel2', 'Two'], ['mdel1', 'Three']]) q('INSERT INTO meeting_chat (code, room, user_id, name, text, at) VALUES (?, 0, ?, ?, ?, ?)').run(code, id(who), who, text, t);
+  assert.equal((await a('GET', `/api/meet/${code}/chat`)).body.can_delete, true);
+  assert.equal((await b('GET', `/api/meet/${code}/chat`)).body.can_delete, false);
+  assert.equal((await b('DELETE', `/api/meet/${code}/chat`)).status, 403, 'someone who was there, but did not start it');
+  assert.equal((await c('DELETE', `/api/meet/${code}/chat`)).status, 404, 'someone who was not there');
+  assert.equal((await owner('PATCH', `/api/users/${id('mdel2')}`, { legal_hold: true, hold_note: 'x' })).status, 200);
+  assert.deepEqual((await a('DELETE', `/api/meet/${code}/chat`)).body, { deleted: 2, kept: 1 });
+  assert.deepEqual((await a('GET', `/api/meet/${code}/chat`)).body.messages.map((m) => m.text), ['Two'], 'the held line stays');
+  await owner('PATCH', `/api/users/${id('mdel2')}`, { legal_hold: false });
+  assert.deepEqual((await a('DELETE', `/api/meet/${code}/chat`)).body, { deleted: 1, kept: 0 });
+  const log = (await owner('GET', '/api/audit')).body;
+  const rows = Array.isArray(log) ? log : log.entries || log.rows || [];
+  assert.ok(rows.some((e) => e.action === 'meet.chat_delete'), 'in the activity log');
+});

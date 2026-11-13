@@ -11,6 +11,7 @@ import { now, str, notFound, forbidden } from './util.js';
 import { makeBoard } from './meetboard.js';
 import { nextState } from './meethands.js';
 import { notify } from './notifications.js';
+import { audit } from './audit.js';
 
 q(`CREATE TABLE IF NOT EXISTS meetings (
   code TEXT PRIMARY KEY,
@@ -185,7 +186,17 @@ export function meetRoutes() {
       res.setHeader('Content-Disposition', `attachment; filename="meeting-chat-${m.code}.txt"`);
       return res.send(keptChatText(m, messages));
     }
-    res.json({ code: m.code, title: m.title, messages });
+    res.json({ code: m.code, title: m.title, messages, can_delete: m.created_by === req.user.id });
+  });
+  // Whoever started the meeting can delete what was kept; lines by someone on legal hold stay.
+  r.delete('/:code/chat', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);
+    if (!m || (m.created_by !== req.user.id && !q('SELECT 1 FROM meeting_attendance WHERE code = ? AND user_id = ?').get(m.code, req.user.id))) throw notFound();
+    if (m.created_by !== req.user.id) throw forbidden('Only whoever started the meeting can delete its chat');
+    const deleted = q('DELETE FROM meeting_chat WHERE code = ? AND NOT EXISTS (SELECT 1 FROM users h WHERE h.id = meeting_chat.user_id AND h.legal_hold = 1)').run(m.code).changes;
+    const kept = q('SELECT COUNT(*) AS n FROM meeting_chat WHERE code = ?').get(m.code).n;
+    audit(req, 'meet.chat_delete', { target: m.title || m.code, details: { deleted, kept } });
+    res.json({ deleted, kept });
   });
   // Recordings are saved in a "Meet recordings" folder in the recorder's Drive (made when first needed).
   r.post('/recordings-folder', (req, res) => {

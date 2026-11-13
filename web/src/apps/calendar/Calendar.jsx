@@ -892,7 +892,7 @@ function MeetLine({ code, onRemove, live }) {
         {past.chat > 0 && <button type="button" className="link-btn small" onClick={() => setShowing('chat')}>💬 Meeting chat ({past.chat})</button>}
       </span>}
       {showing === 'people' && <Attendance meeting={past.meeting} onClose={() => setShowing(null)} />}
-      {showing === 'chat' && <KeptChat meeting={past.meeting} onClose={() => setShowing(null)} />}
+      {showing === 'chat' && <KeptChat meeting={past.meeting} onClose={() => setShowing(null)} onDeleted={(kept) => setPast((p) => ({ ...p, chat: kept }))} />}
     </div>
   );
 }

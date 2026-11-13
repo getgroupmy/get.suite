@@ -62,7 +62,7 @@ export default function Meet() {
         </section>
       )}
       {attendance && <Attendance meeting={attendance} onClose={() => setAttendance(null)} />}
-      {chatOf && <KeptChat meeting={chatOf} onClose={() => setChatOf(null)} />}
+      {chatOf && <KeptChat meeting={chatOf} onClose={() => setChatOf(null)} onDeleted={(kept) => setRecent((list) => list.map((x) => (x.code === chatOf.code ? { ...x, chat_count: kept } : x)))} />}
     </div>
   );
 }
