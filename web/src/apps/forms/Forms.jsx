@@ -9,6 +9,7 @@ import Icon from '../../components/Icon.jsx';
 import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { Question } from './FormRespond.jsx';
 import { EmbedCode } from '../editorCommon.jsx';
+import SendInChat from '../../components/SendInChat.jsx';
 import { useAuth } from '../../App.jsx';
 import QRCode from 'qrcode';
 import { TYPES, HAS_OPTIONS, GRIDS, MAX_RANKED, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
@@ -818,6 +819,7 @@ function SendForm({ form, link, setting, onClose }) {
   const [invites, setInvites] = useState(null);
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState('');
+  const [chat, setChat] = useState(false);
   useEffect(() => { get(`/forms/${form.id}/invites`).then(setInvites).catch(() => setInvites([])); }, [form.id]);
   useEffect(() => { QRCode.toDataURL(link, { margin: 1, width: 320 }).then(setQr).catch(() => {}); }, [link]);
   const done = (r, what) => {
@@ -835,6 +837,8 @@ function SendForm({ form, link, setting, onClose }) {
   };
   const waiting = invites?.filter((i) => !i.answered).length || 0;
   const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  // Send in Chat: the form's link goes into a conversation's message box (Chat shows it as a form card).
+  if (chat) return <SendInChat items={[{ name: form.title || 'Untitled form', url: link }]} what="the form" onClose={onClose} />;
   return (
     <Modal title="Send form" onClose={onClose} wide footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
       <div className="row" role="tablist" style={{ gap: 6, marginBottom: 10 }}>
@@ -867,6 +871,7 @@ function SendForm({ form, link, setting, onClose }) {
         {qr && <img src={qr} alt={`QR code for ${link}`} width={240} height={240} />}
         <div className="row" style={{ gap: 8 }}>
           <button type="button" className="btn" onClick={async () => { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } }}>Copy link</button>
+          <button type="button" className="btn" onClick={() => setChat(true)}>Send in Chat…</button>
           {qr && <a className="btn" href={qr} download={`${form.title || 'form'} QR code.png`}>Download QR code</a>}
         </div>
         <p className="muted small" style={{ margin: 0 }}>Print the QR code on a poster or show it on a screen: people point their phone's camera at it to open the form.</p>
