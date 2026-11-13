@@ -5279,10 +5279,21 @@ test('Chat with guests: an event’s own private channel, the same each time, wi
   await a('PATCH', `/api/events/${ev.id}`, { guests: ['cwb@acme.com', 'cwd@acme.com'] });
   assert.deepEqual((await a('POST', `/api/events/${ev.id}/chat`)).body.added, 1);
   assert.deepEqual(members(), [people.cwa, people.cwb, people.cwd].sort());
+  // Someone who sees Chat A's calendar but isn't invited can open the event, not its chat.
+  q('INSERT INTO calendar_shares (owner_id, user_id, created_at) VALUES (?, ?, ?)').run(people.cwa, people.cwc, Date.now());
+  assert.equal((await c('GET', `/api/events/${ev.id}/preview`)).status, 200, 'C can see it');
+  assert.equal((await c('POST', `/api/events/${ev.id}/chat`)).status, 403);
+  // Archived: a new channel is made (and remembered) next time.
+  await a('PATCH', `/api/chat/channels/${first.body.id}`, { archived: true });
+  const fresh = (await a('POST', `/api/events/${ev.id}/chat`)).body;
+  assert.equal(fresh.created, true);
+  assert.notEqual(fresh.id, first.body.id);
+  assert.equal(q('SELECT chat_channel_id FROM events WHERE id = ?').get(ev.id).chat_channel_id, fresh.id);
+  assert.equal(q('SELECT name FROM channels WHERE id = ?').get(fresh.id).name, 'supplier-review-q4-2', 'its own name');
   // A second event with the same title gets its own name.
   const ev2 = (await a('POST', '/api/events', { title: 'Supplier review: Q4!', start: t, end: t + 3600e3, guests: ['cwb@acme.com'] })).body;
   const second = (await a('POST', `/api/events/${ev2.id}/chat`)).body;
-  assert.equal(q('SELECT name FROM channels WHERE id = ?').get(second.id).name, 'supplier-review-q4-2');
+  assert.equal(q('SELECT name FROM channels WHERE id = ?').get(second.id).name, 'supplier-review-q4-3');
 });
 
 test('start page: Drive by default, Home if chosen', async () => {
