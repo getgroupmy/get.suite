@@ -216,7 +216,7 @@ function readGuests(user, list) {
   for (const email of emails) {
     const u = q('SELECT id, username, name FROM users WHERE username = ? AND disabled = 0').get(email);
     if (u && canReach(user, u.id)) { inside.push(u); continue; }
-    if (u || ourDomain(email) || !EMAIL_RE.test(email) || email.length > 254) {
+    if (u || !EMAIL_RE.test(email) || email.length > 254 || ourDomain(email)) {
       throw bad(`${email} can't be invited: there's no one with that address you can work with`);
     }
     if (!mailEnabled()) throw bad(`${email} can't be invited: email is turned off on this server, so people outside it can't get invitations`);

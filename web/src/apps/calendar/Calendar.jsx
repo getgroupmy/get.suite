@@ -9,6 +9,7 @@ import { localToday } from '../tasks/taskmath.js';
 import { eventLink } from '../chat/filelinks.js';
 import { LENGTHS, DEFAULT_CAL_PREFS, newEventMinutes, lengthLabel } from './calprefs.js';
 import Icon from '../../components/Icon.jsx';
+import { Attendance, KeptChat } from '../../components/MeetHistory.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
@@ -867,12 +868,31 @@ function Attachments({ list = [], onRemove }) {
 function MeetLine({ code, onRemove, live }) {
   const toast = useToast();
   const link = `${location.origin}/meet/${code}`;
+  // After it has happened: Who joined (and its kept chat), for the organiser and people who were in it.
+  const [past, setPast] = useState(null); // { meeting, people, chat }
+  const [showing, setShowing] = useState(null); // 'people' | 'chat'
+  useEffect(() => {
+    let alive = true;
+    setPast(null);
+    get(`/meet/${code}/attendance`).then(async (a) => {
+      if (!a.people.length) return;
+      const c = await get(`/meet/${code}/chat`).catch(() => ({ messages: [] }));
+      if (alive) setPast({ meeting: { code, title: a.title }, people: a.people.length, chat: c.messages.length });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [code]);
   return (
     <div className="row wrap meet-line" role="group" aria-label="Video meeting">
       <a className="btn primary" href={`/meet/${code}`} target="_blank" rel="noreferrer"><Icon name="video" size={18} /> Join video meeting</a>
       <span className="muted small grow">{live?.length ? <span className="meet-live" title={live.join(', ')}><span className="chat-live-dot" aria-hidden="true" /> {liveText(live)}</span> : code}</span>
       <button type="button" className="link-btn small" onClick={async () => { try { await navigator.clipboard.writeText(link); toast('Meeting link copied'); } catch { toast(link); } }}>Copy link</button>
       {onRemove && <button type="button" className="link-btn small" onClick={onRemove}>Remove</button>}
+      {past && <span className="row" style={{ flexBasis: '100%', gap: 8 }}>
+        <button type="button" className="link-btn small" onClick={() => setShowing('people')}>Who joined ({past.people})</button>
+        {past.chat > 0 && <button type="button" className="link-btn small" onClick={() => setShowing('chat')}>💬 Meeting chat ({past.chat})</button>}
+      </span>}
+      {showing === 'people' && <Attendance meeting={past.meeting} onClose={() => setShowing(null)} />}
+      {showing === 'chat' && <KeptChat meeting={past.meeting} onClose={() => setShowing(null)} />}
     </div>
   );
 }

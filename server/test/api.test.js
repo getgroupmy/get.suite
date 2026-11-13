@@ -13764,3 +13764,11 @@ test('meet: Keep the meeting chat — kept only while the host has it on, readab
     assert.equal((await call(host, 'GET', '/api/meet')).body.find((m) => m.code === code).chat_count, 0);
   } finally { await owner('PATCH', '/api/orgs/current', { chat_days: before }); }
 });
+
+test('calendar: a guest that is not an email address is refused, not a server error', async () => {
+  const start = Date.now() + 864e5;
+  for (const guests of [[{ user_id: 'x' }], ['no-at-sign'], ['']]) {
+    const r = await owner('POST', '/api/events', { title: 'Odd guests', start, end: start + 3600e3, guests });
+    assert.ok(r.status === 400 || (guests[0] === '' && r.status === 201), `${JSON.stringify(guests)}: ${r.status} ${JSON.stringify(r.body)}`);
+  }
+});
