@@ -586,7 +586,7 @@ export default function userRoutes() {
 
   // Usage over the last N days (7, 30 or 90) for everyone in the company: when each was last active,
   // files created and edited, chat messages sent, meetings organised (events with guests that took
-  // place) and tasks completed. ?format=csv to download.
+  // place), tasks completed, and video meetings joined with the minutes spent in them. ?format=csv to download.
   r.get('/report', (req, res) => {
     const orgId = targetOrg(req);
     const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
@@ -599,13 +599,18 @@ export default function userRoutes() {
     const meetings = count(`SELECT e.owner_id AS user_id, COUNT(*) AS n FROM events e WHERE e.start >= ? AND e.start < ?
                             AND EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id) GROUP BY e.owner_id`, from, to);
     const tasks = count(`SELECT COALESCE(t.done_by, t.assignee_id, t.created_by) AS user_id, COUNT(*) AS n FROM tasks t WHERE t.done_at >= ? GROUP BY 1`, from);
+    // Meet: the video meetings each joined, and the minutes they were in them (within the period; one still going counts up to now).
+    const calls = count('SELECT user_id, COUNT(DISTINCT code) AS n FROM meeting_attendance WHERE COALESCE(left_at, ?) >= ? AND joined_at < ? AND user_id IS NOT NULL GROUP BY user_id', to, from, to);
+    const callMs = count(`SELECT user_id, SUM(MAX(0, MIN(COALESCE(left_at, ?), ?) - MAX(joined_at, ?))) AS n FROM meeting_attendance
+                          WHERE COALESCE(left_at, ?) >= ? AND joined_at < ? AND user_id IS NOT NULL GROUP BY user_id`, to, to, from, to, from, to);
     const rows = people.map((u) => ({ id: u.id, name: u.name, email: u.username, disabled: !!u.disabled, last_active: u.last_active || null,
-      files_created: created.get(u.id) || 0, files_edited: edited.get(u.id) || 0, chat_messages: chats.get(u.id) || 0, meetings: meetings.get(u.id) || 0, tasks_done: tasks.get(u.id) || 0 }));
+      files_created: created.get(u.id) || 0, files_edited: edited.get(u.id) || 0, chat_messages: chats.get(u.id) || 0, meetings: meetings.get(u.id) || 0, tasks_done: tasks.get(u.id) || 0,
+      video_meetings: calls.get(u.id) || 0, video_minutes: Math.round((callMs.get(u.id) || 0) / 60e3) }));
     const active = rows.filter((r) => r.last_active && r.last_active >= from).length;
     if (req.query.format === 'csv') {
       const cell = (v) => { const t = String(v ?? ''); return /[",\n]/.test(t) || /^[=+\-@]/.test(t) ? `"${t.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : t; };
-      const lines = [['Name', 'Email', 'Last active (UTC)', 'Files created', 'Files edited', 'Chat messages', 'Meetings organised', 'Tasks done', 'Suspended'],
-        ...rows.map((r) => [r.name, r.email, r.last_active ? new Date(r.last_active).toISOString().slice(0, 16).replace('T', ' ') : 'never', r.files_created, r.files_edited, r.chat_messages, r.meetings, r.tasks_done, r.disabled ? 'yes' : ''])];
+      const lines = [['Name', 'Email', 'Last active (UTC)', 'Files created', 'Files edited', 'Chat messages', 'Meetings organised', 'Tasks done', 'Video meetings joined', 'Minutes in video meetings', 'Suspended'],
+        ...rows.map((r) => [r.name, r.email, r.last_active ? new Date(r.last_active).toISOString().slice(0, 16).replace('T', ' ') : 'never', r.files_created, r.files_edited, r.chat_messages, r.meetings, r.tasks_done, r.video_meetings, r.video_minutes, r.disabled ? 'yes' : ''])];
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="usage-${days}-days.csv"`);
       return res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);

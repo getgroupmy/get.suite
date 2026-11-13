@@ -6784,8 +6784,19 @@ test('admin: usage report for the company, with a CSV', async () => {
   const { lists } = (await rae('GET', '/api/tasks/lists')).body;
   const t = (await rae('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Do it' })).body;
   await rae('PATCH', `/api/tasks/tasks/${t.id}`, { done: true });
+  // Video meetings: Rae was in one meeting twice (30 minutes, then 15), and in another from before the period began.
+  const { q: qq } = await import('../src/db.js');
+  const raeId = qq("SELECT id FROM users WHERE email = 'rpt@keepco.com'").get().id;
+  const m1 = (await rae('POST', '/api/meet', { title: 'Standup' })).body.code, m2 = (await rae('POST', '/api/meet', { title: 'Old one' })).body.code;
+  const seen = (code, joined, left) => qq('INSERT INTO meeting_attendance (id, code, user_id, name, email, joined_at, left_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(`${code}-${joined}`, code, raeId, 'Rae Report', 'rpt@keepco.com', joined, left);
+  const nowT = Date.now(), weekAgo = nowT - 7 * 864e5;
+  seen(m1, nowT - 5 * 36e5, nowT - 5 * 36e5 + 30 * 60e3); seen(m1, nowT - 2 * 36e5, nowT - 2 * 36e5 + 15 * 60e3);
+  seen(m2, weekAgo - 36e5, weekAgo + 10 * 60e3 + 5000); // only its last 10 minutes are in the last 7 days
+  seen(m2, weekAgo - 864e5, weekAgo - 864e5 + 60e3); // wholly before: not counted
   assert.equal((await rae('GET', '/api/users/report')).status, 403, 'admins only');
   const r = (await kay('GET', '/api/users/report?days=7')).body;
+  const v = r.people.find((p) => p.email === 'rpt@keepco.com');
+  assert.deepEqual([v.video_meetings, v.video_minutes], [2, 55], 'two meetings; 30 + 15 + 10 minutes');
   assert.equal(r.days, 7);
   const me = r.people.find((p) => p.email === 'rpt@keepco.com');
   assert.deepEqual([me.files_created, me.chat_messages, me.meetings, me.tasks_done], [1, 2, 1, 1]);
@@ -6797,8 +6808,8 @@ test('admin: usage report for the company, with a CSV', async () => {
   assert.ok(r.per_day.days.at(-1).active >= 2);
   assert.equal(r.per_day.since, r.per_day.days.at(-1).day, 'recorded from today on');
   const csv = await kay('GET', '/api/users/report?format=csv');
-  assert.match(csv.body, /Name,Email,Last active \(UTC\),Files created,Files edited,Chat messages,Meetings organised,Tasks done,Suspended/);
-  assert.match(csv.body, /Rae Report,rpt@keepco\.com,[^,]+,1,0,2,1,1,/);
+  assert.match(csv.body, /Name,Email,Last active \(UTC\),Files created,Files edited,Chat messages,Meetings organised,Tasks done,Video meetings joined,Minutes in video meetings,Suspended/);
+  assert.match(csv.body, /Rae Report,rpt@keepco\.com,[^,]+,1,0,2,1,1,\d+,\d+,/);
   // Credit goes to whoever ticked it off.
   const t2 = (await rae('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Kay ticks this' })).body;
   await rae('PUT', `/api/tasks/lists/${lists[0].id}/members`, { user_ids: [(await kay('GET', '/api/auth/me')).body.user.id] });

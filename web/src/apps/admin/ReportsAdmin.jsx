@@ -5,7 +5,9 @@ import Icon from '../../components/Icon.jsx';
 import { lastActiveText } from './lastactive.js';
 import { axisOf, summaryOf, dayLabel } from './activechart.js';
 
-const COLUMNS = [['files_created', 'Files created'], ['files_edited', 'Files edited'], ['chat_messages', 'Chat messages'], ['meetings', 'Meetings organised'], ['tasks_done', 'Tasks done']];
+const COLUMNS = [['files_created', 'Files created'], ['files_edited', 'Files edited'], ['chat_messages', 'Chat messages'], ['meetings', 'Meetings organised'], ['tasks_done', 'Tasks done'], ['video_meetings', 'Video meetings'], ['video_minutes', 'Time in video meetings', (n) => minutesText(n)]];
+/** 95 → "1 h 35 min", 20 → "20 min". */
+export const minutesText = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
 
 export default function ReportsAdmin({ orgId, orgPicker }) {
   const [days, setDays] = useState(30);
@@ -38,11 +40,11 @@ export default function ReportsAdmin({ orgId, orgPicker }) {
               <tr key={p.id} className={p.disabled ? 'dim' : ''}>
                 <td>{p.name}{p.disabled ? ' (suspended)' : ''}<div className="muted small">{p.email}</div></td>
                 <td className="muted">{lastActiveText(p.last_active)}</td>
-                {COLUMNS.map(([k]) => <td key={k} className="num">{p[k] || <span className="muted">0</span>}</td>)}
+                {COLUMNS.map(([k, , show]) => <td key={k} className="num">{p[k] ? (show ? show(p[k]) : p[k]) : <span className="muted">0</span>}</td>)}
               </tr>
             ))}
           </tbody>
-          <tfoot><tr><th>Total</th><th />{COLUMNS.map(([k]) => <th key={k} className="num">{total(k)}</th>)}</tr></tfoot>
+          <tfoot><tr><th>Total</th><th />{COLUMNS.map(([k, , show]) => <th key={k} className="num">{show ? show(total(k)) : total(k)}</th>)}</tr></tfoot>
         </table>
       </>}
     </div>
