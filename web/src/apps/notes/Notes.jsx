@@ -7,7 +7,7 @@ import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
 import { printHtml } from '../mail/mailprint.js';
-import { notePrintHtml, noteEmail } from './noteprint.js';
+import { notePrintHtml, notesPrintHtml, noteEmail } from './noteprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import Icon from '../../components/Icon.jsx';
@@ -217,6 +217,7 @@ export default function Notes() {
                 <option value="+new">New label…</option>
               </select>
               <button type="button" className="btn small" onClick={() => many({ change: { archived: !where.archived } }, (r) => `${nNotes(r.notes.length)} ${where.archived ? 'back in Notes' : 'archived'}`)}><Icon name="archive" size={16} /> {where.archived ? 'Unarchive' : 'Archive'}</button>
+              <button type="button" className="btn small" title="The picked notes on one printout, each on its own page" onClick={() => printHtml(notesPrintHtml([...pinned, ...others].filter((x) => picked.has(x.id))))}><Icon name="print" size={16} /> Print</button>
               <button type="button" className="btn small" title="Each note as a Markdown (.md) file, in one .zip" onClick={async () => {
                 const url = `/notes/export.zip?ids=${[...picked].map(encodeURIComponent).join(',')}`;
                 try { await get(`${url}&check=1`); } catch (e) { toast(e.message, 'error'); return; }

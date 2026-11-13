@@ -25,3 +25,11 @@ export function noteEmail(n, link = '') {
   const back = link ? `<p style="color:#5f6368;font-size:12px">From my notes: <a href="${esc(link)}">${esc(link)}</a></p>` : '';
   return { subject, html: `${body}${items}${back}` };
 }
+
+/** Several notes on one printout, each starting on its own page (its body as notePrintHtml makes it). */
+export function notesPrintHtml(notes) {
+  const bodies = notes.map((n) => /<body>([\s\S]*)<\/body>/.exec(notePrintHtml(n))[1]);
+  const style = /<style>([\s\S]*?)<\/style>/.exec(notePrintHtml(notes[0] || {}))[1];
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Notes (${notes.length})</title><style>${style}
+    section.note + section.note { break-before: page; }</style></head><body>${bodies.map((b) => `<section class="note">${b}</section>`).join('')}</body></html>`;
+}
