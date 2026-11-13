@@ -1,3 +1,4 @@
+import { announceFileState } from './chatgone.js';
 import { recordActivity } from './fileactivity.js';
 // Drive as a network drive (WebDAV), for Finder (macOS: Go → Connect to Server), File Explorer
 // (Windows: Map network drive), Linux file managers and phone file apps. Mounted at /dav/files.
@@ -348,6 +349,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
         if (!guard([keyHere], true)) return;
         // To the trash, like deleting in Drive: it can be restored there.
         q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), node.row.id);
+        announceFileState(node.row.id);
         recordActivity(node.row.id, user.id, 'trash');
         L.dropWithin(keyHere);
         changed([node.row.id]);
@@ -385,6 +387,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
             if (newName !== node.row.name) recordActivity(node.row.id, user.id, 'rename', { from: node.row.name, to: newName });
             if (place.parentId !== node.row.parent_id) recordActivity(node.row.id, user.id, 'move', { to: place.parentId ? q('SELECT name FROM files WHERE id = ?').get(place.parentId)?.name : null });
           });
+          if (target.type === 'item') announceFileState(target.row.id);
           L.dropWithin(keyHere);
           changed([node.row.id]);
           return res.status(target.type === 'item' ? 204 : 201).end();
@@ -395,7 +398,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
         const total = node.row.kind === 'file' ? node.row.size
           : shallow ? 0 : q(`SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE id IN (${subtreeIds(node.row.id).map(() => '?').join(',')}) AND kind = 'file' AND trashed = 0`).get(...subtreeIds(node.row.id)).n;
         checkQuota(user.org_id, total, user.id);
-        if (target.type === 'item') q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), target.row.id);
+        if (target.type === 'item') { q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), target.row.id); announceFileState(target.row.id); }
         const copy = (f, parentId, name) => {
           const keepProps = (id) => { q('INSERT INTO webdav_props (target, ns, name, value) SELECT ?, ns, name, value FROM webdav_props WHERE target = ?').run(id, f.id); return id; };
           if (f.kind === 'file') {

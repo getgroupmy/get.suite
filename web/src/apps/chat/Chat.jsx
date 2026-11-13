@@ -14,7 +14,7 @@ import { DRAFT_KEY } from '../docs/blocks.js';
 import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
 import ConvFiles from './ConvFiles.jsx';
-import { saveItems } from './savefile.js';
+import { saveItems, withFileState } from './savefile.js';
 import SaveToFolder from './SaveToFolder.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -273,6 +273,8 @@ export default function Chat() {
       else if (m.message.user_id !== user.id) setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
     } else if (m.type === 'message-updated') {
       setMessages((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
+    } else if (m.type === 'chat-file-state' && m.channel_id === channelId) {
+      setMessages((list) => withFileState(list, m));
     } else if (m.type === 'chat-mention') {
       // Thread replies aren't in the conversation itself, so they need a notice unless that thread is open.
       const seen = m.channel_id === channelId && !document.hidden && (!m.parent_id || m.parent_id === threadId);
@@ -914,6 +916,7 @@ function Thread({ id, channelId, user, onClose }) {
       if (m.message.id === id) setParent(m.message);
       else setReplies((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
     } else if (m.type === 'message-deleted' && m.parent_id === id) setReplies((list) => list.filter((x) => x.id !== m.id));
+    else if (m.type === 'chat-file-state') { setReplies((list) => withFileState(list, m)); setParent((p) => (p ? withFileState([p], m)[0] : p)); }
   }), [id]);
   useLayoutEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [replies.length]);
   useEffect(() => {

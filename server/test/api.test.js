@@ -13636,3 +13636,37 @@ test('chat: Save to Drive copies an attachment into your Drive (My Drive or a fo
   await a('PATCH', `/api/files/${up.id}`, { trashed: false });
   assert.equal((await b('GET', `/api/chat/channels/${dm}/messages`)).body.find((x) => x.id === m.id).files[0].gone, undefined, 'back from the trash, back again');
 });
+
+test('chat: trashing or restoring an attached file tells the conversation at once (chat-file-state)', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const a = client();
+  for (const local of ['cgon1', 'cgon2', 'cgon3']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+  await login(a, 'cgon1@acme.com');
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const live = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie } });
+    ws.msgs = [];
+    ws.on('message', (d) => ws.msgs.push(JSON.parse(String(d))));
+    ws.on('open', () => resolve(ws)); ws.on('error', reject);
+  });
+  const ben = await live(await cookieOf('cgon2@acme.com'));
+  const out = await live(await cookieOf('cgon3@acme.com'));
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  const states = (ws) => ws.msgs.filter((m) => m.type === 'chat-file-state');
+  try {
+    const { q } = await import('../src/db.js');
+    const bid = q("SELECT id FROM users WHERE email = 'cgon2@acme.com'").get().id;
+    const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+    const up = (await a('POST', '/api/files/upload?name=live.txt', 'x', { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+    const m1 = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'one', files: [up.id] })).body;
+    const m2 = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'two', files: [up.id] })).body;
+    await a('PATCH', `/api/files/${up.id}`, { trashed: true }); await wait();
+    assert.deepEqual(states(ben).map(({ channel_id, message_ids, file_id, gone }) => ({ channel_id, message_ids: [...message_ids].sort(), file_id, gone })),
+      [{ channel_id: dm, message_ids: [m1.id, m2.id].sort(), file_id: up.id, gone: true }]);
+    assert.equal(states(out).length, 0, 'not to people outside the conversation');
+    await a('PATCH', `/api/files/${up.id}`, { trashed: false }); await wait();
+    assert.equal(states(ben).at(-1).gone, false, 'back again');
+    await a('PATCH', `/api/files/${up.id}`, { name: 'renamed.txt' }); await wait();
+    assert.equal(states(ben).length, 2, 'a rename is not news');
+  } finally { ben.close(); out.close(); }
+});

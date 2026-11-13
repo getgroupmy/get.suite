@@ -14,3 +14,9 @@ export const saveItems = (toast, navigate, messageId, file, pick, named = false)
   { label: named ? `Save “${file.name}” to My Drive` : 'Save to My Drive', icon: 'folder', onClick: () => saveToDrive(toast, navigate, messageId, file) },
   { label: named ? `Save “${file.name}” to a folder…` : 'Save to a folder…', icon: 'folder', onClick: () => pick({ messageId, file }) },
 ];
+
+/** Messages with a file marked gone (or available again), from a live "chat-file-state" notice. */
+export function withFileState(list, { message_ids: ids, file_id: fileId, gone }) {
+  return list.map((m) => (!ids.includes(m.id) || !m.files?.length ? m
+    : { ...m, files: m.files.map((f) => (f.id !== fileId ? f : gone ? { ...f, gone: true } : (({ gone: _g, ...rest }) => rest)(f))) }));
+}

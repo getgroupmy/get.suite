@@ -1,3 +1,4 @@
+import { announceFileState } from '../chatgone.js';
 import { withoutSuggestions } from '../office/suggestions.js';
 import { combine, extract, parsePages, pageCount, typeOf, stamp, organize, MAX_PAGES as MAX_PDF_PAGES } from '../pdftools.js';
 import { filesFor, fileRulesStop } from '../dlp.js';
@@ -1416,6 +1417,7 @@ export default function fileRoutes({ maxUploadBytes }) {
         recordActivity(f.id, req.user.id, trashed ? 'trash' : 'restore');
       }
     });
+    if (trashed !== undefined && f.kind === 'file') announceFileState(f.id);
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     if (setup !== undefined) notify(f.id, { type: 'page-setup', id: f.id, page_setup: setup });
     res.json(publicFile(loadFile(f.id, req.user)));
