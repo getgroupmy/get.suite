@@ -25,3 +25,26 @@ test('responses print one to a page, with who, when, the score and every questio
   assert.match(html, /Response 2 of 2 · today · bo@x/);
   assert.match(html, /class="a none">No answer/);
 });
+
+test('a blank form to fill in on paper: circles, boxes, lines, grids, scales; sections start a page', async () => {
+  const { blankFormHtml } = await import('./formprint.js');
+  const html = blankFormHtml({ title: 'Event <feedback>', description: 'Thanks!', questions: [
+    { id: 'a', type: 'short', title: 'Name', required: true },
+    { id: 'b', type: 'choice', title: 'Came by', options: ['Car', 'Train'], other: true },
+    { id: 'c', type: 'checkbox', title: 'Sessions', options: ['Morning'] },
+    { id: 's', type: 'section', title: 'Part two' },
+    { id: 'd', type: 'grid', title: 'Rate', rows: ['Food'], columns: ['Good', 'Poor'] },
+    { id: 'e', type: 'scale', title: 'Overall', max: 5, low: 'Bad', high: 'Great' },
+    { id: 'f', type: 'paragraph', title: 'Comments' },
+  ] });
+  assert.match(html, /<h1>Event &lt;feedback&gt;<\/h1>/);
+  assert.match(html, /1\. Name <span class="req">\*<\/span>/);
+  assert.match(html, /<span class="o"><\/span> Car/);
+  assert.match(html, /Other: <span class="fill">/);
+  assert.match(html, /<span class="b"><\/span> Morning/);
+  assert.match(html, /<h2 class="section">Part two<\/h2>/);
+  assert.match(html, /4\. Rate/, 'sections are not numbered');
+  assert.match(html, /<th>Food<\/th><td><span class="o"><\/span><\/td><td><span class="o"><\/span><\/td>/);
+  assert.match(html, /<span>Bad<\/span>[\s\S]*5<\/span><span>Great<\/span>/);
+  assert.equal((html.match(/class="line"/g) || []).length, 1 + 4);
+});

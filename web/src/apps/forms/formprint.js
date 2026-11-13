@@ -31,3 +31,44 @@ export function responsesPrintHtml(form, responses, { when = (t) => new Date(t).
     section.r + section.r { break-before: page; }
   </style></head><body>${responses.map(page).join('')}</body></html>`;
 }
+
+/** A blank copy of the form to fill in on paper: each question with room to answer (circles, boxes, lines, grids). */
+export function blankFormHtml(form) {
+  const box = (round) => `<span class="${round ? 'o' : 'b'}"></span>`;
+  const lines = (n) => Array.from({ length: n }, () => '<div class="line"></div>').join('');
+  const field = (q) => {
+    switch (q.type) {
+      case 'choice': case 'dropdown': case 'checkbox': {
+        const round = q.type !== 'checkbox';
+        const opts = (q.options || []).map((o) => `<div class="opt">${box(round)} ${esc(o)}</div>`).join('');
+        return opts + (q.other ? `<div class="opt">${box(round)} Other: <span class="fill"></span></div>` : '');
+      }
+      case 'rank': return `${(q.options || []).map((o) => `<div class="opt"><span class="num"></span> ${esc(o)}</div>`).join('')}<p class="hint">Number them in order, 1 first.</p>`;
+      case 'scale': return `<div class="scale">${q.low ? `<span>${esc(q.low)}</span>` : ''}${Array.from({ length: q.max || 5 }, (_, i) => `<span class="cell">${box(true)}<br>${i + 1}</span>`).join('')}${q.high ? `<span>${esc(q.high)}</span>` : ''}</div>`;
+      case 'rating': return `<div class="scale">${Array.from({ length: q.max || 5 }, (_, i) => `<span class="cell">${box(true)}<br>${i + 1}</span>`).join('')}</div>`;
+      case 'grid': case 'checkgrid': return `<table class="grid"><tr><th></th>${(q.columns || []).map((c) => `<th>${esc(c)}</th>`).join('')}</tr>${(q.rows || []).map((r) => `<tr><th>${esc(r)}</th>${(q.columns || []).map(() => `<td>${box(q.type === 'grid')}</td>`).join('')}</tr>`).join('')}</table>`;
+      case 'date': return '<div class="short">____ / ____ / ________</div>';
+      case 'time': return '<div class="short">____ : ____</div>';
+      case 'paragraph': return lines(4);
+      case 'file': return '<p class="hint">(A file is attached to this answer online.)</p>';
+      default: return lines(1);
+    }
+  };
+  let n = 0;
+  const body = (form.questions || []).map((q) => {
+    if (q.type === 'section') return `<h2 class="section">${esc(q.title || 'Section')}</h2>${q.help ? `<p class="help">${esc(q.help)}</p>` : ''}`;
+    n += 1;
+    return `<div class="q"><div class="t">${n}. ${esc(q.title || 'Untitled question')}${q.required ? ' <span class="req">*</span>' : ''}</div>${q.help ? `<p class="help">${esc(q.help)}</p>` : ''}${field(q)}</div>`;
+  }).join('');
+  const anyRequired = (form.questions || []).some((q) => q.required);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(form.title || 'Form')}</title><style>
+    body { font: 13px/1.5 system-ui, sans-serif; color: #000; margin: 28px; } h1 { font-size: 20px; margin: 0 0 4px; } .desc { margin: 0 0 6px; white-space: pre-wrap; }
+    .q { margin: 0 0 18px; break-inside: avoid; } .t { font-weight: 600; } .help, .hint { color: #555; margin: 2px 0 6px; font-size: 12px; } .req { color: #b00; }
+    .opt { margin: 4px 0 0 4px; } .o, .b { display: inline-block; width: 12px; height: 12px; border: 1.5px solid #000; vertical-align: -2px; } .o { border-radius: 50%; }
+    .num { display: inline-block; width: 26px; border-bottom: 1px solid #000; height: 14px; vertical-align: -3px; } .fill { display: inline-block; width: 60%; border-bottom: 1px solid #000; }
+    .line { border-bottom: 1px solid #000; height: 24px; } .short { margin-top: 8px; letter-spacing: 1px; }
+    .scale { display: flex; gap: 14px; align-items: center; margin-top: 6px; } .cell { text-align: center; font-size: 11px; }
+    table.grid { border-collapse: collapse; margin-top: 6px; } .grid th, .grid td { padding: 4px 10px; text-align: center; font-weight: normal; } .grid tr th:first-child { text-align: left; }
+    h2.section { font-size: 16px; break-before: page; margin: 0 0 6px; border-bottom: 1px solid #000; } .note { color: #555; font-size: 12px; margin: 0 0 16px; }
+  </style></head><body><h1>${esc(form.title || 'Form')}</h1>${form.description ? `<p class="desc">${esc(form.description)}</p>` : ''}${anyRequired ? '<p class="note"><span class="req">*</span> Required</p>' : ''}${body}</body></html>`;
+}

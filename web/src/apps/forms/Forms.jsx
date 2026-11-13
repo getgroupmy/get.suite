@@ -1,7 +1,7 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
 import { printHtml } from '../mail/mailprint.js';
-import { responsesPrintHtml } from './formprint.js';
+import { responsesPrintHtml, blankFormHtml } from './formprint.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, del, onLive, formatDate, uploadFile } from '../../api.js';
@@ -183,6 +183,7 @@ function FormEditor({ id }) {
           { label: 'Embed in a website', icon: 'link', onClick: () => setEmbedOpen(true) },
           { label: 'Import questions…', icon: 'upload', onClick: async () => { await flush(); setImporting(true); } },
           { label: 'Make a copy', icon: 'copy', onClick: copyForm },
+          { label: 'Print a blank copy', icon: 'print', onClick: async () => { await flush(); printHtml(blankFormHtml(form)); } },
           form.role === 'owner' && { label: form.archived_at ? 'Bring back from the archive' : 'Archive', icon: 'archive', onClick: async () => {
             try { await flush(); const r = await put(`/forms/${id}/archived`, { archived: !form.archived_at }); setForm((x) => ({ ...x, archived_at: r.archived_at, closed: r.closed })); toast(r.archived_at ? 'Archived: out of your forms list, and it no longer takes responses' : 'Back from the archive'); } catch (e) { toast(e.message, 'error'); }
           } },
