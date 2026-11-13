@@ -5297,6 +5297,11 @@ test('Chat with guests: an event’s own private channel, the same each time, wi
   const ev2 = (await a('POST', '/api/events', { title: 'Supplier review: Q4!', start: t, end: t + 3600e3, guests: ['cwb@acme.com'] })).body;
   const second = (await a('POST', `/api/events/${ev2.id}/chat`)).body;
   assert.equal(q('SELECT name FROM channels WHERE id = ?').get(second.id).name, 'supplier-review-q4-3');
+  // The event deleted: its channel says it's gone.
+  const gone = async () => (await a('GET', '/api/chat/channels')).body.channels.find((x) => x.id === second.id).about_gone;
+  assert.equal(await gone(), false);
+  await a('DELETE', `/api/events/${ev2.id}`);
+  assert.equal(await gone(), true);
 });
 
 test('Chat with the list’s people: a shared task list’s own private channel', async () => {
@@ -5320,6 +5325,8 @@ test('Chat with the list’s people: a shared task list’s own private channel'
   const again = (await c('POST', `/api/tasks/lists/${list.id}/chat`)).body;
   assert.deepEqual([again.id, again.created, again.added], [made.id, false, 1]);
   assert.deepEqual(members(), [ids.lista, ids.listb, ids.listc].sort());
+  await a('DELETE', `/api/tasks/lists/${list.id}`);
+  assert.equal((await b('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id).about_gone, true, 'the list deleted');
 });
 
 test('Chat with people who have access: a shared file’s own private channel, folder access included', async () => {
@@ -5376,6 +5383,8 @@ test('Chat with people it’s shared with: a shared note’s own channel', async
   assert.match((await a('GET', `/api/chat/channels/${made.id}/messages`)).body[0].body, new RegExp(`^For the note Offsite menu: .*/notes\\?note=${n.id}$`));
   await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.nchb, ids.nchc] });
   assert.deepEqual((await c('POST', `/api/notes/${n.id}/chat`)).body, { id: made.id, created: false, added: 1 });
+  await a('DELETE', `/api/notes/${n.id}`);
+  assert.equal((await b('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id).about_gone, true, 'the note in the trash');
 });
 
 test('Chat with people who have access leaves out a share that has run out', async () => {
