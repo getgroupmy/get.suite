@@ -71,3 +71,16 @@ test('guests: an @name matching nobody, or two people, stays as typed', () => {
   assert.deepEqual(parseQuickEvent('Ping @zed tomorrow 3pm', { today, people }).guests, []);
   assert.deepEqual(parseQuickEvent('Sync with @sortiz tomorrow 3pm', { today, people }).guests, ['sortiz@acme.com'], 'by address');
 });
+
+const rooms = [{ id: 'r1', name: 'Room 1' }, { id: 'r12', name: 'Room 12' }, { id: 'b', name: 'Boardroom' }, { id: 'l', name: 'Lisbon' }, { id: 'p', name: 'Main (2nd floor)' }];
+test('rooms: "in"/"at" a room by name (longest first), taken out of the title', () => {
+  const e = parseQuickEvent('Budget review in the Boardroom tomorrow 2pm', { today, rooms });
+  assert.deepEqual([e.title, e.rooms, e.start], ['Budget review', ['b'], at(14, 14)]);
+  assert.deepEqual(parseQuickEvent('Standup at Room 12 tomorrow 9am', { today, rooms }).rooms, ['r12']);
+  assert.deepEqual(parseQuickEvent('Standup in room 1 tomorrow 9am', { today, rooms }).rooms, ['r1']);
+  assert.deepEqual(parseQuickEvent('Interview at the Lisbon room with @kim tomorrow 3-4pm', { today, rooms, people }).title, 'Interview with Kim');
+  assert.deepEqual(parseQuickEvent('Party in Main (2nd floor) friday 5pm', { today, rooms }).rooms, ['p'], 'names with brackets');
+  const none = parseQuickEvent('Trip to Lisbon tomorrow', { today, rooms });
+  assert.deepEqual([none.title, none.rooms], ['Trip to Lisbon', []], 'only after "in" or "at"');
+  assert.deepEqual(parseQuickEvent('Lunch at noonish tomorrow 1pm', { today, rooms }).rooms, []);
+});

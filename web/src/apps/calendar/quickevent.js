@@ -2,7 +2,8 @@
 // Friday 13:00–13:30. Days, times and repeats are read as Tasks' quick add reads them; on top of that
 // a time range ("3-4pm", "10:30 to 11:15", "from 9 to 11am") and a length ("for 45 minutes",
 // "for 2 hours", "for an hour") set the end. A day without a time is an all-day event. "@kim" or "@Kim Park"
-// (a colleague) and email addresses become guests; the colleague's name stays in the title.
+// (a colleague) and email addresses become guests; the colleague's name stays in the title. "in the
+// Boardroom" or "at Lisbon" (one of the company's rooms) picks that room.
 import { parseQuickAdd } from '../tasks/quickadd.js';
 import { readCustom } from '../tasks/taskmath.js';
 
@@ -76,12 +77,32 @@ function tidy(title) {
   return t.replace(/\(\s*\)/g, '').replace(/\s+([,.])/g, '$1').replace(/[\s,]+$/, '').replace(/\s+/g, ' ').trim();
 }
 
+const escape = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
- * What a quick-add line makes: { title, start, end, all_day, rrule, guests, found } (ms, local time), or null when
- * it names no day or time. `today` is "YYYY-MM-DD"; `minutes` the length when none is said; `people` who "@name" can be.
+ * Rooms in a line: "in Boardroom", "at the Lisbon room", "in Room 2" (names from `rooms`: [{ id, name }], longest
+ * first so "Room 12" isn't read as "Room 1"). Returns { text, ids }, the words naming them taken out.
  */
-export function parseQuickEvent(input, { today, minutes = 60, people = [] } = {}) {
-  const who = guestsIn(String(input || '').trim(), people);
+export function roomsIn(input, rooms = []) {
+  let s = ` ${input} `;
+  const ids = [];
+  for (const r of [...rooms].filter((x) => x.name?.trim()).sort((a, b) => b.name.length - a.name.length)) {
+    const re = new RegExp(`\\s(?:in|at)\\s+(?:the\\s+)?${escape(r.name.trim()).replace(/\s+/g, '\\s+')}(?:\\s+room)?(?=[\\s,.)]|$)`, 'iu');
+    const m = re.exec(s);
+    if (!m || ids.includes(r.id)) continue;
+    ids.push(r.id);
+    s = `${s.slice(0, m.index)} ${s.slice(m.index + m[0].length)}`;
+  }
+  return { text: s.replace(/\s+/g, ' ').trim(), ids };
+}
+
+/**
+ * What a quick-add line makes: { title, start, end, all_day, rrule, guests, rooms, found } (ms, local time), or null
+ * when it names no day or time. `today` is "YYYY-MM-DD"; `minutes` the length when none is said; `people` who
+ * "@name" can be; `rooms` the company's rooms.
+ */
+export function parseQuickEvent(input, { today, minutes = 60, people = [], rooms = [] } = {}) {
+  const where = roomsIn(String(input || '').trim(), rooms);
+  const who = guestsIn(where.text, people);
   let s = ` ${who.text} `;
   let length = null;
   let range = null; // [startMinutes, endMinutes]
@@ -124,5 +145,6 @@ export function parseQuickEvent(input, { today, minutes = 60, people = [] } = {}
   const rrule = ruleFromRepeat(q.repeat, start);
   if (rrule) found.push({ kind: 'repeat', rule: rrule });
   if (who.guests.length) found.push({ kind: 'guests', emails: who.guests });
-  return { title: q.title, start, end, all_day: allDay, rrule, guests: who.guests, found };
+  if (where.ids.length) found.push({ kind: 'rooms', ids: where.ids });
+  return { title: q.title, start, end, all_day: allDay, rrule, guests: who.guests, rooms: where.ids, found };
 }

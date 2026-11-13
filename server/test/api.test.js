@@ -2745,6 +2745,26 @@ test('calendar quick add: "@name" picks from the directory (active colleagues on
   await a('DELETE', `/api/events/${ev.body.id}`);
 });
 
+test('calendar quick add: everyone gets the room names to match ("in Zq Boardroom"), and saving with the room books it', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'qaroom', domain: 'acme.com', name: 'Quick Room', password: 'password123' })).status, 201);
+  await login(a, 'qaroom@acme.com');
+  const big = (await owner('POST', '/api/rooms', { name: 'Zq Boardroom 12' })).body;
+  const small = (await owner('POST', '/api/rooms', { name: 'Zq Boardroom 1' })).body;
+  const list = (await a('GET', '/api/rooms')).body.filter((r) => r.name.startsWith('Zq '));
+  assert.deepEqual(list.map((r) => [r.name, r.can_book]), [['Zq Boardroom 1', true], ['Zq Boardroom 12', true]], 'a colleague who isn\'t an admin sees them, by name');
+  const t = Date.now() + 3 * 864e5;
+  const ev = (await a('POST', '/api/events', { title: 'Budget review', start: t, end: t + 36e5, rooms: [big.id] })).body;
+  assert.deepEqual(ev.rooms.map((r) => [r.name, r.status]), [['Zq Boardroom 12', 'yes']]);
+  // Free at that time? (what the event window shows once quick add has picked it)
+  const then = (await a('GET', `/api/rooms?start=${t}&end=${t + 36e5}`)).body;
+  assert.deepEqual(then.filter((r) => r.name.startsWith('Zq ')).map((r) => [r.name, r.free]), [['Zq Boardroom 1', true], ['Zq Boardroom 12', false]]);
+  const clash = (await a('POST', '/api/events', { title: 'Also then', start: t + 18e5, end: t + 54e5, rooms: [big.id] })).body;
+  assert.equal(clash.rooms[0].status, 'no', 'taken: declined');
+  for (const e of [ev, clash]) await a('DELETE', `/api/events/${e.id}`);
+  for (const r of [big, small]) await owner('DELETE', `/api/rooms/${r.id}`);
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);

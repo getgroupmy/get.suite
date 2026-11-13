@@ -376,7 +376,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         )}
         {acting && <div className="banner small" role="status"><strong>{acting.name}</strong>’s calendar: events you add, change or delete here are theirs (they’re told).</div>}
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
-        <QuickAdd minutes={newEventMinutes(me?.cal_prefs || DEFAULT_CAL_PREFS)} people={people.filter((p) => p.id !== me.id)} onPick={(ev) => { setAnchor(startOfDay(new Date(ev.start))); setEditing({ color: COLORS[0], location: '', description: '', ...ev }); }} onPlain={(t) => { newEvent(); setEditing((e) => (e ? { ...e, title: t } : e)); }} />
+        <QuickAdd minutes={newEventMinutes(me?.cal_prefs || DEFAULT_CAL_PREFS)} people={people.filter((p) => p.id !== me.id)} rooms={roomList} onPick={(ev) => { setAnchor(startOfDay(new Date(ev.start))); setEditing({ color: COLORS[0], location: '', description: '', ...ev }); }} onPlain={(t) => { newEvent(); setEditing((e) => (e ? { ...e, title: t } : e)); }} />
         {!acting && <>
         <button type="button" className="subnav-item" onClick={() => setTimeOff(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏖</span><span className="grow">Time off</span>{timeOffWaiting > 0 && <span className="timeoff-count" aria-label={`${timeOffWaiting} waiting for your answer`}>{timeOffWaiting}</span>}</button>
         {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); loadHolidays(); }} onChanged={() => { load(); refreshTimeOff(); loadHolidays(); }} />}
@@ -852,23 +852,23 @@ const whenLabel = (ev) => {
  * Quick add: "Lunch with Kim fri 1pm for 30m" — what's understood shows under the box, and Enter opens the
  * event filled in (to add guests, a room…, then Save). Words with no day or time open a new event with that title.
  */
-function QuickAdd({ minutes, people, onPick, onPlain }) {
+function QuickAdd({ minutes, people, rooms, onPick, onPlain }) {
   const [text, setText] = useState('');
-  const ev = text.trim() ? parseQuickEvent(text, { today: localToday(), minutes, people }) : null;
+  const ev = text.trim() ? parseQuickEvent(text, { today: localToday(), minutes, people, rooms }) : null;
   const go = (e) => {
     e.preventDefault();
     const t = text.trim();
     if (!t) return;
-    if (ev) onPick({ title: ev.title, start: ev.start, end: ev.end, all_day: ev.all_day, ...(ev.rrule && { rrule: ev.rrule }), ...(ev.guests.length && { guests: ev.guests.map((email) => ({ email })) }) });
+    if (ev) onPick({ title: ev.title, start: ev.start, end: ev.end, all_day: ev.all_day, ...(ev.rrule && { rrule: ev.rrule }), ...(ev.guests.length && { guests: ev.guests.map((email) => ({ email })) }), ...(ev.rooms.length && { pick_rooms: ev.rooms }) });
     else onPlain(t);
     setText('');
   };
   return (
     <form className="cal-quick" onSubmit={go}>
       <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Quick add: Lunch fri 1pm" aria-label="Quick add an event"
-        aria-describedby="cal-quick-what" title="Type what, when and how long: “Dentist tomorrow 10am for 45 minutes”, “Workshop 24 Nov 3-5pm”, “1:1 with @ana every 2 weeks on tue 10am” (@name or an address invites them). Enter opens it to check and save." />
+        aria-describedby="cal-quick-what" title="Type what, when and how long: “Dentist tomorrow 10am for 45 minutes”, “Workshop 24 Nov 3-5pm”, “1:1 with @ana every 2 weeks on tue 10am” (@name or an address invites them; “in Boardroom” books a room). Enter opens it to check and save." />
       <div id="cal-quick-what" className="muted small" aria-live="polite">
-        {ev ? <>{ev.title ? <strong>{ev.title}</strong> : <em>No title</em>} · {whenLabel(ev)}{ev.rrule && ` · ${describeRule(ev.rrule, ev.start)}`}{ev.guests.length > 0 && ` · with ${ev.guests.map((g) => people.find((p) => p.username === g)?.name || g).join(', ')}`}</> : text.trim() ? 'Add a day or time, like “tomorrow 3pm”' : ''}
+        {ev ? <>{ev.title ? <strong>{ev.title}</strong> : <em>No title</em>} · {whenLabel(ev)}{ev.rrule && ` · ${describeRule(ev.rrule, ev.start)}`}{ev.guests.length > 0 && ` · with ${ev.guests.map((g) => people.find((p) => p.username === g)?.name || g).join(', ')}`}{ev.rooms.length > 0 && ` · in ${ev.rooms.map((id) => rooms.find((r) => r.id === id)?.name).join(', ')}`}</> : text.trim() ? 'Add a day or time, like “tomorrow 3pm”' : ''}
       </div>
     </form>
   );
@@ -1438,7 +1438,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
   const [guests, setGuests] = useState((event.guests || []).map((g) => g.email));
-  const [roomIds, setRoomIds] = useState((event.rooms || []).map((r) => r.id));
+  const [roomIds, setRoomIds] = useState(event.pick_rooms || (event.rooms || []).map((r) => r.id)); // pick_rooms: chosen by quick add, not booked yet
   // New timed events remind you 10 minutes before, as in other calendars.
   const { user: you } = useAuth();
   const [reminders, setReminders] = useState(event.reminders ?? (event.id || event.all_day ? [] : (you?.cal_prefs || DEFAULT_CAL_PREFS).reminders));
