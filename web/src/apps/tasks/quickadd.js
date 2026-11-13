@@ -58,7 +58,7 @@ const REPEAT_WORDS = [
  * `found` lists what was understood ({ kind, text }) so the page can show it before adding.
  * `people` ([{ id, name, username }]) are who "@name" can mean; `today` is "YYYY-MM-DD".
  */
-export function parseQuickAdd(input, { today, people = [] } = {}) {
+export function parseQuickAdd(input, { today, people = [], datesOnly = false } = {}) {
   let s = ` ${String(input || '')} `;
   const out = { due: null, due_time: null, repeat: null, important: false, priority: null, assignee_id: null, tags: [], found: [] };
   const take = (re, fn) => {
@@ -70,11 +70,14 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
     return true;
   };
 
+  // datesOnly (Calendar's quick add): only days, times and repeats; "#", "!" and "@" stay in the title.
+  if (!datesOnly) {
   // Tags: "#client" (a word starting with a letter, so "issue #42" stays as it is).
   while (take(/\s#(\p{L}[\p{L}\p{N}_-]{0,29})(?=[\s,.]|$)/u, (m) => { const t = m[1].toLowerCase(); if (!out.tags.includes(t) && out.tags.length < 10) { out.tags.push(t); out.found.push({ kind: 'tag', text: `#${t}` }); } }));
   // A priority: !high, !medium (or !med), !low (also !p1 to !p3, p1 the highest).
   take(/\s!(high|medium|med|low|p[123])(?=[\s,.]|$)/i, (m) => { const v = { high: 'high', p1: 'high', medium: 'medium', med: 'medium', p2: 'medium', low: 'low', p3: 'low' }[m[1].toLowerCase()]; out.priority = v; out.found.push({ kind: 'priority', text: `${v[0].toUpperCase()}${v.slice(1)} priority` }); });
   take(/\s!(?:important)?(?=\s)/i, () => { out.important = true; out.found.push({ kind: 'important', text: 'Important' }); });
+  }
   const custom = customRepeatIn(s);
   if (custom) { s = `${s.slice(0, custom.match.index)} ${s.slice(custom.match.index + custom.match[0].length)}`; out.repeat = custom.repeat; }
   else for (const [re, v] of REPEAT_WORDS) if (take(re, () => { out.repeat = v; })) break;
@@ -107,6 +110,7 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
   }
 
   // Who it's for: "@kim" or "@Kim Park" (someone on the list).
+  if (datesOnly) people = [];
   const assign = (p) => { out.assignee_id = p.id; out.found.push({ kind: 'person', text: p.name }); };
   take(/\s@([\p{L}][\p{L}.'-]*)\s+([\p{L}][\p{L}'-]*)(?=[\s,.]|$)/u, (m) => {
     const p = people.find((x) => x.name?.toLowerCase() === `${m[1]} ${m[2]}`.toLowerCase());

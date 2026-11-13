@@ -501,6 +501,17 @@ test('repeating events: rules are checked, and series that started earlier are r
     assert.equal((await cal('POST', '/api/events', { title: 'x', start: jan1, end: jan1 + 36e5, rrule })).status, 400, JSON.stringify(rrule));
   }
   await cal('DELETE', `/api/events/${nth.body.id}`);
+  // The rules Calendar's quick add makes ("every 2 weeks on tue", "every weekday", "every 3 months", "yearly") are kept as sent,
+  // and so is an all-day event from it ("Company holiday 24 Dec": the day's start to a millisecond before the next).
+  for (const rrule of [{ freq: 'weekly', interval: 2, byday: [2] }, { freq: 'weekly', byday: [1, 2, 3, 4, 5] }, { freq: 'monthly', interval: 3 }, { freq: 'yearly' }]) {
+    const r = await cal('POST', '/api/events', { title: 'Quick', start: jan1, end: jan1 + 36e5, rrule });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.deepEqual(r.body.rrule, rrule);
+    await cal('DELETE', `/api/events/${r.body.id}`);
+  }
+  const allDay = await cal('POST', '/api/events', { title: 'Company holiday', start: jan1, end: jan1 + day - 1, all_day: 1 });
+  assert.deepEqual([allDay.status, allDay.body.all_day, allDay.body.end - allDay.body.start], [201, 1, day - 1]);
+  await cal('DELETE', `/api/events/${allDay.body.id}`);
 
   // A range in June: the weekly and the counted series come back (to be expanded), the ended one and the one-off don't.
   const june = (await cal('GET', `/api/events?from=${Date.UTC(2026, 5, 1)}&to=${Date.UTC(2026, 6, 1)}`)).body.map((e) => e.title).sort();
