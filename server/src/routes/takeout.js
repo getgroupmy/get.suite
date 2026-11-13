@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { mailEnabled } from '../mail/config.js';
+import { startMboxImport } from '../mail/importer.js';
 import { writeMailbox, mailboxCounts } from '../mail/mbox.js';
 import JSZip from 'jszip';
 import { q, tx, FILES_DIR } from '../db.js';
@@ -167,10 +168,15 @@ export default function takeoutRoutes() {
     // Drive: the Drive/ folder comes in as one new folder ("From your data 2026-11-13") with its folders and files as they were
     // (documents as the Word, Excel or PowerPoint files they were saved as). Nothing already in your Drive is touched.
     const driveFiles = Object.values(zip.files).filter((x) => x.name.startsWith('Drive/') && x.name !== 'Drive/' && !/(^|\/)(__MACOSX|\.DS_Store)/.test(x.name));
-    if (driveFiles.some((x) => !x.dir)) {
+    // Email: Mail/<folder>.mbox files are kept in that Drive folder too ("Mail (.mbox)") and imported into your mailbox.
+    const mailFiles = Object.values(zip.files).filter((x) => !x.dir && /^Mail\/.+\.mbox$/i.test(x.name));
+    if (driveFiles.some((x) => !x.dir) || mailFiles.length) {
       if (driveFiles.length > 20000) throw bad('That Drive has more than 20,000 files and folders: upload its folders in Drive instead');
       const files = [];
       for (const f of driveFiles.filter((x) => !x.dir)) files.push({ path: f.name.slice('Drive/'.length), data: await f.async('nodebuffer') });
+      const MAILDIR = '\u0000mail'; // its own folder, even if the Drive has one called Mail
+      for (const f of mailFiles) files.push({ path: `${MAILDIR}/${f.name.slice('Mail/'.length)}`, data: await f.async('nodebuffer'), mailFolder: f.name.slice('Mail/'.length).replace(/\.mbox$/i, '') });
+      const mboxes = [];
       checkQuota(user.org_id, files.reduce((n, f) => n + f.data.length, 0), user.id);
       const rootName = `From your data ${new Date().toISOString().slice(0, 10)}`;
       const written = [];
@@ -181,7 +187,7 @@ export default function takeoutRoutes() {
           const folderFor = (dir) => {
             if (folders.has(dir)) return folders.get(dir);
             const cut = dir.lastIndexOf('/');
-            const id = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : dir.slice(0, cut)), name: dir.slice(cut + 1).slice(0, 255) || 'Folder', kind: 'folder' });
+            const id = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : dir.slice(0, cut)), name: (dir === MAILDIR ? 'Mail (.mbox)' : dir.slice(cut + 1)).slice(0, 255) || 'Folder', kind: 'folder' });
             folders.set(dir, id);
             return id;
           };
@@ -191,13 +197,21 @@ export default function takeoutRoutes() {
             const storage = uid();
             fs.writeFileSync(path.join(FILES_DIR, storage), f.data);
             written.push(storage);
-            insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : f.path.slice(0, cut)), name: f.path.slice(cut + 1).slice(0, 255), kind: 'file', mime: mimeFor(f.path), size: f.data.length, storage });
+            const fid = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : f.path.slice(0, cut)), name: f.path.slice(cut + 1).slice(0, 255), kind: 'file', mime: f.mailFolder ? 'application/mbox' : mimeFor(f.path), size: f.data.length, storage });
+            if (f.mailFolder) mboxes.push({ id: fid, folder: f.mailFolder });
           }
-          out.drive = { folder: rootName, folder_id: root, files: files.length };
+          out.drive = { folder: rootName, folder_id: root, files: files.length - mboxes.length };
         });
       } catch (e) { for (const w of written) fs.rmSync(path.join(FILES_DIR, w), { force: true }); throw e; }
       sendTo([user.id], { type: 'files-changed' });
       indexSoon();
+      if (mboxes.length) {
+        if (!mailEnabled()) out.mail = { folders: mboxes.length, started: false, error: 'Mail isn’t set up on this server: the .mbox files are in the Drive folder' };
+        else {
+          try { await startMboxImport(user, { files: mboxes }); out.mail = { folders: mboxes.length, started: true }; }
+          catch (e) { out.mail = { folders: mboxes.length, started: false, error: `${e.message}: the .mbox files are in the Drive folder, for Mail → Import mail later` }; }
+        }
+      }
     }
     if (Object.keys(zip.files).some((n) => n.startsWith('Notes/') && n.endsWith('.md'))) out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: buf.toString('base64') }] });
     sendTo([user.id], { type: 'events-changed' });

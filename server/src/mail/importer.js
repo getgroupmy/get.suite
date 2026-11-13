@@ -137,20 +137,29 @@ export function folderForMbox(name, ours = []) {
   return base;
 }
 
-export async function startMboxImport(user, { file_id: fileId }) {
+/**
+ * file_id: one .mbox from Drive; or file_ids with folders: several in turn, as one import (Bring in your data), each into
+ * the folder its path names ({ id, folder: "Projects/Acme" }: a folder inside a folder).
+ */
+export async function startMboxImport(user, { file_id: fileId, files: many }) {
   if (running.has(user.id)) throw bad('An import is already running');
-  const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(fileId || ''));
-  if (!f || !atLeast(roleFor(f.id, user.id) || '', 'viewer')) throw new HttpError(404, 'File not found');
-  if (!/\.mbox$/i.test(f.name) && !/mbox/i.test(f.mime || '')) throw bad('Choose an .mbox file (Gmail’s Takeout, Thunderbird or Apple Mail give one)');
-  const file = path.join(FILES_DIR, f.storage);
+  const list = Array.isArray(many) ? many.slice(0, 500) : [{ id: fileId }];
+  const found = list.map((x) => {
+    const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(x?.id || ''));
+    if (!f || !atLeast(roleFor(f.id, user.id) || '', 'viewer')) throw new HttpError(404, 'File not found');
+    if (!/\.mbox$/i.test(f.name) && !/mbox/i.test(f.mime || '')) throw bad('Choose an .mbox file (Gmail’s Takeout, Thunderbird or Apple Mail give one)');
+    return { file: path.join(FILES_DIR, f.storage), name: f.name, folder: typeof x.folder === 'string' ? x.folder : null };
+  });
+  if (!found.length) throw bad('Choose an .mbox file');
   const id = newId();
-  q('INSERT INTO mail_imports (id, user_id, host, username, status, started_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, user.id, 'file', f.name, 'running', now());
+  const label = found.length === 1 ? found[0].name : `${found.length} mail folders`;
+  q('INSERT INTO mail_imports (id, user_id, host, username, status, started_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, user.id, 'file', label, 'running', now());
   running.set(user.id, id);
-  runMbox(user, id, file, f.name).catch(() => {}).finally(() => running.delete(user.id));
+  runMbox(user, id, found).catch(() => {}).finally(() => running.delete(user.id));
   return importOf(user.id);
 }
 
-async function runMbox(user, id, file, name) {
+async function runMbox(user, id, files) {
   const update = (set) => {
     const keys = Object.keys(set);
     q(`UPDATE mail_imports SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => set[k]), id);
@@ -158,26 +167,36 @@ async function runMbox(user, id, file, name) {
   };
   let local;
   try {
-    update({ total: await countMbox(fs.createReadStream(file)) });
+    let total = 0;
+    for (const f of files) total += await countMbox(fs.createReadStream(f.file));
+    update({ total });
     local = await ownConnection(user);
-    const ours = await local.list();
-    const target = folderForMbox(name, ours);
-    if (!ours.some((x) => x.path === target)) await local.mailboxCreate(target).catch(() => {});
-    update({ folder: target });
-    const have = new Set();
-    const lock = await local.getMailboxLock(target);
-    try {
-      if (local.mailbox.exists) for await (const m of local.fetch('1:*', { envelope: true })) if (m.envelope?.messageId) have.add(m.envelope.messageId);
-    } finally { lock.release(); }
     let copied = 0, skipped = 0;
-    for await (const m of readMbox(fs.createReadStream(file, { highWaterMark: 256 * 1024 }))) {
-      const messageId = /^Message-ID:[ \t]*(<[^>\r\n]+>)/im.exec(m.source.subarray(0, 64 * 1024).toString('latin1').split(/\r\n\r\n/)[0])?.[1];
-      if (messageId && have.has(messageId)) { skipped++; continue; }
-      try { await local.append(target, m.source, flagsOf(m.source), m.date || undefined); }
-      catch { skipped++; continue; } // one the mail server won't take (too big, broken): the rest still go in
-      if (messageId) have.add(messageId);
-      copied++;
-      if (copied % 20 === 0) update({ copied, skipped });
+    for (const { file, name, folder } of files) {
+      const ours = await local.list();
+      const delim = ours.find((x) => x.delimiter)?.delimiter || '/';
+      // "Projects/Acme" → a folder inside a folder (in the mail server's own way of writing it); Inbox, Sent… as their own.
+      const parts = folder ? folder.split('/').map((p) => p.replace(/[\r\n\t]/g, ' ').trim().slice(0, 80)).filter(Boolean) : [];
+      const target = parts.length > 1 ? parts.join(delim) : folderForMbox(parts.length ? `${parts[0]}.mbox` : name, ours);
+      for (let i = 1; i <= target.split(delim).length; i++) {
+        const p = target.split(delim).slice(0, i).join(delim);
+        if (p !== 'INBOX' && !ours.some((x) => x.path === p)) await local.mailboxCreate(p).catch(() => {});
+      }
+      update({ folder: target });
+      const have = new Set();
+      const lock = await local.getMailboxLock(target);
+      try {
+        if (local.mailbox.exists) for await (const m of local.fetch('1:*', { envelope: true })) if (m.envelope?.messageId) have.add(m.envelope.messageId);
+      } finally { lock.release(); }
+      for await (const m of readMbox(fs.createReadStream(file, { highWaterMark: 256 * 1024 }))) {
+        const messageId = /^Message-ID:[ \t]*(<[^>\r\n]+>)/im.exec(m.source.subarray(0, 64 * 1024).toString('latin1').split(/\r\n\r\n/)[0])?.[1];
+        if (messageId && have.has(messageId)) { skipped++; continue; }
+        try { await local.append(target, m.source, flagsOf(m.source), m.date || undefined); }
+        catch { skipped++; continue; } // one the mail server won't take (too big, broken): the rest still go in
+        if (messageId) have.add(messageId);
+        copied++;
+        if (copied % 20 === 0) update({ copied, skipped });
+      }
     }
     update({ copied, skipped, status: 'done', folder: null, finished_at: now() });
   } catch (e) {

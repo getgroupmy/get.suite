@@ -2635,3 +2635,24 @@ test('download a whole folder as a .zip of .eml files (?all=1); an empty one say
   assert.equal(empty.status, 400);
   assert.match(empty.body.error, /empty/);
 });
+
+test('bring in your data: its Mail/ .mbox files go into your mailbox, folders inside folders kept', async () => {
+  const JSZip = (await import('jszip')).default;
+  const tag = `Restore ${Date.now()}`;
+  const zip = new JSZip();
+  zip.file('README.txt', 'Your Workspace data, 2026-11-13');
+  const msg = (n) => `From a@example.org Tue Mar  3 10:00:00 2015\nFrom: A <a@example.org>\nSubject: ${tag} ${n}\nDate: Tue, 03 Mar 2015 10:00:00 +0000\nMessage-ID: <${tag.replace(/\s/g, '')}-${n}@example.org>\nStatus: RO\n\nBody ${n}\n`;
+  zip.file('Mail/Inbox.mbox', msg('inbox'));
+  zip.file('Mail/Clients/Acme.mbox', msg('acme'));
+  const r = await olivia('POST', '/api/takeout/restore', await zip.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.mail.folders, r.body.mail.started], [2, true]);
+  const done = await eventually(async () => { const j = (await olivia('GET', '/api/mail/import')).body; return j?.status !== 'running' && j; }, 60000);
+  assert.deepEqual([done.status, done.total, done.copied], ['done', 2, 2]);
+  assert.ok((await inbox(olivia, `${tag} inbox`)).length, 'into the Inbox');
+  const folders = (await olivia('GET', '/api/mail/folders')).body;
+  const acme = folders.find((f) => /Clients.Acme$/.test(f.path));
+  assert.ok(acme, JSON.stringify(folders.map((f) => f.path)));
+  const list = (await olivia('GET', `/api/mail/messages?folder=${encodeURIComponent(acme.path)}`)).body.messages;
+  assert.ok(list.some((m) => m.subject === `${tag} acme`));
+});

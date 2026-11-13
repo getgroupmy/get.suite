@@ -12908,3 +12908,23 @@ test('takeout: bringing data back in puts its Drive in one new folder, with its 
   assert.equal((await b('GET', `/api/files/${txt}/raw`)).body, 'plain words');
   assert.ok(Array.isArray(before) || before);
 });
+
+test('takeout: a download’s Mail/ .mbox files are kept in the new Drive folder; without mail on this server, it says so', async () => {
+  const JSZip = (await import('jszip')).default;
+  const b = client();
+  const made = await owner('POST', '/api/users', { local: 'mboxr1', domain: 'acme.com', name: 'Mbox R', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(b, 'mboxr1@acme.com');
+  const zip = new JSZip();
+  zip.file('README.txt', 'Your Workspace data, 2026-11-13');
+  zip.file('Mail/Inbox.mbox', 'From a@example.org Tue Mar  3 10:00:00 2015\nSubject: Hi\nMessage-ID: <x1@example.org>\n\nHello\n');
+  zip.file('Mail/Projects/Acme.mbox', 'From a@example.org Tue Mar  3 10:00:00 2015\nSubject: Acme\nMessage-ID: <x2@example.org>\n\nAcme\n');
+  const r = (await b('POST', '/api/takeout/restore', await zip.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).body;
+  assert.equal(r.drive.files, 0);
+  assert.deepEqual([r.mail.folders, r.mail.started], [2, false]);
+  assert.match(r.mail.error, /Mail isn’t set up/);
+  const { q } = await import('../src/db.js');
+  const mailDir = q("SELECT id FROM files WHERE parent_id = ? AND name = 'Mail (.mbox)'").get(r.drive.folder_id);
+  assert.ok(mailDir);
+  assert.deepEqual(q('SELECT name FROM files WHERE parent_id = ? ORDER BY name').all(mailDir.id).map((x) => x.name), ['Inbox.mbox', 'Projects']);
+});

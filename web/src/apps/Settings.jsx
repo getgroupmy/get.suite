@@ -664,16 +664,16 @@ function YourData() {
           setRestoring(true);
           try {
             const r = await postBlob(`/takeout/restore?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, f, 'application/zip');
-            const parts = [r.drive && `${n(r.drive.files, 'file', 'files')} into “${r.drive.folder}” in Drive`, r.calendar && n(r.calendar.added, 'event', 'events'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
+            const parts = [r.drive?.files > 0 && `${n(r.drive.files, 'file', 'files')} into “${r.drive.folder}” in Drive`, r.mail?.started && `${n(r.mail.folders, 'mail folder', 'mail folders')} (Mail shows the import’s progress)`, r.calendar && n(r.calendar.added, 'event', 'events'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
               r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
               r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'), r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures')].filter(Boolean);
             toast(`Brought in ${parts.join(', ') || 'nothing new'}`);
-            for (const x of [r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error'); // e.g. a filter forwarding outside the company
+            for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error'); // e.g. a filter forwarding outside the company
             get('/takeout/summary').then(setSum).catch(() => {});
           } catch (err) { toast(err.message, 'error'); } finally { setRestoring(false); }
         }} />
       </div>
-      <p className="muted small" style={{ margin: 0 }}><strong>Bring in your data…</strong> takes such a .zip back (from here or another Workspace server): its Drive, calendar, contacts, task lists and notes, and your mail filters, email templates, signature and event templates, are added to yours; events, contacts and settings you already have are skipped. Its Drive comes in as one new folder (“From your data” and the date) with its folders and files as they were. Email comes in its own way: the .mbox files with Mail → Import mail.</p>
+      <p className="muted small" style={{ margin: 0 }}><strong>Bring in your data…</strong> takes such a .zip back (from here or another Workspace server): its Drive, calendar, contacts, task lists and notes, and your mail filters, email templates, signature and event templates, are added to yours; events, contacts and settings you already have are skipped. Its Drive comes in as one new folder (“From your data” and the date) with its folders and files as they were. Its email goes back into your mailbox (in the background; Mail shows how it's going), each folder where it was, and the .mbox files are kept in that Drive folder too.</p>
     </section>
   );
 }
