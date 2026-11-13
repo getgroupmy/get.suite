@@ -7,6 +7,8 @@ import { Menu, Modal, useToast, useDataCheck } from '../components/ui.jsx';
 import { ApprovalBanner, RequestApproval } from './drive/Approvals.jsx';
 import { SignatureBanner, SendForSignature } from './docs/Signatures.jsx';
 import { useAuth } from '../App.jsx';
+import { createPortal } from 'react-dom';
+import SendInChat from '../components/SendInChat.jsx';
 
 /**
  * Debounced autosave with optimistic concurrency.
@@ -92,6 +94,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const [requesting, setRequesting] = useState(false);
   const [signing, setSigning] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [chatting, setChatting] = useState(false); // Send in Chat: its link in a conversation
   // Locked: nobody can change it (editors can lock; whoever locked it, or the owner, can unlock).
   const { user } = useAuth();
   const canUnlock = file?.locked_at && (file.locked_by === user?.id || file.role === 'owner');
@@ -103,6 +106,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const takeOff = viewOnly(file);
   const offered = takeOff ? (menu || []).filter((it) => !(it && typeof it === 'object' && /^(Print|Download|Make a copy|Save as)/.test(it.label || ''))) : menu;
   const items = menu && file ? [...offered, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
+    { label: 'Send in Chat…', icon: 'send', onClick: () => setChatting(true) },
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
     ...(file.role === 'owner' ? [{ label: 'Publish to the web…', icon: 'link', onClick: () => setPublishing(true) }] : []),
     ...(canEdit && icon === 'doc' && !file.locked_at ? [{ label: 'Send for signature…', icon: 'edit', onClick: () => setSigning(true) }] : []),
@@ -132,6 +136,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
     </header>
     {publishing && file && <PublishDialog file={file} onClose={() => setPublishing(false)} />}
+    {chatting && file && createPortal(<SendInChat items={[{ name: file.name, url: `${window.location.origin}${window.location.pathname}` }]} what={icon === 'sheet' ? 'the spreadsheet' : icon === 'slides' ? 'the presentation' : 'the document'} onClose={() => setChatting(false)} />, document.body)}
     {takeOff && <style>{'@media print { body * { visibility: hidden !important; } body::before { content: "Printing is turned off for this file."; visibility: visible; display: block; padding: 40px; font: 16px sans-serif; } } .paper .tiptap, .grid td, .slide-stage { user-select: none; }'}</style>}
     {takeOff && <div className="banner small" role="note">View only: the owner has turned off downloading, printing and copying.</div>}
     {file?.locked_at && (
