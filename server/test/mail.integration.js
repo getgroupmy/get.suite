@@ -2716,6 +2716,17 @@ test('Share in Chat: a card of an email in a conversation; only where you can wr
   const acmeGeneral = (await olivia('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general').id;
   assert.equal((await gina('POST', `/api/mail/messages/${msg.uid}/chat`, { folder: 'INBOX', channel_id: acmeGeneral })).status, 404);
   assert.equal((await gina('POST', '/api/mail/messages/999999/chat', { folder: 'INBOX', channel_id: general })).status, 404);
+  // Several at once: each its own card, in the order picked, the note with the first; all or none.
+  for (const n of ['Invoice 1', 'Invoice 2']) await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: n, text: `${n} attached.` });
+  const two = await eventually(async () => { const l = await inbox(gina); const a = l.find((m) => m.subject === 'Invoice 1'), b = l.find((m) => m.subject === 'Invoice 2'); return a && b && [a, b]; });
+  const many = await gina('POST', '/api/mail/messages/chat', { folder: 'INBOX', uids: [two[1].uid, two[0].uid], channel_id: general, body: 'Both invoices' });
+  assert.equal(many.status, 201, JSON.stringify(many.body));
+  assert.deepEqual(many.body.map((m) => [m.email.subject, m.body]), [['Invoice 2', 'Both invoices'], ['Invoice 1', '']]);
+  const before = (await gina('GET', `/api/chat/channels/${general}/messages`)).body.length;
+  assert.equal((await gina('POST', '/api/mail/messages/chat', { folder: 'INBOX', uids: [two[0].uid, 999999], channel_id: general })).status, 404);
+  assert.equal((await gina('GET', `/api/chat/channels/${general}/messages`)).body.length, before, 'none posted when one is missing');
+  assert.equal((await gina('POST', '/api/mail/messages/chat', { folder: 'INBOX', uids: Array.from({ length: 11 }, (_, i) => i + 1), channel_id: general })).status, 400);
+  assert.equal((await gina('POST', '/api/mail/messages/chat', { folder: 'INBOX', uids: [], channel_id: general })).status, 400);
   // Deleting the chat message drops the card.
   assert.equal((await gina('DELETE', `/api/chat/messages/${r.body.id}`)).status, 200);
   const gone = (await gina('GET', `/api/chat/channels/${general}/messages`)).body.find((m) => m.id === r.body.id);

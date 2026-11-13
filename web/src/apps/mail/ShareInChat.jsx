@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router';
 import { get, post } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 
-/** Share in Chat: a card of this email (who, subject, the start of its text) in a conversation, with a note. */
-export default function ShareInChat({ uid, folder, subject, onClose }) {
+/** Share in Chat: a card of this email (who, subject, the start of its text) in a conversation, with a note.
+ *  uids: several at once (the ticked ones), each its own card. */
+export default function ShareInChat({ uid, uids, folder, subject, onClose }) {
+  const many = uids?.length > 1;
   const toast = useToast();
   const navigate = useNavigate();
   const [convs, setConvs] = useState(null);
@@ -25,16 +27,18 @@ export default function ShareInChat({ uid, folder, subject, onClose }) {
     e.stopPropagation();
     setBusy(true);
     try {
-      await post(`/mail/messages/${uid}/chat`, { folder, channel_id: to, body: note.trim() });
+      if (uids) await post('/mail/messages/chat', { folder, uids, channel_id: to, body: note.trim() });
+      else await post(`/mail/messages/${uid}/chat`, { folder, channel_id: to, body: note.trim() });
       const where = convs.find((c) => c.id === to);
-      toast(`Shared in ${where ? name(where) : 'Chat'}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/chat/${to}`) } });
+      toast(`${many ? `${uids.length} emails shared` : 'Shared'} in ${where ? name(where) : 'Chat'}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/chat/${to}`) } });
       onClose();
     } catch (err) { setError(err.message); setBusy(false); }
   }
   return (
-    <Modal title="Share in Chat" onClose={onClose}>
+    <Modal title={many ? `Share ${uids.length} emails in Chat` : 'Share in Chat'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
-        <p className="muted small" style={{ margin: 0 }}>Everyone there sees who it's from, <strong>{subject || '(no subject)'}</strong>, and the start of what it says, with the names of any attachments. The email itself stays in your mailbox.</p>
+        <p className="muted small" style={{ margin: 0 }}>{many ? <>Each email goes as its own card (your message with the first): who it's from, its subject and the start of what it says, with the names of any attachments. The emails themselves stay in your mailbox.</>
+          : <>Everyone there sees who it's from, <strong>{subject || '(no subject)'}</strong>, and the start of what it says, with the names of any attachments. The email itself stays in your mailbox.</>}</p>
         <label className="field"><span>To</span>
           <select value={to} onChange={(e) => setTo(e.target.value)} required disabled={!convs} aria-label="Conversation">
             {(convs || []).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}

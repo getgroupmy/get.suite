@@ -1392,6 +1392,19 @@ export default function webmailRoutes() {
     res.status(201).json(postEmail(String(req.body?.channel_id || ''), req.user, req.body?.body, emailCard(p)));
   });
 
+  // Several at once (the ticked ones, up to 10): each its own card, in the order given; the note goes with the first.
+  // { folder, uids, channel_id, body }. All are read before any is posted, so a missing one posts none.
+  r.post('/messages/chat', async (req, res) => {
+    const { postEmail } = await import('./chat.js');
+    const uids = [...new Set((Array.isArray(req.body?.uids) ? req.body.uids : []).map(Number))].filter((n) => Number.isInteger(n) && n > 0);
+    if (!uids.length) throw bad('Pick the emails to share');
+    if (uids.length > 10) throw bad('Share up to 10 emails at a time');
+    const folder = String(req.body?.folder || 'INBOX');
+    const cards = [];
+    for (const uid of uids) cards.push(emailCard((await loadMessage(req.user, folder, uid, false)).parsed));
+    res.status(201).json(cards.map((card, i) => postEmail(String(req.body?.channel_id || ''), req.user, i ? '' : req.body?.body, card)));
+  });
+
   r.post('/messages/:uid/attachments/save', async (req, res) => {
     const { parsed } = await loadMessage(req.user, String(req.body.folder || 'INBOX'), Number(req.params.uid), false);
     const all = parsed.attachments.filter((x) => !x.related);

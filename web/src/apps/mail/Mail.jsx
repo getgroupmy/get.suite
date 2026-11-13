@@ -282,6 +282,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const refresh = () => { loadFolders(); loadList(); loadSearches(); };
   refreshRef.current = refresh;
   const [snoozing, setSnoozing] = useState(null); // uids waiting for a picked time
+  const [sharingMany, setSharingMany] = useState(null); // ticked uids to share in Chat
   const go = (f, uid) => {
     const keep = new URLSearchParams({ ...(q && { q }), ...(labelId && f === folder && { label: labelId }) }).toString();
     navigate(`/mail/${enc(f)}${uid ? `/${uid}` : ''}${keep ? `?${keep}` : ''}`);
@@ -537,6 +538,10 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 printHtml(printDocuments(list));
               } catch (e) { toast(e.message, 'error'); }
             }}><Icon name="print" size={16} /> Print</button>
+            {!shared && <button type="button" className="btn small" title="Each as a card in a Chat conversation" onClick={() => {
+              if (sel.length > 10) { toast('Share up to 10 emails at a time', 'error'); return; }
+              setSharingMany(sel);
+            }}>Share in Chat…</button>}
             <button type="button" className="btn small" title="Each message as an .eml file, in one .zip" onClick={() => downloadZip(`/mail/messages-eml.zip?folder=${enc(folder)}&uids=${sel.join(',')}${mailboxParam()}`)}>Download (.zip)</button>
             <button className="btn small danger" onClick={() => act('delete', { uids: sel }, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}>Delete</button>
           </div>
@@ -661,6 +666,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             : await act('labels', { uids, add: [it.key] }, `Labelled ${it.name}`);
           if (ok && kind === 'move' && uids.includes(openUid)) go(folder); // the open message has gone from here
         }} />}
+      {sharingMany && <ShareInChat uids={sharingMany} folder={folder} onClose={() => setSharingMany(null)} />}
       {snoozing && <ScheduleDialog title="Snooze until" confirm="Snooze" withinYear note={(at) => `It comes back to your Inbox ${whenText(at)}.`}
         onClose={() => setSnoozing(null)} onPick={async (at) => { const uids = snoozing; setSnoozing(null); if (await act('snooze', { uids, until: at }, `Snoozed until ${whenText(at)}`) && uids.includes(openUid)) go(folder); }} />}
       {scheduledOpen && <ScheduledDialog list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={() => { loadScheduled(); refresh(); }} />}
