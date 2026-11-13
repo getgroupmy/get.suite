@@ -1614,6 +1614,11 @@ function FormCards({ text }) {
     for (const l of links) formOf(l.token).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.token]: x })); });
     return () => { alive = false; };
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // New responses (for its team, who see the count) or changes (closed, renamed…): fetched again.
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'form-response' && m.type !== 'form-changed') return;
+    for (const l of links) { formInfo.delete(l.token); formOf(l.token).then((x) => setInfo((s) => ({ ...s, [l.token]: x }))); }
+  }), [text]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!links.length) return null;
   return (
     <div className="msg-cards">
