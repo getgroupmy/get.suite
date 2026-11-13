@@ -15,8 +15,11 @@ import os from 'node:os';
 import { mailEnabled } from '../mail/config.js';
 import { writeMailbox, mailboxCounts } from '../mail/mbox.js';
 import JSZip from 'jszip';
-import { q, FILES_DIR } from '../db.js';
-import { bad } from '../util.js';
+import { q, tx, FILES_DIR } from '../db.js';
+import { insertFile } from './files.js';
+import { checkQuota } from '../tenancy.js';
+import { indexSoon } from '../search.js';
+import { bad, uid, mimeFor } from '../util.js';
 import { audit } from '../audit.js';
 import { sendTo } from '../hub.js';
 import { forbidden, notFound } from '../util.js';
@@ -161,6 +164,41 @@ export default function takeoutRoutes() {
     if (sigs.length) out.signatures = importSignatures(user, sigs);
     const evTemplates = await json('Calendar templates.json');
     if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
+    // Drive: the Drive/ folder comes in as one new folder ("From your data 2026-11-13") with its folders and files as they were
+    // (documents as the Word, Excel or PowerPoint files they were saved as). Nothing already in your Drive is touched.
+    const driveFiles = Object.values(zip.files).filter((x) => x.name.startsWith('Drive/') && x.name !== 'Drive/' && !/(^|\/)(__MACOSX|\.DS_Store)/.test(x.name));
+    if (driveFiles.some((x) => !x.dir)) {
+      if (driveFiles.length > 20000) throw bad('That Drive has more than 20,000 files and folders: upload its folders in Drive instead');
+      const files = [];
+      for (const f of driveFiles.filter((x) => !x.dir)) files.push({ path: f.name.slice('Drive/'.length), data: await f.async('nodebuffer') });
+      checkQuota(user.org_id, files.reduce((n, f) => n + f.data.length, 0), user.id);
+      const rootName = `From your data ${new Date().toISOString().slice(0, 10)}`;
+      const written = [];
+      try {
+        tx(() => {
+          const root = insertFile({ owner: user.id, parentId: null, name: rootName, kind: 'folder' });
+          const folders = new Map([['', root]]);
+          const folderFor = (dir) => {
+            if (folders.has(dir)) return folders.get(dir);
+            const cut = dir.lastIndexOf('/');
+            const id = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : dir.slice(0, cut)), name: dir.slice(cut + 1).slice(0, 255) || 'Folder', kind: 'folder' });
+            folders.set(dir, id);
+            return id;
+          };
+          for (const x of driveFiles.filter((y) => y.dir)) folderFor(x.name.slice('Drive/'.length).replace(/\/$/, '')); // empty folders too
+          for (const f of files) {
+            const cut = f.path.lastIndexOf('/');
+            const storage = uid();
+            fs.writeFileSync(path.join(FILES_DIR, storage), f.data);
+            written.push(storage);
+            insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : f.path.slice(0, cut)), name: f.path.slice(cut + 1).slice(0, 255), kind: 'file', mime: mimeFor(f.path), size: f.data.length, storage });
+          }
+          out.drive = { folder: rootName, folder_id: root, files: files.length };
+        });
+      } catch (e) { for (const w of written) fs.rmSync(path.join(FILES_DIR, w), { force: true }); throw e; }
+      sendTo([user.id], { type: 'files-changed' });
+      indexSoon();
+    }
     if (Object.keys(zip.files).some((n) => n.startsWith('Notes/') && n.endsWith('.md'))) out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: buf.toString('base64') }] });
     sendTo([user.id], { type: 'events-changed' });
     audit(req, 'takeout.restore', { details: out });

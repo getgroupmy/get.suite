@@ -12877,3 +12877,34 @@ test('takeout: bringing data back in sets your signature when you have none (to 
   assert.deepEqual((await up(c)).body.signatures, { added: 0, skipped: 1 });
   assert.equal(q('SELECT html FROM identity_signatures WHERE user_id = ?').get(id('sigr3@acme.com')).html, '<p>Mine</p>', 'yours stays');
 });
+
+test('takeout: bringing data back in puts its Drive in one new folder, with its folders and files as they were', async () => {
+  const a = client(), b = client();
+  for (const [x, local] of [[a, 'drvr1'], [b, 'drvr2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  const folder = (await a('POST', '/api/files/folder', { name: 'Reports' })).body;
+  await a('POST', '/api/files/new', { kind: 'doc', name: 'Q3', parent_id: folder.id });
+  await a('POST', '/api/files/folder', { name: 'Empty one' });
+  const up = await a('POST', `/api/files/upload?name=notes.txt&parent=${folder.id}`, 'plain words', { raw: true, headers: { 'content-type': 'text/plain' } });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const before = (await b('GET', '/api/files')).body;
+  const r = (await b('POST', '/api/takeout/restore?tz=UTC', zip, { raw: true, headers: { 'content-type': 'application/zip' } })).body;
+  assert.equal(r.drive.files, 2, JSON.stringify(r));
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'drvr2@acme.com'").get().id;
+  const root = q('SELECT * FROM files WHERE id = ?').get(r.drive.folder_id);
+  assert.match(root.name, /^From your data \d{4}-\d{2}-\d{2}$/);
+  assert.equal(root.owner_id, bid);
+  const kids = q('SELECT name, kind, id FROM files WHERE parent_id = ? ORDER BY name').all(root.id);
+  assert.deepEqual(kids.map((k) => [k.name, k.kind]), [['Empty one', 'folder'], ['Reports', 'folder']], JSON.stringify(kids));
+  const inReports = q('SELECT name, kind, mime, size FROM files WHERE parent_id = ? ORDER BY name').all(kids[1].id);
+  assert.deepEqual(inReports.map((k) => k.name), ['Q3.docx', 'notes.txt']);
+  assert.equal(inReports.find((k) => k.name === 'notes.txt').size, 'plain words'.length);
+  const txt = q('SELECT id FROM files WHERE parent_id = ? AND name = ?').get(kids[1].id, 'notes.txt').id;
+  assert.equal((await b('GET', `/api/files/${txt}/raw`)).body, 'plain words');
+  assert.ok(Array.isArray(before) || before);
+});
