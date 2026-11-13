@@ -106,6 +106,15 @@ export default function Drive() {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { toast('Your browser’s storage is off', 'error'); return; }
     navigate('/mail?compose_doc=1');
   };
+  /** A link to open it: an editor, a folder, or Drive with an uploaded file's preview. */
+  const linkTo = (f) => `${window.location.origin}${openPath(f) || `/drive?preview=${f.id}`}`;
+  /** Email links: a new message listing them as links (Mail offers to share them with recipients who can't open them). */
+  const emailLinks = (list) => {
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const html = `<ul>${list.map((f) => `<li><a href="${esc(linkTo(f))}">${esc(f.name)}</a></li>`).join('')}</ul>`;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ subject: list.length === 1 ? list[0].name : `${list.length} files`, html })); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  };
   const [files, setFiles] = useState(null);
   const [crumbs, setCrumbs] = useState([]);
   // Sort and list/grid, kept for you on the server (the same on every computer).
@@ -346,8 +355,7 @@ export default function Drive() {
 
   // Links to what's selected, a line each ("Name: link"), for an email or a chat.
   const copyLinks = async (files) => {
-    const link = (f) => `${location.origin}${openPath(f) || `/drive?preview=${f.id}`}`; // an uploaded file: Drive with its preview open
-    const text = files.map((f) => `${f.name}: ${link(f)}`).join('\n');
+    const text = files.map((f) => `${f.name}: ${linkTo(f)}`).join('\n');
     try { await navigator.clipboard.writeText(text); toast(files.length === 1 ? 'Link copied' : `${files.length} links copied`); } catch { toast(text); }
   };
 
@@ -534,6 +542,7 @@ export default function Drive() {
               <button className="btn small" onClick={() => zip(picked.map((f) => f.id))}><Icon name="download" size={16} /> Download</button>
               <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
               <button className="btn small" title="A link to each, a line each (only people who can open them get in)" onClick={() => copyLinks(picked)}><Icon name="link" size={16} /> Copy links</button>
+              {mail?.enabled && <button className="btn small" title="A new email with a link to each (it offers to share them with recipients who can't open them)" onClick={() => emailLinks(picked)}><Icon name="mail" size={16} /> Email links</button>}
               <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
               {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
