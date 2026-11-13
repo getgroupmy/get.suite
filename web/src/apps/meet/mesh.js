@@ -67,7 +67,10 @@ export class Mesh {
   setCohost(to, on) { this.send({ type: 'cohost', to, on: !!on }); }
   /** (Host) end the meeting for everyone. */
   endForAll() { this.send({ type: 'end' }); }
-  setSettings(patch) { this.settings = { ...this.settings, ...patch }; this.send({ type: 'settings', ...patch }); this.onChange?.(); }
+  setSettings(patch) {
+    if ('keep_chat' in patch && !!patch.keep_chat !== !!this.settings?.keep_chat) this.onChat?.({ system: true, at: Date.now(), text: patch.keep_chat ? 'You are keeping this chat: messages from now on can be read after the meeting by the people in it' : 'You stopped keeping the chat' });
+    this.settings = { ...this.settings, ...patch }; this.send({ type: 'settings', ...patch }); this.onChange?.();
+  }
   setTimer(seconds) { this.send({ type: 'timer', seconds }); }
   /** Let a waiting guest in, or not. */
   admit(id) { this.send({ type: 'admit', id }); }

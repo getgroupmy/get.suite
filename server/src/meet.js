@@ -126,6 +126,21 @@ export function publicMeetRoutes() {
   return r;
 }
 
+/** A meeting's kept chat, oldest first: [{ room, name, text, at }]. */
+const keptChat = (code) => q('SELECT room, name, text, at FROM meeting_chat WHERE code = ? ORDER BY at, id').all(code).map((x) => ({ ...x }));
+/** The kept chat as text: the meeting's name, then a line per message with its time (UTC) and room. */
+export function keptChatText(m, messages = keptChat(m.code)) {
+  const iso = (t) => new Date(t).toISOString().replace('T', ' ').slice(0, 16);
+  const lines = messages.map((x) => `[${iso(x.at)} UTC]${x.room ? ` (room ${x.room})` : ''} ${x.name}: ${x.text}`);
+  return `${m.title || m.code}\n\n${lines.join('\n')}\n`;
+}
+/** For Download your data: the kept chats of the meetings someone started or was in, [{ name, text }]. */
+export function keptChatsOf(userId) {
+  return q(`SELECT m.code, m.title FROM meetings m WHERE EXISTS (SELECT 1 FROM meeting_chat c WHERE c.code = m.code)
+    AND (m.created_by = ? OR EXISTS (SELECT 1 FROM meeting_attendance a WHERE a.code = m.code AND a.user_id = ?)) ORDER BY m.created_at`).all(userId, userId)
+    .map((m) => ({ name: m.title || m.code, text: keptChatText(m) }));
+}
+
 export function meetRoutes() {
   const r = Router();
   r.get('/', (req, res) => {
@@ -164,13 +179,11 @@ export function meetRoutes() {
   r.get('/:code/chat', (req, res) => {
     const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);
     if (!m || (m.created_by !== req.user.id && !q('SELECT 1 FROM meeting_attendance WHERE code = ? AND user_id = ?').get(m.code, req.user.id))) throw notFound();
-    const messages = q('SELECT room, name, text, at FROM meeting_chat WHERE code = ? ORDER BY at, id').all(m.code).map((x) => ({ ...x }));
+    const messages = keptChat(m.code);
     if (req.query.format === 'txt') {
-      const iso = (t) => new Date(t).toISOString().replace('T', ' ').slice(0, 16);
-      const lines = messages.map((x) => `[${iso(x.at)} UTC]${x.room ? ` (room ${x.room})` : ''} ${x.name}: ${x.text}`);
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="meeting-chat-${m.code}.txt"`);
-      return res.send(`${m.title || m.code}\n\n${lines.join('\n')}\n`);
+      return res.send(keptChatText(m, messages));
     }
     res.json({ code: m.code, title: m.title, messages });
   });

@@ -48,6 +48,9 @@ export function purgeOldChat(at = Date.now()) {
                      AND NOT EXISTS (SELECT 1 FROM messages r JOIN users h ON h.id = r.user_id WHERE r.parent_id = m.id AND h.legal_hold = 1) AND (c.org_id = ? OR (c.dm_key IS NOT NULL AND EXISTS (
                      SELECT 1 FROM channel_members cm JOIN users u ON u.id = cm.user_id WHERE cm.channel_id = c.id AND u.org_id = ?)))
                    LIMIT 5000`).all(cutoff, o.id, o.id).map((r) => r.id);
+    // Kept meeting chats (Meet → Keep the meeting chat) in the company's meetings go by the same rule.
+    q(`DELETE FROM meeting_chat WHERE at < ? AND code IN (SELECT code FROM meetings WHERE org_id = ?)
+       AND NOT EXISTS (SELECT 1 FROM users h WHERE h.id = meeting_chat.user_id AND h.legal_hold = 1)`).run(cutoff, o.id);
     if (!old.length) continue;
     const ids = JSON.stringify(old);
     tx(() => {

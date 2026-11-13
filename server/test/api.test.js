@@ -13738,4 +13738,29 @@ test('meet: Keep the meeting chat — kept only while the host has it on, readab
   assert.equal((await call(host, 'GET', '/api/meet')).body.find((m) => m.code === code).chat_count, 2, 'Recent meetings says there is a chat');
   const again = await open(host);
   try { assert.equal((await next(again, 'welcome')).settings.keep_chat, false, 'off again once everyone has left'); } finally { again.close(); }
+
+  // Download your data: the kept chat is in it, for people who were there.
+  const JSZip = (await import('jszip')).default;
+  const zipOf = async (cookie) => JSZip.loadAsync(await (await fetch(`${base}/api/takeout`, { headers: { cookie, 'x-requested-with': 'nas-workspace' } })).arrayBuffer());
+  const benZip = await zipOf(guest);
+  assert.match(await benZip.file('Meet chats/Planning.txt').async('string'), /Ben Talker: Agenda item one/);
+  assert.match(await benZip.file('README.txt').async('string'), /Meet chats\//);
+  assert.equal((await zipOf(other)).file('Meet chats/Planning.txt'), null, 'not for people who weren\'t there');
+
+  // Keeping chat (the company setting) covers it: old lines go, unless their writer is on legal hold.
+  const { q } = await import('../src/db.js');
+  const { purgeOldChat } = await import('../src/routes/chat.js');
+  q('UPDATE meeting_chat SET at = ? WHERE code = ?').run(Date.now() - 40 * 864e5, code);
+  const benId = q("SELECT id FROM users WHERE email = 'mkeepb@acme.com'").get().id;
+  assert.equal((await owner('PATCH', `/api/users/${benId}`, { legal_hold: true, hold_note: 'test' })).status, 200);
+  const before = (await owner('GET', '/api/orgs/current')).body.chat_days;
+  assert.equal((await owner('PATCH', '/api/orgs/current', { chat_days: 30 })).status, 200);
+  try {
+    purgeOldChat();
+    assert.deepEqual((await call(host, 'GET', `/api/meet/${code}/chat`)).body.messages.map((m) => m.name), ['Ben Talker'], 'Ada\'s old line went; Ben\'s is held');
+    await owner('PATCH', `/api/users/${benId}`, { legal_hold: false });
+    purgeOldChat();
+    assert.deepEqual((await call(host, 'GET', `/api/meet/${code}/chat`)).body.messages, []);
+    assert.equal((await call(host, 'GET', '/api/meet')).body.find((m) => m.code === code).chat_count, 0);
+  } finally { await owner('PATCH', '/api/orgs/current', { chat_days: before }); }
 });

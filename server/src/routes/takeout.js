@@ -1,3 +1,4 @@
+import { keptChatsOf } from '../meet.js';
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
@@ -396,6 +397,14 @@ export default function takeoutRoutes() {
         zip.file(`Chat/${base}.txt`, conversationText(title, messages, { tz: String(req.query.tz || 'UTC') }));
       } catch { /* one it can no longer read */ }
     }
+    // Meet: the chats kept from meetings you started or were in.
+    const meetNames = new Set();
+    for (const c of keptChatsOf(me)) {
+      let base = safe(c.name), n = 1;
+      while (meetNames.has(base.toLowerCase())) base = `${safe(c.name)} (${++n})`;
+      meetNames.add(base.toLowerCase());
+      zip.file(`Meet chats/${base}.txt`, c.text);
+    }
     zip.file('README.txt', [`Your Workspace data, ${new Date().toISOString().slice(0, 10)}`, '',
       `Drive/        your files and folders (${odf ? 'documents, spreadsheets and presentations as OpenDocument: .odt, .ods, .odp, for LibreOffice and others' : 'documents as Word, spreadsheets as Excel, presentations as PowerPoint'})`,
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
@@ -406,6 +415,7 @@ export default function takeoutRoutes() {
       'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',
       'Chat/         each conversation you are in, as text',
       'Forms/        each of your forms: its questions, and its responses for a spreadsheet',
+      'Meet chats/   the chat kept from meetings you started or were in (when its host kept it)',
       'Mail settings/ your filters (as Sieve, which most mail servers take), signatures, templates and vacation reply',
       'Calendar templates.json  your event templates, if you have any', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
