@@ -63,3 +63,23 @@ export function Attendance({ meeting, onClose }) {
     </Modal>
   );
 }
+
+/**
+ * After a meeting: { meeting, people, chat } when anyone has joined it and you may see who (its organiser or
+ * someone who was in it), else null. `again` asks once more (after leaving, when the server has just noted it).
+ */
+export function useMeetPast(code, again = 0) {
+  const [past, setPast] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    setPast(null);
+    if (!code) return undefined;
+    get(`/meet/${code}/attendance`).then(async (a) => {
+      if (!a.people.length) return;
+      const c = await get(`/meet/${code}/chat`).catch(() => ({ messages: [] }));
+      if (alive) setPast({ meeting: { code, title: a.title }, people: a.people.length, chat: c.messages.length });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [code, again]);
+  return [past, setPast];
+}

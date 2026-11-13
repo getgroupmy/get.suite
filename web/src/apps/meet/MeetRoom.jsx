@@ -11,6 +11,7 @@ import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
 import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
+import { Attendance, KeptChat, useMeetPast } from '../../components/MeetHistory.jsx';
 import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker, meterPercent } from './devices.js';
 import { noPhotos } from '../../components/photos.js';
 
@@ -294,6 +295,13 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   boardRef.current = board;
   const [floating, setFloating] = useState([]); // reactions shown for a moment
   const [startedAt, setStartedAt] = useState(0);
+  const startedRef = useRef(0);
+  startedRef.current = startedAt;
+  const [stayed, setStayed] = useState(0); // how long you were in the meeting, for the screen after it
+  const [leftAt, setLeftAt] = useState(0);
+  const [past] = useMeetPast(phase === 'left' && !guest ? code : null, leftAt);
+  const [showing, setShowing] = useState(null); // after the meeting: 'people' | 'chat'
+  const noteLeft = () => { setStayed(startedRef.current ? Date.now() - startedRef.current : 0); setTimeout(() => setLeftAt(Date.now()), 600); };
   const [, tick] = useReducer((n) => n + 1, 0);
   const panelRef = useRef(panel);
   panelRef.current = panel;
@@ -338,7 +346,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         setFloating((list) => [...list, { ...r, key }]);
         setTimeout(() => setFloating((list) => list.filter((x) => x.key !== key)), 3000);
       },
-      onClosed: (reason) => { toast(reason, /ended the meeting/.test(reason) ? undefined : 'error'); setLeftWhy(reason); setPhase('left'); },
+      onClosed: (reason) => { toast(reason, /ended the meeting/.test(reason) ? undefined : 'error'); noteLeft(); setLeftWhy(reason); setPhase('left'); },
       onLocked: (l) => toast(l.on ? `${l.by === user?.name ? 'You' : l.by} locked the meeting: nobody new can join` : `${l.by === user?.name ? 'You' : l.by} opened the meeting again`),
       // The whiteboard: someone else drew while it's closed here; the first time, say who.
       onBoard: (msg) => {
@@ -391,7 +399,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     catch (e) { toast(`The recording couldn’t be saved: ${e.message}`, 'error'); }
     finally { setSaving(false); }
   };
-  const leave = async () => { if (recorder.current) await stopRecording(); mesh.current?.leave(); mesh.current = null; setStartedAt(0); setPhase('left'); setMessages([]); };
+  const leave = async () => { if (recorder.current) await stopRecording(); noteLeft(); mesh.current?.leave(); mesh.current = null; setStartedAt(0); setPhase('left'); setMessages([]); };
 
   const m = mesh.current;
   const peers = m ? [...m.peers.values()] : [];
@@ -420,6 +428,13 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       <div className="meet-page meet-center">
         <div className="meet-card stack"><h1>{/ended the meeting/.test(leftWhy) ? 'The meeting has ended' : /removed you/.test(leftWhy) ? 'You were removed from the meeting' : /let you in/.test(leftWhy) ? 'You weren’t let in' : /locked/.test(leftWhy) ? 'The meeting is locked' : 'You left the meeting'}</h1>
           {leftWhy && <p className="muted" role="status" style={{ margin: 0 }}>{leftWhy}</p>}
+          {stayed >= 1000 && <p className="muted" style={{ margin: 0 }}>You were in it for {elapsed(stayed)}.</p>}
+          {past && <div className="row wrap">
+            <button type="button" className="btn small" onClick={() => setShowing('people')}>👥 Who joined ({past.people})</button>
+            {past.chat > 0 && <button type="button" className="btn small" onClick={() => setShowing('chat')}>💬 Meeting chat ({past.chat})</button>}
+          </div>}
+          {showing === 'people' && past && <Attendance meeting={past.meeting} onClose={() => setShowing(null)} />}
+          {showing === 'chat' && past && <KeptChat meeting={past.meeting} onClose={() => setShowing(null)} />}
           <div className="row">{!/removed you/.test(leftWhy) && <button type="button" className="btn primary" onClick={() => { setLeftWhy(''); setLocal(null); setPhase('lobby'); openDevices().then(setLocal); }}>Rejoin</button>}
             {!guest && <button type="button" className="btn" onClick={() => navigate('/meet')}>Back to Meet</button>}</div></div>
       </div>
