@@ -523,6 +523,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
               <button type="button" className="icon-btn" aria-label="Previous response" disabled={at === 0} onClick={() => setAt(at - 1)}>‹</button>
               <span className="grow small">{Math.min(at, responses.length - 1) + 1} of {responses.length} · {formatDate(one.created_at)}{one.updated_at ? ` · changed ${formatDate(one.updated_at)}` : ''}{one.user ? ` · ${one.user.name} (${one.user.email})` : one.email ? ` · ${one.email}` : ''}{one.max ? ` · Score ${one.score} / ${one.max}` : ''}</span>
               <button type="button" className="icon-btn" aria-label="Next response" disabled={at >= responses.length - 1} onClick={() => setAt(at + 1)}>›</button>
+              <button type="button" className="icon-btn" aria-label="Print this response" title="Print this response (or save it as PDF)" onClick={() => printHtml(responsesPrintHtml(form, [one], { when: formatDate }).replace(/Response 1 of 1 · /, ''))}><Icon name="print" size={18} /></button>
               <button type="button" className="icon-btn" aria-label="Delete this response" onClick={async () => { await del(`/forms/${form.id}/responses/${one.id}`); setAt(Math.max(0, at - 1)); reload(); }}><Icon name="trash" size={18} /></button>
             </div>
             {form.questions.filter((q) => q.type !== 'section').map((q) => {
