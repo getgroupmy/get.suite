@@ -3,6 +3,11 @@ import { useEffect, useState } from 'react';
 import { get, del } from '../api.js';
 import Icon from './Icon.jsx';
 import { useToast, Modal, ConfirmModal } from './ui.jsx';
+import { useNavigate } from 'react-router';
+import { useMailStatus } from '../mailStatus.js';
+import { useAuth } from '../App.jsx';
+import { DRAFT_KEY } from '../apps/docs/blocks.js';
+import { followUpEmail } from './followup.js';
 
 /** A meeting's kept chat (its host turned on Keep the meeting chat), oldest first, with a download. */
 export function KeptChat({ meeting, onClose, onDeleted }) {
@@ -37,12 +42,24 @@ export function KeptChat({ meeting, onClose, onDeleted }) {
 /** Who came to a meeting: first joined, last left, time there and how many times. */
 export function Attendance({ meeting, onClose }) {
   const toast = useToast();
+  const mail = useMailStatus();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  // A new email in Mail to everyone who came, linking the meeting notes when its calendar event has some.
+  const followUp = async () => {
+    const ev = await get(`/meet/${meeting.code}/event`).catch(() => null);
+    const m = followUpEmail({ title: a.title || meeting.title || meeting.code, people: a.people, me: user.username, notesLink: ev?.notes ? `${location.origin}/docs/${ev.notes.id}` : '' });
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(m)); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    onClose();
+    navigate('/mail?compose_doc=1');
+  };
   const [a, setA] = useState(null);
   useEffect(() => { get(`/meet/${meeting.code}/attendance`).then(setA).catch((e) => { toast(e.message, 'error'); onClose(); }); }, [meeting.code]); // eslint-disable-line react-hooks/exhaustive-deps
   const time = (t) => (t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
   return (
     <Modal title={`Who joined ${meeting.title || meeting.code}`} onClose={onClose} wide footer={<>
       <a className="btn" href={`/api/meet/${meeting.code}/attendance?format=csv`} download><Icon name="download" size={16} /> Download CSV</a>
+      {mail?.enabled && a?.people.some((p) => p.email && p.email !== user.username) && <button type="button" className="btn" onClick={followUp}><Icon name="mail" size={16} /> Follow-up email</button>}
       <button type="button" className="btn primary" onClick={onClose}>Done</button>
     </>}>
       {!a ? <p className="muted">Loading…</p> : !a.people.length ? <p className="muted">Nobody has joined yet.</p> : (
