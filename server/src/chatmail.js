@@ -44,9 +44,15 @@ export async function sendChatEmails(now = Date.now(), base = process.env.PUBLIC
     if (!user || user.disabled || !user.chat_email) { q('DELETE FROM chat_email_queue WHERE user_id = ?').run(userId); continue; }
     if ((user.paused_until && user.paused_until > now) || quietUntil(userId, now)) continue; // later, when they're back
     if (!q('SELECT 1 FROM chat_email_queue WHERE user_id = ? AND created_at <= ?').get(userId, due)) continue; // not waited long enough yet
+    // Only messages still there, in conversations they can still see (not a private channel they were taken out of,
+    // nor a channel they left).
     const rows = q(`SELECT qq.message_id, m.body, m.created_at, m.channel_id, c.name AS channel, c.dm_key, u.name AS sender
                     FROM chat_email_queue qq JOIN messages m ON m.id = qq.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
-                    WHERE qq.user_id = ? AND qq.created_at <= ? ORDER BY m.created_at`).all(userId, due);
+                    WHERE qq.user_id = ? AND qq.created_at <= ? AND m.deleted_at IS NULL
+                      AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = (SELECT org_id FROM users WHERE id = qq.user_id)
+                            AND NOT EXISTS (SELECT 1 FROM chat_left lf WHERE lf.channel_id = c.id AND lf.user_id = qq.user_id))
+                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = qq.user_id))
+                    ORDER BY m.created_at`).all(userId, due);
     q('DELETE FROM chat_email_queue WHERE user_id = ? AND created_at <= ?').run(userId, due);
     const unread = rows.filter((r) => r.created_at > (q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(r.channel_id, userId)?.read_at ?? 0));
     if (!unread.length) continue;

@@ -1444,6 +1444,15 @@ test('chat emails: unread direct messages and mentions are emailed after a while
   const kw = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === '“invoice” in #general: Chet Mailer'));
   assert.match((await olivia('GET', `/api/mail/messages/${kw.uid}?folder=INBOX`)).body.text, /Chet Mailer in #general \(your keyword “invoice”\):\s+The invoice for Northwind/);
   await olivia('PUT', '/api/chat/keywords', { keywords: [] });
+  // Taken out of a private channel before the email goes, or the message deleted: no email about it.
+  const priv = (await chet('POST', '/api/chat/channels', { name: `pay-${Date.now()}`, private: true, members: [me.id] })).body.id;
+  await chet('POST', `/api/chat/channels/${priv}/messages`, { body: 'Salary numbers for @olivia@acme.com' });
+  assert.equal((await chet('DELETE', `/api/chat/channels/${priv}/members/${me.id}`)).status, 200);
+  const gone = (await chet('POST', `/api/chat/channels/${dm}/messages`, { body: 'Oops, wrong person' })).body;
+  assert.equal((await chet('DELETE', `/api/chat/messages/${gone.id}`)).status, 200);
+  q('UPDATE chat_email_queue SET created_at = created_at - ?').run(16 * 60e3);
+  assert.equal(await sendChatEmails(), 0, 'nothing she can still read');
+  assert.equal(q('SELECT COUNT(*) AS n FROM chat_email_queue WHERE user_id = ?').get(me.id).n, 0, 'and the queue is cleared');
   await olivia('PUT', '/api/chat/me/chat-email', { on: false, wait: 30 });
 });
 
