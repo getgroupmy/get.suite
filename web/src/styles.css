@@ -3006,3 +3006,4 @@ select.meet-timer-btn option { color: #202124; }
 .meet-chat-note { font-style: italic; }
 .meet-chat.kept { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .meet-lobby-side select { color: var(--text); background: var(--surface); }
+.mic-meter { width: 100%; height: 8px; }

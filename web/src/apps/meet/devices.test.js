@@ -22,3 +22,8 @@ test('lists cameras and microphones, naming those without a label', () => {
   const l = deviceLists([{ kind: 'audioinput', deviceId: 'a', label: 'Headset' }, { kind: 'videoinput', deviceId: 'v', label: '' }, { kind: 'audiooutput', deviceId: 'o', label: 'Speakers' }, { kind: 'audioinput', deviceId: '', label: 'hidden' }]);
   assert.deepEqual(l, { mics: [{ id: 'a', label: 'Headset' }], cams: [{ id: 'v', label: 'Camera 1' }], spks: [{ id: 'o', label: 'Speakers' }] });
 });
+
+test('the microphone meter: silence empty, speech most of it, never past full', async () => {
+  const { meterPercent } = await import('./devices.js');
+  assert.deepEqual([meterPercent(0), meterPercent(0.05), meterPercent(0.25), meterPercent(0.9), meterPercent(NaN)], [0, 20, 100, 100, 0]);
+});

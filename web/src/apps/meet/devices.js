@@ -27,3 +27,6 @@ export function deviceLists(devices = []) {
 
 /** Whether this browser can choose where sound plays (setSinkId; not every browser can). */
 export const canPickSpeaker = () => typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
+
+/** A microphone's loudness (RMS, 0–1) as a 0–100 level for the meter: speech fills most of it, silence none. */
+export const meterPercent = (rms) => Math.max(0, Math.min(100, Math.round((Number(rms) || 0) / 0.25 * 100)));

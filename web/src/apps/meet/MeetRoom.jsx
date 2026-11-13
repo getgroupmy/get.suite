@@ -11,7 +11,7 @@ import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
 import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
-import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker } from './devices.js';
+import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker, meterPercent } from './devices.js';
 import { noPhotos } from '../../components/photos.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
@@ -153,6 +153,61 @@ function MeetQA({ m }) {
   );
 }
 
+/** How loud your microphone is, live (so you can see it hears you before joining). */
+function MicMeter({ stream }) {
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    const track = stream?.getAudioTracks()[0];
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!track || !AC) return undefined;
+    let ctx, raf, last = 0;
+    try {
+      ctx = new AC();
+      const an = ctx.createAnalyser();
+      an.fftSize = 512;
+      ctx.createMediaStreamSource(new MediaStream([track])).connect(an);
+      const buf = new Uint8Array(an.fftSize);
+      const loop = (t) => {
+        if (t - last > 100) { last = t; an.getByteTimeDomainData(buf); setLevel(track.enabled ? meterPercent(loudness(buf)) : 0); }
+        raf = requestAnimationFrame(loop);
+      };
+      raf = requestAnimationFrame(loop);
+    } catch { return undefined; }
+    return () => { cancelAnimationFrame(raf); ctx?.close().catch(() => {}); };
+  }, [stream]);
+  if (!stream?.getAudioTracks().length) return null;
+  return <meter className="mic-meter" min={0} max={100} low={5} value={level} aria-label="Microphone level" title={level ? 'Your microphone hears you' : 'Say something to check your microphone'} />;
+}
+
+/** A short tone on the chosen speaker, to check you'll hear the others. */
+function SpeakerTest({ sink }) {
+  const [playing, setPlaying] = useState(false);
+  const ref = useRef();
+  const play = async () => {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || playing) return;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const dest = ctx.createMediaStreamDestination();
+    osc.frequency.value = 660; gain.gain.value = 0.2;
+    osc.connect(gain).connect(dest);
+    setPlaying(true);
+    const el = ref.current;
+    try { if (sink && el.setSinkId) await el.setSinkId(sink); } catch { /* the default speaker */ }
+    el.srcObject = dest.stream;
+    osc.start();
+    el.play().catch(() => {});
+    setTimeout(() => { osc.stop(); ctx.close().catch(() => {}); setPlaying(false); }, 800);
+  };
+  return (
+    <span className="row" style={{ gap: 8 }}>
+      <button type="button" className="btn small" onClick={play} disabled={playing}>{playing ? '🔊 Playing…' : '🔊 Test speaker'}</button>
+      <audio ref={ref} aria-label="Speaker test" />
+    </span>
+  );
+}
+
 /** Camera and microphone choices (the lobby, and ⚙ in the meeting). The list follows devices plugged in or out. */
 function DevicePicker({ stream, onPick, sink, onSpeaker }) {
   const [lists, setLists] = useState({ mics: [], cams: [], spks: [] });
@@ -178,10 +233,12 @@ function DevicePicker({ stream, onPick, sink, onSpeaker }) {
           {!lists.mics.length && <option value="">No microphone found</option>}
           {lists.mics.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
         </select></label>
+      <MicMeter stream={stream} />
       {onSpeaker && canPickSpeaker() && lists.spks.length > 0 && <label className="field"><span className="small">Speaker</span>
         <select aria-label="Speaker" value={lists.spks.some((d) => d.id === sink) ? sink : lists.spks[0].id} onChange={(e) => pick('spk', e.target.value)}>
           {lists.spks.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
         </select></label>}
+      {onSpeaker && <SpeakerTest sink={sink} />}
     </div>
   );
 }
