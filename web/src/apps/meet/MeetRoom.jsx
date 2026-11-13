@@ -172,11 +172,15 @@ function AskToJoin({ code, here }) {
   }, [code, hereKey]);
   const ringMissing = async () => {
     setBusy(true);
+    const asked = [];
+    const names = (l) => (l.length > 3 ? `${l.slice(0, 3).join(', ')} and ${l.length - 3} more` : l.join(', '));
     try {
-      const asked = [];
       for (let i = 0; i < missing.length; i += 8) asked.push(...(await post(`/meet/${code}/invite`, { user_ids: missing.slice(i, i + 8).map((p) => p.id) })).asked); // 8 at a time
-      toast(asked.length > 3 ? `Ringing ${asked.slice(0, 3).join(', ')} and ${asked.length - 3} more…` : `Ringing ${asked.join(', ')}…`);
-    } catch (err) { toast(err.message, 'error'); }
+      toast(`Ringing ${names(asked)}…`);
+    } catch (err) {
+      // Some may have been rung already: say who, and that the rest weren't.
+      toast(asked.length ? `Ringing ${names(asked)}, but the others couldn’t be rung: ${err.message}` : err.message, 'error');
+    }
     setBusy(false);
   };
   const choices = people.filter((p) => !here.includes(p.id));
