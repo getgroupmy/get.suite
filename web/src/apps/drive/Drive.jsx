@@ -949,6 +949,7 @@ function LinkSharing({ file }) {
   const [password, setPassword] = useState('');
   const [usePassword, setUsePassword] = useState(false);
   const [uploadOnly, setUploadOnly] = useState(false); // a file request: people send files in, and see nothing
+  const [pwFor, setPwFor] = useState(null); // the link whose password is being set
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { if (user.allow_links) get(`/links?file=${file.id}`).then(setLinks).catch(() => setLinks([])); }, [file.id, user.allow_links]);
@@ -969,6 +970,13 @@ function LinkSharing({ file }) {
   async function copy(l, message = 'Link copied') {
     try { await navigator.clipboard.writeText(linkUrl(l.token)); toast(message); }
     catch { toast('Select the link and copy it', 'error'); }
+  }
+  async function setPassword_(l, pw) {
+    try {
+      const n = await patch(`/links/${l.id}`, { password: pw });
+      setLinks((list) => list.map((x) => (x.id === l.id ? n : x)));
+      toast(pw ? 'Password set: send it separately from the link' : 'Password removed: anyone with the link can open it');
+    } catch (e) { toast(e.message, 'error'); throw e; }
   }
   async function changeExpiry(l, v) {
     const expires_at = v === 'never' ? null : Date.now() + Number(v) * 864e5;
@@ -1002,6 +1010,8 @@ function LinkSharing({ file }) {
             </div>
             {!l.expired && <button type="button" className="icon-btn" aria-label="Copy link" title="Copy link" onClick={() => copy(l)}><Icon name="copy" size={18} /></button>}
             {!l.expired && mail?.enabled && <button type="button" className="icon-btn" aria-label="Email link" title={l.mode === 'upload' ? 'Email the file request to someone' : 'Email the link to someone'} onClick={() => emailLink(l)}><Icon name="mail" size={18} /></button>}
+            <button type="button" className="icon-btn" aria-label={l.has_password ? 'Change password' : 'Add a password'} title={l.has_password ? 'Change the password (whoever used the old one needs the new one)' : 'Add a password to this link'} onClick={() => setPwFor(l)}>🔑</button>
+            {l.has_password && <button type="button" className="icon-btn" aria-label="Remove password" title="Remove the password: anyone with the link can open it" onClick={() => setPassword_(l, '')}>🔓</button>}
             <select className="small" value="" aria-label="Change expiry" title="Change how long it works (the same link)" onChange={(e) => e.target.value && changeExpiry(l, e.target.value)}>
               <option value="">{l.expired ? 'Renew…' : 'Change expiry…'}</option>
               {EXPIRY.map(([v, label]) => <option key={v || 'never'} value={v || 'never'}>{v ? label.replace('Expires in', 'For') : 'Never expires'}</option>)}
@@ -1020,6 +1030,9 @@ function LinkSharing({ file }) {
         <button type="button" className="btn" onClick={create} disabled={!links || busy || (usePassword && password.length < 6)}><Icon name={uploadOnly ? 'upload' : 'link'} size={18} /> {uploadOnly ? 'Create file request' : 'Create link'}</button>
       </div>
       {usePassword && <p className="muted small">Send the password separately from the link, for example by phone.</p>}
+      {pwFor && <PromptModal title={pwFor.has_password ? 'Change the link’s password' : 'Add a password to the link'} label="New password" confirm="Set password"
+        message="At least 6 characters. Whoever opened it with the old password will need the new one."
+        onSubmit={async (v) => { if (v.length < 6) throw new Error('Use a password of at least 6 characters'); await setPassword_(pwFor, v); setPwFor(null); }} onClose={() => setPwFor(null)} />}
     </section>
   );
 }

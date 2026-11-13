@@ -613,6 +613,19 @@ test('public share links: no account needed; expiry, password, folders, revoking
   assert.equal((await sharer('PATCH', `/api/links/${locked.id}`, { expires_at: null })).body.expires_at, null);
   assert.equal((await sharer('GET', `/api/links?file=${file.id}`)).body.find((l) => l.id === locked.id).expires_at, null);
   assert.equal((await sharer('PATCH', '/api/links/no-such-link', { expires_at: null })).status, 404);
+  // Its password: a new one locks out whoever used the old one; taking it off opens it for anyone with the link.
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/raw?key=${key}`)).status, 200, 'the old key, before');
+  assert.equal((await sharer('PATCH', `/api/links/${locked.id}`, { password: 'abc' })).status, 400, 'too short');
+  assert.equal((await sharer('PATCH', `/api/links/${locked.id}`, { password: 'new-secret-1' })).body.has_password, true);
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/raw?key=${key}`)).status, 401, 'the old key no longer opens it');
+  assert.equal((await pub('POST', `/api/public/links/${locked.token}/unlock`, { password: 'sesame123' })).status, 401);
+  assert.equal((await pub('POST', `/api/public/links/${locked.token}/unlock`, { password: 'new-secret-1' })).status, 200);
+  const open = (await sharer('PATCH', `/api/links/${locked.id}`, { password: '' })).body;
+  assert.deepEqual([open.has_password, open.expires_at], [false, null], 'the expiry stays as it was');
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}`)).body.locked, false);
+  // Both at once.
+  const both = (await sharer('PATCH', `/api/links/${locked.id}`, { password: 'again-123', expires_at: later })).body;
+  assert.deepEqual([both.has_password, both.expires_at], [true, later]);
   q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, locked.id); // expired again, as below expects
 
   // Folders: browse inside, open files inside, nothing outside or in the trash.
@@ -638,6 +651,7 @@ test('public share links: no account needed; expiry, password, folders, revoking
   assert.equal((await owner('PATCH', '/api/orgs/current', { allow_links: false })).body.allow_links, false);
   assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 404);
   assert.equal((await sharer('POST', '/api/links', { file_id: file.id })).status, 403);
+  assert.equal((await sharer('PATCH', `/api/links/${link.id}`, { expires_at: null })).status, 403, 'nor changed while links are off');
   await owner('PATCH', '/api/orgs/current', { allow_links: true });
   assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 200);
   await sharer('PATCH', `/api/files/${folder.id}`, { trashed: true });
