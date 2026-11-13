@@ -18,6 +18,7 @@ import { photoBlob, photoUrl } from './photo.js';
 import QRCode from 'qrcode';
 import { sinceText } from '../home/dates.js';
 import { sortContacts, CONTACT_SORTS } from './sortcontacts.js';
+import { withFreeTime } from '../../components/scheduleWith.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 const TYPE_LABELS = { work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' };
@@ -649,6 +650,13 @@ function Groups({ filter }) {
                 <td className="hide-sm muted ellipsis" style={{ maxWidth: 420 }} title={g.members.map(formatAddress).join(', ')}>{g.members.length} · {g.members.slice(0, 3).map((m) => m.name || m.email).join(', ')}{g.members.length > 3 ? '…' : ''}</td>
                 <td className="actions">
                   <button className="icon-btn" aria-label={`Email ${g.name}`} title="Email the group" disabled={!g.members.length} onClick={() => navigate(`/mail?compose=${encodeURIComponent(g.members.map(formatAddress).join(', '))}`)}><Icon name="mail" size={18} /></button>
+                  <button className="icon-btn" aria-label={`Schedule a meeting with ${g.name}`} title="Schedule a meeting with the group" disabled={!g.members.length} onClick={async () => {
+                    // A new event with everyone in the group, at the first hour you and its colleagues are free.
+                    const t = Math.ceil(Date.now() / 18e5) * 18e5;
+                    const { ev, moved } = await withFreeTime({ title: g.name, start: t, end: t + 36e5, all_day: 0, location: '', description: '', guests: g.members.map((m) => ({ email: m.email, name: m.name })) });
+                    navigate('/calendar', { state: { newEvent: ev } });
+                    if (moved) toast(`The first hour you’re all free: ${new Date(ev.start).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
+                  }}><Icon name="calendar" size={18} /></button>
                   <button className="icon-btn" aria-label={`Edit ${g.name}`} onClick={() => setEditing(g)}><Icon name="edit" size={18} /></button>
                   <button className="icon-btn" aria-label={`Delete ${g.name}`} onClick={() => setDeleting(g)}><Icon name="trash" size={18} /></button>
                 </td>
