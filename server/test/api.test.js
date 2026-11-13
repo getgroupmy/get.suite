@@ -636,6 +636,15 @@ test('share links: “tell me when it’s opened”, the first time and then at 
   t = await told();
   assert.equal(t.length, 2);
   assert.ok(t.some((n) => n.body === 'It\'s been opened 3 times.'), JSON.stringify(t));
+  // Shared by link: Opal's own links, not other people's; expired ones when asked.
+  const mineL = (await opal('GET', '/api/links/mine')).body;
+  assert.deepEqual(mineL.map((l) => l.id).sort(), [quiet.id, loud.id].sort());
+  assert.deepEqual([mineL[0].file_name, mineL[0].file_kind], ['quote-v2.pdf', 'file']);
+  assert.equal((await owner('GET', '/api/links/mine')).body.some((l) => l.id === loud.id), false);
+  q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, quiet.id);
+  assert.deepEqual((await opal('GET', '/api/links/mine')).body.map((l) => l.id), [loud.id]);
+  assert.equal((await opal('GET', '/api/links/mine?expired=1')).body.length, 2);
+  q('UPDATE share_links SET expires_at = NULL WHERE id = ?').run(quiet.id);
   // Turned on for an existing link, and off again.
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: true })).body.notify_open, true);
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: false })).body.notify_open, false);

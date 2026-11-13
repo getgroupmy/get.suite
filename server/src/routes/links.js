@@ -150,6 +150,14 @@ export function linkRoutes() {
     res.json(describeLink(out));
   });
 
+  // Drive → Shared by link: your own links, on every file and folder (newest first; expired ones with ?expired=1).
+  r.get('/mine', (req, res) => {
+    const rows = q(`SELECT l.*, f.name AS file_name, f.kind AS file_kind, f.trashed FROM share_links l JOIN files f ON f.id = l.file_id
+                    WHERE l.created_by = ? ORDER BY l.created_at DESC LIMIT 1000`).all(req.user.id);
+    const out = rows.map((l) => ({ ...describeLink(l), file_name: l.file_name, file_kind: l.file_kind, trashed: !!l.trashed }));
+    res.json(req.query.expired === '1' ? out : out.filter((l) => !l.expired));
+  });
+
   // Admin → Share links: every link made by someone in the company (newest first; expired ones only with ?expired=1),
   // with its file, who made it, how often it was opened. Admins can stop any of them (DELETE below).
   r.get('/all', requireAdmin, (req, res) => {
