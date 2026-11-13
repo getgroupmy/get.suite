@@ -50,7 +50,8 @@ export default function Notes() {
   const [labels, setLabels] = useState([]);
   const [labelColors, setLabelColors] = useState({}); // your colour for each label
   const setLabelColor = async (label, color) => { try { await put('/notes/label-colors', { label, color }); setLabelColors((c) => { const n = { ...c }; if (color) n[label] = color; else delete n[label]; return n; }); } catch (e) { toast(e.message, 'error'); } };
-  const [where, setWhere] = useState({ archived: false, label: null, reminders: false });
+  // /notes?reminders=1 (from Home's Note reminders) opens on Reminders.
+  const [where, setWhere] = useState(() => ({ archived: false, label: null, reminders: new URLSearchParams(window.location.search).get('reminders') === '1' }));
   const [picking, setPicking] = useState(null); // a note whose reminder time is being picked
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null); // note id

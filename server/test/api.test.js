@@ -9866,6 +9866,7 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   assert.ok(HOME_CARDS.includes('touch'), 'keep in touch');
   assert.ok(HOME_CARDS.includes('saved'), 'saved in chat');
   assert.ok(HOME_CARDS.includes('reminders'), 'chat reminders');
+  assert.ok(HOME_CARDS.includes('notereminders'), 'note reminders');
   assert.ok(HOME_CARDS.includes('office'), 'in the office today');
   const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
   assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');

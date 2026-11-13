@@ -28,7 +28,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -49,7 +49,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -65,6 +65,7 @@ export default function Home() {
       safe(get('/comments/for-me'), []),
       safe(get('/chat/saved'), []),
       safe(get('/chat/reminders'), []),
+      safe(get('/notes?reminders=1'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -87,6 +88,7 @@ export default function Home() {
       comments: comments.slice(0, 6), commentsMore: Math.max(0, comments.length - 6),
       saved: saved.slice(0, 5), savedMore: Math.max(0, saved.length - 5),
       reminders: reminders.slice(0, 5), remindersMore: Math.max(0, reminders.length - 5),
+      noteReminders: noteReminders.filter((n) => n.remind_at).slice(0, 5), noteRemindersMore: Math.max(0, noteReminders.length - 5),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -294,6 +296,26 @@ export default function Home() {
                 })}
               </ul>
               {data.savedMore > 0 && <Link className="small" to="/chat?saved=1">and {data.savedMore} more</Link>}
+            </section>
+          )}
+          {data.noteReminders.length > 0 && (
+            <section className="card home-card" aria-label="Note reminders" {...cardProps('notereminders')}>
+              <h2><Link to="/notes?reminders=1"><span aria-hidden="true">🔔</span> Note reminders</Link></h2>
+              <ul className="home-list">
+                {data.noteReminders.map((n) => {
+                  const text = n.title || (n.body || '').split('\n')[0] || (n.items?.[0]?.text) || 'A note';
+                  return (
+                    <li key={n.id}>
+                      <Link className="grow ellipsis" to="/notes?reminders=1" title={text}>
+                        <span className="muted small">{remindWhen(n.remind_at)}{n.remind_repeat && <span aria-label={`repeats ${n.remind_repeat}`}> 🔁</span>}</span> {text}
+                      </Link>
+                      <button type="button" className="btn small" aria-label={`Remove reminder: ${text.slice(0, 40)}`} title="Remove the reminder"
+                        onClick={async () => { try { await patch(`/notes/${n.id}`, { remind_at: null }); load(); } catch (e) { toast(e.message, 'error'); } }}>✕</button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {data.noteRemindersMore > 0 && <Link className="small" to="/notes?reminders=1">and {data.noteRemindersMore} more</Link>}
             </section>
           )}
           {data.reminders.length > 0 && (
