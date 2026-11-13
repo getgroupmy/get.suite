@@ -164,7 +164,7 @@ export function linkRoutes() {
     const rows = q(`SELECT l.*, f.name AS file_name, f.kind AS file_kind, f.trashed, u.name AS owner_name, u.username AS owner_email
                     FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by
                     WHERE u.org_id = ? ORDER BY l.created_at DESC LIMIT 1000`).all(req.user.org_id);
-    const out = rows.map((l) => ({ ...describeLink(l), file_name: l.file_name, file_kind: l.file_kind, trashed: !!l.trashed, owner_name: l.owner_name, owner_email: l.owner_email }));
+    const out = rows.map((l) => ({ ...describeLink(l), file_name: l.file_name, file_kind: l.file_kind, trashed: !!l.trashed, created_by: l.created_by, owner_name: l.owner_name, owner_email: l.owner_email }));
     res.json(req.query.expired === '1' ? out : out.filter((l) => !l.expired));
   });
 
@@ -191,6 +191,18 @@ export function linkRoutes() {
     }
     audit(req, 'link.enforce', { details: { stopped, shortened } });
     res.json({ stopped, shortened });
+  });
+
+  // Stop every working link one person in the company made (someone moving on, a project closing). { user_id }.
+  // They're told how many. { stopped }.
+  r.post('/stop-all', requireAdmin, (req, res) => {
+    const who = q('SELECT id, name FROM users WHERE id = ? AND org_id = ?').get(String(req.body?.user_id || ''), req.user.org_id);
+    if (!who) throw notFound('Person not found');
+    const ids = q('SELECT id FROM share_links WHERE created_by = ? AND (expires_at IS NULL OR expires_at > ?)').all(who.id, now()).map((x) => x.id);
+    for (const id of ids) q('DELETE FROM share_links WHERE id = ?').run(id);
+    if (ids.length && who.id !== req.user.id) bell([who.id], { kind: 'share', title: `An admin stopped your ${ids.length === 1 ? 'link' : `${ids.length} links`} for people without an account`, body: `${req.user.name || req.user.username} stopped ${ids.length === 1 ? 'it' : 'them all'} in Admin → Share links; ${ids.length === 1 ? 'it no longer works' : 'they no longer work'}.`, link: '/drive/links', actor: req.user.name });
+    audit(req, 'link.stopall', { target: who.name, details: { stopped: ids.length } });
+    res.json({ stopped: ids.length });
   });
 
   // The same list as a spreadsheet (CSV), for an audit: every link, expired ones too.

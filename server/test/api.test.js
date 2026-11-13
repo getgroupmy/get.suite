@@ -582,7 +582,17 @@ test('share link rules applied to existing links: no password → stopped, too l
   assert.match(n, /Your share links now follow the company’s rules/);
   assert.match(n, /stopped 1 link without a password \(plan\.pdf\) and shortened 1 to 10 days \(plan\.pdf\)/);
   assert.deepEqual((await eva('POST', '/api/links/enforce')).body, { stopped: 0, shortened: 0 }, 'nothing left to do');
-  // The list as CSV, for admins: every link (an expired one too), with what it is and who made it.
+  // Stop all of one person's links: Ned's working ones go, he's told; members can't; someone elsewhere isn't found.
+  const nedId = (await ned('GET', '/api/auth/me')).body.user.id;
+  assert.equal((await ned('POST', '/api/links/stop-all', { user_id: nedId })).status, 403);
+  assert.equal((await eva('POST', '/api/links/stop-all', { user_id: 'nobody' })).status, 404);
+  const working = (await eva('GET', '/api/links/all')).body.filter((l) => l.owner_name === 'Ned Maker').length;
+  assert.ok(working > 0);
+  assert.deepEqual((await eva('POST', '/api/links/stop-all', { user_id: nedId })).body, { stopped: working });
+  assert.equal((await eva('GET', '/api/links/all')).body.filter((l) => l.owner_name === 'Ned Maker').length, 0);
+  assert.match(JSON.stringify((await ned('GET', '/api/notifications')).body), /An admin stopped your (link|\d+ links) for people without an account/);
+  assert.deepEqual((await eva('POST', '/api/links/stop-all', { user_id: nedId })).body, { stopped: 0 });
+  // The list as CSV, for admins: every link left (expired ones too), with what it is and who made it.
   assert.equal((await ned('GET', '/api/links/all.csv')).status, 403);
   const { q } = await import('../src/db.js');
   await ned('POST', '/api/links', { file_id: file.id, password: 'pass-1234', expires_at: Date.now() + 864e5 });
@@ -592,7 +602,7 @@ test('share link rules applied to existing links: no password → stopped, too l
   assert.match(csv.headers.get('content-disposition'), /share-links\.csv/);
   const lines = String(csv.body).replace(/^\ufeff/, '').trim().split('\r\n');
   assert.equal(lines[0], 'File or folder,Kind,Made by,Email,Link,Password,Made (UTC),Works until (UTC),Expired,Opened,Last opened (UTC),In the trash');
-  assert.equal(lines.length, 4, 'three links, one per line');
+  assert.equal(lines.length, 2, 'the one link left (stopped ones are gone), a line each');
   assert.ok(lines.slice(1).every((l) => l.startsWith("'=HYPERLINK(1),View and download (file),Ned Maker,ned@enforce.com,/s/")), 'a formula is made plain');
   assert.ok(lines.some((l) => /,yes,.*,no,0,,no$/.test(l)), 'a password link');
 });

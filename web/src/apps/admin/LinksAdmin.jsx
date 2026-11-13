@@ -12,6 +12,11 @@ export default function LinksAdmin() {
   const [links, setLinks] = useState(null);
   const [expired, setExpired] = useState(false);
   const [stopping, setStopping] = useState(null);
+  const [by, setBy] = useState(''); // show only one person's links
+  const [stoppingAll, setStoppingAll] = useState(false);
+  const people = [...new Map((links || []).map((l) => [l.created_by, l.owner_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const shown = (links || []).filter((l) => !by || l.created_by === by);
+  const byName = people.find(([id]) => id === by)?.[1];
   const { user } = useAuth();
   const [enforcing, setEnforcing] = useState(false);
   const maxDays = user.link_max_days || null, needPassword = !!user.link_password;
@@ -25,15 +30,23 @@ export default function LinksAdmin() {
         <div className="row wrap"><span className="grow small">{breaking.length} working link{breaking.length === 1 ? '' : 's'} made before your company’s rules {breaking.length === 1 ? 'doesn’t' : 'don’t'} follow them.</span>
           <button type="button" className="btn" onClick={() => setEnforcing(true)}>Apply the rules to existing links…</button></div>
       )}
-      <div className="row wrap" style={{ gap: 12 }}><span className="grow" /><a className="btn small" href="/api/links/all.csv" download><Icon name="download" size={16} /> Download (CSV)</a></div>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field" style={{ minWidth: 220 }}><span>Made by</span>
+          <select value={by} onChange={(e) => setBy(e.target.value)}>
+            <option value="">Everyone</option>
+            {people.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        {by && shown.some((l) => !l.expired) && <button type="button" className="btn small danger" onClick={() => setStoppingAll(true)}>Stop all of {byName}’s links…</button>}
+        <span className="grow" /><a className="btn small" href="/api/links/all.csv" download><Icon name="download" size={16} /> Download (CSV)</a></div>
       <label className="check"><input type="checkbox" checked={expired} onChange={(e) => setExpired(e.target.checked)} /> Show expired links too</label>
-      {links === null ? <p className="muted">Loading…</p> : !links.length ? <p className="muted">No {expired ? '' : 'working '}links.</p> : (
+      {links === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted">No {expired ? '' : 'working '}links.</p> : (
         <div className="card" style={{ padding: 0 }}>
           <table className="files">
             <caption className="sr-only">Share links</caption>
             <thead><tr><th>File or folder</th><th className="hide-sm">Made by</th><th>Kind</th><th className="hide-sm">Works until</th><th className="num hide-sm">Opened</th><th aria-label="Actions" /></tr></thead>
             <tbody>
-              {links.map((l) => (
+              {shown.map((l) => (
                 <tr key={l.id} className={l.expired ? 'muted' : ''}>
                   <td className="name"><Icon name={l.file_kind === 'folder' ? 'folder' : 'file'} /><span>{l.file_name}{l.trashed && <span className="muted small"> (in the trash)</span>}</span></td>
                   <td className="hide-sm"><span title={l.owner_email}>{l.owner_name}</span></td>
@@ -51,6 +64,10 @@ export default function LinksAdmin() {
         message={[needPassword && 'Links without a password stop working (a password can’t be added for people who already have the link).', maxDays && `Links that last longer than ${maxDays} day${maxDays === 1 ? '' : 's'} (or never expire) will expire ${maxDays} day${maxDays === 1 ? '' : 's'} from now.`, 'Whoever made them is told.'].filter(Boolean).join(' ')}
         onConfirm={async () => { try { const r = await post('/links/enforce'); toast(`${r.stopped} stopped, ${r.shortened} shortened`); load(); } catch (e) { toast(e.message, 'error'); } }}
         onClose={() => setEnforcing(false)} />}
+      {stoppingAll && <ConfirmModal title={`Stop all of ${byName}’s links?`} danger confirm="Stop all"
+        message={`Every working link ${byName} made stops working at once (${shown.filter((l) => !l.expired).length}). They'll be told.`}
+        onConfirm={async () => { try { const r = await post('/links/stop-all', { user_id: by }); toast(`${r.stopped} ${r.stopped === 1 ? 'link' : 'links'} stopped`); setBy(''); load(); } catch (e) { toast(e.message, 'error'); } }}
+        onClose={() => setStoppingAll(false)} />}
       {stopping && <ConfirmModal title="Stop this link?" danger confirm="Stop link"
         message={`The link to “${stopping.file_name}” that ${stopping.owner_name} made stops working at once. They'll be told.`}
         onConfirm={async () => { try { await del(`/links/${stopping.id}`); toast('Link stopped'); load(); } catch (e) { toast(e.message, 'error'); } }}
