@@ -16,6 +16,7 @@ import Bookmarks from './Bookmarks.jsx';
 import ConvFiles from './ConvFiles.jsx';
 import { saveItems, withFileState } from './savefile.js';
 import { scheduleWith } from '../../components/scheduleWith.js';
+import { parseSlash, slashSuggestions } from './slash.js';
 import SaveToFolder from './SaveToFolder.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -406,6 +407,21 @@ export default function Chat() {
     e.preventDefault();
     const body = text.trim();
     if ((!body && !files.length) || uploading) return;
+    // A slash command (/meet, /poll, /task) instead of a message.
+    const slash = !files.length && parseSlash(body);
+    if (slash) {
+      if (slash.error) { toast(slash.error, 'error'); return; }
+      setText(''); dropDraft(channelId);
+      try {
+        if (slash.cmd === 'meet') await startMeeting();
+        else if (slash.cmd === 'poll') {
+          stick.current = true;
+          const msg = await post(`/chat/channels/${channelId}/messages`, { poll: { question: slash.question, options: slash.options, multi: false } });
+          setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
+        } else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}`, label: `Chat: ${title}` } });
+      } catch (err) { toast(err.message, 'error'); setText(body); }
+      return;
+    }
     const sending = files;
     setText(''); setFiles([]); typing.sent(); dropDraft(channelId); // sending clears the draft (the server too)
     stick.current = true;
@@ -852,6 +868,11 @@ export default function Chat() {
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
+            {slashSuggestions(text).length > 0 && (
+              <ul className="slash-list" role="listbox" aria-label="Commands">
+                {slashSuggestions(text).map((c) => <li key={c.cmd}><button type="button" role="option" aria-selected="false" onClick={() => { const v = `/${c.cmd}${c.cmd === 'meet' ? '' : ' '}`; setText(v); box.current?.focus(); }}><strong>{c.hint}</strong> <span className="muted small">{c.what}</span></button></li>)}
+              </ul>
+            )}
             <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); keepDraft(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => {

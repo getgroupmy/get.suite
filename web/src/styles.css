@@ -3013,3 +3013,6 @@ select.meet-timer-btn option { color: #202124; }
 .report-stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
 .report-stats dt { font-size: 12px; color: var(--muted); }
 .report-stats dd { margin: 0; font-size: 20px; font-weight: 600; }
+.slash-list { position: absolute; bottom: calc(100% + 4px); left: 8px; right: 8px; list-style: none; margin: 0; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); z-index: 20; }
+.slash-list button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.slash-list button:hover, .slash-list button:focus { background: var(--hover); }
