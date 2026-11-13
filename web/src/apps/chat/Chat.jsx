@@ -16,7 +16,8 @@ import Bookmarks from './Bookmarks.jsx';
 import ConvFiles from './ConvFiles.jsx';
 import { saveItems, withFileState } from './savefile.js';
 import { scheduleWith } from '../../components/scheduleWith.js';
-import { parseSlash, slashSuggestions } from './slash.js';
+import { parseSlash } from './slash.js';
+import { useSlash } from './useSlash.jsx';
 import SaveToFolder from './SaveToFolder.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -403,11 +404,7 @@ export default function Chat() {
     } catch (err) { toast(err.message, 'error'); }
   }
 
-  const [slashPick, setSlashPick] = useState(0); // the highlighted command in the / list
-  const [slashShut, setSlashShut] = useState(false); // closed with Escape, until you type again
-  useEffect(() => { setSlashPick(0); setSlashShut(false); }, [text]);
-  const slashShown = (t) => (slashShut ? [] : slashSuggestions(t));
-  const pickSlash = (c) => { setText(`/${c.cmd}${c.cmd === 'meet' ? '' : ' '}`); box.current?.focus(); };
+  const slashes = useSlash(text, setText, box);
   async function send(e) {
     e.preventDefault();
     const body = text.trim();
@@ -873,23 +870,12 @@ export default function Chat() {
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
-            {slashShown(text).length > 0 && (
-              <ul className="slash-list" role="listbox" aria-label="Commands">
-                {slashShown(text).map((c, i) => <li key={c.cmd}><button type="button" role="option" aria-selected={i === slashPick} className={i === slashPick ? 'on' : ''} onClick={() => pickSlash(c)}><strong>{c.hint}</strong> <span className="muted small">{c.what}</span></button></li>)}
-              </ul>
-            )}
+            {slashes.list}
             <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); keepDraft(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => {
                 if (mention.keyDown(e)) return;
-                // The command list: ↑ ↓ move, Tab or Enter picks, Escape closes it.
-                const sugg = slashShown(text);
-                const whole = sugg.length === 1 && text.trim() === `/${sugg[0].cmd}` && sugg[0].cmd === 'meet'; // nothing more to type: Enter sends it
-                if (sugg.length && !e.shiftKey && !(whole && e.key === 'Enter')) {
-                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setSlashPick((i) => (i + (e.key === 'ArrowDown' ? 1 : sugg.length - 1)) % sugg.length); return; }
-                  if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); pickSlash(sugg[Math.min(slashPick, sugg.length - 1)]); return; }
-                    if (e.key === 'Escape') { e.preventDefault(); setSlashShut(true); return; }
-                }
+                if (slashes.keyDown(e)) return;
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e);
                 else if (e.key === 'ArrowUp' && !text && !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && !current?.archived_at) {
                   // ↑ in an empty box changes your last message
@@ -943,6 +929,8 @@ function Thread({ id, channelId, user, onClose }) {
   const end = useRef();
   const box = useRef();
   const mention = useMentions(box, text, setText, { groups: true });
+  const slashes = useSlash(text, setText, box);
+  const navigate = useNavigate();
   const typing = useTyping(channelId, id, user.id);
   useEffect(() => {
     setFollowing(null);
@@ -981,6 +969,21 @@ function Thread({ id, channelId, user, onClose }) {
     const body = text.trim();
     if (!body) return;
     setText(''); typing.sent();
+    const added = (msg) => setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
+    // A slash command in a thread: the meeting link or poll is a reply here, a task links back to this thread.
+    const slash = parseSlash(body);
+    if (slash) {
+      if (slash.error) { toast(slash.error, 'error'); setText(body); return; }
+      try {
+        if (slash.cmd === 'meet') {
+          const m = await post('/meet', { title: parent?.body ? parent.body.slice(0, 80) : '' });
+          added(await post(`/chat/channels/${channelId}/messages`, { body: `📹 Started a video meeting: ${location.origin}/meet/${m.code}`, parent_id: id }));
+          window.open(`/meet/${m.code}`, '_blank', 'noopener');
+        } else if (slash.cmd === 'poll') added(await post(`/chat/channels/${channelId}/messages`, { poll: { question: slash.question, options: slash.options, multi: false }, parent_id: id }));
+        else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}?msg=${id}&thread=${id}`, label: 'Chat thread' } });
+      } catch (err) { toast(err.message, 'error'); setText(body); }
+      return;
+    }
     try { const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id }); setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); checkLinkAccess(channelId, body, toast, user.org_name); }
     catch (err) { toast(err.message, 'error'); setText(body); }
   }
@@ -1007,8 +1010,9 @@ function Thread({ id, channelId, user, onClose }) {
       {typing.line}
       <form className="composer" onSubmit={send}>
         <ChatEmojiPicker up className="icon-btn" onPick={(ch) => setText((v) => v + ch)} />
-        <textarea ref={box} rows={1} value={text} placeholder="Reply…" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
-          onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+        {slashes.list}
+        <textarea ref={box} rows={1} value={text} placeholder="Reply… (/ for commands)" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
+          onKeyDown={(e) => { if (mention.keyDown(e) || slashes.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
         {mention.list}
         <button className="icon-btn send" aria-label="Send reply" disabled={!text.trim()}><Icon name="send" /></button>
       </form>

@@ -3001,6 +3001,17 @@ test('chat polls: ask, vote (one or several), change your vote, close; checked o
   const listed = (await b('GET', `/api/chat/channels/${ch}/messages`)).body.find((x) => x.id === m.id);
   assert.equal(listed.poll.question, 'Which days?');
   assert.equal((await b('POST', `/api/chat/messages/${(await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'plain' })).body.id}/vote`, { options: [] })).status, 404, 'not a poll');
+  // A poll in a thread (/poll in the reply box): a reply there, votable, not in the conversation's own list.
+  const top = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Planning the offsite' })).body;
+  const tp = await b('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Where?', options: ['Lake', 'City'] }, parent_id: top.id });
+  assert.equal(tp.status, 201);
+  assert.equal(tp.body.parent_id, top.id);
+  assert.equal((await a('POST', `/api/chat/messages/${tp.body.id}/vote`, { options: ['o2'] })).body.poll.voters, 1);
+  const thread = (await a('GET', `/api/chat/messages/${top.id}/replies`)).body;
+  assert.deepEqual(thread.replies.map((r) => [r.poll?.question, r.poll?.options.map((o) => o.votes.length)]), [['Where?', [0, 1]]]);
+  const main = (await a('GET', `/api/chat/channels/${ch}/messages`)).body;
+  assert.ok(!main.some((x) => x.id === tp.body.id), 'only in the thread');
+  assert.equal(main.find((x) => x.id === top.id).reply_count, 1);
 });
 
 test('tasks: important ones, starred on the task, gathered from every list; carried to the next repeat', async () => {
