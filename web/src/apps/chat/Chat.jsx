@@ -1464,6 +1464,7 @@ function eventWhen(start, end, allDay) {
 
 /** Links to calendar events in a message, shown as cards: what, when, where, and your answer. */
 function EventCards({ text }) {
+  const toast = useToast();
   const links = eventLinksIn(text);
   const [info, setInfo] = useState({});
   useEffect(() => {
@@ -1481,12 +1482,31 @@ function EventCards({ text }) {
         if (!x) return <div key={key} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">An event you can’t see (it’s not in a calendar you can see, or it was deleted)</span></div>;
         const start = l.at || x.start, end = start + (x.end - x.start);
         const answer = x.mine ? 'You organise it' : ANSWER[x.my_status] || (x.organizer_name ? `Organised by ${x.organizer_name}` : '');
+        // A guest answers right here (not for a repeating one: that's for the whole series, in Calendar).
+        const answerIt = async (status) => {
+          try {
+            await post(`/events/${x.id}/rsvp`, { status });
+            eventInfo.delete(x.id);
+            const fresh = await eventOf(x.id);
+            setInfo((st) => ({ ...st, [l.id]: fresh }));
+            toast(status === 'yes' ? `You’re going to ${x.title}` : status === 'maybe' ? 'You said maybe' : 'You said no');
+          } catch (e) { toast(e.message, 'error'); }
+        };
         return (
-          <Link key={key} className="msg-card event-card" to={`/calendar?event=${x.id}${l.at ? `&at=${l.at}` : ''}`} aria-label={`Event: ${x.title}`}>
-            <span className="msg-card-meta"><Icon name="calendar" size={18} /> <strong>{x.title}</strong>{x.repeats && <span className="muted small" title="Repeats">↻</span>}</span>
-            <span className="small">{eventWhen(start, end, x.all_day)}{x.location ? ` · ${x.location}` : ''}</span>
-            <span className="muted small">{[answer, x.guests > 0 && `${x.guests} ${x.guests === 1 ? 'guest' : 'guests'}${x.yes ? `, ${x.yes} going` : ''}`].filter(Boolean).join(' · ')}</span>
-          </Link>
+          <div key={key} className="event-card-wrap">
+            <Link className="msg-card event-card" to={`/calendar?event=${x.id}${l.at ? `&at=${l.at}` : ''}`} aria-label={`Event: ${x.title}`}>
+              <span className="msg-card-meta"><Icon name="calendar" size={18} /> <strong>{x.title}</strong>{x.repeats && <span className="muted small" title="Repeats">↻</span>}</span>
+              <span className="small">{eventWhen(start, end, x.all_day)}{x.location ? ` · ${x.location}` : ''}</span>
+              <span className="muted small">{[answer, x.guests > 0 && `${x.guests} ${x.guests === 1 ? 'guest' : 'guests'}${x.yes ? `, ${x.yes} going` : ''}`].filter(Boolean).join(' · ')}</span>
+            </Link>
+            {!x.mine && x.my_status && !x.repeats && x.end > Date.now() && (
+              <div className="row" role="group" aria-label={`Answer: ${x.title}`} style={{ gap: 6, marginTop: 4 }}>
+                {[['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No']].map(([v, label]) => (
+                  <button key={v} type="button" className={`btn small ${x.my_status === v ? 'primary' : ''}`} aria-pressed={x.my_status === v} onClick={() => answerIt(v)}>{label}</button>
+                ))}
+              </div>
+            )}
+          </div>
         );
       })}
     </div>
