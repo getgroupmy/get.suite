@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
-import { api, get, patch, post, put, del, putBlob, postBlob, formatBytes } from '../api.js';
+import { api, get, patch, post, put, del, putBlob, postBlob, uploadFile, formatBytes } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
 import { Avatar, ConfirmModal, useToast } from '../components/ui.jsx';
+import DrivePicker from '../components/DrivePicker.jsx';
 import Icon from '../components/Icon.jsx';
 import { allZones, zoneName, cityOf } from '../components/zones.js';
 import { getTheme, setTheme } from '../theme.js';
@@ -646,6 +647,31 @@ function YourData() {
   const toast = useToast();
   const restoreRef = useRef(null);
   const [restoring, setRestoring] = useState(false);
+  const [pickingZip, setPickingZip] = useState(false);
+  const [progress, setProgress] = useState(null);
+  // A .zip from this computer (a big one goes to Drive first, then in from there), or one already in Drive (fileId).
+  const restore = async (file, fileId = null) => {
+    setRestoring(true);
+    try {
+      const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+      let r;
+      if (!fileId && file.size > 190 * 1024 * 1024) {
+        const up = await uploadFile(file, null, (p) => setProgress(p));
+        setProgress(null);
+        fileId = up.id;
+      }
+      r = fileId ? await post(`/takeout/restore?file_id=${encodeURIComponent(fileId)}&tz=${tz}`, {}) : await postBlob(`/takeout/restore?tz=${tz}`, file, 'application/zip');
+      const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
+      const parts = [r.drive?.files > 0 && `${n(r.drive.files, 'file', 'files')} into “${r.drive.folder}” in Drive`, r.mail?.started && `${n(r.mail.folders, 'mail folder', 'mail folders')} (Mail shows the import’s progress)`,
+        r.calendar && n(r.calendar.added, 'event', 'events'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
+        r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
+        r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'),
+        r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures')].filter(Boolean);
+      toast(`Brought in ${parts.join(', ') || 'nothing new'}`);
+      for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error');
+      get('/takeout/summary').then(setSum).catch(() => {});
+    } catch (err) { toast(err.message, 'error'); } finally { setRestoring(false); setProgress(null); }
+  };
   const [sum, setSum] = useState(null);
   useEffect(() => { get('/takeout/summary').then(setSum).catch(() => {}); }, []);
   const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
@@ -657,22 +683,14 @@ function YourData() {
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <a className="btn" href="/api/takeout" download><Icon name="download" size={18} /> Download your data (.zip)</a>
         <button type="button" className="btn" disabled={restoring} title="A .zip from Download your data (here or on another Workspace server): its calendar, contacts, task lists and notes are added to yours" onClick={() => restoreRef.current?.click()}>
-          <Icon name="upload" size={18} /> {restoring ? 'Bringing it in…' : 'Bring in your data…'}</button>
-        <input ref={restoreRef} type="file" accept=".zip,application/zip" hidden aria-label="Your data to bring in" onChange={async (e) => {
+          <Icon name="upload" size={18} /> {restoring ? (progress != null ? `Uploading… ${Math.round(progress * 100)}%` : 'Bringing it in…') : 'Bring in your data…'}</button>
+        <button type="button" className="btn" disabled={restoring} title="A Download your data .zip you've put in Drive (for one too big to send from here)" onClick={() => setPickingZip(true)}>Bring in from Drive…</button>
+        <input ref={restoreRef} type="file" accept=".zip,application/zip" hidden aria-label="Your data to bring in" onChange={(e) => {
           const f = e.target.files[0]; e.target.value = '';
-          if (!f) return;
-          setRestoring(true);
-          try {
-            const r = await postBlob(`/takeout/restore?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, f, 'application/zip');
-            const parts = [r.drive?.files > 0 && `${n(r.drive.files, 'file', 'files')} into “${r.drive.folder}” in Drive`, r.mail?.started && `${n(r.mail.folders, 'mail folder', 'mail folders')} (Mail shows the import’s progress)`, r.calendar && n(r.calendar.added, 'event', 'events'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
-              r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
-              r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'), r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures')].filter(Boolean);
-            toast(`Brought in ${parts.join(', ') || 'nothing new'}`);
-            for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error'); // e.g. a filter forwarding outside the company
-            get('/takeout/summary').then(setSum).catch(() => {});
-          } catch (err) { toast(err.message, 'error'); } finally { setRestoring(false); }
+          if (f) restore(f);
         }} />
       </div>
+      {pickingZip && <DrivePicker title="Bring in a Download your data .zip" accept={(x) => x.kind === 'file' && /\.zip$/i.test(x.name)} empty="No .zip files found. Upload one to Drive first." onClose={() => setPickingZip(false)} onPick={(x) => { setPickingZip(false); restore(null, x.id); }} />}
       <p className="muted small" style={{ margin: 0 }}><strong>Bring in your data…</strong> takes such a .zip back (from here or another Workspace server): its Drive, calendar, contacts, task lists and notes, and your mail filters, email templates, signature and event templates, are added to yours; events, contacts and settings you already have are skipped. Its Drive comes in as one new folder (“From your data” and the date) with its folders and files as they were. Its email goes back into your mailbox (in the background; Mail shows how it's going), each folder where it was, and the .mbox files are kept in that Drive folder too.</p>
     </section>
   );

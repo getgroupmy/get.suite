@@ -16,6 +16,10 @@ import { mailEnabled } from '../mail/config.js';
 import { startMboxImport } from '../mail/importer.js';
 import { writeMailbox, mailboxCounts } from '../mail/mbox.js';
 import JSZip from 'jszip';
+import unzipper from 'unzipper';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
+import { roleFor, atLeast } from '../access.js';
 import { q, tx, FILES_DIR } from '../db.js';
 import { insertFile } from './files.js';
 import { checkQuota } from '../tenancy.js';
@@ -120,6 +124,114 @@ export function notesMarkdown(userId) {
   }).join('\n') || '_No notes._\n';
 }
 
+/**
+ * A Download your data .zip brought back in, from its entries ([{ name, dir, buffer(), stream() }]): Drive (one new folder),
+ * email (its .mbox files imported), calendar, contacts, task lists, notes and settings. What it added, by kind.
+ */
+export async function restoreFrom(entries, user, tz = 'UTC') {
+  const byName = new Map(entries.filter((e) => !e.dir).map((e) => [e.name, e]));
+  const text = async (name) => { const e = byName.get(name); return e ? (await e.buffer()).toString('utf8') : undefined; };
+  if (!/Your Workspace data/.test(await text('README.txt') || '')) throw bad('That isn’t a Download your data .zip from Workspace');
+  const files = entries.filter((e) => !e.dir);
+  const out = {};
+  const ics = await text('Calendar.ics');
+  if (ics) { const r2 = importCalendar(user.id, ics, tz); out.calendar = r2.error ? { added: 0, skipped: 0 } : { added: r2.added, skipped: r2.skipped }; }
+  const vcf = await text('Contacts.vcf');
+  if (vcf && /BEGIN:VCARD/i.test(vcf)) out.contacts = importContacts(user, vcf);
+  const csv = await text('Tasks.csv');
+  if (csv) {
+    try { const r2 = importTaskLists(user, csv); out.tasks = { lists: r2.lists.length, tasks: r2.lists.reduce((n, l) => n + l.tasks, 0) }; }
+    catch (e) { if (e.status !== 400) throw e; out.tasks = { lists: 0, tasks: 0 }; } // no tasks in it
+  }
+  // Settings that travel with you: mail filters, email templates, signatures and event templates (each skipped if already here).
+  const tryImport = (fn) => { try { return fn(); } catch (e) { if (e.status === 400 || e.status === 403) return { added: 0, skipped: 0, error: e.message }; throw e; } };
+  const json = async (name) => { const t = await text(name); if (!t) return null; try { return JSON.parse(t); } catch { return null; } };
+  const rules = await json('Mail settings/filters.json');
+  if (Array.isArray(rules) && rules.length) { const r2 = tryImport(() => importMailRules(user, { rules })); out.filters = { added: r2.added, skipped: r2.skipped, ...(r2.error && { error: r2.error }) }; }
+  const unesc = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  const templates = [];
+  for (const f of files.filter((x) => /^Mail settings\/templates\/[^/]+\.html$/.test(x.name))) {
+    const page = (await f.buffer()).toString('utf8');
+    const m = /^<!doctype html><meta charset="utf-8"><title>([^<]*)<\/title>\n([\s\S]*?)\n?$/i.exec(page);
+    const name = f.name.split('/').pop().replace(/\.html$/, '');
+    const title = m ? unesc(m[1]) : '';
+    templates.push({ name, subject: title === name ? '' : title, html: m ? m[2] : page }); // the title is the subject, or the name when it had none
+  }
+  if (templates.length) out.templates = tryImport(() => importMailTemplates(user, { templates }));
+  const sigs = [];
+  for (const f of files.filter((x) => /^Mail settings\/signature( [^/]+)?\.html$/.test(x.name))) {
+    const m = /^Mail settings\/signature(?: ([^/]+))?\.html$/.exec(f.name);
+    sigs.push({ address: m[1] ? m[1].toLowerCase() : null, html: (await f.buffer()).toString('utf8') });
+  }
+  if (sigs.length) out.signatures = importSignatures(user, sigs);
+  const evTemplates = await json('Calendar templates.json');
+  if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
+  // Drive: the Drive/ folder comes in as one new folder ("From your data 2026-11-13") with its folders and files as they were
+  // (documents as the Word, Excel or PowerPoint files they were saved as). Nothing already in your Drive is touched.
+  // Email: Mail/<folder>.mbox files are kept in that Drive folder too ("Mail (.mbox)") and imported into your mailbox.
+  const driveEntries = entries.filter((x) => x.name.startsWith('Drive/') && x.name !== 'Drive/' && !/(^|\/)(__MACOSX|\.DS_Store)/.test(x.name));
+  const mailEntries = files.filter((x) => /^Mail\/.+\.mbox$/i.test(x.name));
+  if (driveEntries.some((x) => !x.dir) || mailEntries.length) {
+    if (driveEntries.length > 20000) throw bad('That Drive has more than 20,000 files and folders: upload its folders in Drive instead');
+    const MAILDIR = '\u0000mail'; // its own folder, even if the Drive has one called Mail
+    const toWrite = [...driveEntries.filter((x) => !x.dir).map((e) => ({ e, path: e.name.slice('Drive/'.length) })),
+      ...mailEntries.map((e) => ({ e, path: `${MAILDIR}/${e.name.slice('Mail/'.length)}`, mailFolder: e.name.slice('Mail/'.length).replace(/\.mbox$/i, '') }))];
+    // Each file straight to disk, one at a time (a big Drive never sits in memory); then all of them recorded at once.
+    const written = [];
+    const drop = () => { for (const w of written) fs.rmSync(path.join(FILES_DIR, w.storage), { force: true }); };
+    try {
+      for (const w of toWrite) {
+        const one = { ...w, storage: uid() };
+        written.push(one);
+        await pipeline(w.e.stream(), fs.createWriteStream(path.join(FILES_DIR, one.storage)));
+        one.size = fs.statSync(path.join(FILES_DIR, one.storage)).size;
+      }
+      checkQuota(user.org_id, written.reduce((n, w) => n + w.size, 0), user.id);
+    } catch (e) { drop(); throw e; }
+    const rootName = `From your data ${new Date().toISOString().slice(0, 10)}`;
+    const mboxes = [];
+    try {
+      tx(() => {
+        const root = insertFile({ owner: user.id, parentId: null, name: rootName, kind: 'folder' });
+        const folders = new Map([['', root]]);
+        const folderFor = (dir) => {
+          if (folders.has(dir)) return folders.get(dir);
+          const cut = dir.lastIndexOf('/');
+          const id = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : dir.slice(0, cut)), name: (dir === MAILDIR ? 'Mail (.mbox)' : dir.slice(cut + 1)).slice(0, 255) || 'Folder', kind: 'folder' });
+          folders.set(dir, id);
+          return id;
+        };
+        for (const x of driveEntries.filter((y) => y.dir)) folderFor(x.name.slice('Drive/'.length).replace(/\/$/, '')); // empty folders too
+        for (const w of written) {
+          const cut = w.path.lastIndexOf('/');
+          const fid = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : w.path.slice(0, cut)), name: w.path.slice(cut + 1).slice(0, 255), kind: 'file', mime: w.mailFolder ? 'application/mbox' : mimeFor(w.path), size: w.size, storage: w.storage });
+          if (w.mailFolder) mboxes.push({ id: fid, folder: w.mailFolder });
+        }
+        out.drive = { folder: rootName, folder_id: root, files: written.length - mboxes.length };
+      });
+    } catch (e) { drop(); throw e; }
+    sendTo([user.id], { type: 'files-changed' });
+    indexSoon();
+    if (mboxes.length) {
+      if (!mailEnabled()) out.mail = { folders: mboxes.length, started: false, error: 'Mail isn’t set up on this server: the .mbox files are in the Drive folder' };
+      else {
+        try { await startMboxImport(user, { files: mboxes }); out.mail = { folders: mboxes.length, started: true }; }
+        catch (e) { out.mail = { folders: mboxes.length, started: false, error: `${e.message}: the .mbox files are in the Drive folder, for Mail → Import mail later` }; }
+      }
+    }
+  }
+  // Notes: its Notes/ folder (with pictures), through Import notes… (which reads only Notes/ from a Download your data .zip).
+  const noteEntries = files.filter((x) => x.name.startsWith('Notes/'));
+  if (noteEntries.some((x) => x.name.endsWith('.md'))) {
+    const nz = new JSZip();
+    nz.file('README.txt', 'Your Workspace data');
+    for (const e of noteEntries) nz.file(e.name, await e.buffer());
+    out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: (await nz.generateAsync({ type: 'nodebuffer' })).toString('base64') }] });
+  }
+  sendTo([user.id], { type: 'events-changed' });
+  return out;
+}
+
 export default function takeoutRoutes() {
   const r = Router();
   // What's in it, before downloading.
@@ -135,97 +247,24 @@ export default function takeoutRoutes() {
   // and notes are added to yours, skipping what's already here (events by their UID, contacts by address; lists come in as new ones).
   // Drive files and email have their own ways in (upload a folder; Mail → Import mail from its .mbox files).
   r.post('/restore', express.raw({ type: () => true, limit: '200mb' }), async (req, res) => {
-    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    let zip;
-    try { zip = await JSZip.loadAsync(buf); } catch { throw bad('That isn’t a .zip file'); }
-    if (!/Your Workspace data/.test(await zip.file('README.txt')?.async('string') || '')) throw bad('That isn’t a Download your data .zip from Workspace');
     // ?user=<id>: an admin bringing it into a colleague's account (Admin → Users → Bring in their data…).
     const who = whose(req);
     const user = who.id === req.user.id ? req.user : q('SELECT * FROM users WHERE id = ?').get(who.id);
-    const out = {};
-    const text = async (name) => zip.file(name)?.async('string');
-    const ics = await text('Calendar.ics');
-    if (ics) { const r2 = importCalendar(user.id, ics, String(req.query.tz || 'UTC')); out.calendar = r2.error ? { added: 0, skipped: 0 } : { added: r2.added, skipped: r2.skipped }; }
-    const vcf = await text('Contacts.vcf');
-    if (vcf && /BEGIN:VCARD/i.test(vcf)) out.contacts = importContacts(user, vcf);
-    const csv = await text('Tasks.csv');
-    if (csv) {
-      try { const r2 = importTaskLists(user, csv); out.tasks = { lists: r2.lists.length, tasks: r2.lists.reduce((n, l) => n + l.tasks, 0) }; }
-      catch (e) { if (e.status !== 400) throw e; out.tasks = { lists: 0, tasks: 0 }; } // no tasks in it
+    let entries;
+    if (req.query.file_id) {
+      // A .zip already in Drive (uploaded there, for one too big to send here): read from disk, an entry at a time.
+      const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(req.query.file_id));
+      if (!f || !atLeast(roleFor(f.id, req.user.id) || '', 'viewer')) throw notFound('File not found');
+      let dir;
+      try { dir = await unzipper.Open.file(path.join(FILES_DIR, f.storage)); } catch { throw bad('That isn’t a .zip file'); }
+      entries = dir.files.map((e) => ({ name: e.path, dir: e.type === 'Directory', size: e.uncompressedSize, buffer: () => e.buffer(), stream: () => e.stream() }));
+    } else {
+      const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      let zip;
+      try { zip = await JSZip.loadAsync(buf); } catch { throw bad('That isn’t a .zip file'); }
+      entries = Object.values(zip.files).map((e) => ({ name: e.name, dir: e.dir, buffer: () => e.async('nodebuffer'), stream: () => Readable.from((async function* () { yield await e.async('nodebuffer'); })()) })); // already in memory
     }
-    // Settings that travel with you: mail filters, email templates and event templates (each skipped if already here).
-    const tryImport = (fn) => { try { return fn(); } catch (e) { if (e.status === 400 || e.status === 403) return { added: 0, skipped: 0, error: e.message }; throw e; } };
-    const json = async (name) => { const t = await text(name); if (!t) return null; try { return JSON.parse(t); } catch { return null; } };
-    const rules = await json('Mail settings/filters.json');
-    if (Array.isArray(rules) && rules.length) { const r2 = tryImport(() => importMailRules(user, { rules })); out.filters = { added: r2.added, skipped: r2.skipped, ...(r2.error && { error: r2.error }) }; }
-    const unesc = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-    const templates = [];
-    for (const f of Object.values(zip.files).filter((x) => !x.dir && /^Mail settings\/templates\/[^/]+\.html$/.test(x.name))) {
-      const page = await f.async('string');
-      const m = /^<!doctype html><meta charset="utf-8"><title>([^<]*)<\/title>\n([\s\S]*?)\n?$/i.exec(page);
-      const name = f.name.split('/').pop().replace(/\.html$/, '');
-      const title = m ? unesc(m[1]) : '';
-      templates.push({ name, subject: title === name ? '' : title, html: m ? m[2] : page }); // the title is the subject, or the name when it had none
-    }
-    if (templates.length) out.templates = tryImport(() => importMailTemplates(user, { templates }));
-    const sigs = [];
-    for (const f of Object.values(zip.files).filter((x) => !x.dir && /^Mail settings\/signature( [^/]+)?\.html$/.test(x.name))) {
-      const m = /^Mail settings\/signature(?: ([^/]+))?\.html$/.exec(f.name);
-      sigs.push({ address: m[1] ? m[1].toLowerCase() : null, html: await f.async('string') });
-    }
-    if (sigs.length) out.signatures = importSignatures(user, sigs);
-    const evTemplates = await json('Calendar templates.json');
-    if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
-    // Drive: the Drive/ folder comes in as one new folder ("From your data 2026-11-13") with its folders and files as they were
-    // (documents as the Word, Excel or PowerPoint files they were saved as). Nothing already in your Drive is touched.
-    const driveFiles = Object.values(zip.files).filter((x) => x.name.startsWith('Drive/') && x.name !== 'Drive/' && !/(^|\/)(__MACOSX|\.DS_Store)/.test(x.name));
-    // Email: Mail/<folder>.mbox files are kept in that Drive folder too ("Mail (.mbox)") and imported into your mailbox.
-    const mailFiles = Object.values(zip.files).filter((x) => !x.dir && /^Mail\/.+\.mbox$/i.test(x.name));
-    if (driveFiles.some((x) => !x.dir) || mailFiles.length) {
-      if (driveFiles.length > 20000) throw bad('That Drive has more than 20,000 files and folders: upload its folders in Drive instead');
-      const files = [];
-      for (const f of driveFiles.filter((x) => !x.dir)) files.push({ path: f.name.slice('Drive/'.length), data: await f.async('nodebuffer') });
-      const MAILDIR = '\u0000mail'; // its own folder, even if the Drive has one called Mail
-      for (const f of mailFiles) files.push({ path: `${MAILDIR}/${f.name.slice('Mail/'.length)}`, data: await f.async('nodebuffer'), mailFolder: f.name.slice('Mail/'.length).replace(/\.mbox$/i, '') });
-      const mboxes = [];
-      checkQuota(user.org_id, files.reduce((n, f) => n + f.data.length, 0), user.id);
-      const rootName = `From your data ${new Date().toISOString().slice(0, 10)}`;
-      const written = [];
-      try {
-        tx(() => {
-          const root = insertFile({ owner: user.id, parentId: null, name: rootName, kind: 'folder' });
-          const folders = new Map([['', root]]);
-          const folderFor = (dir) => {
-            if (folders.has(dir)) return folders.get(dir);
-            const cut = dir.lastIndexOf('/');
-            const id = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : dir.slice(0, cut)), name: (dir === MAILDIR ? 'Mail (.mbox)' : dir.slice(cut + 1)).slice(0, 255) || 'Folder', kind: 'folder' });
-            folders.set(dir, id);
-            return id;
-          };
-          for (const x of driveFiles.filter((y) => y.dir)) folderFor(x.name.slice('Drive/'.length).replace(/\/$/, '')); // empty folders too
-          for (const f of files) {
-            const cut = f.path.lastIndexOf('/');
-            const storage = uid();
-            fs.writeFileSync(path.join(FILES_DIR, storage), f.data);
-            written.push(storage);
-            const fid = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : f.path.slice(0, cut)), name: f.path.slice(cut + 1).slice(0, 255), kind: 'file', mime: f.mailFolder ? 'application/mbox' : mimeFor(f.path), size: f.data.length, storage });
-            if (f.mailFolder) mboxes.push({ id: fid, folder: f.mailFolder });
-          }
-          out.drive = { folder: rootName, folder_id: root, files: files.length - mboxes.length };
-        });
-      } catch (e) { for (const w of written) fs.rmSync(path.join(FILES_DIR, w), { force: true }); throw e; }
-      sendTo([user.id], { type: 'files-changed' });
-      indexSoon();
-      if (mboxes.length) {
-        if (!mailEnabled()) out.mail = { folders: mboxes.length, started: false, error: 'Mail isn’t set up on this server: the .mbox files are in the Drive folder' };
-        else {
-          try { await startMboxImport(user, { files: mboxes }); out.mail = { folders: mboxes.length, started: true }; }
-          catch (e) { out.mail = { folders: mboxes.length, started: false, error: `${e.message}: the .mbox files are in the Drive folder, for Mail → Import mail later` }; }
-        }
-      }
-    }
-    if (Object.keys(zip.files).some((n) => n.startsWith('Notes/') && n.endsWith('.md'))) out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: buf.toString('base64') }] });
-    sendTo([user.id], { type: 'events-changed' });
+    const out = await restoreFrom(entries, user, String(req.query.tz || 'UTC'));
     audit(req, 'takeout.restore', { target: user.id === req.user.id ? null : user.username, details: out });
     res.json(out);
   });

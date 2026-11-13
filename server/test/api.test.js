@@ -12953,3 +12953,31 @@ test('takeout: an admin brings a Download your data .zip into a colleague’s ac
   assert.equal(q("SELECT target FROM audit_log WHERE action = 'takeout.restore' ORDER BY at DESC").get().target, 'adrs2@acme.com');
   assert.equal((await send(owner, 'user=nobody')).status, 404);
 });
+
+test('takeout: bring in a Download your data .zip that is in Drive (for one too big to send): read from there, a file at a time', async () => {
+  const a = client(), b = client();
+  for (const [x, local] of [[a, 'drz1'], [b, 'drz2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  const folder = (await a('POST', '/api/files/folder', { name: 'Photos' })).body;
+  const big = Buffer.alloc(300000, 7);
+  assert.equal((await a('POST', `/api/files/upload?name=beach.raw&parent=${folder.id}`, big, { raw: true, headers: { 'content-type': 'application/octet-stream' } })).status, 201);
+  await a('POST', '/api/notes', { title: 'Packing', body: 'Sun cream' });
+  const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const up = await b('POST', '/api/files/upload?name=Workspace%20data.zip', zip, { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  const r = await b('POST', `/api/takeout/restore?file_id=${up.body.id}`, undefined, {});
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.drive.files, 1);
+  assert.equal(r.body.notes.added, 1);
+  const { q } = await import('../src/db.js');
+  const photos = q("SELECT id FROM files WHERE parent_id = ? AND name = 'Photos'").get(r.body.drive.folder_id);
+  const raw = q("SELECT id, size FROM files WHERE parent_id = ? AND name = 'beach.raw'").get(photos.id);
+  assert.equal(raw.size, big.length);
+  assert.ok((await b('GET', `/api/files/${raw.id}/raw`, undefined, { binary: true })).body.equals(big), 'the same bytes');
+  assert.equal((await a('POST', `/api/takeout/restore?file_id=${up.body.id}`)).status, 404, 'only a file you can open');
+  const notZip = await b('POST', '/api/files/upload?name=x.zip', 'hello', { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal((await b('POST', `/api/takeout/restore?file_id=${notZip.body.id}`)).status, 400);
+});
