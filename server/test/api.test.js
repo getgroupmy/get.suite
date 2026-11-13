@@ -5164,6 +5164,18 @@ test('notes: reminders reach everyone on the note, then clear', async () => {
   const moved = (await a('GET', '/api/notes')).body.find((x) => x.id === n.id);
   assert.deepEqual([moved.remind_at, moved.remind_repeat], [at + 8 * 864e5, 'weekly'], 'a week later');
   assert.equal(remindNotesDue(at + 864e5 + 5000), 0, 'not again before then');
+  // Start the checklist again each time: both items unticked when it goes off (the ticked state is kept as a version).
+  assert.equal((await a('PATCH', `/api/notes/${n.id}`, { remind_reset: true })).body.remind_reset, true);
+  const cur = (await a('GET', '/api/notes')).body.find((x) => x.id === n.id);
+  await a('PATCH', `/api/notes/${n.id}`, { items: cur.items.map((i) => ({ ...i, done: true })) });
+  const versionsBefore = (await a('GET', `/api/notes/${n.id}/versions`)).body.length;
+  assert.equal(remindNotesDue(at + 8 * 864e5 + 1000), 1);
+  const reset = (await a('GET', '/api/notes')).body.find((x) => x.id === n.id);
+  assert.deepEqual(reset.items.map((i) => i.done), [false, false], 'all to do again');
+  assert.equal(reset.remind_at, at + 15 * 864e5);
+  assert.ok((await a('GET', `/api/notes/${n.id}/versions`)).body.length > versionsBefore, 'what was ticked is kept');
+  const lastBell = (await b('GET', '/api/notifications')).body.items.filter((x) => x.kind === 'note')[0];
+  assert.equal(lastBell.body, '☐ Find form\n☐ Pay', 'the fresh list');
   const off = (await a('PATCH', `/api/notes/${n.id}`, { remind_at: null })).body;
   assert.deepEqual([off.remind_at, off.remind_repeat], [null, null]);
 });

@@ -50,6 +50,8 @@ const topFor = (userId) => (q(`SELECT MAX(COALESCE(o.position, n.position)) AS p
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_at')) q('ALTER TABLE notes ADD COLUMN remind_at INTEGER').run(); // a reminder, for everyone on the note
 // A reminder can repeat (daily, weekdays, weekly, monthly) at the same time in the time zone of whoever set it.
 for (const col of ['remind_repeat', 'remind_tz']) if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === col)) q(`ALTER TABLE notes ADD COLUMN ${col} TEXT`).run();
+// remind_reset: when a repeating reminder goes off, untick the checklist so it starts again.
+if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_reset')) q('ALTER TABLE notes ADD COLUMN remind_reset INTEGER NOT NULL DEFAULT 0').run();
 
 // Pictures on a note (shown at the top of the card), stored like Drive files but not listed in Drive.
 q(`CREATE TABLE IF NOT EXISTS note_pictures (
@@ -213,7 +215,7 @@ const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE not
 function shape(n, me) {
   return {
     id: n.id, title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, color: n.color, pinned: !!n.pinned, archived: !!n.archived, trashed_at: n.trashed_at ?? null,
-    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, remind_repeat: n.remind_repeat || null, pictures: picturesOf(n.id).map((p) => p.id), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
+    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, remind_repeat: n.remind_repeat || null, remind_reset: !!n.remind_reset, pictures: picturesOf(n.id).map((p) => p.id), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
   };
@@ -284,9 +286,18 @@ export function remindNotesDue(at = now()) {
     // A repeating one moves on to its next time; the others are done.
     const next = n.remind_repeat ? nextRemind(n.remind_at, n.remind_repeat, n.remind_tz, at) : null;
     q('UPDATE notes SET remind_at = ?, remind_repeat = ? WHERE id = ?').run(next, next ? n.remind_repeat : null, n.id);
-    const items = n.items ? JSON.parse(n.items).filter((i) => !i.done).map((i) => `☐ ${i.text}`).join('\n') : '';
-    bell(team(n), { kind: 'note', title: `Reminder: ${n.title || (n.body || '').split('\n')[0].slice(0, 80) || 'a note'}`, body: (n.title ? n.body || items : items).slice(0, 200) || null, link: '/notes', actor: null });
-    tell(n);
+    // A checklist that starts again each time: everything unticked (what it was is kept in its version history).
+    if (next && n.remind_reset && n.items) {
+      const items = JSON.parse(n.items);
+      if (items.some((i) => i.done)) {
+        keepVersion(n);
+        q('UPDATE notes SET items = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(items.map((i) => ({ ...i, done: false }))), at, n.id);
+      }
+    }
+    const cur = q('SELECT * FROM notes WHERE id = ?').get(n.id); // as it is now (a reset checklist: all to do)
+    const items = cur.items ? JSON.parse(cur.items).filter((i) => !i.done).map((i) => `☐ ${i.text}`).join('\n') : '';
+    bell(team(cur), { kind: 'note', title: `Reminder: ${cur.title || (cur.body || '').split('\n')[0].slice(0, 80) || 'a note'}`, body: (cur.title ? cur.body || items : items).slice(0, 200) || null, link: '/notes', actor: null });
+    tell(cur);
   }
   return due.length;
 }
@@ -580,6 +591,7 @@ export default function noteRoutes() {
       set.remind_repeat = b.remind_repeat || null;
       if (b.remind_tz !== undefined) set.remind_tz = zoneOrUtc(String(b.remind_tz || 'UTC'));
     }
+    if (b.remind_reset !== undefined) set.remind_reset = b.remind_reset ? 1 : 0;
     if (set.remind_at === null) set.remind_repeat = null; // taking the reminder off ends its repeating
     if (set.remind_repeat && !(set.remind_at ?? n.remind_at)) throw bad('Set a time for the reminder first');
     const keys = Object.keys(set);

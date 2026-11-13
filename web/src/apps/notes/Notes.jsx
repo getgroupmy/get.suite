@@ -416,7 +416,8 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           { label: 'Pick a day and time…', onClick: () => onRemind('pick') },
           ...(n.remind_at ? [{ label: 'Remove reminder', onClick: () => onRemind(null) }, '-',
             ...REPEAT_CHOICES.map(([v, label]) => ({ label: `${(n.remind_repeat || null) === v ? '✓ ' : ''}${label}`,
-              onClick: () => onChange({ remind_repeat: v, ...(v && { remind_tz: Intl.DateTimeFormat().resolvedOptions().timeZone }) }) }))] : []),
+              onClick: () => onChange({ remind_repeat: v, ...(v && { remind_tz: Intl.DateTimeFormat().resolvedOptions().timeZone }) }) })),
+            ...(n.remind_repeat && n.items ? ['-', { label: `${n.remind_reset ? '✓ ' : ''}Untick the list each time`, onClick: () => onChange({ remind_reset: !n.remind_reset }) }] : [])] : []),
         ]} />
         <ColorPicker value={n.color || ''} onChange={(color) => onChange({ color: color || null })} />
         <PictureButton noteId={n.id} />
