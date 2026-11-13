@@ -2753,3 +2753,28 @@ test('Share in Chat: a card of an email in a conversation; only where you can wr
   const gone = (await gina('GET', `/api/chat/channels/${general}/messages`)).body.find((m) => m.id === r.body.id);
   assert.ok(!gone || !gone.email, 'no card left');
 });
+
+test('running late: guests outside the server get an email from whoever is late', async () => {
+  const planner = client();
+  await eventually(async () => (await planner('POST', '/api/auth/login', { username: 'planner@acme.com', password: 'password123' })).status === 200);
+  const outsider = 'latecomer-guest@clients-test.example';
+  const start = Date.now() + 10 * 60e3;
+  const ev = await planner('POST', '/api/events', { title: 'Supplier call', start, end: start + 30 * 60e3, guests: [outsider], tz: 'Europe/London' });
+  assert.equal(ev.status, 201, JSON.stringify(ev.body));
+  assert.equal((await planner('POST', `/api/events/${ev.body.id}/late`, { minutes: 15, at: start, tz: 'Europe/London' })).status, 200);
+  const imap = await imapLogin('planner@acme.com', 'password123');
+  try {
+    const found = await eventually(async () => {
+      const lock = await imap.getMailboxLock('INBOX');
+      try {
+        for await (const m of imap.fetch('1:*', { source: true })) {
+          const src = m.source.toString().replace(/=\r?\n/g, '').replace(/\r\n /g, '');
+          if (/Subject: Running 15 minutes late: Supplier call/.test(src)) return src;
+        }
+        return null;
+      } catch { return null; } finally { lock.release(); }
+    }, 60000);
+    assert.match(found, /Pat Planner is running 15 minutes late for:/);
+    assert.ok(found.includes(outsider), 'to the guest outside');
+  } finally { await imap.logout(); }
+});

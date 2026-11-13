@@ -1026,6 +1026,16 @@ export default function calendarRoutes() {
     const text = `${req.user.name} is running ${minutes} minutes late for “${ev.title}”`;
     bell(others, { kind: 'invite', title: `⏱ ${text}`, body: '', link: `/calendar?event=${ev.id}`, actor: req.user.name });
     sendTo(others, { type: 'running-late', text, event_id: ev.id, at });
+    // Guests outside Workspace (invited by email) get an email from you, when this server has email.
+    if (mailEnabled()) {
+      const outside = outsideOf(ev.id).filter((g) => g.status !== 'no');
+      const when = whenText({ ...ev, start: at, end: at + (ev.end - ev.start), rrule: null }, req.body?.tz || ev.tz);
+      for (const g of outside) {
+        smtpFor(req.user).sendMail({ from: { name: req.user.name, address: req.user.username }, to: g.email, subject: `Running ${minutes} minutes late: ${ev.title}`,
+          text: [`${req.user.name} is running ${minutes} minutes late for:`, '', ev.title, when, '', 'This was sent from their calendar.'].join('\n') })
+          .catch((err) => console.error('[calendar] running-late email failed:', err.message));
+      }
+    }
     res.json(lateOf(ev.id, at));
   });
 
