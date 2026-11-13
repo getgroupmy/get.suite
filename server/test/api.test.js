@@ -13867,3 +13867,42 @@ test('notes: a note copied to a document brings its pictures (copied into a Pict
   assert.equal((await a('GET', `/api/files?parent=${folder.id}`)).body.length, 3);
   assert.deepEqual([...(await a('GET', `/api/files/${pic.id}/raw`, undefined, { binary: true })).body], [...png], 'the same picture');
 });
+
+test('meet: ask colleagues to join from inside the meeting — their screen rings, the bell says so; Can’t talk tells you', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const cookieFor = async (local, name) => {
+    await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${local}@acme.com`, password: 'password123' }) });
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const host = await cookieFor('mask1', 'Ada Asker'), ben = await cookieFor('mask2', 'Ben Asked'), cy = await cookieFor('mask3', 'Cy Outside');
+  const call = (cookie, method, url, body) => fetch(base + url, { method, headers: { cookie, 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+  const { q } = await import('../src/db.js');
+  const id = (local) => q('SELECT id FROM users WHERE email = ?').get(`${local}@acme.com`).id;
+  const { code } = (await call(host, 'POST', '/api/meet', { title: 'Quick sync' })).body;
+  const listen = (cookie, path) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}${path}`, { headers: { cookie } });
+    ws.msgs = []; ws.on('message', (d) => ws.msgs.push(JSON.parse(String(d)))); ws.on('open', () => resolve(ws)); ws.on('error', reject);
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 250));
+  assert.equal((await call(host, 'POST', `/api/meet/${code}/invite`, { user_ids: [id('mask2')] })).status, 403, 'join the meeting first');
+  const inMeet = await listen(host, `/ws/meet/${code}`);
+  const hostLive = await listen(host, '/ws'), benLive = await listen(ben, '/ws');
+  try {
+    await wait();
+    const r = await call(host, 'POST', `/api/meet/${code}/invite`, { user_ids: [id('mask2')] });
+    assert.deepEqual(r.body, { asked: ['Ben Asked'], already: [] });
+    await wait();
+    const ring = benLive.msgs.find((m) => m.type === 'ring');
+    assert.deepEqual([ring.from, ring.code, ring.meeting, ring.channel_id], ['Ada Asker', code, 'Quick sync', null]);
+    const bell = (await call(ben, 'GET', '/api/notifications')).body;
+    assert.ok(JSON.stringify(bell).includes('Ada Asker is asking you to join “Quick sync”'), 'in the bell too');
+    assert.deepEqual((await call(host, 'POST', `/api/meet/${code}/invite`, { user_ids: [id('mask1')] })).body, { asked: [], already: ['Ada Asker'] }, 'not those already in it');
+    assert.equal((await call(host, 'POST', `/api/meet/${code}/invite`, { user_ids: [] })).status, 400);
+    assert.equal((await call(host, 'POST', `/api/meet/${code}/invite`, { user_ids: ['nobody'] })).status, 400);
+    assert.equal((await call(cy, 'POST', `/api/meet/${code}/invite`, { user_ids: [id('mask2')] })).status, 403, 'not for someone outside the meeting');
+    await call(ben, 'POST', `/api/meet/${code}/invite/decline`, { to: id('mask1') });
+    await wait();
+    assert.deepEqual(hostLive.msgs.filter((m) => m.type === 'ring-declined').map((m) => [m.by, m.code]), [['Ben Asked', code]]);
+  } finally { inMeet.close(); hostLive.close(); benLive.close(); }
+});

@@ -7,11 +7,13 @@ import { insertFile } from './routes/files.js';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { q } from './db.js';
-import { now, str, notFound, forbidden } from './util.js';
+import { now, str, notFound, forbidden, bad } from './util.js';
 import { makeBoard } from './meetboard.js';
 import { nextState } from './meethands.js';
 import { notify } from './notifications.js';
 import { audit } from './audit.js';
+import { sendTo } from './hub.js';
+import { canReach } from './tenancy.js';
 
 q(`CREATE TABLE IF NOT EXISTS meetings (
   code TEXT PRIMARY KEY,
@@ -193,6 +195,34 @@ export function meetRoutes() {
     }
     res.json(out);
   });
+  // Ask colleagues to join (from People, while you're in the meeting): their screen rings with Join and Can't talk
+  // (unless they've turned calls popping up off), and the bell (and phone) says so. Up to 8 at a time.
+  r.post('/:code/invite', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);
+    if (!m) throw notFound();
+    if (!userIdsIn(m.code).includes(req.user.id)) throw forbidden('Join the meeting first');
+    const ids = [...new Set(Array.isArray(req.body?.user_ids) ? req.body.user_ids.map(String) : [])];
+    if (!ids.length) throw bad('Choose who to ask');
+    if (ids.length > 8) throw bad('At most 8 at a time');
+    const here = new Set(userIdsIn(m.code));
+    const people = ids.map((id) => q('SELECT id, name, ring_off FROM users WHERE id = ? AND disabled = 0').get(id));
+    if (people.some((u) => !u || !canReach(req.user, u.id))) throw bad('You can only ask colleagues you work with');
+    const asked = people.filter((u) => u.id !== req.user.id && !here.has(u.id));
+    const title = m.title || m.code;
+    sendTo(asked.filter((u) => !u.ring_off).map((u) => u.id), { type: 'ring', from: req.user.name, from_id: req.user.id, code: m.code, channel_id: null, title: null, meeting: title });
+    notify(asked.map((u) => u.id), { kind: 'chat', title: `📞 ${req.user.name} is asking you to join “${title}”`, body: 'Tap to join the video meeting.', link: `/meet/${m.code}`, actor: req.user.name });
+    res.json({ asked: asked.map((u) => u.name), already: people.filter((u) => here.has(u.id)).map((u) => u.name) });
+  });
+  // "Can't talk" to an ask to join: the person who asked is told.
+  r.post('/:code/invite/decline', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT code FROM meetings WHERE code = ?').get(req.params.code);
+    if (!m) throw notFound();
+    const to = String(req.body?.to || '');
+    if (!userIdsIn(m.code).includes(to) || !canReach(req.user, to)) return res.json({ ok: true }); // they've gone (or aren't a colleague): nobody to tell
+    sendTo([to], { type: 'ring-declined', by: req.user.name, code: m.code });
+    res.json({ ok: true });
+  });
+
   // The kept meeting chat (see keep_chat), oldest first: for whoever started it, or anyone who was in it.
   // ?format=txt to download.
   r.get('/:code/chat', (req, res) => {

@@ -3,7 +3,7 @@
 // reactions, the meeting's chat and who's here.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { get, onLive } from '../../api.js';
+import { get, post, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -151,6 +151,32 @@ function MeetQA({ m }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Ask a colleague to join from inside the meeting: their screen rings (as a call from Chat does). */
+function AskToJoin({ code, here }) {
+  const toast = useToast();
+  const [people, setPeople] = useState([]);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { get('/users/directory').then(setPeople).catch(() => setPeople([])); }, []);
+  const choices = people.filter((p) => !here.includes(p.id));
+  const ask = async (e) => {
+    e.preventDefault();
+    const t = text.trim().toLowerCase();
+    const who = choices.find((p) => p.name.toLowerCase() === t || p.username.toLowerCase() === t || `${p.name} (${p.username})`.toLowerCase() === t);
+    if (!who) { toast('Pick a colleague from the list', 'error'); return; }
+    setBusy(true);
+    try { await post(`/meet/${code}/invite`, { user_ids: [who.id] }); toast(`Ringing ${who.name}…`); setText(''); } catch (err) { toast(err.message, 'error'); }
+    setBusy(false);
+  };
+  return (
+    <form className="row meet-ask" onSubmit={ask}>
+      <input className="grow" list="meet-ask-people" aria-label="Ask someone to join" placeholder="Ask someone to join…" value={text} onChange={(e) => setText(e.target.value)} />
+      <datalist id="meet-ask-people">{choices.map((p) => <option key={p.id} value={`${p.name} (${p.username})`} />)}</datalist>
+      <button type="submit" className="btn small" disabled={busy || !text.trim()}>📞 Ring</button>
+    </form>
   );
 }
 
@@ -544,6 +570,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
             </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : panel === 'qa' ? <MeetQA m={m} /> : panel === 'devices' ? (
               local?.stream ? <DevicePicker stream={local.stream} onPick={changeDevices} sink={sink} onSpeaker={setSink} /> : <p className="muted small">{local?.error || 'No camera or microphone is in use.'}</p>
             ) : (<>
+              {!guest && <AskToJoin code={code} here={tiles.map((t) => t.userId)} />}
               {m.host && !guest && <Breakouts m={m} goToRoom={goToRoom} />}
               <ul className="meet-people">
                 {m.host && <li className="row"><span className="grow muted small">{m.locked ? '🔒 Locked: nobody new can join. Those here can come back if they drop out.' : 'Lock the meeting to stop anyone new from joining.'}</span>
