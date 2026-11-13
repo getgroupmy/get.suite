@@ -5296,6 +5296,29 @@ test('Chat with guests: an event’s own private channel, the same each time, wi
   assert.equal(q('SELECT name FROM channels WHERE id = ?').get(second.id).name, 'supplier-review-q4-3');
 });
 
+test('Chat with the list’s people: a shared task list’s own private channel', async () => {
+  const { q } = await import('../src/db.js');
+  const ids = {};
+  for (const l of ['lista', 'listb', 'listc']) ids[l] = (await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: `List ${l}`, password: 'password123' })).body.id;
+  const a = client(), b = client(), c = client();
+  await login(a, 'lista@acme.com'); await login(b, 'listb@acme.com'); await login(c, 'listc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Office move' })).body;
+  assert.match((await a('POST', `/api/tasks/lists/${list.id}/chat`)).body.error, /Share the list with someone first/);
+  await a('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [ids.listb] });
+  assert.equal((await c('POST', `/api/tasks/lists/${list.id}/chat`)).status, 404, 'not someone off the list');
+  const made = (await b('POST', `/api/tasks/lists/${list.id}/chat`)).body;
+  assert.equal(made.created, true);
+  const ch = q('SELECT * FROM channels WHERE id = ?').get(made.id);
+  assert.deepEqual([ch.name, ch.private, ch.topic], ['office-move', 1, 'About the task list Office move']);
+  const members = () => q('SELECT user_id FROM channel_members WHERE channel_id = ?').all(made.id).map((m) => m.user_id).sort();
+  assert.deepEqual(members(), [ids.lista, ids.listb].sort());
+  assert.match((await a('GET', `/api/chat/channels/${made.id}/messages`)).body[0].body, new RegExp(`^For the task list Office move: .*/tasks/${list.id}$`));
+  await a('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [ids.listb, ids.listc] });
+  const again = (await c('POST', `/api/tasks/lists/${list.id}/chat`)).body;
+  assert.deepEqual([again.id, again.created, again.added], [made.id, false, 1]);
+  assert.deepEqual(members(), [ids.lista, ids.listb, ids.listc].sort());
+});
+
 test('start page: Drive by default, Home if chosen', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'spage', domain: 'acme.com', name: 'Start Page', password: 'password123' })).status, 201);

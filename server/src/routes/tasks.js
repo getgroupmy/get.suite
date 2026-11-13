@@ -90,6 +90,9 @@ export const MAX_MYDAY = 100;
 const peopleOn = (list) => [list.owner_id, ...q('SELECT user_id FROM task_list_members WHERE list_id = ?').all(list.id).map((r) => r.user_id)];
 const changed = (list) => sendTo(new Set(peopleOn(list)), { type: 'tasks-changed', list_id: list.id });
 
+// A shared list's own Chat channel (Chat with the list's people), once made.
+if (!q('PRAGMA table_info(task_lists)').all().some((c) => c.name === 'chat_channel_id')) q('ALTER TABLE task_lists ADD COLUMN chat_channel_id TEXT').run();
+
 function loadList(id, user, { own = false } = {}) {
   const list = q('SELECT * FROM task_lists WHERE id = ?').get(id);
   if (!list) throw notFound('List not found');
@@ -433,6 +436,20 @@ export default function taskRoutes() {
     });
     sendTo([req.user.id], { type: 'tasks-changed', list_id: id });
     res.status(201).json({ id, name, tasks: tasks.length, shift_days: shift });
+  });
+
+  // Chat with the list's people: a private channel for a shared list (its owner and members), made once; the same
+  // one after, with anyone added to the list since. For everyone on the list. { id, created, added }.
+  r.post('/lists/:id/chat', async (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const people = peopleOn(list);
+    if (people.length < 2) throw bad('Share the list with someone first');
+    const { eventChannel } = await import('./chat.js');
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const out = eventChannel(req.user, { existingId: list.chat_channel_id, title: list.name, people, link: `${base}/tasks/${list.id}`,
+      topic: `About the task list ${String(list.name).slice(0, 120)}`, intro: `For the task list ${list.name}: ${base}/tasks/${list.id}` });
+    if (out.id !== list.chat_channel_id) q('UPDATE task_lists SET chat_channel_id = ? WHERE id = ?').run(out.id, list.id);
+    res.json(out);
   });
 
   r.patch('/lists/:id', (req, res) => {

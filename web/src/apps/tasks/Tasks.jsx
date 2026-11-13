@@ -363,6 +363,9 @@ export default function Tasks() {
               { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               ...(mail?.enabled ? [{ label: 'Send by email', icon: 'mail', onClick: () => emailList(false) }, ...(done.length ? [{ label: 'Send by email, with completed', icon: 'mail', onClick: () => emailList(true) }] : [])] : []),
+              ...(list.members.length ? [{ label: 'Chat with the list’s people', icon: 'chat', onClick: async () => {
+                try { const r = await post(`/tasks/lists/${list.id}/chat`, {}); toast(r.created ? 'A channel for this list, with everyone on it' : r.added ? `Added ${r.added} more to the list’s channel` : 'The list’s channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+              } }] : []),
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); toast('Completed tasks deleted: ⋮ → Deleted tasks… puts them back'); } }] : []),
               { label: 'Deleted tasks…', icon: 'trash', onClick: () => setDialog('trash') },

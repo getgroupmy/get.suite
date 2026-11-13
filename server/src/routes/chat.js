@@ -414,11 +414,11 @@ export function postEmail(channelId, user, body, email) {
 }
 
 /**
- * An event's own private channel (Calendar → Chat with guests): made once, named after the event, with the organiser
+ * An event's (or a shared task list's) own private channel (Calendar → Chat with guests, Tasks → Chat with the list's people): made once, named after the event, with the organiser
  * and the colleagues invited; asked again, the same channel, with anyone invited since added. Returns its id.
  * existingId: the channel the event already has (if it's still there). people: user ids (same company, not disabled).
  */
-export function eventChannel(user, { existingId, title, when, people, link }) {
+export function eventChannel(user, { existingId, title, when, people, link, topic = null, intro = null }) {
   const ok = q(`SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND id IN (SELECT value FROM json_each(?))`).all(user.org_id, JSON.stringify([...new Set(people)])).map((u) => u.id);
   const members = [...new Set([user.id, ...ok])];
   const have = existingId && q('SELECT * FROM channels WHERE id = ? AND org_id = ? AND private = 1 AND archived_at IS NULL').get(existingId, user.org_id);
@@ -433,12 +433,12 @@ export function eventChannel(user, { existingId, title, when, people, link }) {
   for (let n = 2; q('SELECT 1 FROM channels WHERE name = ? AND org_id = ?').get(name, user.org_id); n++) name = `${base}-${n}`;
   const id = uid();
   tx(() => {
-    q('INSERT INTO channels (id, org_id, name, created_by, created_at, private, topic) VALUES (?, ?, ?, ?, ?, 1, ?)').run(id, user.org_id, name, user.id, now(), `About ${String(title || 'the event').slice(0, 120)}${when ? ` · ${when}` : ''}`);
+    q('INSERT INTO channels (id, org_id, name, created_by, created_at, private, topic) VALUES (?, ?, ?, ?, ?, 1, ?)').run(id, user.org_id, name, user.id, now(), topic || `About ${String(title || 'the event').slice(0, 120)}${when ? ` · ${when}` : ''}`);
     for (const m of members) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(id, m);
   });
   sendTo(members, { type: 'channels-changed' });
   const c = q('SELECT * FROM channels WHERE id = ?').get(id);
-  deliver(c, user, { body: `For ${title || 'the event'}: ${link}`, files: [], poll: null, parent: null });
+  deliver(c, user, { body: intro || `For ${title || 'the event'}: ${link}`, files: [], poll: null, parent: null });
   return { id, created: true, added: members.length };
 }
 
