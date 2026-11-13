@@ -252,6 +252,11 @@ function Shell() {
       { label: 'Can’t talk', onClick: () => post(m.channel_id ? `/chat/channels/${m.channel_id}/ring/decline` : `/meet/${m.code}/invite/decline`, { to: m.from_id, code: m.code }).catch((e) => toast(e.message, 'error')) },
     ] });
   }), [toast]);
+  // Someone on an event of yours is running late.
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'running-late') return;
+    toast(`⏱ ${m.text}`, 'info', { duration: 15000, action: { label: 'Open', onClick: () => navigate(`/calendar?event=${m.event_id}`) } });
+  }), [toast, navigate]);
   // Someone booked time with you through a booking page.
   useEffect(() => onLive((m) => {
     if (m.type !== 'booking-made') return;

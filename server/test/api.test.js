@@ -13935,3 +13935,29 @@ test('meet: on a calendar event, who is invited and not in the meeting yet (not 
     assert.deepEqual((await call(yes, 'GET', `/api/meet/${code}/missing`)).body.map((u) => u.name), ['Ann Organiser', 'Dan Pending'], 'the organiser too, once gone');
   } finally { solo.close(); }
 });
+
+test('calendar: running late — the organiser or a guest says by how much; the others are told; shown for that time of it', async () => {
+  const a = client(), b = client(), c = client(), d = client();
+  for (const [x, local] of [[a, 'late1'], [b, 'late2'], [c, 'late3'], [d, 'late4']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+    await login(x, `${local}@acme.com`);
+  }
+  const start = Date.now() + 10 * 60e3;
+  const ev = (await a('POST', '/api/events', { title: 'Standup', start, end: start + 30 * 60e3, guests: ['late2@acme.com', 'late3@acme.com'] })).body;
+  const later = (await a('POST', '/api/events', { title: 'Tomorrow', start: start + 864e5, end: start + 864e5 + 60e3, guests: ['late2@acme.com'] })).body;
+  assert.equal((await b('POST', `/api/events/${later.id}/late`, { minutes: 5 })).status, 400, 'not a day before');
+  assert.equal((await b('POST', `/api/events/${ev.id}/late`, { minutes: 7 })).status, 400, 'one of the choices');
+  assert.equal((await d('POST', `/api/events/${ev.id}/late`, { minutes: 5 })).status, 404, 'not for people not on it');
+  const r = await b('POST', `/api/events/${ev.id}/late`, { minutes: 10, at: start });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.map((x) => [x.name, x.minutes]), [['late2', 10]]);
+  for (const [who, told] of [[a, true], [c, true], [b, false]]) {
+    const bell = JSON.stringify((await who('GET', '/api/notifications')).body);
+    assert.equal(bell.includes('late2 is running 10 minutes late for “Standup”'), told);
+  }
+  await b('POST', `/api/events/${ev.id}/late`, { minutes: 15, at: start });
+  assert.deepEqual((await c('GET', `/api/events/${ev.id}/late?at=${start}`)).body.map((x) => [x.name, x.minutes]), [['late2', 15]], 'changed, not added');
+  assert.equal((await d('GET', `/api/events/${ev.id}/late?at=${start}`)).status, 404);
+  await c('POST', `/api/events/${ev.id}/rsvp`, { status: 'no' });
+  assert.equal((await c('POST', `/api/events/${ev.id}/late`, { minutes: 5 })).status, 404, 'not when you said no');
+});

@@ -897,6 +897,32 @@ function MeetLine({ code, onRemove, live }) {
   );
 }
 
+/**
+ * Running late: from half an hour before an event until it ends, say by how much (everyone else on it is told),
+ * and see who else is (for this time of a repeating event).
+ */
+function RunningLate({ event }) {
+  const toast = useToast();
+  const [late, setLate] = useState([]);
+  const at = event.start;
+  useEffect(() => { if (event.id) get(`/events/${event.id}/late?at=${at}`).then(setLate).catch(() => setLate([])); }, [event.id, at]);
+  useEffect(() => onLive((m) => { if (m.type === 'running-late' && m.event_id === event.id && m.at === at) get(`/events/${event.id}/late?at=${at}`).then(setLate).catch(() => {}); }), [event.id, at]);
+  if (!event.id) return null;
+  const now = Date.now();
+  const open = now >= at - 30 * 60e3 && now <= event.end && event.my_status !== 'no';
+  if (!open && !late.length) return null;
+  const say = async (minutes) => {
+    try { setLate(await post(`/events/${event.id}/late`, { minutes, at })); toast(`Everyone on it knows you’re running ${minutes} minutes late`); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <div className="row wrap" role="group" aria-label="Running late" style={{ gap: 8 }}>
+      {late.map((l) => <span key={l.user_id} className="pill">⏱ {l.name}: {l.minutes} min late</span>)}
+      {open && <Menu trigger={(p) => <button type="button" className="btn small" {...p}>⏱ Running late</button>}
+        items={[5, 10, 15, 30].map((n) => ({ label: `${n} minutes late`, onClick: () => say(n) }))} />}
+    </div>
+  );
+}
+
 /** Copies the event's address (for a repeating one, of this time of it), to paste in Chat, an email or a document. */
 /** ✉ Email guests: a new email in Mail to everyone on the event (but you), about it. Only with this server's email on. */
 function EmailGuests({ event, className, guestView = false }) {
@@ -972,6 +998,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <p style={{ margin: 0 }}>{whenLabel(event)}{event.rrule && <><br /><span className="muted small">{describeRule(event.rrule, event.seriesStart ?? event.start)}</span></>}</p>
         {event.location && <p style={{ margin: 0 }}><span className="muted">Where:</span> {event.location}</p>}
         {event.meet_code && <MeetLine code={event.meet_code} live={event.meet_live} />}
+        <RunningLate event={event} />
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
         <Attachments list={event.attachments} />
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
@@ -1575,6 +1602,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
         {!special && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
         {!special && (meet ? <MeetLine code={meet} live={meet === event.meet_code ? event.meet_live : null} onRemove={() => setMeet(null)} />
           : <div><button type="button" className="btn" onClick={addMeet}><Icon name="video" size={18} /> Add video meeting</button></div>)}
+        {!special && event.id && <RunningLate event={event} />}
         <label className="field"><span>{f.ooo ? 'Message for people who invite you' : 'Description'}</span><textarea rows={3} value={f.description} onChange={set('description')} placeholder={f.ooo ? 'e.g. On holiday until Monday 9th; for anything urgent, ask Kim.' : undefined} /></label>
         {!special && (
           <div className="field"><span>Attachments</span>

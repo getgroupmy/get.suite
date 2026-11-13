@@ -200,6 +200,18 @@ if (!q('PRAGMA table_info(events)').all().some((c) => c.name === 'chat_channel_i
 const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status, g.proposed_start, g.proposed_end, g.proposal_note, g.answer_note, g.join_how FROM event_guests g JOIN users u ON u.id = g.user_id
                                   WHERE g.event_id = ? ORDER BY u.name`).all(eventId);
 
+// Who said they're running late, per time of an event (the occurrence's start).
+q(`CREATE TABLE IF NOT EXISTS event_late (
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  occurrence INTEGER NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  minutes INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (event_id, occurrence, user_id)
+)`).run();
+const lateOf = (eventId, occurrence) => q(`SELECT l.user_id, u.name, l.minutes, l.at FROM event_late l JOIN users u ON u.id = l.user_id
+  WHERE l.event_id = ? AND l.occurrence = ? ORDER BY l.at`).all(eventId, occurrence).map((x) => ({ ...x }));
+
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const ourDomain = (email) => !!q('SELECT 1 FROM domains WHERE name = ?').get(email.split('@')[1]);
 
@@ -989,6 +1001,34 @@ export default function calendarRoutes() {
   });
 
   // A guest's answer: yes, maybe or no.
+  // Running late (from half an hour before until it ends): the organiser or a guest says by how much; everyone
+  // else on the event is told (bell and a pop-up), and the event shows it for that time of it. at: the start of
+  // the time of it (for a repeating event, the occurrence).
+  r.get('/:id/late', (req, res) => {
+    const ev = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    if (!ev || !mayOpenEvent(ev, req.user.id)) throw notFound();
+    const at = Number(req.query.at) || ev.start;
+    res.json(lateOf(ev.id, at));
+  });
+  r.post('/:id/late', (req, res) => {
+    const ev = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    if (!ev) throw notFound();
+    const guests = q("SELECT user_id FROM event_guests WHERE event_id = ? AND status != 'no'").all(ev.id).map((g) => g.user_id);
+    if (ev.owner_id !== req.user.id && !guests.includes(req.user.id)) throw notFound();
+    const minutes = Number(req.body?.minutes);
+    if (![5, 10, 15, 30].includes(minutes)) throw bad('Running 5, 10, 15 or 30 minutes late');
+    const at = Number(req.body?.at) || ev.start;
+    const t = Date.now();
+    if (t < at - 30 * 60e3 || t > at + (ev.end - ev.start)) throw bad('You can say you’re running late from half an hour before it starts until it ends');
+    q(`INSERT INTO event_late (event_id, occurrence, user_id, minutes, at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (event_id, occurrence, user_id) DO UPDATE SET minutes = excluded.minutes, at = excluded.at`).run(ev.id, at, req.user.id, minutes, t);
+    const others = [...new Set([ev.owner_id, ...guests])].filter((id) => id !== req.user.id);
+    const text = `${req.user.name} is running ${minutes} minutes late for “${ev.title}”`;
+    bell(others, { kind: 'invite', title: `⏱ ${text}`, body: '', link: `/calendar?event=${ev.id}`, actor: req.user.name });
+    sendTo(others, { type: 'running-late', text, event_id: ev.id, at });
+    res.json(lateOf(ev.id, at));
+  });
+
   r.post('/:id/rsvp', (req, res) => {
     const status = String(req.body.status || '');
     if (!ANSWERS.includes(status)) throw bad('Answer yes, maybe or no');
