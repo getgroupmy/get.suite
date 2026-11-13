@@ -193,6 +193,23 @@ export function linkRoutes() {
     res.json({ stopped, shortened });
   });
 
+  // The same list as a spreadsheet (CSV), for an audit: every link, expired ones too.
+  r.get('/all.csv', requireAdmin, (req, res) => {
+    const cell = (v) => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+    const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
+    const rows = q(`SELECT l.*, f.name AS file_name, f.kind AS file_kind, f.trashed, u.name AS owner_name, u.username AS owner_email
+                    FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by
+                    WHERE u.org_id = ? ORDER BY l.created_at DESC`).all(req.user.org_id);
+    const lines = [['File or folder', 'Kind', 'Made by', 'Email', 'Link', 'Password', 'Made (UTC)', 'Works until (UTC)', 'Expired', 'Opened', 'Last opened (UTC)', 'In the trash'].join(',')];
+    for (const l of rows) {
+      const d = describeLink(l);
+      lines.push([l.file_name, d.mode === 'upload' ? 'File request' : `View and download (${l.file_kind})`, l.owner_name, l.owner_email, `/s/${l.token}`, d.has_password ? 'yes' : 'no',
+        iso(l.created_at), l.expires_at ? iso(l.expires_at) : 'no expiry', d.expired ? 'yes' : 'no', l.opens || 0, iso(l.last_opened), l.trashed ? 'yes' : 'no'].map(cell).join(','));
+    }
+    audit(req, 'link.export', { details: { links: rows.length } });
+    res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', 'attachment; filename="share-links.csv"').send(`\ufeff${lines.join('\r\n')}\r\n`);
+  });
+
   r.delete('/:id', (req, res) => {
     const l = q('SELECT * FROM share_links WHERE id = ?').get(req.params.id);
     if (!l) throw notFound('Link not found');

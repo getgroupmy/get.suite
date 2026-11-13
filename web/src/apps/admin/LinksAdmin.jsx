@@ -25,6 +25,7 @@ export default function LinksAdmin() {
         <div className="row wrap"><span className="grow small">{breaking.length} working link{breaking.length === 1 ? '' : 's'} made before your company’s rules {breaking.length === 1 ? 'doesn’t' : 'don’t'} follow them.</span>
           <button type="button" className="btn" onClick={() => setEnforcing(true)}>Apply the rules to existing links…</button></div>
       )}
+      <div className="row wrap" style={{ gap: 12 }}><span className="grow" /><a className="btn small" href="/api/links/all.csv" download><Icon name="download" size={16} /> Download (CSV)</a></div>
       <label className="check"><input type="checkbox" checked={expired} onChange={(e) => setExpired(e.target.checked)} /> Show expired links too</label>
       {links === null ? <p className="muted">Loading…</p> : !links.length ? <p className="muted">No {expired ? '' : 'working '}links.</p> : (
         <div className="card" style={{ padding: 0 }}>

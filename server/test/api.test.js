@@ -582,6 +582,19 @@ test('share link rules applied to existing links: no password → stopped, too l
   assert.match(n, /Your share links now follow the company’s rules/);
   assert.match(n, /stopped 1 link without a password \(plan\.pdf\) and shortened 1 to 10 days \(plan\.pdf\)/);
   assert.deepEqual((await eva('POST', '/api/links/enforce')).body, { stopped: 0, shortened: 0 }, 'nothing left to do');
+  // The list as CSV, for admins: every link (an expired one too), with what it is and who made it.
+  assert.equal((await ned('GET', '/api/links/all.csv')).status, 403);
+  const { q } = await import('../src/db.js');
+  await ned('POST', '/api/links', { file_id: file.id, password: 'pass-1234', expires_at: Date.now() + 864e5 });
+  q("UPDATE files SET name = '=HYPERLINK(1)' WHERE id = ?").run(file.id);
+  const csv = await eva('GET', '/api/links/all.csv');
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get('content-disposition'), /share-links\.csv/);
+  const lines = String(csv.body).replace(/^\ufeff/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'File or folder,Kind,Made by,Email,Link,Password,Made (UTC),Works until (UTC),Expired,Opened,Last opened (UTC),In the trash');
+  assert.equal(lines.length, 4, 'three links, one per line');
+  assert.ok(lines.slice(1).every((l) => l.startsWith("'=HYPERLINK(1),View and download (file),Ned Maker,ned@enforce.com,/s/")), 'a formula is made plain');
+  assert.ok(lines.some((l) => /,yes,.*,no,0,,no$/.test(l)), 'a password link');
 });
 
 test('share links about to end: the owner is told once, a day before; extending it warns again later', async () => {
