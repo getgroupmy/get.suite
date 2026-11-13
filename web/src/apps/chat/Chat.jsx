@@ -1418,6 +1418,7 @@ const taskOf = (id) => {
 
 /** Links to tasks in a message, shown as cards: done or not, the list, who it's for, when it's due. */
 function TaskCards({ text }) {
+  const toast = useToast();
   const links = taskLinksIn(text);
   const [info, setInfo] = useState({});
   useEffect(() => {
@@ -1434,12 +1435,25 @@ function TaskCards({ text }) {
         if (!x) return <div key={l.id} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">A task you can’t see (it’s on a list you’re not on, or it was deleted)</span></div>;
         const due = x.due && !x.done ? dueLabel(x.due, new Date(), x.due_time) : null;
         const status = x.done ? 'Done' : x.started ? 'In progress' : 'To do';
+        // Tick it off (or back) right here: everyone on its list can.
+        const setDone = async (done) => {
+          try {
+            await patch(`/tasks/tasks/${x.id}`, { done });
+            taskInfo.delete(x.id);
+            const fresh = await taskOf(x.id);
+            setInfo((st) => ({ ...st, [l.id]: fresh }));
+            toast(done ? `Done: ${x.title}` : `Not done yet: ${x.title}`);
+          } catch (e) { toast(e.message, 'error'); }
+        };
         return (
-          <Link key={l.id} className={`msg-card task-card ${x.done ? 'done' : ''}`} to={`/tasks/${x.list_id}?task=${x.id}`} aria-label={`Task: ${x.title} (${status})`}>
-            <span className="msg-card-meta"><span aria-hidden="true">{x.done ? '✅' : '☐'}</span> <strong>{x.title}</strong>{x.important && <span aria-label="Important"> ★</span>}</span>
-            <span className="muted small">{[status, x.list_name, x.assignee_name && `for ${x.assignee_name}`, x.steps && `☑ ${x.steps.done}/${x.steps.total}`, x.comments > 0 && `💬 ${x.comments}`].filter(Boolean).join(' · ')}
-              {due && <> · <span className={due.tone === 'late' ? 'task-card-late' : ''}>Due {due.text}</span></>}</span>
-          </Link>
+          <div key={l.id} className="task-card-wrap">
+            <Link className={`msg-card task-card ${x.done ? 'done' : ''}`} to={`/tasks/${x.list_id}?task=${x.id}`} aria-label={`Task: ${x.title} (${status})`}>
+              <span className="msg-card-meta"><span aria-hidden="true">{x.done ? '✅' : '☐'}</span> <strong>{x.title}</strong>{x.important && <span aria-label="Important"> ★</span>}</span>
+              <span className="muted small">{[status, x.list_name, x.assignee_name && `for ${x.assignee_name}`, x.steps && `☑ ${x.steps.done}/${x.steps.total}`, x.comments > 0 && `💬 ${x.comments}`].filter(Boolean).join(' · ')}
+                {due && <> · <span className={due.tone === 'late' ? 'task-card-late' : ''}>Due {due.text}</span></>}</span>
+            </Link>
+            <button type="button" className="btn small" style={{ marginTop: 4 }} aria-label={`${x.done ? 'Mark not done' : 'Mark done'}: ${x.title}`} onClick={() => setDone(!x.done)}>{x.done ? '↺ Not done yet' : '✓ Mark done'}</button>
+          </div>
         );
       })}
     </div>
