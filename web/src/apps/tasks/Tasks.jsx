@@ -135,8 +135,10 @@ export default function Tasks() {
   const done = (tasks || []).filter((t) => t.done);
   const mail = useMailStatus();
   /** A new email in Mail with the list in it (handed over in this browser's storage, as Docs and Notes do). */
-  const emailList = (withDone) => {
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(listEmail(list.name, open, done, { withDone, link: `${window.location.origin}/tasks/${list.id}` }))); }
+  const emailList = (withDone, only = null) => {
+    const pick = (l) => (only ? l.filter((t) => only.has(t.id)) : l);
+    const name = list?.name || 'Tasks';
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(listEmail(name, pick(open), pick(done), { withDone, link: list ? `${window.location.origin}/tasks/${list.id}` : '' }))); }
     catch { toast('Your browser’s storage is off', 'error'); return; }
     navigate('/mail?compose_doc=1');
   };
@@ -411,6 +413,7 @@ export default function Tasks() {
               <option value="">Move to…</option>
               {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
+            {mail?.enabled && <button type="button" className="btn small" disabled={!picked.size} title="A new email with just these tasks in it, as a list's email has them" onClick={() => emailList(true, picked)}><Icon name="mail" size={16} /> Email</button>}
             <button type="button" className="btn small" disabled={!picked.size} title="Just these tasks, printed (or saved as PDF) as a list prints"
               onClick={() => printHtml(listPrintHtml(list?.name || 'Tasks', open.filter((t) => picked.has(t.id)), done.filter((t) => picked.has(t.id))))}><Icon name="print" size={16} /> Print</button>
             <button type="button" className="btn small" disabled={!picked.size} title="Just these tasks as a spreadsheet (CSV), in the same columns as a list's download"
