@@ -403,6 +403,11 @@ export default function Chat() {
     } catch (err) { toast(err.message, 'error'); }
   }
 
+  const [slashPick, setSlashPick] = useState(0); // the highlighted command in the / list
+  const [slashShut, setSlashShut] = useState(false); // closed with Escape, until you type again
+  useEffect(() => { setSlashPick(0); setSlashShut(false); }, [text]);
+  const slashShown = (t) => (slashShut ? [] : slashSuggestions(t));
+  const pickSlash = (c) => { setText(`/${c.cmd}${c.cmd === 'meet' ? '' : ' '}`); box.current?.focus(); };
   async function send(e) {
     e.preventDefault();
     const body = text.trim();
@@ -868,15 +873,23 @@ export default function Chat() {
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
-            {slashSuggestions(text).length > 0 && (
+            {slashShown(text).length > 0 && (
               <ul className="slash-list" role="listbox" aria-label="Commands">
-                {slashSuggestions(text).map((c) => <li key={c.cmd}><button type="button" role="option" aria-selected="false" onClick={() => { const v = `/${c.cmd}${c.cmd === 'meet' ? '' : ' '}`; setText(v); box.current?.focus(); }}><strong>{c.hint}</strong> <span className="muted small">{c.what}</span></button></li>)}
+                {slashShown(text).map((c, i) => <li key={c.cmd}><button type="button" role="option" aria-selected={i === slashPick} className={i === slashPick ? 'on' : ''} onClick={() => pickSlash(c)}><strong>{c.hint}</strong> <span className="muted small">{c.what}</span></button></li>)}
               </ul>
             )}
             <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); keepDraft(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => {
                 if (mention.keyDown(e)) return;
+                // The command list: ↑ ↓ move, Tab or Enter picks, Escape closes it.
+                const sugg = slashShown(text);
+                const whole = sugg.length === 1 && text.trim() === `/${sugg[0].cmd}` && sugg[0].cmd === 'meet'; // nothing more to type: Enter sends it
+                if (sugg.length && !e.shiftKey && !(whole && e.key === 'Enter')) {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setSlashPick((i) => (i + (e.key === 'ArrowDown' ? 1 : sugg.length - 1)) % sugg.length); return; }
+                  if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); pickSlash(sugg[Math.min(slashPick, sugg.length - 1)]); return; }
+                    if (e.key === 'Escape') { e.preventDefault(); setSlashShut(true); return; }
+                }
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e);
                 else if (e.key === 'ArrowUp' && !text && !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && !current?.archived_at) {
                   // ↑ in an empty box changes your last message
