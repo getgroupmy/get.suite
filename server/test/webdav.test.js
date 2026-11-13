@@ -8,10 +8,12 @@ import http from 'node:http';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-webdav-'));
 process.env.DATA_DIR = dir;
 const { createApp } = await import('../src/app.js');
+const { attachHub } = await import('../src/hub.js');
 
 let server, base, cookie, kimId;
 before(async () => {
   server = http.createServer(createApp({ maxUploadBytes: 1024 * 1024 }));
+  attachHub(server);
   await new Promise((r) => server.listen(0, r));
   base = `http://127.0.0.1:${server.address().port}`;
   const s = await fetch(`${base}/api/auth/setup`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ org_name: 'Acme', domain: 'acme.com', name: 'Pat', local: 'pat', password: 'password123' }) });
@@ -127,4 +129,34 @@ test('shared drives: their own folder, members read and write, the drive itself 
   assert.equal((await dav('DELETE', '/dav/files/Shared%20drives/Finance/', { user: 'kim' })).status, 403, 'only its owner deletes it');
   assert.equal((await dav('MOVE', '/dav/files/Shared%20drives/Finance/', { headers: { destination: '/dav/files/Finance/' } })).status, 403);
   assert.equal((await dav('MOVE', '/dav/files/Shared%20drives/Finance/budget.csv', { headers: { destination: '/dav/files/Shared%20drives/Finance/budget-2026.csv' }, user: 'kim' })).status, 201, 'files inside move as usual');
+});
+
+test('deleting or overwriting a file through the network drive tells the Chat conversations it was sent in', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kimCookie = (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const ws = await new Promise((resolve, reject) => {
+    const w = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie: kimCookie } });
+    w.msgs = []; w.on('message', (d) => w.msgs.push(JSON.parse(String(d)))); w.on('open', () => resolve(w)); w.on('error', reject);
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  try {
+    assert.equal((await dav('MKCOL', '/dav/files/ChatGone')).status, 201);
+    await dav('PUT', '/dav/files/ChatGone/a.txt', { body: 'a' });
+    await dav('PUT', '/dav/files/ChatGone/b.txt', { body: 'b' });
+    await dav('PUT', '/dav/files/ChatGone/c.txt', { body: 'c' });
+    const folder = (await api('GET', '/api/files')).body.find((f) => f.name === 'ChatGone');
+    const ids = Object.fromEntries((await api('GET', `/api/files?parent=${folder.id}`)).body.map((f) => [f.name, f.id]));
+    const dm = (await api('POST', '/api/chat/dm', { user_id: kimId })).body.id;
+    const m = (await api('POST', `/api/chat/channels/${dm}/messages`, { body: 'files', files: [ids['a.txt'], ids['b.txt']] })).body;
+    const gone = () => ws.msgs.filter((x) => x.type === 'chat-file-state').map((x) => [x.file_id, x.gone, x.message_ids.join()]);
+
+    assert.equal((await dav('DELETE', '/dav/files/ChatGone/a.txt')).status, 204);
+    await wait();
+    assert.deepEqual(gone(), [[ids['a.txt'], true, m.id]], 'deleted');
+    assert.equal((await dav('MOVE', '/dav/files/ChatGone/c.txt', { headers: { destination: '/dav/files/ChatGone/b.txt', overwrite: 'T' } })).status, 204);
+    await wait();
+    assert.deepEqual(gone().at(-1), [ids['b.txt'], true, m.id], 'replaced by a move');
+    const shown = (await api('GET', `/api/chat/channels/${dm}/messages`, undefined, kimCookie)).body.find((x) => x.id === m.id);
+    assert.deepEqual(shown.files.map((f) => !!f.gone), [true, true]);
+  } finally { ws.close(); }
 });
