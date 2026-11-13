@@ -767,7 +767,7 @@ export default function noteRoutes() {
     res.status(201).json(shape(c, req.user.id));
   });
 
-  // A copy as a document in your Drive: the title as a heading, text as paragraphs, a checklist as tick boxes.
+  // A copy as a document in your Drive: the title as a heading, text as paragraphs, a checklist as tick boxes, then its pictures.
   r.post('/:id/doc', (req, res) => {
     const n = load(req.params.id, req.user);
     const para = (text) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}) });
@@ -777,9 +777,22 @@ export default function noteRoutes() {
       ...(items ? (items.length ? [{ type: 'taskList', content: taskItems(items, para) }] : [])
         : String(n.body || '').split('\n').map((line) => para(line))),
     ];
-    const json = JSON.stringify({ type: 'doc', content: content.length ? content : [para('')] });
-    const id = insertFile({ owner: req.user.id, parentId: null, name: (n.title || (n.body || '').split('\n')[0] || 'Note').slice(0, 120), kind: 'doc', content: json, size: Buffer.byteLength(json) });
-    res.status(201).json({ id });
+    // Its pictures come too: each copied into your My Drive (as a picture put in a document is), shown after the text.
+    const pics = q('SELECT * FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(n.id);
+    checkQuota(req.user.org_id, pics.reduce((t, p) => t + p.size, 0), req.user.id);
+    const name = (n.title || (n.body || '').split('\n')[0] || 'Note').slice(0, 120);
+    const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+    const images = [];
+    for (const [i, p] of pics.entries()) {
+      const storage = uid();
+      try { fs.copyFileSync(path.join(FILES_DIR, p.storage), path.join(FILES_DIR, storage)); } catch { continue; }
+      const fileId = insertFile({ owner: req.user.id, parentId: null, name: `${name} – picture ${i + 1}.${ext[p.mime] || 'png'}`, kind: 'file', mime: p.mime, size: p.size, storage });
+      images.push({ type: 'image', attrs: { fileId, alt: `${name} – picture ${i + 1}` } });
+    }
+    const all = [...content, ...images];
+    const json = JSON.stringify({ type: 'doc', content: all.length ? all : [para('')] });
+    const id = insertFile({ owner: req.user.id, parentId: null, name, kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, pictures: images.length });
   });
 
   // The checklist's unticked items (or the note itself) as tasks on your first list.

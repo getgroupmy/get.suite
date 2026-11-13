@@ -13822,3 +13822,20 @@ test('meet: search kept meeting chats — all the words, only meetings you start
   assert.deepEqual((await find(a, 'Café')).map((x) => x.text), ['Réunion au CAFÉ demain'], 'both ways');
   assert.deepEqual((await find(a, 'συναντηση')).map((x) => x.text), ['ΣΥΝΑΝΤΗΣΗ αύριο'], 'other alphabets too');
 });
+
+test('notes: a note copied to a document brings its pictures (copied into My Drive, shown after the text)', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'npic1', domain: 'acme.com', name: 'npic1', password: 'password123' })).status, 201);
+  await login(a, 'npic1@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Whiteboard', body: 'From the meeting' })).body;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  for (let i = 0; i < 2; i++) assert.equal((await a('POST', `/api/notes/${n.id}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } })).status, 201);
+  const d = (await a('POST', `/api/notes/${n.id}/doc`)).body;
+  assert.equal(d.pictures, 2);
+  const doc = (await a('GET', `/api/files/${d.id}/content`)).body.content;
+  assert.deepEqual(doc.content.map((x) => x.type), ['heading', 'paragraph', 'image', 'image'], 'pictures after the text');
+  const mine = (await a('GET', '/api/files')).body;
+  const pic = mine.find((f) => f.id === doc.content[2].attrs.fileId);
+  assert.deepEqual([pic.name, pic.mime, pic.role], ['Whiteboard – picture 1.png', 'image/png', 'owner'], 'a picture of yours in My Drive');
+  assert.deepEqual([...(await a('GET', `/api/files/${pic.id}/raw`, undefined, { binary: true })).body], [...png], 'the same picture');
+});

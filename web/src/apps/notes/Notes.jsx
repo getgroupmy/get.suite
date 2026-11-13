@@ -151,7 +151,7 @@ export default function Notes() {
     onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
     onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onChat={() => setChatting([n])} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
-    onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast('Copied to a new document in My Drive', 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
+    onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast(`Copied to a new document in My Drive${d.pictures ? `, with its ${d.pictures === 1 ? 'picture' : `${d.pictures} pictures`}` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
   return (
