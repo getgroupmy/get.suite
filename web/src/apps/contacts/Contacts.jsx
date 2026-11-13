@@ -4,6 +4,8 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
+import { printHtml } from '../mail/mailprint.js';
+import { contactsPrintHtml } from './contactprint.js';
 import { useAuth } from '../../App.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { parseAddresses, formatAddress } from '../../components/addresses.js';
@@ -143,6 +145,7 @@ export default function Contacts() {
         <Menu trigger={(p) => <button className="btn" {...p}><Icon name="download" size={18} /> Export</button>} items={[
           { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=vcf'; } },
           { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=csv'; } },
+          { label: 'Print the list', icon: 'print', onClick: () => printHtml(contactsPrintHtml(contacts || [], { title: 'My contacts' })) },
         ]} />
         <button className="btn" onClick={() => setMerging(true)} title="Find contacts that are the same person and merge them">Merge duplicates</button>
         {remind && <Menu trigger={(p) => <button className="btn" title="Birthday and date reminders" {...p}>🎂 Reminders{remind !== 'off' ? ' · on' : ''}</button>} items={[
@@ -202,6 +205,7 @@ export default function Contacts() {
                 { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?ids=${[...picked].join(',')}`; } },
                 { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?format=csv&ids=${[...picked].join(',')}`; } },
               ]} />
+              <button type="button" className="btn small" onClick={() => printHtml(contactsPrintHtml(chosen, { title: 'Contacts' }))}><Icon name="print" size={16} /> Print</button>
               <button type="button" className="btn small danger" onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
               <button type="button" className="link-btn small" onClick={() => setPicked(new Set())}>Clear</button>
             </div></caption>
