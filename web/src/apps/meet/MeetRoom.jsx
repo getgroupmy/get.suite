@@ -11,7 +11,7 @@ import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
 import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
-import { savedDevices, saveDevices, deviceAsks, deviceLists } from './devices.js';
+import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker } from './devices.js';
 import { noPhotos } from '../../components/photos.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
@@ -154,8 +154,8 @@ function MeetQA({ m }) {
 }
 
 /** Camera and microphone choices (the lobby, and ⚙ in the meeting). The list follows devices plugged in or out. */
-function DevicePicker({ stream, onPick }) {
-  const [lists, setLists] = useState({ mics: [], cams: [] });
+function DevicePicker({ stream, onPick, sink, onSpeaker }) {
+  const [lists, setLists] = useState({ mics: [], cams: [], spks: [] });
   useEffect(() => {
     const md = navigator.mediaDevices;
     if (!md?.enumerateDevices) return undefined;
@@ -165,7 +165,7 @@ function DevicePicker({ stream, onPick }) {
     return () => md.removeEventListener?.('devicechange', load);
   }, [stream]);
   const using = (kind) => stream?.[kind === 'mic' ? 'getAudioTracks' : 'getVideoTracks']()[0]?.getSettings?.().deviceId || '';
-  const pick = (kind, id) => { const next = { ...savedDevices(), [kind]: id }; saveDevices(next); onPick(next); };
+  const pick = (kind, id) => { const next = { ...savedDevices(), [kind]: id }; saveDevices(next); if (kind === 'spk') onSpeaker?.(id); else onPick(next); };
   return (
     <div className="stack meet-devices" style={{ gap: 6 }}>
       <label className="field"><span className="small">Camera</span>
@@ -178,6 +178,10 @@ function DevicePicker({ stream, onPick }) {
           {!lists.mics.length && <option value="">No microphone found</option>}
           {lists.mics.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
         </select></label>
+      {onSpeaker && canPickSpeaker() && lists.spks.length > 0 && <label className="field"><span className="small">Speaker</span>
+        <select aria-label="Speaker" value={lists.spks.some((d) => d.id === sink) ? sink : lists.spks[0].id} onChange={(e) => pick('spk', e.target.value)}>
+          {lists.spks.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+        </select></label>}
     </div>
   );
 }
@@ -192,9 +196,11 @@ async function openDevices(choice = savedDevices()) {
 
 const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 
-function Video({ stream, muted, mirror, label }) {
+function Video({ stream, muted, mirror, label, sink }) {
   const ref = useRef();
   useEffect(() => { if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream || null; }, [stream]);
+  // The speaker chosen in ⚙ (where the browser can choose; '' is its default).
+  useEffect(() => { if (!muted && sink !== undefined && ref.current?.setSinkId && ref.current.sinkId !== sink) ref.current.setSinkId(sink).catch(() => {}); }, [sink, muted, stream]);
   return <video ref={ref} autoPlay playsInline muted={muted} aria-label={label} className={mirror ? 'mirror' : ''} />;
 }
 
@@ -214,6 +220,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
   const [local, setLocal] = useState(null); // { stream, error }
+  const [sink, setSink] = useState(() => savedDevices().spk); // the speaker others are heard on
   const [mic, setMic] = useState(true);
   const [cam, setCam] = useState(true);
   const [phase, setPhase] = useState('lobby'); // lobby | call | left
@@ -380,7 +387,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
             {info?.title && <p className="muted" style={{ margin: 0 }}>Ready to join?</p>}
             <p style={{ margin: 0 }}>{info ? whoIsHere(names) : 'Checking who’s here…'}</p>
             {local?.error && <p className="muted small" style={{ margin: 0 }}>{local.error}</p>}
-            {local?.stream && <DevicePicker stream={local.stream} onPick={changeDevices} />}
+            {local?.stream && <DevicePicker stream={local.stream} onPick={changeDevices} sink={sink} onSpeaker={setSink} />}
             {guest && <>
               {info?.company && <p className="muted small" style={{ margin: 0 }}>A meeting at {info.company}. You’re joining as a guest: someone in the meeting lets you in.</p>}
               <label className="stack" style={{ gap: 4 }}><span className="small">Your name</span>
@@ -443,7 +450,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                   aria-label={hostSpot === t.id ? 'Stop the spotlight' : `Spotlight ${t.me ? 'yourself' : t.name} for everyone`} title={hostSpot === t.id ? 'Stop the spotlight' : 'Spotlight: show big for everyone'}
                   onClick={() => m.setSpotlight(hostSpot === t.id ? null : (t.me ? m.id : t.id))}>🔦</button>}
                 {hostSpot === t.id && <span className="meet-spot-tag">Spotlight</span>}
-                {t.stream && <Video stream={t.stream} muted={t.me} mirror={t.me && !sharing} label={`Video of ${t.name}`} />}
+                {t.stream && <Video stream={t.stream} muted={t.me} mirror={t.me && !sharing} label={`Video of ${t.name}`} sink={t.me ? undefined : sink} />}
                 {!videoOn && <div className="meet-avatar"><Avatar name={t.name} userId={t.userId} size={72} /></div>}
                 <span className="meet-name">{t.state.mic === false && <span aria-label="muted" title="Muted">🔇 </span>}{t.name}{t.state.screen ? ' · presenting' : ''}{t.connecting ? ' · connecting…' : ''}</span>
                 {t.state.hand && <span className="meet-hand" aria-label={`Hand raised, ${ordinal(handNo(t))}`} title={`Raised ${ordinal(handNo(t))}`}>✋<small>{handNo(t)}</small></span>}
@@ -463,7 +470,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
               </ul>
               <form className="row" onSubmit={sendChat}><input name="msg" className="grow" aria-label="Send a message to everyone" placeholder="Send a message" maxLength={2000} autoComplete="off" /><button className="btn">Send</button></form>
             </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : panel === 'qa' ? <MeetQA m={m} /> : panel === 'devices' ? (
-              local?.stream ? <DevicePicker stream={local.stream} onPick={changeDevices} /> : <p className="muted small">{local?.error || 'No camera or microphone is in use.'}</p>
+              local?.stream ? <DevicePicker stream={local.stream} onPick={changeDevices} sink={sink} onSpeaker={setSink} /> : <p className="muted small">{local?.error || 'No camera or microphone is in use.'}</p>
             ) : (<>
               {m.host && !guest && <Breakouts m={m} goToRoom={goToRoom} />}
               <ul className="meet-people">

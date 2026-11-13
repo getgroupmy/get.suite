@@ -6,11 +6,11 @@ const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? nu
 
 test('the choice is remembered; nothing saved means the defaults', () => {
   const s = mem();
-  assert.deepEqual(savedDevices(s), { mic: '', cam: '' });
-  saveDevices({ mic: 'm1', cam: 'c2' }, s);
-  assert.deepEqual(savedDevices(s), { mic: 'm1', cam: 'c2' });
+  assert.deepEqual(savedDevices(s), { mic: '', cam: '', spk: '' });
+  saveDevices({ mic: 'm1', cam: 'c2', spk: 's3' }, s);
+  assert.deepEqual(savedDevices(s), { mic: 'm1', cam: 'c2', spk: 's3' });
   s.setItem('nw-meet-devices', 'not json');
-  assert.deepEqual(savedDevices(s), { mic: '', cam: '' });
+  assert.deepEqual(savedDevices(s), { mic: '', cam: '', spk: '' });
 });
 
 test('asks for the chosen devices as ideal, then less', () => {
@@ -20,5 +20,5 @@ test('asks for the chosen devices as ideal, then less', () => {
 
 test('lists cameras and microphones, naming those without a label', () => {
   const l = deviceLists([{ kind: 'audioinput', deviceId: 'a', label: 'Headset' }, { kind: 'videoinput', deviceId: 'v', label: '' }, { kind: 'audiooutput', deviceId: 'o', label: 'Speakers' }, { kind: 'audioinput', deviceId: '', label: 'hidden' }]);
-  assert.deepEqual(l, { mics: [{ id: 'a', label: 'Headset' }], cams: [{ id: 'v', label: 'Camera 1' }] });
+  assert.deepEqual(l, { mics: [{ id: 'a', label: 'Headset' }], cams: [{ id: 'v', label: 'Camera 1' }], spks: [{ id: 'o', label: 'Speakers' }] });
 });

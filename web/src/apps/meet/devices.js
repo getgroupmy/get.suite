@@ -1,12 +1,12 @@
-// Which camera and microphone Meet uses: chosen in the lobby or the meeting's ⚙ settings, remembered in this browser.
+// Which camera, microphone and speaker Meet uses: chosen in the lobby or the meeting's ⚙ settings, remembered in this browser.
 const KEY = 'nw-meet-devices';
 
-/** The saved choice: { mic, cam } device ids (empty: the browser's default). */
+/** The saved choice: { mic, cam, spk } device ids (empty: the browser's default). */
 export function savedDevices(storage = globalThis.localStorage) {
-  try { const v = JSON.parse(storage?.getItem(KEY) || '{}'); return { mic: String(v.mic || ''), cam: String(v.cam || '') }; } catch { return { mic: '', cam: '' }; }
+  try { const v = JSON.parse(storage?.getItem(KEY) || '{}'); return { mic: String(v.mic || ''), cam: String(v.cam || ''), spk: String(v.spk || '') }; } catch { return { mic: '', cam: '', spk: '' }; }
 }
 export function saveDevices(choice, storage = globalThis.localStorage) {
-  try { storage?.setItem(KEY, JSON.stringify({ mic: choice.mic || '', cam: choice.cam || '' })); } catch { /* private mode */ }
+  try { storage?.setItem(KEY, JSON.stringify({ mic: choice.mic || '', cam: choice.cam || '', spk: choice.spk || '' })); } catch { /* private mode */ }
 }
 
 /**
@@ -19,8 +19,11 @@ export function deviceAsks({ mic = '', cam = '' } = {}) {
   return [{ audio, video }, { audio }, { video }];
 }
 
-/** The cameras and microphones from enumerateDevices, named (an unnamed one: "Camera 2"). */
+/** The cameras, microphones and speakers from enumerateDevices, named (an unnamed one: "Camera 2"). */
 export function deviceLists(devices = []) {
   const of = (kind, word) => devices.filter((d) => d.kind === kind && d.deviceId).map((d, i) => ({ id: d.deviceId, label: d.label || `${word} ${i + 1}` }));
-  return { mics: of('audioinput', 'Microphone'), cams: of('videoinput', 'Camera') };
+  return { mics: of('audioinput', 'Microphone'), cams: of('videoinput', 'Camera'), spks: of('audiooutput', 'Speaker') };
 }
+
+/** Whether this browser can choose where sound plays (setSinkId; not every browser can). */
+export const canPickSpeaker = () => typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
