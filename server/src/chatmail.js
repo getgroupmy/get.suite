@@ -1,5 +1,5 @@
 // Unread chat by email: people who turn it on get an email when a direct message to them, or a
-// message mentioning them, is still unread 30 minutes later (or 15 minutes, an hour or 3 hours, as they choose). One email gathers everything waiting,
+// message mentioning them (or one of their chat keywords), is still unread 30 minutes later (or 15 minutes, an hour or 3 hours, as they choose). One email gathers everything waiting,
 // sent from their own mailbox to their inbox; nothing is sent while their notifications are paused.
 import { q } from './db.js';
 import { mailEnabled } from './mail/config.js';
@@ -51,14 +51,17 @@ export async function sendChatEmails(now = Date.now(), base = process.env.PUBLIC
     const unread = rows.filter((r) => r.created_at > (q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(r.channel_id, userId)?.read_at ?? 0));
     if (!unread.length) continue;
     const lines = [`${unread.length === 1 ? 'A message is' : `${unread.length} messages are`} waiting for you in Chat:`, ''];
+    const keyword = (r) => (r.dm_key ? null : q('SELECT keyword FROM chat_mentions WHERE message_id = ? AND user_id = ?').get(r.message_id, userId)?.keyword);
     for (const r of unread.slice(0, 20)) {
-      lines.push(`${r.sender || 'Someone'}${r.dm_key ? ' (direct message)' : ` in #${r.channel}`}:`);
+      const k = keyword(r);
+      lines.push(`${r.sender || 'Someone'}${r.dm_key ? ' (direct message)' : ` in #${r.channel}`}${k ? ` (your keyword “${k}”)` : ''}:`);
       lines.push(`  ${String(r.body).replace(/\s+/g, ' ').slice(0, 300)}`);
       lines.push(`  ${base}/chat/${r.channel_id}`, '');
     }
     if (unread.length > 20) lines.push(`…and ${unread.length - 20} more.`, '');
     lines.push('You get these because you turned on chat emails in Workspace → Settings.');
-    const subject = unread.length === 1 ? `${unread[0].sender || 'Someone'} ${unread[0].dm_key ? 'sent you a message' : `mentioned you in #${unread[0].channel}`}` : `${unread.length} unread chat messages for you`;
+    const k1 = unread.length === 1 && keyword(unread[0]);
+    const subject = unread.length === 1 ? (k1 ? `“${k1}” in #${unread[0].channel}: ${unread[0].sender || 'Someone'}` : `${unread[0].sender || 'Someone'} ${unread[0].dm_key ? 'sent you a message' : `mentioned you in #${unread[0].channel}`}`) : `${unread.length} unread chat messages for you`;
     try {
       await smtpFor(user).sendMail({ from: { name: 'Workspace Chat', address: user.username }, to: user.username, subject, text: lines.join('\n') });
       sent++;

@@ -449,6 +449,7 @@ function notifyKeywords(c, from, msg, mentioned) {
     sendTo([u.id], { type: 'chat-keyword', channel_id: c.id, message_id: msg.id, keyword: word });
     told.push(u.id);
   }
+  queueChatEmail(told, msg.id); // by email too, for people who have chat emails on
   return told;
 }
 

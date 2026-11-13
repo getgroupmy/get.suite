@@ -1436,6 +1436,14 @@ test('chat emails: unread direct messages and mentions are emailed after a while
   await chet('POST', `/api/chat/channels/${dm}/messages`, { body: 'Quick one' });
   q('UPDATE chat_email_queue SET created_at = created_at - ?').run(16 * 60e3);
   assert.equal(await sendChatEmails(), 1, 'after 15 minutes');
+  // Her chat keywords come by email too, named in the subject.
+  assert.equal((await olivia('PUT', '/api/chat/keywords', { keywords: ['invoice'] })).status, 200);
+  await chet('POST', `/api/chat/channels/${general.id}/messages`, { body: 'The invoice for Northwind is ready' });
+  q('UPDATE chat_email_queue SET created_at = created_at - ?').run(16 * 60e3);
+  assert.equal(await sendChatEmails(), 1, 'a keyword');
+  const kw = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === '“invoice” in #general: Chet Mailer'));
+  assert.match((await olivia('GET', `/api/mail/messages/${kw.uid}?folder=INBOX`)).body.text, /Chet Mailer in #general \(your keyword “invoice”\):\s+The invoice for Northwind/);
+  await olivia('PUT', '/api/chat/keywords', { keywords: [] });
   await olivia('PUT', '/api/chat/me/chat-email', { on: false, wait: 30 });
 });
 

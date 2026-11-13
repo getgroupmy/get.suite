@@ -6423,6 +6423,13 @@ test('chat emails: refused without email; messages are queued only for people wh
   assert.deepEqual((await b('PUT', '/api/chat/me/chat-email', { wait: 15 })).body, { on: true, wait: 15 }, 'changing the wait leaves it on');
   assert.equal((await b('PUT', '/api/chat/me/chat-email', { wait: 30 })).body.wait, 30);
   assert.equal(q('SELECT chat_email_wait FROM users WHERE id = ?').get(ub.body.id).chat_email_wait, null, 'the standard wait is stored as none');
+  // B's chat keywords are queued for the email too (B has it on); A's aren't (off).
+  q('DELETE FROM chat_email_queue WHERE user_id = ?').run(ub.body.id);
+  for (const p of [a, b]) assert.equal((await p('PUT', '/api/chat/keywords', { keywords: ['invoice'] })).status, 200);
+  const gen = (await b('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  const kw = (await kay('POST', `/api/chat/channels/${gen}/messages`, { body: 'The invoice is ready' })).body;
+  assert.deepEqual(q('SELECT user_id, message_id FROM chat_email_queue WHERE user_id IN (?, ?)').all(ua.body.id, ub.body.id).map((r) => ({ ...r })), [{ user_id: ub.body.id, message_id: kw.id }]);
+  for (const p of [a, b]) await p('PUT', '/api/chat/keywords', { keywords: [] });
 });
 
 test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', async () => {

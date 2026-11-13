@@ -288,7 +288,7 @@ function ChatEmail() {
         const on = e.target.checked;
         setC({ ...c, on });
         try { await put('/chat/me/chat-email', { on }); toast(on ? "You'll get an email about chat messages you haven't read" : 'No more chat emails'); } catch (err) { setC({ ...c }); toast(err.message, 'error'); }
-      }} /> Email me about unread direct messages and mentions</label>
+      }} /> Email me about unread direct messages, mentions and keywords</label>
       {c.mail && c.on && <label className="field" style={{ maxWidth: 260 }}><span>After it has waited</span>
         <select value={c.wait} onChange={async (e) => {
           const wait = Number(e.target.value);
