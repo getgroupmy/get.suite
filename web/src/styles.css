@@ -2998,3 +2998,5 @@ select.meet-timer-btn option { color: #202124; }
 .conv-file { display: flex; flex-direction: column; min-width: 0; }
 .conv-file a { overflow-wrap: anywhere; }
 @media (max-width: 600px) { .pins-panel { position: fixed; left: 16px; right: 16px; top: 120px; width: auto; } }
+.msg-file.gone { opacity: .6; text-decoration: line-through; cursor: default; }
+.msg-file.gone .muted { text-decoration: none; }

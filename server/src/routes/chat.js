@@ -223,6 +223,8 @@ function dmOpen(c, user) {
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
+// An attachment whose file is no longer there (deleted, or in the trash): gone, so it isn't offered to open or save.
+const withGone = (f) => (f && !q("SELECT 1 FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(f.id)) ? { ...f, gone: true } : f);
 const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, m.email, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
@@ -252,7 +254,7 @@ function shape(rows) {
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null, contact: m.contact ? JSON.parse(m.contact) : null, email: m.email ? JSON.parse(m.email) : null };
+    return { ...m, files: m.files ? JSON.parse(m.files).map(withGone) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null, contact: m.contact ? JSON.parse(m.contact) : null, email: m.email ? JSON.parse(m.email) : null };
   });
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];

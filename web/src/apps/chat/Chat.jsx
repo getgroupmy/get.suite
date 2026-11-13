@@ -1061,8 +1061,8 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Copy link to message" title="Copy link to message" onClick={copyLink}><Icon name="link" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
-        {m.files?.length > 0 && m.user_id !== user.id && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}
-          items={m.files.flatMap((f) => saveItems(toast, navigate, m.id, f, setSavingTo, m.files.length > 1))} />}
+        {m.files?.some((f) => !f.gone) && m.user_id !== user.id && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}
+          items={m.files.filter((f) => !f.gone).flatMap((f, _, live) => saveItems(toast, navigate, m.id, f, setSavingTo, live.length > 1))} />}
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
         {(m.user_id === user.id || user.is_admin) && (
@@ -2068,7 +2068,7 @@ function MessageFiles({ m, mine }) {
   const [savingTo, setSavingTo] = useState(null);
   const at = (f, extra = '') => `/api/chat/messages/${m.id}/files/${f.id}${extra}`;
   const voice = (f) => /^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(f.mime);
-  const items = m.files.filter((f) => !voice(f)).map((f) => ({ ...f, key: f.id, filename: f.name }));
+  const items = m.files.filter((f) => !voice(f) && !f.gone).map((f) => ({ ...f, key: f.id, filename: f.name }));
   const open = (e, f) => {
     if (!previewKind(f.name) || e.shiftKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
@@ -2076,7 +2076,9 @@ function MessageFiles({ m, mine }) {
   };
   return (
     <div className="msg-files">
-      {m.files.map((f) => (voice(f)
+      {m.files.map((f) => (f.gone
+        ? <span key={f.id} className="msg-file gone" title="Deleted or moved to the trash by its owner"><Icon name="attach" size={16} /> {f.name} <span className="muted small">no longer available</span></span>
+        : voice(f)
         ? <audio key={f.id} className="msg-voice" controls preload="metadata" src={at(f)} aria-label={f.name.startsWith('Voice message') ? `Voice message from ${m.user_name || 'someone'}` : f.name} />
         : /^image\/(png|jpeg|gif|webp)$/.test(f.mime)
         ? <a key={f.id} href={at(f)} target="_blank" rel="noreferrer" className="msg-pic" onClick={(e) => open(e, f)}><img src={at(f)} alt={f.name} loading="lazy" /></a>

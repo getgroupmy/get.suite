@@ -13631,4 +13631,8 @@ test('chat: Save to Drive copies an attachment into your Drive (My Drive or a fo
   await a('PATCH', `/api/files/${up.id}`, { trashed: true });
   assert.equal((await save(b)).status, 404, 'not once the original is in the trash');
   assert.equal((await b('GET', `/api/files/${saved.body.id}/raw`)).body, 'the report', 'the copy stays');
+  const shown = (await b('GET', `/api/chat/channels/${dm}/messages`)).body.find((x) => x.id === m.id);
+  assert.deepEqual(shown.files.map((f) => [f.name, !!f.gone]), [['report.txt', true]], 'the message says the file is gone');
+  await a('PATCH', `/api/files/${up.id}`, { trashed: false });
+  assert.equal((await b('GET', `/api/chat/channels/${dm}/messages`)).body.find((x) => x.id === m.id).files[0].gone, undefined, 'back from the trash, back again');
 });
