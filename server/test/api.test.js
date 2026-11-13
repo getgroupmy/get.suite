@@ -602,6 +602,18 @@ test('public share links: no account needed; expiry, password, folders, revoking
   q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, locked.id);
   assert.equal((await pub('GET', `/api/public/links/${locked.token}`)).status, 410);
   assert.equal((await sharer('GET', `/api/links?file=${file.id}`)).body.find((l) => l.id === locked.id).expired, true);
+  // Extending it: the same address works again, until the new date; then for good; only the owner.
+  const later = Date.now() + 30 * 864e5;
+  assert.equal((await owner('PATCH', `/api/links/${locked.id}`, { expires_at: later })).status, 404, 'not someone else');
+  for (const bad of [Date.now() - 1, Date.now() + 400 * 864e5, 'soon']) assert.equal((await sharer('PATCH', `/api/links/${locked.id}`, { expires_at: bad })).status, 400, String(bad));
+  assert.equal((await sharer('PATCH', `/api/links/${locked.id}`, {})).status, 400, 'says when');
+  const ext = (await sharer('PATCH', `/api/links/${locked.id}`, { expires_at: later })).body;
+  assert.deepEqual([ext.expires_at, ext.expired, ext.token, ext.has_password], [later, false, locked.token, true]);
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}`)).status, 200, 'works again');
+  assert.equal((await sharer('PATCH', `/api/links/${locked.id}`, { expires_at: null })).body.expires_at, null);
+  assert.equal((await sharer('GET', `/api/links?file=${file.id}`)).body.find((l) => l.id === locked.id).expires_at, null);
+  assert.equal((await sharer('PATCH', '/api/links/no-such-link', { expires_at: null })).status, 404);
+  q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, locked.id); // expired again, as below expects
 
   // Folders: browse inside, open files inside, nothing outside or in the trash.
   const folder = (await sharer('POST', '/api/files/folder', { name: 'Deliverables' })).body;

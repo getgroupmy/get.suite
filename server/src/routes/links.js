@@ -85,6 +85,26 @@ export function linkRoutes() {
     res.json(describeLink(link));
   });
 
+  // Change how long a link lasts (the same address keeps working): { expires_at } in the future, or null for no
+  // expiry. Brings an expired link back too. Only the owner, and not while the company has links turned off.
+  r.patch('/:id', (req, res) => {
+    const l = q('SELECT * FROM share_links WHERE id = ?').get(req.params.id);
+    if (!l) throw notFound('Link not found');
+    const f = ownFile(l.file_id, req.user);
+    if (!linksAllowed(req.user.org_id)) throw forbidden('Your company has turned off public links');
+    if (!('expires_at' in (req.body || {}))) throw bad('Say when the link should stop working');
+    let expires = null;
+    if (req.body.expires_at !== null) {
+      expires = Number(req.body.expires_at);
+      if (!Number.isFinite(expires) || expires <= now()) throw bad('Pick an expiry date in the future');
+      if (expires > now() + MAX_EXPIRY_DAYS * 864e5) throw bad(`Links can last at most ${MAX_EXPIRY_DAYS} days`);
+      expires = Math.round(expires);
+    }
+    q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(expires, l.id);
+    audit(req, 'link.expiry', { target: f.name, details: { expires } });
+    res.json(describeLink({ ...l, expires_at: expires }));
+  });
+
   r.delete('/:id', (req, res) => {
     const l = q('SELECT * FROM share_links WHERE id = ?').get(req.params.id);
     if (!l) throw notFound('Link not found');

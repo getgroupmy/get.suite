@@ -970,6 +970,14 @@ function LinkSharing({ file }) {
     try { await navigator.clipboard.writeText(linkUrl(l.token)); toast(message); }
     catch { toast('Select the link and copy it', 'error'); }
   }
+  async function changeExpiry(l, v) {
+    const expires_at = v === 'never' ? null : Date.now() + Number(v) * 864e5;
+    try {
+      const n = await patch(`/links/${l.id}`, { expires_at });
+      setLinks(links.map((x) => (x.id === l.id ? n : x)));
+      toast(expires_at ? `The link now works until ${formatDate(expires_at)}` : 'The link now works until you remove it');
+    } catch (e) { toast(e.message, 'error'); }
+  }
   async function remove(l) {
     try { await del(`/links/${l.id}`); setLinks(links.filter((x) => x.id !== l.id)); toast('Link removed: it no longer works'); }
     catch (e) { toast(e.message, 'error'); }
@@ -994,6 +1002,10 @@ function LinkSharing({ file }) {
             </div>
             {!l.expired && <button type="button" className="icon-btn" aria-label="Copy link" title="Copy link" onClick={() => copy(l)}><Icon name="copy" size={18} /></button>}
             {!l.expired && mail?.enabled && <button type="button" className="icon-btn" aria-label="Email link" title={l.mode === 'upload' ? 'Email the file request to someone' : 'Email the link to someone'} onClick={() => emailLink(l)}><Icon name="mail" size={18} /></button>}
+            <select className="small" value="" aria-label="Change expiry" title="Change how long it works (the same link)" onChange={(e) => e.target.value && changeExpiry(l, e.target.value)}>
+              <option value="">{l.expired ? 'Renew…' : 'Change expiry…'}</option>
+              {EXPIRY.map(([v, label]) => <option key={v || 'never'} value={v || 'never'}>{v ? label.replace('Expires in', 'For') : 'Never expires'}</option>)}
+            </select>
             <button type="button" className="icon-btn" aria-label="Remove link" title="Remove link" onClick={() => remove(l)}><Icon name="close" size={18} /></button>
           </li>
         ))}
