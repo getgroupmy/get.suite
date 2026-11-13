@@ -36,3 +36,12 @@ export function notesPrintHtml(notes) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Notes (${notes.length})</title><style>${style}
     section.note + section.note { break-before: page; }</style></head><body>${bodies.map((b) => `<section class="note">${b}</section>`).join('')}</body></html>`;
 }
+
+/** Several notes as one new email: each under its title (with a link back), the subject the one title they share or "3 notes". */
+export function notesEmail(notes, linkOf = () => '') {
+  if (notes.length === 1) return noteEmail(notes[0], linkOf(notes[0]));
+  // Titles in bold (Mail's editor keeps that; not headings or rules), a note after another.
+  const parts = notes.map((n) => { const e = noteEmail(n, linkOf(n)); return `<p><strong>${esc(n.title || e.subject)}</strong></p>${e.html}`; });
+  const titles = [...new Set(notes.map((n) => (n.title || '').trim()).filter(Boolean))];
+  return { subject: titles.length === 1 ? titles[0] : `${notes.length} notes`, html: parts.join('<p></p>') };
+}
