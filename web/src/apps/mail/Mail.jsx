@@ -172,7 +172,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     let d = null;
     try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); localStorage.removeItem(DRAFT_KEY); } catch { /* storage off */ }
     // files: Drive files to attach (from Drive's "Email as attachment"); convert: a document to attach as Word, Excel… (asked first).
-    if (d) setCompose(withSignature({ to: d.to || '', cc: d.cc || '', subject: d.subject || '', html: d.html || '', files: Array.isArray(d.files) ? d.files : [], convert: d.convert || null }, 'new'));
+    // inReplyTo: answering an email (Reply by email on an email shared in Chat), so it joins that email's conversation.
+    if (d) setCompose(withSignature({ to: d.to || '', cc: d.cc || '', subject: d.subject || '', html: d.html || '', files: Array.isArray(d.files) ? d.files : [], convert: d.convert || null,
+      ...(d.inReplyTo && { inReplyTo: String(d.inReplyTo), references: [].concat(d.references || [], d.inReplyTo).map(String).slice(-20) }) }, 'new'));
     const next = new URLSearchParams(search); next.delete('compose_doc'); setSearch(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.get('compose_doc')]);

@@ -2112,6 +2112,8 @@ export function emailCard(p) {
     date: p.date?.valueOf() ?? null,
     text: main.length > 1500 ? `${main.slice(0, 1500).replace(/\s+\S*$/, '')}…` : main,
     attachments: attachmentList(p).slice(0, 20).map((a) => a.filename),
+    // To find it in someone's own mailbox (Open in Mail) and to answer it (Reply by email).
+    message_id: p.messageId ? String(p.messageId).slice(0, 998) : null,
   };
 }
 

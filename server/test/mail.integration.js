@@ -1602,6 +1602,7 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   const as = { headers: { 'x-mailbox': mb } };
   const got = await eventually(async () => (await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages?.find((m) => m.subject === 'My order is late'), 20000);
   assert.ok(!(await inbox(bob)).some((m) => m.subject === 'My order is late'), 'not in Bob’s own inbox');
+  assert.equal((await bob('POST', `/api/mail/messages/${got.uid}/chat`, { folder: 'INBOX', channel_id: 'any' }, as)).status, 400, 'no Share in Chat from a shared mailbox');
   assert.deepEqual((await bob('GET', '/api/mail/shared-unread')).body, [{ id: mb, unseen: 1 }], 'its unread count, for the picker');
   assert.deepEqual((await olivia('GET', '/api/mail/shared-unread')).body, [], 'only yours');
   assert.ok((await bob('GET', '/api/mail/status')).body.shared.some((x) => x.address === 'support@acme.com'));
@@ -2704,6 +2705,11 @@ test('Share in Chat: a card of an email in a conversation; only where you can wr
   assert.deepEqual(r.body.email.to.map((a) => a.address), ['gina@globex.com']);
   assert.match(r.body.email.text, /^Hi Gina,\n\nHere is the quote you asked for\.\nValid until Friday\.$/);
   assert.deepEqual(r.body.email.attachments, ['quote.csv']);
+  // Its Message-ID: Open in Mail finds it again (for Gina, who has it; Olivia has her sent copy).
+  assert.match(r.body.email.message_id, /^<.+@.+>$/);
+  const found = (await gina('GET', `/api/mail/find?message_id=${encodeURIComponent(r.body.email.message_id)}`)).body;
+  assert.deepEqual([found.folder, found.uid], ['INBOX', msg.uid]);
+  assert.equal((await olivia('GET', `/api/mail/find?message_id=${encodeURIComponent(r.body.email.message_id)}`)).body.folder, 'Sent');
   const listed = (await gina('GET', `/api/chat/channels/${general}/messages`)).body.find((m) => m.id === r.body.id);
   assert.equal(listed.email.subject, 'Quote for nuts', 'kept with the message');
   // Not a conversation of hers (another company's channel), a message that isn't there, a shared mailbox.

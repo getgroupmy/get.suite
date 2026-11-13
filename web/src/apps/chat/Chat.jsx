@@ -8,6 +8,8 @@ import { dueLabel } from '../tasks/taskmath.js';
 import { statusLine, untilText, unreachableText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
+import { useMailStatus } from '../../mailStatus.js';
+import { DRAFT_KEY } from '../docs/blocks.js';
 import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
@@ -1306,6 +1308,19 @@ function ContactInMessage({ m }) {
 /** An email shared from Mail: who it's from and to, its subject and date, the start of its text, attachment names. */
 function EmailInMessage({ e }) {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const toast = useToast();
+  const mail = useMailStatus();
+  // Open in Mail: for whoever has the email in their own mailbox too (it was sent to them as well, say).
+  const openInMail = async () => {
+    try { const r = await get(`/mail/find?message_id=${encodeURIComponent(e.message_id)}`); navigate(`/mail/${encodeURIComponent(r.folder)}/${r.uid}`); }
+    catch { toast('This email isn’t in your mailbox: ask whoever shared it to forward it to you', 'error'); }
+  };
+  const reply = () => {
+    const subject = /^re:/i.test(e.subject || '') ? e.subject : `Re: ${e.subject || ''}`.trim();
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ to: e.from.address, subject, html: '<p></p>', inReplyTo: e.message_id || undefined })); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  };
   const who = (a) => (a ? a.name || a.address : 'Unknown sender');
   const long = (e.text || '').length > 300;
   const toLine = [...(e.to || []).map(who), ...(e.cc_count ? [`${e.cc_count} more`] : [])].join(', ');
@@ -1318,6 +1333,10 @@ function EmailInMessage({ e }) {
       {e.text && <div className="small email-card-text" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{open || !long ? e.text : `${e.text.slice(0, 300).replace(/\s+\S*$/, '')}…`}</div>}
       {long && <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(!open)}>{open ? 'Show less' : 'Show more'}</button>}
       {e.attachments?.length > 0 && <span className="small muted">📎 {e.attachments.join(', ')}</span>}
+      {mail?.enabled && (e.message_id || e.from?.address) && <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {e.message_id && <button type="button" className="btn small" onClick={openInMail}>Open in Mail</button>}
+        {e.from?.address && <button type="button" className="btn small" onClick={reply}>Reply by email</button>}
+      </span>}
     </div>
   );
 }
