@@ -12928,3 +12928,28 @@ test('takeout: a download’s Mail/ .mbox files are kept in the new Drive folder
   assert.ok(mailDir);
   assert.deepEqual(q('SELECT name FROM files WHERE parent_id = ? ORDER BY name').all(mailDir.id).map((x) => x.name), ['Inbox.mbox', 'Projects']);
 });
+
+test('takeout: an admin brings a Download your data .zip into a colleague’s account (?user=); others may not', async () => {
+  const a = client(), b = client();
+  for (const [x, local] of [[a, 'adrs1'], [b, 'adrs2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  await a('POST', '/api/notes', { title: 'Handover', body: 'Keys are in the drawer' });
+  await a('POST', '/api/contacts', { name: 'Supplier Sam', email: 'sam@supplier.example' });
+  const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'adrs2@acme.com'").get().id;
+  const send = (who, query) => who('POST', `/api/takeout/restore?${query}`, zip, { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal((await send(a, `user=${bid}`)).status, 403, 'not an admin');
+  const r = await send(owner, `user=${bid}`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.notes.added, 1);
+  assert.deepEqual(r.body.contacts, { added: 1, skipped: 0 });
+  assert.ok((await b('GET', '/api/notes')).body.some((n) => n.title === 'Handover'), 'in the colleague’s notes');
+  const ownerId = (await owner('GET', '/api/auth/me')).body.user.id;
+  assert.ok(!q("SELECT 1 FROM notes WHERE owner_id = ? AND title = 'Handover'").get(ownerId), 'not the admin’s');
+  assert.equal(q("SELECT target FROM audit_log WHERE action = 'takeout.restore' ORDER BY at DESC").get().target, 'adrs2@acme.com');
+  assert.equal((await send(owner, 'user=nobody')).status, 404);
+});

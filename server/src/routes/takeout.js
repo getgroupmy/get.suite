@@ -123,6 +123,14 @@ export function notesMarkdown(userId) {
 export default function takeoutRoutes() {
   const r = Router();
   // What's in it, before downloading.
+  const whose = (req) => {
+    if (!req.query.user || req.query.user === req.user.id) return { id: req.user.id, username: req.user.username };
+    if (!req.user.is_admin) throw forbidden('Admins only');
+    const u = q('SELECT id, org_id, username FROM users WHERE id = ?').get(String(req.query.user));
+    if (!u || (u.org_id !== req.user.org_id && !req.user.is_super)) throw notFound('No such person');
+    return u;
+  };
+
   // Bring a Download your data .zip back in (moving to another server, or after a mistake): its calendar, contacts, task lists
   // and notes are added to yours, skipping what's already here (events by their UID, contacts by address; lists come in as new ones).
   // Drive files and email have their own ways in (upload a folder; Mail → Import mail from its .mbox files).
@@ -131,7 +139,10 @@ export default function takeoutRoutes() {
     let zip;
     try { zip = await JSZip.loadAsync(buf); } catch { throw bad('That isn’t a .zip file'); }
     if (!/Your Workspace data/.test(await zip.file('README.txt')?.async('string') || '')) throw bad('That isn’t a Download your data .zip from Workspace');
-    const user = req.user, out = {};
+    // ?user=<id>: an admin bringing it into a colleague's account (Admin → Users → Bring in their data…).
+    const who = whose(req);
+    const user = who.id === req.user.id ? req.user : q('SELECT * FROM users WHERE id = ?').get(who.id);
+    const out = {};
     const text = async (name) => zip.file(name)?.async('string');
     const ics = await text('Calendar.ics');
     if (ics) { const r2 = importCalendar(user.id, ics, String(req.query.tz || 'UTC')); out.calendar = r2.error ? { added: 0, skipped: 0 } : { added: r2.added, skipped: r2.skipped }; }
@@ -215,7 +226,7 @@ export default function takeoutRoutes() {
     }
     if (Object.keys(zip.files).some((n) => n.startsWith('Notes/') && n.endsWith('.md'))) out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: buf.toString('base64') }] });
     sendTo([user.id], { type: 'events-changed' });
-    audit(req, 'takeout.restore', { details: out });
+    audit(req, 'takeout.restore', { target: user.id === req.user.id ? null : user.username, details: out });
     res.json(out);
   });
 
@@ -239,13 +250,6 @@ export default function takeoutRoutes() {
   });
 
   /** Whose data: your own, or (admins) someone's in your company, for when they leave: ?user=<id>. */
-  const whose = (req) => {
-    if (!req.query.user || req.query.user === req.user.id) return { id: req.user.id, username: req.user.username };
-    if (!req.user.is_admin) throw forbidden('Admins only');
-    const u = q('SELECT id, org_id, username FROM users WHERE id = ?').get(String(req.query.user));
-    if (!u || (u.org_id !== req.user.org_id && !req.user.is_super)) throw notFound('No such person');
-    return u;
-  };
 
   r.get('/', async (req, res) => {
     const who = whose(req);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { get, post, put, patch, del, formatBytes, postText } from '../../api.js';
+import { get, post, put, patch, del, formatBytes, postText, postBlob } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { inactive, lastActiveText } from './lastactive.js';
@@ -183,6 +183,22 @@ function AddToGroup({ ids, onClose, onDone }) {
 // ---------------- users of one company ----------------
 function Users({ orgId, setOrgId }) {
   const toast = useToast();
+  // Bring in their data: a Download your data .zip into this person's account (moving them from another server).
+  const restoreRef = useRef(null);
+  const restoreFor = useRef(null);
+  const restore = async (file) => {
+    const u = restoreFor.current;
+    if (!file || !u) return;
+    toast(`Bringing ${u.name}’s data in…`);
+    try {
+      const r = await postBlob(`/takeout/restore?user=${encodeURIComponent(u.id)}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, file, 'application/zip');
+      const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
+      const parts = [r.drive?.files > 0 && `${n(r.drive.files, 'file', 'files')} in Drive`, r.mail?.started && n(r.mail.folders, 'mail folder', 'mail folders'), r.calendar && n(r.calendar.added, 'event', 'events'),
+        r.contacts && n(r.contacts.added, 'contact', 'contacts'), r.tasks && n(r.tasks.lists, 'task list', 'task lists'), r.notes && n(r.notes.added, 'note', 'notes')].filter(Boolean);
+      toast(`${u.name}: brought in ${parts.join(', ') || 'nothing new'}`);
+      for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error');
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const { user: me } = useAuth();
   const [users, setUsers] = useState(null);
   const [inactiveOnly, setInactiveOnly] = useState(false);
@@ -212,6 +228,7 @@ function Users({ orgId, setOrgId }) {
   const shown = users?.filter((u) => !inactiveOnly || inactive(u)) || [];
 
   return <>
+    <input ref={restoreRef} type="file" accept=".zip,application/zip" hidden aria-label="Their data to bring in" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; restore(f); }} />
     <div className="row wrap">
       {me.is_super && <OrgPicker orgId={orgId} setOrgId={setOrgId} />}
       <label className="check"><input type="checkbox" checked={inactiveOnly} onChange={(e) => setInactiveOnly(e.target.checked)} /> Only people inactive for 90 days or more</label>
@@ -264,6 +281,7 @@ function Users({ orgId, setOrgId }) {
                     ? { label: 'Lift legal hold', icon: 'shield', onClick: () => setDialog({ type: 'release', user: u }) }
                     : { label: 'Put on legal hold…', icon: 'shield', onClick: () => setDialog({ type: 'hold', user: u }) }),
                   { label: 'Download their data (.zip)', icon: 'download', onClick: () => { window.location.href = `/api/takeout?user=${encodeURIComponent(u.id)}`; } },
+                  { label: 'Bring in their data…', icon: 'upload', onClick: () => { restoreFor.current = u; restoreRef.current?.click(); } },
                   u.id !== me.id && !u.is_super && '-',
                   u.id !== me.id && !u.is_super && { label: 'Delete user and their files', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete', user: u }) },
                 ]} />
