@@ -11,3 +11,9 @@ test('to everyone who joined but you, once each; guests without an address left 
   assert.match(m.html, /<a href="https:\/\/x\/docs\/1">Meeting notes<\/a>/);
   assert.doesNotMatch(followUpEmail({ title: 'X', people: [] }).html, /Meeting notes/);
 });
+
+test('the kept chat linked too, when there is one', () => {
+  const m = followUpEmail({ title: 'X', people: [{ email: 'a@b.c' }], chatLink: 'https://x/meet?chat=abc-defg-hij' });
+  assert.match(m.html, /<a href="https:\/\/x\/meet\?chat=abc-defg-hij">The meeting chat<\/a>/);
+  assert.doesNotMatch(followUpEmail({ title: 'X', people: [] }).html, /meeting chat/);
+});

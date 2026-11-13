@@ -47,8 +47,9 @@ export function Attendance({ meeting, onClose }) {
   const { user } = useAuth();
   // A new email in Mail to everyone who came, linking the meeting notes when its calendar event has some.
   const followUp = async () => {
-    const ev = await get(`/meet/${meeting.code}/event`).catch(() => null);
-    const m = followUpEmail({ title: a.title || meeting.title || meeting.code, people: a.people, me: user.username, notesLink: ev?.notes ? `${location.origin}/docs/${ev.notes.id}` : '' });
+    const [ev, chat] = await Promise.all([get(`/meet/${meeting.code}/event`).catch(() => null), get(`/meet/${meeting.code}/chat`).catch(() => null)]);
+    const m = followUpEmail({ title: a.title || meeting.title || meeting.code, people: a.people, me: user.username, notesLink: ev?.notes ? `${location.origin}/docs/${ev.notes.id}` : '',
+      chatLink: chat?.messages?.length ? `${location.origin}/meet?chat=${meeting.code}` : '' });
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(m)); } catch { toast('Your browser’s storage is off', 'error'); return; }
     onClose();
     navigate('/mail?compose_doc=1');
