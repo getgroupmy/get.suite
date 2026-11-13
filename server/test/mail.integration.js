@@ -1422,7 +1422,21 @@ test('chat emails: unread direct messages and mentions are emailed after a while
   q('UPDATE chat_email_queue SET created_at = created_at - ?').run(WAIT_MS + 1000);
   q('UPDATE messages SET created_at = created_at - ? WHERE body = ?').run(WAIT_MS + 1000, 'Never mind');
   assert.equal(await sendChatEmails(), 0);
-  await olivia('PUT', '/api/chat/me/chat-email', { on: false });
+  // A wait of 3 hours: not after half an hour, but after 3 hours. (Only the queue's times move back: the messages stay
+  // newer than Olivia's earlier read, so they count as unread.)
+  assert.equal((await olivia('PUT', '/api/chat/me/chat-email', { wait: 180 })).status, 200);
+  await chet('POST', `/api/chat/channels/${dm}/messages`, { body: 'Lunch on Friday?' });
+  q('UPDATE chat_email_queue SET created_at = created_at - ?').run(WAIT_MS + 1000);
+  assert.equal(await sendChatEmails(), 0, 'still waiting');
+  q('UPDATE chat_email_queue SET created_at = created_at - ?').run(150 * 60e3);
+  assert.equal(await sendChatEmails(), 1, 'after 3 hours');
+  await eventually(async () => (await inbox(olivia)).find((x) => x.subject === 'Chet Mailer sent you a message'));
+  // 15 minutes: sooner than the standard half hour.
+  assert.equal((await olivia('PUT', '/api/chat/me/chat-email', { wait: 15 })).status, 200);
+  await chet('POST', `/api/chat/channels/${dm}/messages`, { body: 'Quick one' });
+  q('UPDATE chat_email_queue SET created_at = created_at - ?').run(16 * 60e3);
+  assert.equal(await sendChatEmails(), 1, 'after 15 minutes');
+  await olivia('PUT', '/api/chat/me/chat-email', { on: false, wait: 30 });
 });
 
 test('invitations from another calendar: answered in Mail, put on the calendar, and the organizer gets the reply', async () => {

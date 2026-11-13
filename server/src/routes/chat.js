@@ -7,7 +7,7 @@ import { zipEntries } from '../zipfiles.js';
 import { notify } from '../notifications.js';
 import { firstLink, previewFor } from '../linkpreview.js';
 import { mailEnabled } from '../mail/config.js';
-import { queueChatEmail } from '../chatmail.js';
+import { queueChatEmail, waitFor, WAITS } from '../chatmail.js';
 import express, { Router } from 'express';
 import JSZip from 'jszip';
 import { audit } from '../audit.js';
@@ -1347,13 +1347,19 @@ export default function chatRoutes() {
   });
 
   // Read receipts on or off (both people need them on for either to see them).
-  // Emails about unread direct messages and mentions (after 30 minutes).
-  r.get('/me/chat-email', (req, res) => res.json({ on: !!q('SELECT chat_email FROM users WHERE id = ?').get(req.user.id).chat_email, mail: mailEnabled() }));
+  // Emails about unread direct messages and mentions (after 30 minutes, or the wait someone chose).
+  r.get('/me/chat-email', (req, res) => res.json({ on: !!q('SELECT chat_email FROM users WHERE id = ?').get(req.user.id).chat_email, mail: mailEnabled(), wait: waitFor(req.user.id) / 60e3, waits: WAITS }));
+  // { on } turns it on or off; { wait } (minutes, one of WAITS) changes how long a message waits first. Either or both.
   r.put('/me/chat-email', (req, res) => {
-    if (req.body?.on && !mailEnabled()) throw bad('Email is off on this server');
-    q('UPDATE users SET chat_email = ? WHERE id = ?').run(req.body?.on ? 1 : 0, req.user.id);
-    if (!req.body?.on) q('DELETE FROM chat_email_queue WHERE user_id = ?').run(req.user.id);
-    res.json({ on: !!req.body?.on });
+    const b = req.body || {};
+    if (b.wait !== undefined && !WAITS.includes(b.wait)) throw bad(`Wait ${WAITS.join(', ')} minutes`);
+    if (b.on !== undefined) {
+      if (b.on && !mailEnabled()) throw bad('Email is off on this server');
+      q('UPDATE users SET chat_email = ? WHERE id = ?').run(b.on ? 1 : 0, req.user.id);
+      if (!b.on) q('DELETE FROM chat_email_queue WHERE user_id = ?').run(req.user.id);
+    }
+    if (b.wait !== undefined) q('UPDATE users SET chat_email_wait = ? WHERE id = ?').run(b.wait === 30 ? null : b.wait, req.user.id);
+    res.json({ on: !!q('SELECT chat_email FROM users WHERE id = ?').get(req.user.id).chat_email, wait: waitFor(req.user.id) / 60e3 });
   });
   r.get('/me/read-receipts', (req, res) => res.json({ on: receiptsOn(req.user.id) }));
   r.put('/me/read-receipts', (req, res) => {

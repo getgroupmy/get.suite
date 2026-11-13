@@ -273,7 +273,9 @@ function MorningSummary() {
   );
 }
 
-/** Chat emails: unread direct messages and mentions come by email after half an hour. */
+const waitText = (m) => (m === 30 ? 'half an hour' : m < 60 ? `${m} minutes` : m === 60 ? 'an hour' : `${m / 60} hours`);
+
+/** Chat emails: unread direct messages and mentions come by email after half an hour (or the wait chosen). */
 function ChatEmail() {
   const toast = useToast();
   const [c, setC] = useState(null);
@@ -287,7 +289,15 @@ function ChatEmail() {
         setC({ ...c, on });
         try { await put('/chat/me/chat-email', { on }); toast(on ? "You'll get an email about chat messages you haven't read" : 'No more chat emails'); } catch (err) { setC({ ...c }); toast(err.message, 'error'); }
       }} /> Email me about unread direct messages and mentions</label>
-      <p className="muted small" style={{ margin: 0 }}>{c.mail ? 'Sent when one has waited half an hour and you still haven\'t read it, not during quiet hours or while notifications are paused.' : 'Needs email on this server.'}</p>
+      {c.mail && c.on && <label className="field" style={{ maxWidth: 260 }}><span>After it has waited</span>
+        <select value={c.wait} onChange={async (e) => {
+          const wait = Number(e.target.value);
+          const was = c.wait;
+          setC({ ...c, wait });
+          try { await put('/chat/me/chat-email', { wait }); toast(`Chat emails after ${waitText(wait)} unread`); } catch (err) { setC({ ...c, wait: was }); toast(err.message, 'error'); }
+        }}>{(c.waits || [30]).map((m) => <option key={m} value={m}>{waitText(m)}</option>)}</select>
+      </label>}
+      <p className="muted small" style={{ margin: 0 }}>{c.mail ? `Sent when one has waited ${waitText(c.wait || 30)} and you still haven't read it, not during quiet hours or while notifications are paused.` : 'Needs email on this server.'}</p>
     </section>
   );
 }

@@ -6412,6 +6412,17 @@ test('chat emails: refused without email; messages are queued only for people wh
   assert.deepEqual(rows.map((r) => r.user_id), [ub.body.id]);
   assert.equal((await b('PUT', '/api/chat/me/chat-email', { on: false })).body.on, false);
   assert.equal(q('SELECT COUNT(*) AS n FROM chat_email_queue WHERE user_id = ?').get(ub.body.id).n, 0, 'turning it off clears the queue');
+  // How long a message waits first: half an hour unless someone picks another.
+  assert.deepEqual((await b('GET', '/api/chat/me/chat-email')).body, { on: false, mail: false, wait: 30, waits: [15, 30, 60, 180] });
+  assert.equal((await b('PUT', '/api/chat/me/chat-email', { wait: 45 })).status, 400);
+  assert.equal((await b('PUT', '/api/chat/me/chat-email', { wait: '60' })).status, 400, 'a number of minutes');
+  assert.deepEqual((await b('PUT', '/api/chat/me/chat-email', { wait: 180 })).body, { on: false, wait: 180 });
+  assert.equal((await b('GET', '/api/chat/me/chat-email')).body.wait, 180);
+  assert.equal((await a('GET', '/api/chat/me/chat-email')).body.wait, 30, 'only for B');
+  q('UPDATE users SET chat_email = 1 WHERE id = ?').run(ub.body.id);
+  assert.deepEqual((await b('PUT', '/api/chat/me/chat-email', { wait: 15 })).body, { on: true, wait: 15 }, 'changing the wait leaves it on');
+  assert.equal((await b('PUT', '/api/chat/me/chat-email', { wait: 30 })).body.wait, 30);
+  assert.equal(q('SELECT chat_email_wait FROM users WHERE id = ?').get(ub.body.id).chat_email_wait, null, 'the standard wait is stored as none');
 });
 
 test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', async () => {
