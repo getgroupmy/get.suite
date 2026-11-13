@@ -211,7 +211,7 @@ function dmOpen(c, user) {
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, m.email, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -240,7 +240,7 @@ function shape(rows) {
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null, contact: m.contact ? JSON.parse(m.contact) : null };
+    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null, contact: m.contact ? JSON.parse(m.contact) : null, email: m.email ? JSON.parse(m.email) : null };
   });
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
@@ -277,10 +277,10 @@ function readMessage(c, user, input) {
 }
 
 /** Post a message: saved, shown to everyone in the conversation, mentions told. */
-function deliver(c, user, { body, files, poll, parent, forwarded = null, contact = null }) {
+function deliver(c, user, { body, files, poll, parent, forwarded = null, contact = null, email = null }) {
   if (!mayPost(c, user, parent)) throw new HttpError(403, 'Only some people post in this channel; you can reply in threads');
   const id = uid();
-  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded, contact) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null, contact ? JSON.stringify(contact) : null);
+  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded, contact, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null, contact ? JSON.stringify(contact) : null, email ? JSON.stringify(email) : null);
   q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
@@ -293,7 +293,7 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null, contact
     // Not for a muted conversation, nor for whoever was @mentioned (that notification already went).
     const muted = new Set(q('SELECT user_id FROM chat_mutes WHERE channel_id = ?').all(c.id).map((x) => x.user_id));
     for (const id of others.filter((x) => !muted.has(x) && !mentioned.includes(x) && !offFor(x).includes('dm'))) {
-      pushTo(id, { title: user.name || user.username, body: msg.body ? String(msg.body).slice(0, 200) : msg.contact ? `👤 Sent a contact: ${msg.contact.name}` : '📎 Sent a file', link: `/chat/${c.id}`, tag: `chat-${c.id}`, private: { body: 'Sent you a message' } }).catch(() => {});
+      pushTo(id, { title: user.name || user.username, body: msg.body ? String(msg.body).slice(0, 200) : msg.contact ? `👤 Sent a contact: ${msg.contact.name}` : msg.email ? `✉ Shared an email: ${msg.email.subject || '(no subject)'}` : '📎 Sent a file', link: `/chat/${c.id}`, tag: `chat-${c.id}`, private: { body: 'Sent you a message' } }).catch(() => {});
     }
   }
   if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
@@ -395,6 +395,12 @@ export function startChatScheduler() { setInterval(() => { try { sendDueChat(); 
  * Send a direct message from one person to another (opening their conversation if needed), as if
  * typed in Chat. Used for notices such as comment mentions. Returns false if they can't be reached.
  */
+/** Share an email in a conversation the user can write in (Mail's Share in Chat): a card, with a note if they like. */
+export function postEmail(channelId, user, body, email) {
+  const c = writable(channelId, user);
+  return deliver(c, user, { body: str(body, { max: 8000, name: 'Message' }) || '', files: [], poll: null, parent: null, email });
+}
+
 export function sendDirect(from, toUserId, body) {
   const other = q('SELECT id FROM users WHERE id = ? AND disabled = 0').get(toUserId);
   if (!other || other.id === from.id || !canReach(from, other.id)) return false;
@@ -494,6 +500,9 @@ function colleagues(user, list) {
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'bot')) q('ALTER TABLE messages ADD COLUMN bot TEXT').run();
 // A contact passed on in a message (what it said when sent: name, addresses, numbers…), JSON.
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'contact')) q('ALTER TABLE messages ADD COLUMN contact TEXT').run();
+// An email shared in a message (what it said when shared: from, to, subject, date, the start of its text,
+// its attachments' names), JSON. The email itself stays in the sharer's mailbox.
+if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'email')) q('ALTER TABLE messages ADD COLUMN email TEXT').run();
 q(`CREATE TABLE IF NOT EXISTS chat_webhooks (
   id TEXT PRIMARY KEY,
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -1689,7 +1698,7 @@ export default function chatRoutes() {
     // With replies in its thread, the message stays as "This message was deleted" and the replies stay with it.
     if (!m.parent_id && q('SELECT 1 FROM messages WHERE parent_id = ?').get(m.id)) {
       tx(() => {
-        q('UPDATE messages SET body = \'\', files = NULL, poll = NULL, preview = NULL, contact = NULL, forwarded = NULL, pinned_at = NULL, pinned_by = NULL, deleted_at = ? WHERE id = ?').run(now(), m.id);
+        q('UPDATE messages SET body = \'\', files = NULL, poll = NULL, preview = NULL, contact = NULL, email = NULL, forwarded = NULL, pinned_at = NULL, pinned_by = NULL, deleted_at = ? WHERE id = ?').run(now(), m.id);
         q('DELETE FROM message_reactions WHERE message_id = ?').run(m.id);
       });
       sendTo(audience(c), { type: 'message-updated', message: one(m.id) });

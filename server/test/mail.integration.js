@@ -2690,3 +2690,28 @@ test('reading a message with ?peek=1 (printing several) leaves it unread; openin
   await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX`);
   assert.equal((await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages.find((x) => x.subject === tag).seen, true);
 });
+
+test('Share in Chat: a card of an email in a conversation; only where you can write, only your own mail', async () => {
+  const file = (await olivia('POST', '/api/files/upload?name=quote.csv', 'item,price\nnut,0.05\n', { raw: true })).body;
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Quote for nuts', text: 'Hi Gina,\n\nHere is the quote you asked for.\nValid until Friday.\n', attachments: [file.id] })).status, 200);
+  const msg = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Quote for nuts'));
+  const general = (await gina('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  const r = await gina('POST', `/api/mail/messages/${msg.uid}/chat`, { folder: 'INBOX', channel_id: general, body: 'Can sales check this?' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.body, 'Can sales check this?');
+  assert.equal(r.body.email.subject, 'Quote for nuts');
+  assert.equal(r.body.email.from.address, 'olivia@acme.com');
+  assert.deepEqual(r.body.email.to.map((a) => a.address), ['gina@globex.com']);
+  assert.match(r.body.email.text, /^Hi Gina,\n\nHere is the quote you asked for\.\nValid until Friday\.$/);
+  assert.deepEqual(r.body.email.attachments, ['quote.csv']);
+  const listed = (await gina('GET', `/api/chat/channels/${general}/messages`)).body.find((m) => m.id === r.body.id);
+  assert.equal(listed.email.subject, 'Quote for nuts', 'kept with the message');
+  // Not a conversation of hers (another company's channel), a message that isn't there, a shared mailbox.
+  const acmeGeneral = (await olivia('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  assert.equal((await gina('POST', `/api/mail/messages/${msg.uid}/chat`, { folder: 'INBOX', channel_id: acmeGeneral })).status, 404);
+  assert.equal((await gina('POST', '/api/mail/messages/999999/chat', { folder: 'INBOX', channel_id: general })).status, 404);
+  // Deleting the chat message drops the card.
+  assert.equal((await gina('DELETE', `/api/chat/messages/${r.body.id}`)).status, 200);
+  const gone = (await gina('GET', `/api/chat/channels/${general}/messages`)).body.find((m) => m.id === r.body.id);
+  assert.ok(!gone || !gone.email, 'no card left');
+});

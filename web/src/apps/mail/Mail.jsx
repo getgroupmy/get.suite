@@ -1,3 +1,4 @@
+import ShareInChat from './ShareInChat.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
@@ -813,6 +814,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   }, [folder, uid]);
   const [viewing, setViewing] = useState(null); // the index of the attachment open in the viewer
   const [original, setOriginal] = useState(false); // Show original (before the early return below: hooks always in the same order)
+  const [sharing, setSharing] = useState(false); // Share in Chat
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
   // The original's body for a reply or forward. HTML mail keeps its basic formatting and embedded
@@ -865,7 +867,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="More for this message" title="More" {...p}><Icon name="more" /></button>} items={[
           { label: 'Show original', icon: 'search', onClick: () => setOriginal(true) },
           { label: 'Download message (.eml)', icon: 'download', onClick: () => { window.location.href = `/api/mail/messages/${uid}/eml?folder=${enc(folder)}${mailboxParam()}`; } },
+          ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
         ]} />
+        {sharing && <ShareInChat uid={uid} folder={folder} subject={m.subject} onClose={() => setSharing(false)} />}
         <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={() => navigate('/calendar', { state: { newEvent: eventFromEmail(m, [user.username, ...mine]) } })}><Icon name="calendar" /></button>
         <button className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={() => addToTasksWithToast(toast, navigate, { title: m.subject || '(no subject)', link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } })}><Icon name="check" /></button>
         {!shared && <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[

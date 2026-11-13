@@ -1383,6 +1383,15 @@ export default function webmailRoutes() {
   });
 
   // Save attachments to Drive, in an "Email attachments" folder (made when first needed): all of them, or the ones asked.
+  // Share in Chat: a card of the email (who from and to, subject, date, the start of its text without the quoted
+  // history, its attachments' names) in a conversation, with a note. { folder, channel_id, body }. Everyone
+  // there reads the card; the email itself stays in your mailbox.
+  r.post('/messages/:uid/chat', async (req, res) => {
+    const { postEmail } = await import('./chat.js');
+    const { parsed: p } = await loadMessage(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), false);
+    res.status(201).json(postEmail(String(req.body?.channel_id || ''), req.user, req.body?.body, emailCard(p)));
+  });
+
   r.post('/messages/:uid/attachments/save', async (req, res) => {
     const { parsed } = await loadMessage(req.user, String(req.body.folder || 'INBOX'), Number(req.params.uid), false);
     const all = parsed.attachments.filter((x) => !x.related);
@@ -2088,6 +2097,22 @@ function inviteFor(user, p) {
   if (local) return { ...base, internal: true, event_id: local.id };
   const have = eventForInvite(user.id, inv.uid);
   return { ...base, event_id: have?.id || null, answer: have?.ext_status || null };
+}
+
+/** What Share in Chat keeps of an email. */
+export function emailCard(p) {
+  const text = String(p.text || '');
+  const t = splitTextQuote(text);
+  const main = (t.quoted ? t.main : text).replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  return {
+    from: addrList(p.from)[0] || null,
+    to: addrList(p.to).slice(0, 10),
+    cc_count: addrList(p.cc).length,
+    subject: String(p.subject || '').slice(0, 300),
+    date: p.date?.valueOf() ?? null,
+    text: main.length > 1500 ? `${main.slice(0, 1500).replace(/\s+\S*$/, '')}…` : main,
+    attachments: attachmentList(p).slice(0, 20).map((a) => a.filename),
+  };
 }
 
 function attachmentList(p) {

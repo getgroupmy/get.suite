@@ -969,6 +969,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </blockquote>
         )}
         {m.contact && <ContactInMessage m={m} />}
+        {m.email && <EmailInMessage e={m.email} />}
         {!editing && <FileCards text={m.body} />}
         {!editing && <MessageCards text={m.body} self={m.id} />}
         {!editing && <TaskCards text={m.body} />}
@@ -1298,6 +1299,25 @@ function ContactInMessage({ m }) {
       {k.address && <span className="small muted">{k.address}</span>}
       {k.website && <a className="small" href={k.website} target="_blank" rel="noopener noreferrer">{k.website.replace(/^https?:\/\//, '')}</a>}
       <button type="button" className="btn small form-card-go" disabled={saved} onClick={save}>{saved ? '✓ In your contacts' : 'Add to my contacts'}</button>
+    </div>
+  );
+}
+
+/** An email shared from Mail: who it's from and to, its subject and date, the start of its text, attachment names. */
+function EmailInMessage({ e }) {
+  const [open, setOpen] = useState(false);
+  const who = (a) => (a ? a.name || a.address : 'Unknown sender');
+  const long = (e.text || '').length > 300;
+  const toLine = [...(e.to || []).map(who), ...(e.cc_count ? [`${e.cc_count} more`] : [])].join(', ');
+  return (
+    <div className="msg-card contact-card email-card" role="group" aria-label={`Email: ${e.subject || '(no subject)'}`}>
+      <span className="msg-card-meta">✉ <strong>{e.subject || '(no subject)'}</strong></span>
+      <span className="small"><span className="muted">From</span> {who(e.from)}{e.from?.name && e.from.address ? <span className="muted"> &lt;{e.from.address}&gt;</span> : null}</span>
+      {toLine && <span className="small"><span className="muted">To</span> {toLine}</span>}
+      {e.date && <span className="small muted">{new Date(e.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>}
+      {e.text && <div className="small email-card-text" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{open || !long ? e.text : `${e.text.slice(0, 300).replace(/\s+\S*$/, '')}…`}</div>}
+      {long && <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(!open)}>{open ? 'Show less' : 'Show more'}</button>}
+      {e.attachments?.length > 0 && <span className="small muted">📎 {e.attachments.join(', ')}</span>}
     </div>
   );
 }
