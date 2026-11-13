@@ -29,6 +29,17 @@ export default function ReportsAdmin({ orgId, orgPicker }) {
       {!r ? <p className="muted">Loading…</p> : <>
         <p role="status" style={{ margin: 0 }}><strong>{r.active}</strong> of {r.people.length} people used Workspace in the last {days} days.</p>
         {r.per_day && <ActiveChart perDay={r.per_day} people={r.people.length} />}
+        {r.meet && <section className="report-meet" aria-label="Video meetings">
+          <h3 className="small">Video meetings</h3>
+          {!r.meet.meetings ? <p className="muted small" style={{ margin: 0 }}>No video meetings in Meet in this period.</p> : (
+            <dl className="report-stats">
+              <div><dt>Meetings held</dt><dd>{r.meet.meetings}</dd></div>
+              <div><dt>Time in them</dt><dd>{minutesText(r.meet.minutes)}</dd></div>
+              <div><dt>Average length</dt><dd>{minutesText(r.meet.avg_minutes)}</dd></div>
+              <div><dt>Guests without an account</dt><dd>{r.meet.guests}</dd></div>
+            </dl>
+          )}
+        </section>}
         <table className="files report" aria-label="Usage">
           <thead><tr>
             <th><button type="button" className="link-btn" onClick={() => setSort('name')}>Name</button></th>

@@ -3009,3 +3009,7 @@ select.meet-timer-btn option { color: #202124; }
 .mic-meter { width: 100%; height: 8px; }
 .meet-lobby-side .field > span { color: #bdc1c6; }
 .meet-lobby-side .link-btn, .meet-lobby-side a { color: #8ab4f8; }
+.report-meet h3 { margin: 0 0 6px; }
+.report-stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
+.report-stats dt { font-size: 12px; color: var(--muted); }
+.report-stats dd { margin: 0; font-size: 20px; font-weight: 600; }

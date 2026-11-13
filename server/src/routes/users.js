@@ -615,7 +615,16 @@ export default function userRoutes() {
       res.setHeader('Content-Disposition', `attachment; filename="usage-${days}-days.csv"`);
       return res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);
     }
-    res.json({ days, from, to, active, people: rows, per_day: activePerDay(orgId, from, to) });
+    // The company's video meetings in the period: how many were held, the time people spent in them, how long
+    // a meeting lasted on average (first in to last out), and how many guests without an account came.
+    const spans = q(`SELECT a.code, MIN(MAX(a.joined_at, ?)) AS first, MAX(MIN(COALESCE(a.left_at, ?), ?)) AS last,
+                       SUM(MAX(0, MIN(COALESCE(a.left_at, ?), ?) - MAX(a.joined_at, ?))) AS ms, SUM(a.user_id IS NULL) AS guests
+                     FROM meeting_attendance a JOIN meetings m ON m.code = a.code
+                     WHERE m.org_id = ? AND COALESCE(a.left_at, ?) >= ? AND a.joined_at < ? GROUP BY a.code`).all(from, to, to, to, to, from, orgId, to, from, to);
+    const meet = { meetings: spans.length, minutes: Math.round(spans.reduce((n, x) => n + x.ms, 0) / 60e3),
+      avg_minutes: spans.length ? Math.round(spans.reduce((n, x) => n + Math.max(0, x.last - x.first), 0) / spans.length / 60e3) : 0,
+      guests: spans.reduce((n, x) => n + x.guests, 0) };
+    res.json({ days, from, to, active, people: rows, per_day: activePerDay(orgId, from, to), meet });
   });
 
   // Someone's signed-in devices (web sessions), for an admin: see them and sign one or all out.

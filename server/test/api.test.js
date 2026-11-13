@@ -6797,6 +6797,10 @@ test('admin: usage report for the company, with a CSV', async () => {
   const r = (await kay('GET', '/api/users/report?days=7')).body;
   const v = r.people.find((p) => p.email === 'rpt@keepco.com');
   assert.deepEqual([v.video_meetings, v.video_minutes], [2, 55], 'two meetings; 30 + 15 + 10 minutes');
+  // The company's summary: a guest in Standup too (20 minutes); Standup lasted from Rae's first join to her last leave.
+  qq('INSERT INTO meeting_attendance (id, code, user_id, name, email, joined_at, left_at) VALUES (?, ?, NULL, ?, NULL, ?, ?)').run('guest-1', m1, 'Gina (guest)', nowT - 5 * 36e5, nowT - 5 * 36e5 + 20 * 60e3);
+  const sum = (await kay('GET', '/api/users/report?days=7')).body.meet;
+  assert.deepEqual(sum, { meetings: 2, minutes: 75, avg_minutes: Math.round(((3 * 60 + 15) + 10) / 2), guests: 1 }, 'Standup 3 h 15 min, Old one 10 min (within the period)');
   assert.equal(r.days, 7);
   const me = r.people.find((p) => p.email === 'rpt@keepco.com');
   assert.deepEqual([me.files_created, me.chat_messages, me.meetings, me.tasks_done], [1, 2, 1, 1]);
