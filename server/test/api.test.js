@@ -13961,3 +13961,21 @@ test('calendar: running late — the organiser or a guest says by how much; the 
   await c('POST', `/api/events/${ev.id}/rsvp`, { status: 'no' });
   assert.equal((await c('POST', `/api/events/${ev.id}/late`, { minutes: 5 })).status, 404, 'not when you said no');
 });
+
+test('calendar: running late is said in the event’s own channel too (Chat with guests), as a message from you', async () => {
+  const a = client(), b = client();
+  for (const [x, local] of [[a, 'latec1'], [b, 'latec2']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+    await login(x, `${local}@acme.com`);
+  }
+  const start = Date.now() + 5 * 60e3;
+  const ev = (await a('POST', '/api/events', { title: 'Review', start, end: start + 30 * 60e3, guests: ['latec2@acme.com'] })).body;
+  const ch = (await a('POST', `/api/events/${ev.id}/chat`)).body;
+  const chId = ch.id || ch.channel_id;
+  assert.ok(chId, JSON.stringify(ch));
+  assert.equal((await b('POST', `/api/events/${ev.id}/late`, { minutes: 10, at: start })).status, 200);
+  const msgs = (await a('GET', `/api/chat/channels/${chId}/messages`)).body;
+  assert.ok(msgs.some((m) => m.body === '⏱ Running 10 minutes late' && m.user_name === 'latec2'), JSON.stringify(msgs.map((m) => m.body)));
+  const solo = (await a('POST', '/api/events', { title: 'No channel', start, end: start + 60e3, guests: ['latec2@acme.com'] })).body;
+  assert.equal((await b('POST', `/api/events/${solo.id}/late`, { minutes: 5, at: start })).status, 200, 'fine without a channel');
+});

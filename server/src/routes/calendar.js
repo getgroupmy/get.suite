@@ -1010,7 +1010,7 @@ export default function calendarRoutes() {
     const at = Number(req.query.at) || ev.start;
     res.json(lateOf(ev.id, at));
   });
-  r.post('/:id/late', (req, res) => {
+  r.post('/:id/late', async (req, res) => {
     const ev = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
     if (!ev) throw notFound();
     const guests = q("SELECT user_id FROM event_guests WHERE event_id = ? AND status != 'no'").all(ev.id).map((g) => g.user_id);
@@ -1026,6 +1026,10 @@ export default function calendarRoutes() {
     const text = `${req.user.name} is running ${minutes} minutes late for “${ev.title}”`;
     bell(others, { kind: 'invite', title: `⏱ ${text}`, body: '', link: `/calendar?event=${ev.id}`, actor: req.user.name });
     sendTo(others, { type: 'running-late', text, event_id: ev.id, at });
+    // The event's own channel (Chat with guests), if it has one: said there too, as a message from you.
+    if (ev.chat_channel_id) {
+      try { (await import('./chat.js')).postToChannel(ev.chat_channel_id, req.user, `⏱ Running ${minutes} minutes late`); } catch { /* archived, or you've left it */ }
+    }
     // Guests outside Workspace (invited by email) get an email from you, when this server has email.
     if (mailEnabled()) {
       const outside = outsideOf(ev.id).filter((g) => g.status !== 'no');

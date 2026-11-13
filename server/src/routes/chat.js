@@ -414,6 +414,11 @@ export function startChatScheduler() { setInterval(() => { try { sendDueChat(); 
  * typed in Chat. Used for notices such as comment mentions. Returns false if they can't be reached.
  */
 /** Share an email in a conversation the user can write in (Mail's Share in Chat): a card, with a note if they like. */
+/** A plain message from someone in a channel they can write in (e.g. Running late, in an event's own channel). */
+export function postToChannel(channelId, user, body) {
+  const c = writable(channelId, user);
+  return deliver(c, user, { body: str(body, { max: 8000, name: 'Message' }) || '', files: [], poll: null, parent: null });
+}
 export function postEmail(channelId, user, body, email) {
   const c = writable(channelId, user);
   return deliver(c, user, { body: str(body, { max: 8000, name: 'Message' }) || '', files: [], poll: null, parent: null, email });
