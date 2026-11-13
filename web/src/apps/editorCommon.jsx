@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { viewOnly } from './drive/Drive.jsx';
 import { useNavigate } from 'react-router';
-import { get, put } from '../api.js';
+import { get, put, post } from '../api.js';
 import Icon from '../components/Icon.jsx';
 import { Menu, Modal, useToast, useDataCheck } from '../components/ui.jsx';
 import { ApprovalBanner, RequestApproval } from './drive/Approvals.jsx';
@@ -119,6 +119,9 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const offered = takeOff ? (menu || []).filter((it) => !(it && typeof it === 'object' && /^(Print|Download|Make a copy|Save as)/.test(it.label || ''))) : menu;
   const items = menu && file ? [...offered, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
     { label: 'Send in Chat…', icon: 'send', onClick: () => setChatting(true) },
+    { label: 'Chat with people who have access', icon: 'chat', onClick: async () => {
+      try { const r = await post(`/files/${file.id}/chat`, {}); toast(r.created ? 'A channel for it, with everyone it’s shared with' : r.added ? `Added ${r.added} more to its channel` : 'Its channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+    } },
     ...(mail?.enabled ? [{ label: 'Email link', icon: 'mail', onClick: () => emailIt(false) }, ...(takeOff ? [] : [{ label: 'Email as attachment…', icon: 'mail', onClick: () => emailIt(true) }])] : []),
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
     ...(file.role === 'owner' ? [{ label: 'Publish to the web…', icon: 'link', onClick: () => setPublishing(true) }] : []),

@@ -5319,6 +5319,35 @@ test('Chat with the list’s people: a shared task list’s own private channel'
   assert.deepEqual(members(), [ids.lista, ids.listb, ids.listc].sort());
 });
 
+test('Chat with people who have access: a shared file’s own private channel, folder access included', async () => {
+  const { q } = await import('../src/db.js');
+  const ids = {};
+  for (const l of ['fcha', 'fchb', 'fchc', 'fchd']) ids[l] = (await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: `File ${l}`, password: 'password123' })).body.id;
+  const a = client(), b = client(), d = client();
+  await login(a, 'fcha@acme.com'); await login(b, 'fchb@acme.com'); await login(d, 'fchd@acme.com');
+  const folder = (await a('POST', '/api/files/folder', { name: 'Tender 2027' })).body;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Bid draft', parent_id: folder.id })).body;
+  assert.match((await a('POST', `/api/files/${doc.id}/chat`)).body.error, /Share it with someone first/);
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: ids.fchb, role: 'editor' }] });
+  assert.equal((await d('POST', `/api/files/${doc.id}/chat`)).status, 404, 'not someone without access');
+  const made = (await b('POST', `/api/files/${doc.id}/chat`)).body;
+  assert.equal(made.created, true);
+  const ch = q('SELECT * FROM channels WHERE id = ?').get(made.id);
+  assert.deepEqual([ch.name, ch.private, ch.topic], ['bid-draft', 1, 'About Bid draft']);
+  const members = () => q('SELECT user_id FROM channel_members WHERE channel_id = ?').all(made.id).map((m) => m.user_id).sort();
+  assert.deepEqual(members(), [ids.fcha, ids.fchb].sort());
+  assert.match((await a('GET', `/api/chat/channels/${made.id}/messages`)).body[0].body, new RegExp(`^For Bid draft: .*/docs/${doc.id}$`));
+  // Given access through its folder: added next time.
+  await a('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: ids.fchc, role: 'viewer' }] });
+  const again = (await a('POST', `/api/files/${doc.id}/chat`)).body;
+  assert.deepEqual([again.id, again.created, again.added], [made.id, false, 1]);
+  assert.deepEqual(members(), [ids.fcha, ids.fchb, ids.fchc].sort());
+  // A folder's channel links to the folder.
+  const fc = (await a('POST', `/api/files/${folder.id}/chat`)).body;
+  assert.match((await a('GET', `/api/chat/channels/${fc.id}/messages`)).body[0].body, new RegExp(`/drive/folder/${folder.id}$`));
+  assert.equal(q('SELECT topic FROM channels WHERE id = ?').get(fc.id).topic, 'About the folder Tender 2027');
+});
+
 test('start page: Drive by default, Home if chosen', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'spage', domain: 'acme.com', name: 'Start Page', password: 'password123' })).status, 201);

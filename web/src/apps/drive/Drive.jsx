@@ -111,6 +111,14 @@ export default function Drive() {
   };
   /** A link to open it: an editor, a folder, or Drive with an uploaded file's preview. */
   const linkTo = (f) => `${window.location.origin}${openPath(f) || `/drive?preview=${f.id}`}`;
+  /** Chat with people who have access: its own private channel (made once; the same one after, with anyone given access since). */
+  const chatAbout = async (f) => {
+    try {
+      const r = await post(`/files/${f.id}/chat`, {});
+      toast(r.created ? `A channel for ${f.name}, with everyone it’s shared with` : r.added ? `Added ${r.added} more to its channel` : `${f.name}’s channel`);
+      navigate(`/chat/${r.id}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   /** Email links: a new message listing them as links (Mail offers to share them with recipients who can't open them). */
   const emailLinks = (list) => {
     const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -406,6 +414,7 @@ export default function Drive() {
         onClick: async () => { try { await put(`/files/${f.id}/template`, { template: !f.template }); toast(f.template ? 'No longer a company template' : 'Everyone in your company can now start from it (New → From a template)'); load(); } catch (e) { toast(e.message, 'error'); } } },
       f.owner_id === user.id && ['doc', 'sheet', 'slides'].includes(f.kind) && f.template !== 1 && { label: f.template === 2 ? 'Remove from my templates' : 'Use as my template', icon: 'copy',
         onClick: async () => { try { await put(`/files/${f.id}/my-template`, { template: f.template !== 2 }); toast(f.template === 2 ? 'Removed from your templates' : 'Added to your templates: New → From a template'); load(); } catch (e) { toast(e.message, 'error'); } } },
+      { label: 'Chat with people who have access', icon: 'chat', onClick: () => chatAbout(f) },
       { label: 'Labels…', icon: 'edit', onClick: () => setDialog({ type: 'labels', file: f }) },
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       { label: 'Change notifications on/off', icon: 'bell', onClick: async () => {

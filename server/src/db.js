@@ -237,6 +237,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS share_links (
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
 if (!hasColumn('share_links', 'mode')) db.exec("ALTER TABLE share_links ADD COLUMN mode TEXT NOT NULL DEFAULT 'view'"); // view, or upload (a file request: people send files into the folder)
+// A shared file's or folder's own Chat channel (Chat with people who have access), once made.
+if (!hasColumn('files', 'chat_channel_id')) db.exec('ALTER TABLE files ADD COLUMN chat_channel_id TEXT');
+
 // When the owner was told a link expires within a day (cleared when its expiry changes).
 if (!hasColumn('share_links', 'warned_at')) db.exec('ALTER TABLE share_links ADD COLUMN warned_at INTEGER');
 // Tell the owner when the link is opened (notify_open), at most once an hour (notified_at: the last time).

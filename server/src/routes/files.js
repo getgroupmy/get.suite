@@ -1819,6 +1819,32 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(f.kind === 'folder' ? folderActivityOf(f.id, subtreeIds(f.id).slice(0, 5000), 100, before) : activityOf(f.id, 100, before));
   });
 
+  // Chat with people who have access: a private channel for a shared file or folder (its owner and the colleagues it's
+  // shared with by name, directly or through a folder above; not company-wide or group access), made once; the same one after, with anyone given access since.
+  r.post('/:id/chat', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const t = Date.now();
+    // The people named on it or on a folder above it (not “everyone at the company” or a group: a channel of them all
+    // wouldn't be a conversation about this), and the owners on the way up.
+    const people = [];
+    let cur = f.id;
+    for (let depth = 0; cur && depth < 64; depth++) {
+      const x = q('SELECT owner_id, parent_id FROM files WHERE id = ?').get(cur);
+      if (!x) break;
+      people.push(x.owner_id, ...q('SELECT user_id FROM shares WHERE file_id = ? AND (expires_at IS NULL OR expires_at > ?)').all(cur, t).map((r) => r.user_id));
+      cur = x.parent_id;
+    }
+    if (new Set(people).size < 2) throw bad('Share it with someone first');
+    const { eventChannel } = await import('./chat.js');
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const path = { doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}`, folder: `/drive/folder/${f.id}` }[f.kind] || `/drive?preview=${f.id}`;
+    const row = q('SELECT chat_channel_id FROM files WHERE id = ?').get(f.id);
+    const out = eventChannel(req.user, { existingId: row?.chat_channel_id, title: f.name, people, link: `${base}${path}`,
+      topic: `About ${f.kind === 'folder' ? 'the folder' : ''} ${String(f.name).slice(0, 120)}`.replace(/\s+/g, ' '), intro: `For ${f.name}: ${base}${path}` });
+    if (out.id !== row?.chat_channel_id) q('UPDATE files SET chat_channel_id = ? WHERE id = ?').run(out.id, f.id);
+    res.json(out);
+  });
+
   r.get('/:id/shares', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     res.json(q(`SELECT s.user_id, s.direct_role, s.expires_at, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external
