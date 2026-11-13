@@ -420,9 +420,9 @@ export function postEmail(channelId, user, body, email) {
  */
 // What an own channel is about (Chat with guests and the like): a kind (event, list, file, note), its title and its
 // address in Workspace (a path), shown at the top of the channel.
-for (const col of ['about_kind', 'about_title', 'about_path']) if (!q('PRAGMA table_info(channels)').all().some((c) => c.name === col)) q(`ALTER TABLE channels ADD COLUMN ${col} TEXT`).run();
+for (const col of ['about_kind', 'about_title', 'about_path', 'about_id']) if (!q('PRAGMA table_info(channels)').all().some((c) => c.name === col)) q(`ALTER TABLE channels ADD COLUMN ${col} TEXT`).run();
 
-export function eventChannel(user, { existingId, title, when, people, link, topic = null, intro = null, kind = 'event' }) {
+export function eventChannel(user, { existingId, title, when, people, link, topic = null, intro = null, kind = 'event', aboutId = null }) {
   const path = (() => { try { const u = new URL(link); return `${u.pathname}${u.search}`; } catch { return null; } })();
   const ok = q(`SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND id IN (SELECT value FROM json_each(?))`).all(user.org_id, JSON.stringify([...new Set(people)])).map((u) => u.id);
   const members = [...new Set([user.id, ...ok])];
@@ -430,7 +430,7 @@ export function eventChannel(user, { existingId, title, when, people, link, topi
   if (have) {
     const added = members.filter((m) => !q('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(have.id, m));
     for (const m of added) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(have.id, m);
-    q('UPDATE channels SET about_kind = ?, about_title = ?, about_path = ? WHERE id = ?').run(kind, String(title || '').slice(0, 200), path, have.id); // renamed since, say
+    q('UPDATE channels SET about_kind = ?, about_title = ?, about_path = ?, about_id = ? WHERE id = ?').run(kind, String(title || '').slice(0, 200), path, aboutId, have.id); // renamed since, say
     if (added.length) sendTo(members, { type: 'channels-changed' });
     return { id: have.id, created: false, added: added.length };
   }
@@ -441,7 +441,7 @@ export function eventChannel(user, { existingId, title, when, people, link, topi
   tx(() => {
     q('INSERT INTO channels (id, org_id, name, created_by, created_at, private, topic) VALUES (?, ?, ?, ?, ?, 1, ?)').run(id, user.org_id, name, user.id, now(), topic || `About ${String(title || 'the event').slice(0, 120)}${when ? ` · ${when}` : ''}`);
     for (const m of members) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(id, m);
-    q('UPDATE channels SET about_kind = ?, about_title = ?, about_path = ? WHERE id = ?').run(kind, String(title || '').slice(0, 200), path, id);
+    q('UPDATE channels SET about_kind = ?, about_title = ?, about_path = ?, about_id = ? WHERE id = ?').run(kind, String(title || '').slice(0, 200), path, aboutId, id);
   });
   sendTo(members, { type: 'channels-changed' });
   const c = q('SELECT * FROM channels WHERE id = ?').get(id);
@@ -690,7 +690,7 @@ export default function chatRoutes() {
 
   r.get('/channels', (req, res) => {
     const me = req.user.id;
-    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters, c.about_kind, c.about_title, c.about_path,
+    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters, c.about_kind, c.about_title, c.about_path, c.about_id,
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
                       (SELECT mu.until FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted_until,
@@ -716,7 +716,16 @@ export default function chatRoutes() {
                     ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     const inSection = new Map(q('SELECT channel_id, section_id FROM chat_section_items WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.section_id]));
     const closed = new Map(q('SELECT channel_id, closed_at FROM chat_closed WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.closed_at]));
-    res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null,
+    // An own channel whose event, list, file or note has gone (deleted, or in the trash): said so, not linked.
+    const gone = (c) => {
+      if (!c.about_id) return false;
+      if (c.about_kind === 'event') return !q('SELECT 1 FROM events WHERE id = ?').get(c.about_id);
+      if (c.about_kind === 'list') return !q('SELECT 1 FROM task_lists WHERE id = ?').get(c.about_id);
+      if (c.about_kind === 'file') return !q('SELECT 1 FROM files WHERE id = ? AND trashed = 0').get(c.about_id);
+      if (c.about_kind === 'note') return !q('SELECT 1 FROM notes WHERE id = ? AND trashed_at IS NULL').get(c.about_id);
+      return false;
+    };
+    res.json({ channels: rows.map(({ has_left: hasLeft, about_id: aboutId, ...c }) => ({ ...c, about_gone: gone({ ...c, about_id: aboutId }), muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null,
       ...(closed.has(c.id) && !(c.last_at > closed.get(c.id)) && { closed: true }), /* closed, nothing new since */ posters: postersOf(c), can_post: mayPost(c, req.user, null),
       ...(hasLeft && { left: true, unread: 0, mentions: 0 }) })), online: onlineUserIds() });
   });

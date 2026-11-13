@@ -719,7 +719,9 @@ export default function Chat() {
             <div className="grow" style={{ minWidth: 0 }}>
               <h1>{current.private && !current.dm_key ? `🔒 ${current.name}` : title}</h1>
               {current.dm_key && statusFor(current.dm_user_id) && <p className="chat-topic person-status" aria-label="Their status">{statusLine(statusFor(current.dm_user_id))}{statusFor(current.dm_user_id).until ? ` · ${untilText(statusFor(current.dm_user_id).until)}` : ''}</p>}
-              {current.about_path ? (
+              {current.about_path && current.about_gone ? (
+                <p className="chat-topic muted small" style={{ margin: 0 }}><span aria-hidden="true">{{ event: '📅', list: '☑', file: '📄', note: '🗒' }[current.about_kind] || '🔗'}</span> {current.about_title} · this channel’s {ABOUT_KIND[current.about_kind] || 'item'}, deleted or in the trash</p>
+              ) : current.about_path ? (
                 <p className="chat-topic small" style={{ margin: 0 }}><Link to={current.about_path} title={`Open the ${ABOUT_KIND[current.about_kind] || 'item'} this channel is about`}>
                   <span aria-hidden="true">{{ event: '📅', list: '☑', file: '📄', note: '🗒' }[current.about_kind] || '🔗'}</span> {current.about_title || 'Open'}</Link>
                   <span className="muted"> · this channel’s {ABOUT_KIND[current.about_kind] || 'item'}</span></p>

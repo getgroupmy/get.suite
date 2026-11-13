@@ -873,7 +873,7 @@ export default function calendarRoutes() {
     const { eventChannel } = await import('./chat.js');
     const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
     const when = new Date(row.start).toISOString().slice(0, 10);
-    const out = eventChannel(req.user, { existingId: row.chat_channel_id, title: row.title, when, people: [row.owner_id, ...guests.map((g) => g.id)], link: `${base}/calendar?event=${row.id}` });
+    const out = eventChannel(req.user, { aboutId: row.id, existingId: row.chat_channel_id, title: row.title, when, people: [row.owner_id, ...guests.map((g) => g.id)], link: `${base}/calendar?event=${row.id}` });
     if (out.id !== row.chat_channel_id) q('UPDATE events SET chat_channel_id = ? WHERE id = ?').run(out.id, row.id);
     res.json(out);
   });

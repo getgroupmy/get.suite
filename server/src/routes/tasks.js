@@ -446,7 +446,7 @@ export default function taskRoutes() {
     if (people.length < 2) throw bad('Share the list with someone first');
     const { eventChannel } = await import('./chat.js');
     const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
-    const out = eventChannel(req.user, { kind: 'list', existingId: list.chat_channel_id, title: list.name, people, link: `${base}/tasks/${list.id}`,
+    const out = eventChannel(req.user, { aboutId: list.id, kind: 'list', existingId: list.chat_channel_id, title: list.name, people, link: `${base}/tasks/${list.id}`,
       topic: `About the task list ${String(list.name).slice(0, 120)}`, intro: `For the task list ${list.name}: ${base}/tasks/${list.id}` });
     if (out.id !== list.chat_channel_id) q('UPDATE task_lists SET chat_channel_id = ? WHERE id = ?').run(out.id, list.id);
     res.json(out);

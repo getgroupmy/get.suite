@@ -5349,6 +5349,11 @@ test('Chat with people who have access: a shared file’s own private channel, f
   assert.deepEqual([again.id, again.created, again.added], [made.id, false, 1]);
   assert.deepEqual(members(), [ids.fcha, ids.fchb, ids.fchc].sort());
   assert.equal((await a('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id).about_title, 'Bid final', 'renamed since: kept up to date');
+  assert.equal((await a('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id).about_gone, false);
+  await a('PATCH', `/api/files/${doc.id}`, { trashed: true });
+  assert.equal((await b('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id).about_gone, true, 'in the trash: gone');
+  await a('PATCH', `/api/files/${doc.id}`, { trashed: false });
+  assert.equal((await b('GET', '/api/chat/channels')).body.channels.find((x) => x.id === made.id).about_gone, false, 'restored');
   // A folder's channel links to the folder.
   const fc = (await a('POST', `/api/files/${folder.id}/chat`)).body;
   assert.match((await a('GET', `/api/chat/channels/${fc.id}/messages`)).body[0].body, new RegExp(`/drive/folder/${folder.id}$`));
