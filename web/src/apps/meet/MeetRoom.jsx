@@ -11,6 +11,7 @@ import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
 import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
+import { savedDevices, saveDevices, deviceAsks, deviceLists } from './devices.js';
 import { noPhotos } from '../../components/photos.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
@@ -152,9 +153,38 @@ function MeetQA({ m }) {
   );
 }
 
-async function openDevices() {
+/** Camera and microphone choices (the lobby, and ⚙ in the meeting). The list follows devices plugged in or out. */
+function DevicePicker({ stream, onPick }) {
+  const [lists, setLists] = useState({ mics: [], cams: [] });
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    if (!md?.enumerateDevices) return undefined;
+    const load = () => md.enumerateDevices().then((d) => setLists(deviceLists(d))).catch(() => {});
+    load();
+    md.addEventListener?.('devicechange', load);
+    return () => md.removeEventListener?.('devicechange', load);
+  }, [stream]);
+  const using = (kind) => stream?.[kind === 'mic' ? 'getAudioTracks' : 'getVideoTracks']()[0]?.getSettings?.().deviceId || '';
+  const pick = (kind, id) => { const next = { ...savedDevices(), [kind]: id }; saveDevices(next); onPick(next); };
+  return (
+    <div className="stack meet-devices" style={{ gap: 6 }}>
+      <label className="field"><span className="small">Camera</span>
+        <select aria-label="Camera" value={using('cam')} onChange={(e) => pick('cam', e.target.value)} disabled={!lists.cams.length}>
+          {!lists.cams.length && <option value="">No camera found</option>}
+          {lists.cams.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+        </select></label>
+      <label className="field"><span className="small">Microphone</span>
+        <select aria-label="Microphone" value={using('mic')} onChange={(e) => pick('mic', e.target.value)} disabled={!lists.mics.length}>
+          {!lists.mics.length && <option value="">No microphone found</option>}
+          {lists.mics.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+        </select></label>
+    </div>
+  );
+}
+
+async function openDevices(choice = savedDevices()) {
   if (!navigator.mediaDevices?.getUserMedia) return { stream: null, error: 'This browser can’t use a camera or microphone here (Meet needs HTTPS).' };
-  for (const want of [{ audio: true, video: true }, { audio: true }, { video: true }]) {
+  for (const want of deviceAsks(choice)) {
     try { return { stream: await navigator.mediaDevices.getUserMedia(want), error: null }; } catch { /* try with less */ }
   }
   return { stream: null, error: 'No camera or microphone could be used. You can still join, see and hear others, and chat.' };
@@ -221,6 +251,16 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const toggleCam = () => { const on = !cam; setCam(on); if (mesh.current) mesh.current.setCam(on); else local?.stream?.getVideoTracks().forEach((t) => { t.enabled = on; }); };
   const hasAudio = !!local?.stream?.getAudioTracks().length;
   const hasVideo = !!local?.stream?.getVideoTracks().length;
+  // Another camera or microphone: open it, and in the meeting send it in place of the old one.
+  const changeDevices = async (choice) => {
+    const d = await openDevices(choice);
+    if (!d.stream) { toast(d.error, 'error'); return; }
+    d.stream.getAudioTracks().forEach((t) => { t.enabled = mic; });
+    d.stream.getVideoTracks().forEach((t) => { t.enabled = cam; });
+    if (mesh.current) mesh.current.swapStream(d.stream);
+    else local?.stream?.getTracks().forEach((t) => t.stop());
+    setLocal(d);
+  };
 
   const joinRef = useRef(null);
   const join = useCallback((room = 0) => {
@@ -340,6 +380,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
             {info?.title && <p className="muted" style={{ margin: 0 }}>Ready to join?</p>}
             <p style={{ margin: 0 }}>{info ? whoIsHere(names) : 'Checking who’s here…'}</p>
             {local?.error && <p className="muted small" style={{ margin: 0 }}>{local.error}</p>}
+            {local?.stream && <DevicePicker stream={local.stream} onPick={changeDevices} />}
             {guest && <>
               {info?.company && <p className="muted small" style={{ margin: 0 }}>A meeting at {info.company}. You’re joining as a guest: someone in the meeting lets you in.</p>}
               <label className="stack" style={{ gap: 4 }}><span className="small">Your name</span>
@@ -412,8 +453,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           })}
         </div>
         {panel && (
-          <aside className="meet-panel" aria-label={panel === 'chat' ? 'Meeting chat' : panel === 'polls' ? 'Polls' : panel === 'qa' ? 'Questions' : 'People'}>
-            <div className="row"><strong className="grow">{panel === 'chat' ? 'Messages' : panel === 'polls' ? 'Polls' : panel === 'qa' ? 'Questions' : `People (${tiles.length})`}</strong>
+          <aside className="meet-panel" aria-label={panel === 'chat' ? 'Meeting chat' : panel === 'polls' ? 'Polls' : panel === 'qa' ? 'Questions' : panel === 'devices' ? 'Audio and video settings' : 'People'}>
+            <div className="row"><strong className="grow">{panel === 'chat' ? 'Messages' : panel === 'polls' ? 'Polls' : panel === 'qa' ? 'Questions' : panel === 'devices' ? 'Audio and video' : `People (${tiles.length})`}</strong>
               <button type="button" className="icon-btn" aria-label="Close panel" onClick={() => setPanel(null)}><Icon name="close" size={18} /></button></div>
             {panel === 'chat' ? <>
               <p className="muted small" style={{ margin: 0 }}>{m.settings?.keep_chat ? '💾 This chat is being kept: the people in the meeting can read it afterwards (Meet → Recent meetings → Chat).' : 'Messages are only seen by people in the meeting now, and go when it ends.'}</p>
@@ -421,7 +462,9 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {messages.map((msg, i) => (msg.system ? <li key={i} className="muted small meet-chat-note">{msg.text}</li> : <li key={i}><strong>{msg.mine ? 'You' : msg.name}</strong> <span className="muted small">{new Date(msg.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><div>{msg.text}</div></li>))}
               </ul>
               <form className="row" onSubmit={sendChat}><input name="msg" className="grow" aria-label="Send a message to everyone" placeholder="Send a message" maxLength={2000} autoComplete="off" /><button className="btn">Send</button></form>
-            </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : panel === 'qa' ? <MeetQA m={m} /> : (<>
+            </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : panel === 'qa' ? <MeetQA m={m} /> : panel === 'devices' ? (
+              local?.stream ? <DevicePicker stream={local.stream} onPick={changeDevices} /> : <p className="muted small">{local?.error || 'No camera or microphone is in use.'}</p>
+            ) : (<>
               {m.host && !guest && <Breakouts m={m} goToRoom={goToRoom} />}
               <ul className="meet-people">
                 {m.host && <li className="row"><span className="grow muted small">{m.locked ? '🔒 Locked: nobody new can join. Those here can come back if they drop out.' : 'Lock the meeting to stop anyone new from joining.'}</span>
@@ -460,6 +503,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           onClick={() => (sharing ? m.stopScreen() : m.shareScreen().catch(() => {}))}>🖥</button>}
         <button type="button" className={`meet-btn ${m.state.hand ? 'on' : ''}`} aria-pressed={m.state.hand} aria-label={m.state.hand ? 'Lower hand' : 'Raise hand'} onClick={() => m.setState({ hand: !m.state.hand })}>✋</button>
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>
+        <button type="button" className={`meet-btn ${panel === 'devices' ? 'on' : ''}`} aria-label="Audio and video settings" title="Camera and microphone" onClick={() => setPanel(panel === 'devices' ? null : 'devices')}>⚙</button>
         <button type="button" className={`meet-btn ${panel === 'chat' ? 'on' : ''}`} aria-label={unread ? `Chat, ${unread} new` : 'Chat'} onClick={() => { setPanel(panel === 'chat' ? null : 'chat'); setUnread(0); }}>💬{unread > 0 && <span className="nav-badge">{unread}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'qa' ? 'on' : ''}`} aria-label={newQs ? `Questions, ${newQs} new` : 'Questions'} onClick={() => { setPanel(panel === 'qa' ? null : 'qa'); setNewQs(0); }}>❓{newQs > 0 && <span className="nav-badge">{newQs}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'polls' ? 'on' : ''}`} aria-label={toVote ? `Polls, ${toVote} to answer` : 'Polls'} onClick={() => setPanel(panel === 'polls' ? null : 'polls')}>📊{toVote > 0 && <span className="nav-badge">{toVote}</span>}</button>

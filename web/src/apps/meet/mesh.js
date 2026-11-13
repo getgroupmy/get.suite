@@ -162,7 +162,7 @@ export class Mesh {
     };
     const video = this.screen?.getVideoTracks()[0] || this.stream?.getVideoTracks()[0];
     const audio = this.stream?.getAudioTracks()[0];
-    if (audio) pc.addTrack(audio, this.stream);
+    if (audio) p.audioSender = pc.addTrack(audio, this.stream);
     if (video) p.videoSender = pc.addTrack(video, this.screen || this.stream);
     // Without a microphone or camera, still ask to receive theirs.
     if (offer && !audio) pc.addTransceiver('audio', { direction: 'recvonly' });
@@ -203,6 +203,27 @@ export class Mesh {
       if (p.videoSender) p.videoSender.replaceTrack(track).catch(() => {});
       else if (track) p.videoSender = p.pc.addTrack(track, stream); // no camera: start sending video now
     }
+  }
+
+  /**
+   * Another camera or microphone (chosen in ⚙ settings): send the new stream's tracks on every connection in
+   * place of the old ones (the picture only while not presenting), keep mute and camera-off as they were, and
+   * let the old devices go.
+   */
+  swapStream(stream) {
+    const old = this.stream;
+    this.stream = stream;
+    const audio = stream?.getAudioTracks()[0] || null;
+    const video = stream?.getVideoTracks()[0] || null;
+    if (audio) audio.enabled = !!this.state.mic;
+    if (video) video.enabled = !!this.state.cam;
+    for (const p of this.peers.values()) {
+      if (p.audioSender) p.audioSender.replaceTrack(audio).catch(() => {});
+      else if (audio) p.audioSender = p.pc.addTrack(audio, stream);
+    }
+    if (!this.screen) this.useVideo(video, stream);
+    for (const t of old?.getTracks() ?? []) if (!stream?.getTracks().includes(t)) t.stop();
+    this.onChange?.();
   }
 
   async shareScreen() {

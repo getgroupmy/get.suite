@@ -3005,3 +3005,4 @@ select.meet-timer-btn option { color: #202124; }
 .file-type.on { background: var(--accent-soft, var(--hover)); border-color: var(--accent, var(--primary)); font-weight: 600; }
 .meet-chat-note { font-style: italic; }
 .meet-chat.kept { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.meet-lobby-side select { color: var(--text); background: var(--surface); }
