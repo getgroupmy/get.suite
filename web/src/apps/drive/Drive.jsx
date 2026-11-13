@@ -344,18 +344,9 @@ export default function Drive() {
     } catch (e) { toast(e.message, 'error'); }
   }
 
-  // A link to an uploaded file (?file=<id>, as Copy links gives): open its preview over the folder it's in.
-  useEffect(() => {
-    const id = searchParams.get('file');
-    if (!id) return;
-    get(`/files/${encodeURIComponent(id)}`).then((f) => { if (f && f.kind === 'file') setDialog({ type: 'preview', file: f }); })
-      .catch(() => toast('You can’t open that file, or it’s gone', 'error'));
-    const next = new URLSearchParams(searchParams); next.delete('file'); setSearchParams(next, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.get('file')]);
   // Links to what's selected, a line each ("Name: link"), for an email or a chat.
   const copyLinks = async (files) => {
-    const link = (f) => `${location.origin}${openPath(f) || `/drive${f.parent_id ? `/folder/${f.parent_id}` : ''}?file=${f.id}`}`;
+    const link = (f) => `${location.origin}${openPath(f) || `/drive?preview=${f.id}`}`; // an uploaded file: Drive with its preview open
     const text = files.map((f) => `${f.name}: ${link(f)}`).join('\n');
     try { await navigator.clipboard.writeText(text); toast(files.length === 1 ? 'Link copied' : `${files.length} links copied`); } catch { toast(text); }
   };

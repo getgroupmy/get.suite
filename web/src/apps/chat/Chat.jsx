@@ -1239,7 +1239,7 @@ const infoOf = (id) => {
   return fileInfo.get(id);
 };
 const OPEN = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
-const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation', folder: 'Folder' };
+const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation', folder: 'Folder', file: 'File' };
 
 /** Links to Workspace files in a message, shown as cards: what it is, whose, and a way in. */
 function FileCards({ text }) {
@@ -1265,7 +1265,7 @@ function FileCards({ text }) {
           );
         }
         return (
-          <Link key={l.id} className="file-card" to={OPEN[f.kind]?.(f.id) || `/drive`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}`}>
+          <Link key={l.id} className="file-card" to={OPEN[f.kind]?.(f.id) || `/drive?preview=${f.id}`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}`}>
             <Icon name={f.kind === 'folder' ? 'folder' : f.kind} size={22} className={`ft ft-${f.kind}`} />
             <span className="grow"><strong>{f.name}</strong><span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
           </Link>

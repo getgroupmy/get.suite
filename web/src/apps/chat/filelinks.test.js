@@ -58,3 +58,9 @@ test('form links: /f/<token> on this server, each once', async () => {
   assert.deepEqual(formLinksIn('https://other.example/f/AbC_dEf-123456', 'ws.example'), []);
   assert.deepEqual(formLinksIn('/f/short /f/AbC_dEf-123456/pictures/x', 'h'), [], 'too short, or a picture in it');
 });
+
+test('file links: an uploaded file’s “/drive?preview=…” (as Copy link gives) is a file card too', () => {
+  assert.deepEqual(fileLinksIn('the scan: https://ws.example/drive?preview=f1le123 ok', 'ws.example'), [{ id: 'f1le123', kind: 'file' }]);
+  assert.deepEqual(fileLinksIn('/drive?comment=c1&preview=f1le123', 'h'), [{ id: 'f1le123', kind: 'file' }]);
+  assert.deepEqual(fileLinksIn('https://other.example/drive?preview=f1le123', 'ws.example'), [], 'another server');
+});
