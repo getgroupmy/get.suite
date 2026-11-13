@@ -36,3 +36,12 @@ test('keep in touch: how long since', async () => {
   assert.equal(sinceText(now - 35 * 864e5, now), '5 weeks ago');
   assert.equal(sinceText(now - 120 * 864e5, now), '4 months ago');
 });
+
+test('a saved chat message in a line', async () => {
+  const { savedText } = await import('./savedtext.js');
+  assert.equal(savedText({ body: '\n  **Send** the quote\nthanks' }), 'Send the quote');
+  assert.equal(savedText({ body: 'x'.repeat(200) }).length, 120);
+  assert.equal(savedText({ body: '', files: 2 }), '📎 2 files');
+  assert.equal(savedText({ body: '', files: 0, email_subject: 'Northwind order' }), '✉ Northwind order');
+  assert.equal(savedText({ body: '' }), 'a message');
+});

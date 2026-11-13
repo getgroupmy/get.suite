@@ -1525,7 +1525,7 @@ export default function chatRoutes() {
   });
   // Your saved messages, last saved first (ones in conversations you've left since are left out).
   r.get('/saved', (req, res) => {
-    const rows = q(`SELECT s.message_id, s.saved_at, m.body, m.channel_id, m.parent_id, m.created_at, m.files, u.name AS author, c.name AS channel, c.dm_key
+    const rows = q(`SELECT s.message_id, s.saved_at, m.body, m.channel_id, m.parent_id, m.created_at, m.files, json_extract(m.email, '$.subject') AS email_subject, u.name AS author, c.name AS channel, c.dm_key
                     FROM chat_saved s JOIN messages m ON m.id = s.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
                     WHERE s.user_id = ? ORDER BY s.saved_at DESC`).all(req.user.id);
     res.json(rows.filter((r) => { try { return !!loadChannel(r.channel_id, req.user); } catch { return false; } })

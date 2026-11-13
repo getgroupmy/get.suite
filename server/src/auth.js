@@ -31,7 +31,7 @@ if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'file_format')) 
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'drive_view')) q('ALTER TABLE users ADD COLUMN drive_view TEXT').run();
 const DRIVE_SORTS = ['name', 'modified', 'size'];
 // Home's cards, in their usual order; someone's own order and hidden ones in users.home_layout (JSON).
-export const HOME_CARDS = ['events', 'tasks', 'unread', 'approvals', 'out', 'signing', 'apps', 'recent', 'notes', 'dates', 'touch', 'office', 'followups', 'nudges', 'people', 'comments'];
+export const HOME_CARDS = ['events', 'tasks', 'unread', 'approvals', 'out', 'signing', 'apps', 'recent', 'notes', 'dates', 'touch', 'office', 'followups', 'nudges', 'people', 'comments', 'saved'];
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'home_layout')) q('ALTER TABLE users ADD COLUMN home_layout TEXT').run();
 /** Someone's Home: { order: every card once (theirs first, any new ones after), hidden: [cards] }. */
 export function homeLayout(v) {

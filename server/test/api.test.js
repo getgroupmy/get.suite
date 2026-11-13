@@ -6458,6 +6458,10 @@ test('a shared email in Chat: found by search, kept in downloads, carried when f
   const f = await kay('POST', `/api/chat/messages/${m.id}/forward`, { channel_id: other, body: 'FYI' });
   assert.equal(f.status, 201, JSON.stringify(f.body));
   assert.deepEqual(f.body.email, email);
+  // Saved for later: listed with the email's subject (for Home's Saved in Chat card).
+  assert.equal((await kay('PUT', `/api/chat/messages/${m.id}/saved`, { saved: true })).status, 200);
+  assert.equal((await kay('GET', '/api/chat/saved')).body.find((x) => x.message_id === m.id).email_subject, 'Pallet quotation');
+  await kay('PUT', `/api/chat/messages/${m.id}/saved`, { saved: false });
 });
 
 test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', async () => {
@@ -9652,6 +9656,7 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   assert.deepEqual((await a('GET', '/api/auth/me')).body.user.home_layout, { order: HOME_CARDS, hidden: [] });
   assert.ok(HOME_CARDS.includes('dates'), 'birthdays and dates');
   assert.ok(HOME_CARDS.includes('touch'), 'keep in touch');
+  assert.ok(HOME_CARDS.includes('saved'), 'saved in chat');
   assert.ok(HOME_CARDS.includes('office'), 'in the office today');
   const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
   assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');

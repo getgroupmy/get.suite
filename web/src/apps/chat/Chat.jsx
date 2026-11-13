@@ -324,6 +324,8 @@ export default function Chat() {
   // Messages you've saved for later (yours alone), kept up to date live.
   const [saved, setSaved] = useState([]);
   const [savedOpen, setSavedOpen] = useState(false);
+  // /chat?saved=1 (Home's Saved in Chat): open with Saved showing.
+  useEffect(() => { if (params.get('saved') === '1') setSavedOpen(true); }, [params]);
   const loadSaved = useCallback(() => get('/chat/saved').then(setSaved).catch(() => {}), []);
   useEffect(() => { loadSaved(); }, [loadSaved]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-saved') loadSaved(); }), [loadSaved]);

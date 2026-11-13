@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { get, post, put, patch, del, onLive, formatDate } from '../../api.js';
+import { savedText } from './savedtext.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -26,7 +27,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -47,7 +48,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -61,6 +62,7 @@ export default function Home() {
       mail?.enabled ? safe(get('/mail/nudges'), { items: [], total: 0 }) : Promise.resolve({ items: [], total: 0 }),
       mail?.enabled ? safe(get('/contacts/frequent'), []) : Promise.resolve([]),
       safe(get('/comments/for-me'), []),
+      safe(get('/chat/saved'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -81,6 +83,7 @@ export default function Home() {
       nudges: nudges.items, nudgesMore: Math.max(0, nudges.total - nudges.items.length),
       people: people.slice(0, 5),
       comments: comments.slice(0, 6), commentsMore: Math.max(0, comments.length - 6),
+      saved: saved.slice(0, 5), savedMore: Math.max(0, saved.length - 5),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -268,6 +271,26 @@ export default function Home() {
                 ))}
               </ul>
               {data.touchMore > 0 && <Link className="small" to="/contacts?tab=touch">and {data.touchMore} more</Link>}
+            </section>
+          )}
+          {data.saved.length > 0 && (
+            <section className="card home-card" aria-label="Saved in Chat" {...cardProps('saved')}>
+              <h2><Link to="/chat?saved=1"><span aria-hidden="true">🔖</span> Saved in Chat</Link></h2>
+              <ul className="home-list">
+                {data.saved.map((x) => {
+                  const text = savedText(x);
+                  return (
+                    <li key={x.message_id}>
+                      <Link className="grow ellipsis" to={`/chat/${x.channel_id}?msg=${x.parent_id || x.message_id}${x.parent_id ? `&thread=${x.parent_id}` : ''}`} title={text}>
+                        <strong>{x.author || 'Someone'}</strong> <span className="muted small">{x.dm ? 'direct message' : `#${x.channel}`}</span> {text}
+                      </Link>
+                      <button type="button" className="btn small" aria-label={`Done with: ${text.slice(0, 40)}`} title="Done with it: take it off Saved"
+                        onClick={async () => { try { await put(`/chat/messages/${x.message_id}/saved`, { saved: false }); load(); } catch (e) { toast(e.message, 'error'); } }}>✓</button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {data.savedMore > 0 && <Link className="small" to="/chat?saved=1">and {data.savedMore} more</Link>}
             </section>
           )}
           {data.people.length > 0 && (
