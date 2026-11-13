@@ -1790,6 +1790,18 @@ test('large files as links: over 25 MB goes out as a download link, the rest att
   const pub = await fetch(`${base}/api/public/links/${token}`).then((x) => x.json());
   assert.equal(pub.name, 'Site video.mp4');
   assert.ok(pub.expires_at > Date.now() + 29 * 864e5);
+  // The company's link rules: links last no longer than it allows; with passwords required, none go by email.
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { link_max_days: 5 })).status, 200);
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Site video 2', text: 'x', attachments: [big.id], linkAttachments: [big.id] })).status, 200);
+  const m2 = await eventually(async () => (await inbox(olivia, 'Site video 2'))[0]);
+  const t2 = ((await olivia('GET', `/api/mail/messages/${m2.uid}?folder=INBOX`)).body.text || '').match(/\/s\/([\w-]+)/)?.[1];
+  const p2 = await fetch(`${base}/api/public/links/${t2}`).then((x) => x.json());
+  assert.ok(p2.expires_at < Date.now() + 5 * 864e5 + 60e3 && p2.expires_at > Date.now() + 4 * 864e5, String(p2.expires_at));
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { link_password: true })).status, 200);
+  const refused = await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Site video 3', text: 'x', attachments: [big.id], linkAttachments: [big.id] });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /requires a password on links/);
+  await olivia('PATCH', '/api/orgs/current', { link_max_days: null, link_password: false });
   // Someone else's file, even shared with you, can't go out as a link.
   const lee = client();
   const leeId = (await olivia('POST', '/api/users', { local: 'linklee', domain: 'acme.com', name: 'Link Lee', password: 'password123' })).body.id;

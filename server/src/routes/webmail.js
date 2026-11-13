@@ -1887,7 +1887,11 @@ export default function webmailRoutes() {
     // The links, made now that the message is going (so a failed check above leaves none behind).
     let text = typeof b.text === 'string' ? b.text : '';
     if (linked.length) {
-      const until = Date.now() + LINK_DAYS * 864e5;
+      // The company's rules for links: no longer than it allows; and links that need a password can't go by email.
+      const { linkRules } = await import('./links.js');
+      const rules = linkRules(req.user.org_id);
+      if (rules.password) throw bad('Your company requires a password on links, so large files can’t be sent as links: attach smaller files, or share them from Drive with a password');
+      const until = Date.now() + Math.min(LINK_DAYS, rules.maxDays || LINK_DAYS) * 864e5;
       const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
       const items = linked.map((f) => {
         const token = crypto.randomBytes(18).toString('base64url');

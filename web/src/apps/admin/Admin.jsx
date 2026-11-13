@@ -547,7 +547,7 @@ function CompanySettings() {
     try {
       const o = await patch('/orgs/current', body);
       setOrg({ ...o, your_ip: before.your_ip });
-      setUser({ ...user, org_name: o.name, allow_external: o.allow_external, allow_links: o.allow_links });
+      setUser({ ...user, org_name: o.name, allow_external: o.allow_external, allow_links: o.allow_links, link_max_days: o.link_max_days, link_password: o.link_password });
       toast(msg);
     } catch (e) { setOrg(before); toast(e.message, 'error'); }
   }
@@ -575,6 +575,17 @@ function CompanySettings() {
           Allow people to share files and folders by link with anyone, such as clients
         </label>
         <p className="muted small" style={{ margin: 0 }}>Turning this off immediately stops every existing link from working. Turning it back on restores the links that haven't expired.</p>
+        {org.allow_links && <>
+          <label className="field" style={{ maxWidth: 360 }}><span>Links must expire within (days; empty for no limit)</span>
+            <input type="number" min={1} max={365} defaultValue={org.link_max_days || ''} placeholder="No limit" aria-label="Links must expire within days"
+              onBlur={(e) => { const v = e.target.value.trim(); const d = v ? Number(v) : null; if (d !== (org.link_max_days || null)) save({ link_max_days: d }, d ? `Links must now expire within ${d} day${d === 1 ? '' : 's'}` : 'Links can last as long as people choose'); }} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={!!org.link_password} onChange={(e) => save({ link_password: e.target.checked }, e.target.checked ? 'Links now need a password' : 'Passwords on links are up to each person')} />
+            Require a password on every link
+          </label>
+          <p className="muted small" style={{ margin: 0 }}>These apply to links made or changed from now on (existing ones stay as they are: see Admin → Share links). With passwords required, Mail can't send large files as links.</p>
+        </>}
         <label className="check">
           <input type="checkbox" checked={org.meet_guests !== false} onChange={(e) => save({ meet_guests: e.target.checked }, e.target.checked ? 'Guests can ask to join meetings' : 'Guests can no longer join meetings')} />
           Let guests without an account ask to join video meetings from the meeting’s link (someone in the meeting lets them in)

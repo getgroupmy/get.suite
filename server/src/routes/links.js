@@ -41,6 +41,18 @@ function trashedOnTheWay(fileId, stopAt = null) {
   return false;
 }
 
+/** The company's rules for links: { maxDays (null: no limit), password (required) }. */
+export function linkRules(orgId) {
+  const o = q('SELECT link_max_days, link_password FROM orgs WHERE id = ?').get(orgId) || {};
+  return { maxDays: o.link_max_days || null, password: !!o.link_password };
+}
+/** Refuse an expiry (ms or null) or a password ('' for none) the company's rules don't allow. */
+function checkRules(orgId, { expires, password }) {
+  const r = linkRules(orgId);
+  if (r.maxDays && expires !== undefined && (expires === null || expires > now() + r.maxDays * 864e5 + 60e3)) throw bad(`Your company's links must expire within ${r.maxDays} day${r.maxDays === 1 ? '' : 's'}`);
+  if (r.password && password !== undefined && !password) throw bad('Your company requires a password on links');
+}
+
 /** Owner-side checks: the file exists, you own it, it can have links, and your company allows them. */
 function ownFile(fileId, user) {
   const f = q('SELECT id, kind, name, trashed FROM files WHERE id = ?').get(String(fileId || ''));
@@ -76,6 +88,7 @@ export function linkRoutes() {
     if (mode === 'view' && await fileRulesStop(req, res, filesFor(f), 'shared by link', audit, f.name)) return;
     const password = req.body.password ? String(req.body.password) : '';
     if (password && password.length < 6) throw bad('Use a password of at least 6 characters');
+    checkRules(req.user.org_id, { expires, password });
     if (password.length > 200) throw bad('Password is too long');
     const link = { id: uid(), token: crypto.randomBytes(18).toString('base64url'), file_id: f.id, created_by: req.user.id, mode,
       created_at: now(), expires_at: expires, password_hash: password ? hashPassword(password) : null, opens: 0, last_opened: null };
@@ -113,6 +126,7 @@ export function linkRoutes() {
       if (pw.length > 200) throw bad('Password is too long');
       out.password_hash = pw ? hashPassword(pw) : null;
     }
+    checkRules(req.user.org_id, { expires: 'expires_at' in b ? out.expires_at : undefined, password: 'password' in b ? (out.password_hash ? 'set' : '') : undefined });
     q('UPDATE share_links SET expires_at = ?, password_hash = ? WHERE id = ?').run(out.expires_at, out.password_hash, l.id);
     if ('expires_at' in b) audit(req, 'link.expiry', { target: f.name, details: { expires: out.expires_at } });
     if ('password' in b) audit(req, 'link.password', { target: f.name, details: { password: !!out.password_hash } });

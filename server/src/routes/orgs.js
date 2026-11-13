@@ -34,6 +34,8 @@ function describe(org) {
     ...org,
     allow_external: !!org.allow_external,
     allow_links: !!org.allow_links,
+    link_max_days: org.link_max_days || null,
+    link_password: !!org.link_password,
     meet_guests: org.meet_guests === undefined ? true : !!org.meet_guests,
     allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
     allow_api_tokens: !!org.allow_api_tokens,
@@ -60,6 +62,13 @@ function updateOrg(orgId, body, { asSuper, user }) {
   if (body.allow_publish !== undefined) q('UPDATE orgs SET allow_publish = ? WHERE id = ?').run(body.allow_publish ? 1 : 0, orgId);
   if (body.meet_guests !== undefined) q('UPDATE orgs SET meet_guests = ? WHERE id = ?').run(body.meet_guests ? 1 : 0, orgId);
   if (body.allow_links !== undefined) q('UPDATE orgs SET allow_links = ? WHERE id = ?').run(body.allow_links ? 1 : 0, orgId);
+  // Rules for new and changed links (existing ones are left as they are).
+  if (body.link_max_days !== undefined) {
+    const d = body.link_max_days === null ? null : Number(body.link_max_days);
+    if (d !== null && (!Number.isInteger(d) || d < 1 || d > 365)) throw bad('Links can be limited to between 1 and 365 days');
+    q('UPDATE orgs SET link_max_days = ? WHERE id = ?').run(d, orgId);
+  }
+  if (body.link_password !== undefined) q('UPDATE orgs SET link_password = ? WHERE id = ?').run(body.link_password ? 1 : 0, orgId);
   if (body.allow_api_tokens !== undefined) q('UPDATE orgs SET allow_api_tokens = ? WHERE id = ?').run(body.allow_api_tokens ? 1 : 0, orgId);
   if (body.allow_forwarding !== undefined) {
     q('UPDATE orgs SET allow_forwarding = ? WHERE id = ?').run(body.allow_forwarding ? 1 : 0, orgId);

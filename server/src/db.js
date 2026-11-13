@@ -221,6 +221,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS two_factor (
 if (!hasColumn('files', 'trashed_at')) { db.exec('ALTER TABLE files ADD COLUMN trashed_at INTEGER'); db.exec('UPDATE files SET trashed_at = updated_at WHERE trashed = 1'); } // when it went in the trash
 if (!hasColumn('orgs', 'trash_days')) db.exec('ALTER TABLE orgs ADD COLUMN trash_days INTEGER NOT NULL DEFAULT 30'); // Drive trash empties itself after this many days (0: never)
 if (!hasColumn('orgs', 'allow_links')) db.exec('ALTER TABLE orgs ADD COLUMN allow_links INTEGER NOT NULL DEFAULT 1');
+// Company rules for links: they must expire within link_max_days (empty: no limit), and have a password (link_password).
+if (!hasColumn('orgs', 'link_max_days')) db.exec('ALTER TABLE orgs ADD COLUMN link_max_days INTEGER');
+if (!hasColumn('orgs', 'link_password')) db.exec('ALTER TABLE orgs ADD COLUMN link_password INTEGER NOT NULL DEFAULT 0');
 db.exec(`CREATE TABLE IF NOT EXISTS share_links (
   id TEXT PRIMARY KEY,
   token TEXT NOT NULL UNIQUE,            -- the secret part of the link

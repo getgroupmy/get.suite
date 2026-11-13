@@ -945,9 +945,12 @@ function LinkSharing({ file }) {
   const [dataCheck, checkData] = useDataCheck();
   const { user } = useAuth();
   const [links, setLinks] = useState(null);
-  const [days, setDays] = useState('7');
+  // The company's rules: links must expire within maxDays (and so no "Never"), and/or need a password.
+  const maxDays = user.link_max_days || null, needPassword = !!user.link_password;
+  const expiryChoices = EXPIRY.filter(([v]) => !maxDays || (v && Number(v) <= maxDays));
+  const [days, setDays] = useState(() => (!maxDays || maxDays >= 7 ? '7' : expiryChoices[0]?.[0] || '1'));
   const [password, setPassword] = useState('');
-  const [usePassword, setUsePassword] = useState(false);
+  const [usePassword, setUsePassword] = useState(needPassword);
   const [uploadOnly, setUploadOnly] = useState(false); // a file request: people send files in, and see nothing
   const [pwFor, setPwFor] = useState(null); // the link whose password is being set
   const [busy, setBusy] = useState(false);
@@ -1011,10 +1014,10 @@ function LinkSharing({ file }) {
             {!l.expired && <button type="button" className="icon-btn" aria-label="Copy link" title="Copy link" onClick={() => copy(l)}><Icon name="copy" size={18} /></button>}
             {!l.expired && mail?.enabled && <button type="button" className="icon-btn" aria-label="Email link" title={l.mode === 'upload' ? 'Email the file request to someone' : 'Email the link to someone'} onClick={() => emailLink(l)}><Icon name="mail" size={18} /></button>}
             <button type="button" className="icon-btn" aria-label={l.has_password ? 'Change password' : 'Add a password'} title={l.has_password ? 'Change the password (whoever used the old one needs the new one)' : 'Add a password to this link'} onClick={() => setPwFor(l)}>🔑</button>
-            {l.has_password && <button type="button" className="icon-btn" aria-label="Remove password" title="Remove the password: anyone with the link can open it" onClick={() => setPassword_(l, '')}>🔓</button>}
+            {l.has_password && !needPassword && <button type="button" className="icon-btn" aria-label="Remove password" title="Remove the password: anyone with the link can open it" onClick={() => setPassword_(l, '')}>🔓</button>}
             <select className="small" value="" aria-label="Change expiry" title="Change how long it works (the same link)" onChange={(e) => e.target.value && changeExpiry(l, e.target.value)}>
               <option value="">{l.expired ? 'Renew…' : 'Change expiry…'}</option>
-              {EXPIRY.map(([v, label]) => <option key={v || 'never'} value={v || 'never'}>{v ? label.replace('Expires in', 'For') : 'Never expires'}</option>)}
+              {expiryChoices.map(([v, label]) => <option key={v || 'never'} value={v || 'never'}>{v ? label.replace('Expires in', 'For') : 'Never expires'}</option>)}
             </select>
             <button type="button" className="icon-btn" aria-label="Remove link" title="Remove link" onClick={() => remove(l)}><Icon name="close" size={18} /></button>
           </li>
@@ -1022,13 +1025,14 @@ function LinkSharing({ file }) {
       </ul>
       <div className="row wrap">
         <select value={days} onChange={(e) => setDays(e.target.value)} aria-label="Link expiry">
-          {EXPIRY.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          {expiryChoices.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
-        <label className="check"><input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} /> Password</label>
+        <label className="check"><input type="checkbox" checked={usePassword} disabled={needPassword} onChange={(e) => setUsePassword(e.target.checked)} /> Password</label>
         {file.kind === 'folder' && <label className="check"><input type="checkbox" checked={uploadOnly} onChange={(e) => setUploadOnly(e.target.checked)} /> File request (upload only)</label>}
         {usePassword && <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" aria-label="Link password" autoComplete="off" />}
         <button type="button" className="btn" onClick={create} disabled={!links || busy || (usePassword && password.length < 6)}><Icon name={uploadOnly ? 'upload' : 'link'} size={18} /> {uploadOnly ? 'Create file request' : 'Create link'}</button>
       </div>
+      {(maxDays || needPassword) && <p className="muted small">Your company asks for {[maxDays && `links that expire within ${maxDays} day${maxDays === 1 ? '' : 's'}`, needPassword && 'a password on every link'].filter(Boolean).join(' and ')}.</p>}
       {usePassword && <p className="muted small">Send the password separately from the link, for example by phone.</p>}
       {pwFor && <PromptModal title={pwFor.has_password ? 'Change the link’s password' : 'Add a password to the link'} label="New password" confirm="Set password"
         message="At least 6 characters. Whoever opened it with the old password will need the new one."

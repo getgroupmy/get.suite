@@ -672,6 +672,24 @@ test('public share links: no account needed; expiry, password, folders, revoking
   assert.equal((await sharer('PATCH', `/api/links/${link.id}`, { expires_at: null })).status, 403, 'nor changed while links are off');
   await owner('PATCH', '/api/orgs/current', { allow_links: true });
   assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 200);
+  // Company rules: links must expire within 10 days and have a password (for links made or changed from now on).
+  for (const bad of [0, 400, 2.5, 'x']) assert.equal((await owner('PATCH', '/api/orgs/current', { link_max_days: bad })).status, 400, String(bad));
+  const rules = (await owner('PATCH', '/api/orgs/current', { link_max_days: 10, link_password: true })).body;
+  assert.deepEqual([rules.link_max_days, rules.link_password], [10, true]);
+  const me2 = (await sharer('GET', '/api/auth/me')).body.user;
+  assert.deepEqual([me2.link_max_days, me2.link_password], [10, true], 'people see the rules');
+  assert.equal((await sharer('POST', '/api/links', { file_id: file.id, password: 'pass-1234' })).status, 400, 'no expiry');
+  assert.equal((await sharer('POST', '/api/links', { file_id: file.id, password: 'pass-1234', expires_at: Date.now() + 30 * 864e5 })).status, 400, 'too long');
+  assert.match((await sharer('POST', '/api/links', { file_id: file.id, expires_at: Date.now() + 7 * 864e5 })).body.error, /requires a password/);
+  const ok = (await sharer('POST', '/api/links', { file_id: file.id, password: 'pass-1234', expires_at: Date.now() + 7 * 864e5 })).body;
+  assert.equal(ok.has_password, true);
+  assert.equal((await sharer('PATCH', `/api/links/${ok.id}`, { expires_at: null })).status, 400);
+  assert.equal((await sharer('PATCH', `/api/links/${ok.id}`, { password: '' })).status, 400);
+  assert.equal((await sharer('PATCH', `/api/links/${ok.id}`, { password: 'other-123' })).status, 200, 'a new password is fine');
+  assert.equal((await sharer('PATCH', `/api/links/${ok.id}`, { expires_at: Date.now() + 10 * 864e5 })).status, 200, 'up to the limit');
+  assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 200, 'links made before stay as they are');
+  assert.deepEqual((await owner('PATCH', '/api/orgs/current', { link_max_days: null, link_password: false })).body.link_max_days, null);
+  assert.equal((await sharer('POST', '/api/links', { file_id: file.id })).status, 200, 'no rules: as before');
   await sharer('PATCH', `/api/files/${folder.id}`, { trashed: true });
   assert.equal((await pub('GET', `/api/public/links/${fl.token}/raw?item=${inside.id}`)).status, 404);
   assert.equal((await owner('POST', '/api/users', { local: 'linkpeer', domain: 'acme.com', name: 'Link Peer', password: 'password123' })).status, 201);
