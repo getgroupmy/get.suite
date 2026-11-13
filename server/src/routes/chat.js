@@ -164,7 +164,7 @@ import { baseUrl, focusUntil } from './calendar.js';
 import { quietUntil } from '../workhours.js';
 import { cleanKeywords, keywordIn } from '../chatkeywords.js';
 import { cleanBookmark, bookmarksOf, MAX_BOOKMARKS } from '../chatbookmarks.js';
-import { conversationFiles } from '../chatfiles.js';
+import { conversationFiles, fileMentions } from '../chatfiles.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -1019,7 +1019,9 @@ export default function chatRoutes() {
     const c = loadChannel(req.params.id, req.user);
     // ?around=<message id>: the messages either side of one (to jump to a search result).
     if (req.query.around) {
-      const m = q('SELECT created_at FROM messages WHERE id = ? AND channel_id = ? AND parent_id IS NULL').get(String(req.query.around), c.id);
+      // A reply in a thread: the conversation around the message it answers (its thread opens beside it).
+      const at = q('SELECT created_at, parent_id FROM messages WHERE id = ? AND channel_id = ?').get(String(req.query.around), c.id);
+      const m = at?.parent_id ? q('SELECT created_at FROM messages WHERE id = ? AND channel_id = ?').get(at.parent_id, c.id) : at;
       if (!m) throw notFound('Message not found');
       const older = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at < ? ORDER BY m.created_at DESC LIMIT 50`).all(c.id, m.created_at).reverse();
       const newer = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at >= ? ORDER BY m.created_at LIMIT 50`).all(c.id, m.created_at);
@@ -1716,6 +1718,13 @@ export default function chatRoutes() {
   r.get('/channels/:id/files', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     res.json(conversationFiles(c.id, req.user.id, req.query.q));
+  });
+
+  // Where a file you can open was shared in Chat (attached or linked), for its Details in Drive.
+  r.get('/file-mentions', (req, res) => {
+    const f = q('SELECT id FROM files WHERE id = ? AND trashed = 0').get(String(req.query.file || ''));
+    if (!f || !roleFor(f.id, req.user.id)) throw notFound('File not found');
+    res.json(fileMentions(f.id, req.user));
   });
 
   // A file attached to a message, for the people in the conversation.

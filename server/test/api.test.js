@@ -13559,3 +13559,41 @@ test('chat: a conversation\'s files: attachments and linked files you can open, 
   const latest = (await a('GET', `/api/chat/channels/${dm}/files`)).body;
   assert.deepEqual(latest.map((f) => f.name), ['notes.txt', 'Shared plan', 'Secret sheet'], 'each file once, at its latest');
 });
+
+test('chat: where a file was shared, for its Details: conversations you can read, latest first, how many times', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [x, local] of [[a, 'cmen1'], [b, 'cmen2'], [c, 'cmen3']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'cmen2@acme.com'").get().id;
+  const cid = q("SELECT id FROM users WHERE email = 'cmen3@acme.com'").get().id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Mentioned plan' })).body;
+  const txt = (await a('POST', '/api/files/upload?name=mention.txt', 'x', { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }, { user_id: cid, role: 'viewer' }] });
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const priv = (await a('POST', '/api/chat/channels', { name: 'mention-room', private: true, members: [cid] })).body.id;
+  const first = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: `Look: /docs/${doc.id}` })).body;
+  const reply = (await b('POST', `/api/chat/channels/${dm}/messages`, { body: `again /docs/${doc.id}`, parent_id: first.id })).body;
+  const inPriv = (await a('POST', `/api/chat/channels/${priv}/messages`, { body: `for the room http://x/docs/${doc.id}` })).body;
+  const oops = (await a('POST', `/api/chat/channels/${priv}/messages`, { body: `deleted /docs/${doc.id}` })).body;
+  await a('DELETE', `/api/chat/messages/${oops.id}`);
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'just a file', files: [txt.id] });
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: `not it: /docs/${doc.id}x` });
+
+  const mine = (await a('GET', `/api/chat/file-mentions?file=${doc.id}`)).body;
+  assert.deepEqual(mine.map((m) => [m.name, m.dm, m.private, m.times, m.message_id]), [['mention-room', false, true, 1, inPriv.id], ['cmen2', true, false, 2, reply.id]]);
+  assert.equal(mine[1].parent_id, first.id, 'the latest is a reply: opens in its thread');
+  assert.equal(mine[1].user_name, 'cmen2');
+  assert.deepEqual((await b('GET', `/api/chat/file-mentions?file=${doc.id}`)).body.map((m) => m.name), ['cmen1'], 'only conversations you are in');
+  assert.deepEqual((await c('GET', `/api/chat/file-mentions?file=${doc.id}`)).body.map((m) => m.name), ['mention-room']);
+  assert.deepEqual((await a('GET', `/api/chat/file-mentions?file=${txt.id}`)).body.map((m) => [m.name, m.times]), [['cmen2', 1]], 'attachments too');
+  assert.equal((await c('GET', `/api/chat/file-mentions?file=${txt.id}`)).status, 404, 'only for files you can open');
+  await a('PATCH', `/api/files/${txt.id}`, { trashed: true });
+  assert.equal((await a('GET', `/api/chat/file-mentions?file=${txt.id}`)).status, 404, 'not for the trash');
+  const near = (await b('GET', `/api/chat/channels/${dm}/messages?around=${reply.id}`)).body;
+  assert.ok(near.some((m) => m.id === first.id), 'a link to a reply shows the conversation around the message it answers');
+  assert.equal((await c('GET', `/api/chat/channels/${dm}/messages?around=${reply.id}`)).status, 404);
+});

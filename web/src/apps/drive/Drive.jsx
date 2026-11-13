@@ -1290,6 +1290,7 @@ function DetailsDialog({ file, onClose, onChanged }) {
             onBlur={() => { if (desc.trim() !== (f.description || '')) save({ description: desc }, 'Description saved'); }} />
         </label>
         {canEdit && f.kind !== 'folder' && <Viewers fileId={f.id} />}
+        {f.kind !== 'folder' && <InChat fileId={f.id} onOpen={onClose} />}
         <Activity fileId={f.id} onOpen={onClose} />
         {f.kind === 'folder' && canEdit && (
           <div className="stack" style={{ gap: 6 }}>
@@ -1301,6 +1302,29 @@ function DetailsDialog({ file, onClose, onChanged }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+/** The conversations you're in where the file was attached or linked, latest first; each opens at that message. */
+function InChat({ fileId, onOpen }) {
+  const navigate = useNavigate();
+  const [list, setList] = useState([]);
+  useEffect(() => { get(`/chat/file-mentions?file=${fileId}`).then(setList).catch(() => setList([])); }, [fileId]);
+  if (!list.length) return null;
+  return (
+    <section className="stack-tight" aria-label="Shared in Chat">
+      <span className="muted small">Shared in Chat</span>
+      <ul className="viewers-list">
+        {list.map((m) => (
+          <li key={m.channel_id} className="row">
+            <button type="button" className="link-btn grow" style={{ textAlign: 'left' }} onClick={() => { onOpen(); navigate(`/chat/${m.channel_id}?msg=${m.message_id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`); }}>
+              {m.dm ? m.name : `${m.private ? '🔒' : '#'} ${m.name}`}
+            </button>
+            <span className="muted small">{m.user_name} · {formatDate(m.created_at)}{m.times > 1 ? ` · ${m.times} times` : ''}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

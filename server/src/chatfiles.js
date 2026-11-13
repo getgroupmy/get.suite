@@ -51,3 +51,39 @@ export function conversationFiles(channelId, userId, query = '') {
   }
   return out.slice(0, MAX_CONVERSATION_FILES);
 }
+
+/** Whether someone can read a conversation (a member of a private one or a DM; in the company for a public channel). */
+function canRead(c, user) {
+  if (c.dm_key || c.private) return !!q('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(c.id, user.id);
+  return c.org_id === user.org_id;
+}
+
+/**
+ * Where a file was shared in Chat, for File details: the conversations you can read in which it was
+ * attached or linked, the one with the latest mention first: [{ channel_id, name, dm, private, archived,
+ * message_id, parent_id, created_at, user_name, times }]. Deleted messages don't count.
+ */
+export function fileMentions(fileId, user, limit = 20) {
+  const id = String(fileId);
+  if (!/^[\w-]{6,}$/.test(id)) return [];
+  const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.created_at, m.files, m.body, COALESCE(u.name, m.bot, 'Deleted user') AS user_name
+    FROM messages m LEFT JOIN users u ON u.id = m.user_id
+    WHERE m.deleted_at IS NULL AND (instr(m.files, ?) > 0 OR instr(m.body, ?) > 0) ORDER BY m.created_at DESC, m.rowid DESC LIMIT 2000`).all(`"${id}"`, id);
+  const by = new Map();
+  const channel = q('SELECT id, name, dm_key, private, archived_at, org_id FROM channels WHERE id = ?');
+  for (const m of rows) {
+    const there = JSON.parse(m.files || '[]').some((f) => f && f.id === id) || linkedFileIds(m.body).includes(id);
+    if (!there) continue;
+    const seen = by.get(m.channel_id);
+    if (seen) { if (seen.times !== undefined) seen.times++; continue; }
+    const c = channel.get(m.channel_id);
+    if (!c || !canRead(c, user)) { by.set(m.channel_id, {}); continue; }
+    let name = c.name;
+    if (c.dm_key) {
+      const other = c.dm_key.split(':').find((x) => x !== user.id);
+      name = other ? (q('SELECT name FROM users WHERE id = ?').get(other)?.name || 'Deleted user') : 'Notes to yourself';
+    }
+    by.set(m.channel_id, { channel_id: c.id, name, dm: !!c.dm_key, private: !!c.private, archived: !!c.archived_at, message_id: m.id, parent_id: m.parent_id || null, created_at: m.created_at, user_name: m.user_name, times: 1 });
+  }
+  return [...by.values()].filter((x) => x.channel_id).slice(0, limit);
+}
