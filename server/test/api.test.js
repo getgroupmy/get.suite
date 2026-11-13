@@ -3614,6 +3614,10 @@ test('pause notifications: until a time; colleagues see it; stopping early', asy
   assert.equal((await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).paused_until, until);
   await a('PUT', '/api/users/me/pause', { until: null });
   assert.equal((await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).paused_until, null);
+  // The longest Chat's /dnd allows (744h, a month to the minute, worked out a moment before the server sees it).
+  const month = Date.now() + 31 * 864e5;
+  assert.equal((await a('PUT', '/api/users/me/pause', { until: month })).body.paused_until, month);
+  await a('PUT', '/api/users/me/pause', { until: null });
 });
 
 test('chat: mark unread from a message', async () => {

@@ -4,12 +4,25 @@ export const SLASH = [
   { cmd: 'meet', alone: true, hint: '/meet', what: 'start a video meeting and share it here' },
   { cmd: 'poll', hint: '/poll Question | option | option', what: 'ask a question with options' },
   { cmd: 'task', hint: '/task what to do', what: 'add a task to your list (with a link to here)' },
+  { cmd: 'dnd', alone: true, hint: '/dnd 2h', what: 'pause notifications (an hour; /dnd off resumes them)' },
   { cmd: 'status', alone: true, hint: '/status 🍔 Lunch 1h', what: 'set your status (/status alone clears it)' },
 ];
 
 // A leading emoji (with skin tones, joiners and variation selectors), and how long a status lasts.
 const EMOJI = /^(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}\uFE0F?)*)\s*/u;
 const LASTS = /\s+(?:for\s+)?(?:(\d{1,4})\s*(m|mins?|minutes?|h|hrs?|hours?)|(today|(?:this\s+)?week))$/i;
+
+/** "/dnd [30m | 2 hours | tomorrow | off]": { minutes }, { tomorrow: true } (9:00) or { off: true }. An hour when not said. */
+function parseDnd(rest) {
+  if (!rest) return { cmd: 'dnd', minutes: 60 };
+  if (/^(off|on|resume|stop)$/i.test(rest)) return { cmd: 'dnd', off: true };
+  if (/^(until\s+)?tomorrow$/i.test(rest)) return { cmd: 'dnd', tomorrow: true };
+  const m = /^(?:for\s+)?(\d{1,5})\s*(m|mins?|minutes?|h|hrs?|hours?)$/i.exec(rest);
+  if (!m) return { cmd: 'dnd', error: 'Write it as /dnd 30m, /dnd 2h, /dnd tomorrow or /dnd off' };
+  const minutes = Number(m[1]) * (/^h/i.test(m[2]) ? 60 : 1);
+  if (!minutes || minutes > 31 * 24 * 60) return { cmd: 'dnd', error: 'Notifications can be paused for a minute up to a month' };
+  return { cmd: 'dnd', minutes };
+}
 
 /** "/status …": { clear: true }, or { emoji, text, after } where after is minutes, 'today' or 'week' (today when not said). */
 function parseStatus(rest) {
@@ -40,6 +53,7 @@ export function parseSlash(text) {
   const rest = (m[2] || '').trim();
   if (cmd === 'meet') return { cmd };
   if (cmd === 'status') return parseStatus(rest);
+  if (cmd === 'dnd') return parseDnd(rest);
   if (cmd === 'task') return rest ? { cmd, title: rest.slice(0, 500) } : { cmd, error: 'Write the task after /task' };
   if (cmd === 'poll') {
     const [question, ...opts] = rest.split('|').map((x) => x.trim());

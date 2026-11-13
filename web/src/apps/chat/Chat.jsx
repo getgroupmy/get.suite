@@ -27,7 +27,7 @@ import { whenText, laterChoices, ScheduleDialog } from '../../components/schedul
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords, MentionedAway } from '../../components/mentions.jsx';
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
-import { isPaused } from '../../pause.js';
+import { isPaused, pauseUntil } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
 import { newFromId, newCount, belowText } from './unread.js';
 import { nextConversation, lastEditable } from './keys.js';
@@ -422,6 +422,7 @@ export default function Chat() {
           setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
         } else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}`, label: `Chat: ${title}` } });
         else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
+        else if (slash.cmd === 'dnd') await pauseFrom(slash, toast);
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }
@@ -926,6 +927,14 @@ async function setStatusFrom(slash, toast) {
   toast(`Status: ${[r.status.emoji, r.status.text].filter(Boolean).join(' ')} ${untilText(until)}`);
 }
 
+/** /dnd: pause notifications (for some minutes, or until 9:00 tomorrow), or turn them back on. Nothing is posted. */
+async function pauseFrom(slash, toast) {
+  const now = new Date();
+  const at = slash.off ? null : slash.tomorrow ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9).getTime() : now.getTime() + slash.minutes * 60e3;
+  await pauseUntil(at);
+  toast(at ? `Notifications paused until ${whenText(at)}` : 'Notifications are back on');
+}
+
 /** A thread beside the conversation: the message, its replies (live), and a box to reply. */
 function Thread({ id, channelId, user, onClose }) {
   const toast = useToast();
@@ -992,6 +1001,7 @@ function Thread({ id, channelId, user, onClose }) {
         } else if (slash.cmd === 'poll') added(await post(`/chat/channels/${channelId}/messages`, { poll: { question: slash.question, options: slash.options, multi: false }, parent_id: id }));
         else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}?msg=${id}&thread=${id}`, label: 'Chat thread' } });
         else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
+        else if (slash.cmd === 'dnd') await pauseFrom(slash, toast);
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }

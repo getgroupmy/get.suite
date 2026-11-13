@@ -20,7 +20,7 @@ test('not commands: text, a path, an unknown word', () => {
 });
 
 test('suggestions while typing', () => {
-  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'status']);
+  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'dnd', 'status']);
   assert.deepEqual(slashSuggestions('/p').map((s) => s.cmd), ['poll']);
   assert.deepEqual(slashSuggestions('/s').map((s) => s.cmd), ['status']);
   assert.deepEqual(slashSuggestions('/poll x'), []);
@@ -44,5 +44,16 @@ test('/status: emoji, words and how long; alone it clears', () => {
 });
 
 test('which commands are complete on their own', () => {
-  assert.deepEqual(SLASH.filter((s) => s.alone).map((s) => s.cmd), ['meet', 'status']);
+  assert.deepEqual(SLASH.filter((s) => s.alone).map((s) => s.cmd), ['meet', 'dnd', 'status']);
+});
+
+test('/dnd: an hour, how long, tomorrow, or off', () => {
+  assert.deepEqual(parseSlash('/dnd'), { cmd: 'dnd', minutes: 60 });
+  assert.deepEqual(parseSlash('/dnd 30m'), { cmd: 'dnd', minutes: 30 });
+  assert.deepEqual(parseSlash('/DND for 2 hours'), { cmd: 'dnd', minutes: 120 });
+  assert.deepEqual(parseSlash('/dnd until tomorrow'), { cmd: 'dnd', tomorrow: true });
+  assert.deepEqual(parseSlash('/dnd off'), { cmd: 'dnd', off: true });
+  assert.match(parseSlash('/dnd forever').error, /\/dnd 30m/);
+  assert.match(parseSlash('/dnd 0m').error, /up to a month/);
+  assert.match(parseSlash('/dnd 800h').error, /up to a month/);
 });
