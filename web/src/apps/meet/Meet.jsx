@@ -13,6 +13,7 @@ export default function Meet() {
   const [code, setCode] = useState('');
   const [title, setTitle] = useState('');
   const [attendance, setAttendance] = useState(null); // the meeting whose "Who joined" is open
+  const [chatOf, setChatOf] = useState(null); // the meeting whose kept chat is open
   useEffect(() => { get('/meet').then(setRecent).catch(() => setRecent([])); }, []);
   const start = async (e) => {
     e?.preventDefault();
@@ -53,13 +54,35 @@ export default function Meet() {
                   {m.people > 0 && <span className="tag live">{m.people} in the meeting</span>}
                 </button>
                 <button type="button" className="btn small" aria-label={`Who joined ${m.title || m.code}`} onClick={() => setAttendance(m)}>Who joined</button>
+                {m.chat_count > 0 && <button type="button" className="btn small" aria-label={`Chat from ${m.title || m.code}`} onClick={() => setChatOf(m)}>💬 Chat</button>}
               </li>
             ))}
           </ul>
         </section>
       )}
       {attendance && <Attendance meeting={attendance} onClose={() => setAttendance(null)} />}
+      {chatOf && <KeptChat meeting={chatOf} onClose={() => setChatOf(null)} />}
     </div>
+  );
+}
+
+/** A meeting's kept chat (its host turned on Keep the meeting chat), oldest first, with a download. */
+function KeptChat({ meeting, onClose }) {
+  const toast = useToast();
+  const [c, setC] = useState(null);
+  useEffect(() => { get(`/meet/${meeting.code}/chat`).then(setC).catch((e) => { toast(e.message, 'error'); onClose(); }); }, [meeting.code]); // eslint-disable-line react-hooks/exhaustive-deps
+  const time = (t) => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return (
+    <Modal title={`Chat from ${meeting.title || meeting.code}`} onClose={onClose} footer={<>
+      <a className="btn" href={`/api/meet/${meeting.code}/chat?format=txt`} download><Icon name="download" size={16} /> Download (.txt)</a>
+      <button type="button" className="btn primary" onClick={onClose}>Done</button>
+    </>}>
+      {!c ? <p className="muted">Loading…</p> : !c.messages.length ? <p className="muted">Nothing was kept.</p> : (
+        <ul className="meet-chat kept" aria-label="Kept chat">
+          {c.messages.map((x, i) => <li key={i}><strong>{x.name}</strong> <span className="muted small">{time(x.at)}{x.room ? ` · room ${x.room}` : ''}</span><div>{x.text}</div></li>)}
+        </ul>
+      )}
+    </Modal>
   );
 }
 

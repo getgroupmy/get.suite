@@ -4555,11 +4555,11 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   await a.next('spotlight'); await a.next('spotlight');
   assert.equal((await b.next('spotlight')).spotlight.id, wb.id);
   // The host's settings: everyone joins muted; only the host presents.
-  assert.deepEqual(wb.settings, { muted_entry: false, host_present: false });
+  assert.deepEqual(wb.settings, { muted_entry: false, host_present: false, keep_chat: false });
   b.ws.send(JSON.stringify({ type: 'settings', muted_entry: true }));
   a.ws.send(JSON.stringify({ type: 'settings', muted_entry: true, host_present: true, junk: 1 }));
   const set1 = await b.next('settings');
-  assert.deepEqual([set1.settings, set1.by], [{ muted_entry: true, host_present: true }, 'Mia Meet']);
+  assert.deepEqual([set1.settings, set1.by], [{ muted_entry: true, host_present: true, keep_chat: false }, 'Mia Meet']);
   b.ws.send(JSON.stringify({ type: 'state', state: { screen: true } }));
   assert.match((await b.next('stop-present')).reason, /Only the host can present/);
   for (;;) { const st2 = await a.next('state'); if (st2.id === wb.id) { assert.equal(st2.state.screen, false); break; } }
@@ -4570,7 +4570,7 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   late.ws.close();
   assert.equal((await a.next('left')).id, wl.id);
   a.ws.send(JSON.stringify({ type: 'settings', muted_entry: false, host_present: false }));
-  assert.deepEqual((await b.next('settings')).settings, { muted_entry: false, host_present: false });
+  assert.deepEqual((await b.next('settings')).settings, { muted_entry: false, host_present: false, keep_chat: false });
   // Co-hosts: the organiser gives Max the host's controls (only the organiser can).
   for (const c of [a, b]) for (let k = c.inbox.length - 1; k >= 0; k--) if (c.inbox[k].type === 'timer') c.inbox.splice(k, 1); // from above
   assert.deepEqual([wa.organiser, wb.organiser, wb.host], [true, false, false]);
@@ -13691,4 +13691,51 @@ test('chat: a conversation\'s files by type: pictures, documents, PDFs, audio an
   assert.equal((await by('')).length, 6);
   assert.equal((await by('nonsense')).length, 6, 'an unknown type is no filter');
   assert.deepEqual((await a('GET', `/api/chat/channels/${ch}/files?type=documents&q=budg`)).body.map((f) => [f.name, f.type]), [['Budget', 'documents']], 'with a name too');
+});
+
+test('meet: Keep the meeting chat — kept only while the host has it on, readable afterwards by people who were there', async () => {
+  const { default: WS } = await import('ws');
+  const cookieFor = async (local, name) => {
+    await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${local}@acme.com`, password: 'password123' }) });
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const host = await cookieFor('mkeepa', 'Ada Keeper'), guest = await cookieFor('mkeepb', 'Ben Talker'), other = await cookieFor('mkeepc', 'Cy Away');
+  const call = (cookie, method, url, body) => fetch(base + url, { method, headers: { cookie, 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: body && JSON.stringify(body) })
+    .then(async (r) => ({ status: r.status, type: r.headers.get('content-type'), body: r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text() }));
+  const { code } = (await call(host, 'POST', '/api/meet', { title: 'Planning' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.inbox = [];
+    ws.on('message', (d) => { const m = JSON.parse(String(d)); ws.inbox.push(m); if (m.type === 'welcome') resolve(ws); });
+    ws.on('error', reject);
+  });
+  const next = async (ws, type) => { for (let i = 0; i < 50; i++) { const k = ws.inbox.findIndex((m) => m.type === type); if (k >= 0) return ws.inbox.splice(k, 1)[0]; await new Promise((r) => setTimeout(r, 50)); } throw new Error(`no ${type}`); };
+  const a = await open(host), b = await open(guest);
+  try {
+    b.send(JSON.stringify({ type: 'chat', text: 'before: not kept' }));
+    await next(a, 'chat');
+    b.send(JSON.stringify({ type: 'settings', keep_chat: true }));
+    a.send(JSON.stringify({ type: 'settings', keep_chat: true }));
+    const told = await next(b, 'settings');
+    assert.deepEqual([told.settings.keep_chat, told.by], [true, 'Ada Keeper'], 'only the host turns it on; everyone is told');
+    b.send(JSON.stringify({ type: 'chat', text: 'Agenda item one' }));
+    await next(a, 'chat');
+    a.send(JSON.stringify({ type: 'chat', text: 'Noted, thanks' }));
+    await next(b, 'chat');
+    a.send(JSON.stringify({ type: 'settings', keep_chat: false }));
+    await next(b, 'settings');
+    b.send(JSON.stringify({ type: 'chat', text: 'after: not kept' }));
+    await next(a, 'chat');
+  } finally { a.close(); b.close(); }
+  await new Promise((r) => setTimeout(r, 150));
+  const kept = (await call(guest, 'GET', `/api/meet/${code}/chat`)).body;
+  assert.deepEqual(kept.messages.map((m) => [m.name, m.text, m.room]), [['Ben Talker', 'Agenda item one', 0], ['Ada Keeper', 'Noted, thanks', 0]]);
+  assert.equal((await call(other, 'GET', `/api/meet/${code}/chat`)).status, 404, 'not for people who weren\'t there');
+  const txt = await call(host, 'GET', `/api/meet/${code}/chat?format=txt`);
+  assert.match(txt.type, /text\/plain/);
+  assert.match(txt.body, /^Planning\n\n\[\d{4}-\d\d-\d\d \d\d:\d\d UTC\] Ben Talker: Agenda item one\n\[.+\] Ada Keeper: Noted, thanks\n$/);
+  assert.equal((await call(host, 'GET', '/api/meet')).body.find((m) => m.code === code).chat_count, 2, 'Recent meetings says there is a chat');
+  const again = await open(host);
+  try { assert.equal((await next(again, 'welcome')).settings.keep_chat, false, 'off again once everyone has left'); } finally { again.close(); }
 });

@@ -38,6 +38,18 @@ q(`CREATE TABLE IF NOT EXISTS meeting_attendance (
   left_at INTEGER
 )`).run();
 q('CREATE INDEX IF NOT EXISTS meeting_attendance_code ON meeting_attendance(code, joined_at)').run();
+// The meeting chat, kept only while the host has "Keep the meeting chat" on (everyone is told). room: 0 for the
+// main room, else the breakout room's number.
+q(`CREATE TABLE IF NOT EXISTS meeting_chat (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL REFERENCES meetings(code) ON DELETE CASCADE,
+  room INTEGER NOT NULL DEFAULT 0,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  text TEXT NOT NULL,
+  at INTEGER NOT NULL
+)`).run();
+q('CREATE INDEX IF NOT EXISTS meeting_chat_code ON meeting_chat(code, at)').run();
 // After a restart nobody is in a meeting any more.
 q('UPDATE meeting_attendance SET left_at = joined_at WHERE left_at IS NULL').run();
 
@@ -117,7 +129,7 @@ export function publicMeetRoutes() {
 export function meetRoutes() {
   const r = Router();
   r.get('/', (req, res) => {
-    res.json(q(`SELECT m.code, m.title, m.created_at, m.last_used, u.name AS created_by_name FROM meetings m
+    res.json(q(`SELECT m.code, m.title, m.created_at, m.last_used, u.name AS created_by_name, (SELECT COUNT(*) FROM meeting_chat c WHERE c.code = m.code) AS chat_count FROM meetings m
                 LEFT JOIN users u ON u.id = m.created_by
                 WHERE m.created_by = ? OR m.code IN (SELECT code FROM meeting_visits WHERE user_id = ?)
                 ORDER BY m.last_used DESC LIMIT 20`).all(req.user.id, req.user.id)
@@ -146,6 +158,21 @@ export function meetRoutes() {
       return res.send(`\ufeff${rows.map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`);
     }
     res.json({ code: m.code, title: m.title, people: people.map((p) => ({ ...p, minutes: minutes(p.ms) })) });
+  });
+  // The kept meeting chat (see keep_chat), oldest first: for whoever started it, or anyone who was in it.
+  // ?format=txt to download.
+  r.get('/:code/chat', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);
+    if (!m || (m.created_by !== req.user.id && !q('SELECT 1 FROM meeting_attendance WHERE code = ? AND user_id = ?').get(m.code, req.user.id))) throw notFound();
+    const messages = q('SELECT room, name, text, at FROM meeting_chat WHERE code = ? ORDER BY at, id').all(m.code).map((x) => ({ ...x }));
+    if (req.query.format === 'txt') {
+      const iso = (t) => new Date(t).toISOString().replace('T', ' ').slice(0, 16);
+      const lines = messages.map((x) => `[${iso(x.at)} UTC]${x.room ? ` (room ${x.room})` : ''} ${x.name}: ${x.text}`);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="meeting-chat-${m.code}.txt"`);
+      return res.send(`${m.title || m.code}\n\n${lines.join('\n')}\n`);
+    }
+    res.json({ code: m.code, title: m.title, messages });
   });
   // Recordings are saved in a "Meet recordings" folder in the recorder's Drive (made when first needed).
   r.post('/recordings-folder', (req, res) => {
@@ -181,9 +208,10 @@ const locks = new Map();
 // same one, newcomers too. Room key → { ends_at, seconds, by }.
 const timers = new Map();
 // The host's settings for the whole meeting (breakout rooms too): code → { muted_entry, host_present }.
-// muted_entry: people come in with their microphone off; host_present: only the host shares a screen.
+// muted_entry: people come in with their microphone off; host_present: only the host shares a screen;
+// keep_chat: the meeting chat is saved, to read afterwards (Recent meetings → Chat).
 const settings = new Map();
-const settingsOf = (code) => ({ muted_entry: false, host_present: false, ...settings.get(code) });
+const settingsOf = (code) => ({ muted_entry: false, host_present: false, keep_chat: false, ...settings.get(code) });
 // Co-hosts: people the meeting's organiser gave the host's controls to (for this meeting, while it
 // lasts). code → Set of user ids.
 const cohosts = new Map();
@@ -341,7 +369,11 @@ function enterRoom(ws, req, code, m, user) {
         toAll({ type: 'state', id, state: me.state });
       } else if (msg?.type === 'chat') {
         const text = String(msg.text ?? '').trim().slice(0, 2000);
-        if (text) toAll({ type: 'chat', id, name: user.name, text, at: now() });
+        if (text) {
+          const at = now();
+          if (settingsOf(code).keep_chat) q('INSERT INTO meeting_chat (code, room, user_id, name, text, at) VALUES (?, ?, ?, ?, ?, ?)').run(code, n, user.guest ? null : user.id, user.guest ? `${user.name} (guest)` : user.name, text, at);
+          toAll({ type: 'chat', id, name: user.name, text, at });
+        }
       } else if (msg?.type === 'lower' && isHost()) {
         // The host lowers someone's hand (they've had their say), or everyone's.
         for (const [pid, p] of room) {
@@ -429,7 +461,7 @@ function enterRoom(ws, req, code, m, user) {
         // The host changes the meeting's settings: everyone in every room is told. Turning on host-only
         // presenting stops anyone else who is presenting.
         const next = { ...settingsOf(code) };
-        for (const k of ['muted_entry', 'host_present']) if (typeof msg[k] === 'boolean') next[k] = msg[k];
+        for (const k of ['muted_entry', 'host_present', 'keep_chat']) if (typeof msg[k] === 'boolean') next[k] = msg[k];
         settings.set(code, next);
         const d = JSON.stringify({ type: 'settings', settings: next, by: user.name });
         for (const k of roomsOf(code)) for (const p of rooms.get(k)?.values() ?? []) {

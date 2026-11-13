@@ -118,7 +118,11 @@ export class Mesh {
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'timer') this.timer = m.timer;
     else if (m.type === 'spotlight') this.spotlight = m.spotlight;
-    else if (m.type === 'settings') this.settings = m.settings;
+    else if (m.type === 'settings') {
+      // Keeping the chat turned on or off: a line in the chat says so, for everyone.
+      if (!!m.settings.keep_chat !== !!this.settings?.keep_chat) this.onChat?.({ system: true, at: Date.now(), text: m.settings.keep_chat ? `${m.by} is keeping this chat: messages from now on can be read after the meeting by the people in it` : `${m.by} stopped keeping the chat` });
+      this.settings = m.settings;
+    }
     else if (m.type === 'cohosts') this.cohosts = m.ids;
     else if (m.type === 'host') { this.host = !!m.host; this.onHost?.(m); }
     else if (m.type === 'stop-present') { if (this.state.screen) this.stopScreen(); this.onStopPresent?.(m.reason); }

@@ -416,9 +416,9 @@ export default function MeetRoom({ guest = false, onSignIn }) {
             <div className="row"><strong className="grow">{panel === 'chat' ? 'Messages' : panel === 'polls' ? 'Polls' : panel === 'qa' ? 'Questions' : `People (${tiles.length})`}</strong>
               <button type="button" className="icon-btn" aria-label="Close panel" onClick={() => setPanel(null)}><Icon name="close" size={18} /></button></div>
             {panel === 'chat' ? <>
-              <p className="muted small" style={{ margin: 0 }}>Messages are only seen by people in the meeting now, and go when it ends.</p>
+              <p className="muted small" style={{ margin: 0 }}>{m.settings?.keep_chat ? '💾 This chat is being kept: the people in the meeting can read it afterwards (Meet → Recent meetings → Chat).' : 'Messages are only seen by people in the meeting now, and go when it ends.'}</p>
               <ul className="meet-chat" aria-live="polite">
-                {messages.map((msg, i) => <li key={i}><strong>{msg.mine ? 'You' : msg.name}</strong> <span className="muted small">{new Date(msg.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><div>{msg.text}</div></li>)}
+                {messages.map((msg, i) => (msg.system ? <li key={i} className="muted small meet-chat-note">{msg.text}</li> : <li key={i}><strong>{msg.mine ? 'You' : msg.name}</strong> <span className="muted small">{new Date(msg.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><div>{msg.text}</div></li>))}
               </ul>
               <form className="row" onSubmit={sendChat}><input name="msg" className="grow" aria-label="Send a message to everyone" placeholder="Send a message" maxLength={2000} autoComplete="off" /><button className="btn">Send</button></form>
             </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : panel === 'qa' ? <MeetQA m={m} /> : (<>
@@ -430,6 +430,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {m.host && <li className="meet-settings stack" aria-label="Meeting settings">
                   <label className="row small"><input type="checkbox" checked={!!m.settings?.muted_entry} onChange={(e) => m.setSettings({ muted_entry: e.target.checked })} /> Everyone joins muted</label>
                   <label className="row small"><input type="checkbox" checked={!!m.settings?.host_present} onChange={(e) => m.setSettings({ host_present: e.target.checked })} /> Only hosts can present</label>
+                  {!guest && <label className="row small"><input type="checkbox" checked={!!m.settings?.keep_chat} onChange={(e) => m.setSettings({ keep_chat: e.target.checked })} /> Keep the meeting chat</label>}
                 </li>}
                 {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">{m.organiser ? 'You started this meeting.' : 'You’re a co-host.'}</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
                 {hands.length > 0 && <li className="meet-hands" aria-label="Raised hands">
