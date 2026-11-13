@@ -17,6 +17,7 @@ import { insights, hoursText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { EVENT_KEY, DRAFT_KEY } from '../docs/blocks.js';
 import { eventEmail } from './eventemail.js';
+import SendInChat from '../../components/SendInChat.jsx';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
 import { roomLine, sortRooms, tooSmall, nowText, hasAll } from './roomfit.js';
@@ -901,6 +902,15 @@ function CopyEventLink({ event, className }) {
   return <button type="button" className={className} onClick={copy} title="Copy link to event (paste it in Chat, an email or a document)">Copy link</button>;
 }
 
+// Send in Chat (outside the event's form, in a portal): the event's link goes into a conversation's message box, where Chat shows it as an event card.
+function SendEventInChat({ event, className }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" className={className} onClick={() => setOpen(true)} title="Put a link to the event in a Chat conversation">Send in Chat…</button>
+    {open && createPortal(<SendInChat items={[{ name: event.title || '(No title)', url: eventLink(event) }]} what="the event" onClose={() => setOpen(false)} />, document.body)}
+  </>;
+}
+
 function InvitationDialog({ event, onClose, onAnswered }) {
   const toast = useToast();
   const [reminders, setReminders] = useState(event.reminders || []);
@@ -931,7 +941,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
         <div><EmailGuests event={event} className="btn small" guestView /></div>
-        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /></p>
+        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
@@ -1560,7 +1570,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           ))}
         </div>
         {error && <p className="error">{error}</p>}
-        <div className="row">
+        <div className="row" style={{ flexWrap: 'wrap' }}>
           {event.id && <button type="button" className="btn danger" onClick={() => (recurring ? setScopeFor('delete') : run(remove)())}>Delete</button>}
           {event.id && onDuplicate && <button type="button" className="btn" title="A new event like this one (as it is in this window), to change and save" onClick={() => {
             // The new event starts where this one (or this occurrence) is; it doesn't repeat, and it's yours to change before saving.
@@ -1575,6 +1585,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           {event.task && <Link className="btn" to={`/tasks/${event.task.list_id}?task=${event.task.id}`} title={`The task this time is for: ${event.task.title}`}>{event.task.done ? '✅' : '☐'} Open task</Link>}
           {event.id && <EmailGuests event={event} className="btn" />}
           {event.id && <CopyEventLink event={event} className="btn" />}
+          {event.id && <SendEventInChat event={event} className="btn" />}
           {event.id && <a className="btn" href={`/api/events/${event.id}/ics`} download title="A calendar file of this event, for Outlook, Apple or Google Calendar, or to pass on">Download (.ics)</a>}
           <div className="grow" />
           <button type="button" className="btn" onClick={onClose}>Cancel</button>

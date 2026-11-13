@@ -23,6 +23,7 @@ export default function SendInChat({ items, what = 'them', onClose }) {
   const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
   async function submit(e) {
     e.preventDefault();
+    e.stopPropagation(); // opened from inside another form (an event's window): don't submit that one too
     try {
       const drafts = await get('/chat/drafts').catch(() => ({}));
       const before = drafts[to]?.body?.trim();
