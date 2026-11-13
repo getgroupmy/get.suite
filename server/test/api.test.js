@@ -6462,6 +6462,12 @@ test('a shared email in Chat: found by search, kept in downloads, carried when f
   assert.equal((await kay('PUT', `/api/chat/messages/${m.id}/saved`, { saved: true })).status, 200);
   assert.equal((await kay('GET', '/api/chat/saved')).body.find((x) => x.message_id === m.id).email_subject, 'Pallet quotation');
   await kay('PUT', `/api/chat/messages/${m.id}/saved`, { saved: false });
+  // A reminder on it: listed with the subject and how many files (for Home's Chat reminders card).
+  assert.equal((await kay('POST', `/api/chat/messages/${m.id}/remind`, { at: Date.now() + 3600e3 })).status, 200);
+  const rem = (await kay('GET', '/api/chat/reminders')).body.find((x) => x.message_id === m.id);
+  assert.deepEqual([rem.email_subject, rem.files, rem.channel, rem.dm], ['Pallet quotation', 0, 'general', false]);
+  await kay('POST', `/api/chat/messages/${m.id}/remind`, { at: null });
+  assert.equal((await kay('GET', '/api/chat/reminders')).body.some((x) => x.message_id === m.id), false);
 });
 
 test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', async () => {
@@ -9657,6 +9663,7 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   assert.ok(HOME_CARDS.includes('dates'), 'birthdays and dates');
   assert.ok(HOME_CARDS.includes('touch'), 'keep in touch');
   assert.ok(HOME_CARDS.includes('saved'), 'saved in chat');
+  assert.ok(HOME_CARDS.includes('reminders'), 'chat reminders');
   assert.ok(HOME_CARDS.includes('office'), 'in the office today');
   const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
   assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');

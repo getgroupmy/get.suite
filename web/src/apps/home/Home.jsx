@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { get, post, put, patch, del, onLive, formatDate } from '../../api.js';
 import { savedText } from './savedtext.js';
+import { whenText as remindWhen } from '../../components/schedule.jsx';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -27,7 +28,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -48,7 +49,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -63,6 +64,7 @@ export default function Home() {
       mail?.enabled ? safe(get('/contacts/frequent'), []) : Promise.resolve([]),
       safe(get('/comments/for-me'), []),
       safe(get('/chat/saved'), []),
+      safe(get('/chat/reminders'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -84,6 +86,7 @@ export default function Home() {
       people: people.slice(0, 5),
       comments: comments.slice(0, 6), commentsMore: Math.max(0, comments.length - 6),
       saved: saved.slice(0, 5), savedMore: Math.max(0, saved.length - 5),
+      reminders: reminders.slice(0, 5), remindersMore: Math.max(0, reminders.length - 5),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -96,7 +99,7 @@ export default function Home() {
     } catch (e) { toast(e.message, 'error'); load(); }
   };
   useEffect(() => onLive((m) => {
-    if (['mail-followups', 'events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'comments-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
+    if (['mail-followups', 'events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'comments-changed', 'chat-saved', 'chat-reminders', 'live-connected'].includes(m.type) || m.type === 'notification') load();
   }), [load]);
   useEffect(() => { document.title = 'Home'; return () => { document.title = 'Workspace'; }; }, []);
 
@@ -291,6 +294,26 @@ export default function Home() {
                 })}
               </ul>
               {data.savedMore > 0 && <Link className="small" to="/chat?saved=1">and {data.savedMore} more</Link>}
+            </section>
+          )}
+          {data.reminders.length > 0 && (
+            <section className="card home-card" aria-label="Chat reminders" {...cardProps('reminders')}>
+              <h2><Link to="/chat"><span aria-hidden="true">⏰</span> Chat reminders</Link></h2>
+              <ul className="home-list">
+                {data.reminders.map((x) => {
+                  const text = savedText(x);
+                  return (
+                    <li key={x.message_id}>
+                      <Link className="grow ellipsis" to={`/chat/${x.channel_id}?msg=${x.parent_id || x.message_id}${x.parent_id ? `&thread=${x.parent_id}` : ''}`} title={text}>
+                        <span className="muted small">{remindWhen(x.at)}</span> <strong>{x.author || 'Someone'}</strong> {text}
+                      </Link>
+                      <button type="button" className="btn small" aria-label={`Cancel reminder: ${text.slice(0, 40)}`} title="Cancel the reminder"
+                        onClick={async () => { try { await post(`/chat/messages/${x.message_id}/remind`, { at: null }); load(); } catch (e) { toast(e.message, 'error'); } }}>✕</button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {data.remindersMore > 0 && <span className="small muted">and {data.remindersMore} more</span>}
             </section>
           )}
           {data.people.length > 0 && (
