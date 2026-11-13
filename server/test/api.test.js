@@ -3011,7 +3011,7 @@ test('chat mute: per person; counts still kept; unmuting', async () => {
   const ch = (await a('POST', '/api/chat/channels', { name: 'mute-noisy' })).body.id;
   const find = async (who) => (await who('GET', '/api/chat/channels')).body.channels.find((c) => c.id === ch);
   assert.equal((await find(b)).muted, false);
-  assert.deepEqual((await b('POST', `/api/chat/channels/${ch}/mute`, {})).body, { muted: true });
+  assert.deepEqual((await b('POST', `/api/chat/channels/${ch}/mute`, {})).body, { muted: true, until: null });
   await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'chatter' });
   const muted = await find(b);
   assert.equal(muted.muted, true);
@@ -3019,6 +3019,23 @@ test('chat mute: per person; counts still kept; unmuting', async () => {
   assert.equal((await find(a)).muted, false, 'only for Ben');
   await b('POST', `/api/chat/channels/${ch}/mute`, { muted: false });
   assert.equal((await find(b)).muted, false);
+  // For a while: it says until when, and ends by itself.
+  const { endMutes } = await import('../src/routes/chat.js');
+  const { q } = await import('../src/db.js');
+  for (const until of [Date.now() + 1000, Date.now() + 400 * 864e5, 'soon']) assert.equal((await b('POST', `/api/chat/channels/${ch}/mute`, { until })).status, 400, String(until));
+  const until = Date.now() + 3600e3;
+  assert.deepEqual((await b('POST', `/api/chat/channels/${ch}/mute`, { until })).body, { muted: true, until });
+  assert.deepEqual([(await find(b)).muted, (await find(b)).muted_until], [true, until]);
+  assert.equal(endMutes(until - 1), 0, 'not yet');
+  assert.equal((await find(b)).muted, true);
+  assert.equal(endMutes(until), 1);
+  assert.deepEqual([(await find(b)).muted, (await find(b)).muted_until], [false, null]);
+  // Muting again without a time keeps it on for good (and a timed one can be made lasting).
+  await b('POST', `/api/chat/channels/${ch}/mute`, { until: Date.now() + 3600e3 });
+  await b('POST', `/api/chat/channels/${ch}/mute`, { muted: true });
+  assert.equal(q('SELECT until FROM chat_mutes WHERE channel_id = ?').get(ch).until, null);
+  assert.equal(endMutes(Date.now() + 400 * 864e5), 0, 'a lasting mute doesn’t end');
+  await b('POST', `/api/chat/channels/${ch}/mute`, { muted: false });
 });
 
 test('tasks search: all the words in title, notes or steps; your lists and shared ones only', async () => {

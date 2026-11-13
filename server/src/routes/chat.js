@@ -104,6 +104,17 @@ q(`CREATE TABLE IF NOT EXISTS chat_mutes (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   PRIMARY KEY (channel_id, user_id)
 )`).run();
+// A mute can be for a while: until (ms) when it ends by itself (empty: until unmuted). Ended ones are cleared
+// every few seconds (with the scheduled messages), so everything else only asks whether there's a mute.
+if (!q('PRAGMA table_info(chat_mutes)').all().some((c) => c.name === 'until')) q('ALTER TABLE chat_mutes ADD COLUMN until INTEGER').run();
+/** End the mutes whose time is up; tells each person their list changed. */
+export function endMutes(at = Date.now()) {
+  const ended = q('SELECT DISTINCT user_id FROM chat_mutes WHERE until IS NOT NULL AND until <= ?').all(at).map((r) => r.user_id);
+  if (!ended.length) return 0;
+  q('DELETE FROM chat_mutes WHERE until IS NOT NULL AND until <= ?').run(at);
+  sendTo(ended, { type: 'channels-changed' });
+  return ended.length;
+}
 // Pinned messages: kept at hand for everyone in the conversation.
 // deleted_at: a message deleted while its thread has replies stays as "This message was deleted", so the replies keep their place.
 for (const [col, type] of [['pinned_at', 'INTEGER'], ['pinned_by', 'TEXT'], ['deleted_at', 'INTEGER']]) {
@@ -387,6 +398,7 @@ export function sendDueChat(at = Date.now()) {
   const due = q('SELECT * FROM chat_scheduled WHERE send_at <= ? AND error IS NULL ORDER BY send_at LIMIT 100').all(at);
   for (const row of due) sendScheduled(row);
   remindDue(at);
+  endMutes(at);
   return due.length;
 }
 export function startChatScheduler() { setInterval(() => { try { sendDueChat(); } catch (e) { console.error('[chat] scheduled:', e.message); } }, 10e3).unref(); }
@@ -645,6 +657,7 @@ export default function chatRoutes() {
     const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters,
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
+                      (SELECT mu.until FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted_until,
                       (SELECT st.starred_at FROM chat_stars st WHERE st.channel_id = c.id AND st.user_id = ?) AS starred_at,
                       EXISTS (SELECT 1 FROM chat_left lf WHERE lf.channel_id = c.id AND lf.user_id = ?) AS has_left,
                       (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
@@ -664,7 +677,7 @@ export default function chatRoutes() {
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     const inSection = new Map(q('SELECT channel_id, section_id FROM chat_section_items WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.section_id]));
     const closed = new Map(q('SELECT channel_id, closed_at FROM chat_closed WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.closed_at]));
     res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null,
@@ -1310,10 +1323,17 @@ export default function chatRoutes() {
 
   r.post('/channels/:id/mute', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
+    // { muted: false } unmutes; otherwise muted, until { until } (ms, from a minute to a year ahead) or until unmuted.
+    let until = null;
+    if (req.body.muted !== false && req.body.until != null) {
+      until = Number(req.body.until);
+      if (!Number.isFinite(until) || until < Date.now() + 30e3 || until > Date.now() + 366 * 864e5) throw bad('Choose a time from a minute to a year from now');
+      until = Math.round(until);
+    }
     if (req.body.muted === false) q('DELETE FROM chat_mutes WHERE channel_id = ? AND user_id = ?').run(c.id, req.user.id);
-    else q('INSERT OR IGNORE INTO chat_mutes (channel_id, user_id) VALUES (?, ?)').run(c.id, req.user.id);
+    else q('INSERT INTO chat_mutes (channel_id, user_id, until) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET until = excluded.until').run(c.id, req.user.id, until);
     sendTo([req.user.id], { type: 'channels-changed' });
-    res.json({ muted: req.body.muted !== false });
+    res.json({ muted: req.body.muted !== false, until });
   });
 
   // Read up to now: unread counts go back to zero (on your other devices too). In a direct message

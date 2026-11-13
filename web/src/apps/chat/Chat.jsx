@@ -9,6 +9,7 @@ import { statusLine, untilText, unreachableText } from '../../components/status.
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import { useMailStatus } from '../../mailStatus.js';
+import { muteChoices } from './mute.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
@@ -731,9 +732,16 @@ export default function Chat() {
             <button type="button" className={`btn small chat-star ${current.starred ? 'on' : ''}`} aria-pressed={!!current.starred} aria-label={current.starred ? 'Unstar conversation' : 'Star conversation'}
               title={current.starred ? 'Starred: kept at the top of your list. Click to unstar.' : 'Star: keep it at the top of your list'}
               onClick={async () => { try { await post(`/chat/channels/${current.id}/star`, { starred: !current.starred }); await loadChannels(); toast(current.starred ? 'Unstarred' : 'Starred: it’s at the top of your list'); } catch (e) { toast(e.message, 'error'); } }}>{current.starred ? '★' : '☆'}</button>
-            <button type="button" className={`btn small ${current.muted ? 'primary' : ''}`} aria-pressed={!!current.muted} aria-label={current.muted ? 'Unmute conversation' : 'Mute conversation'}
-              title={current.muted ? 'Muted: messages here don’t add to Chat’s unread count (mentions still do). Click to unmute.' : 'Mute: messages here stop adding to Chat’s unread count (mentions still do)'}
-              onClick={async () => { try { await post(`/chat/channels/${current.id}/mute`, { muted: !current.muted }); await loadChannels(); toast(current.muted ? 'Unmuted' : 'Muted: only mentions will add to your unread count'); } catch (e) { toast(e.message, 'error'); } }}>{current.muted ? '🔕' : '🔔'}</button>
+            {current.muted ? (
+              <button type="button" className="btn small primary" aria-pressed="true" aria-label="Unmute conversation"
+                title={`Muted${current.muted_until ? ` until ${whenText(current.muted_until)}` : ''}: messages here don’t add to Chat’s unread count (mentions still do). Click to unmute.`}
+                onClick={async () => { try { await post(`/chat/channels/${current.id}/mute`, { muted: false }); await loadChannels(); toast('Unmuted'); } catch (e) { toast(e.message, 'error'); } }}>🔕{current.muted_until ? <span className="small"> until {whenText(current.muted_until)}</span> : null}</button>
+            ) : (
+              <Menu trigger={(p) => <button type="button" className="btn small" aria-pressed="false" aria-label="Mute conversation" title="Mute: messages here stop adding to Chat’s unread count (mentions still do)" {...p}>🔔</button>}
+                items={muteChoices().map(([label, until]) => ({ label, onClick: async () => {
+                  try { await post(`/chat/channels/${current.id}/mute`, { muted: true, until }); await loadChannels(); toast(until ? `Muted until ${whenText(until)}` : 'Muted: only mentions will add to your unread count'); } catch (e) { toast(e.message, 'error'); }
+                } }))} />
+            )}
             <div className="pins-wrap">
               <button type="button" className={`btn small ${pinsOpen ? 'primary' : ''}`} aria-expanded={pinsOpen} aria-label={`Pinned messages (${pins.length})`} title="Pinned messages" onClick={() => setPinsOpen(!pinsOpen)}>📌 {pins.length || ''}</button>
               {pinsOpen && (
