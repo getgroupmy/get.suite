@@ -13670,3 +13670,25 @@ test('chat: trashing or restoring an attached file tells the conversation at onc
     assert.equal(states(ben).length, 2, 'a rename is not news');
   } finally { ben.close(); out.close(); }
 });
+
+test('chat: a conversation\'s files by type: pictures, documents, PDFs, audio and video, other', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'ctyp1', domain: 'acme.com', name: 'ctyp1', password: 'password123' })).status, 201);
+  await login(a, 'ctyp1@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'types-room', private: true, members: [] })).body.id;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const up = async (name, body, type) => (await a('POST', `/api/files/upload?name=${name}`, body, { raw: true, headers: { 'content-type': type } })).body.id;
+  const ids = [await up('pic.png', png, 'image/png'), await up('spec.pdf', '%PDF-1.4', 'application/pdf'), await up('notes.docx', 'x', 'application/octet-stream'),
+    await up('clip.mp3', 'x', 'audio/mpeg'), await up('data.bin', 'x', 'application/octet-stream')];
+  const sheet = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Budget' })).body;
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: `Everything /sheets/${sheet.id}`, files: ids });
+  const by = async (type) => (await a('GET', `/api/chat/channels/${ch}/files${type ? `?type=${type}` : ''}`)).body.map((f) => f.name).sort();
+  assert.deepEqual(await by('pictures'), ['pic.png']);
+  assert.deepEqual(await by('pdf'), ['spec.pdf']);
+  assert.deepEqual(await by('documents'), ['Budget', 'notes.docx'], 'Workspace files and Office files');
+  assert.deepEqual(await by('media'), ['clip.mp3']);
+  assert.deepEqual(await by('other'), ['data.bin']);
+  assert.equal((await by('')).length, 6);
+  assert.equal((await by('nonsense')).length, 6, 'an unknown type is no filter');
+  assert.deepEqual((await a('GET', `/api/chat/channels/${ch}/files?type=documents&q=budg`)).body.map((f) => [f.name, f.type]), [['Budget', 'documents']], 'with a name too');
+});

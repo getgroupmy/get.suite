@@ -1719,7 +1719,7 @@ export default function chatRoutes() {
   // Every file in a conversation (attached, or a Workspace file linked that you can open), newest first.
   r.get('/channels/:id/files', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
-    res.json(conversationFiles(c.id, req.user.id, req.query.q));
+    res.json(conversationFiles(c.id, req.user.id, req.query.q, String(req.query.type || '')));
   });
 
   // Where a file you can open was shared in Chat (attached or linked), for its Details in Drive.
