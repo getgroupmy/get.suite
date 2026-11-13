@@ -15,7 +15,8 @@ export default function LinksAdmin() {
   const [by, setBy] = useState(''); // show only one person's links
   const [stoppingAll, setStoppingAll] = useState(false);
   const people = [...new Map((links || []).map((l) => [l.created_by, l.owner_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-  const shown = (links || []).filter((l) => !by || l.created_by === by);
+  const [find, setFind] = useState(''); // part of a file's or folder's name
+  const shown = (links || []).filter((l) => (!by || l.created_by === by) && (!find.trim() || String(l.file_name).toLowerCase().includes(find.trim().toLowerCase())));
   const byName = people.find(([id]) => id === by)?.[1];
   const { user } = useAuth();
   const [enforcing, setEnforcing] = useState(false);
@@ -31,6 +32,9 @@ export default function LinksAdmin() {
           <button type="button" className="btn" onClick={() => setEnforcing(true)}>Apply the rules to existing links…</button></div>
       )}
       <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field" style={{ minWidth: 220 }}><span>File or folder</span>
+          <input type="search" value={find} placeholder="Part of its name" onChange={(e) => setFind(e.target.value)} />
+        </label>
         <label className="field" style={{ minWidth: 220 }}><span>Made by</span>
           <select value={by} onChange={(e) => setBy(e.target.value)}>
             <option value="">Everyone</option>
