@@ -13817,4 +13817,8 @@ test('meet: search kept meeting chats — all the words, only meetings you start
   assert.deepEqual(await find(a, '_'), [{ ...(await find(a, '100%'))[0] }], '_ too');
   assert.deepEqual(await find(b, 'zebrafinch'), [], 'not for someone who was not there');
   assert.deepEqual(await find(a, '  '), []);
+  line('Réunion au CAFÉ demain', t + 3); line('ΣΥΝΑΝΤΗΣΗ αύριο', t + 4);
+  assert.deepEqual((await find(a, 'reunion cafe')).map((x) => x.text), ['Réunion au CAFÉ demain'], 'accents and case ignored');
+  assert.deepEqual((await find(a, 'Café')).map((x) => x.text), ['Réunion au CAFÉ demain'], 'both ways');
+  assert.deepEqual((await find(a, 'συναντηση')).map((x) => x.text), ['ΣΥΝΑΝΤΗΣΗ αύριο'], 'other alphabets too');
 });

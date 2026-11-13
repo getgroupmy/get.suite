@@ -177,13 +177,21 @@ export function meetRoutes() {
   });
   // Search everything: lines of kept meeting chats with all these words, in meetings you started or were in, newest first.
   r.get('/chat/search', (req, res) => {
-    const words = String(req.query.q || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+    // Accents and case ignored (Café, CAFE and cafe are the same), in any alphabet: matched here rather than in SQL,
+    // over the newest lines of the meetings you can read.
+    const plain = (t) => String(t).normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
+    const words = plain(req.query.q || '').split(/\s+/).filter(Boolean).slice(0, 8);
     if (!words.length) return res.json([]);
-    const like = words.map(() => "lower(c.text) LIKE ? ESCAPE '\\'").join(' AND ');
-    const esc = (w) => `%${w.replace(/[\\%_]/g, (x) => `\\${x}`)}%`;
-    res.json(q(`SELECT c.id, c.code, m.title, c.name, c.text, c.at, c.room FROM meeting_chat c JOIN meetings m ON m.code = c.code
-      WHERE ${like} AND (m.created_by = ? OR EXISTS (SELECT 1 FROM meeting_attendance a WHERE a.code = c.code AND a.user_id = ?))
-      ORDER BY c.at DESC, c.id DESC LIMIT 20`).all(...words.map(esc), req.user.id, req.user.id).map((x) => ({ ...x })));
+    const out = [];
+    const rows = q(`SELECT c.id, c.code, m.title, c.name, c.text, c.at, c.room FROM meeting_chat c JOIN meetings m ON m.code = c.code
+      WHERE m.created_by = ? OR EXISTS (SELECT 1 FROM meeting_attendance a WHERE a.code = c.code AND a.user_id = ?)
+      ORDER BY c.at DESC, c.id DESC LIMIT 20000`).all(req.user.id, req.user.id);
+    for (const x of rows) {
+      const t = plain(x.text);
+      if (words.every((w) => t.includes(w))) out.push({ ...x });
+      if (out.length === 20) break;
+    }
+    res.json(out);
   });
   // The kept meeting chat (see keep_chat), oldest first: for whoever started it, or anyone who was in it.
   // ?format=txt to download.
