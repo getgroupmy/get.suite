@@ -75,8 +75,19 @@ export function useEventReminders(enabled, { toast, openCalendar }) {
       const actions = [...(ev.meet_code ? [{ label: 'Join', onClick: () => window.open(`/meet/${ev.meet_code}`, '_blank', 'noopener') }] : []), ...(others && !ev.all_day && ev.my_status !== 'no' ? [late(5), late(10)] : [])];
       toast(`${ev.title} ${when === 'now' ? 'is starting now' : `starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`, 'info', actions.length ? { actions, duration: 20000 } : undefined);
       if (desktopOn() && document.hidden) {
+        const body = `${when === 'now' ? 'Starting now' : `Starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`;
+        // With the service worker, the notification has buttons too: Join, and running late (handled there).
+        const reg = await navigator.serviceWorker?.getRegistration?.().catch(() => null);
+        if (reg?.active && reg.showNotification) {
+          const buttons = [...(ev.meet_code ? [{ action: 'join', title: 'Join' }] : []), ...(others && !ev.all_day && ev.my_status !== 'no' ? [{ action: 'late5', title: '5 min late' }, { action: 'late10', title: '10 min late' }] : [])];
+          try {
+            await reg.showNotification(ev.title, { body, tag: `reminder-${key}`, icon: '/icons/icon-192.png', actions: buttons.slice(0, 2),
+              data: { link: ev.meet_code ? `/meet/${ev.meet_code}` : '/calendar', join: ev.meet_code ? `/meet/${ev.meet_code}` : null, late: { id: ev.id, at: ev.start, title: ev.title } } });
+            return;
+          } catch { /* fall back to a plain one */ }
+        }
         try {
-          const n = new Notification(ev.title, { body: `${when === 'now' ? 'Starting now' : `Starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`, tag: `reminder-${key}`, icon: '/favicon.svg' });
+          const n = new Notification(ev.title, { body, tag: `reminder-${key}`, icon: '/favicon.svg' });
           n.onclick = () => { window.focus(); if (ev.meet_code) window.open(`/meet/${ev.meet_code}`, '_blank', 'noopener'); else openCalendar(); n.close(); };
         } catch { /* some browsers only allow notifications from a service worker */ }
       }

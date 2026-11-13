@@ -74,8 +74,29 @@ self.addEventListener('push', (e) => {
     body: m.body || '', tag: m.tag, renotify: !!m.tag, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { link: m.link || '/' },
   }));
 });
+// A button on a notification (an event's reminder: Join, 5 min late, 10 min late): done without opening Workspace.
+async function notificationAction(action, data = {}) {
+  if (/^late\d+$/.test(action) && data.late) {
+    const n = Number(action.slice(4));
+    let ok = false;
+    try {
+      const r = await fetch(`/api/events/${encodeURIComponent(data.late.id)}/late`, { method: 'POST', credentials: 'same-origin',
+        headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ minutes: n, at: data.late.at }) });
+      ok = r.ok;
+    } catch { /* offline */ }
+    try {
+      await self.registration.showNotification(ok ? `Running ${n} minutes late` : 'Couldn’t say you’re running late', {
+        body: ok ? `Everyone on “${data.late.title}” knows.` : 'Open Workspace and try again from the event.', tag: `late-${data.late.id}`, icon: '/icons/icon-192.png', data: { link: data.link || '/calendar' } });
+    } catch { /* notifications turned off meanwhile: it's done all the same */ }
+    return ok;
+  }
+  if (action === 'join' && data.join) { await self.clients.openWindow(new URL(data.join, self.location.origin).href); return true; }
+  return false;
+}
+self.notificationAction = notificationAction; // (and for tests)
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
+  if (e.action) { e.waitUntil(notificationAction(e.action, e.notification.data || {})); return; }
   const link = new URL(e.notification.data?.link || '/', self.location.origin).href;
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
     const w = wins.find((c) => c.url.startsWith(self.location.origin));
