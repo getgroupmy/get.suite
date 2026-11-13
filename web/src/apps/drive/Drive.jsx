@@ -542,6 +542,7 @@ export default function Drive() {
               <button className="btn small" onClick={() => zip(picked.map((f) => f.id))}><Icon name="download" size={16} /> Download</button>
               <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
               <button className="btn small" title="A link to each, a line each (only people who can open them get in)" onClick={() => copyLinks(picked)}><Icon name="link" size={16} /> Copy links</button>
+              <button className="btn small" title="Links to them in a Chat conversation's message box, to add a word and send" onClick={() => setDialog({ type: 'chat', files: picked })}><Icon name="chat" size={16} /> Send in Chat…</button>
               {mail?.enabled && <button className="btn small" title="A new email with a link to each (it offers to share them with recipients who can't open them)" onClick={() => emailLinks(picked)}><Icon name="mail" size={16} /> Email links</button>}
               <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
@@ -663,6 +664,7 @@ export default function Drive() {
       {dialog?.type === 'pdf-organize' && <Suspense fallback={null}><PdfOrganizeDialog file={dialog.files[0]} canEdit={['owner', 'editor'].includes(dialog.files[0].role) && !dialog.files[0].locked_at} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
       {dialog?.type === 'pdf-send-sign' && <SendForSignature file={dialog.files[0]} onClose={(sent) => { setDialog(null); if (sent) load(); }} />}
       {dialog?.type === 'pdf-extract' && <PdfExtractDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} />}
+      {dialog?.type === 'chat' && <SendInChat files={dialog.files} linkTo={linkTo} onClose={() => setDialog(null)} />}
       {dialog?.type === 'copyto' && <MoveDialog copy files={dialog.files} onClose={() => setDialog(null)} onCopy={(to) => copyMany(dialog.files, to)} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
@@ -1700,6 +1702,52 @@ function RenameMany({ files, onClose, onDone }) {
           </tbody>
         </table>
       </div>
+    </Modal>
+  );
+}
+
+/**
+ * Send in Chat: links to the files go into the chosen conversation's message box (its draft, after anything already
+ * typed there), and the conversation opens to add a word and send; Chat then offers to share them with anyone there
+ * who can't open them.
+ */
+function SendInChat({ files, linkTo, onClose }) {
+  const navigate = useNavigate();
+  const [convs, setConvs] = useState(null);
+  const [to, setTo] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    get('/chat/channels').then((d) => {
+      const open = (d.channels || []).filter((c) => !c.archived_at);
+      setConvs(open);
+      setTo(open[0]?.id || '');
+    }).catch((e) => setError(e.message));
+  }, []);
+  const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
+  async function submit(e) {
+    e.preventDefault();
+    try {
+      const drafts = await get('/chat/drafts').catch(() => ({}));
+      const before = drafts[to]?.body?.trim();
+      const links = files.map((f) => `${f.name}: ${linkTo(f)}`).join('\n');
+      await put(`/chat/channels/${to}/draft`, { body: before ? `${before}\n${links}` : links, client: 'drive' });
+      onClose();
+      navigate(`/chat/${to}`);
+    } catch (err) { setError(err.message); }
+  }
+  return (
+    <Modal title={files.length === 1 ? `Send “${files[0].name}” in Chat` : `Send ${files.length} files in Chat`} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <p className="muted small" style={{ margin: 0 }}>Links to them go in the conversation's message box, to add a word and send. Anyone there who can't open them is offered access when you send.</p>
+        <label className="field"><span>To</span>
+          <select value={to} onChange={(e) => setTo(e.target.value)} required disabled={!convs} aria-label="Conversation">
+            {(convs || []).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
+          </select>
+        </label>
+        {convs && !convs.length && <p className="muted small">You're not in any conversations yet.</p>}
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Open in Chat</button></div>
+      </form>
     </Modal>
   );
 }
