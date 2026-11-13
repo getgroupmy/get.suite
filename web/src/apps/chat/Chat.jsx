@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
 import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn, noteLinksIn, formLinksIn } from './filelinks.js';
 import { dueLabel } from '../tasks/taskmath.js';
-import { statusLine, untilText, unreachableText } from '../../components/status.js';
+import { statusLine, untilFor, untilText, unreachableText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import { useMailStatus } from '../../mailStatus.js';
@@ -421,6 +421,7 @@ export default function Chat() {
           const msg = await post(`/chat/channels/${channelId}/messages`, { poll: { question: slash.question, options: slash.options, multi: false } });
           setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
         } else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}`, label: `Chat: ${title}` } });
+        else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }
@@ -916,6 +917,15 @@ export default function Chat() {
   );
 }
 
+/** /status: set your status (cleared after the minutes, today or this week asked for), or clear it. Nothing is posted. */
+async function setStatusFrom(slash, toast) {
+  if (slash.clear) { await del('/users/me/status'); toast('Status cleared'); return; }
+  const until = typeof slash.after === 'number' ? Date.now() + slash.after * 60e3 : untilFor(slash.after);
+  const clear = { 30: '30m', 60: '1h', 240: '4h' }[slash.after] || (typeof slash.after === 'string' ? slash.after : '');
+  const r = await put('/users/me/status', { emoji: slash.emoji, text: slash.text, until, clear });
+  toast(`Status: ${[r.status.emoji, r.status.text].filter(Boolean).join(' ')} ${untilText(until)}`);
+}
+
 /** A thread beside the conversation: the message, its replies (live), and a box to reply. */
 function Thread({ id, channelId, user, onClose }) {
   const toast = useToast();
@@ -981,6 +991,7 @@ function Thread({ id, channelId, user, onClose }) {
           window.open(`/meet/${m.code}`, '_blank', 'noopener');
         } else if (slash.cmd === 'poll') added(await post(`/chat/channels/${channelId}/messages`, { poll: { question: slash.question, options: slash.options, multi: false }, parent_id: id }));
         else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}?msg=${id}&thread=${id}`, label: 'Chat thread' } });
+        else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }

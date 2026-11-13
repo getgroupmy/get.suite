@@ -2730,6 +2730,13 @@ test('status: your recent statuses, latest first, to set again in one click', as
   assert.deepEqual(after.map((r) => r.text), ['Thing 3', 'Thing 2', 'Thing 1', 'Thing 0']);
   await a('DELETE', '/api/users/me/status');
   assert.equal((await a('GET', '/api/users/me/status')).body.recent.length, 4, 'clearing your status keeps them');
+  // As Chat's /status sends it: a joined, skin-toned emoji and an odd length of time (kept, but remembered as not clearing).
+  const until = Date.now() + 45 * 60e3;
+  const set45 = await a('PUT', '/api/users/me/status', { emoji: '👩🏽‍💻', text: 'Heads down', until, clear: '' });
+  assert.equal(set45.status, 200);
+  assert.deepEqual(set45.body.status, { emoji: '👩🏽‍💻', text: 'Heads down', until });
+  assert.deepEqual(set45.body.recent[0], { emoji: '👩🏽‍💻', text: 'Heads down', clear: '' });
+  assert.equal((await a('PUT', '/api/users/me/status', { emoji: '🍔🍔🍔🍔🍔🍔🍔🍔🍔', text: 'x' })).status, 400, 'not a string of emoji');
 });
 
 test('rooms: usage over the last days, for admins', async () => {
