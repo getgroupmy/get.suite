@@ -1426,6 +1426,11 @@ function TaskCards({ text }) {
     for (const l of links) taskOf(l.id).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.id]: x })); });
     return () => { alive = false; };
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Changed somewhere else (ticked, answered, renamed…): fetched again, so the card keeps up.
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'tasks-changed') return;
+    for (const l of links) { taskInfo.delete(l.id); taskOf(l.id).then((x) => setInfo((s) => ({ ...s, [l.id]: x }))); }
+  }), [text]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!links.length) return null;
   return (
     <div className="msg-cards">
@@ -1486,6 +1491,11 @@ function EventCards({ text }) {
     for (const l of links) eventOf(l.id).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.id]: x })); });
     return () => { alive = false; };
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Changed somewhere else (ticked, answered, renamed…): fetched again, so the card keeps up.
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'events-changed') return;
+    for (const l of links) { eventInfo.delete(l.id); eventOf(l.id).then((x) => setInfo((s) => ({ ...s, [l.id]: x }))); }
+  }), [text]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!links.length) return null;
   return (
     <div className="msg-cards">
@@ -1544,6 +1554,11 @@ function NoteCards({ text }) {
     for (const l of links) noteOf(l.id).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.id]: x })); });
     return () => { alive = false; };
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Changed somewhere else (ticked, answered, renamed…): fetched again, so the card keeps up.
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'notes-changed') return;
+    for (const l of links) { noteInfo.delete(l.id); noteOf(l.id).then((x) => setInfo((s) => ({ ...s, [l.id]: x }))); }
+  }), [text]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!links.length) return null;
   return (
     <div className="msg-cards">
