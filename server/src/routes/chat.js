@@ -164,6 +164,7 @@ import { baseUrl, focusUntil } from './calendar.js';
 import { quietUntil } from '../workhours.js';
 import { cleanKeywords, keywordIn } from '../chatkeywords.js';
 import { cleanBookmark, bookmarksOf, MAX_BOOKMARKS } from '../chatbookmarks.js';
+import { conversationFiles } from '../chatfiles.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -1709,6 +1710,12 @@ export default function chatRoutes() {
   r.get('/channels/:id/pins', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     res.json(shape(q(`${MSG} WHERE m.channel_id = ? AND m.pinned_at IS NOT NULL ORDER BY m.pinned_at DESC LIMIT ${MAX_PINS}`).all(c.id)));
+  });
+
+  // Every file in a conversation (attached, or a Workspace file linked that you can open), newest first.
+  r.get('/channels/:id/files', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    res.json(conversationFiles(c.id, req.user.id, req.query.q));
   });
 
   // A file attached to a message, for the people in the conversation.

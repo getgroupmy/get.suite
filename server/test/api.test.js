@@ -13521,3 +13521,41 @@ test('chat: download a conversation with its files (.zip): the page, and each fi
   assert.match(await zip.file(names.find((n) => n.endsWith('.html'))).async('string'), /Here you go/);
   assert.equal((await c('GET', `/api/chat/channels/${dm}/export?format=zip`)).status, 404, 'not in it');
 });
+
+test('chat: a conversation\'s files: attachments and linked files you can open, newest first, each once, by name', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [x, local] of [[a, 'cfil1'], [b, 'cfil2'], [c, 'cfil3']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'cfil2@acme.com'").get().id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const up = async (name, text) => (await a('POST', `/api/files/upload?name=${encodeURIComponent(name)}`, text, { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+  const f1 = await up('notes.txt', 'first'), f2 = await up('budget.txt', 'money'), gone = await up('old.txt', 'old');
+  const shared = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Shared plan' })).body;
+  await a('PUT', `/api/files/${shared.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  const secret = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Secret sheet' })).body;
+  const m1 = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Here', files: [f1.id, gone.id] })).body;
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: `See /docs/${shared.id} and http://x/sheets/${secret.id}` });
+  const del = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'oops', files: [f2.id] })).body;
+  const again = (await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'notes again', parent_id: m1.id, files: [] })).body;
+  assert.ok(again.id);
+  await a('PATCH', `/api/files/${gone.id}`, { trashed: true });
+  await a('DELETE', `/api/chat/messages/${del.id}`);
+
+  const mine = (await a('GET', `/api/chat/channels/${dm}/files`)).body;
+  assert.deepEqual(mine.map((f) => [f.name, f.how, f.kind]), [['Shared plan', 'linked', 'doc'], ['Secret sheet', 'linked', 'sheet'], ['notes.txt', 'attached', 'file']], 'trashed files and deleted messages are left out');
+  assert.equal(mine[2].message_id, m1.id);
+  assert.equal(mine[2].user_name, 'cfil1');
+  const theirs = (await b('GET', `/api/chat/channels/${dm}/files`)).body;
+  assert.deepEqual(theirs.map((f) => f.name), ['Shared plan', 'notes.txt'], 'a linked file only for people who can open it');
+  assert.deepEqual((await b('GET', `/api/chat/channels/${dm}/files?q=NOTE`)).body.map((f) => f.name), ['notes.txt'], 'by name');
+  assert.equal((await c('GET', `/api/chat/channels/${dm}/files`)).status, 404, 'not in the conversation');
+
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'once more', files: [] });
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'again', files: [f1.id] });
+  const latest = (await a('GET', `/api/chat/channels/${dm}/files`)).body;
+  assert.deepEqual(latest.map((f) => f.name), ['notes.txt', 'Shared plan', 'Secret sheet'], 'each file once, at its latest');
+});

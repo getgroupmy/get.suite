@@ -13,6 +13,7 @@ import { muteChoices } from './mute.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
+import ConvFiles from './ConvFiles.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { useCompanyEmoji, imageUrl, splitEmoji, customName, reloadEmoji } from './companyemoji.js';
@@ -751,6 +752,7 @@ export default function Chat() {
                   try { await post(`/chat/channels/${current.id}/mute`, { muted: true, until }); await loadChannels(); toast(until ? `Muted until ${whenText(until)}` : 'Muted: only mentions will add to your unread count'); } catch (e) { toast(e.message, 'error'); }
                 } }))} />
             )}
+            <ConvFiles channelId={current.id} />
             <div className="pins-wrap">
               <button type="button" className={`btn small ${pinsOpen ? 'primary' : ''}`} aria-expanded={pinsOpen} aria-label={`Pinned messages (${pins.length})`} title="Pinned messages" onClick={() => setPinsOpen(!pinsOpen)}>📌 {pins.length || ''}</button>
               {pinsOpen && (
