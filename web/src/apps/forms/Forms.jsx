@@ -1,5 +1,7 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
+import { printHtml } from '../mail/mailprint.js';
+import { responsesPrintHtml } from './formprint.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, del, onLive, formatDate, uploadFile } from '../../api.js';
@@ -453,6 +455,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
         <label className="check"><input type="checkbox" checked={form.accepting} onChange={(e) => setting({ accepting: e.target.checked })} /> Accepting responses</label>
         <a className="btn" href={`/api/forms/${form.id}/responses.csv`} download>Download CSV</a>
         <a className="btn" href={`/api/forms/${form.id}/responses.xlsx`} download>Download Excel</a>
+        {responses.length > 0 && <button type="button" className="btn" title="Every response on its own page, with each question and answer" onClick={() => printHtml(responsesPrintHtml(form, responses, { when: formatDate }))}><Icon name="print" size={18} /> Print</button>}
         {linked
           ? <span className="row linked-sheet"><a className="btn" href={`/sheets/${linked.id}`} target="_blank" rel="noreferrer"><Icon name="sheet" size={18} /> Linked spreadsheet</a>
             <button type="button" className="link-btn small" onClick={unlink}>Unlink</button></span>
