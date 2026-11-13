@@ -28,6 +28,19 @@ export const KINDS = [
   ['mail', 'New email (on devices with notifications on)'], ['dm', 'Direct messages in Chat (on devices with notifications on)'],
 ];
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'notify_off')) q('ALTER TABLE users ADD COLUMN notify_off TEXT').run();
+/** Once: people who had “Files shared with you” off before their own links got a kind of their own keep those quiet too. */
+export function splitLinkKind() {
+  if (q("SELECT 1 FROM settings WHERE key = 'notify_link_split'").get()) return 0;
+  let n = 0;
+  for (const u of q("SELECT id, notify_off FROM users WHERE notify_off LIKE '%\"share\"%'").all()) {
+    let off; try { off = JSON.parse(u.notify_off); } catch { continue; }
+    if (!Array.isArray(off) || !off.includes('share') || off.includes('link')) continue;
+    q('UPDATE users SET notify_off = ? WHERE id = ?').run(JSON.stringify([...off, 'link']), u.id); n++;
+  }
+  q("INSERT OR REPLACE INTO settings (key, value) VALUES ('notify_link_split', ?)").run(String(Date.now()));
+  return n;
+}
+splitLinkKind();
 export const offFor = (userId) => { try { return JSON.parse(q('SELECT notify_off FROM users WHERE id = ?').get(userId)?.notify_off || '[]'); } catch { return []; } };
 export function setOff(userId, kinds) {
   const known = new Set(KINDS.map(([k]) => k));

@@ -684,6 +684,19 @@ test('share links: “tell me when it’s opened”, the first time and then at 
   await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: opalId, role: 'viewer' }] });
   assert.ok(JSON.stringify((await opal('GET', '/api/notifications')).body).includes('For Opal'), 'shares still come');
   await opal('PUT', '/api/notifications/settings', { off: [] });
+  // Someone who had “Files shared with you” off before links had their own switch: that one is off too (once).
+  const { splitLinkKind } = await import('../src/notifications.js');
+  q("DELETE FROM settings WHERE key = 'notify_link_split'").run();
+  q("UPDATE users SET notify_off = ? WHERE id = ?").run(JSON.stringify(['share', 'dm']), opalId);
+  assert.equal((await owner('POST', '/api/users', { local: 'splitkeep', domain: 'acme.com', name: 'Keeps Sharing', password: 'password123' })).status, 201);
+  q("UPDATE users SET notify_off = ? WHERE username = 'splitkeep@acme.com'").run(JSON.stringify(['dm']));
+  assert.ok(splitLinkKind() >= 1);
+  assert.deepEqual(JSON.parse(q('SELECT notify_off FROM users WHERE id = ?').get(opalId).notify_off), ['share', 'dm', 'link']);
+  assert.deepEqual(JSON.parse(q("SELECT notify_off FROM users WHERE username = 'splitkeep@acme.com'").get().notify_off), ['dm'], 'not someone who kept sharing on');
+  q("UPDATE users SET notify_off = ? WHERE id = ?").run(JSON.stringify(['share']), opalId);
+  assert.equal(splitLinkKind(), 0, 'only once');
+  assert.deepEqual(JSON.parse(q('SELECT notify_off FROM users WHERE id = ?').get(opalId).notify_off), ['share']);
+  await opal('PUT', '/api/notifications/settings', { off: [] });
   // Turned on for an existing link, and off again.
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: true })).body.notify_open, true);
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: false })).body.notify_open, false);
