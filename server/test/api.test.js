@@ -177,6 +177,25 @@ test('database snapshots: listed, taken now and downloaded by the platform owner
   assert.ok(JSON.stringify(log).includes('backup.download'), 'in the activity log');
 });
 
+test('activity log: newer kinds are in words and can be filtered (recovery email, passkeys, mail security)', async () => {
+  assert.equal((await bob('PUT', '/api/auth/recovery-email', { password: 'password123', email: 'bob.home@example.net' })).status, 200);
+  assert.equal((await bob('PUT', '/api/auth/recovery-email', { password: 'password123', email: null })).status, 200);
+  const rec = (await owner('GET', '/api/audit?action=recovery')).body;
+  assert.deepEqual(rec.entries.slice(0, 2).map((e) => e.label), ['Removed their recovery email', 'Set a recovery email']);
+  assert.ok(rec.entries.every((e) => e.action.startsWith('recovery.')));
+  // A kind nobody has done yet is still a kind, not "Unknown kind of activity".
+  for (const k of ['passkey', 'mail.phishing,mail.blocked,mail.unblocked,mail.swept,dlp', 'api_token']) {
+    const r = await owner('GET', `/api/audit?action=${encodeURIComponent(k)}`);
+    assert.equal(r.status, 200, `${k}: ${JSON.stringify(r.body)}`);
+  }
+  assert.equal((await owner('GET', '/api/audit?action=nonsense')).status, 400);
+  // The CSV says it in words too.
+  const csv = await owner('GET', '/api/audit/export?action=recovery');
+  assert.equal(csv.status, 200);
+  assert.match(csv.body, /Set a recovery email/);
+  assert.doesNotMatch(csv.body, /recovery\.set/);
+});
+
 test('mail queue: for the platform owner, and only where the mail server reports it', async () => {
   assert.deepEqual((await owner('GET', '/api/orgs/system/mail-queue')).body, { available: false, reason: 'no-mail' });
   assert.equal((await owner('POST', '/api/orgs/system/mail-queue', { op: 'flush' })).status, 400);

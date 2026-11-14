@@ -6,8 +6,9 @@ import { Empty, useToast } from '../../components/ui.jsx';
 
 const KINDS = [
   ['', 'All activity'],
-  ['sign-in,sign-out,session,password,2fa,mail-app', 'Sign-ins and security'],
+  ['sign-in,sign-out,session,password,2fa,mail-app,passkey,recovery,api_token', 'Sign-ins and security'],
   ['sign-in.failed', 'Failed sign-ins'],
+  ['mail.phishing,mail.blocked,mail.unblocked,mail.swept,dlp', 'Phishing and data protection'],
   ['user', 'People'],
   ['company,domain,alias', 'Company and mail settings'],
   ['file,link,trash', 'Files and sharing'],
@@ -95,7 +96,7 @@ export default function ActivityAdmin({ orgId, orgPicker }) {
                   <td className="muted nowrap">{when(e.at)}</td>
                   <td>{e.actor_name || <span className="muted">Someone not signed in</span>}</td>
                   <td>
-                    <span className={e.action === 'sign-in.failed' ? 'pill warn' : undefined}>{e.label}</span>
+                    <span className={['sign-in.failed', 'mail.phishing', 'dlp.blocked'].includes(e.action) ? 'pill warn' : undefined}>{e.label}</span>
                     {e.target && <> <strong>{e.target}</strong></>}
                   </td>
                   <td className="hide-sm muted small">{detailText(e.details)}</td>
