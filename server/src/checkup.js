@@ -84,7 +84,8 @@ function checkupNow(orgId, at) {
     const files = new Set(ext.map((x) => x.file_id)), editable = new Set(ext.filter((x) => x.role === 'editor').map((x) => x.file_id));
     const companies = [...new Set(ext.map((x) => x.with_company || 'another company'))];
     add({ id: 'outside', status: 'tip', title: `${plural(files.size, 'file or folder', 'files and folders')} shared with people at ${plural(companies.length, 'other company', 'other companies')}`,
-      detail: `${companies.slice(0, 5).join(', ')}${companies.length > 5 ? ` and ${companies.length - 5} more` : ''}${editable.size ? `; ${editable.size} of them they can edit` : ''}. Check they still need it: stop what’s finished.`, tab: 'outside' });
+      detail: `${companies.slice(0, 5).join(', ')}${companies.length > 5 ? ` and ${companies.length - 5} more` : ''}${editable.size ? `; ${editable.size} of them they can edit` : ''}. Check they still need it: stop what’s finished.${org?.external_share_days ? '' : ' Shares with other companies don’t end by themselves: limit them to 90 days (Company settings), and new ones end on their own.'}`,
+      tab: 'outside', ...(!org?.external_share_days && { fix: { label: 'Limit outside shares to 90 days', settings: { external_share_days: 90 } } }) });
   }
 
   // Files anyone with the link can open, for ever and without a password.

@@ -109,6 +109,11 @@ await step('Download (CSV), and the security checkup points here', async () => {
   const item = page.getByRole('list', { name: 'Checkup' }).locator('li', { hasText: 'shared with people at' });
   await item.getByText('1 file or folder shared with people at 1 other company').waitFor();
   await item.getByText(/^Initech\. Check they still need it/).waitFor();
+  // No limit yet: a one-click fix sets 90 days.
+  await item.getByRole('button', { name: 'Limit outside shares to 90 days' }).click();
+  await page.getByText('Done: limit outside shares to 90 days').waitFor();
+  await until(async () => !(await item.getByRole('button', { name: 'Limit outside shares to 90 days' }).count()));
+  if ((await api(page, 'GET', '/orgs/current')).body.external_share_days !== 90) throw new Error('not set');
   await item.getByRole('button', { name: 'Go to Shared outside' }).click();
   await page.getByRole('tab', { name: 'Shared outside', selected: true }).waitFor();
   await page.getByRole('table', { name: 'Shared outside the company' }).getByText('Launch plan.txt').waitFor();

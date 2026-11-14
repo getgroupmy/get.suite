@@ -55,6 +55,10 @@ test('Admin → Shared outside: what the company shares with other companies, an
   assert.equal(item.title, '2 files and folders shared with people at 2 other companies');
   assert.match(item.detail, /^Globex, Initech; 1 of them they can edit\./);
   assert.equal(item.tab, 'outside');
+  assert.deepEqual(item.fix, { label: 'Limit outside shares to 90 days', settings: { external_share_days: 90 } }, 'no limit yet: offered');
+  q('UPDATE orgs SET external_share_days = 30 WHERE id = ?').run(orgId);
+  assert.equal((await checkup(orgId, Date.now(), { mail: false })).find((x) => x.id === 'outside').fix, undefined, 'with a limit: not');
+  q('UPDATE orgs SET external_share_days = NULL WHERE id = ?').run(orgId);
   // A spreadsheet of it, for an audit; admins only.
   const csv = await ana('GET', '/api/external-shares/export.csv');
   assert.match(csv.type, /text\/csv/);
