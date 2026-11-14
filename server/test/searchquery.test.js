@@ -31,3 +31,28 @@ test('mistakes are explained; unknown operators are just words', () => {
   assert.match(parseMailQuery('larger:huge', now).error, /5M/);
   assert.deepEqual(parseMailQuery('ref:123', now).query, { or: [{ subject: 'ref:123' }, { from: 'ref:123' }, { to: 'ref:123' }, { body: 'ref:123' }] });
 });
+
+test('a search as the start of a filter', async () => {
+  const { ruleFromSearch } = await import('../src/mail/searchquery.js');
+  const { normalizeRules } = await import('../src/mail/sieve.js');
+  const { rule, left } = ruleFromSearch('from:billing@acme.com subject:"Your invoice" -to:kim has:attachment larger:2M smaller:500k "pay now" -spam is:unread newer_than:7d');
+  assert.deepEqual(rule.conditions, [
+    { field: 'from', op: 'contains', value: 'billing@acme.com' },
+    { field: 'subject', op: 'contains', value: 'Your invoice' },
+    { field: 'to', op: 'not_contains', value: 'kim' },
+    { field: 'attachment', op: 'has', value: '' },
+    { field: 'size', op: 'over', value: '2 MB' },
+    { field: 'size', op: 'under', value: '500 KB' },
+    { field: 'body', op: 'contains', value: 'pay now' },
+    { field: 'body', op: 'not_contains', value: 'spam' },
+  ]);
+  assert.deepEqual(left, ['is:unread', 'newer_than:7d']);
+  assert.equal(rule.match, 'all');
+  assert.match(rule.name, /^billing@acme\.com, Your invoice/);
+  // What it gives is a filter as Filters keeps them (only an action is still to choose).
+  assert.equal(normalizeRules([{ ...rule, actions: { star: true } }])[0].conditions.length, 8);
+  assert.deepEqual(ruleFromSearch('-has:attachment').rule.conditions, [{ field: 'attachment', op: 'has_not', value: '' }]);
+  assert.match(ruleFromSearch('is:unread before:2026-01-01').error, /can't use is:unread before:2026-01-01/);
+  assert.match(ruleFromSearch('').error, /Search for something first/);
+  assert.match(ruleFromSearch('larger:huge').error, /Write sizes like/);
+});

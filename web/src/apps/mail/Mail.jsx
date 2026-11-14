@@ -549,7 +549,11 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         )}
         {labelId && <p className="muted small mail-note">Labelled <LabelChip label={labels.find((l) => l.id === labelId)} /> in {current?.name} · <button className="link" onClick={() => setSearch({})}>show all</button></p>}
         {q && <p className="muted small mail-note">Results for “{q}” in {current?.name} · <button className="link" onClick={() => setSearch({})}>clear</button>
-          {!shared && !searches.some((sv) => sv.folder === folder && sv.query === q) && <> · <button className="link" onClick={async () => { try { await post('/mail/searches', { folder, query: q }); toast('Search saved: it\'s in the sidebar'); loadSearches(); } catch (e) { toast(e.message, 'error'); } }}>Save this search</button></>}</p>}
+          {!shared && !searches.some((sv) => sv.folder === folder && sv.query === q) && <> · <button className="link" onClick={async () => { try { await post('/mail/searches', { folder, query: q }); toast('Search saved: it\'s in the sidebar'); loadSearches(); } catch (e) { toast(e.message, 'error'); } }}>Save this search</button></>}
+          {!shared && <> · <button className="link" onClick={async () => {
+            // The search as a new filter's conditions (an action is still to choose); what a filter can't use is said.
+            try { const r = await get(`/mail/rules/from-search?q=${encodeURIComponent(q)}`); setFilters({ startWith: r.rule }); if (r.left.length) toast(`Left out of the filter: ${r.left.join(' ')} (filters look at mail as it arrives)`); } catch (e) { toast(e.message, 'error'); }
+          }}>Create a filter</button></>}</p>}
         {!shared && !q && (special === '\\Trash' || special === '\\Junk') && data?.messages?.length > 0 && (
           <p className="muted small mail-note">{special === '\\Trash' ? 'Mail in Trash' : 'Mail in Junk'} still takes room in your mailbox until it's deleted for good. <button type="button" className="link" onClick={() => setEmptying(current)}>Empty {current.name} now</button></p>
         )}

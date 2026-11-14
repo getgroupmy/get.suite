@@ -45,6 +45,7 @@ eventdraft.mjs
 eventemail.mjs
 filterapply.mjs
 filterlist.mjs
+filtersearch.mjs
 filtersize.mjs
 followup.mjs
 forgot.mjs

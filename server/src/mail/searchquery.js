@@ -78,3 +78,36 @@ export function parseMailQuery(text, now = Date.now()) {
   }
   return { query: clauses.length ? allOf(clauses) : null };
 }
+
+/**
+ * A search as the start of a filter (Mail's "Create a filter from this search"): from: to: subject:
+ * has:attachment larger: smaller: become their conditions (with - as "doesn't"), and plain words or
+ * "phrases" look in the message text. What only makes sense for mail already there (is:unread,
+ * before:, newer_than: …) is left out and listed. → { rule, left } or { error }.
+ */
+export function ruleFromSearch(text) {
+  const tokens = String(text || '').match(/-?(?:[a-z_]+:)?(?:"[^"]*"|\S+)/gi) || [];
+  const conditions = [], left = [];
+  const val = (s) => s.replace(/^"(.*)"$/, '$1').trim();
+  const kb = (v) => { const n = size(v); return n === null ? null : n >= 1024 * 1024 ? `${Math.round((n / 1024 / 1024) * 10) / 10} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; };
+  for (const raw of tokens) {
+    const neg = raw.startsWith('-') && raw.length > 1;
+    const t = neg ? raw.slice(1) : raw;
+    const m = /^([a-z_]+):(.+)$/i.exec(t);
+    const op = neg ? 'not_contains' : 'contains';
+    if (!m) { const w = val(t); if (w) conditions.push({ field: 'body', op, value: w }); continue; }
+    const key = m[1].toLowerCase(), v = val(m[2]);
+    if (!v) continue;
+    if (key === 'from' || key === 'subject') conditions.push({ field: key, op, value: v });
+    else if (key === 'to' || key === 'cc') conditions.push({ field: 'to', op, value: v });
+    else if (key === 'has' && /^attachments?$/i.test(v)) conditions.push({ field: 'attachment', op: neg ? 'has_not' : 'has', value: '' });
+    else if ((key === 'larger' || key === 'smaller') && !neg) {
+      const s = kb(v);
+      if (!s) return { error: `Write sizes like 5M or 200K (${key}:${v})` };
+      conditions.push({ field: 'size', op: key === 'larger' ? 'over' : 'under', value: s });
+    } else left.push(raw);
+  }
+  if (!conditions.length) return { error: left.length ? `A filter can't use ${left.join(' ')}: it looks at mail as it arrives` : 'Search for something first' };
+  const name = conditions.map((c) => c.value || (c.op === 'has' ? 'with attachments' : 'without attachments')).join(', ').slice(0, 60);
+  return { rule: { name, enabled: true, match: 'all', conditions: conditions.slice(0, 10), actions: { stop: true } }, left };
+}

@@ -32,7 +32,7 @@ import { checkQuota } from '../tenancy.js';
 import { recordSent } from '../othercontacts.js';
 import { confidentialRoutes, setCodeSender, newToken, noticeOf, keepConfidential, EXPIRY_DAYS } from '../mail/confidential.js';
 import { baseUrl as publicBase } from './calendar.js';
-import { parseMailQuery, allOf } from '../mail/searchquery.js';
+import { parseMailQuery, allOf, ruleFromSearch } from '../mail/searchquery.js';
 import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { tidyRoutes } from '../mail/tidy.js';
 import { attachPrefRoutes } from '../mail/attachprefs.js';
@@ -683,6 +683,13 @@ export default function webmailRoutes() {
   // there (same conditions and actions) is added at the end: { added, skipped, rules }.
   r.post('/rules/import', (req, res) => {
     res.json(importMailRules(req.user, req.body));
+  });
+
+  // A search as the start of a new filter (?q=): { rule, left } (see searchquery.js).
+  r.get('/rules/from-search', (req, res) => {
+    const out = ruleFromSearch(String(req.query.q || '').slice(0, 500));
+    if (out.error) throw bad(out.error);
+    res.json(out);
   });
 
   // Run a filter once over the mail already in the Inbox ({ rule }): { matched, moved }. Not forwarding.
