@@ -13,13 +13,16 @@ export default function ExternalAdmin({ allowExternal, limitDays }) {
   const [data, setData] = useState(null);
   const [company, setCompany] = useState('');
   const [find, setFind] = useState('');
+  const [soon, setSoon] = useState(false); // only shares ending within a week
   const [stopping, setStopping] = useState(null); // one share
   const [stoppingCompany, setStoppingCompany] = useState(null);
   const [enforcing, setEnforcing] = useState(false);
   const load = useCallback(() => get('/external-shares').then(setData).catch((e) => toast(e.message, 'error')), [toast]);
   useEffect(() => { load(); }, [load]);
   const words = find.trim().toLowerCase();
-  const shown = (data?.items || []).filter((x) => (!company || x.with_org_id === company)
+  const weekAhead = Date.now() + 7 * 864e5;
+  const endingSoon = (data?.items || []).filter((x) => x.expires_at && x.expires_at <= weekAhead).length;
+  const shown = (data?.items || []).filter((x) => (!soon || (x.expires_at && x.expires_at <= weekAhead)) && (!company || x.with_org_id === company)
     && (!words || `${x.file_name} ${x.owner_name} ${x.owner_email} ${x.with_name} ${x.with_email}`.toLowerCase().includes(words)));
   const picked = data?.companies.find((c) => c.id === company);
   return (
@@ -44,6 +47,7 @@ export default function ExternalAdmin({ allowExternal, limitDays }) {
         <label className="field" style={{ minWidth: 260 }}><span>Find</span>
           <input type="search" value={find} placeholder="A file, or who shared it or with whom" onChange={(e) => setFind(e.target.value)} />
         </label>
+        <label className="check small"><input type="checkbox" checked={soon} onChange={(e) => setSoon(e.target.checked)} /> Ending within a week{endingSoon ? ` (${endingSoon})` : ''}</label>
         {picked && <button type="button" className="btn small danger" onClick={() => setStoppingCompany(picked)}>Stop sharing everything with {picked.name}…</button>}
         <span className="grow" /><a className="btn small" href="/api/external-shares/export.csv" download><Icon name="download" size={16} /> Download (CSV)</a>
       </div>

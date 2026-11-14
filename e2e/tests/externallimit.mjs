@@ -99,6 +99,23 @@ await step('Admin → Shared outside: apply the limit to the share made before i
   await rows.getByText(/· until /).waitFor();
 });
 
+await step('Shared outside: “Ending within a week” shows just those', async () => {
+  const gil = (await api(page, 'GET', '/users/lookup?email=gil@globex.com')).body;
+  const f = await page.evaluate(async () => (await fetch('/api/files/upload?name=Short%20loan.txt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'x' })).json());
+  await api(page, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: gil.id, role: 'viewer', expires_at: Date.now() + 3 * 864e5 }] });
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Shared outside' }).click();
+  const table = page.getByRole('table', { name: 'Shared outside the company' });
+  await table.getByText('Short loan.txt').waitFor();
+  const all = await table.locator('tbody tr').count();
+  if (all < 2) throw new Error(`only ${all} rows`);
+  await page.getByLabel(/Ending within a week \(1\)/).check();
+  await until(async () => (await table.locator('tbody tr').count()) === 1);
+  await table.getByText('Short loan.txt').waitFor();
+  await page.getByLabel(/Ending within a week/).uncheck();
+  await until(async () => (await table.locator('tbody tr').count()) === all);
+});
+
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
