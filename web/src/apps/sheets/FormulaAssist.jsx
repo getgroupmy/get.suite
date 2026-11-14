@@ -1,3 +1,4 @@
+import { moved } from '../../components/moved.js';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { FUNCTION_NAMES } from './formula.js';
 import { HELP, formulaContext, suggest, signatureParts } from './funchelp.js';
@@ -60,7 +61,7 @@ export function useFormulaAssist(draft, setDraft, active, own = null) {
       <ul className="formula-assist" role="listbox" aria-label="Function suggestions">
         {choices.map((n, i) => (
           <li key={n} role="option" aria-selected={i === at} className={i === at ? 'on' : ''}
-            onMouseDown={(e) => { e.preventDefault(); accept(n, document.activeElement); }} onMouseEnter={() => setPick(i)}>
+            onMouseDown={(e) => { e.preventDefault(); accept(n, document.activeElement); }} onMouseMove={(e) => { if (moved(e) && i !== at) setPick(i); }}>
             <b>{n}</b><span className="muted small">{(HELP[n] || ownHelp[n])?.[1]}</span>
           </li>
         ))}

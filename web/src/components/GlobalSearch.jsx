@@ -1,6 +1,7 @@
 // The search box in the top bar. As you type it looks everywhere at once (files, chat, tasks, notes,
 // events, forms, chat conversations by name, contacts and colleagues) and lists the best few of each; Enter (with nothing picked) searches
 // Drive in full, as before.
+import { moved } from './moved.js';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { notAShortcut } from './goto.js';
@@ -183,7 +184,7 @@ export default function GlobalSearch() {
   };
   // The mouse picks a result only when it really moves over one: not when the list opens (or changes) under a
   // pointer resting there, which Chrome reports as moving, so Enter doesn't open something you never chose.
-  const hover = (e, me) => { if ((e.movementX || e.movementY) && pick !== me) setPick(me); };
+  const hover = (e, me) => { if (moved(e) && pick !== me) setPick(me); };
   let i = -1;
   return (
     <form className="search global-search" role="search" onSubmit={submit} ref={box}>

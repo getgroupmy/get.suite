@@ -1,3 +1,4 @@
+import { moved } from '../../components/moved.js';
 import { useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import { pickMatches } from './mailkeys.js';
@@ -23,7 +24,7 @@ export function MovePicker({ title, items, onPick, onClose }) {
       {/* The options themselves are clicked (no buttons inside them); ↑ ↓ and Enter work from the Find box above. */}
       <ul className="move-picker" role="listbox" aria-label={title}>
         {shown.map((it, i) => (
-          <li key={it.key} role="option" aria-selected={i === cur} className={i === cur ? 'on' : ''} onMouseEnter={() => setAt(i)} onClick={() => onPick(it)}>
+          <li key={it.key} role="option" aria-selected={i === cur} className={i === cur ? 'on' : ''} onMouseMove={(e) => { if (moved(e) && i !== cur) setAt(i); }} onClick={() => onPick(it)}>
             {it.dot && <span className="label-dot" style={{ background: it.dot }} />}<span className="grow ellipsis">{it.name}</span>{it.hint && <span className="muted small">{it.hint}</span>}
           </li>
         ))}

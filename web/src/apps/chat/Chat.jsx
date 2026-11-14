@@ -1,3 +1,4 @@
+import { moved } from '../../components/moved.js';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
 import FileViewer from '../../components/FileViewer.jsx';
 import { previewKind, stepPreview } from '../../components/viewkind.js';
@@ -1239,7 +1240,7 @@ function JumpDialog({ items, onClose, onPick }) {
           <ul id="jump-choices" role="listbox" aria-label="Choices" className="jump-list">
             {choices.map((it, i) => (
               <li key={`${it.kind}:${it.id}`} id={`jump-${i}`} role="option" aria-selected={i === at} className={`jump-item ${i === at ? 'active' : ''}`}
-                onMouseEnter={() => setAt(i)} onMouseDown={(e) => { e.preventDefault(); pick(it); }}>
+                onMouseMove={(e) => { if (moved(e) && i !== at) setAt(i); }} onMouseDown={(e) => { e.preventDefault(); pick(it); }}>
                 <span aria-hidden="true">{it.kind === 'channel' ? (it.private ? '🔒' : '#') : '👤'}</span>
                 <span className="grow ellipsis">{it.kind === 'channel' ? it.label.slice(1) : it.label}{it.archived && <span className="muted small"> · archived</span>}
                   {it.kind === 'person' && <span className="muted small"> · {it.sub ? `${it.sub} · ` : ''}start a direct message</span>}</span>
