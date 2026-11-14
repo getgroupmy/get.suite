@@ -487,6 +487,7 @@ export default function noteRoutes() {
     if (req.query.reminders === '1') rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.remind_at IS NOT NULL AND n.trashed_at IS NULL
                                                 ORDER BY n.remind_at`).all(req.user.id, req.user.id);
     if (req.query.label) rows = rows.filter((n) => JSON.parse(n.labels).includes(String(req.query.label)));
+    if (req.query.shared === '1') rows = rows.filter((n) => n.owner_id !== req.user.id); // Shared with me: others' notes only
     res.json(rows.map((n) => shape(n, req.user.id)));
   });
 

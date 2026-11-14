@@ -117,7 +117,7 @@ export default function Notes() {
   // Only the latest request's answer is shown: an older one (for a label just deleted, say) can arrive last.
   const loadSeq = useRef(0);
   const load = useCallback(() => {
-    const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
+    const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.shared && { shared: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
     const seq = ++loadSeq.current;
     get(`/notes?${qs}`).then((list) => { if (seq === loadSeq.current) setNotes(list); }).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
@@ -211,8 +211,9 @@ export default function Notes() {
   return (
     <div className="notes-app">
       <aside className="subnav">
-        <button type="button" className={`subnav-item ${!where.archived && !where.label && !where.reminders ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false })}><Icon name="note" /><span className="grow">Notes</span></button>
+        <button type="button" className={`subnav-item ${!where.archived && !where.label && !where.reminders && !where.shared && !where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false })}><Icon name="note" /><span className="grow">Notes</span></button>
         <button type="button" className={`subnav-item ${where.reminders ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: true })}><Icon name="bell" /><span className="grow">Reminders</span></button>
+        <button type="button" className={`subnav-item ${where.shared ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, shared: true })}><Icon name="share" /><span className="grow">Shared with me</span></button>
         {labels.map((l) => (
           <div key={l} className="note-label-row">
           <button type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l, reminders: false })}>{labelColors[l] ? <span className="note-label-dot" style={{ background: labelColors[l] }} aria-hidden="true" /> : <span className="note-label-icon" aria-hidden="true">🏷</span>}<span className="grow ellipsis">{l}</span></button>
@@ -258,7 +259,7 @@ export default function Notes() {
             ))}</div>
           )}
         </> : notes === null ? null : !notes.length ? (
-          <Empty icon={where.archived ? 'archive' : 'note'} title={search ? 'No matching notes' : where.reminders ? 'No reminders set' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
+          <Empty icon={where.archived ? 'archive' : 'note'} title={search ? 'No matching notes' : where.reminders ? 'No reminders set' : where.shared ? 'Nobody has shared a note with you' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
         ) : <>
           {picked.size > 0 && (
             <div className="notes-batch" role="toolbar" aria-label="Change the selected notes">

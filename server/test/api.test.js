@@ -5297,6 +5297,9 @@ test('notes: write, check off, pin, label, archive, search and share', async () 
   assert.equal((await b('PUT', `/api/notes/${n2.id}/shares`, { user_ids: [] })).status, 403);
   const copy = (await b('POST', `/api/notes/${n2.id}/copy`)).body;
   assert.equal(copy.mine, true);
+  // Shared with me: only others' notes (not B's own copy), and A has none shared with her.
+  assert.deepEqual((await b('GET', '/api/notes?shared=1')).body.map((n) => n.id), [n2.id]);
+  assert.deepEqual((await a('GET', '/api/notes?shared=1')).body, []);
   assert.equal((await b('DELETE', `/api/notes/${n2.id}`)).body.deleted, false, 'they leave it');
   assert.equal((await a('GET', '/api/notes')).body.some((n) => n.id === n2.id), true, 'still there for the owner');
   assert.equal((await a('DELETE', `/api/notes/${n2.id}`)).body.deleted, true);
