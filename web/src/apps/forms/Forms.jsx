@@ -134,9 +134,14 @@ function FormEditor({ id }) {
     try { await put(`/forms/${id}`, body); setStatus('Saved'); } catch (e) { setStatus(''); toast(e.message, 'error'); }
   }, [id, toast]);
   useEffect(() => () => { flush(); }, [flush]);
+  // patch: the changes, or a function of the latest form giving them (for changes that finish later, such as an
+  // upload, so two at once don't undo each other).
   const edit = (patch) => {
-    setForm((f) => ({ ...f, ...patch }));
-    pending.current = { ...pending.current, ...patch };
+    setForm((f) => {
+      const p = typeof patch === 'function' ? patch(f) : patch;
+      pending.current = { ...pending.current, ...p };
+      return { ...f, ...p };
+    });
     setStatus('Saving…');
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, 600);
@@ -278,6 +283,8 @@ function QuestionsTab({ form, edit }) {
   const qs = form.questions;
   const setQs = (next) => edit({ questions: next });
   const change = (i, patch) => setQs(qs.map((q, j) => (j === i ? { ...q, ...patch } : q)));
+  /** A change worked out from the question as it is when it lands (an upload that finished): question id, q → patch. */
+  const changeLatest = (id, fn) => edit((f) => ({ questions: f.questions.map((q) => (q.id === id ? { ...q, ...fn(q) } : q)) }));
   const move = (i, d) => { const next = qs.slice(); [next[i], next[i + d]] = [next[i + d], next[i]]; setQs(next); };
   const add = () => setQs([...qs, retype({ id: newId() }, 'choice')]);
   return (
@@ -331,7 +338,7 @@ function QuestionsTab({ form, edit }) {
                   {q.limits && q.type !== 'scale' && <input type="number" className="form-limit" min={1} max={100000} placeholder="No limit" aria-label={`Places for option ${k + 1}`} title="How many people can choose it (empty: no limit)"
                     value={q.limits[o] ?? ''} onChange={(e) => { const n = Math.round(Number(e.target.value)); const next = { ...q.limits }; if (e.target.value === '' || !(n >= 1)) delete next[o]; else next[o] = n; change(i, { limits: next }); }} />}
                   {(q.type === 'choice' || q.type === 'checkbox') && <OptionPicture q={q} option={o} label={`question ${i + 1}, option ${k + 1}`} formId={form.id}
-                    onChange={(id) => { const next = { ...(q.option_images || {}) }; if (id) next[o] = id; else delete next[o]; change(i, { option_images: Object.keys(next).length ? next : undefined }); }} />}
+                    onChange={(id) => changeLatest(q.id, (now) => { const next = { ...(now.option_images || {}) }; if (id) next[o] = id; else delete next[o]; return { option_images: Object.keys(next).length ? next : undefined }; })} />}
                   {q.options.length > (q.type === 'rank' ? 2 : 1) && <button type="button" className="icon-btn" aria-label={`Remove option ${k + 1}`} onClick={() => change(i, { options: q.options.filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>}
                 </li>
               ))}

@@ -65,7 +65,8 @@ await step('files sent in chat open in the viewer for the other person, arrows g
   await dlg(kim).getByText('Agenda for Thursday').waitFor();
   await kim.keyboard.press('ArrowRight');
   await dlg(kim).getByRole('list', { name: 'Inside the zip' }).getByText('main.png').waitFor();
-  if (await dlg(kim).getByRole('button', { name: 'Save to Drive' }).count()) throw new Error('chat files are in Drive already');
+  // Someone else's file sent in chat: Save to Drive keeps a copy of your own (added after this test was first written).
+  if (!(await dlg(kim).getByRole('button', { name: 'Save to Drive' }).count())) throw new Error('no Save to Drive for a file sent to you');
   const [dl] = await Promise.all([kim.waitForEvent('download'), dlg(kim).getByRole('link', { name: 'Download' }).click()]);
   if (dl.suggestedFilename() !== 'Logos.zip') throw new Error(dl.suggestedFilename());
   await kim.keyboard.press('Escape');
