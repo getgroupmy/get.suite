@@ -1,6 +1,6 @@
 // Admin → Security checkup: the company's open security points, worst first, each with a way to the fix.
 import { useEffect, useState } from 'react';
-import { get, post } from '../../api.js';
+import { get, post, patch } from '../../api.js';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
 
 const TAB_NAMES = { users: 'Users', company: 'Company settings', links: 'Share links', phishing: 'Phishing', email: 'Email' };
@@ -28,6 +28,9 @@ export default function CheckupAdmin({ onGo }) {
               <strong>{x.title}</strong> <span className="sr-only">({MARK[x.status][1]})</span>
               {x.detail && <p className="small" style={{ margin: '2px 0 0' }}>{x.detail}</p>}
             </div>
+            {x.fix && <button type="button" className="btn small primary" onClick={async () => {
+              try { await patch('/orgs/current', x.fix.settings); toast(`Done: ${x.fix.label.toLowerCase()}`); setReload((n) => n + 1); } catch (e) { toast(e.message, 'error'); }
+            }}>{x.fix.label}</button>}
             {x.id === 'inactive' && x.ids?.length > 0 && <button type="button" className="btn small" onClick={() => setSuspending(x)}>Suspend {x.ids.length === 1 ? 'this account' : `these ${x.ids.length} accounts`}</button>}
             {x.status !== 'ok' && x.tab && TAB_NAMES[x.tab] && <button type="button" className="btn small" onClick={() => onGo(x.tab)}>Go to {TAB_NAMES[x.tab]}</button>}
           </li>

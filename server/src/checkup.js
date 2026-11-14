@@ -54,7 +54,7 @@ function checkupNow(orgId, at) {
   // Everyone else.
   const weak = people.filter((p) => !p.strong);
   if (org?.require_2fa) add({ id: 'require-2fa', status: weak.length ? 'tip' : 'ok', title: 'Two-step verification is required', detail: weak.length ? `${plural(weak.length, 'person', 'people')} still ha${weak.length === 1 ? 's' : 've'} to set it up at their next sign-in.` : '', tab: 'company' });
-  else add({ id: 'require-2fa', status: weak.length ? 'warn' : 'ok', title: weak.length ? `${plural(weak.length, 'person', 'people')} sign in with just a password` : 'Everyone has two-step verification or a passkey', detail: weak.length ? 'Require two-step verification for everyone (Company settings), so a guessed or leaked password isn’t enough.' : '', tab: 'company' });
+  else add({ id: 'require-2fa', status: weak.length ? 'warn' : 'ok', title: weak.length ? `${plural(weak.length, 'person', 'people')} sign in with just a password` : 'Everyone has two-step verification or a passkey', detail: weak.length ? 'Require two-step verification for everyone (Company settings), so a guessed or leaked password isn’t enough.' : '', tab: 'company', ...(weak.length && { fix: { label: 'Require two-step verification', settings: { require_2fa: true } } }) });
 
   // Accounts nobody uses: a way in that nobody would notice.
   const stale = people.filter((p) => (p.last_active || p.created_at) < at - INACTIVE_DAYS * 864e5);
@@ -77,8 +77,8 @@ function checkupNow(orgId, at) {
   if (reports) add({ id: 'phishing', status: 'warn', title: `${plural(reports, 'phishing report')} to look at`, detail: 'Warn everyone, block the sender or take their mail out of everyone’s Inbox.', tab: 'phishing' });
 
   // Settings worth having.
-  if (!org?.mark_external) add({ id: 'mark-external', status: 'tip', title: 'Mail from outside the company isn’t marked', detail: 'Turn on Mark email from outside the company, so a message pretending to come from inside stands out.', tab: 'company' });
-  if (!org?.session_idle_min) add({ id: 'idle', status: 'tip', title: 'People stay signed in while away', detail: 'Sign people out after some time without activity (Company settings), for shared or unattended computers.', tab: 'company' });
+  if (!org?.mark_external) add({ id: 'mark-external', status: 'tip', title: 'Mail from outside the company isn’t marked', detail: 'Turn on Mark email from outside the company, so a message pretending to come from inside stands out.', tab: 'company', fix: { label: 'Turn it on', settings: { mark_external: true } } });
+  if (!org?.session_idle_min) add({ id: 'idle', status: 'tip', title: 'People stay signed in while away', detail: 'Sign people out after some time without activity (Company settings), for shared or unattended computers.', tab: 'company', fix: { label: 'Sign out after 8 hours away', settings: { session_idle_min: 480 } } });
 
   const rank = { warn: 0, tip: 1, ok: 2 };
   return items.sort((a, b) => rank[a.status] - rank[b.status]);

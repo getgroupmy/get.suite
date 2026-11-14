@@ -92,6 +92,14 @@ await step('accounts unused for 90 days: suspended from the checkup', async () =
   const u = (await api(page, 'GET', '/users')).body.find((x) => x.id === oldId);
   if (!u.disabled) throw new Error('not suspended');
 });
+await step('fix right there: sign people out after 8 hours away; requiring two steps says why it can’t yet', async () => {
+  await page.goto(`${B}/admin?tab=checkup`);
+  await list().locator('li', { hasText: 'People stay signed in while away' }).getByRole('button', { name: 'Sign out after 8 hours away' }).click();
+  await page.getByText('Done: sign out after 8 hours away').waitFor();
+  await until(async () => !(await list().getByText('People stay signed in while away').count()));
+  await list().getByRole('button', { name: 'Require two-step verification' }).click();
+  await page.getByText(/Turn on two-step verification for your own account first/).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -43,6 +43,12 @@ test('security checkup: what’s open, worst first, and what changes it', async 
   assert.equal(c[1].title, '3 people sign in with just a password');
   assert.deepEqual(c[2].people, ['Old Timer']);
   assert.deepEqual(c[2].ids, [oldId], 'so they can be suspended from the checkup');
+  assert.deepEqual(c.find((x) => x.id === 'mark-external').fix, { label: 'Turn it on', settings: { mark_external: true } });
+  assert.deepEqual(c.find((x) => x.id === 'require-2fa').fix.settings, { require_2fa: true });
+  // The fix is what Company settings takes: applied, the item goes.
+  assert.equal((await ana('PATCH', '/api/orgs/current', c.find((x) => x.id === 'idle').fix.settings)).status, 200);
+  assert.ok(!(await checkup(orgId, now, { mail: false })).some((x) => x.id === 'idle'));
+  q('UPDATE orgs SET session_idle_min = 0 WHERE id = ?').run(orgId);
 
   // Fixed: Ana's two-step on, two steps required, Old suspended, outside mail marked, idle sign-out.
   q('INSERT INTO two_factor (user_id, secret, enabled) VALUES (?, ?, 1)').run(q("SELECT id FROM users WHERE username = 'ana@acme.com'").get().id, 'JBSWY3DPEHPK3PXP');
