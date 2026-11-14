@@ -1,0 +1,70 @@
+// Admin → Shared outside: the company's files and folders shared with people at other companies,
+// by company, with who shared what with whom. Stop one share, or everything with one company;
+// whoever shared it is told.
+import { useCallback, useEffect, useState } from 'react';
+import { get, post, del } from '../../api.js';
+import Icon from '../../components/Icon.jsx';
+import { ConfirmModal, useToast } from '../../components/ui.jsx';
+
+const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit' };
+
+export default function ExternalAdmin({ allowExternal }) {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [company, setCompany] = useState('');
+  const [find, setFind] = useState('');
+  const [stopping, setStopping] = useState(null); // one share
+  const [stoppingCompany, setStoppingCompany] = useState(null);
+  const load = useCallback(() => get('/external-shares').then(setData).catch((e) => toast(e.message, 'error')), [toast]);
+  useEffect(() => { load(); }, [load]);
+  const words = find.trim().toLowerCase();
+  const shown = (data?.items || []).filter((x) => (!company || x.with_org_id === company)
+    && (!words || `${x.file_name} ${x.owner_name} ${x.owner_email} ${x.with_name} ${x.with_email}`.toLowerCase().includes(words)));
+  const picked = data?.companies.find((c) => c.id === company);
+  return (
+    <div className="stack" style={{ maxWidth: 1100 }}>
+      <p className="muted small" style={{ margin: 0 }}>Files and folders people in your company share with people at other companies (Drive → Share, by their exact address). Stopping a share takes their access away at once; whoever shared it is told.{allowExternal === false && ' Working with other companies is off (Company settings), so none of these can be opened now.'}</p>
+      {data && data.companies.length > 0 && (
+        <ul className="row wrap" aria-label="Companies" style={{ listStyle: 'none', padding: 0, margin: 0, gap: 8 }}>
+          {data.companies.map((c) => (
+            <li key={c.id}><button type="button" className={`btn small ${company === c.id ? 'primary' : ''}`} aria-pressed={company === c.id} onClick={() => setCompany(company === c.id ? '' : c.id)}>
+              {c.name} · {c.items} {c.items === 1 ? 'share' : 'shares'}, {c.people} {c.people === 1 ? 'person' : 'people'}</button></li>
+          ))}
+        </ul>
+      )}
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field" style={{ minWidth: 260 }}><span>Find</span>
+          <input type="search" value={find} placeholder="A file, or who shared it or with whom" onChange={(e) => setFind(e.target.value)} />
+        </label>
+        {picked && <button type="button" className="btn small danger" onClick={() => setStoppingCompany(picked)}>Stop sharing everything with {picked.name}…</button>}
+      </div>
+      {data === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted" role="status">{data.items.length ? 'Nothing matches.' : 'Nothing is shared outside the company.'}</p> : (
+        <div className="card" style={{ padding: 0 }}>
+          <table className="files">
+            <caption className="sr-only">Shared outside the company</caption>
+            <thead><tr><th>File or folder</th><th className="hide-sm">Shared by</th><th>With</th><th className="hide-sm">Access</th><th aria-label="Actions" /></tr></thead>
+            <tbody>
+              {shown.map((x) => (
+                <tr key={`${x.file_id}-${x.user_id}`}>
+                  <td className="name"><Icon name={x.kind === 'folder' ? 'folder' : 'file'} /><span>{x.file_name}{x.trashed && <span className="muted small"> (in the trash)</span>}</span></td>
+                  <td className="hide-sm"><span title={x.owner_email}>{x.owner_name}</span></td>
+                  <td><span title={x.with_email}>{x.with_name || x.with_email}</span> <span className="pill">{x.with_company || 'Another company'}</span></td>
+                  <td className="hide-sm">{ROLE[x.role] || x.role}{x.expires_at ? <span className="muted small"> · until {new Date(x.expires_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span> : null}</td>
+                  <td className="actions"><button type="button" className="btn" aria-label={`Stop sharing ${x.file_name} with ${x.with_email}`} onClick={() => setStopping(x)}>Stop</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {stopping && <ConfirmModal title="Stop this share?" danger confirm="Stop sharing"
+        message={`${stopping.with_name || stopping.with_email} (${stopping.with_company || 'another company'}) can no longer open “${stopping.file_name}”. ${stopping.owner_name} is told.`}
+        onConfirm={async () => { try { await del(`/external-shares/${stopping.file_id}/${stopping.user_id}`); toast('Sharing stopped'); load(); } catch (e) { toast(e.message, 'error'); } }}
+        onClose={() => setStopping(null)} />}
+      {stoppingCompany && <ConfirmModal title={`Stop sharing everything with ${stoppingCompany.name}?`} danger confirm="Stop all"
+        message={`${stoppingCompany.items} ${stoppingCompany.items === 1 ? 'share' : 'shares'} with ${stoppingCompany.people} ${stoppingCompany.people === 1 ? 'person' : 'people'} at ${stoppingCompany.name} end at once. Whoever shared them is told. (To stop working with other companies altogether, use Company settings.)`}
+        onConfirm={async () => { try { const r = await post('/external-shares/stop-company', { org_id: stoppingCompany.id }); toast(`${r.stopped} ${r.stopped === 1 ? 'share' : 'shares'} stopped`); setCompany(''); load(); } catch (e) { toast(e.message, 'error'); } }}
+        onClose={() => setStoppingCompany(null)} />}
+    </div>
+  );
+}

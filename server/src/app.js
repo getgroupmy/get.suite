@@ -39,6 +39,7 @@ import webmailRoutes from './routes/webmail.js';
 import dlpRoutes from './routes/dlp.js';
 import securityRoutes from './routes/security.js';
 import { linkRoutes, publicLinkRoutes } from './routes/links.js';
+import { externalShareRoutes } from './routes/externalshares.js';
 import davRoutes from './dav.js';
 import webdavRoutes from './webdav.js';
 import commentRoutes from './routes/comments.js';
@@ -128,6 +129,7 @@ export function createApp({
   app.use('/api/tokens', requireAuth, apiTokenRoutes());
   app.use('/api/office-preview', requireAuth, officePreviewRoutes());
   app.use('/api/links', requireAuth, linkRoutes({ maxUploadBytes }));
+  app.use('/api/external-shares', requireAuth, externalShareRoutes());
   app.use('/api/comments', requireAuth, commentRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/time-off', requireAuth, timeOffRoutes());
