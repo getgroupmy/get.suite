@@ -6128,6 +6128,18 @@ test('forms: a file question can take only some kinds of file, and smaller ones;
   assert.equal((await send({ rc: [ok.body.id], any: [other.body.id] })).status, 201);
   const rs = (await owner('GET', `/api/forms/${f.id}/responses`)).body;
   assert.deepEqual((rs.responses || rs)[0].answers.rc.map((x) => x.name), ['receipt.pdf']);
+  // Changing a response later can't swap a file in: file answers keep what was sent (and its checks).
+  await owner('PUT', `/api/forms/${f.id}`, { allow_edit: true });
+  const again = await up('again.pdf', '%PDF-1.4 again', 'rc');
+  const extra = await up('extra.exe', 'MZ', 'any');
+  const sent2 = await send({ rc: [again.body.id] });
+  assert.equal(sent2.status, 201);
+  const key = sent2.body.edit_key;
+  assert.ok(key, 'a link to change it');
+  assert.equal((await owner('PUT', `/api/public/forms/${tok}/response/${key}`, { answers: { rc: [extra.body.id], any: [extra.body.id] } })).status, 200);
+  const latest = ((await owner('GET', `/api/forms/${f.id}/responses`)).body.responses || (await owner('GET', `/api/forms/${f.id}/responses`)).body).find((r) => r.answers.rc?.[0]?.name === 'again.pdf');
+  assert.ok(latest, 'the receipt is still the one sent');
+  assert.equal(latest.answers.any, undefined, 'nothing added through a change');
 });
 
 test('forms: sections, and going to a section depending on the answer', async () => {
