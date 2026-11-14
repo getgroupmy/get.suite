@@ -45,6 +45,7 @@ import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
+import { partsOf, PART_RE, KINDS as KINDS_OF_FILES } from '../mail/attachlist.js';
 import { officePreview } from '../office/preview.js';
 import { originalSummary } from '../mail/original.js';
 import { splitHtmlQuote, splitTextQuote } from '../mail/quotesplit.js';
@@ -1491,6 +1492,78 @@ export default function webmailRoutes() {
     }
     sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
     res.status(201).json({ folder_id: folderId, files: saved });
+  });
+
+  // Mail → Attachments: the files in a folder's mail, newest first, a page at a time. Reads only
+  // each message's structure; `before` continues from where the last page stopped (a message number).
+  r.get('/attachments', async (req, res) => {
+    const folder = String(req.query.folder || 'INBOX');
+    const kind = req.query.kind && KINDS_OF_FILES[req.query.kind] ? String(req.query.kind) : null;
+    const words = String(req.query.q || '').trim().toLowerCase().slice(0, 100);
+    const WANT = 60, CHUNK = 200, MAX_SCAN = 3000;
+    const out = await withFolder(req.user, folder, async (client) => {
+      const total = client.mailbox.exists;
+      let end = Math.min(total, Number(req.query.before) > 0 ? Number(req.query.before) - 1 : total);
+      const items = [];
+      let scanned = 0;
+      while (end >= 1 && items.length < WANT && scanned < MAX_SCAN) {
+        const start = Math.max(1, end - CHUNK + 1);
+        const batch = [];
+        for await (const m of client.fetch(`${start}:${end}`, { uid: true, envelope: true, internalDate: true, bodyStructure: true })) batch.push(m);
+        batch.sort((a, b) => b.seq - a.seq);
+        for (const m of batch) {
+          const env = m.envelope || {};
+          const from = addr(env.from?.[0]);
+          for (const a of partsOf(m.bodyStructure)) {
+            if (kind && a.kind !== kind) continue;
+            if (words && !`${a.filename} ${from?.name || ''} ${from?.address || ''} ${env.subject || ''}`.toLowerCase().includes(words)) continue;
+            items.push({ ...a, uid: m.uid, seq: m.seq, subject: env.subject || '', from, date: (env.date || m.internalDate)?.valueOf?.() ?? null });
+          }
+          end = m.seq - 1;
+          if (items.length >= WANT) break;
+        }
+        scanned += batch.length;
+        if (!batch.length) break;
+      }
+      return { folder, items, next: end >= 1 ? end + 1 : null };
+    });
+    res.json(out);
+  });
+
+  /** One part of a message (an attachment found by Mail → Attachments), as a buffer. */
+  const partOf = async (user, folder, uid, part) => {
+    if (!PART_RE.test(part)) throw notFound('Attachment not found');
+    return withFolder(user, folder, async (client) => {
+      const msg = await client.fetchOne(String(uid), { bodyStructure: true }, { uid: true });
+      const meta = msg && partsOf(msg.bodyStructure).find((a) => a.part === part);
+      if (!meta) throw notFound('Attachment not found');
+      const dl = await client.download(String(uid), part, { uid: true });
+      const chunks = [];
+      let n = 0;
+      for await (const c of dl.content) { n += c.length; if (n > 60 * 1024 * 1024) throw bad('That attachment is too big to open here'); chunks.push(c); }
+      return { ...meta, content: Buffer.concat(chunks) };
+    });
+  };
+  r.get('/messages/:uid/parts/:part', async (req, res) => {
+    const a = await partOf(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), String(req.params.part));
+    const shown = req.query.view !== undefined && previewMime(a.filename);
+    if (shown) { res.set(previewHeaders(shown, a.filename)); res.end(a.content); return; }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.filename || 'attachment')}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(a.content);
+  });
+  r.post('/messages/:uid/parts/:part/save', async (req, res) => {
+    const a = await partOf(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), String(req.params.part));
+    checkQuota(req.user.org_id, a.content.length, req.user.id);
+    let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Email attachments' AND trashed = 0").get(req.user.id)?.id;
+    if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
+    const storage = newId();
+    fs.writeFileSync(path.join(FILES_DIR, storage), a.content);
+    const name = cleanName(String(a.filename || '').replace(/[/\\\0]/g, '_').trim().slice(0, 255).replace(/^\.{1,2}$/, '') || 'attachment');
+    const id = insertFile({ owner: req.user.id, parentId: folderId, name, kind: 'file', mime: mimeFor(name), size: a.content.length, storage });
+    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
+    res.status(201).json({ folder_id: folderId, file: q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id) });
   });
 
   r.post('/messages/flags', async (req, res) => {

@@ -3073,3 +3073,7 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .checkup-item.tip { border-left-color: #e37400; }
 .checkup-item.ok { border-left-color: #188038; }
 .checkup-mark { font-size: 18px; line-height: 1.3; width: 22px; text-align: center; flex: none; }
+
+/* Mail → Attachments */
+.attach-list li { flex-wrap: wrap; }
+.attach-kind { font-size: 22px; width: 28px; text-align: center; }

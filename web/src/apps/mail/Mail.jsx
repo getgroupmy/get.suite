@@ -28,6 +28,7 @@ import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richte
 import { FiltersDialog } from './Filters.jsx';
 import { ForwardingDialog } from './Forwarding.jsx';
 import { MovePicker } from './MovePicker.jsx';
+import { AttachmentsDialog } from './Attachments.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import { parseAddresses } from '../../components/addresses.js';
 import { fileLinksIn } from '../chat/filelinks.js';
@@ -114,6 +115,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [confOpen, setConfOpen] = useState(false); // your confidential messages
   const [subsOpen, setSubsOpen] = useState(false); // newsletters and lists in the Inbox
   const [storageOpen, setStorageOpen] = useState(false); // how much room mail takes
+  const [attachOpen, setAttachOpen] = useState(false); // every file people sent, in a folder
   const [emptying, setEmptying] = useState(null); // Trash or Junk, to empty now (asked first)
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
@@ -486,6 +488,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         {confOpen && <ConfidentialList onClose={() => setConfOpen(false)} />}
         {!shared && <button className="subnav-item" onClick={() => setSubsOpen(true)}><Icon name="markunread" /><span className="grow">Manage subscriptions</span></button>}
         {subsOpen && <Subscriptions onClose={() => { setSubsOpen(false); refresh(); }} />}
+        <button className="subnav-item" onClick={() => setAttachOpen(true)}><Icon name="attach" /><span className="grow">Attachments</span></button>
+        {attachOpen && <AttachmentsDialog folders={folders} folder={special === '\\Drafts' ? 'INBOX' : folder} onClose={() => setAttachOpen(false)} onOpen={(f, uid) => { setAttachOpen(false); go(f, uid); }} />}
         {!shared && <button className="subnav-item" onClick={() => setStorageOpen(true)}><Icon name="chart" /><span className="grow">Storage</span></button>}
         {storageOpen && <MailStorage onClose={() => { setStorageOpen(false); refresh(); }} onOpen={(f, uid) => { setStorageOpen(false); go(f, uid); }} />}
         {desktopSupported() && (
