@@ -10,6 +10,7 @@ import Icon from '../components/Icon.jsx';
 import { allZones, zoneName, cityOf } from '../components/zones.js';
 import { getTheme, setTheme } from '../theme.js';
 import { useMailStatus } from '../mailStatus.js';
+import { creationOptions, credentialJson, passkeysSupported, passkeyError } from '../passkey.js';
 
 export default function Settings() {
   const { user, setUser } = useAuth();
@@ -57,6 +58,7 @@ export default function Settings() {
       </form>
       <RecoveryEmail />
       <TwoStep />
+      <Passkeys />
       <MailApps />
       <MailDelegates />
       <MailPane />
@@ -318,6 +320,60 @@ function QuietHours() {
         try { await put('/users/me/quiet-hours', { on }); await loadPause(); toast(on ? 'Notifications pause outside your working hours' : 'Quiet hours off'); } catch (err) { setQ({ ...q, on: !on }); toast(err.message, 'error'); }
       }} /> Pause notifications outside my working hours</label>
       <p className="muted small" style={{ margin: 0 }}>{q.hours ? `Your working hours: ${q.hours} (${q.tz}). Outside them, pop-up notes and desktop notifications wait, as with Pause notifications, and colleagues see 🔕. Everything still arrives in the bell.` : 'Set your working hours first, in Calendar → Working hours.'}</p>
+    </section>
+  );
+}
+
+/** Passkeys: sign in with a fingerprint, face, PIN or security key instead of the password and code. */
+function Passkeys() {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [adding, setAdding] = useState(null); // { password, name }
+  const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState(null);
+  useEffect(() => { get('/auth/passkeys').then(setList).catch(() => setList([])); }, []);
+  if (!list) return null;
+  const supported = passkeysSupported();
+  const add = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const options = await post('/auth/passkeys/options', { password: adding.password });
+      const cred = await navigator.credentials.create({ publicKey: creationOptions(options) });
+      setList(await post('/auth/passkeys', { credential: credentialJson(cred), name: adding.name.trim() || 'Passkey' }));
+      setAdding(null);
+      toast('Passkey added: you can sign in with it now');
+    } catch (err) { toast(err?.name ? passkeyError(err) : err.message, 'error'); }
+    setBusy(false);
+  };
+  const when = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+  return (
+    <section className="card stack" aria-labelledby="passkeys-h">
+      <h2 id="passkeys-h">Passkeys</h2>
+      <p className="muted small" style={{ margin: 0 }}>Sign in with your fingerprint, face, screen lock or a security key instead of your password (and code). A passkey is kept on your device or in its password manager, works only on this site, and can't be guessed or phished.</p>
+      {list.length > 0 && (
+        <ul className="plain-list" aria-label="Your passkeys">
+          {list.map((p) => (
+            <li key={p.id} className="row">
+              <span className="grow">🔑 <strong>{p.name}</strong> <span className="muted small">· added {when(p.created_at)}{p.last_used_at ? ` · last used ${when(p.last_used_at)}` : ' · not used yet'}</span></span>
+              <button type="button" className="btn small" aria-label={`Remove ${p.name}`} onClick={() => setRemoving(p)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!supported ? <p className="muted small">This browser can't make passkeys.</p>
+        : adding ? (
+          <form className="stack" onSubmit={add} aria-label="Add a passkey">
+            <label className="field"><span>Your password</span><input type="password" autoComplete="current-password" value={adding.password} onChange={(e) => setAdding({ ...adding, password: e.target.value })} required autoFocus /></label>
+            <label className="field"><span>Name it</span><input value={adding.name} maxLength={60} placeholder="Work laptop, iPhone…" onChange={(e) => setAdding({ ...adding, name: e.target.value })} /></label>
+            <div className="row end">
+              <button type="button" className="btn" onClick={() => setAdding(null)}>Cancel</button>
+              <button className="btn primary" disabled={busy || !adding.password}>{busy ? 'Waiting for your device…' : 'Continue'}</button>
+            </div>
+          </form>
+        ) : <div><button type="button" className="btn" onClick={() => setAdding({ password: '', name: '' })}>Add a passkey</button></div>}
+      {removing && <ConfirmModal title="Remove this passkey?" message={`“${removing.name}” won't sign you in any more. (Remove it from the device's password manager too.)`} confirm="Remove"
+        onClose={() => setRemoving(null)} onConfirm={async () => { try { setList(await del(`/auth/passkeys/${encodeURIComponent(removing.id)}`)); toast('Passkey removed'); } catch (err) { toast(err.message, 'error'); } }} />}
     </section>
   );
 }

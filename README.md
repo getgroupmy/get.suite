@@ -1138,6 +1138,15 @@ Everyone can add a second step to signing in on the web: after the password, a 6
 - **Mail apps:** phones and Outlook reading mail over IMAP/SMTP can't ask for a code. Give them a **mail-app password** (below), so your account password alone can't open your mail from a mail app.
 - The keys are stored in the database, so they're included in its backups. Protect the backups like the server itself.
 
+## Passkeys
+
+A passkey signs you in with your fingerprint, face, screen lock or a security key instead of your password: nothing to type, nothing to guess, and it only works on this site, so a look-alike phishing page gets nothing.
+
+- **Adding one:** **Settings → Passkeys → Add a passkey**, type your password, name it (*Work laptop*), and your device asks for your fingerprint, face or PIN. Add one on each device you use (up to 20); a password manager that syncs passkeys (iCloud Keychain, Google Password Manager, 1Password…) makes one work on all your devices.
+- **Signing in:** on the sign-in page, **🔑 Use a passkey**: the browser offers the passkeys it has for this site, and you're in. No password, and no code from your authenticator app either: the device plus your fingerprint, face or PIN are already two steps. Sign-in protection counts failed passkey sign-ins like wrong passwords, a suspended account is refused, and your company's network rules still apply.
+- **Settings → Passkeys** lists them, with when each was added and last used; **Remove** stops one working (remove it from the device's password manager too).
+- **How it works:** the standard WebAuthn, checked on the server with Node's own cryptography (no extra packages): each sign-in is a fresh challenge signed by the passkey's private key, which never leaves your device; the server keeps only the public half. Passkeys need the site's real address (`PUBLIC_URL`, or the address you open it at) and a secure page (HTTPS, or `localhost`). A company that **requires two-step verification** still asks for an authenticator app to be set up.
+
 ## Signed-in devices
 
 Settings → **Signed-in devices** lists every browser where you're signed in: what it is ("Chrome on Windows", "Safari on iPhone"), when it was last active, its network address, and when it signed in. The one you're using is marked **This device**.

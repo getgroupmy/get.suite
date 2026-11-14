@@ -12,6 +12,8 @@ import { createOrg } from '../tenancy.js';
 import { setMailPassword, setMailAppPassword, mailEnabled, MAIL_HOSTNAME } from '../mail/config.js';
 import crypto from 'node:crypto';
 import * as twoFactor from '../twofactor.js';
+import { verifyRegistration, verifyAssertion, b64url, ALLOWED_ALGS } from '../webauthn.js';
+import { newChallenge, takeChallenge, passkeysOf, passkeyById, MAX_PASSKEYS } from '../passkeys.js';
 import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
 import { newDeviceSignIn } from '../alerts.js';
@@ -233,6 +235,78 @@ export default function authRoutes({ secureCookies }) {
     twoFactor.disable(req.user.id);
     audit(req, '2fa.off', { target: req.user.username });
     res.json(twoFactor.status(req.user.id));
+  });
+
+  // ---- passkeys: sign in with a fingerprint, face, PIN or security key instead of a password ----
+  const site = (req) => {
+    const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    return { origin, rpId: new URL(origin).hostname };
+  };
+  r.get('/passkeys', requireAuth, (req, res) => res.json(passkeysOf(req.user.id)));
+  // Making one: your password first, then the browser makes the key and we keep its public half.
+  r.post('/passkeys/options', requireAuth, (req, res) => {
+    needPassword(req);
+    if (passkeysOf(req.user.id).length >= MAX_PASSKEYS) throw bad(`At most ${MAX_PASSKEYS} passkeys`);
+    const { rpId } = site(req);
+    res.json({
+      challenge: newChallenge(`reg:${req.user.id}`, req.user.id),
+      rp: { name: req.user.org_name || 'Workspace', id: rpId },
+      user: { id: b64url(Buffer.from(req.user.id)), name: req.user.username, displayName: req.user.name || req.user.username },
+      pubKeyCredParams: ALLOWED_ALGS.map((alg) => ({ type: 'public-key', alg })),
+      authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+      excludeCredentials: passkeysOf(req.user.id).map((p) => ({ type: 'public-key', id: p.id })),
+      attestation: 'none', timeout: 120000,
+    });
+  });
+  r.post('/passkeys', requireAuth, (req, res) => {
+    const w = takeChallenge(`reg:${req.user.id}`);
+    if (!w) throw bad('That took too long. Try adding the passkey again.');
+    let made;
+    try { made = verifyRegistration(req.body?.credential?.response || {}, { challenge: w.challenge, ...site(req) }); } catch (e) { throw bad(e.message); }
+    if (passkeyById(made.id)) throw bad('That passkey is already added');
+    const name = str(req.body?.name || 'Passkey', { name: 'Name', max: 60 }) || 'Passkey';
+    q('INSERT INTO passkeys (id, user_id, name, public_key, alg, sign_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(made.id, req.user.id, name, made.publicKey, made.alg, made.signCount, Date.now());
+    audit(req, 'passkey.added', { target: req.user.username, details: { name } });
+    res.status(201).json(passkeysOf(req.user.id));
+  });
+  r.delete('/passkeys/:id', requireAuth, (req, res) => {
+    const p = passkeyById(req.params.id);
+    if (!p || p.user_id !== req.user.id) throw new HttpError(404, 'Passkey not found');
+    q('DELETE FROM passkeys WHERE id = ?').run(p.id);
+    audit(req, 'passkey.removed', { target: req.user.username, details: { name: p.name } });
+    res.json(passkeysOf(req.user.id));
+  });
+  // Signing in with one: the browser offers the passkeys it has for this site (no name typed first).
+  r.post('/login/passkey/options', (req, res) => {
+    const ticket = b64url(crypto.randomBytes(18));
+    res.json({ ticket, options: { challenge: newChallenge(`login:${ticket}`), rpId: site(req).rpId, userVerification: 'required', timeout: 120000, allowCredentials: [] } });
+  });
+  r.post('/login/passkey', async (req, res) => {
+    const verdict = guard.check(req.ip, '');
+    if (verdict.action === 'reject') throw new HttpError(429, 'Too many failed sign-ins from your network. Try again later.');
+    if (verdict.action === 'delay') await new Promise((r2) => setTimeout(r2, verdict.seconds * 1000));
+    const w = takeChallenge(`login:${String(req.body?.ticket || '')}`);
+    if (!w) throw new HttpError(401, 'That took too long. Try again.');
+    const cred = req.body?.credential || {};
+    const p = passkeyById(cred.id);
+    const user = p && q('SELECT id, username, disabled, org_id, is_super FROM users WHERE id = ?').get(p.user_id);
+    const fail = (why, msg) => {
+      guard.recordFailure({ ip: req.ip, login: user?.username || '', fp: guard.passwordFingerprint(`passkey:${cred.id || ''}`), service: 'web-passkey' });
+      if (user) audit(req, 'sign-in.failed', { actor: null, org: user.org_id ?? null, target: user.username, details: { reason: why } });
+      throw new HttpError(401, msg);
+    };
+    if (!p || !user) fail('passkey', 'That passkey isn’t on any account here. Sign in with your password, then add it in Settings.');
+    if (user.disabled) fail('disabled', 'That account is suspended');
+    let ok;
+    try { ok = verifyAssertion(cred.response || {}, { publicKey: p.public_key, alg: p.alg, signCount: p.sign_count }, { challenge: w.challenge, ...site(req) }); } catch (e) { fail('passkey', e.message); }
+    // The passkey belongs to this person (when the browser says whose it is, it must agree).
+    if (cred.response?.userHandle && cred.response.userHandle !== b64url(Buffer.from(user.id))) fail('passkey', 'That passkey doesn’t match its account');
+    if (!networkAllowed(user, req.ip)) throw new HttpError(403, NETWORK_REFUSED);
+    q('UPDATE passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?').run(ok.signCount, Date.now(), p.id);
+    // A passkey is two steps in one (the device, and your fingerprint, face or PIN): no code after it.
+    const u = startSession(req, res, user.id);
+    audit(req, 'sign-in', { actor: u, target: u.username, details: { how: 'passkey' } });
+    res.json({ user: u });
   });
 
   // ---- signed-in devices (web sessions) ----

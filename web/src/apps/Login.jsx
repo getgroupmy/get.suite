@@ -3,6 +3,7 @@ import { get, post } from '../api.js';
 import BrandMark from '../components/BrandMark.jsx';
 import { applyAccent } from '../theme.js';
 import { useAuth } from '../App.jsx';
+import { requestOptions, credentialJson, passkeysSupported, passkeyError } from '../passkey.js';
 
 export default function Login({ needsSetup, canReset = false }) {
   const { setUser } = useAuth();
@@ -19,6 +20,17 @@ export default function Login({ needsSetup, canReset = false }) {
   const [useRecovery, setUseRecovery] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const [forgot, setForgot] = useState(null); // null, or { sent: message } once asked
+
+  // A passkey instead of the password (and code): the browser offers the ones it has for this site.
+  async function withPasskey() {
+    setError(''); setBusy(true);
+    try {
+      const { ticket: t, options } = await post('/auth/login/passkey/options', {});
+      const cred = await navigator.credentials.get({ publicKey: requestOptions(options) });
+      const r = await post('/auth/login/passkey', { ticket: t, credential: credentialJson(cred) });
+      setUser(r.user);
+    } catch (err) { setError(err?.name ? passkeyError(err) : err.message); setBusy(false); }
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -125,6 +137,7 @@ export default function Login({ needsSetup, canReset = false }) {
         )}
         {error && <p className="error" role="alert">{error}</p>}
         <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : needsSetup ? 'Create workspace' : 'Sign in'}</button>
+        {!needsSetup && !ticket && passkeysSupported() && <button type="button" className="btn block" disabled={busy} onClick={withPasskey}>🔑 Use a passkey</button>}
         {!needsSetup && !ticket && canReset && <button type="button" className="link-btn small" onClick={() => setForgot({})}>Forgot password?</button>}
       </form>
     </div>
