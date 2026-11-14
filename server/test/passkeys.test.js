@@ -158,3 +158,30 @@ test('passkeys: you are told when one is added or removed; renamed (yours only)'
   await dan('DELETE', `/api/auth/passkeys/${k.id}`);
   assert.deepEqual(titles(), ['A passkey was added to your account: “Phone”', 'A passkey was removed from your account: “Pixel 9”']);
 });
+
+test('signed-in devices say how each signed in: password, code, passkey', async () => {
+  const ana = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  const me = (await ana('GET', '/api/auth/me')).body.user;
+  const current = async (who) => (await who('GET', '/api/auth/sessions')).body.find((s) => s.current).method;
+  assert.equal(await current(ana), 'password');
+  const k = authenticator('ec', { origin: base, rp: '127.0.0.1', userHandle: b64url(Buffer.from(me.id)) });
+  const o = (await ana('POST', '/api/auth/passkeys/options', { password: 'password123' })).body;
+  await ana('POST', '/api/auth/passkeys', { credential: { id: k.id, response: k.create(o.challenge) }, name: 'Key' });
+  const viaKey = client();
+  const lo = (await viaKey('POST', '/api/auth/login/passkey/options')).body;
+  assert.equal((await viaKey('POST', '/api/auth/login/passkey', { ticket: lo.ticket, credential: { id: k.id, response: k.get(lo.options.challenge) } })).status, 200);
+  assert.equal(await current(viaKey), 'passkey');
+  // With an authenticator app: the code step.
+  const { codeAt } = await import('../src/totp.js');
+  const secret = 'JBSWY3DPEHPK3PXP';
+  q('INSERT OR REPLACE INTO two_factor (user_id, secret, enabled) VALUES (?, ?, 1)').run(me.id, secret);
+  const viaCode = client();
+  const step = (await viaCode('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' })).body;
+  assert.equal((await viaCode('POST', '/api/auth/login/code', { ticket: step.ticket, code: codeAt(secret, Math.floor(Date.now() / 30000)) })).status, 200);
+  assert.equal(await current(viaCode), 'code');
+  q('DELETE FROM two_factor WHERE user_id = ?').run(me.id);
+  // Everyone's list shows all three.
+  const methods = (await ana('GET', '/api/auth/sessions')).body.map((s) => s.method);
+  for (const m of ['password', 'passkey', 'code']) assert.ok(methods.includes(m), m);
+});

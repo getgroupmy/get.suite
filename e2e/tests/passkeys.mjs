@@ -81,6 +81,10 @@ await step('another browser signs in with it: no password, no code', async () =>
   await p.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
   const me = (await api(p, 'GET', '/auth/me')).body.user;
   if (me.username !== 'olivia@acme.com') throw new Error(JSON.stringify(me));
+  // Signed-in devices says how this one got in; the first browser, with a password.
+  await p.goto(`${B}/settings`);
+  await p.getByText(/signed in .* with a passkey/).first().waitFor();
+  await p.getByText(/signed in .* with a password$/).first().waitFor();
   await p.close();
 });
 await step('removed, it signs nobody in (and the page says why)', async () => {

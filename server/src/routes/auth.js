@@ -51,8 +51,8 @@ export const setResetMailer = (fn) => { resetMailer = fn; };
 
 export default function authRoutes({ secureCookies }) {
   const r = Router();
-  const startSession = (req, res, userId) => {
-    const token = createSession(userId, { userAgent: req.headers['user-agent'] || '', ip: req.ip });
+  const startSession = (req, res, userId, method = 'password') => {
+    const token = createSession(userId, { userAgent: req.headers['user-agent'] || '', ip: req.ip, method });
     newDeviceSignIn(userId, describeDevice(req.headers['user-agent'] || ''), req.ip);
     setSessionCookie(res, token, secureCookies === true || (secureCookies === 'auto' && req.secure));
     return userFromToken(token);
@@ -128,7 +128,7 @@ export default function authRoutes({ secureCookies }) {
     }
     twoFactor.endTicket(req.body.ticket);
     const left = how === 'recovery' ? twoFactor.status(user.id).recoveryLeft : undefined;
-    const u = startSession(req, res, user.id);
+    const u = startSession(req, res, user.id, how === 'recovery' ? 'recovery' : 'code');
     audit(req, 'sign-in', { actor: u, target: u.username, details: { twoStep: how } });
     res.json({ user: u, ...(how === 'recovery' && { recoveryLeft: left }) });
   });
@@ -322,7 +322,7 @@ export default function authRoutes({ secureCookies }) {
     if (!networkAllowed(user, req.ip)) throw new HttpError(403, NETWORK_REFUSED);
     q('UPDATE passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?').run(ok.signCount, Date.now(), p.id);
     // A passkey is two steps in one (the device, and your fingerprint, face or PIN): no code after it.
-    const u = startSession(req, res, user.id);
+    const u = startSession(req, res, user.id, w.userId ? 'password-passkey' : 'passkey');
     audit(req, 'sign-in', { actor: u, target: u.username, details: { how: 'passkey' } });
     res.json({ user: u });
   });
@@ -330,10 +330,10 @@ export default function authRoutes({ secureCookies }) {
   // ---- signed-in devices (web sessions) ----
   r.get('/sessions', requireAuth, (req, res) => {
     const mine = tokenFromReq(req);
-    const rows = q('SELECT token, created_at, last_seen, user_agent, ip FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC').all(req.user.id, Date.now());
+    const rows = q('SELECT token, created_at, last_seen, user_agent, ip, method FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC').all(req.user.id, Date.now());
     res.json(rows.map((s) => ({
       id: sessionId(s.token), current: s.token === mine, device: describeDevice(s.user_agent || ''),
-      ip: s.ip || null, created_at: s.created_at, last_seen: s.last_seen,
+      ip: s.ip || null, created_at: s.created_at, last_seen: s.last_seen, method: s.method || null,
     })));
   });
   // Sign out one device (your own sessions only), or every device except this one.

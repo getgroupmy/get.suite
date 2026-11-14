@@ -954,6 +954,9 @@ function SignInApps() {
   );
 }
 
+/** How a device signed in, after "signed in 3 Nov". */
+const SIGNED_IN_WITH = { password: 'with a password', code: 'with a password and a code', recovery: 'with a password and a recovery code', passkey: 'with a passkey', 'password-passkey': 'with a password and a passkey' };
+
 function Devices() {
   const toast = useToast();
   const [list, setList] = useState(null);
@@ -976,7 +979,7 @@ function Devices() {
           <li key={d.id}>
             <span className="grow">
               <span className="device-name"><strong>{d.device}</strong>{d.current && <span className="pill ok">This device</span>}</span>
-              <span className="muted small">{d.current ? 'Active now' : ago(d.last_seen || d.created_at)}{d.ip ? ` · ${d.ip}` : ''}{d.created_at ? ` · signed in ${new Date(d.created_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}</span>
+              <span className="muted small">{d.current ? 'Active now' : ago(d.last_seen || d.created_at)}{d.ip ? ` · ${d.ip}` : ''}{d.created_at ? ` · signed in ${new Date(d.created_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}{d.method ? ` ${SIGNED_IN_WITH[d.method] || ''}` : ''}</span>
             </span>
             {!d.current && <button type="button" className="btn small" onClick={() => signOut(d)} aria-label={`Sign out ${d.device}`}>Sign out</button>}
           </li>

@@ -75,10 +75,15 @@ export function validatePassword(pw, { orgId = null, email = '', name = '' } = {
   if (problem) throw new HttpError(400, problem);
 }
 
-export function createSession(userId, { userAgent = '', ip = '' } = {}) {
+// How each session signed in (Settings → Signed-in devices): password, code (password and an app's code),
+// recovery (password and a recovery code), passkey, or password-passkey (a passkey as the second step).
+if (!q('PRAGMA table_info(sessions)').all().some((c) => c.name === 'method')) q('ALTER TABLE sessions ADD COLUMN method TEXT').run();
+export const SIGN_IN_METHODS = ['password', 'code', 'recovery', 'passkey', 'password-passkey'];
+
+export function createSession(userId, { userAgent = '', ip = '', method = null } = {}) {
   const token = crypto.randomBytes(32).toString('base64url');
-  q('INSERT INTO sessions (token, user_id, expires_at, created_at, last_seen, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(token, userId, now() + SESSION_DAYS * 864e5, now(), now(), String(userAgent).slice(0, 400), String(ip).slice(0, 64));
+  q('INSERT INTO sessions (token, user_id, expires_at, created_at, last_seen, user_agent, ip, method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(token, userId, now() + SESSION_DAYS * 864e5, now(), now(), String(userAgent).slice(0, 400), String(ip).slice(0, 64), SIGN_IN_METHODS.includes(method) ? method : null);
   q('UPDATE users SET last_active = ? WHERE id = ?').run(now(), userId);
   markActive(userId);
   return token;
