@@ -36,7 +36,7 @@ await step('imap-attack-gets-blocked', async () => {
 
 await step('security-tab', async () => {
   await page.goto(B + '/admin');
-  await page.getByRole('tab', { name: 'Security' }).click();
+  await page.getByRole('tab', { name: 'Security', exact: true }).click();
   await page.locator('.card', { hasText: 'Blocked addresses' }).getByRole('cell', { name: '127.0.0.6', exact: true }).waitFor();
   await page.getByText(/10 failed sign-ins in 15 min \(imap\)/).waitFor();
   await page.getByText('Mail app (IMAP)').first().waitFor();
@@ -81,7 +81,7 @@ await step('web-login-blocked', async () => {
 
 await step('web-ban-visible-to-admin', async () => {
   await page.reload();
-  await page.getByRole('tab', { name: 'Security' }).click();
+  await page.getByRole('tab', { name: 'Security', exact: true }).click();
   await page.locator('.card', { hasText: 'Blocked addresses' }).getByRole('cell', { name: '203.0.113.50', exact: true }).waitFor();
   await page.getByText(/\(web\)/).waitFor();
 });
