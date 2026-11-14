@@ -441,6 +441,9 @@ export default function Drive() {
       !f.is_drive && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: () => copyMany([f]) },
       !f.is_drive && !viewOnly(f) && { label: 'Copy to…', icon: 'copy', onClick: () => setDialog({ type: 'copyto', files: [f] }) },
       { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
+      route.view === 'shared' && !!f.direct && !!f.share_ends && { label: 'Ask for longer access', icon: 'clock', onClick: async () => {
+        try { await post(`/files/${f.id}/ask-longer`, {}); toast(`Asked ${f.owner_name} to let you keep “${f.name}” longer`); } catch (e) { toast(e.message, 'error'); }
+      } },
       route.view === 'shared' && !!f.direct && f.owner_id !== user.id && { label: 'Remove from Shared with me', icon: 'close', onClick: async () => {
         try {
           const r = await del(`/files/${f.id}/my-access`);
@@ -697,7 +700,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{route.view === 'shared' && f.shared_at && <span className="muted small shared-by"> · {f.shared_by_name ? `${f.shared_by_name} shared it ` : 'Shared '}{formatDate(f.shared_at)}</span>}{f.shared_with?.length > 0 && <span className="muted small shared-with"> · with {f.shared_with.slice(0, 3).join(', ')}{f.shared_with.length > 3 ? ` and ${f.shared_with.length - 3} more` : ''}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{route.view === 'shared' && f.shared_at && <span className="muted small shared-by"> · {f.shared_by_name ? `${f.shared_by_name} shared it ` : 'Shared '}{formatDate(f.shared_at)}</span>}{route.view === 'shared' && f.share_ends && <span className="muted small share-ends"> · until {formatDate(f.share_ends)}</span>}{f.shared_with?.length > 0 && <span className="muted small shared-with"> · with {f.shared_with.slice(0, 3).join(', ')}{f.shared_with.length > 3 ? ` and ${f.shared_with.length - 3} more` : ''}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>
@@ -1467,7 +1470,7 @@ function AccessRequests({ list, onClose, onChanged }) {
     try {
       const role = roles[r.id] || r.role;
       await post(`/files/access-requests/${r.id}`, { approve, role });
-      toast(approve ? `${r.user_name} can now ${role === 'editor' ? 'edit' : 'view'} ${r.file_name}` : `Declined ${r.user_name}`);
+      toast(approve ? (r.longer ? `${r.user_name} can keep ${r.file_name} longer` : `${r.user_name} can now ${role === 'editor' ? 'edit' : 'view'} ${r.file_name}`) : `Declined ${r.user_name}`);
       onChanged();
     } catch (e) { toast(e.message, 'error'); }
   };
@@ -1478,13 +1481,13 @@ function AccessRequests({ list, onClose, onChanged }) {
           {list.map((r) => (
             <li key={r.id}>
               <div className="grow">
-                <div><strong>{r.user_name}</strong> <span className="muted small">{r.user_email}</span> asks to {r.role === 'editor' ? 'edit' : 'view'} <strong>{r.file_name}</strong></div>
+                <div><strong>{r.user_name}</strong> <span className="muted small">{r.user_email}</span> {r.longer ? <>asks to keep <strong>{r.file_name}</strong>{r.ends_at ? ` after ${formatDate(r.ends_at)}` : ''}</> : <>asks to {r.role === 'editor' ? 'edit' : 'view'} <strong>{r.file_name}</strong></>}</div>
                 {r.message && <div className="muted small">“{r.message}”</div>}
               </div>
-              <select value={roles[r.id] || r.role} onChange={(e) => setRoles({ ...roles, [r.id]: e.target.value })} aria-label={`Access for ${r.user_name}`}>
+              {!r.longer && <select value={roles[r.id] || r.role} onChange={(e) => setRoles({ ...roles, [r.id]: e.target.value })} aria-label={`Access for ${r.user_name}`}>
                 <option value="viewer">Can view</option><option value="editor">Can edit</option>
-              </select>
-              <button type="button" className="btn small primary" onClick={() => answer(r, true)}>Share</button>
+              </select>}
+              <button type="button" className="btn small primary" onClick={() => answer(r, true)}>{r.longer ? 'Give 30 more days' : 'Share'}</button>
               <button type="button" className="btn small" onClick={() => answer(r, false)}>Decline</button>
             </li>
           ))}

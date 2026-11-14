@@ -107,6 +107,8 @@ q(`CREATE TABLE IF NOT EXISTS access_requests (
   created_at INTEGER NOT NULL,
   UNIQUE (file_id, user_id)
 )`).run();
+// A request to keep access longer (someone whose share ends by date), rather than to get it.
+if (!q('PRAGMA table_info(access_requests)').all().some((c) => c.name === 'longer')) q('ALTER TABLE access_requests ADD COLUMN longer INTEGER NOT NULL DEFAULT 0').run();
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 /** A spreadsheet's open comment threads on cells, for its Excel download: [{ sheet, cell, author, at, text, replies }]. */
 function cellCommentsOf(fileId) {
@@ -510,7 +512,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     } else if (view === 'shared') {
       // Shared with you, and shared with everyone in your company (by someone else).
       // Newest shared first (when that's known), then by name; with who shared it, and when.
-      rows = q(`SELECT ${COLS}, s.role, s.shared_at, sb.name AS shared_by_name, s.direct_role IS NOT NULL AS direct ${FROM} JOIN shares s ON s.file_id = f.id
+      rows = q(`SELECT ${COLS}, s.role, s.shared_at, sb.name AS shared_by_name, s.direct_role IS NOT NULL AS direct, s.expires_at AS share_ends ${FROM} JOIN shares s ON s.file_id = f.id
                 LEFT JOIN users sb ON sb.id = s.shared_by
                 WHERE s.user_id = ? AND f.trashed = 0 AND f.is_drive = 0 AND ${REACHABLE}
                 ORDER BY s.shared_at IS NULL, s.shared_at DESC, (f.kind = 'folder') DESC, f.name COLLATE NOCASE`).all(me, org, org);
@@ -1013,9 +1015,26 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ ok: true });
   });
 
+  // Ask for longer: you have it until a date and would like to keep it. The owner sees it among access
+  // requests; saying yes gives 30 more days (or what they choose), within the company's limit for outsiders.
+  r.post('/:id/ask-longer', (req, res) => {
+    const message = str(req.body?.message ?? '', { max: 500, name: 'Message' }) || null;
+    const f = q('SELECT id, name, owner_id, trashed FROM files WHERE id = ?').get(String(req.params.id));
+    const s = f && q('SELECT direct_role, expires_at FROM shares WHERE file_id = ? AND user_id = ?').get(f.id, req.user.id);
+    if (!s?.direct_role || !s.expires_at || f.trashed) throw notFound('That isn’t shared with you until a date');
+    const had = q('SELECT 1 FROM access_requests WHERE file_id = ? AND user_id = ?').get(f.id, req.user.id);
+    q(`INSERT INTO access_requests (id, file_id, user_id, role, message, created_at, longer) VALUES (?, ?, ?, ?, ?, ?, 1)
+       ON CONFLICT(file_id, user_id) DO UPDATE SET role = excluded.role, message = excluded.message, created_at = excluded.created_at, longer = 1`)
+      .run(uid(), f.id, req.user.id, s.direct_role, message, now());
+    const day = new Date(s.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    if (!had) bell([f.owner_id], { kind: 'share', title: `${req.user.name || req.user.username} asks to keep “${f.name}” after ${day}`, body: message || 'Open the request to answer.', link: '/drive', actor: req.user.name });
+    sendTo([f.owner_id], { type: 'access-requests' });
+    res.json({ ok: true });
+  });
+
   // Requests for your files, newest first.
   r.get('/access-requests', (req, res) => {
-    res.json(q(`SELECT a.id, a.role, a.message, a.created_at, f.id AS file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name, u.username AS user_email
+    res.json(q(`SELECT a.id, a.role, a.message, a.created_at, a.longer, (SELECT expires_at FROM shares WHERE file_id = a.file_id AND user_id = a.user_id) AS ends_at, f.id AS file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name, u.username AS user_email
                 FROM access_requests a JOIN files f ON f.id = a.file_id JOIN users u ON u.id = a.user_id
                 WHERE f.owner_id = ? AND f.trashed = 0 ORDER BY a.created_at DESC`).all(req.user.id));
   });
@@ -1028,6 +1047,22 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (req.body.approve) {
       const role = ['viewer', 'commenter', 'editor'].includes(req.body.role) ? req.body.role : a.role;
       if (!canReach(req.user, a.user_id)) throw bad('You can’t share with that person (external sharing may be turned off)');
+      if (a.longer) {
+        // Longer: the end moves on (30 days, or `days`), at most the company's limit for someone outside.
+        const days = Math.min(MAX_SHARE_DAYS, Math.max(1, Math.floor(Number(req.body.days)) || 30));
+        let until = Date.now() + days * 864e5;
+        const theirOrg = q('SELECT org_id FROM users WHERE id = ?').get(a.user_id)?.org_id;
+        const limit = theirOrg !== req.user.org_id ? q('SELECT external_share_days FROM orgs WHERE id = ?').get(req.user.org_id)?.external_share_days : null;
+        if (limit) until = Math.min(until, Date.now() + limit * 864e5);
+        q('UPDATE shares SET expires_at = ? WHERE file_id = ? AND user_id = ? AND direct_role IS NOT NULL').run(until, f.id, a.user_id);
+        q('DELETE FROM access_requests WHERE id = ?').run(a.id);
+        const day = new Date(until).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+        audit(req, 'file.share', { target: f.name, details: { longer: q('SELECT username FROM users WHERE id = ?').get(a.user_id)?.username, until: new Date(until).toISOString() } });
+        bell([a.user_id], { kind: 'share', title: `You can keep “${f.name}” until ${day}`, body: `${req.user.name || req.user.username} gave you longer.`, link: '/drive/shared', actor: req.user.name });
+        sendTo([a.user_id, req.user.id], { type: 'files-changed', parent_id: null });
+        sendTo([req.user.id], { type: 'access-requests' });
+        return res.json({ ok: true, ends_at: until });
+      }
       q(`INSERT INTO shares (file_id, user_id, role, direct_role, shared_at, shared_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role,
          shared_at = COALESCE(shares.shared_at, excluded.shared_at), shared_by = COALESCE(shares.shared_by, excluded.shared_by)`).run(f.id, a.user_id, role, role, Date.now(), req.user.id);
       syncShares(f.id);
@@ -1037,7 +1072,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
       sendTo([a.user_id], { type: 'files-changed', parent_id: null });
     } else {
-      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} didn’t give you access to “${f.name}”`, body: null, link: null, actor: req.user.name });
+      bell([a.user_id], { kind: 'share', title: a.longer ? `${req.user.name || req.user.username} didn’t give you longer with “${f.name}”` : `${req.user.name || req.user.username} didn’t give you access to “${f.name}”`, body: null, link: null, actor: req.user.name });
     }
     q('DELETE FROM access_requests WHERE id = ?').run(a.id);
     sendTo([req.user.id], { type: 'access-requests' });

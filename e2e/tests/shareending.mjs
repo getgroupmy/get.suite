@@ -64,6 +64,29 @@ await step('access ending in 2 days: Kim and Olivia are both told, in the bell',
   await page.getByText('Open its Share window to give them longer.').first().waitFor();
 });
 
+await step('Kim asks for longer from Shared with me; Olivia gives 30 more days', async () => {
+  const k = await mk('kim2');
+  await signIn(k, 'kim@acme.com');
+  await k.goto(`${B}/drive/shared`);
+  const row = k.locator('.files tbody tr', { hasText: 'Budget draft.txt' });
+  await row.getByText(/· until /).waitFor();
+  await row.getByRole('button', { name: /^Actions for/ }).click();
+  await k.getByRole('menuitem', { name: 'Ask for longer access' }).click();
+  await k.getByText('Asked Olivia Owner to let you keep “Budget draft.txt” longer').waitFor();
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: /^Access requests/ }).click();
+  const d = page.getByRole('dialog').filter({ hasText: 'asks to keep' });
+  await d.getByText(/asks to keep\s+Budget draft\.txt after /).waitFor();
+  await axe(page, 'longer request');
+  await d.getByRole('button', { name: 'Give 30 more days' }).click();
+  await page.getByText('Kim Park can keep Budget draft.txt longer').waitFor();
+  const f = ((await api(page, 'GET', '/files')).body || []).find((x) => x.name === 'Budget draft.txt');
+  const kim = ((await api(page, 'GET', `/files/${f.id}/shares`)).body || []).find((x) => x.username === 'kim@acme.com');
+  const days = (kim.expires_at - Date.now()) / 864e5;
+  if (!(days > 29.9 && days <= 30)) throw new Error(`ends in ${days} days`);
+  await until(async () => ((await api(k, 'GET', '/notifications')).body?.items || []).some((n) => /^You can keep “Budget draft\.txt” until /.test(n.title)));
+});
+
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

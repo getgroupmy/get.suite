@@ -248,3 +248,38 @@ test('a few days before someone’s access ends: they and the owner are told, on
   warnEndingShares(later - 2 * 864e5);
   assert.equal(told('gil@globex.com', 'Your access to “ending.txt” ends %'), 1);
 });
+
+test('ask for longer: the owner says yes (30 more days, or within the outside limit) or no', async () => {
+  const doc = (await kim('POST', '/api/files/upload?name=keep.txt', 'k', true)).body;
+  const soon = Date.now() + 2 * 864e5;
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'editor', expires_at: soon }, { user_id: id('gil@globex.com'), role: 'viewer', expires_at: soon }] });
+  const end = (u) => q('SELECT expires_at FROM shares WHERE file_id = ? AND user_id = ?').get(doc.id, id(u))?.expires_at;
+  // Only with a share that ends by date.
+  const other = (await kim('POST', '/api/files/upload?name=forever.txt', 'f', true)).body;
+  await kim('PUT', `/api/files/${other.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'viewer' }] });
+  assert.equal((await ana('POST', `/api/files/${other.id}/ask-longer`, {})).status, 404);
+  assert.equal((await ana('POST', `/api/files/${doc.id}/ask-longer`, { message: 'Still editing it' })).status, 200);
+  assert.ok(q("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE 'Ana Admin asks to keep “keep.txt” after %'").get(id('kim@acme.com')));
+  const reqs = (await kim('GET', '/api/files/access-requests')).body.filter((r) => r.file_name === 'keep.txt');
+  assert.equal(reqs.length, 1);
+  assert.equal(reqs[0].longer, 1);
+  assert.equal(reqs[0].ends_at, soon);
+  assert.equal((await kim('POST', `/api/files/access-requests/${reqs[0].id}`, { approve: true })).status, 200);
+  assert.ok(Math.abs(end('ana@acme.com') - (Date.now() + 30 * 864e5)) < 10000, '30 more days');
+  assert.equal(q("SELECT role FROM shares WHERE file_id = ? AND user_id = ?").get(doc.id, id('ana@acme.com')).role, 'editor', 'same access');
+  assert.ok(q("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE 'You can keep “keep.txt” until %'").get(id('ana@acme.com')));
+  // Someone outside, with a 7-day company limit: 30 asked, 7 given.
+  await ana('PATCH', '/api/orgs/current', { external_share_days: 7 });
+  await gil('POST', `/api/files/${doc.id}/ask-longer`, {});
+  const g = (await kim('GET', '/api/files/access-requests')).body.find((r) => r.file_name === 'keep.txt');
+  await kim('POST', `/api/files/access-requests/${g.id}`, { approve: true, days: 30 });
+  assert.ok(Math.abs(end('gil@globex.com') - (Date.now() + 7 * 864e5)) < 10000, 'within the limit');
+  await ana('PATCH', '/api/orgs/current', { external_share_days: null });
+  // No: the end stays.
+  await ana('POST', `/api/files/${doc.id}/ask-longer`, {});
+  const before = end('ana@acme.com');
+  const n = (await kim('GET', '/api/files/access-requests')).body.find((r) => r.file_name === 'keep.txt');
+  await kim('POST', `/api/files/access-requests/${n.id}`, { approve: false });
+  assert.equal(end('ana@acme.com'), before);
+  assert.ok(q("SELECT 1 FROM notifications WHERE user_id = ? AND title = 'Kim Park didn’t give you longer with “keep.txt”'").get(id('ana@acme.com')));
+});
