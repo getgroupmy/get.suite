@@ -12444,6 +12444,36 @@ test('comment notifications: the owner hears of new comments, a thread’s peopl
   assert.equal((await bell(c)).length, 0, 'Cy turned these off');
 });
 
+test('comment notifications: someone leaving many on one file is one notification counting them, with the latest; mentions stay apart', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['cgra', 'Grp Ann'], ['cgrb', 'Grp Ben'], ['cgrc', 'Grp Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cgra@acme.com');
+  const bid = (await login(b, 'cgrb@acme.com')).id;
+  const cid = (await login(c, 'cgrc@acme.com')).id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Budget' })).body;
+  const other = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Plan' })).body;
+  for (const f of [doc, other]) await a('PUT', `/api/files/${f.id}/shares`, { shares: [bid, cid].map((user_id) => ({ user_id, role: 'editor' })) });
+  const bell = async () => (await a('GET', '/api/notifications')).body.items.filter((n) => n.kind === 'reply');
+  const say = (who, f, body) => who('POST', `/api/comments/${f.id}`, { body, anchor: { quote: body } });
+  await say(b, doc, 'Typo in line 2');
+  await say(b, doc, 'Check the total');
+  const last = (await say(b, doc, 'Source for this?')).body.comment;
+  await say(c, doc, 'Looks fine to me');
+  await say(b, other, 'One thing here');
+  const got = await bell();
+  assert.deepEqual(got.map((n) => [n.title, n.body]), [
+    ['Grp Ben commented on “Plan”', 'One thing here'],
+    ['Grp Cy commented on “Budget”', 'Looks fine to me'],
+    ['Grp Ben left 3 comments on “Budget”', 'The latest: Source for this?'],
+  ], 'one per person and file');
+  assert.equal(got[2].link, `/docs/${doc.id}?comment=${last.id}`, 'it opens the latest');
+  assert.equal((await a('GET', '/api/notifications')).body.unread, 3);
+  // A mention is its own notification, every time.
+  await say(b, doc, 'Can you look @cgra@acme.com');
+  await say(b, doc, 'And here @cgra@acme.com');
+  assert.equal((await a('GET', '/api/notifications')).body.items.filter((n) => n.kind === 'comment').length, 2);
+});
+
 test('comments seen: when you last looked at a file’s comments is kept per person, and only for those who can open it', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['csna', 'Seen Ann'], ['csnb', 'Seen Ben'], ['csnc', 'Seen Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

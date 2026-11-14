@@ -155,8 +155,11 @@ function tellFollowers(user, file, body, threadId, isReply, skipNames) {
   const who = [...new Set(ids)].filter((id) => id && id !== user.id && roleFor(file.id, id)
     && !skipNames.includes(q('SELECT username FROM users WHERE id = ?').get(id)?.username));
   if (!who.length) return;
-  notify(who, { kind: 'reply', title: isReply ? `${user.name || user.username} replied to a comment on “${file.name}”` : `${user.name || user.username} commented on “${file.name}”`,
-    body, link: linkTo(file, threadId), actor: user.name });
+  // Someone going through a file leaving many: one notification counting them, with the latest (mentions stay one each).
+  const by = user.name || user.username;
+  notify(who, { kind: 'reply', title: isReply ? `${by} replied to a comment on “${file.name}”` : `${by} commented on “${file.name}”`,
+    body, link: linkTo(file, threadId), actor: user.name,
+    group: { key: `comments:${file.id}:${user.id}`, many: (n) => ({ title: `${by} left ${n} comments on “${file.name}”`, body: `The latest: ${body}` }) } });
 }
 
 /** Mentioned people: notify those who can open the file; say who can't. `already`: mentioned before (an edit), not told again. */
