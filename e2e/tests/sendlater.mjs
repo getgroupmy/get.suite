@@ -74,7 +74,7 @@ await step('undo send: the message waits a few seconds and Undo brings it back',
 });
 
 await step('schedule send for a chosen time; it waits in Scheduled; Send now sends it', async () => {
-  await compose('Monthly report', 'Numbers attached');
+  await compose('Monthly report', 'Numbers for the month');
   await page.getByRole('button', { name: 'Schedule for later' }).click();
   await page.getByRole('menuitem', { name: /^Tomorrow morning/ }).waitFor();
   await page.getByRole('menuitem', { name: 'Pick date and time…' }).click();

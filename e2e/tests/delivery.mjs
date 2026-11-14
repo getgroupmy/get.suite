@@ -46,6 +46,9 @@ await step('a sent message says it was delivered, or why not', async () => {
     await page.goto(`${B}/mail/${encodeURIComponent(sentPath)}/${uid}`);
     await page.getByText(subject).first().waitFor();
     const d = page.getByRole('group', { name: 'Delivery' });
+    // The page asks for the delivery status once it's open: give that a moment before looking.
+    await d.waitFor({ timeout: 4000 }).catch(() => {});
+    await d.getByText('Waiting to retry').waitFor({ timeout: 2000 }).catch(() => {});
     return (await d.count()) && (await d.getByText('Waiting to retry').count()) && (await d.getByText('Delivered', { exact: true }).count());
   }, 120000);
   const d = page.getByRole('group', { name: 'Delivery' });

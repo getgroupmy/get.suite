@@ -51,7 +51,7 @@ await step('Show original: who sent it and how it was checked, the way it came, 
   await d.getByLabel('To', { exact: true }).fill('kim@acme.com');
   await d.getByLabel('Subject').fill('Invoice 2026-11');
   await d.getByRole('textbox', { name: 'Message' }).click();
-  await page.keyboard.type('Please find the invoice details below.');
+  await page.keyboard.type('The invoice details are below.');
   await d.getByRole('button', { name: 'Send', exact: true }).click();
   await d.waitFor({ state: 'detached', timeout: 30000 });
   const kctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const k = await kctx.newPage();
@@ -65,12 +65,12 @@ await step('Show original: who sent it and how it was checked, the way it came, 
   await o.getByRole('row', { name: /Message ID/ }).getByText(/^<.+@acme\.com>$/).waitFor();
   await o.getByRole('row', { name: /From/ }).getByText(/olivia@acme\.com/).waitFor();
   const headers = await o.getByLabel('Headers').inputValue();
-  if (!/^Return-Path: <olivia@acme\.com>/m.test(headers) || !/DKIM-Signature: v=1;/.test(headers) || /Please find/.test(headers)) throw new Error(headers.slice(0, 300));
+  if (!/^Return-Path: <olivia@acme\.com>/m.test(headers) || !/DKIM-Signature: v=1;/.test(headers) || /The invoice details/.test(headers)) throw new Error(headers.slice(0, 300));
   await k.screenshot({ path: `${SP}/shots/original.png` });
   const [dl] = await Promise.all([k.waitForEvent('download'), o.getByRole('link', { name: 'Download message (.eml)' }).click()]);
   if (dl.suggestedFilename() !== 'Invoice 2026-11.eml') throw new Error(dl.suggestedFilename());
   const eml = fs.readFileSync(await dl.path(), 'utf8');
-  if (!/Subject: Invoice 2026-11/.test(eml) || !/Please find the invoice details below\./.test(eml)) throw new Error('not the whole message');
+  if (!/Subject: Invoice 2026-11/.test(eml) || !/The invoice details are below\./.test(eml)) throw new Error('not the whole message');
 });
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
