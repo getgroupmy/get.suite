@@ -33,7 +33,7 @@ import { checkQuota } from '../tenancy.js';
 import { recordSent } from '../othercontacts.js';
 import { confidentialRoutes, setCodeSender, newToken, noticeOf, keepConfidential, EXPIRY_DAYS } from '../mail/confidential.js';
 import { baseUrl as publicBase } from './calendar.js';
-import { parseMailQuery, allOf, ruleFromSearch } from '../mail/searchquery.js';
+import { parseMailQuery, allOf, ruleFromSearch, filesMatch } from '../mail/searchquery.js';
 import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { tidyRoutes } from '../mail/tidy.js';
 import { attachPrefRoutes } from '../mail/attachprefs.js';
@@ -966,7 +966,10 @@ export default function webmailRoutes() {
     for (const sv of list) {
       try {
         const parsed = parseMailQuery(sv.query);
-        sv.unseen = parsed.query ? ((await withFolder(req.user, sv.folder, (c) => c.search(allOf([parsed.query, { seen: false }]), { uid: true }))) || []).length : 0;
+        sv.unseen = parsed.query ? (await withFolder(req.user, sv.folder, async (c) => {
+          const uids = (await c.search(allOf([parsed.query, { seen: false }]), { uid: true })) || [];
+          return parsed.files ? withFileNames(c, uids.sort((a, b) => b - a), parsed.files) : uids;
+        })).length : 0;
       } catch { sv.unseen = null; } // a folder that's gone
     }
     res.json(list);
@@ -1036,8 +1039,9 @@ export default function webmailRoutes() {
       const otherUnread = tab ? ((await client.search(allOf([tabQuery(tab === 'primary' ? 'updates' : 'primary'), { seen: false }]), { uid: true })) || []).length : undefined;
       if (parsed.query || only || tab) {
         const query = allOf([...(parsed.query ? [parsed.query] : []), ...(only ? [{ keyword: only.keyword }] : []), ...(tab ? [tabQuery(tab)] : [])]);
-        const uids = (await client.search(query, { uid: true })) || [];
+        let uids = (await client.search(query, { uid: true })) || [];
         uids.sort((a, b) => b - a);
+        if (parsed.files) uids = await withFileNames(client, uids, parsed.files);
         count = uids.length;
         const slice = uids.slice((page - 1) * PAGE, page * PAGE);
         if (!slice.length) return { total: count, page, messages: [], ...(tab && { tab, otherUnread }) };
@@ -2322,6 +2326,21 @@ function vacationOf(userId) {
   const ev = q("SELECT e.id FROM vacations v JOIN events e ON e.id = v.ooo_event_id AND e.kind = 'ooo' WHERE v.user_id = ?").get(userId);
   out.calendar = !!ev;
   return out;
+}
+
+/**
+ * filename: in a search: of these messages (newest first), the ones whose attachments fit, read
+ * from each one's structure (the newest 5,000 at most).
+ */
+async function withFileNames(client, uids, files) {
+  const keep = new Set();
+  const look = uids.slice(0, 5000);
+  for (let i = 0; i < look.length; i += 500) {
+    for await (const m of client.fetch(look.slice(i, i + 500).join(','), { uid: true, bodyStructure: true }, { uid: true })) {
+      if (filesMatch(partsOf(m.bodyStructure), files)) keep.add(m.uid);
+    }
+  }
+  return look.filter((u) => keep.has(u));
 }
 
 /** The first few attachments, for chips under a message in the list (and how many there are). */

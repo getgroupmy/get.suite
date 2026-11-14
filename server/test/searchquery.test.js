@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMailQuery, allOf } from '../src/mail/searchquery.js';
+import { parseMailQuery, allOf, ruleFromSearch } from '../src/mail/searchquery.js';
 
 const now = Date.UTC(2026, 10, 7);
 
@@ -55,4 +55,24 @@ test('a search as the start of a filter', async () => {
   assert.match(ruleFromSearch('is:unread before:2026-01-01').error, /can't use is:unread before:2026-01-01/);
   assert.match(ruleFromSearch('').error, /Search for something first/);
   assert.match(ruleFromSearch('larger:huge').error, /Write sizes like/);
+});
+
+test('filename: narrows to mail with attachments, and names are checked afterwards', async () => {
+  const { filesMatch } = await import('../src/mail/searchquery.js');
+  const r = parseMailQuery('filename:pdf from:kim');
+  assert.deepEqual(r.files, [{ name: 'pdf', neg: false }]);
+  assert.deepEqual(r.query, { header: { 'content-type': 'multipart/mixed' }, from: 'kim' });
+  const q2 = parseMailQuery('filename:"Q3 Report" -filename:draft');
+  assert.deepEqual(q2.files, [{ name: 'q3 report', neg: false }, { name: 'draft', neg: true }]);
+  // Only "not this file": every message is a candidate.
+  assert.deepEqual(parseMailQuery('-filename:zip').query, { all: true });
+  assert.equal(parseMailQuery('invoice').files, undefined);
+  const parts = [{ filename: 'Q3 Report final.PDF' }, { filename: 'budget.xlsx' }];
+  assert.equal(filesMatch(parts, q2.files), true);
+  assert.equal(filesMatch([{ filename: 'Q3 report draft.pdf' }], q2.files), false, 'has the draft');
+  assert.equal(filesMatch(parts, [{ name: 'pdf', neg: false }]), true);
+  assert.equal(filesMatch(parts, [{ name: 'docx', neg: false }]), false);
+  assert.equal(filesMatch([], [{ name: 'zip', neg: true }]), true, 'no files: none of them is a zip');
+  // A filter can't use it (it's left out and said so).
+  assert.deepEqual(ruleFromSearch('from:kim filename:pdf').left, ['filename:pdf']);
 });

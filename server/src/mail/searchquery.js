@@ -1,5 +1,5 @@
 // Mail search, as people type it in Gmail: words (all of them, in the subject, sender, recipients
-// or text), "exact phrases", -excluded words, and from: to: subject: has:attachment is:unread
+// or text), "exact phrases", -excluded words, and from: to: subject: has:attachment filename: is:unread
 // is:read is:starred before: after: older_than: newer_than: larger: smaller:. Turned into an
 // IMAP search for the mail server.
 
@@ -38,7 +38,7 @@ const word = (w) => ({ or: [{ subject: w }, { from: w }, { to: w }, { body: w }]
 /** { query } for imapflow's search, or { error }. An empty search gives { query: null }. */
 export function parseMailQuery(text, now = Date.now()) {
   const tokens = String(text || '').match(/-?(?:[a-z_]+:)?(?:"[^"]*"|\S+)/gi) || [];
-  const clauses = [];
+  const clauses = [], files = [];
   for (const raw of tokens) {
     const neg = raw.startsWith('-') && raw.length > 1;
     const t = neg ? raw.slice(1) : raw;
@@ -53,6 +53,13 @@ export function parseMailQuery(text, now = Date.now()) {
       else if (op === 'cc') c = { cc: v };
       else if (op === 'subject') c = { subject: v };
       else if (op === 'has' && /^attachments?$/i.test(v)) c = { header: { 'content-type': 'multipart/mixed' } };
+      else if (op === 'filename') {
+        // The mail server can't look at file names (they may be encoded): it narrows to mail with
+        // attachments, and the names are checked against each message's structure afterwards.
+        files.push({ name: v.toLowerCase(), neg });
+        if (neg) continue;
+        c = { header: { 'content-type': 'multipart/mixed' } };
+      }
       else if (op === 'is' && /^unread$/i.test(v)) c = { seen: false };
       else if (op === 'is' && /^read$/i.test(v)) c = { seen: true };
       else if (op === 'is' && /^(starred|flagged)$/i.test(v)) c = { flagged: true };
@@ -76,7 +83,13 @@ export function parseMailQuery(text, now = Date.now()) {
     }
     clauses.push(neg ? { not: c } : c);
   }
-  return { query: clauses.length ? allOf(clauses) : null };
+  return { query: clauses.length ? allOf(clauses) : files.length ? { all: true } : null, ...(files.length && { files }) };
+}
+
+/** Whether a message's attachments (from partsOf) fit the filename: parts of a search. */
+export function filesMatch(parts, files) {
+  const names = parts.map((p) => String(p.filename || '').toLowerCase());
+  return files.every((f) => names.some((n) => n.includes(f.name)) !== f.neg);
 }
 
 /**

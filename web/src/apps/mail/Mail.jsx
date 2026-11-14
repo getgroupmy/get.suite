@@ -507,7 +507,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         <div className="mail-toolbar">
           <form className="mail-search" role="search" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get('q').trim(); setSearch(v ? { q: v } : {}); }}>
             <Icon name="search" size={18} />
-            <input name="q" defaultValue={q} key={q} placeholder={`Search ${current?.name || 'mail'}`} aria-label="Search mail" title="Words, &quot;exact phrases&quot;, -leave out, from: to: subject: has:attachment is:unread is:read is:starred before:2026-01-31 after: newer_than:7d older_than:1y larger:5M smaller:" />
+            <input name="q" defaultValue={q} key={q} placeholder={`Search ${current?.name || 'mail'}`} aria-label="Search mail" title="Words, &quot;exact phrases&quot;, -leave out, from: to: subject: has:attachment filename:pdf is:unread is:read is:starred before:2026-01-31 after: newer_than:7d older_than:1y larger:5M smaller:" />
           </form>
           <button className="icon-btn" aria-label="Refresh" onClick={refresh}><Icon name="restore" size={20} /></button>
           {current?.unseen > 0 && <button className="icon-btn" aria-label="Mark all as read" title={`Mark all ${current.unseen} unread in ${current.name} as read`}
