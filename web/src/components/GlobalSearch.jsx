@@ -3,10 +3,10 @@
 // Drive in full, as before.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post, del } from '../api.js';
+import { get, post, put, del } from '../api.js';
 import Icon from './Icon.jsx';
 import { useAuth } from '../App.jsx';
-import { matchActions, detailedActions, wantsPeople } from './searchactions.js';
+import { matchActions, detailedActions, wantsPeople, wantsChannels } from './searchactions.js';
 import { localToday } from '../apps/tasks/taskmath.js';
 import { addToTasksWithToast } from '../apps/tasks/addtask.js';
 import { newEventMinutes, DEFAULT_CAL_PREFS } from '../apps/calendar/calprefs.js';
@@ -73,13 +73,14 @@ export default function GlobalSearch() {
   useEffect(() => { mailEnabled().then(setMailOn); }, []);
   // "event …" offers that event, "email @kim …" that message (colleagues for @name, rooms for "in the Boardroom", loaded the first time it's typed).
   const [eventCtx, setEventCtx] = useState(null);
-  const eventy = wantsPeople(text);
+  const eventy = wantsPeople(text) || wantsChannels(text);
   useEffect(() => {
     if (!eventy || eventCtx) return;
-    Promise.all([get('/users/directory').catch(() => []), get('/rooms').catch(() => [])]).then(([people, rooms]) => setEventCtx({ people: people.filter((p) => p.id !== user?.id), rooms }));
+    Promise.all([get('/users/directory').catch(() => []), get('/rooms').catch(() => []), get('/chat/channels').then((r) => r.channels || r).catch(() => [])])
+      .then(([people, rooms, channels]) => setEventCtx({ people: people.filter((p) => p.id !== user?.id), rooms, channels }));
   }, [eventy, eventCtx, user?.id]);
   const detailed = detailedActions(text, { today: localToday(), minutes: newEventMinutes(user?.cal_prefs || DEFAULT_CAL_PREFS), mail: mailOn, ...(eventCtx || {}) })
-    .map((a) => ({ ...a, key: `a${a.key}`, action: true, sub: a.quickEvent ? eventWhen(a.quickEvent) : a.quickTask ? taskWhen(a.quickTask) : a.quickMail ? (a.quickMail.subject ? `“${a.quickMail.subject}”` : 'no subject yet') : a.quickNote?.labels.length ? a.quickNote.labels.map((l) => `#${l}`).join(' ') : '' }));
+    .map((a) => ({ ...a, key: `a${a.key}`, action: true, sub: a.quickChat ? (a.quickChat.text ? 'to finish and send in Chat' : '') : a.quickEvent ? eventWhen(a.quickEvent) : a.quickTask ? taskWhen(a.quickTask) : a.quickMail ? (a.quickMail.subject ? `“${a.quickMail.subject}”` : 'no subject yet') : a.quickNote?.labels.length ? a.quickNote.labels.map((l) => `#${l}`).join(' ') : '' }));
   const actions = [...detailed, ...(detailed.length ? [] : matchActions(text, { mail: mailOn, admin: !!user?.is_admin }))].map((a) => (a.action ? a : { ...a, key: `a${a.key}`, action: true }));
   const toast = useToast();
   const showRecent = !text.trim() && recent?.length > 0;
@@ -122,6 +123,19 @@ export default function GlobalSearch() {
     if (r.quickTask) { await addToTasksWithToast(toast, navigate, r.quickTask); return; }
     if (r.quickNote) {
       try { const n = await post('/notes', r.quickNote); toast(n.items ? 'Checklist added to Notes' : 'Note added', 'info', { action: { label: 'Open', onClick: () => navigate('/notes', { state: { openNote: n.id } }) } }); } catch (e) { toast(e.message, 'error'); }
+      return;
+    }
+    if (r.quickChat) {
+      // The conversation (a direct message is started if need be), with the words in its box as a draft, not sent.
+      try {
+        const c = r.quickChat;
+        const id = c.channel ? c.channel.id : (await post('/chat/dm', { user_id: c.person.id })).id;
+        if (c.text) {
+          const had = (await get('/chat/drafts').catch(() => ({})))[id]?.body || '';
+          await put(`/chat/channels/${id}/draft`, { body: had.trim() ? `${had}\n${c.text}` : c.text });
+        }
+        navigate(`/chat/${id}`);
+      } catch (e) { toast(e.message, 'error'); }
       return;
     }
     if (r.quickMail) { navigate(`/mail?compose=${encodeURIComponent(r.quickMail.to.join(', '))}${r.quickMail.subject ? `&subject=${encodeURIComponent(r.quickMail.subject)}` : ''}`); return; }

@@ -29,7 +29,7 @@ export function matchActions(text, { mail = true, admin = false, max = 3 } = {})
 const NOTE_WORDS = /^(?:new\s+)?(note|list|checklist)\s+(.+)$/i;
 const MAIL_WORDS = /^(?:new\s+)?(?:email|mail|message|write\s+to)\s+(.+)$/i;
 /** Whether a line wants colleagues looked up (an event's guests, an email's recipients). */
-export const wantsPeople = (text) => EVENT_WORDS.test(String(text || '').trim()) || MAIL_WORDS.test(String(text || '').trim());
+export const wantsPeople = (text) => [EVENT_WORDS, MAIL_WORDS, CHAT_WORDS].some((re) => re.test(String(text || '').trim()));
 
 /**
  * "note Call the bank", "list milk, eggs, bread #shopping": a note (a checklist for "list", its items split at
@@ -53,6 +53,32 @@ export function mailFrom(rest, people = []) {
   return { to: who.guests, subject };
 }
 
+const CHAT_WORDS = /^(?:chat|dm|message\s+in)\s+([@#].*)$/i;
+/** Whether a line wants conversations looked up ("chat #launch …"). */
+export const wantsChannels = (text) => CHAT_WORDS.test(String(text || '').trim());
+
+/**
+ * "chat @kim Are we still on?" or "chat #launch Shipped!": { person | channel, text } — who or where (one colleague
+ * from `people` by "@Full Name", "@first" or "@address-part", or an open channel you're in from `channels` by name)
+ * and the words to start the message with. Null when it names nobody (or more than one Kim).
+ */
+export function chatFrom(rest, { people = [], channels = [] } = {}) {
+  const r = String(rest || '').trim();
+  const words = (n) => r.split(/\s+/).slice(n).join(' ').replace(/^[:,-]\s*/, '');
+  if (r.startsWith('#')) {
+    const name = /^#([^\s]+)/.exec(r)?.[1]?.toLowerCase();
+    const c = channels.find((x) => !x.dm_key && !x.archived_at && x.name?.toLowerCase() === name);
+    return c ? { channel: c, text: words(1) } : null;
+  }
+  const lower = r.slice(1).toLowerCase();
+  const full = people.filter((p) => p.name && (lower === p.name.toLowerCase() || lower.startsWith(`${p.name.toLowerCase()} `) || lower.startsWith(`${p.name.toLowerCase()}:`) || lower.startsWith(`${p.name.toLowerCase()},`)));
+  if (full.length === 1) return { person: full[0], text: words(full[0].name.split(/\s+/).length) };
+  const first = /^@([^\s:,]+)/.exec(r)?.[1]?.toLowerCase();
+  if (!first) return null;
+  const hits = people.filter((p) => p.name?.toLowerCase().split(/\s+/)[0] === first || p.username?.toLowerCase().split('@')[0] === first);
+  return hits.length === 1 ? { person: hits[0], text: words(1) } : null;
+}
+
 const EVENT_WORDS = /^(?:new\s+)?(?:event|meeting|appointment)\s+(.+)$/i;
 const TASK_WORDS = /^(?:new\s+)?(?:task|todo|to-do|remind\s+me\s+to)\s+(.+)$/i;
 /** Whether a line starts like a detailed event (so the caller knows to have people and rooms ready). */
@@ -63,7 +89,7 @@ export const wantsEvent = (text) => EVENT_WORDS.test(String(text || '').trim());
  * (one at most), or [].
  * An event needs a day or time in it; a task just words after "task".
  */
-export function detailedActions(text, { today, people = [], rooms = [], minutes = 60, mail = true } = {}) {
+export function detailedActions(text, { today, people = [], rooms = [], channels = [], minutes = 60, mail = true } = {}) {
   const t = String(text || '').trim();
   let m = EVENT_WORDS.exec(t);
   if (m) {
@@ -81,8 +107,15 @@ export function detailedActions(text, { today, people = [], rooms = [], minutes 
   m = MAIL_WORDS.exec(t);
   if (m && mail) {
     const msg = mailFrom(m[1], people);
-    if (!msg.to.length) return []; // nobody to write to: the plain "Write an email" does
-    return [{ key: 'qmail', icon: 'mail', title: `Email ${msg.to.map((a) => people.find((p) => p.username.toLowerCase() === a)?.name || a).join(', ')}`, quickMail: msg }];
+    // nobody to write to: the plain "Write an email" does (or a chat, for "message in #…")
+    if (msg.to.length) return [{ key: 'qmail', icon: 'mail', title: `Email ${msg.to.map((a) => people.find((p) => p.username.toLowerCase() === a)?.name || a).join(', ')}`, quickMail: msg }];
+  }
+  m = CHAT_WORDS.exec(t);
+  if (m) {
+    const c = chatFrom(m[1], { people, channels });
+    if (!c) return [];
+    const where = c.person ? c.person.name : `#${c.channel.name}`;
+    return [{ key: 'qchat', icon: 'chat', title: c.text ? `Message ${where}: ${c.text.slice(0, 80)}` : `Open chat with ${where}`, quickChat: c }];
   }
   m = TASK_WORDS.exec(t);
   if (m) {

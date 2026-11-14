@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchActions, detailedActions, wantsEvent, wantsPeople, noteFrom, mailFrom } from './searchactions.js';
+import { matchActions, detailedActions, wantsEvent, wantsPeople, wantsChannels, noteFrom, mailFrom, chatFrom } from './searchactions.js';
 
 const keys = (l) => l.map((a) => a.key);
 
@@ -62,4 +62,22 @@ test('"email @kim …": a message to them with the rest as its subject; nobody n
   assert.deepEqual(detailedActions('email @kim hi', { today, people, mail: false }), [], 'no email on this server');
   assert.equal(wantsPeople('write to @kim'), true);
   assert.equal(wantsPeople('task x'), false);
+});
+
+test('"chat @kim …" and "chat #launch …": that conversation, the rest to start the message', () => {
+  const people = [{ id: 'k', name: 'Kim Park', username: 'kim@acme.com' }, { id: 's1', name: 'Sam Lee', username: 'sam@acme.com' }, { id: 's2', name: 'Sam Ortiz', username: 'sortiz@acme.com' }];
+  const channels = [{ id: 'c1', name: 'launch' }, { id: 'c2', name: 'Old', archived_at: 1 }, { id: 'd', dm_key: 'x', name: 'kim' }];
+  const [a] = detailedActions('chat @kim Are we still on for 3?', { today, people, channels });
+  assert.deepEqual([a.title, a.quickChat.person.id, a.quickChat.text], ['Message Kim Park: Are we still on for 3?', 'k', 'Are we still on for 3?']);
+  assert.deepEqual(chatFrom('@Sam Ortiz: running late', { people }), { person: people[2], text: 'running late' });
+  assert.equal(chatFrom('@sam hi', { people }), null, 'two Sams');
+  assert.deepEqual(chatFrom('@sortiz hi', { people }), { person: people[2], text: 'hi' });
+  assert.equal(detailedActions('dm @kim', { today, people })[0].title, 'Open chat with Kim Park');
+  const [b] = detailedActions('chat #Launch Shipped it!', { today, people, channels });
+  assert.deepEqual([b.title, b.quickChat.channel.id, b.quickChat.text], ['Message #launch: Shipped it!', 'c1', 'Shipped it!']);
+  assert.equal(detailedActions('message in #launch hello', { today, people, channels })[0].quickChat.channel.id, 'c1', 'not an email');
+  assert.deepEqual(detailedActions('chat #old hi', { today, channels }), [], 'archived');
+  assert.deepEqual(detailedActions('chat about the launch', { today, people, channels }), []);
+  assert.equal(wantsChannels('chat #x'), true);
+  assert.equal(wantsPeople('dm @kim'), true);
 });

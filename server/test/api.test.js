@@ -2819,6 +2819,24 @@ test('top search "note …" / "list …": the note it sends is kept as a note or
   assert.deepEqual((mine.notes || mine).slice(0, 2).map((n) => n.id), [note.id, list.body.id], 'newest at the top');
 });
 
+test('top search "chat @kim …": the direct message is started and the words wait as your draft, sent to nobody', async () => {
+  const a = client(), k = client();
+  for (const [local, name] of [['srchat', 'Search Chat'], ['srkim', 'Search Kim']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'srchat@acme.com');
+  const kid = (await login(k, 'srkim@acme.com')).id;
+  const id = (await a('POST', '/api/chat/dm', { user_id: kid })).body.id;
+  assert.equal((await a('POST', '/api/chat/dm', { user_id: kid })).body.id, id, 'the same one again');
+  assert.equal((await a('PUT', `/api/chat/channels/${id}/draft`, { body: 'Are we still on for 3?' })).status, 200);
+  // A second time adds a line under it (what the search box sends).
+  const had = (await a('GET', '/api/chat/drafts')).body[id].body;
+  await a('PUT', `/api/chat/channels/${id}/draft`, { body: `${had}\nBring the figures` });
+  assert.equal((await a('GET', '/api/chat/drafts')).body[id].body, 'Are we still on for 3?\nBring the figures');
+  assert.deepEqual((await a('GET', `/api/chat/channels/${id}/messages`)).body, [], 'nothing sent');
+  assert.equal((await k('GET', '/api/chat/drafts')).body[id], undefined, 'Kim doesn\'t see it');
+  assert.equal((await k('PUT', `/api/chat/channels/${id}/draft`, { body: 'x' })).status, 200, 'Kim has her own');
+  assert.equal((await a('GET', '/api/chat/drafts')).body[id].body, 'Are we still on for 3?\nBring the figures');
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);
