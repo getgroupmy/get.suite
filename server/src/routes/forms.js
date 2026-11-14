@@ -35,7 +35,7 @@ q(`CREATE TABLE IF NOT EXISTS forms (
   questions TEXT NOT NULL DEFAULT '[]',
   audience TEXT NOT NULL DEFAULT 'org',     -- org: people in the company, signed in | public: anyone with the link
   accepting INTEGER NOT NULL DEFAULT 1,
-  one_per_person INTEGER NOT NULL DEFAULT 0, -- company forms only: one response each
+  one_per_person INTEGER NOT NULL DEFAULT 0, -- one response each: per account (company forms) or per email address (anyone's, collecting them)
   confirmation TEXT NOT NULL DEFAULT '',
   notify INTEGER NOT NULL DEFAULT 1,         -- a bell notification for each response
   created_at INTEGER NOT NULL,
@@ -939,6 +939,8 @@ export default function formRoutes() {
 }
 
 const recent = new Map(); // ip -> times of anonymous responses in the last hour
+/** Forget the limits (tests, which all answer from one address). */
+export const resetResponseLimits = () => recent.clear();
 function limit(ip) {
   const t = Date.now();
   const list = (recent.get(ip) || []).filter((x) => t - x < 36e5);
@@ -1042,7 +1044,7 @@ export function publicFormRoutes() {
     const left = placesLeft(form.id, form.questions);
     const team = !!user && teamOf(form).includes(user.id);
     res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, theme: form.theme, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
-      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
+      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, one_per_email: form.audience === 'public' && form.collect_email && form.one_per_person, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team, can_save: !!user, show_results: form.show_results,
       // For a card when the link is pasted in Chat: whether you've sent a response, and (for its team) how many came.
       responded: !!user && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id),
@@ -1134,6 +1136,11 @@ export function publicFormRoutes() {
       email = String(req.body?.email || '').trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw bad('Your email: enter your email address');
     }
+    // One response per email address (a form for anyone that collects them): checked before any files move, and again when saving.
+    const onePerEmail = form.audience === 'public' && form.collect_email && form.one_per_person;
+    const emailUsed = () => onePerEmail && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND lower(email) = ?').get(form.id, email);
+    const EMAIL_USED = 'A response has already been sent from this email address';
+    if (emailUsed()) throw new HttpError(409, EMAIL_USED);
     // File answers: uploads to this form that haven't been used.
     const fileQs = form.questions.filter((qu) => qu.type === 'file' && answers[qu.id]);
     for (const qu of fileQs) for (const up of answers[qu.id]) {
@@ -1165,6 +1172,7 @@ export function publicFormRoutes() {
       if (form.audience === 'org' && form.one_per_person && q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id)) {
         throw new HttpError(409, 'You have already filled in this form');
       }
+      if (emailUsed()) throw new HttpError(409, EMAIL_USED);
       checkPlaces(form.id, form.questions, answers);
       q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, edit_key, email) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(id, form.id, form.audience === 'org' ? user.id : null, JSON.stringify(answers), now(), editKey, form.audience === 'public' ? email : null);

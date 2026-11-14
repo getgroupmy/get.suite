@@ -14825,3 +14825,25 @@ test('time off: everyone\'s vacation balances for a year as CSV, for admins', as
   await login(c, 'balcsv@acme.com');
   assert.equal((await c('GET', '/api/time-off/balances.csv?year=2030')).status, 403);
 });
+
+test('forms for anyone: one response per email address, when the form collects them', async () => {
+  (await import('../src/routes/forms.js')).resetResponseLimits(); // every test answers from 127.0.0.1
+  const f = (await owner('POST', '/api/forms', { title: 'Raffle' })).body;
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { audience: 'public', collect_email: true, one_per_person: true, questions: [{ id: 'n', type: 'short', title: 'Name' }] })).body;
+  const url = `/api/public/forms/${saved.token}`;
+  const anon = client();
+  assert.equal((await anon('GET', url)).body.one_per_email, true);
+  assert.equal((await anon('POST', url, { email: 'pat@example.org', answers: { n: 'Pat' } })).status, 201);
+  // The same address again, in other capitals or with spaces: refused, saying why.
+  const again = await anon('POST', url, { email: '  PAT@Example.org ', answers: { n: 'Pat again' } });
+  assert.equal(again.status, 409);
+  assert.match(again.body.error, /already been sent from this email address/);
+  assert.equal((await anon('POST', url, { email: 'lee@example.org', answers: { n: 'Lee' } })).status, 201);
+  // Without the setting, or not collecting addresses, anyone may send more than one.
+  await owner('PUT', `/api/forms/${f.id}`, { one_per_person: false });
+  assert.equal((await anon('GET', url)).body.one_per_email, false);
+  assert.equal((await anon('POST', url, { email: 'pat@example.org', answers: { n: 'Pat 3' } })).status, 201);
+  await owner('PUT', `/api/forms/${f.id}`, { one_per_person: true, collect_email: false });
+  assert.equal((await anon('POST', url, { answers: { n: 'Nobody' } })).status, 201);
+  assert.equal((await anon('POST', url, { answers: { n: 'Nobody again' } })).status, 201);
+});
