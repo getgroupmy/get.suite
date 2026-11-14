@@ -138,7 +138,7 @@ export default function GlobalSearch() {
     const typed = text;
     setText('');
     if (r.make) {
-      try { const f = await post('/files/new', { kind: r.make }); navigate(`/${r.make === 'doc' ? 'docs' : r.make === 'sheet' ? 'sheets' : 'slides'}/${f.id}`); } catch { /* the app shows its own errors */ }
+      try { const f = await post('/files/new', { kind: r.make, ...(r.name && { name: r.name }) }); navigate(`/${r.make === 'doc' ? 'docs' : r.make === 'sheet' ? 'sheets' : 'slides'}/${f.id}`); } catch { /* the app shows its own errors */ }
       return;
     }
     if (r.quickEvent) {
@@ -196,11 +196,12 @@ export default function GlobalSearch() {
           if (e.key === 'Escape') { setOpen(false); e.currentTarget.blur(); }
         }} />
       {open && (showRecent || showTips || actions.length > 0 || (groups && text.trim().length >= 2)) && (
-        <div className="search-results" id="search-results" role="listbox" aria-label="Search results">
+        <div className="search-results">
+        {/* Only options (in groups) inside the list; buttons that aren't results go in the footer below it. */}
+        <div className="search-list" id="search-results" role="listbox" aria-label="Search results">
           {showRecent && (
             <div className="search-group" role="group" aria-label="Recent searches">
-              <div className="search-group-head muted small row">Recent searches<span className="grow" />
-                <button type="button" className="link-btn small" onClick={() => del('/users/me/recent-searches').then(setRecent).catch(() => {})}>Clear</button></div>
+              <div className="search-group-head muted small">Recent searches</div>
               {recentHits.map((r) => {
                 i += 1;
                 const me = i;
@@ -209,7 +210,7 @@ export default function GlobalSearch() {
                     <button type="button" role="option" aria-selected={pick === me} className={`search-hit grow ${pick === me ? 'on' : ''}`} onMouseEnter={() => setPick(me)} onClick={() => go(r)}>
                       <Icon name="clock" size={18} /><span className="grow ellipsis search-hit-title">{r.title}</span>
                     </button>
-                    <button type="button" className="icon-btn" aria-label={`Forget “${r.title}”`} onClick={() => del(`/users/me/recent-searches?q=${encodeURIComponent(r.title)}`).then(setRecent).catch(() => {})}><Icon name="close" size={14} /></button>
+                    <button type="button" role="option" aria-selected={false} className="icon-btn" aria-label={`Forget “${r.title}”`} onClick={() => del(`/users/me/recent-searches?q=${encodeURIComponent(r.title)}`).then(setRecent).catch(() => {})}><Icon name="close" size={14} /></button>
                   </div>
                 );
               })}
@@ -217,8 +218,7 @@ export default function GlobalSearch() {
           )}
           {showTips && (
             <div className="search-group" role="group" aria-label="Tips">
-              <div className="search-group-head muted small row">Type to make things<span className="grow" />
-                <button type="button" className="link-btn small" onClick={hideTips}>Hide tips</button></div>
+              <div className="search-group-head muted small">Type to make things</div>
               {tipHits.map((r) => {
                 i += 1;
                 const me = i;
@@ -244,7 +244,6 @@ export default function GlobalSearch() {
               })}
             </div>
           )}
-          {text.trim().length >= 2 && groups && !groups.length && <p className="muted small search-none">Nothing found for “{text.trim()}”.</p>}
           {text.trim().length >= 2 && (groups || []).map(([name, list, total]) => (
             <div key={name} className="search-group" role="group" aria-label={name}>
               <div className="search-group-head muted small">{name}{total > list.length && ` · ${total}`}</div>
@@ -261,7 +260,16 @@ export default function GlobalSearch() {
               })}
             </div>
           ))}
-          {text.trim().length >= 2 && <button type="submit" className="link-btn small search-all">Search Drive for “{text.trim()}” ↵</button>}
+        </div>
+        {text.trim().length >= 2 && groups && !groups.length && <p className="muted small search-none" role="status">Nothing found for “{text.trim()}”.</p>}
+        {(text.trim().length >= 2 || showTips || showRecent) && (
+          <div className="row search-foot">
+            {text.trim().length >= 2 && <button type="submit" className="link-btn small search-all">Search Drive for “{text.trim()}” ↵</button>}
+            <span className="grow" />
+            {showRecent && <button type="button" className="link-btn small" onClick={() => del('/users/me/recent-searches').then(setRecent).catch(() => {})}>Clear recent searches</button>}
+            {showTips && <button type="button" className="link-btn small" onClick={hideTips}>Hide tips</button>}
+          </div>
+        )}
         </div>
       )}
     </form>

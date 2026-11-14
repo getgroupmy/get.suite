@@ -1881,6 +1881,8 @@ button.usage:hover .muted { color: var(--text); }
 /* Search everything (top bar) */
 .global-search { position: relative; }
 .search-results { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 6px; z-index: 30; max-height: 70vh; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+.search-list { display: flex; flex-direction: column; gap: 4px; }
+.search-foot { gap: 8px; padding: 2px 4px 0; }
 .search-group-head { padding: 6px 10px 2px; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
 .search-hit { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; padding: 7px 10px; border-radius: 8px; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
 .search-hit.on { background: var(--surface-2); }

@@ -79,13 +79,17 @@ export function chatFrom(rest, { people = [], channels = [] } = {}) {
   return hits.length === 1 ? { person: hits[0], text: words(1) } : null;
 }
 
+const FILE_WORDS = /^(?:new\s+)?(doc|document|sheet|spreadsheet|slides|presentation|deck)\s+(.+)$/i;
+const FILE_KIND = { doc: 'doc', document: 'doc', sheet: 'sheet', spreadsheet: 'sheet', slides: 'slides', presentation: 'slides', deck: 'slides' };
+const FILE_NAME = { doc: 'document', sheet: 'spreadsheet', slides: 'presentation' };
+
 const EVENT_WORDS = /^(?:new\s+)?(?:event|meeting|appointment)\s+(.+)$/i;
 const TASK_WORDS = /^(?:new\s+)?(?:task|todo|to-do|remind\s+me\s+to)\s+(.+)$/i;
 /** Whether a line starts like a detailed event (so the caller knows to have people and rooms ready). */
 export const wantsEvent = (text) => EVENT_WORDS.test(String(text || '').trim());
 
 /**
- * "event …", "task …", "note …" / "list …" or "email @…" with details: [{ key, title, quickEvent | quickTask | quickNote | quickMail }]
+ * "event …", "task …", "note …" / "list …", "email @…", "chat @…" or "doc Q3 plan" with details: [{ key, title, quickEvent | quickTask | quickNote | quickMail }]
  * (one at most), or [].
  * An event needs a day or time in it; a task just words after "task".
  */
@@ -116,6 +120,12 @@ export function detailedActions(text, { today, people = [], rooms = [], channels
     if (!c) return [];
     const where = c.person ? c.person.name : `#${c.channel.name}`;
     return [{ key: 'qchat', icon: 'chat', title: c.text ? `Message ${where}: ${c.text.slice(0, 80)}` : `Open chat with ${where}`, quickChat: c }];
+  }
+  m = FILE_WORDS.exec(t);
+  if (m) {
+    const kind = FILE_KIND[m[1].toLowerCase()];
+    const name = m[2].replace(/^(?:called|named)\s+/i, '').replace(/^["“”']|["“”']$/g, '').replace(/[/\\]/g, '-').trim().slice(0, 200); // Drive names can't have / or \
+    if (name) return [{ key: `qfile${kind}`, icon: kind, title: `New ${FILE_NAME[kind]}: ${name}`, make: kind, name }];
   }
   m = TASK_WORDS.exec(t);
   if (m) {

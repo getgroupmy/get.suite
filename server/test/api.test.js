@@ -2849,6 +2849,20 @@ test('search tips: on by default, hidden and shown again with your account (ever
   assert.equal((await client()('PUT', '/api/users/me/search-tips', { on: false })).status, 401, 'signed in only');
 });
 
+test('top search "doc Q3 plan": a new file with that name (cleaned), and the usual one without', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'srfile', domain: 'acme.com', name: 'Search File', password: 'password123' })).status, 201);
+  await login(a, 'srfile@acme.com');
+  const named = await a('POST', '/api/files/new', { kind: 'doc', name: 'Q3 plan' });
+  assert.deepEqual([named.status, named.body.name, named.body.kind], [201, 'Q3 plan', 'doc']);
+  assert.equal((await a('POST', '/api/files/new', { kind: 'sheet', name: 'Budget 2027' })).body.name, 'Budget 2027');
+  assert.equal((await a('POST', '/api/files/new', { kind: 'slides' })).body.name, 'Untitled presentation');
+  const odd = await a('POST', '/api/files/new', { kind: 'doc', name: 'a/b\\c' });
+  assert.equal(odd.status === 400 || !/[/\\]/.test(odd.body.name), true, `no slashes in a name: ${JSON.stringify(odd.body)}`);
+  const mine = (await a('GET', '/api/files')).body;
+  assert.ok((mine.files || mine).some((f) => f.name === 'Q3 plan'), 'in My Drive');
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);

@@ -81,3 +81,13 @@ test('"chat @kim …" and "chat #launch …": that conversation, the rest to sta
   assert.equal(wantsChannels('chat #x'), true);
   assert.equal(wantsPeople('dm @kim'), true);
 });
+
+test('"doc Q3 plan", "sheet …", "slides …": that file, named', () => {
+  const [d] = detailedActions('doc Q3 plan', { today });
+  assert.deepEqual([d.title, d.make, d.name], ['New document: Q3 plan', 'doc', 'Q3 plan']);
+  assert.deepEqual(detailedActions('new spreadsheet called "Budget 2027"', { today })[0].name, 'Budget 2027');
+  assert.equal(detailedActions('deck Board update', { today })[0].make, 'slides');
+  assert.equal(detailedActions('doc Plans 2026/27', { today })[0].name, 'Plans 2026-27', 'no slashes in Drive names');
+  assert.deepEqual(detailedActions('new doc', { today }), [], 'no name: the plain "New document"');
+  assert.deepEqual(keys(matchActions('new doc')), ['doc']);
+});
