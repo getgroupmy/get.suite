@@ -1,5 +1,6 @@
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
 import { sweepInboxes } from '../mail/sweep.js';
+import { checkup } from '../checkup.js';
 import { SIGNATURE_MODES } from '../mail/companysig.js';
 import { MAIL_EMPTY_CHOICES } from '../mail/config.js';
 import { IDLE_CHOICES, MAX_HOURS_CHOICES } from '../auth.js';
@@ -198,6 +199,8 @@ export default function orgRoutes() {
 
   // Storage: the company's total (and quota), how much each person uses (files, earlier versions,
   // the trash), and the largest files. The platform owner may ask about any company (?org_id=).
+  // Security checkup (Admin → Security checkup): the company's open security points.
+  r.get('/current/checkup', requireAdmin, (req, res) => res.json({ items: checkup(req.user.org_id) }));
   // Phishing reports from people in the company (Admin → Phishing).
   r.get('/current/phishing', requireAdmin, (req, res) => res.json(phishingFor(req.user.org_id)));
   r.post('/current/phishing/handled', requireAdmin, (req, res) => {

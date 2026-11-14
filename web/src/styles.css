@@ -3064,3 +3064,12 @@ select.meet-timer-btn option { color: #202124; }
 .note-rec-chip { display: inline-block; padding: 2px 8px; border-radius: 12px; background: color-mix(in srgb, currentColor 8%, transparent); margin: 2px 0 4px; }
 /* Contacts: the row J / K moved to */
 tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Admin → Security checkup */
+.checkup-summary { margin: 0; font-weight: 600; }
+.checkup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.checkup-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; border-left: 4px solid var(--border); background: var(--surface-2); }
+.checkup-item.warn { border-left-color: var(--danger); }
+.checkup-item.tip { border-left-color: #e37400; }
+.checkup-item.ok { border-left-color: #188038; }
+.checkup-mark { font-size: 18px; line-height: 1.3; width: 22px; text-align: center; flex: none; }

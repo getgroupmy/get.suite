@@ -1262,6 +1262,10 @@ When the company has to keep someone's data (a dispute, an audit, an investigati
 - **What it doesn't stop:** moving things to the trash (which keeps them), editing, or mail apps on phones and Outlook deleting mail themselves; download their data with **Download their data (.zip)** at the start if that matters. Files in shared drives are kept when the person on hold created them.
 - **Lift legal hold** (same menu) puts everything back to normal; both are in the activity log.
 
+## Security checkup (admins)
+
+**Admin → Security checkup** lists the company's open security points, worst first (⚠ needs attention, 💡 worth doing, ✓ done), each with what to do and a button to the Admin tab that fixes it: admins who sign in with just a password; people without two-step verification or a passkey (or how many still have to set it up, when it's required); accounts nobody has used for 90 days; mail forwarded outside the company by itself; share links that never expire and have no password; phishing reports nobody has dealt with; and settings worth having (marking mail from outside the company, signing people out when they're away).
+
 ## Activity log
 
 **Admin → Activity** shows each company's admins what happened in their company, newest first:
