@@ -83,3 +83,21 @@ test('security checkup: the domain’s sender records (SPF, DKIM, DMARC), when e
   const c3 = await checkup(orgId, Date.now(), { mail: true, dns: async () => { throw new Error('no network'); } });
   assert.equal(c3.filter((x) => x.id.startsWith('dns-')).length, 0);
 });
+
+test('weekly notice: admins of a company with warnings are told, at most once a week', async () => {
+  const { weeklyCheckupNotice, NOTICE_EVERY_MS } = await import('../src/checkup.js');
+  const orgId = q("SELECT org_id FROM users WHERE username = 'ana@acme.com'").get().org_id;
+  const anaId = q("SELECT id FROM users WHERE username = 'ana@acme.com'").get().id;
+  const notes = () => q("SELECT title, body, link FROM notifications WHERE user_id = ? AND title LIKE 'Security checkup:%' ORDER BY rowid").all(anaId);
+  const t0 = Date.now();
+  assert.deepEqual(await weeklyCheckupNotice(t0, { mail: false }), [orgId], 'there is an open phishing report');
+  assert.equal(notes().length, 1);
+  assert.match(notes()[0].title, /^Security checkup: 1 thing needs attention$/);
+  assert.match(notes()[0].body, /phishing report/);
+  assert.equal(notes()[0].link, '/admin?tab=checkup');
+  assert.deepEqual(await weeklyCheckupNotice(t0 + 864e5, { mail: false }), [], 'not again the next day');
+  assert.deepEqual(await weeklyCheckupNotice(t0 + NOTICE_EVERY_MS + 1, { mail: false }), [orgId], 'a week on');
+  // Nothing to warn about: no notice.
+  q("UPDATE phishing_reports SET handled_at = 1 WHERE org_id = ?").run(orgId);
+  assert.deepEqual(await weeklyCheckupNotice(t0 + 3 * NOTICE_EVERY_MS, { mail: false }), []);
+});

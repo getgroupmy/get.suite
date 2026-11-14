@@ -3,6 +3,7 @@
 import { q } from './db.js';
 import { activeForwarding } from './mail/forwarding.js';
 import { mailEnabled } from './mail/config.js';
+import { notify } from './notifications.js';
 
 export const INACTIVE_DAYS = 90;
 const names = (rows, n = 5) => rows.slice(0, n).map((r) => r.name || r.username).join(', ') + (rows.length > n ? ` and ${rows.length - n} more` : '');
@@ -81,4 +82,29 @@ function checkupNow(orgId, at) {
 
   const rank = { warn: 0, tip: 1, ok: 2 };
   return items.sort((a, b) => rank[a.status] - rank[b.status]);
+}
+
+// Once a week, a company with something needing attention tells its admins (a security notification).
+q(`CREATE TABLE IF NOT EXISTS checkup_notices (
+  org_id TEXT PRIMARY KEY REFERENCES orgs(id) ON DELETE CASCADE,
+  sent_at INTEGER NOT NULL
+)`).run();
+export const NOTICE_EVERY_MS = 7 * 864e5;
+
+/** Tell the admins of each company with warnings (at most weekly). Returns the companies told. */
+export async function weeklyCheckupNotice(at = Date.now(), opts = {}) {
+  const told = [];
+  for (const org of q('SELECT id FROM orgs').all()) {
+    const last = q('SELECT sent_at FROM checkup_notices WHERE org_id = ?').get(org.id)?.sent_at;
+    if (last && at - last < NOTICE_EVERY_MS) continue;
+    const warns = (await checkup(org.id, at, opts)).filter((x) => x.status === 'warn');
+    if (!warns.length) continue;
+    const admins = q('SELECT id FROM users WHERE org_id = ? AND is_admin = 1 AND disabled = 0').all(org.id).map((u) => u.id);
+    if (!admins.length) continue;
+    notify(admins, { kind: 'security', title: `Security checkup: ${warns.length} thing${warns.length === 1 ? '' : 's'} need${warns.length === 1 ? 's' : ''} attention`,
+      body: warns.slice(0, 3).map((w) => w.title).join('; ') + (warns.length > 3 ? '; …' : ''), link: '/admin?tab=checkup' });
+    q('INSERT INTO checkup_notices (org_id, sent_at) VALUES (?, ?) ON CONFLICT(org_id) DO UPDATE SET sent_at = excluded.sent_at').run(org.id, at);
+    told.push(org.id);
+  }
+  return told;
 }

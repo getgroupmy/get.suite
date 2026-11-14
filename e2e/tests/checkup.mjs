@@ -68,6 +68,11 @@ await step('Go to Company settings from an item, fix it, and the checkup says so
   await list().waitFor();
   if (await list().getByText('Mail from outside the company isn’t marked').count()) throw new Error('still listed');
 });
+await step('the weekly notice’s link opens the checkup', async () => {
+  await page.goto(`${B}/admin?tab=checkup`);
+  await list().waitFor();
+  if ((await page.getByRole('tab', { name: 'Security checkup' }).getAttribute('aria-selected')) !== 'true') throw new Error('not the checkup tab');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
