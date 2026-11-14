@@ -2,7 +2,8 @@
 // sender: how many reports, who, the subjects. Dealt with one? Mark it handled (a new report brings it back).
 import { useEffect, useState } from 'react';
 import { get, post, del } from '../../api.js';
-import { ConfirmModal, Empty, useToast } from '../../components/ui.jsx';
+import { ConfirmModal, Empty, PromptModal, useToast } from '../../components/ui.jsx';
+import { warningText } from './phishingtext.js';
 
 export default function PhishingAdmin() {
   const toast = useToast();
@@ -11,6 +12,7 @@ export default function PhishingAdmin() {
   const [blocked, setBlocked] = useState([]);
   const [asking, setAsking] = useState(null); // the address or domain to block, while confirming
   const [typed, setTyped] = useState('');
+  const [warning, setWarning] = useState(null); // the report being announced to everyone
   const [sweeping, setSweeping] = useState(null); // { value } while confirming, { value, busy } while it runs
   useEffect(() => { get('/orgs/current/blocked').then(setBlocked).catch(() => {}); }, []);
   const block = async (value) => {
@@ -45,6 +47,7 @@ export default function PhishingAdmin() {
                   <td className="actions">{isBlocked(g) ? <span className="pill">Blocked</span> : <>
                     <button type="button" className="btn small" aria-label={`Block sender ${g.sender}`} onClick={() => setAsking(g.sender)}>Block sender</button>
                     <button type="button" className="btn small" aria-label={`Block domain ${g.domain}`} onClick={() => setAsking(g.domain)}>Block domain</button></>}
+                    <button type="button" className="btn small" aria-label={`Warn everyone about ${g.sender}`} onClick={() => setWarning(g)}>Warn everyone</button>
                     <button type="button" className="btn small" aria-label={`Remove from inboxes: ${g.sender}`} onClick={() => setSweeping({ value: g.sender })}>Remove from inboxes</button>
                     {g.handled_at
                     ? <button type="button" className="btn small" aria-label={`Not handled: ${g.sender}`} onClick={() => mark(g, false)}>Not handled</button>
@@ -68,6 +71,9 @@ export default function PhishingAdmin() {
         <input className="grow" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="name@example.com or example.com" aria-label="Address or domain to block" maxLength={200} />
         <button className="btn" disabled={!typed.trim()}>Block</button>
       </form>
+      {warning && <PromptModal title="Warn everyone" label="Announcement (at the top of Workspace for everyone, for a week)" confirm="Announce"
+        initial={warningText(warning)} onClose={() => setWarning(null)}
+        onSubmit={async (text) => { await post('/announcements', { text, tone: 'warn', until: Date.now() + 7 * 864e5 }); toast('Everyone sees the warning now (Admin → Announcements to change or end it)'); }} />}
       {sweeping && <ConfirmModal title={`Remove mail from ${sweeping.value} from everyone's Inbox?`} confirm={sweeping.busy ? 'Removing…' : 'Remove from inboxes'}
         message={`Everyone's Inbox in the company is searched for mail from ${sweeping.value}, and what's found is moved to Junk, marked read (on phones too), even if they haven't seen it yet. Nothing is deleted.`}
         onClose={() => setSweeping(null)} onConfirm={async () => {

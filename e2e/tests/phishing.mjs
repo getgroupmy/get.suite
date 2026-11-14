@@ -145,6 +145,18 @@ await step('Remove from inboxes: the sender’s mail leaves everyone’s Inbox f
   await page.getByRole('dialog', { name: /Remove mail from/ }).getByRole('button', { name: 'Remove from inboxes' }).click();
   await page.getByText("Nothing from payroll@evilpay.com left in anyone's Inbox").waitFor({ timeout: 30000 });
 });
+await step('Warn everyone: an announcement everyone sees, written for them', async () => {
+  const sec = page.getByRole('region', { name: 'Phishing reports' });
+  await sec.getByRole('button', { name: 'Warn everyone about payroll@evilpay.com' }).click();
+  const d = page.getByRole('dialog', { name: 'Warn everyone' });
+  const box = d.getByRole('textbox');
+  if (!/emails from payroll@evilpay\.com \(“Confirm your bank details”\) are a scam/.test(await box.inputValue())) throw new Error(await box.inputValue());
+  await axe(page, 'warn');
+  await d.getByRole('button', { name: 'Announce' }).click();
+  await page.getByText(/Everyone sees the warning now/).waitFor();
+  await kim.reload();
+  await kim.getByText(/Phishing: emails from payroll@evilpay\.com/).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
