@@ -14708,3 +14708,24 @@ test('calendar: your own "Holidays in …", for the days shown, separate from th
   assert.deepEqual((await pat('PUT', '/api/time-off/my-holidays', { country: '' })).body, { country: '' });
   assert.deepEqual((await pat('GET', '/api/time-off/my-holidays?from=2026-12-01&to=2026-12-31')).body.holidays, []);
 });
+
+test('booking pages and Find a time skip the company\'s holidays', async () => {
+  // A page for every weekday; the next weekday a company holiday.
+  const day = new Date(Date.now() + 3 * 864e5);
+  while ([0, 6].includes(day.getUTCDay())) day.setUTCDate(day.getUTCDate() + 1);
+  const date = day.toISOString().slice(0, 10);
+  const made = await owner('POST', '/api/bookings', { title: 'Holiday check', duration: 60, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, tz: 'UTC', days_ahead: 14, notice_hours: 0 });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const slugOf = made.body.url.split("/b/")[1];
+  const dates = async () => (await client()('GET', `/api/public/book/${slugOf}`)).body?.days?.map((d) => d.date) || [];
+  const before = await dates();
+  assert.ok(before.includes(date), `${date} open at first: ${before.join(',')}`);
+  const hol = (await owner('POST', '/api/time-off/holidays', { date, name: 'Closed day' })).body;
+  assert.ok(!(await dates()).includes(date), 'closed on the holiday');
+  // Find a time: nothing suggested that day.
+  const sug = (await owner('GET', `/api/freebusy/suggest?duration=60&tz=UTC&from=${Date.parse(`${date}T00:00:00Z`)}`)).body;
+  assert.ok(sug.slots.length > 0);
+  assert.ok(sug.slots.every((s) => new Date(s.start).toISOString().slice(0, 10) !== date), JSON.stringify(sug.slots[0]));
+  await owner('DELETE', `/api/time-off/holidays/${hol.id}`);
+  await owner('DELETE', `/api/bookings/${made.body.id}`);
+});

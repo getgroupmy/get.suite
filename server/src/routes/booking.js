@@ -99,10 +99,10 @@ export function zonedTime(y, m, d, minutes, tz) {
 /**
  * The free start times: in each bookable day, every `duration` minutes from the start of the
  * bookable hours, not before `notice`, not overlapping anything busy (nor within `buffer_min` of it),
- * and none on a day that already has `max_per_day` bookings (`booked`: their start times).
- * [{ date, slots: [ms] }].
+ * and none on a day that already has `max_per_day` bookings (`booked`: their start times), nor on the
+ * company's holidays (`closed`: their days, YYYY-MM-DD). [{ date, slots: [ms] }].
  */
-export function freeSlots(page, busy, now = Date.now(), booked = []) {
+export function freeSlots(page, busy, now = Date.now(), booked = [], closed = new Set()) {
   const gap = (page.buffer_min || 0) * 6e4;
   const perDay = new Map();
   for (const t of booked) { const p = partsAt(t, page.tz); const k = `${p.y}-${p.m}-${p.d}`; perDay.set(k, (perDay.get(k) || 0) + 1); }
@@ -116,6 +116,7 @@ export function freeSlots(page, busy, now = Date.now(), booked = []) {
     const y = base.getUTCFullYear(), m = base.getUTCMonth(), d = base.getUTCDate();
     if (!days.has(base.getUTCDay())) continue;
     if (page.max_per_day && (perDay.get(`${y}-${m}-${d}`) || 0) >= page.max_per_day) continue;
+    if (closed.has(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)) continue;
     const slots = [];
     for (let min = page.from_min; min + page.duration <= page.to_min; min += page.duration) {
       const s = zonedTime(y, m, d, min, page.tz), e = s + step;
@@ -132,6 +133,13 @@ export function freeSlots(page, busy, now = Date.now(), booked = []) {
  * The owner's busy times between two moments: their events and invitations not declined (all-day ones
  * don't block, except being out of office). Out-of-office times are marked { ooo: true }.
  */
+/** The days someone's company is closed (its company holidays, Time off → Team), as YYYY-MM-DD. */
+export function closedDays(userId) {
+  try {
+    return new Set(q('SELECT h.date FROM company_holidays h JOIN users u ON u.org_id = h.org_id WHERE u.id = ?').all(userId).map((h) => h.date));
+  } catch { return new Set(); } // no time off tables yet
+}
+
 function busyOf(userId, from, to, details = false, except = null) {
   const rows = q(`SELECT e.* FROM events e WHERE (e.owner_id = ? OR e.id IN (SELECT event_id FROM event_guests WHERE user_id = ? AND status != 'no'))
                   AND (e.all_day = 0 OR (e.kind = 'ooo' AND e.owner_id = ?)) AND e.start < ? AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(userId, userId, userId, to, from, from);
@@ -263,7 +271,7 @@ export function publicBookingRoutes() {
   // `except`: a booking being moved, which doesn't stand in its own way.
   const bookedOf = (p, now, except) => q('SELECT e.id, e.start FROM bookings b JOIN events e ON e.id = b.event_id WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.start >= ?').all(p.id, now - DAY).filter((x) => x.id !== except).map((x) => x.start);
   // One host's free times, or (no host given) any host's.
-  const hostSlots = (p, hostId, now, except) => freeSlots(p, busyOf(hostId, now, now + (p.days_ahead + 1) * DAY, false, except), now, bookedOf(p, now, except));
+  const hostSlots = (p, hostId, now, except) => freeSlots(p, busyOf(hostId, now, now + (p.days_ahead + 1) * DAY, false, except), now, bookedOf(p, now, except), closedDays(hostId));
   const slotsOf = (p, now = Date.now(), except = null, hostId = null) => (hostId ? hostSlots(p, hostId, now, except) : mergeSlots(hostsOf(p).map((h) => hostSlots(p, h.id, now, except))));
   /** Who takes a booking at `start`: a host free then, the one with the fewest bookings from the page. */
   const hostFor = (p, start) => {
@@ -430,10 +438,12 @@ export function freeBusyRoutes() {
     const to = from + 15 * DAY;
     const busy = people.flatMap((id) => busyOf(id, from, to));
     const hours = people.map((id) => hoursOf(id, tz));
+    const closed = closedDays(req.user.id); // the company's holidays: nobody's meeting then
     const start = partsAt(from, tz);
     const out = [];
     for (let i = 0; i < 15 && out.length < 8; i++) {
       const base = new Date(Date.UTC(start.y, start.m, start.d + i));
+      if (closed.has(base.toISOString().slice(0, 10))) continue;
       for (let min = 0; min + duration <= 24 * 60 && out.length < 8; min += 30) {
         const s = zonedTime(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), min, tz), e = s + duration * 6e4;
         if (s < from) continue;

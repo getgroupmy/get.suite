@@ -35,3 +35,12 @@ test('free slots: a gap kept around busy times, and a limit of bookings a day', 
   assert.ok(days({ ...page, max_per_day: 2 }, [tue]).includes('2026-11-10'));
   assert.ok(days({ ...page, max_per_day: 0 }, [tue, tue, tue]).includes('2026-11-10'), '0: no limit');
 });
+
+test('free slots: none on a company holiday', () => {
+  const now = Date.parse('2026-11-06T01:30:00Z');
+  const open = freeSlots(page, [], now).map((d) => d.date);
+  assert.ok(open.includes('2026-11-10'));
+  const closed = freeSlots(page, [], now, [], new Set(['2026-11-10'])).map((d) => d.date);
+  assert.ok(!closed.includes('2026-11-10'));
+  assert.deepEqual(closed, open.filter((d) => d !== '2026-11-10'));
+});
