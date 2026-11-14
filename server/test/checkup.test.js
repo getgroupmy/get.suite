@@ -37,7 +37,8 @@ test('security checkup: what’s open, worst first, and what changes it', async 
 
   const ids = (list) => list.map((x) => `${x.id}:${x.status}`);
   let c = await checkup(orgId, now, { mail: false });
-  assert.deepEqual(ids(c), ['admin-2fa:warn', 'require-2fa:warn', 'inactive:warn', 'mark-external:tip', 'idle:tip']);
+  assert.deepEqual(ids(c), ['admin-2fa:warn', 'require-2fa:warn', 'inactive:warn', 'recovery:tip', 'mark-external:tip', 'idle:tip']);
+  assert.equal(c.find((x) => x.id === 'recovery').title, '3 people have no recovery email');
   assert.match(c[0].title, /^1 admin signs in with just a password$/);
   assert.match(c[0].detail, /^Ana Admin\./);
   assert.equal(c[1].title, '3 people sign in with just a password');
@@ -50,6 +51,9 @@ test('security checkup: what’s open, worst first, and what changes it', async 
   assert.ok(!(await checkup(orgId, now, { mail: false })).some((x) => x.id === 'idle'));
   q('UPDATE orgs SET session_idle_min = 0 WHERE id = ?').run(orgId);
 
+  // Everyone adds a recovery address: that tip goes.
+  q("UPDATE users SET recovery_email = 'home@example.org' WHERE org_id = ?").run(orgId);
+  assert.ok(!(await checkup(orgId, now, { mail: false })).some((x) => x.id === 'recovery'));
   // Fixed: Ana's two-step on, two steps required, Old suspended, outside mail marked, idle sign-out.
   q('INSERT INTO two_factor (user_id, secret, enabled) VALUES (?, ?, 1)').run(q("SELECT id FROM users WHERE username = 'ana@acme.com'").get().id, 'JBSWY3DPEHPK3PXP');
   q('UPDATE orgs SET require_2fa = 1, mark_external = 1, session_idle_min = 60 WHERE id = ?').run(orgId);

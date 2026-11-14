@@ -38,7 +38,7 @@ function checkupNow(orgId, at) {
   const org = q('SELECT * FROM orgs WHERE id = ?').get(orgId);
   const people = q(`SELECT u.id, u.name, u.username, u.is_admin, u.created_at,
                            MAX(COALESCE(u.last_active, 0), COALESCE((SELECT MAX(s.last_seen) FROM sessions s WHERE s.user_id = u.id), 0)) AS last_active,
-                           EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id) AS strong
+                           EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id) AS strong, u.recovery_email
                     FROM users u WHERE u.org_id = ? AND u.disabled = 0 ORDER BY u.name COLLATE NOCASE`).all(orgId);
   const items = [];
   const add = (x) => items.push(x);
@@ -59,6 +59,10 @@ function checkupNow(orgId, at) {
   // Accounts nobody uses: a way in that nobody would notice.
   const stale = people.filter((p) => (p.last_active || p.created_at) < at - INACTIVE_DAYS * 864e5);
   if (stale.length) add({ id: 'inactive', status: 'warn', title: `${plural(stale.length, 'account')} not used for ${INACTIVE_DAYS} days`, detail: `${names(stale)}. Suspend the ones that are no longer needed: unused accounts are a way in nobody notices.`, tab: 'users', people: stale.map((p) => p.name), ids: stale.map((p) => p.id) });
+
+  // No recovery address: no password reset by themselves, and no security emails outside Workspace.
+  const noRecovery = people.filter((p) => !p.recovery_email);
+  if (noRecovery.length) add({ id: 'recovery', status: 'tip', title: `${plural(noRecovery.length, 'person', 'people')} ha${noRecovery.length === 1 ? 's' : 've'} no recovery email`, detail: `${names(noRecovery)}. Without one they can’t reset a forgotten password themselves, and they aren’t emailed when their account signs in somewhere new or its password changes. Each adds one in Settings → Recovery email.`, tab: 'users', people: noRecovery.map((p) => p.name) });
 
   // Mail going out by itself.
   const ours = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(orgId).map((d) => d.name.toLowerCase()));
