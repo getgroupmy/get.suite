@@ -220,8 +220,13 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   useEffect(() => { if (!shared) get('/mail/inbox-tabs').then((r) => setTabsOn(r.on)).catch(() => {}); }, [shared]);
   useEffect(() => { const on = () => get('/mail/inbox-tabs').then((r) => setTabsOn(r.on)).catch(() => {}); window.addEventListener('nw:inbox-tabs', on); return () => window.removeEventListener('nw:inbox-tabs', on); }, []);
   const tabbed = tabsOn && !shared && folder === 'INBOX' && !q && !labelId;
-  const loadList = useCallback(() => get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}${labelId ? `&label=${enc(labelId)}` : ''}${tabbed ? `&tab=${tab}` : ''}`)
-    .then((d) => { setData(d); setError(''); }).catch((e) => setError(e.message)), [folder, page, q, labelId, tabbed, tab]);
+  // Only the latest request's answer is shown: changing folders quickly, the one you left can answer last.
+  const listSeq = useRef(0);
+  const loadList = useCallback(() => {
+    const seq = ++listSeq.current;
+    return get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}${labelId ? `&label=${enc(labelId)}` : ''}${tabbed ? `&tab=${tab}` : ''}`)
+      .then((d) => { if (seq === listSeq.current) { setData(d); setError(''); } }).catch((e) => { if (seq === listSeq.current) setError(e.message); });
+  }, [folder, page, q, labelId, tabbed, tab]);
 
   useEffect(() => { setData(null); setChecked(new Set()); loadList(); }, [loadList]);
   useEffect(() => { loadFolders(); }, [loadFolders]);

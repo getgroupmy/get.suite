@@ -209,7 +209,8 @@ export default function Chat() {
   const picked = () => { if (autoPicked.current && autoPicked.current === channelId) return false; autoPicked.current = null; return true; };
 
   useEffect(() => {
-    if (!channelId) return;
+    if (!channelId) return undefined;
+    let live = true;
     setMessages([]); setNewFrom(null); setBelow(0);
     stick.current = true;
     setUnread((u) => ({ ...u, [channelId]: 0 }));
@@ -220,6 +221,7 @@ export default function Chat() {
       get(`/chat/channels/${channelId}/messages${jumpTo ? `?around=${encodeURIComponent(jumpTo)}` : ''}`),
       jumpTo ? null : get(`/chat/channels/${channelId}/read`).catch(() => null),
     ]).then(([list, read]) => {
+      if (!live) return; // another conversation was opened meanwhile: this one's answer came late
       const from = read ? newFromId(list, read.read_at, user.id) : null;
       if (from) stick.current = false;
       setNewFrom(from);
@@ -243,7 +245,8 @@ export default function Chat() {
           setTimeout(() => el?.classList.remove('found'), 4000);
         });
       }
-    }).catch((e) => toast(e.message, 'error'));
+    }).catch((e) => { if (live) toast(e.message, 'error'); });
+    return () => { live = false; };
   }, [channelId, jumpTo, jumpThread, toast, user.id]);
   const runSearch = async (q) => {
     if (!q.trim()) { setSearch(null); return; }

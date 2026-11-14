@@ -156,7 +156,11 @@ export default function Drive() {
   const labelColor = (name) => myLabels.find((l) => l.name === name)?.color;
   const setLabelColor = async (label, color) => { try { await put('/files/labels/color', { label, color }); loadLabels(); } catch (e) { toast(e.message, 'error'); } };
 
+  // Only the latest request's answer is shown: moving between folders quickly, the folder you left can
+  // answer last (and its files would show in the new one).
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     if (['approvals', 'signatures', 'activity', 'links'].includes(route.view)) { setFiles([]); return; } // their own lists (Approvals.jsx, Signatures.jsx)
     try {
       let url = `/files?view=${route.view}`;
@@ -168,10 +172,12 @@ export default function Drive() {
         route.folderId ? get(`/files/${route.folderId}/path`) : [],
         route.folderId ? get(`/files/${route.folderId}`) : null,
       ]);
+      if (seq !== loadSeq.current) return;
       setFiles(list);
       setCrumbs(path);
       setFolder(f);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       toast(e.message, 'error');
       if (e.status === 404) navigate('/drive', { replace: true });
     }
