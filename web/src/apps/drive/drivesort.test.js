@@ -27,3 +27,12 @@ test('drive sort: folders by what they hold, among themselves (still first)', ()
   const l = [{ name: 'Small', kind: 'folder', folder_size: 10 }, { name: 'Big', kind: 'folder', folder_size: 900 }, { name: 'f', kind: 'file', size: 5000 }];
   assert.deepEqual(sortFiles(l, { sort: 'size', desc: true }).map((f) => f.name), ['Big', 'Small', 'f']);
 });
+
+test('Shared with me, from whom: each owner once, most files first, then by name', async () => {
+  const { sharers } = await import('./drivesort.js');
+  assert.deepEqual(sharers([
+    { owner_id: 'k', owner_name: 'Kim Park' }, { owner_id: 'o', owner_name: 'Olivia Owner' }, { owner_id: 'a', owner_name: 'Ana Lee' },
+    { owner_id: 'o', owner_name: 'Olivia Owner' }, { owner_id: null }, { owner_id: 'x' },
+  ]), [{ id: 'o', name: 'Olivia Owner', count: 2 }, { id: 'a', name: 'Ana Lee', count: 1 }, { id: 'k', name: 'Kim Park', count: 1 }, { id: 'x', name: 'Someone', count: 1 }]);
+  assert.deepEqual(sharers(null), []);
+});

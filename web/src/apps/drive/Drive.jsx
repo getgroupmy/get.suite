@@ -24,7 +24,7 @@ import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { linkEmail } from './linkemail.js';
 import MyLinks from './MyLinks.jsx';
-import { sortFiles, isPicture } from './drivesort.js';
+import { sortFiles, isPicture, sharers } from './drivesort.js';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -129,6 +129,7 @@ export default function Drive() {
     navigate('/mail?compose_doc=1');
   };
   const [files, setFiles] = useState(null);
+  const [fromOwner, setFromOwner] = useState(null); // Shared with me: only what this person shared
   const [crumbs, setCrumbs] = useState([]);
   // Sort and list/grid, kept for you on the server (the same on every computer).
   const [look, setLook] = useState(() => user.drive_view || { sort: 'name', desc: false, layout: 'list' });
@@ -460,7 +461,11 @@ export default function Drive() {
 
  // The list as chosen: Recent stays newest first, search results best match first, until you sort them.
   const sortChosen = look.sort !== 'name' || look.desc;
-  const shown = files ? (['recent', 'search', 'shared'].includes(route.view) && !sortChosen ? files : sortFiles(files, look)) : [];
+  const sorted = files ? (['recent', 'search', 'shared'].includes(route.view) && !sortChosen ? files : sortFiles(files, look)) : [];
+  // Shared with me, from one person (the "From" buttons above the list).
+  const from = route.view === 'shared' && fromOwner && sorted.some((f) => f.owner_id === fromOwner) ? fromOwner : null;
+  const shown = from ? sorted.filter((f) => f.owner_id === from) : sorted;
+  const owners = route.view === 'shared' && files ? sharers(files) : [];
 
   // Keyboard (see drivekeys.js): ↑ / ↓ (or J / K), Home and End move between the files (focus and
   // selection with them); Enter opens (on each item); X ticks one; S stars it; F2 renames; Delete or #
@@ -639,6 +644,15 @@ export default function Drive() {
         )}
         {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : folder.role === 'commenter' ? 'view and comment' : 'edit'}</p>}
 
+        {owners.length > 1 && (
+          <div className="row wrap shared-from" role="group" aria-label="From" style={{ gap: 6, margin: '0 0 8px' }}>
+            <span className="muted small">From</span>
+            <button type="button" className={`btn small ${!from ? 'primary' : ''}`} aria-pressed={!from} onClick={() => setFromOwner(null)}>Everyone</button>
+            {owners.slice(0, 12).map((o) => (
+              <button key={o.id} type="button" className={`btn small ${from === o.id ? 'primary' : ''}`} aria-pressed={from === o.id} onClick={() => setFromOwner(from === o.id ? null : o.id)}>{o.name} · {o.count}</button>
+            ))}
+          </div>
+        )}
         {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : route.view === 'activity' ? <RecentActivity /> : route.view === 'links' ? <MyLinks /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />

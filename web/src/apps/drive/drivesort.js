@@ -17,3 +17,15 @@ export function sortFiles(files, { sort = 'name', desc = false } = {}) {
 
 /** Is a file a picture the browser can show as a thumbnail? */
 export const isPicture = (f) => f?.kind !== 'folder' && /^image\/(png|jpeg|gif|webp|bmp|avif)$/.test(f?.mime || '');
+
+/** Who shared what with you (Shared with me's "From"): each owner once, most files first, then by name. */
+export function sharers(files) {
+  const by = new Map();
+  for (const f of files || []) {
+    if (!f.owner_id) continue;
+    const x = by.get(f.owner_id) || { id: f.owner_id, name: f.owner_name || 'Someone', count: 0 };
+    x.count++;
+    by.set(f.owner_id, x);
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
