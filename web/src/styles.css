@@ -1674,6 +1674,9 @@ button.usage:hover .muted { color: var(--text); }
 .storage-sum th { text-align: left; font-weight: 400; color: var(--muted); padding: 2px 16px 2px 0; }
 .storage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
 .storage-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.task-history { margin: 4px 0 10px; }
+.task-history summary { cursor: pointer; font-weight: 600; font-size: .9rem; padding: 4px 0; }
+.task-history-list { list-style: none; margin: 4px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 6px; font-size: .88rem; overflow-wrap: anywhere; }
 .task-comment-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .task-comment-body { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .doc-mention-list { right: auto; width: 280px; z-index: 50; }

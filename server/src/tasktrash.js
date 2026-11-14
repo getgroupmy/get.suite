@@ -2,6 +2,7 @@
 // time spent, so Undo (or Deleted tasks… on the list) puts it back whole. After that they're gone for good.
 import { q, tx } from './db.js';
 import { now } from './util.js';
+import { forgetGoneHistory } from './taskhistory.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_trash (
   id TEXT PRIMARY KEY,               -- the task's own id
@@ -54,7 +55,7 @@ export function restoreTask(id) {
 
 /** A list's deleted tasks, newest first (older than TASK_TRASH_DAYS go first). */
 export function trashOfList(listId, at = Date.now()) {
-  q('DELETE FROM task_trash WHERE deleted_at < ?').run(at - TASK_TRASH_DAYS * 864e5);
+  if (q('DELETE FROM task_trash WHERE deleted_at < ?').run(at - TASK_TRASH_DAYS * 864e5).changes) forgetGoneHistory();
   return q(`SELECT t.id, t.title, t.deleted_at, u.name AS deleted_by_name FROM task_trash t LEFT JOIN users u ON u.id = t.deleted_by
             WHERE t.list_id = ? ORDER BY t.deleted_at DESC`).all(listId).map((x) => ({ ...x, goes_at: x.deleted_at + TASK_TRASH_DAYS * 864e5 }));
 }

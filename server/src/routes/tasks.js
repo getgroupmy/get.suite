@@ -18,6 +18,7 @@ import { audienceFor, roleFor, atLeast } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { insertFile } from './files.js';
 import { scheduleTask, blocksOf, clashes } from '../taskblocks.js';
+import { recordChanges, historyOf, forgetGoneHistory } from '../taskhistory.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
@@ -485,7 +486,7 @@ export default function taskRoutes() {
   r.delete('/lists/:id', (req, res) => {
     const list = loadList(req.params.id, req.user);
     const before = peopleOn(list);
-    if (list.owner_id === req.user.id) q('DELETE FROM task_lists WHERE id = ?').run(list.id);
+    if (list.owner_id === req.user.id) { q('DELETE FROM task_lists WHERE id = ?').run(list.id); forgetGoneHistory(); }
     else tx(() => {
       q('DELETE FROM task_list_members WHERE list_id = ? AND user_id = ?').run(list.id, req.user.id);
       q('UPDATE tasks SET assignee_id = NULL WHERE list_id = ? AND assignee_id = ?').run(list.id, req.user.id);
@@ -557,6 +558,13 @@ export default function taskRoutes() {
     res.status(201).json(scheduleTask(req.user, task, { ...req.body, link: `${base}/tasks/${task.list_id}?task=${task.id}` }));
   });
 
+  // Who changed what on a task, newest first (and who added it, and when).
+  r.get('/tasks/:id/history', (req, res) => {
+    const task = q('SELECT t.id, t.list_id, t.created_at, t.created_by, u.name AS created_by_name FROM tasks t LEFT JOIN users u ON u.id = t.created_by WHERE t.id = ?').get(req.params.id);
+    if (!task) throw notFound('Task not found');
+    loadList(task.list_id, req.user);
+    res.json({ created_at: task.created_at, created_by: task.created_by, created_by_name: task.created_by_name, entries: historyOf(task.id) });
+  });
   r.get('/tasks/:id/comments', (req, res) => {
     const { task } = taskFor(req);
     res.json(q(`SELECT k.id, k.body, k.created_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
@@ -983,6 +991,7 @@ export default function taskRoutes() {
     tx(() => {
       if (keys.length) q(`UPDATE tasks SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), task.id);
       const after = q('SELECT * FROM tasks WHERE id = ?').get(task.id);
+      recordChanges(task, after, req.user.id);
       // Ticked off a repeating task: the next one comes due, on top of its list.
       if (b.done && !task.done_at && after.repeat && after.due && !after.next_id) {
         const due = nextDue(after.due, after.repeat, todayOf(b.today));

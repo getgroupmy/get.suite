@@ -16,6 +16,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from 
 import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
+import { historyText } from './taskhistory.js';
 import { taskLink } from '../chat/filelinks.js';
 import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
 
@@ -964,6 +965,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
       )}
       <p className="muted small">Added by {task.created_by_name || 'someone'} · {new Date(task.created_at).toLocaleDateString([], { dateStyle: 'medium' })}{task.done && ` · done ${new Date(task.done_at).toLocaleDateString([], { dateStyle: 'medium' })}`}</p>
       <TaskComments task={task} />
+      <TaskHistory task={task} />
       <div className="row wrap" style={{ gap: 8 }}>
         {task.repeat && task.due && !task.done && (
           <button type="button" className="btn" title="Move it to its next date without ticking it off" onClick={async () => {
@@ -1118,6 +1120,34 @@ function TaskFiles({ task, onReplaced }) {
       {files.length > 0 && <span className="muted small">Everyone on the list can view the files that people on it own.</span>}
       {picking && <DrivePicker title="Attach to the task" accept={(x) => x.kind !== 'folder'} onClose={() => setPicking(false)} onPick={(x) => { setPicking(false); attach(x.id); }} />}
     </div>
+  );
+}
+
+/** Who changed what on a task, newest first: read when opened, and again as the task changes. */
+function TaskHistory({ task }) {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    get(`/tasks/tasks/${task.id}/history`).then((d) => live && setData(d)).catch(() => {});
+    return () => { live = false; };
+  }, [open, task.id, task.updated_at]);
+  const when = (at) => new Date(at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return (
+    <details className="task-history" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>History</summary>
+      {open && !data && <p className="muted small">Loading…</p>}
+      {data && (
+        <ol className="task-history-list" aria-label="History">
+          {data.entries.map((e, i) => (
+            <li key={i}><strong>{e.user.id === user.id ? 'You' : e.user.name}</strong> {historyText(e, { me: user.id })}<span className="muted small"> · {when(e.at)}</span></li>
+          ))}
+          <li><strong>{data.created_by && data.created_by === user.id ? 'You' : data.created_by_name || 'Someone'}</strong> added it<span className="muted small"> · {when(data.created_at)}</span></li>
+        </ol>
+      )}
+    </details>
   );
 }
 
