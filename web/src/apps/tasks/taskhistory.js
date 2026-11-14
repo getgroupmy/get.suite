@@ -48,6 +48,41 @@ export function historyText(e, { now = new Date(), locale, me } = {}) {
       const tags = (l) => l.map((t) => `#${t}`).join(', ');
       return [added.length && `added ${tags(added)}`, removed.length && `removed ${tags(removed)}`].filter(Boolean).join(' and ') || 'changed the tags';
     }
+    case 'steps': return stepsText(a, b);
+    case 'files': return addedRemoved(a, b, (x) => x.name, 'attached', 'took off', 'files') || 'changed the files';
+    case 'waiting': return addedRemoved(a, b, (x) => x.title, 'made it wait on', 'stopped it waiting on', '') || 'changed what it waits on';
     default: return 'changed it';
   }
+}
+
+// "attached “Plan.pdf”", "attached 2 files: “A”, “B”", "… and took off “C”".
+function addedRemoved(a, b, name, add, remove, many) {
+  const ids = (l) => new Set(l.map((x) => x.id));
+  const was = ids(a), now = ids(b);
+  const part = (verb, l) => {
+    if (!l.length) return null;
+    const names = l.map((x) => quote(name(x))).join(', ');
+    return l.length > 1 && many ? `${verb} ${l.length} ${many}: ${names}` : `${verb} ${names}`;
+  };
+  return [part(add, b.filter((x) => !was.has(x.id))), part(remove, a.filter((x) => !now.has(x.id)))].filter(Boolean).join(' and ') || null;
+}
+
+/** A checklist's change: steps added, ticked off, unticked, renamed, removed. */
+function stepsText(a, b) {
+  const was = new Map(a.map((x) => [x.id, x]));
+  const now = new Map(b.map((x) => [x.id, x]));
+  const groups = [['added', []], ['ticked off', []], ['unticked', []], ['renamed', []], ['removed', []]];
+  const put = (i, text) => groups[i][1].push(text);
+  for (const x of b) {
+    const old = was.get(x.id);
+    if (!old) put(0, quote(x.title));
+    else {
+      if (old.title !== x.title) put(3, `${quote(old.title)} to ${quote(x.title)}`);
+      if (!old.done && x.done) put(1, quote(x.title));
+      if (old.done && !x.done) put(2, quote(x.title));
+    }
+  }
+  for (const x of a) if (!now.has(x.id)) put(4, quote(x.title));
+  const parts = groups.filter(([, l]) => l.length).map(([verb, l]) => `${verb} the ${l.length > 1 ? 'steps' : 'step'} ${l.join(', ')}`);
+  return parts.join('; ') || 'changed the steps';
 }

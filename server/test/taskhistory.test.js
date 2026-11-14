@@ -82,6 +82,38 @@ test('task history: who changed what, quick changes in a row as one, kept throug
   assert.equal(q('SELECT COUNT(*) AS n FROM task_history WHERE task_id = ?').get(t.id).n, 0);
 });
 
+test('task history: steps, files, what it waits on, and skipping a repeat', async () => {
+  const me = client();
+  assert.equal((await me('POST', '/api/auth/login', { username: 'ben@acme.com', password: 'password123' })).status, 200);
+  const list = (await me('POST', '/api/tasks/lists', { name: 'Steps' })).body.id;
+  const design = (await me('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Design' })).body;
+  const t = (await me('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Print flyers', due: '2026-12-01', repeat: 'weekly' })).body;
+  const entries = async () => (await me('GET', `/api/tasks/tasks/${t.id}/history`)).body.entries;
+  // Steps added one after another are one entry; ticking one off is part of it; moving one isn't a change.
+  const a = (await me('POST', `/api/tasks/tasks/${t.id}/steps`, { title: 'Proof' })).body.steps[0].id;
+  await me('POST', `/api/tasks/tasks/${t.id}/steps`, { title: 'Order paper' });
+  await me('PATCH', `/api/tasks/tasks/${t.id}/steps/${a}`, { done: true });
+  const before = await entries();
+  await me('PATCH', `/api/tasks/tasks/${t.id}/steps/${a}`, { index: 1 });
+  assert.deepEqual(await entries(), before, 'reordering steps is not history');
+  assert.equal(before.length, 1);
+  assert.deepEqual(before[0].before, []);
+  assert.deepEqual(before[0].after.map((x) => [x.title, x.done]).sort(), [['Order paper', false], ['Proof', true]]);
+  // Waiting on another task, by its title (and still named once that task is deleted).
+  await me('PUT', `/api/tasks/tasks/${t.id}/waiting-on`, { task_ids: [design.id] });
+  await me('DELETE', `/api/tasks/tasks/${design.id}`);
+  const w = (await entries()).find((e) => e.field === 'waiting');
+  assert.deepEqual(w.after, [{ id: design.id, title: 'Design' }]);
+  // A file attached, by its name.
+  const f = (await me('POST', '/api/files/new', { kind: 'doc', name: 'Flyer text' })).body.id;
+  assert.equal((await me('POST', `/api/tasks/tasks/${t.id}/attachments`, { file_id: f })).status, 201);
+  assert.deepEqual((await entries())[0].after, [{ id: f, name: 'Flyer text' }]);
+  // Skipping this time moves the due date: that's history too.
+  assert.equal((await me('POST', `/api/tasks/tasks/${t.id}/skip`, { today: '2026-11-14' })).status, 200);
+  const d = (await entries())[0];
+  assert.deepEqual([d.field, d.before, d.after], ['due', '2026-12-01', '2026-12-08']);
+});
+
 test('task history: entries far apart stay apart; changing it back by someone else is its own entry; at most 200 kept', () => {
   const row = (x) => ({ id: 'tk1', title: 'A', notes: null, due: null, due_time: null, start: null, assignee_id: null, done_at: null, started: 0, priority: null, important: 0, list_id: 'l', section_id: null, repeat: null, tags: null, estimate: null, ...x });
   const u = q('SELECT id FROM users LIMIT 2').all().map((x) => x.id);

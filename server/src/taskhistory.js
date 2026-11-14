@@ -35,7 +35,16 @@ const FIELDS = {
   repeat: (t) => t.repeat || null,
   tags: (t) => t.tags || null,
   estimate: (t) => (t.estimate == null ? null : String(t.estimate)),
+  // Lists in a set order (by id), so moving a step up or down isn't a change.
+  steps: (t) => canonical(t.steps, (x) => ({ id: x.id, title: x.title, done: !!x.done })),
+  files: (t) => canonical(t.attachments, (x) => ({ id: x.id, name: x.name })),
+  waiting: (t) => canonical(t.blocked_by, (x) => x),
 };
+function canonical(json, pick) {
+  const l = json ? JSON.parse(json) : [];
+  if (!l.length) return null;
+  return JSON.stringify(l.map(pick).sort((a, b) => String(a.id ?? a).localeCompare(String(b.id ?? b))));
+}
 
 /** Record what changed between two versions of a task's row (before and after an update), by userId. Call inside the update's transaction. */
 export function recordChanges(before, after, userId, at = now()) {
@@ -72,7 +81,11 @@ export function historyOf(taskId) {
     tags: (v) => (v ? JSON.parse(v) : []),
     estimate: (v) => (v ? Number(v) : null),
     important: (v) => !!v,
+    steps: (v) => (v ? JSON.parse(v) : []),
+    files: (v) => (v ? JSON.parse(v) : []),
+    waiting: (v) => (v ? JSON.parse(v).map((id) => ({ id, title: taskTitle(id) })) : []),
   };
+  const taskTitle = (id) => q('SELECT title FROM tasks WHERE id = ?').get(id)?.title || q('SELECT title FROM task_trash WHERE id = ?').get(id)?.title || 'a task that was deleted';
   return q(`SELECT h.*, u.name AS user_name FROM task_history h LEFT JOIN users u ON u.id = h.user_id
             WHERE h.task_id = ? ORDER BY h.at DESC, h.id DESC`).all(taskId).map((h) => {
     const f = show[h.field] || ((v) => v);

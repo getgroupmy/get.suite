@@ -541,7 +541,10 @@ export default function taskRoutes() {
     if (!due) throw bad('There is no next time');
     if (task.repeat_until && due > task.repeat_until) throw bad('That’s the last time: it stops repeating after this');
     const start = task.start ? shiftDay(due, -daysBetween(task.start, task.due)) : null;
-    q('UPDATE tasks SET due = ?, start = ?, updated_at = ? WHERE id = ?').run(due, start, now(), task.id);
+    tx(() => {
+      q('UPDATE tasks SET due = ?, start = ?, updated_at = ? WHERE id = ?').run(due, start, now(), task.id);
+      recordChanges(task, q('SELECT * FROM tasks WHERE id = ?').get(task.id), req.user.id);
+    });
     changed(list);
     res.json(shape(q(`${TASK} WHERE t.id = ?`).get(task.id)));
   });
@@ -1062,6 +1065,7 @@ export default function taskRoutes() {
       const steps = JSON.parse(q('SELECT steps FROM tasks WHERE id = ?').get(task.id).steps || '[]');
       result = fn(steps);
       q('UPDATE tasks SET steps = ?, updated_at = ? WHERE id = ?').run(steps.length ? JSON.stringify(steps) : null, now(), task.id);
+      recordChanges(task, q('SELECT * FROM tasks WHERE id = ?').get(task.id), req.user.id);
     });
     changed(list);
     return { task: shape(q(`${TASK} WHERE t.id = ?`).get(task.id)), result };
@@ -1107,7 +1111,10 @@ export default function taskRoutes() {
     const seen = new Set();
     const reaches = (id) => { if (id === task.id) return true; if (seen.has(id)) return false; seen.add(id); return (onList.get(id) || []).some(reaches); };
     if (ids.some(reaches)) throw bad('That would make tasks wait on each other');
-    q('UPDATE tasks SET blocked_by = ?, updated_at = ? WHERE id = ?').run(ids.length ? JSON.stringify(ids) : null, now(), task.id);
+    tx(() => {
+      q('UPDATE tasks SET blocked_by = ?, updated_at = ? WHERE id = ?').run(ids.length ? JSON.stringify(ids) : null, now(), task.id);
+      recordChanges(task, q('SELECT * FROM tasks WHERE id = ?').get(task.id), req.user.id);
+    });
     changed(list);
     res.json(shapeFor(req.user.id)(q(`${TASK} WHERE t.id = ?`).get(task.id)));
   });
@@ -1131,6 +1138,7 @@ export default function taskRoutes() {
         list2.push({ id: f.id, name: f.name, kind: f.kind, mime: f.mime || null });
       }
       q('UPDATE tasks SET attachments = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(list2), now(), task.id);
+      recordChanges(task, q('SELECT * FROM tasks WHERE id = ?').get(task.id), req.user.id);
     });
     shareAttachments(list, [q('SELECT attachments FROM tasks WHERE id = ?').get(task.id)]);
     changed(list);
@@ -1141,7 +1149,10 @@ export default function taskRoutes() {
     if (!task) throw notFound('Task not found');
     const list = loadList(task.list_id, req.user);
     const left = JSON.parse(task.attachments || '[]').filter((a) => a.id !== req.params.fid);
-    q('UPDATE tasks SET attachments = ?, updated_at = ? WHERE id = ?').run(left.length ? JSON.stringify(left) : null, now(), task.id);
+    tx(() => {
+      q('UPDATE tasks SET attachments = ?, updated_at = ? WHERE id = ?').run(left.length ? JSON.stringify(left) : null, now(), task.id);
+      recordChanges(task, q('SELECT * FROM tasks WHERE id = ?').get(task.id), req.user.id);
+    });
     changed(list);
     res.json(shapeFor(req.user.id)(q(`${TASK} WHERE t.id = ?`).get(task.id)));
   });

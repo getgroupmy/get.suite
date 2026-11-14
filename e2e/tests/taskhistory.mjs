@@ -71,6 +71,16 @@ await step('a change made here shows straight away; one by someone else as it ha
   await api(kim, 'PATCH', `/tasks/tasks/${tid}`, { done: true });
   await until(async () => /^Kim Park ticked it off/.test(await history().locator('li').first().innerText()));
 });
+await step('steps added in the details show as one line', async () => {
+  await page.goto(`${B}/tasks/${list}?task=${tid}`);
+  await details().getByText('History', { exact: true }).click();
+  for (const title of ['Call the venue', 'Pay the deposit']) {
+    await details().getByPlaceholder('Add a step').fill(title);
+    await details().getByPlaceholder('Add a step').press('Enter');
+  }
+  await until(async () => (await history().locator('li').first().innerText()).startsWith('You added the steps “Call the venue”, “Pay the deposit”'));
+  await axe(page, 'history with steps');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

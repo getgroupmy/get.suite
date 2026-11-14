@@ -40,3 +40,15 @@ test('each kind of change as a sentence', () => {
   assert.equal(t('tags', [], ['q4', 'venue']), 'added #q4, #venue');
   assert.equal(t('tags', ['q4', 'venue'], ['venue', 'client']), 'added #client and removed #q4');
 });
+
+test('steps, files and what it waits on', () => {
+  const st = (id, title, done = false) => ({ id, title, done });
+  assert.equal(t('steps', [], [st('1', 'Call them')]), 'added the step “Call them”');
+  assert.equal(t('steps', [], [st('1', 'Call'), st('2', 'Pay')]), 'added the steps “Call”, “Pay”');
+  assert.equal(t('steps', [st('1', 'Call'), st('2', 'Pay')], [st('1', 'Call', true), st('2', 'Pay deposit')]), 'ticked off the step “Call”; renamed the step “Pay” to “Pay deposit”');
+  assert.equal(t('steps', [st('1', 'Call', true), st('2', 'Pay')], [st('1', 'Call')]), 'unticked the step “Call”; removed the step “Pay”');
+  assert.equal(t('files', [], [{ id: 'f', name: 'Plan.pdf' }]), 'attached “Plan.pdf”');
+  assert.equal(t('files', [{ id: 'g', name: 'Old.pdf' }], [{ id: 'f', name: 'A' }, { id: 'h', name: 'B' }]), 'attached 2 files: “A”, “B” and took off “Old.pdf”');
+  assert.equal(t('waiting', [], [{ id: 'x', title: 'Design' }]), 'made it wait on “Design”');
+  assert.equal(t('waiting', [{ id: 'x', title: 'Design' }], []), 'stopped it waiting on “Design”');
+});
