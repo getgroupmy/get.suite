@@ -948,8 +948,8 @@ export function ShareDialog({ file, onClose }) {
   return (
     <Modal title={file.is_drive && !file.parent_id ? `Members of “${file.name}”` : `Share “${file.name}”`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={!shares}>Save</button></>}>
       {dataCheck}
-      {file.is_drive && !file.parent_id && <p className="muted small" style={{ marginTop: 0 }}>Everyone added sees everything in this shared drive. Editors can also add files, rename the drive and manage its members; what people add stays here when they leave the company.</p>}
-      <form className="row" onSubmit={add}>
+      {!!file.is_drive && !file.parent_id && <p className="muted small" style={{ marginTop: 0 }}>Everyone added sees everything in this shared drive. Editors can also add files, rename the drive and manage its members; what people add stays here when they leave the company.</p>}
+      <form className="row share-add" onSubmit={add}>
         <input className="grow" list="share-people" type="email" value={address} placeholder="Add people by email address"
           aria-label="Email address" autoFocus onChange={(e) => { setAddress(e.target.value); setError(''); }} />
         <datalist id="share-people">
@@ -1539,7 +1539,7 @@ function StorageDialog({ onClose, onChanged }) {
             {s.largest.map((f) => (
               <li key={f.id}>
                 <button type="button" className="link-btn grow ellipsis" title="Show it in Drive" onClick={() => { onClose(); navigate(f.trashed ? '/drive/trash' : f.parent_id ? `/drive/folder/${f.parent_id}` : '/drive'); }}>{f.name}</button>
-                <span className="muted small">{formatBytes(f.size)}{f.versions_size > 0 && ` + ${formatBytes(f.versions_size)} in ${f.versions} older version${f.versions === 1 ? '' : 's'}`}{f.trashed && ' · in trash'}</span>
+                <span className="muted small">{formatBytes(f.size)}{f.versions_size > 0 && ` + ${formatBytes(f.versions_size)} in ${f.versions} older version${f.versions === 1 ? '' : 's'}`}{!!f.trashed && ' · in trash'}</span>
                 {f.versions_size > 0 && <button type="button" className="btn small" onClick={act(() => del(`/files/${f.id}/versions`), (r) => `Freed ${formatBytes(r.freed)}`)}>Delete older versions</button>}
                 {!f.trashed && <button type="button" className="icon-btn" aria-label={`Move ${f.name} to trash`} onClick={act(() => patch(`/files/${f.id}`, { trashed: true }), 'Moved to trash')}><Icon name="trash" size={16} /></button>}
               </li>

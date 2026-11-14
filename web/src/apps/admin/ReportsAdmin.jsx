@@ -40,7 +40,7 @@ export default function ReportsAdmin({ orgId, orgPicker }) {
             </dl>
           )}
         </section>}
-        <table className="files report" aria-label="Usage">
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Usage, by person"><table className="files report" aria-label="Usage">
           <thead><tr>
             <th><button type="button" className="link-btn" onClick={() => setSort('name')}>Name</button></th>
             <th><button type="button" className="link-btn" onClick={() => setSort('last_active')}>Last active</button></th>
@@ -56,7 +56,7 @@ export default function ReportsAdmin({ orgId, orgPicker }) {
             ))}
           </tbody>
           <tfoot><tr><th>Total</th><th />{COLUMNS.map(([k, , show]) => <th key={k} className="num">{show ? show(total(k)) : total(k)}</th>)}</tr></tfoot>
-        </table>
+        </table></div>
       </>}
     </div>
   );

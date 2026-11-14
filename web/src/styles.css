@@ -3086,3 +3086,14 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .file-chip.more { font: inherit; font-size: 12.5px; color: var(--muted); }
 /* Mail → Attachments on a narrow screen: the name and details keep their width; buttons go below. */
 .attach-list li .grow { flex: 1 1 220px; }
+/* Share window on a narrow screen: names keep their room; access, until-date and remove wrap below. */
+.share-list li { flex-wrap: wrap; row-gap: 4px; }
+.share-list li > .grow { flex: 1 1 150px; min-width: 0; }
+.share-add { flex-wrap: wrap; }
+.share-add input.grow { flex: 1 1 180px; min-width: 0; }
+/* On a narrow screen: page header buttons wrap under the title; a checkup item's buttons wrap below its
+   text; a wide table scrolls sideways in its own box, not the whole page. */
+.page-head { flex-wrap: wrap; }
+.checkup-item { flex-wrap: wrap; }
+.checkup-item > .grow { flex: 1 1 200px; min-width: 0; }
+.table-scroll { max-width: 100%; overflow-x: auto; }

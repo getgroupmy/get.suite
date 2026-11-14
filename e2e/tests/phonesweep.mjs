@@ -53,6 +53,9 @@ const fits = async (p, label) => {
   // Nor an area of the page slid sideways (only a row of tabs, a sidebar strip on a phone, or a table's own strip, may scroll).
   const slid = await p.evaluate(() => [...document.querySelectorAll('body *')].filter((e) => e.scrollLeft > 0 && !e.closest('.tabs, .subnav, table, pre, .cm-editor')).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 30)} by ${e.scrollLeft}px`));
   if (slid.length) throw new Error(`${label}: slid sideways: ${slid.join(', ')}`);
+  // …or about to: a page whose content is wider than it (tapping what's off to the right would slide it).
+  const over = await p.evaluate(() => [...document.querySelectorAll('.page')].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => `page ${e.scrollWidth}px in ${e.clientWidth}px: ${[...e.querySelectorAll('*')].filter((x) => x.getBoundingClientRect().right > window.innerWidth + 1 && !x.closest('.tabs, table, pre')).slice(0, 2).map((x) => `${x.tagName.toLowerCase()}.${String(x.className).slice(0, 25)}`).join(', ')}`));
+  if (over.length) throw new Error(`${label}: ${over.join('; ')}`);
 };
 let phone;
 await step('a phone, signed in', async () => {

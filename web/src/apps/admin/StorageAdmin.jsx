@@ -55,7 +55,7 @@ export default function StorageAdmin({ orgId, orgPicker }) {
           <tbody>
             {data.largest.map((f) => (
               <tr key={f.id}>
-                <td className="name"><Icon name={fileIcon(f)} size={20} /><span>{f.name}{f.trashed && <span className="pill off" style={{ marginLeft: 6 }}>In trash</span>}</span></td>
+                <td className="name"><Icon name={fileIcon(f)} size={20} /><span>{f.name}{!!f.trashed && <span className="pill off" style={{ marginLeft: 6 }}>In trash</span>}</span></td>
                 <td className="hide-sm muted">{f.owner_name}</td>
                 <td className="num">{formatBytes(f.size)}</td>
                 <td className="num hide-sm muted">{formatBytes(f.size + f.versions_size)}</td>
