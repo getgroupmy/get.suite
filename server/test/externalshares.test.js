@@ -120,3 +120,18 @@ test('Home → Shared with you: what people shared with you directly lately, who
   const { HOME_CARDS } = await import('../src/auth.js');
   assert.ok(HOME_CARDS.includes('sharedwithyou'));
 });
+
+test('Drive → Shared with me: newest shared first, with who shared it and when', async () => {
+  const a = (await kim('POST', '/api/files/upload?name=alpha.txt', 'a', true)).body;
+  const z = (await kim('POST', '/api/files/upload?name=zulu.txt', 'z', true)).body;
+  await kim('PUT', `/api/files/${a.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'viewer' }] });
+  await new Promise((r) => setTimeout(r, 5));
+  await kim('PUT', `/api/files/${z.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'viewer' }] });
+  const list = (await ana('GET', '/api/files?view=shared')).body;
+  assert.deepEqual(list.slice(0, 2).map((f) => [f.name, f.shared_by_name]), [['zulu.txt', 'Kim Park'], ['alpha.txt', 'Kim Park']], 'zulu shared last: first, though z comes after a');
+  assert.ok(list[0].shared_at >= list[1].shared_at);
+  // Older shares (no time known) come after, by name.
+  q('UPDATE shares SET shared_at = NULL WHERE file_id = ?').run(z.id);
+  const again = (await ana('GET', '/api/files?view=shared')).body.map((f) => f.name);
+  assert.ok(again.indexOf('alpha.txt') < again.indexOf('zulu.txt'));
+});

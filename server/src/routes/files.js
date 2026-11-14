@@ -509,8 +509,11 @@ export default function fileRoutes({ maxUploadBytes }) {
       }
     } else if (view === 'shared') {
       // Shared with you, and shared with everyone in your company (by someone else).
-      rows = q(`SELECT ${COLS}, s.role ${FROM} JOIN shares s ON s.file_id = f.id
-                WHERE s.user_id = ? AND f.trashed = 0 AND f.is_drive = 0 AND ${REACHABLE} ${ORDER}`).all(me, org, org);
+      // Newest shared first (when that's known), then by name; with who shared it, and when.
+      rows = q(`SELECT ${COLS}, s.role, s.shared_at, sb.name AS shared_by_name ${FROM} JOIN shares s ON s.file_id = f.id
+                LEFT JOIN users sb ON sb.id = s.shared_by
+                WHERE s.user_id = ? AND f.trashed = 0 AND f.is_drive = 0 AND ${REACHABLE}
+                ORDER BY s.shared_at IS NULL, s.shared_at DESC, (f.kind = 'folder') DESC, f.name COLLATE NOCASE`).all(me, org, org);
       const ids = new Set(rows.map((f) => f.id));
       const company = q(`SELECT ${COLS}, f.org_role AS role ${FROM} WHERE f.org_role IS NOT NULL AND u.org_id = ? AND f.owner_id != ? AND f.trashed = 0 AND f.is_drive = 0 ${ORDER}`).all(org, me)
         .filter((f) => !ids.has(f.id)).map((f) => ({ ...f, role: roleFor(f.id, me) || f.role }));

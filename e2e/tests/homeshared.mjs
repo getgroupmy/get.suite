@@ -71,6 +71,18 @@ await step('Home → Shared with you: what Olivia just shared with Kim, by whom,
   await kim.getByRole('dialog', { name: 'Customize Home' }).getByText('Shared with you').waitFor();
 });
 
+await step('Drive → Shared with me: newest shared first, with who shared it and when', async () => {
+  const kim = await mk('kim2');
+  await signIn(kim, 'kim@acme.com');
+  await kim.goto(`${B}/drive/shared`);
+  const rows = kim.locator('.files tbody tr');
+  await until(async () => (await rows.count()) === 2);
+  const names = await rows.locator('.name-text').allInnerTexts();
+  if (!names[0].startsWith('Budget.csv') || !names[1].startsWith('Project brief.txt')) throw new Error(names.join(' | '));
+  await rows.first().getByText(/· Olivia Owner shared it /).waitFor();
+  await axe(kim, 'shared with me');
+});
+
 await step('Olivia, who shared them, has no such card', async () => {
   await page.goto(`${B}/home`);
   await page.getByRole('region', { name: 'Recent files' }).waitFor();

@@ -618,6 +618,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 ## Working with files (Drive)
 
+- **Shared with me:** newest shared first, each with who shared it and when (*Olivia Owner shared it 14 Nov*); things shared before this was kept, and those shared with the whole company, come after, by name. A sort you pick (name, date…) still applies.
 - **Shared by me:** Drive → **Shared by me** lists your files and folders that other people can open, each with whom (*with Kim Park, Design (group), Everyone at Acme*; someone at another company is marked *(outside)*). Shares that have ended aren't counted, and a file leaves the list as soon as you stop sharing it. Links for people without an account are under **Shared by link**.
 - **Suggested:** the top of **My Drive** shows a few files you're likely to want next, each saying why: attached to a meeting of yours in the next day, repeating ones included (*For “Design review” at 2:00 PM*), changed by someone else this week (*Kim Park changed it today*), or opened by you lately. Only files you can open; **▾ Suggested** hides them (remembered in this browser).
 - **Folder sizes:** a folder's **Size** is what everything inside it adds up to, at any depth (hover for how many files), or *Empty*; the grid shows it too, and sorting by size goes by it. Files in the trash aren't counted.
