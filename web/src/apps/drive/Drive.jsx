@@ -1,3 +1,4 @@
+import { driveKey, stepIndex } from './drivekeys.js';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { get, post, patch, del, put, uploadFile, uploadVersion, onLive, formatBytes, formatDate } from '../../api.js';
@@ -447,6 +448,49 @@ export default function Drive() {
  // The list as chosen: Recent stays newest first, search results best match first, until you sort them.
   const sortChosen = look.sort !== 'name' || look.desc;
   const shown = files ? (['recent', 'search'].includes(route.view) && !sortChosen ? files : sortFiles(files, look)) : [];
+
+  // Keyboard (see drivekeys.js): ↑ / ↓ (or J / K), Home and End move between the files (focus and
+  // selection with them); Enter opens (on each item); X ticks one; S stars it; F2 renames; Delete or #
+  // moves it to the trash; U goes up a folder. The menu's own actions do the work.
+  const keyState = useRef();
+  keyState.current = { keysOn: user?.keys !== false, shown, itemMenu, crumbs, route, navigate, toggleCheck, setSelected };
+  useEffect(() => {
+    const items = () => [...document.querySelectorAll('table.files tbody tr[tabindex], .file-grid .tile-face')];
+    const onKey = (e) => {
+      const st = keyState.current;
+      if (document.querySelector('.modal-backdrop, [role=menu], [role=dialog]')) return;
+      const all = items();
+      const i = all.findIndex((el) => el === document.activeElement || el.contains(document.activeElement) && document.activeElement.tagName !== 'INPUT');
+      const hit = driveKey(e, i >= 0);
+      if (!hit || (hit.letter && !st.keysOn)) return;
+      const f = i >= 0 ? st.shown[i] : null;
+      const run = (...labels) => { const m = f && st.itemMenu(f).filter(Boolean).find((x) => labels.includes(x.label)); if (m) { e.preventDefault(); m.onClick(); } };
+      switch (hit.action) {
+        case 'next': case 'prev': case 'first': case 'last': {
+          const j = stepIndex(all.length, i, hit.action);
+          if (j < 0) return;
+          e.preventDefault();
+          all[j].focus(); all[j].scrollIntoView?.({ block: 'nearest' });
+          const g = st.shown[j]; if (g) st.setSelected(g.shortcut_id || g.id);
+          return;
+        }
+        case 'check': if (f && !f.shortcut_id) { e.preventDefault(); st.toggleCheck(f.id); } return;
+        case 'star': run('Add star', 'Remove star'); return;
+        case 'rename': run('Rename'); return;
+        case 'trash': run('Move to trash', 'Remove shortcut'); return;
+        case 'up': {
+          if (st.route.view !== 'mine' || !st.route.folderId) return;
+          e.preventDefault();
+          const c = st.crumbs;
+          st.navigate(c.length >= 2 ? `/drive/folder/${c[c.length - 2].id}` : c[0]?.is_drive ? '/drive/drives' : '/drive');
+          return;
+        }
+        default:
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const sortHead = (key, label, cls = '') => (
     <th className={cls} aria-sort={look.sort === key ? (look.desc ? 'descending' : 'ascending') : 'none'}>
       <button type="button" className="th-sort" onClick={() => sortBy(key)} title={`Sort by ${label.toLowerCase()}`}>{label}{look.sort === key && <span aria-hidden="true"> {look.desc ? '↓' : '↑'}</span>}</button>
