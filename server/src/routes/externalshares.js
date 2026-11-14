@@ -61,6 +61,28 @@ export function externalShareRoutes() {
     audit(req, 'file.share_export', { details: { shares: rows.length } });
     res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', 'attachment; filename="shared-outside.csv"').send(`\ufeff${lines.join('\r\n')}\r\n`);
   });
+  // The company's limit on outside shares (Company settings), applied to the shares that already exist:
+  // each without an end, or ending later than the limit, now ends that many days from now. Owners are told.
+  r.post('/enforce', (req, res) => {
+    const days = q('SELECT external_share_days FROM orgs WHERE id = ?').get(req.user.org_id)?.external_share_days;
+    if (!days) throw bad('Set a limit first (Company settings → Working with other companies)');
+    const latest = Date.now() + days * 864e5;
+    const rows = externalShares(req.user.org_id).filter((x) => x.expires_at === null || x.expires_at > latest);
+    const byOwner = new Map();
+    for (const x of rows) {
+      q('UPDATE shares SET expires_at = ? WHERE file_id = ? AND user_id = ? AND direct_role IS NOT NULL').run(latest, x.file_id, x.user_id);
+      if (!byOwner.has(x.owner_id)) byOwner.set(x.owner_id, new Set());
+      byOwner.get(x.owner_id).add(x.file_name);
+    }
+    for (const [owner, names] of byOwner) {
+      if (owner === req.user.id) continue;
+      const list = [...names];
+      bell([owner], { kind: 'share', title: `Your files shared outside the company now end in ${days} days`, body: `${list.slice(0, 5).join(', ')}${list.length > 5 ? ` and ${list.length - 5} more` : ''}: the company’s limit. Share again then if they still need it.`, link: '/drive/sharedbyme', actor: req.user.name });
+    }
+    audit(req, 'file.share', { target: `${rows.length} shares outside the company`, details: { limited_to_days: days } });
+    res.json({ changed: rows.length, ends_at: latest });
+  });
+
   // One share: DELETE /:fileId/:userId.
   r.delete('/:fileId/:userId', (req, res) => {
     const row = externalShares(req.user.org_id).find((x) => x.file_id === req.params.fileId && x.user_id === req.params.userId);

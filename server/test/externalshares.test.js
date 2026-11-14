@@ -201,3 +201,20 @@ test('a company limit on shares with other companies: they end within its days',
   assert.equal(end('gil@globex.com'), was);
   await ana('PATCH', '/api/orgs/current', { external_share_days: null });
 });
+
+test('apply the limit to existing outside shares: they end within it; owners told; needs a limit', async () => {
+  const old = (await kim('POST', '/api/files/upload?name=old-share.txt', 'o', true)).body;
+  await kim('PUT', `/api/files/${old.id}/shares`, { shares: [{ user_id: id('gil@globex.com'), role: 'viewer' }, { user_id: id('ana@acme.com'), role: 'viewer' }] });
+  const end = (u) => q('SELECT expires_at FROM shares WHERE file_id = ? AND user_id = ?').get(old.id, id(u))?.expires_at;
+  assert.equal(end('gil@globex.com'), null, 'made while there was no limit');
+  assert.equal((await ana('POST', '/api/external-shares/enforce')).status, 400, 'no limit set');
+  await ana('PATCH', '/api/orgs/current', { external_share_days: 7 });
+  assert.equal((await kim('POST', '/api/external-shares/enforce')).status, 403);
+  const r = (await ana('POST', '/api/external-shares/enforce')).body;
+  assert.ok(r.changed >= 1);
+  assert.ok(Math.abs(end('gil@globex.com') - (Date.now() + 7 * 864e5)) < 10000);
+  assert.equal(end('ana@acme.com'), null, 'colleagues untouched');
+  assert.ok(q("SELECT 1 FROM notifications WHERE user_id = ? AND title = 'Your files shared outside the company now end in 7 days'").get(id('kim@acme.com')));
+  assert.equal((await ana('POST', '/api/external-shares/enforce')).body.changed, 0, 'nothing left to change');
+  await ana('PATCH', '/api/orgs/current', { external_share_days: null });
+});

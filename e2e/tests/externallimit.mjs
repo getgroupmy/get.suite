@@ -48,6 +48,10 @@ const axe = async (p, label) => {
 await step('Company settings: shares with other companies last at most 30 days', async () => {
   const r = await api(page, 'POST', '/orgs', { name: 'Globex', domain: 'globex.com', admin_name: 'Gil Green', admin_local: 'gil', admin_password: 'password123' });
   if (r.status !== 201) throw new Error(JSON.stringify(r));
+  // Shared with Gil before there's any limit: no end.
+  const gil = (await api(page, 'GET', '/users/lookup?email=gil@globex.com')).body;
+  const early = await page.evaluate(async () => (await fetch('/api/files/upload?name=Old%20deal.txt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'x' })).json());
+  await api(page, 'PUT', `/files/${early.id}/shares`, { shares: [{ user_id: gil.id, role: 'viewer' }] });
   await page.goto(`${B}/admin`);
   await page.getByRole('tab', { name: 'Company settings' }).click();
   const sel = page.getByLabel('Files shared with people at other companies stay shared for');
@@ -78,6 +82,21 @@ await step('sharing with Gil (another company) in the Share window: told, and it
   await page.getByRole('menuitem', { name: 'Share', exact: true }).click();
   const until = await page.getByLabel('Access for Gil Green ends').inputValue();
   if (!until) throw new Error('no end date shown');
+});
+
+await step('Admin → Shared outside: apply the limit to the share made before it', async () => {
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Shared outside' }).click();
+  const note = page.getByRole('status').filter({ hasText: 'longer than your company’s limit of 30 days' });
+  await note.getByText(/^1 share lasts longer/).waitFor();
+  await note.getByRole('button', { name: 'Apply the limit to them…' }).click();
+  const d = page.getByRole('dialog', { name: 'Apply the limit to existing shares?' });
+  await axe(page, 'apply limit');
+  await d.getByRole('button', { name: 'Apply limit' }).click();
+  await page.getByText(/^1 share now ends on /).waitFor();
+  await until(async () => !(await note.count()));
+  const rows = page.getByRole('table', { name: 'Shared outside the company' }).locator('tr', { hasText: 'Old deal.txt' });
+  await rows.getByText(/· until /).waitFor();
 });
 
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }

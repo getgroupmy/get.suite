@@ -110,7 +110,7 @@ export default function Admin() {
       {tab === 'storage' && <StorageAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'drives' && <DrivesAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'links' && <LinksAdmin />}
-      {tab === 'outside' && <ExternalAdmin allowExternal={user.allow_external} />}
+      {tab === 'outside' && <ExternalAdmin allowExternal={user.allow_external} limitDays={user.external_share_days} />}
       {tab === 'apps' && <AppsAdmin />}
       {tab === 'security' && <SecurityAdmin />}
       {tab === 'system' && user.is_super && <SystemAdmin />}
