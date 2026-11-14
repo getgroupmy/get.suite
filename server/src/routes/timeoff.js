@@ -7,6 +7,7 @@ import { uid, bad, forbidden, notFound } from '../util.js';
 import { notify } from '../notifications.js';
 import { zoneOrUtc } from '../ics.js';
 import { fromWallClock } from '../calmath.js';
+import { publicHolidays, COUNTRIES } from '../publicholidays.js';
 
 q(`CREATE TABLE IF NOT EXISTS time_off (
   id TEXT PRIMARY KEY,
@@ -207,6 +208,30 @@ export default function timeOffRoutes() {
     const id = uid();
     q('INSERT INTO company_holidays (id, org_id, date, name) VALUES (?, ?, ?, ?)').run(id, req.user.org_id, date, name);
     res.status(201).json({ id, date, name });
+  });
+  // Public holidays (see publicholidays.js): which countries, a year's list for one (marking those already
+  // here), and adding them all as company holidays at once (days that already have one are skipped).
+  r.get('/holidays/public', (req, res) => {
+    if (!req.query.country) return res.json({ countries: COUNTRIES });
+    const days = publicHolidays(req.query.country, req.query.year);
+    if (!days) throw bad('Choose a country and a year');
+    const have = new Set(q('SELECT date FROM company_holidays WHERE org_id = ?').all(req.user.org_id).map((h) => h.date));
+    res.json({ holidays: days.map((h) => ({ ...h, added: have.has(h.date) })) });
+  });
+  r.post('/holidays/public', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins set company holidays');
+    const days = publicHolidays(req.body?.country, req.body?.year);
+    if (!days) throw bad('Choose a country and a year');
+    let added = 0;
+    tx(() => {
+      for (const h of days) {
+        if (q('SELECT 1 FROM company_holidays WHERE org_id = ? AND date = ?').get(req.user.org_id, h.date)) continue;
+        if (q('SELECT COUNT(*) AS n FROM company_holidays WHERE org_id = ?').get(req.user.org_id).n >= 500) throw bad('Too many holidays; remove past ones first');
+        q('INSERT INTO company_holidays (id, org_id, date, name) VALUES (?, ?, ?, ?)').run(uid(), req.user.org_id, h.date, h.name);
+        added++;
+      }
+    });
+    res.json({ added, skipped: days.length - added });
   });
   r.delete('/holidays/:id', (req, res) => {
     if (!req.user.is_admin) throw forbidden('Only admins set company holidays');

@@ -14661,3 +14661,27 @@ test('mail: a message\'s mailing list, from its List-Id header', async () => {
   assert.equal(listIdOf([{ key: 'subject', line: 'Subject: hi' }]), null);
   assert.equal(listIdOf(undefined), null);
 });
+
+test('time off: adding a country\'s public holidays as company holidays (admins), skipping days already there', async () => {
+  const countries = (await owner('GET', '/api/time-off/holidays/public')).body.countries;
+  assert.ok(countries.some((c) => c.code === 'GB' && /England/.test(c.name)));
+  await owner('POST', '/api/time-off/holidays', { date: '2031-12-25', name: 'Our Christmas' });
+  const preview = (await owner('GET', '/api/time-off/holidays/public?country=GB&year=2031')).body.holidays;
+  assert.equal(preview.find((h) => h.date === '2031-12-25').added, true);
+  assert.equal(preview.find((h) => h.date === '2031-01-01').added, false);
+  const r = await owner('POST', '/api/time-off/holidays/public', { country: 'GB', year: 2031 });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { added: preview.length - 1, skipped: 1 });
+  const listed = (await owner('GET', '/api/time-off/holidays?from=2031-01-01&to=2031-12-31')).body;
+  assert.equal(listed.length, preview.length);
+  assert.equal(listed.find((h) => h.date === '2031-12-25').name, 'Our Christmas', 'the one already there is kept');
+  // Again: nothing new.
+  assert.deepEqual((await owner('POST', '/api/time-off/holidays/public', { country: 'GB', year: 2031 })).body, { added: 0, skipped: preview.length });
+  assert.equal((await owner('POST', '/api/time-off/holidays/public', { country: 'Atlantis', year: 2031 })).status, 400);
+  const pat = client();
+  await owner('POST', '/api/users', { local: 'holpat', domain: 'acme.com', name: 'Hol Pat', password: 'password123' });
+  await login(pat, 'holpat@acme.com');
+  assert.equal((await pat('POST', '/api/time-off/holidays/public', { country: 'US', year: 2031 })).status, 403);
+  assert.equal((await pat('GET', '/api/time-off/holidays/public?country=US&year=2031')).status, 200, 'anyone may look');
+  for (const h of listed) await owner('DELETE', `/api/time-off/holidays/${h.id}`);
+});

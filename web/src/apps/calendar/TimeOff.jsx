@@ -164,6 +164,7 @@ function Holidays({ year }) {
     try { await post('/time-off/holidays', f); toast(`${f.name} added`); setF({ date: '', name: '' }); load(); } catch (err) { toast(err.message, 'error'); }
   };
   const remove = async (h) => { try { await del(`/time-off/holidays/${h.id}`); toast(`${h.name} removed`); load(); } catch (err) { toast(err.message, 'error'); } };
+  const [publicOpen, setPublicOpen] = useState(false);
   return (
     <section className="stack-tight" aria-label="Company holidays">
       <strong>Company holidays</strong>
@@ -177,10 +178,53 @@ function Holidays({ year }) {
         <label className="field"><span>Holiday</span><input type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></label>
         <label className="field grow"><span>Name</span><input required maxLength={100} value={f.name} placeholder="New Year's Day" onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
         <button type="submit" className="btn">Add holiday</button>
+        <button type="button" className="btn" onClick={() => setPublicOpen(true)}>Add public holidays…</button>
       </form>
+      {publicOpen && <PublicHolidays year={year} onClose={(changed) => { setPublicOpen(false); if (changed) load(); }} />}
     </section>
   );
 }
+/** A country's public holidays for a year, to add as company holidays in one go (days already there are kept). */
+function PublicHolidays({ year: startYear, onClose }) {
+  const toast = useToast();
+  const [countries, setCountries] = useState([]);
+  const [country, setCountry] = useState(() => { try { return localStorage.getItem('holiday-country') || ''; } catch { return ''; } });
+  const [year, setYear] = useState(startYear);
+  const [days, setDays] = useState(null);
+  useEffect(() => { get('/time-off/holidays/public').then((r) => { setCountries(r.countries); setCountry((c) => c || r.countries[0]?.code || ''); }).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!country) return;
+    setDays(null);
+    get(`/time-off/holidays/public?country=${country}&year=${year}`).then((r) => setDays(r.holidays)).catch((e) => toast(e.message, 'error'));
+  }, [country, year, toast]);
+  const fresh = (days || []).filter((h) => !h.added);
+  const add = async () => {
+    try {
+      const r = await post('/time-off/holidays/public', { country, year });
+      try { localStorage.setItem('holiday-country', country); } catch { /* private window */ }
+      toast(r.added ? `Added ${r.added} holiday${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already there)` : ''}` : 'They are all there already');
+      onClose(true);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title="Add public holidays" onClose={() => onClose(false)} footer={<><button type="button" className="btn" onClick={() => onClose(false)}>Cancel</button>
+      <button type="button" className="btn primary" disabled={!fresh.length} onClick={add}>{fresh.length ? `Add ${fresh.length} holiday${fresh.length === 1 ? '' : 's'}` : 'Nothing to add'}</button></>}>
+      <div className="stack">
+        <div className="row wrap" style={{ gap: 8 }}>
+          <label className="field grow"><span>Country</span><select value={country} onChange={(e) => setCountry(e.target.value)}>{countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}</select></label>
+          <label className="field"><span>Year</span><select value={year} onChange={(e) => setYear(Number(e.target.value))}>{[startYear - 1, startYear, startYear + 1, startYear + 2].map((y) => <option key={y} value={y}>{y}</option>)}</select></label>
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>The regular national holidays, with the days off in their place when one falls at a weekend. Regional and one-off days aren't included: add those yourself.</p>
+        {days ? (
+          <ul className="timeoff-list" aria-label={`Public holidays in ${year}`}>
+            {days.map((h) => <li key={h.date} className={h.added ? 'muted' : undefined}>{day(h.date)} · {h.name}{h.added ? ' (already a company holiday)' : ''}</li>)}
+          </ul>
+        ) : <p className="muted">Loading…</p>}
+      </div>
+    </Modal>
+  );
+}
+
 function OwnDays({ p, onSave }) {
   const [v, setV] = useState(p.own_days ?? '');
   return <input type="number" min="0" max="366" aria-label={`Vacation days a year for ${p.name}`} placeholder="Company's" value={v} style={{ width: 110 }}
