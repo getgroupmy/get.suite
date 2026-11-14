@@ -3023,3 +3023,7 @@ select.meet-timer-btn option { color: #202124; }
 .slash-list button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .slash-list button:hover, .slash-list button:focus { background: var(--hover); }
 .slash-list button.on { background: var(--hover); }
+
+/* Grey secondary text (an address, a function's description) on a highlighted choice: --muted is too faint on
+   --accent-soft (about 4:1), so it takes the highlight's own text colour there, as everything else on it does. */
+[role=option].on .muted, [role=option][aria-selected=true] .muted, .mention-list li:hover .muted, .formula-assist li:hover .muted { color: var(--accent-text); }
