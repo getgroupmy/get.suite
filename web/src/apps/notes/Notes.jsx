@@ -114,9 +114,12 @@ export default function Notes() {
   const [sort, setSort] = useState('mine'); // your own order, last edited, newest or title
   const chooseSort = async (next) => { setSort(next); try { await put('/notes/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
   const switchView = async () => { const next = view === 'grid' ? 'list' : 'grid'; setView(next); try { await put('/notes/view', { view: next }); } catch (e) { toast(e.message, 'error'); } };
+  // Only the latest request's answer is shown: an older one (for a label just deleted, say) can arrive last.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
     const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
-    get(`/notes?${qs}`).then(setNotes).catch((e) => toast(e.message, 'error'));
+    const seq = ++loadSeq.current;
+    get(`/notes?${qs}`).then((list) => { if (seq === loadSeq.current) setNotes(list); }).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
     get('/notes/label-colors').then(setLabelColors).catch(() => {});
     get('/notes/view').then((r) => { setView(r.view); setSort(r.sort || 'mine'); }).catch(() => {});
@@ -304,16 +307,16 @@ export default function Notes() {
           const from = labelEdit.rename;
           await post('/notes/labels/rename', { from, to });
           setLabelEdit(null);
-          if (where.label === from) setWhere((w) => ({ ...w, label: to.trim() }));
-          load();
+          if (where.label === from) setWhere((w) => ({ ...w, label: to.trim() })); // (which loads the notes again)
+          else load();
         }} />}
       {labelEdit?.remove && <ConfirmModal title={`Delete the label “${labelEdit.remove}”?`} confirm="Delete label"
         message="It comes off every note with it, yours and those shared with you. The notes stay."
         onClose={() => setLabelEdit(null)} onConfirm={async () => {
           const label = labelEdit.remove;
           await post('/notes/labels/delete', { label });
-          if (where.label === label) setWhere({ archived: false, label: null, reminders: false });
-          load();
+          if (where.label === label) setWhere({ archived: false, label: null, reminders: false }); // (which loads the notes again)
+          else load();
         }} />}
       {forever && <ConfirmModal title={forever === 'all' ? 'Empty the trash?' : 'Delete this note for good?'} confirm="Delete forever" message="This can’t be undone."
         onClose={() => setForever(null)} onConfirm={async () => { try { await del(forever === 'all' ? '/notes/trash' : `/notes/${forever.id}?forever=1`); } catch (e) { toast(e.message, 'error'); } setForever(null); load(); }} />}
