@@ -61,12 +61,23 @@ await step('“Holidays in” Germany: its public holidays on my calendar (🎉)
 });
 await step('kept for me after a reload; (none) takes them away', async () => {
   await page.reload();
-  if (await page.getByLabel('Show public holidays in').inputValue() !== 'DE') throw new Error('not kept');
+  await until(async () => (await page.getByLabel('Show public holidays in').inputValue()) === 'DE').catch(() => { throw new Error('not kept'); });
   for (let i = 0; i < 12 && !(await page.getByRole('heading', { name: new RegExp(`December ${y}`) }).count()); i++) await page.getByRole('button', { name: /^Next/ }).first().click();
   await page.getByText('🎉 2. Weihnachtstag').waitFor();
   await page.getByLabel('Show public holidays in').selectOption('');
   await page.waitForTimeout(800);
   if (await page.getByText(/🎉/).count()) throw new Error('still shown');
+});
+await step('chosen in Calendar, it is also a read-only calendar on the phone (CalDAV)', async () => {
+  await page.getByLabel('Show public holidays in').selectOption('FR');
+  await until(async () => (await api(page, 'GET', '/time-off/my-holidays')).body.country === 'FR');
+  const me = (await api(page, 'GET', '/auth/me')).body.user;
+  const auth = `Basic ${Buffer.from('olivia@acme.com:password123').toString('base64')}`;
+  const r = await fetch(`${B}/dav/calendars/${me.id}/`, { method: 'PROPFIND', headers: { authorization: auth, depth: '1', 'content-type': 'application/xml' }, body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:displayname/></d:prop></d:propfind>' });
+  const text = await r.text();
+  if (r.status !== 207 || !/Holidays in France/.test(text)) throw new Error(text.slice(0, 300));
+  const ev = await fetch(`${B}/dav/calendars/${me.id}/holidays/FR-${y}-07-14.ics`, { headers: { authorization: auth } });
+  if (!/SUMMARY:Fête nationale/.test(await ev.text())) throw new Error('event');
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

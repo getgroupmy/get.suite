@@ -343,3 +343,34 @@ test('contacts: dates and fields of your own sync with phones both ways', async 
   assert.doesNotMatch(back, /2012-08-08/, 'the old date isn’t kept beside it');
   assert.match(back, /X-WORKSPACE-FIELD;LABEL="Locker":42/);
 });
+
+test('"Holidays in …": a read-only calendar on the phone, its events worked out', async () => {
+  const home = async () => (await dav('PROPFIND', `/dav/calendars/${me.id}/`, { depth: 1, body: propfind('<d:displayname/><d:current-user-privilege-set/>') })).text;
+  assert.ok(!/Holidays in/.test(await home()), 'none until a country is chosen');
+  assert.equal((await dav('PROPFIND', `/dav/calendars/${me.id}/holidays/`, { depth: 0, body: propfind('<d:displayname/>') })).status, 404);
+  await api('PUT', '/api/time-off/my-holidays', { country: 'GB' });
+  const h = await home();
+  assert.match(h, /<d:href>\/dav\/calendars\/[^/]+\/holidays\/<\/d:href>[\s\S]*?Holidays in United Kingdom \(England and Wales\)/);
+  const holidaysBlock = h.split('<d:response>').find((x) => /\/holidays\//.test(x));
+  assert.ok(!/<d:write\/>/.test(holidaysBlock), 'read only');
+  // The events: all day, from last year to two years ahead.
+  const y = new Date().getUTCFullYear();
+  const list = await dav('REPORT', `/dav/calendars/${me.id}/holidays/`, { depth: 1, body: '<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data/></d:prop></c:calendar-query>' });
+  assert.equal(list.status, 207);
+  assert.match(list.text, new RegExp(`GB-${y}-12-25\\.ics`));
+  assert.match(list.text, new RegExp(`GB-${y + 2}-12-25\\.ics|GB-${y + 2}-12-2[78]\\.ics`));
+  assert.match(list.text, /SUMMARY:Boxing Day/);
+  const one = await dav('GET', `/dav/calendars/${me.id}/holidays/GB-${y}-01-01.ics`);
+  assert.equal(one.status, 200, one.text);
+  assert.match(one.text, new RegExp(`DTSTART;VALUE=DATE:${y}0101`));
+  assert.match(one.text, new RegExp(`DTEND;VALUE=DATE:${y}0102`));
+  assert.match(one.text, /SUMMARY:New Year's Day/);
+  // A phone can't change or delete them.
+  assert.equal((await dav('PUT', `/dav/calendars/${me.id}/holidays/mine.ics`, { body: IPHONE_EVENT('Party'), headers: { 'content-type': 'text/calendar' } })).status, 403);
+  assert.equal((await dav('DELETE', `/dav/calendars/${me.id}/holidays/GB-${y}-01-01.ics`)).status, 403);
+  // Changing the country changes the calendar; none removes it.
+  await api('PUT', '/api/time-off/my-holidays', { country: 'DE' });
+  assert.match(await home(), /Holidays in Germany/);
+  await api('PUT', '/api/time-off/my-holidays', { country: '' });
+  assert.ok(!/Holidays in/.test(await home()));
+});
