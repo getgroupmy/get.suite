@@ -132,11 +132,16 @@ export default function Chat() {
 
   const [sections, setSections] = useState([]); // your own sections of the list, in order
   const [sectionEdit, setSectionEdit] = useState(null); // { add: channelId|true } | { rename: section } | { remove: section }
-  const loadChannels = () => get('/chat/sections').then(setSections).catch(() => {}).then(() => get('/chat/channels')).then(({ channels, online }) => {
+  // Only the latest reload's answer is used: two arriving close together (a message, then another) can
+  // answer out of order, and the older list would put back unread counts that have changed since.
+  const chanSeq = useRef(0);
+  const chanBusy = useRef(0); // reloads not answered yet
+  const loadChannels = () => { const mine = ++chanSeq.current; chanBusy.current++; return get('/chat/sections').then((x) => { if (mine === chanSeq.current) setSections(x); }).catch(() => {}).then(() => get('/chat/channels')).then(({ channels, online }) => {
+    if (mine !== chanSeq.current) return;
     setChannels(channels); setOnline(online);
     setUnread(Object.fromEntries(channels.map((c) => [c.id, c.id === channelIdRef.current ? 0 : c.unread || 0])));
     setMentioned(Object.fromEntries(channels.map((c) => [c.id, c.id !== channelIdRef.current && c.mentions > 0])));
-  });
+  }).finally(() => { chanBusy.current--; }); };
   const channelIdRef = useRef(channelId);
   channelIdRef.current = channelId;
   // Drafts: what's typed and not sent, per conversation, kept on the server (so your other devices have it).
@@ -296,7 +301,11 @@ export default function Chat() {
         setMessages((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message]));
         if (m.message.user_id !== user.id) { markRead(channelId); if (!stick.current) setBelow((n) => n + 1); }
       }
-      else if (m.message.user_id !== user.id) setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
+      else if (m.message.user_id !== user.id) {
+        setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
+        // A reload already asked for (before this message) would answer with the count without it: ask again.
+        if (chanBusy.current > 0) loadChannels();
+      }
     } else if (m.type === 'message-updated') {
       setMessages((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
     } else if (m.type === 'chat-file-state' && m.channel_id === channelId) {
