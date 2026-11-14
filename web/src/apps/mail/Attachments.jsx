@@ -2,7 +2,7 @@
 // each opened, downloaded or saved to Drive on its own, or its email opened.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post, formatBytes, mailboxParam } from '../../api.js';
+import { get, post, formatBytes, mailboxParam, currentSharedMailbox } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { previewKind } from '../../components/viewkind.js';
 
@@ -20,12 +20,14 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
   const [items, setItems] = useState(null);
   const [next, setNext] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState(() => new Set()); // "uid-part" keys, for one .zip
   const seq = useRef(0);
   useEffect(() => { const t = setTimeout(() => setWords(text.trim()), 300); return () => clearTimeout(t); }, [text]);
   const url = (before) => `/mail/attachments?folder=${enc(folder)}${kind ? `&kind=${kind}` : ''}${words ? `&q=${enc(words)}` : ''}${before ? `&before=${before}` : ''}`;
   useEffect(() => {
     const mine = ++seq.current; // the latest filters win
     setItems(null);
+    setPicked(new Set());
     get(url()).then((r) => { if (mine === seq.current) { setItems(r.items); setNext(r.next); } }).catch((e) => mine === seq.current && (toast(e.message, 'error'), setItems([])));
   }, [folder, kind, words]); // eslint-disable-line react-hooks/exhaustive-deps
   const more = async () => {
@@ -40,6 +42,22 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
       const r = await post(`/mail/messages/${a.uid}/parts/${a.part}/save`, { folder });
       toast(`Saved ${r.file.name} to Drive`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
     } catch (e) { toast(e.message, 'error'); }
+  };
+  const keyOf = (a) => `${a.uid}-${a.part}`;
+  const toggle = (a) => setPicked((p) => { const n = new Set(p); if (n.has(keyOf(a))) n.delete(keyOf(a)); else n.add(keyOf(a)); return n; });
+  const zipPicked = async () => {
+    const chosen = items.filter((a) => picked.has(keyOf(a)));
+    setBusy(true);
+    try {
+      const box = currentSharedMailbox();
+      const r = await fetch('/api/mail/attachments/zip', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json', ...(box && { 'x-mailbox': box }) }, body: JSON.stringify({ folder, items: chosen.map((a) => ({ uid: a.uid, part: a.part })) }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || 'Could not make the .zip');
+      const href = URL.createObjectURL(await r.blob());
+      const link = document.createElement('a');
+      link.href = href; link.download = `Attachments (${chosen.length} ${chosen.length === 1 ? 'file' : 'files'}).zip`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 10000);
+    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   const day = (ms) => (ms ? new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) : '');
   return (
@@ -57,7 +75,8 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
         : !items.length ? <p className="muted" role="status">{kind || words ? 'No attachments match.' : 'No attachments in this folder.'}{next ? ' (Only the latest messages were looked through: Look further.)' : ''}</p> : (
         <ul className="rule-list attach-list" aria-label="Attachments">
           {items.map((a) => (
-            <li key={`${a.uid}-${a.part}`}>
+            <li key={keyOf(a)}>
+              <input type="checkbox" aria-label={`Pick ${a.filename}`} checked={picked.has(keyOf(a))} onChange={() => toggle(a)} />
               <span aria-hidden="true" className="attach-kind">{ICON[a.kind] || '📎'}</span>
               <span className="grow" style={{ minWidth: 0 }}>
                 <strong className="ellipsis" style={{ display: 'block' }}>{a.filename}</strong>
@@ -70,6 +89,13 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
             </li>
           ))}
         </ul>
+      )}
+      {picked.size > 0 && (
+        <div className="row" role="group" aria-label="Picked attachments" style={{ gap: 8, marginTop: 8 }}>
+          <span className="grow small">{picked.size} picked</span>
+          <button type="button" className="btn small" onClick={() => setPicked(new Set())}>Clear</button>
+          <button type="button" className="btn small primary" disabled={busy || picked.size > 50} onClick={zipPicked}>{picked.size > 50 ? 'Up to 50 at a time' : 'Download as .zip'}</button>
+        </div>
       )}
       {items !== null && next && <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}><button type="button" className="btn" disabled={busy} onClick={more}>{busy ? 'Looking…' : 'Look further'}</button></div>}
     </Modal>

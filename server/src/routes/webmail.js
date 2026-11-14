@@ -1500,7 +1500,7 @@ export default function webmailRoutes() {
     const folder = String(req.query.folder || 'INBOX');
     const kind = req.query.kind && KINDS_OF_FILES[req.query.kind] ? String(req.query.kind) : null;
     const words = String(req.query.q || '').trim().toLowerCase().slice(0, 100);
-    const WANT = 60, CHUNK = 200, MAX_SCAN = 3000;
+    const WANT = Math.min(60, Math.max(1, Math.floor(Number(req.query.limit)) || 60)), CHUNK = 200, MAX_SCAN = 3000;
     const out = await withFolder(req.user, folder, async (client) => {
       const total = client.mailbox.exists;
       let end = Math.min(total, Number(req.query.before) > 0 ? Number(req.query.before) - 1 : total);
@@ -1552,6 +1552,27 @@ export default function webmailRoutes() {
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.filename || 'attachment')}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(a.content);
+  });
+  // Several of them (picked in Mail → Attachments) in one .zip.
+  r.post('/attachments/zip', async (req, res) => {
+    const folder = String(req.body?.folder || 'INBOX');
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 51) : [];
+    if (!items.length) throw bad('Pick some attachments');
+    if (items.length > 50) throw bad('Up to 50 attachments at a time');
+    const list = [];
+    let total = 0;
+    for (const it of items) {
+      const a = await partOf(req.user, folder, Number(it?.uid), String(it?.part ?? ''));
+      total += a.content.length;
+      if (total > 100 * 1024 * 1024) throw bad('Those come to more than 100 MB: pick fewer');
+      list.push(a);
+    }
+    const buf = await attachmentsZip(list);
+    const name = `Attachments (${list.length} ${list.length === 1 ? 'file' : 'files'}).zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="attachments.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(buf);
   });
   r.post('/messages/:uid/parts/:part/save', async (req, res) => {
     const a = await partOf(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), String(req.params.part));

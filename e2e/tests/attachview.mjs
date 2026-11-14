@@ -113,6 +113,47 @@ await step('a part that isn’t an attachment, or isn’t a part, is refused', a
   }
 });
 
+await step('a page at a time: the API, and Look further in the window', async () => {
+  const page1 = (await api(page, 'GET', '/mail/attachments?folder=INBOX&limit=1')).body;
+  if (page1.items.map((a) => a.filename).join('|') !== 'site photo.png' || !page1.next) throw new Error(JSON.stringify(page1).slice(0, 300));
+  const page2 = (await api(page, 'GET', `/mail/attachments?folder=INBOX&limit=1&before=${page1.next}`)).body;
+  // A message's files stay together on one page.
+  if (page2.items.map((a) => a.filename).join('|') !== 'budget.csv|Q3 report.pdf' || page2.next !== null) throw new Error(JSON.stringify(page2).slice(0, 300));
+  // The window, with pages of one.
+  await page.route((u) => u.pathname === '/api/mail/attachments', (route) => route.continue({ url: `${route.request().url()}&limit=1` }));
+  await page.getByRole('button', { name: 'Attachments', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Attachments' });
+  const list = d.getByRole('list', { name: 'Attachments' });
+  await until(async () => (await list.locator('li strong').allInnerTexts().catch(() => [])).join('|') === 'site photo.png');
+  await d.getByRole('button', { name: 'Look further' }).click();
+  await until(async () => (await list.locator('li strong').allInnerTexts().catch(() => [])).join('|') === 'site photo.png|budget.csv|Q3 report.pdf');
+  if (await d.getByRole('button', { name: 'Look further' }).count()) throw new Error('nothing further to look at');
+  await page.unroute((u) => u.pathname === '/api/mail/attachments');
+});
+
+await step('pick two and download them as one .zip', async () => {
+  const d = page.getByRole('dialog', { name: 'Attachments' });
+  await d.getByRole('checkbox', { name: 'Pick budget.csv' }).check();
+  await d.getByRole('checkbox', { name: 'Pick site photo.png' }).check();
+  await d.getByRole('group', { name: 'Picked attachments' }).getByText('2 picked').waitFor();
+  await axe(page, 'picked');
+  const [dl] = await Promise.all([page.waitForEvent('download'), d.getByRole('button', { name: 'Download as .zip' }).click()]);
+  if (dl.suggestedFilename() !== 'Attachments (2 files).zip') throw new Error(dl.suggestedFilename());
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const zip = await JSZip.loadAsync((await import('node:fs')).readFileSync(await dl.path()));
+  const names = Object.keys(zip.files).sort();
+  if (names.join('|') !== 'budget.csv|site photo.png') throw new Error(names.join('|'));
+  if (!(await zip.file('budget.csv').async('string')).includes('Paint,120')) throw new Error('csv content');
+  await d.getByRole('button', { name: 'Clear' }).click();
+  if (await d.getByRole('group', { name: 'Picked attachments' }).count()) throw new Error('still picked');
+  // Not an attachment: refused, nothing zipped.
+  const m = ((await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages).find((x) => x.subject === 'Q3 numbers');
+  const r = await api(page, 'POST', '/mail/attachments/zip', { folder: 'INBOX', items: [{ uid: m.uid, part: '1' }] });
+  if (r.status !== 404) throw new Error(JSON.stringify(r));
+  if ((await api(page, 'POST', '/mail/attachments/zip', { folder: 'INBOX', items: [] })).status !== 400) throw new Error('empty');
+  await page.keyboard.press('Escape');
+});
+
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
