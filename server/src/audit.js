@@ -24,7 +24,7 @@ export const ACTIONS = {
   'session.revoke': 'Signed out a device', 'mail-app.create': 'Made a mail-app password', 'mail-app.remove': 'Removed the mail-app password',
   'user.create': 'Added a person', 'user.update': 'Changed a person', 'user.delete': 'Deleted a person',
   'company.update': 'Changed company settings', 'domain.update': 'Changed a mail domain', 'alias.create': 'Added an alias', 'alias.update': 'Changed an alias', 'alias.delete': 'Deleted an alias',
-  'file.share': 'Changed sharing', 'file.template': 'Made a company template', 'file.untemplate': 'Removed a company template', 'link.create': 'Made a public link', 'link.delete': 'Removed a public link', 'file.delete': 'Deleted forever', 'trash.empty': 'Emptied the trash',
+  'file.share': 'Changed sharing', 'file.share_export': 'Downloaded the list of files shared outside the company', 'file.template': 'Made a company template', 'file.untemplate': 'Removed a company template', 'link.create': 'Made a public link', 'link.delete': 'Removed a public link', 'file.delete': 'Deleted forever', 'trash.empty': 'Emptied the trash',
   'group.create': 'Made a group', 'group.members': 'Changed a group\'s members', 'group.delete': 'Deleted a group', 'group.email': 'Changed a group\'s email address', 'data.export': 'Downloaded their data', 'meet.chat_delete': 'Deleted a kept meeting chat',
   'oidc.app_added': 'Added a sign-in app', 'oidc.app_secret': 'Made a new secret for a sign-in app', 'oidc.app_removed': 'Removed a sign-in app', 'oidc.signin': 'Signed in to another app',
   'passkey.added': 'Added a passkey', 'passkey.removed': 'Removed a passkey', 'recovery.set': 'Set a recovery email', 'recovery.remove': 'Removed their recovery email',

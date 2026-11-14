@@ -4,6 +4,7 @@ import { q } from './db.js';
 import { activeForwarding } from './mail/forwarding.js';
 import { mailEnabled } from './mail/config.js';
 import { notify } from './notifications.js';
+import { externalShares } from './routes/externalshares.js';
 
 export const INACTIVE_DAYS = 90;
 const names = (rows, n = 5) => rows.slice(0, n).map((r) => r.name || r.username).join(', ') + (rows.length > n ? ` and ${rows.length - n} more` : '');
@@ -76,6 +77,15 @@ function checkupNow(orgId, at) {
   const byId = new Map(people.map((p) => [p.id, p]));
   const outside = [...activeForwarding()].filter(([id, f]) => byId.has(id) && !ours.has(String(f.address).split('@')[1]?.toLowerCase()));
   if (outside.length) add({ id: 'forwarding', status: 'tip', title: `${plural(outside.length, 'person', 'people')} forward${outside.length === 1 ? 's' : ''} their mail outside the company`, detail: `${outside.slice(0, 5).map(([id, f]) => `${byId.get(id).name} → ${f.address}`).join('; ')}. If that isn’t wanted, untick outside forwarding in Company settings.`, tab: 'company' });
+
+  // Files shared with people at other companies (worth a look now and then; editing ones first).
+  const ext = externalShares(orgId, at);
+  if (ext.length) {
+    const files = new Set(ext.map((x) => x.file_id)), editable = new Set(ext.filter((x) => x.role === 'editor').map((x) => x.file_id));
+    const companies = [...new Set(ext.map((x) => x.with_company || 'another company'))];
+    add({ id: 'outside', status: 'tip', title: `${plural(files.size, 'file or folder', 'files and folders')} shared with people at ${plural(companies.length, 'other company', 'other companies')}`,
+      detail: `${companies.slice(0, 5).join(', ')}${companies.length > 5 ? ` and ${companies.length - 5} more` : ''}${editable.size ? `; ${editable.size} of them they can edit` : ''}. Check they still need it: stop what’s finished.`, tab: 'outside' });
+  }
 
   // Files anyone with the link can open, for ever and without a password.
   const open = q(`SELECT COUNT(*) AS n FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by

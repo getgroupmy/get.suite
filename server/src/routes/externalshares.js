@@ -50,6 +50,17 @@ export function externalShareRoutes() {
     }
     res.json({ items, companies: [...companies.values()].map((c) => ({ ...c, people: c.people.size })).sort((a, b) => b.items - a.items) });
   });
+  // The same list as a spreadsheet (CSV), for an audit.
+  r.get('/export.csv', (req, res) => {
+    const cell = (v) => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+    const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
+    const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit' };
+    const rows = externalShares(req.user.org_id);
+    const lines = [['File or folder', 'Kind', 'Shared by', 'Their email', 'With', 'Email', 'Company', 'Access', 'Until (UTC)', 'In the trash'].join(',')];
+    for (const x of rows) lines.push([x.file_name, x.kind, x.owner_name, x.owner_email, x.with_name, x.with_email, x.with_company, ROLE[x.role] || x.role, x.expires_at ? iso(x.expires_at) : '', x.trashed ? 'yes' : 'no'].map(cell).join(','));
+    audit(req, 'file.share_export', { details: { shares: rows.length } });
+    res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', 'attachment; filename="shared-outside.csv"').send(`\ufeff${lines.join('\r\n')}\r\n`);
+  });
   // One share: DELETE /:fileId/:userId.
   r.delete('/:fileId/:userId', (req, res) => {
     const row = externalShares(req.user.org_id).find((x) => x.file_id === req.params.fileId && x.user_id === req.params.userId);

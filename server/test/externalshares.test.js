@@ -16,7 +16,9 @@ function client() {
   return async (method, url, body, raw) => {
     const r = await fetch(base + url, { method, headers: { 'x-requested-with': 'nas-workspace', ...(!raw && { 'content-type': 'application/json' }), ...(cookie && { cookie }) }, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) });
     const set = r.headers.get('set-cookie'); if (set) cookie = set.split(';')[0];
-    return { status: r.status, body: await r.json().catch(() => null) };
+    const text = await r.text();
+    let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ }
+    return { status: r.status, body: json, text, type: r.headers.get('content-type') };
   };
 }
 const ana = client(), kim = client(), gil = client(), ivy = client();
@@ -46,6 +48,21 @@ test('Admin → Shared outside: what the company shares with other companies, an
   // Globex's admin sees nothing of Acme's (it's what *their* company shares out).
   assert.deepEqual((await gil('GET', '/api/external-shares')).body.items, []);
 
+  // The security checkup points here.
+  const { checkup } = await import('../src/checkup.js');
+  const orgId = q("SELECT org_id FROM users WHERE username = 'ana@acme.com'").get().org_id;
+  const item = (await checkup(orgId, Date.now(), { mail: false })).find((x) => x.id === 'outside');
+  assert.equal(item.title, '2 files and folders shared with people at 2 other companies');
+  assert.match(item.detail, /^Globex, Initech; 1 of them they can edit\./);
+  assert.equal(item.tab, 'outside');
+  // A spreadsheet of it, for an audit; admins only.
+  const csv = await ana('GET', '/api/external-shares/export.csv');
+  assert.match(csv.type, /text\/csv/);
+  const lines = csv.text.replace(/^\ufeff/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'File or folder,Kind,Shared by,Their email,With,Email,Company,Access,Until (UTC),In the trash');
+  assert.equal(lines.length, 4);
+  assert.equal(lines[1], 'Joint project,folder,Kim Park,kim@acme.com,Gil,gil@globex.com,Globex,Can edit,,no');
+  assert.equal((await kim('GET', '/api/external-shares/export.csv')).status, 403);
   // Stop one: Ivy can't open the plan any more; Kim is told.
   assert.equal((await ivy('GET', `/api/files/${plan.id}/raw`)).status, 200);
   assert.equal((await ana('DELETE', `/api/external-shares/${plan.id}/${id('ivy@initech.com')}`)).status, 200);

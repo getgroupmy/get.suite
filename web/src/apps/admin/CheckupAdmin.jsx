@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { get, post, patch } from '../../api.js';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
 
-const TAB_NAMES = { users: 'Users', company: 'Company settings', links: 'Share links', phishing: 'Phishing', email: 'Email', activity: 'Activity' };
+const TAB_NAMES = { users: 'Users', company: 'Company settings', links: 'Share links', phishing: 'Phishing', email: 'Email', activity: 'Activity', outside: 'Shared outside' };
 const MARK = { warn: ['⚠', 'Needs attention'], tip: ['💡', 'Worth doing'], ok: ['✓', 'Done'] };
 
 export default function CheckupAdmin({ onGo }) {

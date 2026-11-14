@@ -100,6 +100,20 @@ await step('narrow to one company and stop everything shared with it', async () 
   await page.getByRole('status').getByText('Nothing matches.').waitFor();
 });
 
+await step('Download (CSV), and the security checkup points here', async () => {
+  await page.getByLabel('Find').fill('');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Download (CSV)' }).click()]);
+  const csv = (await import('node:fs')).readFileSync(await dl.path(), 'utf8').replace(/^\ufeff/, '').trim().split('\r\n');
+  if (dl.suggestedFilename() !== 'shared-outside.csv' || csv.length !== 2 || !csv[1].startsWith('Launch plan.txt,file,Kim Park,kim@acme.com,Ivy Ito,ivy@initech.com,Initech,Can view')) throw new Error(csv.join(' / '));
+  await page.getByRole('tab', { name: 'Security checkup' }).click();
+  const item = page.getByRole('list', { name: 'Checkup' }).locator('li', { hasText: 'shared with people at' });
+  await item.getByText('1 file or folder shared with people at 1 other company').waitFor();
+  await item.getByText(/^Initech\. Check they still need it/).waitFor();
+  await item.getByRole('button', { name: 'Go to Shared outside' }).click();
+  await page.getByRole('tab', { name: 'Shared outside', selected: true }).waitFor();
+  await page.getByRole('table', { name: 'Shared outside the company' }).getByText('Launch plan.txt').waitFor();
+});
+
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

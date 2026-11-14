@@ -37,6 +37,7 @@ export default function ExternalAdmin({ allowExternal }) {
           <input type="search" value={find} placeholder="A file, or who shared it or with whom" onChange={(e) => setFind(e.target.value)} />
         </label>
         {picked && <button type="button" className="btn small danger" onClick={() => setStoppingCompany(picked)}>Stop sharing everything with {picked.name}…</button>}
+        <span className="grow" /><a className="btn small" href="/api/external-shares/export.csv" download><Icon name="download" size={16} /> Download (CSV)</a>
       </div>
       {data === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted" role="status">{data.items.length ? 'Nothing matches.' : 'Nothing is shared outside the company.'}</p> : (
         <div className="card" style={{ padding: 0 }}>
