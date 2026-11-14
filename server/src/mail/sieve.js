@@ -1,6 +1,7 @@
 // Per-user Sieve script: filter rules first, then the vacation auto-reply.
 // Runs inside Dovecot at delivery time, so rules also apply to mail read on phones.
 import { HttpError } from '../util.js';
+import { TO_PRIMARY, TO_UPDATES } from './tabs.js';
 
 /** Sieve string literal: escape backslash and double quote (newlines are allowed). */
 export const sieveString = (v) => `"${String(v).replace(/\r\n?/g, '\n').replace(/[\\"]/g, (c) => `\\${c}`)}"`;
@@ -69,12 +70,14 @@ export function normalizeRules(input) {
       forwardTo: a.forwardTo ? String(a.forwardTo).trim().toLowerCase() : null,
       delete: !!a.delete,
       label: a.label && /^[\w-]{1,40}$/.test(String(a.label)) ? String(a.label) : null, // a label's id (Mail → Labels)
+      tab: ['primary', 'updates'].includes(a.tab) ? a.tab : null, // which Inbox tab it shows in
       stop: a.stop !== false,
     };
     if (actions.forwardTo && !EMAIL_RE.test(actions.forwardTo)) throw bad(`${name}: “${actions.forwardTo}” is not a valid email address`);
     if (actions.delete && actions.moveTo) throw bad(`${name}: choose either “move to” or “delete”`);
     if (actions.delete && actions.label) throw bad(`${name}: a deleted message can't be labelled`);
-    if (!actions.moveTo && !actions.markRead && !actions.star && !actions.forwardTo && !actions.delete && !actions.label) throw bad(`${name}: choose at least one action`);
+    if (actions.delete && actions.tab) throw bad(`${name}: choose either a tab or “delete”`);
+    if (!actions.moveTo && !actions.markRead && !actions.star && !actions.forwardTo && !actions.delete && !actions.label && !actions.tab) throw bad(`${name}: choose at least one action`);
     return { name, enabled: r.enabled !== false, match, conditions, actions };
   });
 }
@@ -113,6 +116,7 @@ function rulesSieve(rules, labels = new Map()) {
     if (r.actions.star) body.push('addflag "\\\\Flagged";');
     // A label is an IMAP keyword on the message (one deleted since is left out).
     if (r.actions.label && labels.get(r.actions.label)) body.push(`addflag ${sieveString(labels.get(r.actions.label))};`);
+    if (r.actions.tab) body.push(`addflag ${sieveString(r.actions.tab === 'primary' ? TO_PRIMARY : TO_UPDATES)};`);
     if (r.actions.forwardTo) body.push(`redirect :copy ${sieveString(r.actions.forwardTo)};`);
     if (r.actions.delete) body.push('discard;', 'set "deleted" "1";');
     else if (r.actions.moveTo) body.push(r.actions.moveTo === 'INBOX' ? 'keep;' : `fileinto :create ${sieveString(r.actions.moveTo)};`);

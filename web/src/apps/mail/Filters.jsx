@@ -20,6 +20,7 @@ export function describeRule(r, labels = []) {
     a.moveTo && `move to ${a.moveTo}`,
     a.markRead && 'mark as read',
     a.star && 'star it',
+    a.tab && `show in ${a.tab === 'primary' ? 'Primary' : 'Updates'}`,
     a.label && `label it “${labels.find((l) => l.id === a.label)?.name || 'a deleted label'}”`,
     a.forwardTo && `forward a copy to ${a.forwardTo}`,
   ].filter(Boolean).join(', ');
@@ -231,6 +232,12 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
           </div>
           <label className="check"><input type="checkbox" checked={!!a.markRead} onChange={(e) => setA({ markRead: e.target.checked })} /> Mark as read</label>
           <label className="check"><input type="checkbox" checked={!!a.star} onChange={(e) => setA({ star: e.target.checked })} /> Star it</label>
+          <div className="row wrap">
+            <label className="check"><input type="checkbox" checked={!!a.tab} disabled={a.delete} onChange={(e) => setA({ tab: e.target.checked ? 'updates' : null })} /> Show in the Inbox tab</label>
+            {a.tab && <select aria-label="Inbox tab" value={a.tab} onChange={(e) => setA({ tab: e.target.value })}>
+              <option value="primary">Primary</option><option value="updates">Updates</option>
+            </select>}
+          </div>
           {labels.length > 0 && (
             <div className="row wrap">
               <label className="check"><input type="checkbox" checked={!!a.label} disabled={a.delete} onChange={(e) => setA({ label: e.target.checked ? labels[0].id : null })} /> Label it</label>
@@ -244,7 +251,7 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
             <label className="check"><input type="checkbox" checked={a.forwardTo !== undefined && a.forwardTo !== null} onChange={(e) => setA({ forwardTo: e.target.checked ? '' : null })} /> Forward a copy to</label>
             {a.forwardTo !== undefined && a.forwardTo !== null && <input type="email" aria-label="Forward to" required value={a.forwardTo} onChange={(e) => setA({ forwardTo: e.target.value })} placeholder="name@company.com" />}
           </div>
-          <label className="check"><input type="checkbox" checked={!!a.delete} onChange={(e) => setA({ delete: e.target.checked, ...(e.target.checked && { moveTo: null, label: null }) })} /> Delete it</label>
+          <label className="check"><input type="checkbox" checked={!!a.delete} onChange={(e) => setA({ delete: e.target.checked, ...(e.target.checked && { moveTo: null, label: null, tab: null }) })} /> Delete it</label>
           <label className="check muted small"><input type="checkbox" checked={a.stop !== false} onChange={(e) => setA({ stop: e.target.checked })} /> Don't apply later filters to matching messages</label>
         </fieldset>
         <label className="check"><input type="checkbox" checked={applyNow} onChange={(e) => setApplyNow(e.target.checked)} /> Also apply to messages already in the Inbox{a.forwardTo ? ' (they aren\u2019t forwarded)' : ''}</label>

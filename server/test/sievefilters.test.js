@@ -75,3 +75,24 @@ test('filters on the message text and on the mailing list it came through', () =
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a filter can say which Inbox tab mail shows in', () => {
+  const [toUpdates, toPrimary] = normalizeRules([
+    rule([{ field: 'from', op: 'contains', value: 'notifications@' }], { tab: 'updates' }),
+    rule([{ field: 'list', op: 'contains', value: 'team.acme.com' }], { tab: 'primary', markRead: false }),
+  ]);
+  assert.equal(toUpdates.actions.tab, 'updates');
+  assert.equal(normalizeRules([rule([{ field: 'from', op: 'contains', value: 'x' }], { tab: 'spam', star: true })])[0].actions.tab, null);
+  assert.throws(() => normalizeRules([rule([{ field: 'from', op: 'contains', value: 'x' }], { tab: 'updates', delete: true })]), /either a tab/);
+  const script = userSieve({ username: 'k@acme.com', rules: [toUpdates, toPrimary] });
+  assert.match(script, /header :contains "from" "notifications@"\) \{\n {2}addflag "\$NwUpdates";/);
+  assert.match(script, /addflag "\$NwPrimary";/);
+  let sievec;
+  try { sievec = execFileSync('sh', ['-c', 'command -v sievec'], { encoding: 'utf8' }).trim(); } catch { /* not installed */ }
+  if (sievec) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sieve-'));
+    fs.writeFileSync(path.join(dir, 'f.sieve'), script);
+    execFileSync(sievec, [path.join(dir, 'f.sieve'), path.join(dir, 'f.svbin')], { stdio: 'pipe' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

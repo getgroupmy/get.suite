@@ -30,6 +30,7 @@ const fake = (answers, envelopes = {}) => {
     async search(q) { return answers[JSON.stringify(q)] || []; },
     async *fetch(set) { for (const uid of set.split(',').map(Number)) yield { uid, envelope: envelopes[uid] }; },
     async messageFlagsAdd(set, flags) { done.push(['flags', set, flags]); },
+    async messageFlagsRemove(set, flags) { done.push(['unflag', set, flags]); },
     async mailboxCreate(p) { done.push(['create', p]); },
     async mailboxSubscribe() {},
     async messageMove(set, to) { done.push(['move', set, to]); },
@@ -60,4 +61,10 @@ test('applying: read, star and label, then moved; delete goes to Trash; nothing 
   const f = fake({ '{"from":"acme"}': [1] });
   assert.deepEqual(await applyRule(f, { ...rule, actions: { forwardTo: 'x@y.com', moveTo: 'INBOX' } }), { matched: 1, moved: 0 });
   assert.deepEqual(f.done, []);
+});
+
+test('applying a tab: the other tab\'s mark comes off first', async () => {
+  const c = fake({ '{"from":"acme"}': [4] });
+  await applyRule(c, { match: 'all', conditions: [{ field: 'from', op: 'contains', value: 'acme' }], actions: { tab: 'primary' } });
+  assert.deepEqual(c.done, [['unflag', '4', ['$NwUpdates']], ['flags', '4', ['$NwPrimary']]]);
 });

@@ -3,6 +3,7 @@
 // keeps the messages every search found, "any" those any search found. "Is exactly" is searched as
 // "contains", then checked exactly against the message's envelope (as Sieve compares: case aside).
 import { parseSize } from './sieve.js';
+import { TO_PRIMARY, TO_UPDATES } from './tabs.js';
 
 export const MAX_APPLY = 5000;
 
@@ -59,7 +60,8 @@ export async function applyRule(client, rule, { keyword = null, trash = 'Trash',
   if (!uids.length) return { matched: 0, moved: 0 };
   const set = uids.join(',');
   const a = rule.actions;
-  const flags = [a.markRead && '\\Seen', a.star && '\\Flagged', keyword].filter(Boolean);
+  const flags = [a.markRead && '\\Seen', a.star && '\\Flagged', keyword, a.tab && (a.tab === 'primary' ? TO_PRIMARY : TO_UPDATES)].filter(Boolean);
+  if (a.tab && !a.delete) await client.messageFlagsRemove(set, [a.tab === 'primary' ? TO_UPDATES : TO_PRIMARY], { uid: true });
   if (flags.length && !a.delete) await client.messageFlagsAdd(set, flags, { uid: true });
   let moved = 0;
   const to = a.delete ? trash : a.moveTo && a.moveTo !== folder ? a.moveTo : null;

@@ -47,6 +47,7 @@ filterapply.mjs
 filterlist.mjs
 filtersearch.mjs
 filtersize.mjs
+filtertab.mjs
 followup.mjs
 forgot.mjs
 forgotattach.mjs
