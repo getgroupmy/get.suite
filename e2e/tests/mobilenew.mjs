@@ -50,8 +50,8 @@ const fits = async (p, label) => {
   await p.waitForTimeout(300);
   const r = await p.evaluate(() => ({ doc: document.documentElement.scrollWidth, win: window.innerWidth, wide: [...document.querySelectorAll('body *')].filter((e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > window.innerWidth + 1 && getComputedStyle(e).position !== 'fixed'; }).slice(0, 3).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 40)}`) }));
   if (r.doc > r.win + 1) throw new Error(`${label}: page is ${r.doc}px on a ${r.win}px screen (${r.wide.join(', ')})`);
-  // Nor an area of the page slid sideways (only a row of tabs, or a table's own strip, may scroll).
-  const slid = await p.evaluate(() => [...document.querySelectorAll('body *')].filter((e) => e.scrollLeft > 0 && !e.closest('.tabs, table, pre, .cm-editor')).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 30)} by ${e.scrollLeft}px`));
+  // Nor an area of the page slid sideways (only a row of tabs, a sidebar strip on a phone, or a table's own strip, may scroll).
+  const slid = await p.evaluate(() => [...document.querySelectorAll('body *')].filter((e) => e.scrollLeft > 0 && !e.closest('.tabs, .subnav, table, pre, .cm-editor')).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 30)} by ${e.scrollLeft}px`));
   if (slid.length) throw new Error(`${label}: slid sideways: ${slid.join(', ')}`);
 };
 let phone;
