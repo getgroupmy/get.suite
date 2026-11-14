@@ -1037,7 +1037,9 @@ export function publicFormRoutes() {
     sendTo(team, { type: 'form-response', form_id: form.id });
     try { addToLinkedSheet(form, id); } catch (e) { console.error('[forms] linked sheet:', e.message); }
     if (form.notify) {
-      bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
+      // Many in a row (a form sent to everyone): one notification counting them while it's unread.
+      bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null,
+        group: { key: `form-new:${form.id}`, many: (n) => ({ title: `${n} new responses to “${form.title}”`, body: form.audience === 'org' ? `The latest from ${user.name}` : null }) } });
     }
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
     emailTeam(form, answers, { by: user?.id || null, who, email: form.audience === 'public' ? email : null, link: `${baseUrlOf(req)}/forms/${form.id}?tab=responses` });
@@ -1075,7 +1077,8 @@ export function publicFormRoutes() {
     });
     try { addToLinkedSheet(form, resp.id, { changedRow: true }); } catch (e) { console.error('[forms] linked sheet:', e.message); }
     sendTo(teamOf(form), { type: 'form-response', form_id: form.id });
-    if (form.notify) bell(teamOf(form).filter((x) => x !== user?.id), { kind: 'form', title: `A response to “${form.title}” was changed`, body: form.audience === 'org' ? `By ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
+    if (form.notify) bell(teamOf(form).filter((x) => x !== user?.id), { kind: 'form', title: `A response to “${form.title}” was changed`, body: form.audience === 'org' ? `By ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null,
+      group: { key: `form-changed:${form.id}`, many: (n) => ({ title: `${n} responses to “${form.title}” were changed`, body: form.audience === 'org' ? `The latest by ${user.name}` : null }) } });
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
     res.json({ ok: true, confirmation: form.confirmation || '', edit_key: resp.edit_key, ...(result && { score: result.score, max: result.max, right: result.right, feedback: result.feedback }) });
   });

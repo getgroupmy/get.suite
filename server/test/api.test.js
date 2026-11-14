@@ -3427,6 +3427,25 @@ test('file requests: several files from one person are one notification counting
   assert.equal(got.unread, 1);
 });
 
+test('forms: many responses in a row are one notification counting them, while it\'s unread', async () => {
+  const people = ['fgA', 'fgB', 'fgC'].map(() => client());
+  for (const [i, local] of ['fga', 'fgb', 'fgc'].entries()) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: `Form G${i}`, password: 'password123' })).status, 201);
+    await login(people[i], `${local}@acme.com`);
+  }
+  const f = (await owner('POST', '/api/forms', { title: 'Lunch order' })).body;
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { questions: [{ id: 'm', type: 'short', title: 'Main' }], audience: 'org', notify: true })).body;
+  const mine = async () => (await owner('GET', '/api/notifications')).body.items.filter((n) => /Lunch order/.test(n.title));
+  await people[0]('POST', `/api/public/forms/${saved.token}`, { answers: { m: 'Pasta' } });
+  assert.deepEqual((await mine()).map((n) => [n.title, n.body]), [['New response to “Lunch order”', 'From Form G0']]);
+  await people[1]('POST', `/api/public/forms/${saved.token}`, { answers: { m: 'Soup' } });
+  await people[2]('POST', `/api/public/forms/${saved.token}`, { answers: { m: 'Salad' } });
+  assert.deepEqual((await mine()).map((n) => [n.title, n.body]), [['3 new responses to “Lunch order”', 'The latest from Form G2']]);
+  await owner('POST', '/api/notifications/read', { all: true });
+  await people[0]('POST', `/api/public/forms/${saved.token}`, { answers: { m: 'More pasta' } });
+  assert.deepEqual((await mine()).map((n) => n.title).slice(0, 2), ['New response to “Lunch order”', '3 new responses to “Lunch order”'], 'once read: a new one');
+});
+
 test('status: set, seen by colleagues in the directory, checked, and cleared by itself', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['sta', 'Stat Ann'], ['stb', 'Stat Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
