@@ -132,7 +132,7 @@ function Team({ team, onChanged }) {
       {team.can_set && (
         <form className="row wrap" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); setDays('/time-off/carry-over', carry === '' ? 0 : carry, Number(carry) ? `Up to ${carry} unused day${Number(carry) === 1 ? '' : 's'} carry over into the next year` : 'Unused days no longer carry over'); }}>
           <label className="field"><span>Carry over up to (days)</span><input type="number" min="0" max="366" value={carry} onChange={(e) => setCarry(e.target.value)} style={{ width: 140 }} /></label>
-          <button type="submit" className="btn">Save</button>
+          <button type="submit" className="btn" aria-label="Save carry over">Save</button>
           <span className="muted small grow">Unused vacation days that move into the next year (0: none). Days carried in are used first, so they don't carry on again.</span>
         </form>
       )}
