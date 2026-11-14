@@ -28,6 +28,9 @@ if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'vacation_days'))
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'vacation_days')) q('ALTER TABLE users ADD COLUMN vacation_days INTEGER').run();
 // Carrying over: up to this many unused vacation days from one year into the next (none: they lapse).
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'carry_over_days')) q('ALTER TABLE orgs ADD COLUMN carry_over_days INTEGER').run();
+// Start dates (admins set them; the account's own date otherwise), and the first year's days in proportion.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'start_date')) q('ALTER TABLE users ADD COLUMN start_date TEXT').run();
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'prorate')) q('ALTER TABLE orgs ADD COLUMN prorate INTEGER NOT NULL DEFAULT 0').run();
 
 // Company holidays (Time off → Team): days off for everyone, shown on everyone's calendar and not
 // counted as working days in time off.
@@ -89,6 +92,24 @@ export function allowanceOf(userId) {
   const u = q('SELECT u.vacation_days AS own, o.vacation_days AS org FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(userId);
   return u?.own ?? u?.org ?? null;
 }
+/** When someone started: their start date if set, else the day their account was made (YYYY-MM-DD). */
+export function startOf(userId) {
+  const u = q('SELECT start_date, created_at FROM users WHERE id = ?').get(userId);
+  return u?.start_date || new Date(u?.created_at || Date.now()).toISOString().slice(0, 10);
+}
+/**
+ * Someone's vacation days for one year: the allowance, none before they started, and in the year they
+ * started (when the company pro-rates) the share of the year from their first day, to the nearest half day.
+ */
+export function allowanceIn(userId, year, allowance = allowanceOf(userId)) {
+  if (allowance === null) return null;
+  const start = startOf(userId), y0 = Number(start.slice(0, 4));
+  if (year < y0) return 0;
+  if (year > y0 || !q('SELECT o.prorate FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(userId)?.prorate) return allowance;
+  const first = Date.parse(`${start}T00:00:00Z`), end = Date.UTC(year + 1, 0, 1), all = end - Date.UTC(year, 0, 1);
+  return Math.round(((allowance * (end - first)) / all) * 2) / 2;
+}
+
 /** Vacation days taken (approved) or asked for (pending) in a year. */
 function vacationIn(userId, year, hol) {
   const rows = q("SELECT start_date, end_date, status, half FROM time_off WHERE user_id = ? AND kind = 'vacation' AND status IN ('approved', 'pending') AND start_date <= ? AND end_date >= ?")
@@ -99,16 +120,15 @@ function vacationIn(userId, year, hol) {
 /**
  * Days carried into a year from the one before: what was left of that year's own allowance (days carried
  * into it are used first, so they don't carry on again), up to the company's limit. Counted from the year
- * the account was made. 0 when the company doesn't carry days over or there's no allowance.
+ * they started. 0 when the company doesn't carry days over or there's no allowance.
  */
 export function carriedInto(userId, year, { allowance = allowanceOf(userId), hol = holidaySet(orgOf(userId)) } = {}) {
   const cap = q('SELECT o.carry_over_days AS c FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(userId)?.c || 0;
   if (!cap || allowance === null) return 0;
-  const made = q('SELECT created_at FROM users WHERE id = ?').get(userId)?.created_at || Date.now();
   let carried = 0;
-  for (let y = Math.max(new Date(made).getUTCFullYear(), year - 50); y < year; y++) {
+  for (let y = Math.max(Number(startOf(userId).slice(0, 4)), year - 50); y < year; y++) {
     const { used } = vacationIn(userId, y, hol);
-    carried = Math.min(cap, Math.max(0, allowance - Math.max(0, used - carried)));
+    carried = Math.min(cap, Math.max(0, allowanceIn(userId, y, allowance) - Math.max(0, used - carried)));
   }
   return carried;
 }
@@ -118,7 +138,7 @@ export function balanceOf(userId, year) {
   const { used, pending } = vacationIn(userId, year, hol);
   const allowance = allowanceOf(userId);
   const carried = carriedInto(userId, year, { allowance, hol });
-  const days = allowance === null ? null : allowance + carried;
+  const days = allowance === null ? null : allowanceIn(userId, year, allowance) + carried;
   return { year, days, carried, used, pending, left: days === null ? null : days - used - pending };
 }
 
@@ -173,14 +193,14 @@ export default function timeOffRoutes() {
   // year and what's coming up in the next three months.
   r.get('/team', (req, res) => {
     const year = Number(req.query.year) || new Date().getUTCFullYear();
-    const people = q('SELECT id, name, username, vacation_days FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name').all(req.user.org_id)
+    const people = q('SELECT id, name, username, vacation_days, start_date FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name').all(req.user.org_id)
       .filter((u) => req.user.is_admin || approversOf(u.id).includes(req.user.id)); // admins see everyone, themselves included
     if (!people.length && !req.user.is_admin) throw forbidden('Nobody reports to you');
     const today = new Date().toISOString().slice(0, 10), until = new Date(Date.now() + 92 * 864e5).toISOString().slice(0, 10);
-    const org = q('SELECT vacation_days, carry_over_days FROM orgs WHERE id = ?').get(req.user.org_id);
+    const org = q('SELECT vacation_days, carry_over_days, prorate FROM orgs WHERE id = ?').get(req.user.org_id);
     res.json({
-      year, company_days: org?.vacation_days ?? null, carry_over: org?.carry_over_days || 0, can_set: !!req.user.is_admin,
-      people: people.map((u) => ({ id: u.id, name: u.name, username: u.username, own_days: u.vacation_days, balance: balanceOf(u.id, year),
+      year, company_days: org?.vacation_days ?? null, carry_over: org?.carry_over_days || 0, prorate: !!org?.prorate, can_set: !!req.user.is_admin,
+      people: people.map((u) => ({ id: u.id, name: u.name, username: u.username, own_days: u.vacation_days, start_date: u.start_date || null, started: startOf(u.id), balance: balanceOf(u.id, year),
         coming: q("SELECT * FROM time_off WHERE user_id = ? AND status IN ('approved', 'pending') AND end_date >= ? AND start_date <= ? ORDER BY start_date").all(u.id, today, until).map(out) })),
     });
   });
@@ -307,6 +327,21 @@ export default function timeOffRoutes() {
     if (!Number.isInteger(n) || n < 0 || n > 366) throw bad('A number of days from 0 to 366');
     q('UPDATE orgs SET carry_over_days = ? WHERE id = ?').run(n || null, req.user.org_id);
     res.json({ days: n });
+  });
+  // The first year's days in proportion to the time left in it (admins), and someone's start date.
+  r.put('/prorate', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins set vacation allowances');
+    q('UPDATE orgs SET prorate = ? WHERE id = ?').run(req.body?.on ? 1 : 0, req.user.org_id);
+    res.json({ on: !!req.body?.on });
+  });
+  r.put('/start-date/:userId', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins set start dates');
+    const u = q('SELECT id FROM users WHERE id = ? AND org_id = ?').get(String(req.params.userId), req.user.org_id);
+    if (!u) throw notFound('Person not found');
+    const date = req.body?.date ? String(req.body.date) : null;
+    if (date && !validDate(date)) throw bad('Choose a day');
+    q('UPDATE users SET start_date = ? WHERE id = ?').run(date, u.id);
+    res.json({ start_date: date, started: startOf(u.id), balance: balanceOf(u.id, Number(req.body?.year) || new Date().getUTCFullYear()) });
   });
   r.put('/allowance/:userId', (req, res) => {
     if (!req.user.is_admin) throw forbidden('Only admins set vacation allowances');

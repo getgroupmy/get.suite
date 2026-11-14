@@ -14770,3 +14770,40 @@ test('time off: unused vacation days carried over into the next year, up to the 
   await owner('PUT', '/api/time-off/carry-over', { days: 0 });
   assert.equal(carriedInto(u.id, 2026), 0);
 });
+
+test('time off: start dates, and the first year in proportion when the company pro-rates', async () => {
+  const { db } = await import('../src/db.js');
+  const { balanceOf, allowanceIn } = await import('../src/routes/timeoff.js');
+  const u = (await owner('POST', '/api/users', { local: 'starter', domain: 'acme.com', name: 'New Bie', password: 'password123' })).body;
+  db.prepare('UPDATE users SET vacation_days = 24, created_at = ? WHERE id = ?').run(Date.UTC(2026, 0, 5), u.id);
+  // Not pro-rated: the whole year from the start, nothing before it.
+  assert.equal(allowanceIn(u.id, 2026), 24);
+  assert.equal(allowanceIn(u.id, 2025), 0, 'before the account was made');
+  // Admins set the start date (only a real day).
+  assert.equal((await owner('PUT', `/api/time-off/start-date/${u.id}`, { date: '2026-31-02' })).status, 400);
+  const set = await owner('PUT', `/api/time-off/start-date/${u.id}`, { date: '2026-10-01', year: 2026 });
+  assert.equal(set.status, 200);
+  assert.equal(set.body.started, '2026-10-01');
+  assert.equal(set.body.balance.days, 24, 'still a whole year until the company pro-rates');
+  const pat = client();
+  await login(pat, 'starter@acme.com');
+  assert.equal((await pat('PUT', '/api/time-off/prorate', { on: true })).status, 403);
+  assert.equal((await pat('PUT', `/api/time-off/start-date/${u.id}`, { date: '2026-01-01' })).status, 403);
+  assert.deepEqual((await owner('PUT', '/api/time-off/prorate', { on: true })).body, { on: true });
+  // From 1 October: 92 of 365 days → 24 × 92/365 = 6.05 → 6 (to the nearest half day). The next year is whole.
+  assert.equal(allowanceIn(u.id, 2026), 6);
+  assert.equal(balanceOf(u.id, 2026).days, 6);
+  assert.equal(allowanceIn(u.id, 2027), 24);
+  // Starting 16 July: 169/365 × 24 = 11.11 → 11; starting 1 January: the whole year.
+  await owner('PUT', `/api/time-off/start-date/${u.id}`, { date: '2026-07-16' });
+  assert.equal(allowanceIn(u.id, 2026), 11);
+  await owner('PUT', `/api/time-off/start-date/${u.id}`, { date: '2026-01-01' });
+  assert.equal(allowanceIn(u.id, 2026), 24);
+  // The team view says when each person started and whether the company pro-rates.
+  const team = (await owner('GET', '/api/time-off/team?year=2026')).body;
+  assert.equal(team.prorate, true);
+  assert.equal(team.people.find((p) => p.id === u.id).started, '2026-01-01');
+  // Cleared: back to the day the account was made.
+  assert.equal((await owner('PUT', `/api/time-off/start-date/${u.id}`, { date: null })).body.started, '2026-01-05');
+  await owner('PUT', '/api/time-off/prorate', { on: false });
+});

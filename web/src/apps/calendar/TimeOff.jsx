@@ -119,6 +119,8 @@ function Team({ team, onChanged }) {
   const toast = useToast();
   const [company, setCompany] = useState(team.company_days ?? '');
   const [carry, setCarry] = useState(team.carry_over || 0);
+  const [prorate, setProrate] = useState(!!team.prorate);
+  useEffect(() => { setProrate(!!team.prorate); }, [team.prorate]);
   const setDays = async (url, days, msg) => { try { await put(url, { days: days === '' ? null : Number(days) }); toast(msg); onChanged(); } catch (e) { toast(e.message, 'error'); } };
   return (
     <div className="stack">
@@ -128,6 +130,10 @@ function Team({ team, onChanged }) {
           <button type="submit" className="btn">Save</button>
           <span className="muted small grow">Leave it empty for no limit. Anyone can have their own number below.</span>
         </form>
+      )}
+      {team.can_set && (
+        <label className="check small"><input type="checkbox" checked={prorate} onChange={async (e) => { const on = e.target.checked; setProrate(on); try { await put('/time-off/prorate', { on }); toast(on ? 'The first year is now in proportion to the start date' : 'Everyone gets the whole year'); onChanged(); } catch (err) { setProrate(!on); toast(err.message, 'error'); } }} />
+          Give people who start during the year that year's days in proportion (from their start date, to the nearest half day)</label>
       )}
       {team.can_set && (
         <form className="row wrap" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); setDays('/time-off/carry-over', carry === '' ? 0 : carry, Number(carry) ? `Up to ${carry} unused day${Number(carry) === 1 ? '' : 's'} carry over into the next year` : 'Unused days no longer carry over'); }}>
@@ -145,7 +151,7 @@ function Team({ team, onChanged }) {
         </p>
       )}
       <table className="timeoff-team">
-        <thead><tr><th scope="col">Person</th><th scope="col">Vacation in {team.year}</th><th scope="col">Coming up</th>{team.can_set && <th scope="col">Days a year</th>}</tr></thead>
+        <thead><tr><th scope="col">Person</th><th scope="col">Vacation in {team.year}</th><th scope="col">Coming up</th>{team.can_set && <th scope="col">Days a year</th>}{team.can_set && <th scope="col">Started</th>}</tr></thead>
         <tbody>
           {team.people.map((p) => (
             <tr key={p.id}>
@@ -153,6 +159,8 @@ function Team({ team, onChanged }) {
               <td>{p.balance.days === null ? <span className="muted">{p.balance.used} taken</span> : <>{Math.max(0, p.balance.left)} left <span className="muted small">of {p.balance.days} · {p.balance.used} taken{p.balance.pending ? ` · ${p.balance.pending} asked` : ''}</span></>}</td>
               <td>{p.coming.length ? p.coming.map((c) => <div key={c.id} className="small">{c.kind_label}: {span(c)}{c.status === 'pending' ? ' (asked)' : ''}</div>) : <span className="muted small">—</span>}</td>
               {team.can_set && <td><OwnDays p={p} onSave={(v) => setDays(`/time-off/allowance/${p.id}`, v, v === '' ? `${p.name}: the company's number` : `${p.name}: ${v} days a year`)} /></td>}
+              {team.can_set && <td><input key={p.started} type="date" aria-label={`Start date of ${p.name}`} defaultValue={p.started} title={p.start_date ? 'Their start date' : 'The day their account was made (set their real start date)'}
+                onBlur={async (e) => { const v = e.target.value; if (v === p.started) return; try { await put(`/time-off/start-date/${p.id}`, { date: v || null, year: team.year }); toast(v ? `${p.name} started on ${day(v)}` : `${p.name}: start date cleared`); onChanged(); } catch (err) { toast(err.message, 'error'); } }} /></td>}
             </tr>
           ))}
         </tbody>
