@@ -1,3 +1,4 @@
+import { seenBy } from './seenby.js';
 import { moved } from '../../components/moved.js';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
 import FileViewer from '../../components/FileViewer.jsx';
@@ -261,10 +262,24 @@ export default function Chat() {
   useEffect(() => { loadPins(); setPinsOpen(false); }, [loadPins]);
   useEffect(() => onLive((m) => { if (m.type === 'pins-changed' && m.channel_id === channelId) loadPins(); }), [channelId, loadPins]);
   // Direct messages: when the other person last read the conversation ("Seen" under what you sent).
+  // Small private channels: when each of the others did ("Seen by Ana, Ben").
   const [seenAt, setSeenAt] = useState(null);
-  const isDm = !!channels.find((c) => c.id === channelId)?.dm_key;
-  useEffect(() => { setSeenAt(null); if (channelId && isDm) get(`/chat/channels/${channelId}/seen`).then((r) => setSeenAt(r.read_at)).catch(() => {}); }, [channelId, isDm]);
-  useEffect(() => onLive((m) => { if (m.type === 'chat-seen' && m.channel_id === channelId) setSeenAt((t) => Math.max(t || 0, m.read_at)); }), [channelId]);
+  const [readers, setReaders] = useState(null); // [{ id, name, read_at }], or null where it isn't shown
+  const here = channels.find((c) => c.id === channelId);
+  const isDm = !!here?.dm_key, isPrivate = !!here?.private && !isDm;
+  useEffect(() => {
+    setSeenAt(null); setReaders(null);
+    if (channelId && (isDm || isPrivate)) get(`/chat/channels/${channelId}/seen`).then((r) => { setSeenAt(r.read_at); setReaders(r.readers || null); }).catch(() => {});
+  }, [channelId, isDm, isPrivate]);
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'chat-seen' || m.channel_id !== channelId) return;
+    if (m.name === undefined) { setSeenAt((t) => Math.max(t || 0, m.read_at)); return; }
+    setReaders((l) => {
+      if (!l) return l;
+      const had = l.some((x) => x.id === m.by);
+      return had ? l.map((x) => (x.id === m.by ? { ...x, read_at: Math.max(x.read_at || 0, m.read_at) } : x)) : [...l, { id: m.by, name: m.name, read_at: m.read_at }];
+    });
+  }), [channelId]);
   const pin = (m, on) => post(`/chat/messages/${m.id}/pin`, { pinned: on }).then(() => toast(on ? 'Pinned to the conversation' : 'Unpinned')).catch((e) => toast(e.message, 'error'));
 
   useEffect(() => onLive((m) => {
@@ -827,7 +842,7 @@ export default function Chat() {
             {messages.length === 0 && <Empty icon="chat" title="No messages yet">Say hello 👋</Empty>}
             {messages.map((m, i) => {
               const prev = messages[i - 1];
-              const lastMine = current.dm_key && m.user_id === user.id && !messages.slice(i + 1).some((x) => x.user_id === user.id);
+              const lastMine = (current.dm_key || readers) && m.user_id === user.id && !messages.slice(i + 1).some((x) => x.user_id === user.id);
               const grouped = prev && prev.user_id === m.user_id && (prev.bot || null) === (m.bot || null) && m.created_at - prev.created_at < 5 * 60e3;
               const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
               return (
@@ -839,7 +854,8 @@ export default function Chat() {
                     onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
                       try { await post(`/chat/messages/${m.id}/unread`); navigate('/chat'); toast(`Marked unread from ${m.user_name || 'this message'}’s message`); } catch (e) { toast(e.message, 'error'); }
                     }} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
-                  {lastMine && seenAt >= m.created_at && current.dm_user_id !== user.id && <div className="seen-mark muted small" title={`Seen ${new Date(seenAt).toLocaleString()}`}>Seen</div>}
+                  {lastMine && current.dm_key && seenAt >= m.created_at && current.dm_user_id !== user.id && <div className="seen-mark muted small" title={`Seen ${new Date(seenAt).toLocaleString()}`}>Seen</div>}
+                  {lastMine && !current.dm_key && readers && <SeenBy readers={readers} at={m.created_at} everyone={(current.member_count || 0) - 1} />}
                 </div>
               );
             })}
@@ -1066,6 +1082,13 @@ function Thread({ id, channelId, channel, user, onClose }) {
 }
 
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
+/** Under your latest message in a small private channel: who has read it (hover for each and when). */
+function SeenBy({ readers, at, everyone }) {
+  const { who, text } = seenBy(readers, at, everyone);
+  if (!text) return null;
+  return <div className="seen-mark muted small" title={who.map((x) => `${x.name}: ${new Date(x.read_at).toLocaleString()}`).join('\n')}>{text}</div>;
+}
+
 function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onForward, onMarkUnread, onDelete, reminder, saved, onSave }) {
   const toast = useToast();
   const navigate = useNavigate();

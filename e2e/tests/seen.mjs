@@ -63,12 +63,41 @@ await step('only under the latest of your messages; a new one waits to be seen',
 });
 await step('turning read receipts off in Settings stops it both ways', async () => {
   await kim.goto(`${B}/settings`);
-  await kim.getByLabel('Show “Seen” in direct messages').uncheck();
+  await kim.getByLabel('Show “Seen” in direct messages and small private channels').uncheck();
   await kim.getByText('Read receipts are off, both ways').waitFor();
   await page.reload();
   await page.getByText('Or 2?').waitFor();
   await page.waitForTimeout(800);
   if (await page.locator('.seen-mark').count()) throw new Error('still shown');
+});
+await step('a small private channel: Seen by the ones who have read it, as they do; not those with receipts off', async () => {
+  await kim.goto(`${B}/settings`);
+  await kim.getByLabel('Show “Seen” in direct messages and small private channels').check();
+  await kim.getByText('People you message can see when you’ve read what they sent').waitFor();
+  const kimId = (await api(page, 'GET', '/users')).body.find((u) => u.username === 'kim@acme.com').id;
+  const leoId = (await api(page, 'POST', '/users', { local: 'leo', domain: 'acme.com', name: 'Leo Ruiz', password: 'password123' })).body.id;
+  const ch = (await api(page, 'POST', '/chat/channels', { name: 'launch-crew', private: true, members: [kimId, leoId] })).body.id;
+  await page.goto(`${B}/chat/${ch}`);
+  await page.getByLabel('Message', { exact: true }).fill('Kick-off at 10');
+  await page.getByLabel('Message', { exact: true }).press('Enter');
+  await page.getByText('Kick-off at 10').waitFor();
+  await page.waitForTimeout(800);
+  if (await page.locator('.seen-mark').count()) throw new Error('seen before anyone looked');
+  await kim.goto(`${B}/chat/${ch}`);
+  await kim.getByText('Kick-off at 10').waitFor();
+  await page.locator('.seen-mark', { hasText: /^Seen by Kim Park$/ }).waitFor();
+  const leo = await mk('leo'); await signIn(leo, 'leo@acme.com');
+  await leo.goto(`${B}/chat/${ch}`);
+  await leo.getByText('Kick-off at 10').waitFor();
+  await page.locator('.seen-mark', { hasText: /^Seen by everyone$/ }).waitFor();
+  await page.screenshot({ path: `${SP}/shots/seen-by.png` });
+  // Leo turns read receipts off: after a reload, only Kim.
+  await leo.goto(`${B}/settings`);
+  await leo.getByLabel('Show “Seen” in direct messages and small private channels').uncheck();
+  await leo.getByText('Read receipts are off, both ways').waitFor();
+  await page.reload();
+  await page.locator('.seen-mark', { hasText: /^Seen by Kim Park$/ }).waitFor();
+  if (await kim.locator('.seen-mark').count()) throw new Error('Kim sees Seen under Olivia’s message');
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

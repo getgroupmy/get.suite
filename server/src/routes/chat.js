@@ -209,6 +209,18 @@ const membersOf = (c) => q('SELECT user_id FROM channel_members WHERE channel_id
 if (!q('PRAGMA table_info(users)').all().some((x) => x.name === 'hide_reads')) q('ALTER TABLE users ADD COLUMN hide_reads INTEGER NOT NULL DEFAULT 0').run();
 const receiptsOn = (userId) => !q('SELECT hide_reads FROM users WHERE id = ?').get(userId)?.hide_reads;
 /** The other person in a direct message (null for channels and for a note to yourself). */
+/** Private channels this size or smaller show who has seen your latest message. */
+export const SEEN_MAX = 25;
+const seenShown = (c) => !!c.private && !c.dm_key && membersOf(c).length <= SEEN_MAX;
+/** Someone read a conversation up to read_at: tell who can see it (the other person in a direct message, the rest of a small private channel), if both share read receipts. */
+function tellSeen(c, by, readAt) {
+  if (!receiptsOn(by)) return;
+  const other = dmOther(c, by);
+  if (other) { if (receiptsOn(other)) sendTo([other], { type: 'chat-seen', channel_id: c.id, by, read_at: readAt }); return; }
+  if (!seenShown(c)) return;
+  const name = q('SELECT name FROM users WHERE id = ?').get(by)?.name || '';
+  sendTo(membersOf(c).filter((id) => id !== by && receiptsOn(id)), { type: 'chat-seen', channel_id: c.id, by, name, read_at: readAt });
+}
 const dmOther = (c, me) => (c.dm_key ? c.dm_key.split(':').find((x) => x !== me) || null : null);
 const audience = (c) => (c.dm_key || c.private ? membersOf(c) : orgMemberIds(c.org_id));
 const isGeneral = (c) => !c.dm_key && c.id === q('SELECT id FROM channels WHERE org_id = ? AND dm_key IS NULL ORDER BY created_at LIMIT 1').get(c.org_id)?.id;
@@ -1407,8 +1419,7 @@ export default function chatRoutes() {
     tx(() => { for (const id of ids) q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)').run(id, me, t); });
     for (const id of ids) {
       sendTo([me], { type: 'chat-read', channel_id: id });
-      const other = dmOther(q('SELECT * FROM channels WHERE id = ?').get(id), me);
-      if (other && receiptsOn(me) && receiptsOn(other)) sendTo([other], { type: 'chat-seen', channel_id: id, by: me, read_at: t });
+      tellSeen(q('SELECT * FROM channels WHERE id = ?').get(id), me, t);
     }
     res.json({ conversations: ids.length });
   });
@@ -1418,8 +1429,7 @@ export default function chatRoutes() {
     const t = now();
     q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)').run(c.id, req.user.id, t);
     sendTo([req.user.id], { type: 'chat-read', channel_id: c.id });
-    const other = dmOther(c, req.user.id);
-    if (other && receiptsOn(req.user.id) && receiptsOn(other)) sendTo([other], { type: 'chat-seen', channel_id: c.id, by: req.user.id, read_at: q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(c.id, req.user.id).read_at });
+    tellSeen(c, req.user.id, q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(c.id, req.user.id).read_at);
     res.json({ ok: true });
   });
 
@@ -1431,8 +1441,16 @@ export default function chatRoutes() {
   });
 
   // When the other person in a direct message last read it: { read_at } (null when unknown or turned off).
+  // In a small private channel, when each of the others last read it: { readers: [{ id, name, read_at }] }
+  // (those who share read receipts, as you must too).
   r.get('/channels/:id/seen', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
+    if (!c.dm_key) {
+      if (!seenShown(c) || !receiptsOn(req.user.id)) return res.json({ read_at: null, readers: null });
+      const readers = q(`SELECT u.id, u.name, r.read_at FROM channel_members m JOIN users u ON u.id = m.user_id LEFT JOIN channel_reads r ON r.channel_id = m.channel_id AND r.user_id = u.id
+                         WHERE m.channel_id = ? AND u.id != ? AND COALESCE(u.hide_reads, 0) = 0 ORDER BY u.name COLLATE NOCASE`).all(c.id, req.user.id);
+      return res.json({ read_at: null, readers: readers.map((x) => ({ ...x, read_at: x.read_at ?? null })), members: membersOf(c).length - 1 });
+    }
     const other = dmOther(c, req.user.id);
     if (!other || !receiptsOn(req.user.id) || !receiptsOn(other)) return res.json({ read_at: null });
     res.json({ read_at: q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(c.id, other)?.read_at ?? null });

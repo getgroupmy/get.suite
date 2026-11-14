@@ -6811,6 +6811,37 @@ test('chat: "Seen" in direct messages, unless either person turns read receipts 
   assert.ok(raeId);
 });
 
+test('chat: "Seen by" in small private channels, for those who share read receipts', async () => {
+  const mk = async (local, name) => { const c = client(); const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' }); await login(c, `${local}@acme.com`); return [c, r.body.id]; };
+  const [ivy] = await mk('seenivy', 'Ivy Seen');
+  const [jon, jonId] = await mk('seenjon', 'Jon Seen');
+  const [kai, kaiId] = await mk('seenkai', 'Kai Seen');
+  const ch = (await ivy('POST', '/api/chat/channels', { name: 'seen-team', private: true, members: [jonId, kaiId] })).body.id;
+  await ivy('POST', `/api/chat/channels/${ch}/messages`, { body: 'Plan for Monday' });
+  const seen = async (who = ivy) => (await who('GET', `/api/chat/channels/${ch}/seen`)).body;
+  let s1 = await seen();
+  assert.equal(s1.members, 2);
+  assert.deepEqual(s1.readers.map((x) => [x.name, x.read_at]), [['Jon Seen', null], ['Kai Seen', null]], 'nobody has read it yet');
+  await jon('POST', `/api/chat/channels/${ch}/read`);
+  s1 = await seen();
+  assert.ok(s1.readers.find((x) => x.id === jonId).read_at > 0);
+  assert.equal(s1.readers.find((x) => x.id === kaiId).read_at, null);
+  // Kai turns read receipts off: Kai isn't listed, and Kai sees nobody's.
+  await kai('PUT', '/api/chat/me/read-receipts', { on: false });
+  assert.deepEqual((await seen()).readers.map((x) => x.name), ['Jon Seen']);
+  assert.equal((await seen(kai)).readers, null);
+  await kai('PUT', '/api/chat/me/read-receipts', { on: true });
+  // Public channels don't show it.
+  const pub = (await ivy('POST', '/api/chat/channels', { name: 'seen-public' })).body.id;
+  assert.equal((await ivy('GET', `/api/chat/channels/${pub}/seen`)).body.readers, null);
+  // Nor big private channels.
+  const { SEEN_MAX } = await import('../src/routes/chat.js');
+  const ids = [];
+  for (let i = 0; i < SEEN_MAX; i++) ids.push((await owner('POST', '/api/users', { local: `seenmany${i}`, domain: 'acme.com', name: `Many ${i}`, password: 'password123' })).body.id);
+  const big = (await ivy('POST', '/api/chat/channels', { name: 'seen-big', private: true, members: ids })).body.id;
+  assert.equal((await ivy('GET', `/api/chat/channels/${big}/seen`)).body.readers, null, `${SEEN_MAX + 1} people`);
+});
+
 test('notes: pictures on a note, seen by everyone it is shared with', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
   const pia = client();

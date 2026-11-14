@@ -46,6 +46,7 @@ const opts = () => dialog().getByRole('option');
 await step('Ctrl+K, type, Enter opens the conversation', async () => {
   const kimId = (await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body.id;
   await api(page, 'POST', '/users', { local: 'dan', domain: 'acme.com', name: 'Dan Designer', password: 'password123' });
+  await api(page, 'POST', '/users', { local: 'eve', domain: 'acme.com', name: 'Eve Editor', password: 'password123' });
   kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
   for (const n of ['design-team', 'marketing']) await api(page, 'POST', '/chat/channels', { name: n });
   dm = (await api(page, 'POST', '/chat/dm', { user_id: kimId })).body.id;
@@ -69,6 +70,7 @@ await step('arrows choose; unread ones come first with their count', async () =>
   const first = opts().first();
   if (!/Kim Park/.test(await first.innerText()) || !/1/.test(await first.locator('.badge').innerText())) throw new Error(await first.innerText());
   await page.keyboard.type('d');
+  await until(async () => /design-team/.test((await opts().allInnerTexts())[0] || '')); // the list has narrowed
   const names = await opts().allInnerTexts();
   if (!/design-team/.test(names[0]) || !names.some((n) => /Dan Designer/.test(n))) throw new Error(names.join(' | '));
   await page.screenshot({ path: `${SP}/shots/chat-jump.png` });
@@ -78,12 +80,13 @@ await step('arrows choose; unread ones come first with their count', async () =>
   await at(chosen.split('\n')[0].replace(/^[#🔒👤]\s*/u, '').split(' · ')[0].trim());
 });
 await step('a colleague with no direct message yet: picking starts one', async () => {
+  // Eve (whom nothing above opens: the step before may have opened Dan's with the arrows).
   await page.keyboard.press('Control+k');
-  await page.keyboard.type('dan');
+  await page.keyboard.type('eve');
   await opts().filter({ hasText: 'start a direct message' }).waitFor();
   await opts().first().click();
-  await at('Dan Designer');
-  await page.getByPlaceholder('Message Dan Designer').waitFor();
+  await at('Eve Editor');
+  await page.getByPlaceholder('Message Eve Editor').waitFor();
 });
 await step('nothing matching; Esc closes', async () => {
   await page.keyboard.press('Control+k');

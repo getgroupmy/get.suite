@@ -322,7 +322,7 @@ function QuietHours() {
   );
 }
 
-/** "Seen" in direct messages: on for both people, or for neither. */
+/** "Seen" in direct messages and small private channels: on for both people, or for neither. */
 function ReadReceipts() {
   const toast = useToast();
   const [on, setOn] = useState(null);
@@ -334,8 +334,8 @@ function ReadReceipts() {
       <label className="check"><input type="checkbox" checked={on} onChange={async (e) => {
         const next = e.target.checked; setOn(next);
         try { await put('/chat/me/read-receipts', { on: next }); toast(next ? 'People you message can see when you’ve read what they sent' : 'Read receipts are off, both ways'); } catch (err) { setOn(!next); toast(err.message, 'error'); }
-      }} /> Show “Seen” in direct messages</label>
-      <p className="muted small" style={{ margin: 0 }}>When it's off, people you message don't see when you've read what they sent, and you don't see it for them either.</p>
+      }} /> Show “Seen” in direct messages and small private channels</label>
+      <p className="muted small" style={{ margin: 0 }}>When it's off, people you message (and others in private channels of up to 25 people) don't see when you've read what they sent, and you don't see it for them either.</p>
     </section>
   );
 }
