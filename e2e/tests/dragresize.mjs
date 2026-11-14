@@ -40,7 +40,16 @@ const shown = () => page.evaluate(() => {
   return Math.round((w.getBoundingClientRect().width / (ed.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight))) * 100);
 });
 const dragTo = async (pct) => {
-  const h = await page.locator('.img-handle').boundingBox();
+  // Selecting the picture adds the picture toolbar row above the editor, which moves the picture down:
+  // wait until the handle stays put before pressing on it.
+  await page.locator('.img-handle').waitFor({ state: 'visible' });
+  let h = await page.locator('.img-handle').boundingBox();
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(100);
+    const again = await page.locator('.img-handle').boundingBox();
+    if (again && h && again.x === h.x && again.y === h.y) break;
+    h = again;
+  }
   const ed = await page.evaluate(() => {
     const e = document.querySelector('.compose-editor .tiptap');
     const r = e.getBoundingClientRect(); const cs = getComputedStyle(e);
