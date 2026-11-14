@@ -61,7 +61,8 @@ await step('a colleague it is shared with sees it; pictures can be removed in th
   await d.getByRole('img', { name: 'Picture 2' }).waitFor();
   await d.getByRole('button', { name: 'Remove picture 1' }).click();
   await until(async () => (await api(page, 'GET', '/notes')).body.find((x) => x.id === note.id)?.pictures.length === 1);
-  await kim.getByRole('article', { name: 'Whiteboard' }).locator('.note-pictures img').waitFor();
+  // Kim's card shows both for a moment (the second arrived, the removal not yet): wait for just the one.
+  await until(async () => (await kim.getByRole('article', { name: 'Whiteboard' }).locator('.note-pictures img').count()) === 1, 15000);
 }, kim);
 await step('only pictures are accepted', async () => {
   const r = await page.evaluate(async (id) => (await fetch(`/api/notes/${id}/pictures`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'text/html' }, body: '<b>x</b>' })).status, note.id);
