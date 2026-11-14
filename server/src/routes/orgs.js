@@ -1,4 +1,5 @@
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
+import { sweepInboxes } from '../mail/sweep.js';
 import { SIGNATURE_MODES } from '../mail/companysig.js';
 import { MAIL_EMPTY_CHOICES } from '../mail/config.js';
 import { IDLE_CHOICES, MAX_HOURS_CHOICES } from '../auth.js';
@@ -209,6 +210,15 @@ export default function orgRoutes() {
     scheduleMailConfig();
     audit(req, 'mail.blocked', { target: value });
     res.status(201).json({ blocked: blockedFor(req.user.org_id), reports: phishingFor(req.user.org_id) });
+  });
+  // Take mail from a sender (or domain) out of everyone's Inbox in the company, to Junk (marked read).
+  r.post('/current/phishing/sweep', requireAdmin, async (req, res) => {
+    if (!mailEnabled()) throw bad('Email is not set up on this server');
+    const value = blockValue(req.body?.value, domainsOf(req.user.org_id));
+    const people = q('SELECT id, username, org_id FROM users WHERE org_id = ? AND disabled = 0').all(req.user.org_id);
+    const r = await sweepInboxes(people, value);
+    audit(req, 'mail.swept', { target: value, details: { people: r.people, messages: r.messages, failed: r.failed.length } });
+    res.json(r);
   });
   r.delete('/current/blocked/:value', requireAdmin, (req, res) => {
     removeBlock(req.user.org_id, req.params.value);

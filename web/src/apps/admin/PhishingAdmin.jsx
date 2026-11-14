@@ -11,6 +11,7 @@ export default function PhishingAdmin() {
   const [blocked, setBlocked] = useState([]);
   const [asking, setAsking] = useState(null); // the address or domain to block, while confirming
   const [typed, setTyped] = useState('');
+  const [sweeping, setSweeping] = useState(null); // { value } while confirming, { value, busy } while it runs
   useEffect(() => { get('/orgs/current/blocked').then(setBlocked).catch(() => {}); }, []);
   const block = async (value) => {
     try { const r = await post('/orgs/current/blocked', { value }); setBlocked(r.blocked); setList(r.reports); setTyped(''); toast(`${value} is blocked for everyone: their mail goes to Junk`); } catch (e) { toast(e.message, 'error'); }
@@ -44,6 +45,7 @@ export default function PhishingAdmin() {
                   <td className="actions">{isBlocked(g) ? <span className="pill">Blocked</span> : <>
                     <button type="button" className="btn small" aria-label={`Block sender ${g.sender}`} onClick={() => setAsking(g.sender)}>Block sender</button>
                     <button type="button" className="btn small" aria-label={`Block domain ${g.domain}`} onClick={() => setAsking(g.domain)}>Block domain</button></>}
+                    <button type="button" className="btn small" aria-label={`Remove from inboxes: ${g.sender}`} onClick={() => setSweeping({ value: g.sender })}>Remove from inboxes</button>
                     {g.handled_at
                     ? <button type="button" className="btn small" aria-label={`Not handled: ${g.sender}`} onClick={() => mark(g, false)}>Not handled</button>
                     : <button type="button" className="btn small" aria-label={`Mark handled: ${g.sender}`} onClick={() => mark(g, true)}>Mark handled</button>}</td>
@@ -66,6 +68,16 @@ export default function PhishingAdmin() {
         <input className="grow" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="name@example.com or example.com" aria-label="Address or domain to block" maxLength={200} />
         <button className="btn" disabled={!typed.trim()}>Block</button>
       </form>
+      {sweeping && <ConfirmModal title={`Remove mail from ${sweeping.value} from everyone's Inbox?`} confirm={sweeping.busy ? 'Removing…' : 'Remove from inboxes'}
+        message={`Everyone's Inbox in the company is searched for mail from ${sweeping.value}, and what's found is moved to Junk, marked read (on phones too), even if they haven't seen it yet. Nothing is deleted.`}
+        onClose={() => setSweeping(null)} onConfirm={async () => {
+          setSweeping({ ...sweeping, busy: true });
+          try {
+            const r = await post('/orgs/current/phishing/sweep', { value: sweeping.value });
+            toast(r.messages ? `Moved ${r.messages} email${r.messages === 1 ? '' : 's'} to Junk, from ${r.people} ${r.people === 1 ? 'person' : 'people'}'s Inbox${r.failed.length ? ` (${r.failed.length} mailbox${r.failed.length === 1 ? '' : 'es'} couldn't be reached)` : ''}` : `Nothing from ${sweeping.value} left in anyone's Inbox`);
+          } catch (e) { toast(e.message, 'error'); }
+          setSweeping(null);
+        }} />}
       {asking && <ConfirmModal title={`Block ${asking} for everyone?`} confirm="Block for everyone"
         message={`All mail from ${asking.includes('@') ? asking : `${asking} (and its subdomains)`} will go to Junk, marked read, for everyone in the company, from now on. Mail already delivered stays where it is.`}
         onClose={() => setAsking(null)} onConfirm={async () => { await block(asking); setAsking(null); }} />}

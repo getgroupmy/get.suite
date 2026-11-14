@@ -119,6 +119,32 @@ await step('Block domain: their next email goes to everyone’s Junk, marked rea
   await sec.getByRole('button', { name: 'Unblock evilpay.com' }).click();
   await until(async () => !(await sec.getByRole('list', { name: 'Blocked for everyone' }).count()));
 });
+await step('Remove from inboxes: the sender’s mail leaves everyone’s Inbox for Junk, read', async () => {
+  await page.waitForTimeout(3000); // the unblock reaches the mail server's filters a moment later
+  const ctx = await browser.newContext();
+  const g = await ctx.newPage();
+  await g.goto(B);
+  await g.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'payroll@evilpay.com', password: 'password123' }) }));
+  for (const to of ['kim@acme.com', 'olivia@acme.com']) await api(g, 'POST', '/mail/send', { to, subject: 'Third try: bank details', text: 'Last chance.' });
+  await ctx.close();
+  const inInbox = async (p) => ((await api(p, 'GET', '/mail/messages?folder=INBOX')).body?.messages || []).some((m) => m.subject === 'Third try: bank details');
+  await until(async () => (await inInbox(kim)) && (await inInbox(page)), 30000);
+  const sec = page.getByRole('region', { name: 'Phishing reports' });
+  await sec.getByRole('button', { name: 'Remove from inboxes: payroll@evilpay.com' }).click();
+  const d = page.getByRole('dialog', { name: /Remove mail from payroll@evilpay.com/ });
+  await axe(page, 'sweep confirm');
+  await d.getByRole('button', { name: 'Remove from inboxes' }).click();
+  await page.getByText(/Moved 2 emails to Junk, from 2 people's Inbox/).waitFor({ timeout: 30000 });
+  for (const p of [kim, page]) {
+    if (await inInbox(p)) throw new Error('still in an Inbox');
+    const junk = ((await api(p, 'GET', '/mail/messages?folder=Junk')).body?.messages || []).find((m) => m.subject === 'Third try: bank details');
+    if (!junk?.seen) throw new Error(`not in Junk, read: ${JSON.stringify(junk)}`);
+  }
+  // Again: nothing left.
+  await sec.getByRole('button', { name: 'Remove from inboxes: payroll@evilpay.com' }).click();
+  await page.getByRole('dialog', { name: /Remove mail from/ }).getByRole('button', { name: 'Remove from inboxes' }).click();
+  await page.getByText("Nothing from payroll@evilpay.com left in anyone's Inbox").waitFor({ timeout: 30000 });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

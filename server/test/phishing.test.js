@@ -99,3 +99,13 @@ test('blocked for everyone: an address or a domain, not your own; reports handle
   assert.equal((await ana('DELETE', '/api/orgs/current/blocked/evil.example')).status, 404);
   assert.doesNotMatch(buildMailConfig()['sieve/kim@acme.com.sieve'], /evil\.example/);
 });
+
+test('remove from inboxes: admins only, and only with email set up', async () => {
+  const ana = client(), kim = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  await kim('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' });
+  assert.equal((await kim('POST', '/api/orgs/current/phishing/sweep', { value: 'evil.example' })).status, 403);
+  const r = await ana('POST', '/api/orgs/current/phishing/sweep', { value: 'evil.example' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /Email is not set up/);
+});
