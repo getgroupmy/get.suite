@@ -61,7 +61,7 @@ await step('the platform owner takes a snapshot and downloads it', async () => {
 });
 await step('the files check finds an unused file to remove and a missing one', async () => {
   const fsx = await import('node:fs'); const pathx = await import('node:path');
-  const dir = pathx.join(SP, '..', 'data-alt', 'files');
+  const dir = pathx.join(SP, 'data', 'files');
   const up = await page.evaluate(async () => (await fetch('/api/files/upload?name=Contract.pdf', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: '%PDF-1.4 x' })).json());
   const before = new Set(fsx.readdirSync(dir));
   // Contract.pdf's data goes missing; a leftover nobody refers to appears (written two hours ago).

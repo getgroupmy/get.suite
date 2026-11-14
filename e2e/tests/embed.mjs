@@ -47,7 +47,7 @@ await step('embed code for a published page and a form; both show inside another
   await dlg.getByRole('button', { name: 'Publish' }).click();
   await dlg.getByText('Embed in a website').click();
   const pubCode = await dlg.getByLabel('Embed code').inputValue();
-  if (!/^<iframe src="http:\/\/localhost:8090\/pub\/[\w-]+\?embed=1"/.test(pubCode)) throw new Error(pubCode);
+  if (!new RegExp(`^<iframe src="${B.replace(/[./]/g, (c) => `\\${c}`)}/pub/[\\w-]+\\?embed=1"`).test(pubCode)) throw new Error(pubCode);
   const form = (await api(page, 'POST', '/forms', { title: 'Contact us' })).body;
   await api(page, 'PUT', `/forms/${form.id}`, { audience: 'public', questions: [{ id: 'msg', type: 'paragraph', title: 'Your message' }] });
   await page.goto(`${B}/forms/${form.id}`);

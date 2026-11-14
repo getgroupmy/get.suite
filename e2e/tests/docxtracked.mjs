@@ -35,7 +35,7 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
 await step('tracked changes in a Word file open as suggestions to accept', async () => {
-  const b64 = (await import('node:fs')).readFileSync(`${process.argv[2]}/../lo12/tracked.docx`).toString('base64');
+  const b64 = (await import('node:fs')).readFileSync(`${ROOT}/e2e/fixtures/office/tracked.docx`).toString('base64');
   const up = await page.evaluate(async (data) => {
     const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
     const r = await fetch('/api/files/upload?name=Plan.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes });

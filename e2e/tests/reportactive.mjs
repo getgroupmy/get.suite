@@ -40,7 +40,7 @@ await step('a colleague signs in today; earlier days are recorded too (as if the
   await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
   const kim = await mk('kim');
   await signIn(kim, 'kim@acme.com');
-  const db = new DatabaseSync(`${SP.replace(/\/alt$/, '')}/data-alt/workspace.db`);
+  const db = new DatabaseSync(`${SP}/data/workspace.db`);
   const ids = db.prepare('SELECT id FROM users ORDER BY created_at').all().map((u) => u.id);
   for (const [n, who] of [[3, ids], [5, ids.slice(0, 1)], [6, ids]]) for (const id of who) db.prepare('INSERT OR IGNORE INTO active_days (user_id, day) VALUES (?, ?)').run(id, day(n));
   db.close();

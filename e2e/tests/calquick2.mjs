@@ -41,6 +41,7 @@ await step('setup', async () => {
 const quick = () => page.getByLabel('Quick add an event');
 const said = () => page.locator('#cal-quick-what');
 const dlg = () => page.getByRole('dialog', { name: 'New event' });
+const settled = async (want) => { const end = Date.now() + 8000; let t = ''; while (Date.now() < end) { t = (await dlg().getByRole('list', { name: 'Invited guests' }).textContent()).replace(/×/g, '').trim(); if (t === want) return; await new Promise((r) => setTimeout(r, 200)); } throw new Error(JSON.stringify(t)); };
 const range = async () => (await api(page, 'GET', `/events?from=${Date.now() - 864e5}&to=${Date.now() + 9 * 864e5}`)).body;
 await step('colleagues to invite', async () => {
   for (const [local, name] of [['kim', 'Kim Park'], ['sam', 'Sam Lee'], ['sam.ortiz', 'Sam Ortiz']]) {
@@ -57,8 +58,8 @@ await step('"@kim" invites Kim; her name stays in the title; the preview says wh
   await dlg().waitFor();
   if (await dlg().getByLabel('Title').inputValue() !== 'Lunch with Kim') throw new Error('title');
   const chips = dlg().getByRole('list', { name: 'Invited guests' });
-  const t1 = (await chips.textContent()).replace('×', '').trim();
-  if (t1 !== 'Kim Park') throw new Error(JSON.stringify(t1));
+  // The window learns who's a colleague once the directory has loaded: wait for the chips to settle.
+  await settled('Kim Park');
   await dlg().getByRole('button', { name: 'Save' }).click();
   await dlg().waitFor({ state: 'detached' });
   const e = (await range()).find((x) => x.title === 'Lunch with Kim');
@@ -71,8 +72,7 @@ await step('an address is a guest too, and leaves the title; two Sams: "@sam" st
   await quick().press('Enter');
   await dlg().waitFor();
   if (await dlg().getByLabel('Title').inputValue() !== 'Kickoff') throw new Error('title');
-  const t2 = (await dlg().getByRole('list', { name: 'Invited guests' }).textContent()).replace('×', '').trim();
-  if (t2 !== 'jo@client.example · by email') throw new Error(JSON.stringify(t2));
+  await settled('jo@client.example · by email');
   await dlg().getByText(/People outside Workspace get an email invitation/).waitFor();
   await dlg().getByRole('button', { name: 'Cancel' }).click();
   await quick().fill('Sync with @sam tomorrow 3pm');

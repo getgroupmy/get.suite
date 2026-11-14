@@ -35,7 +35,7 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
 await step('links in Excel cells open as links in Sheets', async () => {
-  const b64 = (await import('node:fs')).readFileSync(`${process.argv[2]}/../links.xlsx`).toString('base64');
+  const b64 = (await import('node:fs')).readFileSync(`${ROOT}/e2e/fixtures/office/links.xlsx`).toString('base64');
   const up = await page.evaluate(async (data) => {
     const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
     const r = await fetch('/api/files/upload?name=Suppliers.xlsx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes });

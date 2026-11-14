@@ -35,7 +35,7 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
 await step('a Word file keeps its page setup: Letter, landscape, narrow margins, header, footer, page numbers', async () => {
-  const b64 = (await import('node:fs')).readFileSync(`${process.argv[2]}/../lo5/pack.docx`).toString('base64');
+  const b64 = (await import('node:fs')).readFileSync(`${ROOT}/e2e/fixtures/office/pack.docx`).toString('base64');
   const up = await page.evaluate(async (data) => {
     const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
     const r = await fetch('/api/files/upload?name=Board%20pack.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes });

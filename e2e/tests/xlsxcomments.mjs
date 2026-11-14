@@ -35,7 +35,7 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
 await step('comment threads in an Excel file open on their cells', async () => {
-  const b64 = (await import('node:fs')).readFileSync(`${process.argv[2]}/../xlcm.xlsx`).toString('base64');
+  const b64 = (await import('node:fs')).readFileSync(`${ROOT}/e2e/fixtures/office/xlcm.xlsx`).toString('base64');
   const up = await page.evaluate(async (data) => {
     const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
     const r = await fetch('/api/files/upload?name=Prices.xlsx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes });
