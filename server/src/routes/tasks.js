@@ -243,7 +243,9 @@ function notifyUnblocked(done, by) {
 /** Tell someone a task was given to them (by someone else). */
 function notifyAssigned(task, by) {
   if (!task.assignee_id || task.assignee_id === by.id || task.done) return;
-  bell([task.assignee_id], { kind: 'task', title: `${by.name || by.username} gave you “${task.title}”`, body: task.list_name ? `On ${task.list_name}${task.due ? ` · due ${task.due}` : ''}` : null, link: `/tasks/${task.list_id}?task=${task.id}`, actor: by.name });
+  // Several given at once (Select → assign, a list handed over): one notification counting them, per list.
+  bell([task.assignee_id], { kind: 'task', title: `${by.name || by.username} gave you “${task.title}”`, body: task.list_name ? `On ${task.list_name}${task.due ? ` · due ${task.due}` : ''}` : null, link: `/tasks/${task.list_id}?task=${task.id}`, actor: by.name,
+    group: { key: `tasks-given:${by.id}:${task.list_id}`, many: (n) => ({ title: `${by.name || by.username} gave you ${n} tasks`, body: `${task.list_name ? `On ${task.list_name} · ` : ''}the latest “${task.title}”`, link: `/tasks/${task.list_id}` }) } });
   sendTo([task.assignee_id], { type: 'task-assigned', at: Date.now(), from: by.name || by.username,
     task: { id: task.id, title: task.title, list_id: task.list_id, list_name: task.list_name, due: task.due } });
 }

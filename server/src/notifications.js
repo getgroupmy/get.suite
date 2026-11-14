@@ -55,7 +55,7 @@ const shape = (n) => ({ ...n, read: !!n.read_at });
 
 /**
  * Add a notification for each of these people (and tell their open tabs). With `group` ({ key, many(n) → { title,
- * body } }), one that's still unread and came less than 10 minutes ago with the same key is replaced by one counting
+ * body, link? } }), one that's still unread and came less than 10 minutes ago with the same key is replaced by one counting
  * them all (n), at the top again; phones aren't buzzed again for it.
  */
 export function notify(userIds, { kind, title, body = null, link = null, actor = null, group = null }) {
@@ -64,10 +64,10 @@ export function notify(userIds, { kind, title, body = null, link = null, actor =
     if (!userId || offFor(userId).includes(kind)) continue; // they turned this kind off
     const id = uid();
     const prev = group && q('SELECT id, group_n FROM notifications WHERE user_id = ? AND group_key = ? AND read_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 1').get(userId, group.key, at - GROUP_WINDOW);
-    let t = title, b = body, n = 1;
-    if (prev) { n = (prev.group_n || 1) + 1; ({ title: t, body: b = null } = group.many(n)); q('DELETE FROM notifications WHERE id = ?').run(prev.id); }
+    let t = title, b = body, l = link, n = 1;
+    if (prev) { n = (prev.group_n || 1) + 1; ({ title: t, body: b = null, link: l = link } = group.many(n)); q('DELETE FROM notifications WHERE id = ?').run(prev.id); }
     q('INSERT INTO notifications (id, user_id, kind, title, body, link, actor, created_at, group_key, group_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, userId, kind, String(t).slice(0, 200), b ? String(b).slice(0, 300) : null, link, actor, at, group?.key ?? null, group ? n : null);
+      .run(id, userId, kind, String(t).slice(0, 200), b ? String(b).slice(0, 300) : null, l, actor, at, group?.key ?? null, group ? n : null);
     // Only the latest are kept.
     q(`DELETE FROM notifications WHERE user_id = ? AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ${KEEP})`).run(userId, userId);
     sendTo([userId], { type: 'notification', notification: shape(q('SELECT * FROM notifications WHERE id = ?').get(id)), ...(prev && { replaces: prev.id }) });

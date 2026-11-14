@@ -3446,6 +3446,33 @@ test('forms: many responses in a row are one notification counting them, while i
   assert.deepEqual((await mine()).map((n) => n.title).slice(0, 2), ['New response to “Lunch order”', '3 new responses to “Lunch order”'], 'once read: a new one');
 });
 
+test('notifications: several files shared, or several tasks given, by one person are one notification counting them', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['ngra', 'Give Ann'], ['ngrb', 'Give Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'ngra@acme.com');
+  const bid = (await login(b, 'ngrb@acme.com')).id;
+  const bell = async (kind) => (await b('GET', '/api/notifications')).body.items.filter((n) => n.kind === kind);
+  // Files.
+  for (const name of ['Q1 report', 'Q2 report', 'Q3 report']) {
+    const f = (await a('POST', '/api/files/new', { kind: 'doc', name })).body;
+    await a('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  }
+  let got = await bell('share');
+  assert.deepEqual(got.map((n) => [n.title, n.body, n.link]), [['Give Ann shared 3 files with you', 'The latest “Q3 report”', '/drive/shared']]);
+  // Tasks: per list.
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body.id;
+  const other = (await a('POST', '/api/tasks/lists', { name: 'Hiring' })).body.id;
+  for (const l of [list, other]) await a('PUT', `/api/tasks/lists/${l}/members`, { user_ids: [bid] });
+  for (const title of ['Book venue', 'Order cake', 'Send invites']) await a('POST', `/api/tasks/lists/${list}/tasks`, { title, assignee_id: bid });
+  await a('POST', `/api/tasks/lists/${other}/tasks`, { title: 'Read CVs', assignee_id: bid });
+  got = await bell('task');
+  assert.deepEqual(got.map((n) => [n.title, n.body, n.link]), [
+    ['Give Ann gave you “Read CVs”', 'On Hiring', `/tasks/${other}?task=${(await b('GET', `/api/tasks/lists/${other}/tasks`)).body[0].id}`],
+    ['Give Ann gave you 3 tasks', 'On Launch · the latest “Send invites”', `/tasks/${list}`],
+  ]);
+  assert.equal((await b('GET', '/api/notifications')).body.unread, 3);
+});
+
 test('status: set, seen by colleagues in the directory, checked, and cleared by itself', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['sta', 'Stat Ann'], ['stb', 'Stat Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

@@ -335,6 +335,9 @@ export function keepDriveFiles(userId, heirId = null, adminId = null) {
 const SUBTREE = 'WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id) SELECT id FROM t';
 
 /** Stream an upload into storage, within the size limit and the company's quota. */
+/** Someone sharing several files with you one after another: one notification counting them (Shared with me). */
+const sharedGroup = (by, f) => ({ key: `shared:${by.id}`, many: (n) => ({ title: `${by.name || by.username} shared ${n} files with you`, body: `The latest “${f.name}”`, link: '/drive/shared' }) });
+
 export async function receiveUpload(req, orgId, maxUploadBytes, ownerId = null) {
   const declared = Number(req.headers['content-length'] || 0);
   if (declared > maxUploadBytes) throw new HttpError(413, 'File is too large');
@@ -1000,7 +1003,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       const who = q('SELECT name FROM users WHERE id = ?').get(a.user_id)?.name || 'someone';
       recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view'})`], removed: [] });
       audit(req, 'file.share', { target: f.name, details: { with: [`${q('SELECT username FROM users WHERE id = ?').get(a.user_id)?.username} (${role})`], request: true } });
-      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name });
+      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
       sendTo([a.user_id], { type: 'files-changed', parent_id: null });
     } else {
       bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} didn’t give you access to “${f.name}”`, body: null, link: null, actor: req.user.name });
@@ -1990,7 +1993,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const who = (id) => q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'someone';
     if (added.length || gone.length) recordActivity(f.id, req.user.id, 'share', { added: added.map((x) => `${who(x.user_id)} (${x.role === 'editor' ? 'can edit' : 'can view'})`), removed: gone.map(who) });
     const untilText = (x) => (x.expires_at ? ` until ${new Date(Number(x.expires_at)).toISOString().slice(0, 10)}` : '');
-    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${x.role === 'editor' ? 'You can edit' : x.role === 'commenter' ? 'You can comment' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name });
+    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${x.role === 'editor' ? 'You can edit' : x.role === 'commenter' ? 'You can comment' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
     res.json({ ok: true });
   });
 

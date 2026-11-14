@@ -1447,7 +1447,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 
 ## Notifications
 
-The bell at the top right collects what needs you: being **@mentioned** in Chat or in a comment, a **task** given to you, a calendar **invitation** (or its cancellation), a file or folder **shared** with you, and someone **booking** time with you. New ones appear at once, with a count on the bell. Click one to go there (it's then marked read), or **Mark all read**. The latest 200 are kept.
+The bell at the top right collects what needs you: being **@mentioned** in Chat or in a comment, a **task** given to you, a calendar **invitation** (or its cancellation), a file or folder **shared** with you, and someone **booking** time with you. New ones appear at once, with a count on the bell. **Bursts are grouped:** while one is unread and less than 10 minutes old, more of the same make it one notification counting them, at the top again (and your phone isn't buzzed again): files shared with you by one person (*Olivia Owner shared 3 files with you*, opening **Shared with me**), tasks one person gives you on one list (*gave you 3 tasks*, opening the list), comments one person leaves on one file, responses to one of your forms, and files sent through one file request by one person. Mentions are never grouped. Click one to go there (it's then marked read), or **Mark all read**. The latest 200 are kept.
 
 
 **Notification settings** (⚙ in the bell's panel) turns each kind on or off for you: mentions in Chat and documents, mentions in file comments, tasks, calendar invitations and answers, shared files and access requests, changes to files you follow, chat reminders, and bookings. Kinds you turn off aren't kept, so they don't turn up later either.
