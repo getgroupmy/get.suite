@@ -43,7 +43,8 @@ await step('setup', async () => {
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await page.getByRole('link', { name: 'Mail' }).waitFor();
   await until(async () => (await api(page, 'GET', '/mail/folders')).status === 200, 30000);
-  const start = Date.now() + 36e5;
+  // Midday today (UTC, the summary's day here): "in an hour" would be tomorrow after 23:00.
+  const d = new Date(); const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12);
   await api(page, 'POST', '/events', { title: 'Board meeting', start, end: start + 36e5 });
 });
 await step('turn the morning summary on and choose the hour', async () => {
