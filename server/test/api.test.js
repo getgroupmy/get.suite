@@ -3484,6 +3484,53 @@ test('notifications: several files shared, or several tasks given, by one person
   assert.equal((await b('GET', '/api/notifications')).body.unread, 3);
 });
 
+test('calendar: copy a week to later weeks (one-off events of yours, by whole days in their zone; guests only if asked)', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cpwa', 'Week Ann'], ['cpwb', 'Week Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cpwa@acme.com');
+  await login(b, 'cpwb@acme.com');
+  // The week of Monday 19 October 2026 in London; the clocks go back on 25 October.
+  const tz = 'Europe/London';
+  const mon = Date.UTC(2026, 9, 18, 23); // 00:00 London (BST) on Monday 19 Oct
+  const at = (d, h) => Date.UTC(2026, 9, d, h - 1); // h:00 London while it's BST (before the 25th)
+  const mk = (body) => a('POST', '/api/events', { tz, ...body });
+  await mk({ title: 'Standup', start: at(19, 9), end: at(19, 9) + 15 * 6e4, reminders: [5] });
+  await mk({ title: 'Review', start: at(22, 14), end: at(22, 15), guests: ['cpwb@acme.com'] });
+  await mk({ title: 'Holiday', start: Date.UTC(2026, 9, 22, 23), end: Date.UTC(2026, 9, 23, 23) - 1, all_day: 1 }); // all day: from local midnight (London, BST)
+  await mk({ title: 'Focus', start: at(20, 10), end: at(20, 12), kind: 'focus' });
+  await mk({ title: 'Weekly', start: at(21, 11), end: at(21, 12), rrule: { freq: 'weekly' } });
+  await mk({ title: 'Next week already', start: at(26, 9) + 3600e3, end: at(26, 10) + 3600e3 });
+  await b('POST', '/api/events', { tz, title: 'Ben’s own', start: at(19, 9), end: at(19, 10) });
+  // Checked.
+  assert.equal((await a('POST', '/api/events/copy-week', { from: mon, weeks: [9] })).status, 400);
+  assert.equal((await a('POST', '/api/events/copy-week', { weeks: [1] })).status, 400);
+  const r = await a('POST', '/api/events/copy-week', { from: mon, weeks: [1, 2], tz });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.events, r.body.copied], [4, 8], 'Standup, Review, Holiday, Focus; not the repeating one, not another week\'s, not Ben\'s');
+  const got = (await a('GET', `/api/events?from=${mon + 7 * 864e5}&to=${mon + 21 * 864e5}`)).body.filter((e) => !e.rrule && e.title !== 'Next week already');
+  const standups = got.filter((e) => e.title === 'Standup').map((e) => e.start).sort();
+  // 9:00 London each time: after the clocks go back (25 Oct) that's 9:00 UTC.
+  assert.deepEqual(standups, [Date.UTC(2026, 9, 26, 9), Date.UTC(2026, 10, 2, 9)]);
+  const copy = got.find((e) => e.title === 'Standup');
+  assert.deepEqual([copy.end - copy.start, copy.reminders], [15 * 6e4, [5]]);
+  const hol = got.filter((e) => e.title === 'Holiday').map((e) => [e.start, e.all_day]);
+  assert.deepEqual(hol, [[Date.UTC(2026, 9, 30), 1], [Date.UTC(2026, 10, 6), 1]], 'local midnight again (GMT by then)');
+  assert.equal(got.find((e) => e.title === 'Focus').kind, 'focus');
+  const review = got.find((e) => e.title === 'Review');
+  assert.deepEqual(review.guests, [], 'guests only when asked');
+  assert.equal((await b('GET', `/api/events?from=${mon + 7 * 864e5}&to=${mon + 14 * 864e5}`)).body.some((e) => e.title === 'Review'), false);
+  // With guests: Ben is invited to the copy.
+  const r2 = await a('POST', '/api/events/copy-week', { from: mon, weeks: [3], guests: true, tz });
+  assert.equal(r2.body.copied, 4);
+  const benSees = (await b('GET', `/api/events?from=${mon + 21 * 864e5}&to=${mon + 28 * 864e5}`)).body.find((e) => e.title === 'Review');
+  assert.equal(benSees?.my_status, 'needs', 'invited, to answer');
+  // Undo: the copies go (the ids are given back).
+  for (const id of r.body.ids) await a('DELETE', `/api/events/${id}`);
+  assert.equal((await a('GET', `/api/events?from=${mon + 7 * 864e5}&to=${mon + 14 * 864e5}`)).body.filter((e) => e.title === 'Standup').length, 0);
+  // An empty week: nothing.
+  assert.deepEqual((await a('POST', '/api/events/copy-week', { from: mon + 70 * 864e5, weeks: [1] })).body, { copied: 0, ids: [] });
+});
+
 test('status: set, seen by colleagues in the directory, checked, and cleared by itself', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['sta', 'Stat Ann'], ['stb', 'Stat Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

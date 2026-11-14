@@ -4,7 +4,7 @@ import { canEditCalendar, seesDetails } from '../calshare.js';
 import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
-import { expand } from '../calmath.js';
+import { expand, wallClock, fromWallClock } from '../calmath.js';
 import { q, tx } from '../db.js';
 import { uid, str, int, bad, notFound, HttpError, forbidden } from '../util.js';
 import { canReach } from '../tenancy.js';
@@ -795,6 +795,52 @@ export default function calendarRoutes() {
     const made = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     const autoReply = awayReply(req, made, tz);
     res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders, ...(autoReply && { auto_reply: autoReply }) });
+  });
+
+  // Copy a week: { from (when the week starts), weeks: [1..8] (how many weeks on: each gets a copy), guests, tz }.
+  // Your own one-off events starting that week (not repeating ones, nor a changed time of one), each moved by whole
+  // days in its own time zone (9:00 stays 9:00 across a clock change), with its details, colour, calendar and your
+  // reminders. Guests come too only with { guests: true } (they're invited); rooms never (book them again).
+  r.post('/copy-week', (req, res) => {
+    const from = Number(req.body?.from);
+    if (!Number.isFinite(from)) throw bad('Say which week: from');
+    const weeks = [...new Set((Array.isArray(req.body?.weeks) ? req.body.weeks : [req.body?.weeks]).map(Number))];
+    if (!weeks.length || weeks.some((w) => !Number.isInteger(w) || w < 1 || w > 8)) throw bad('Copy to 1 to 8 weeks later');
+    const tz = zoneOrUtc(req.body?.tz || 'UTC');
+    const src = q(`SELECT * FROM events WHERE owner_id = ? AND start >= ? AND start < ? AND rrule IS NULL AND recur_parent IS NULL ORDER BY start`)
+      .all(req.user.id, from, from + 7 * 864e5 + 3600e3); // (an hour's grace for a week with a clock change)
+    if (!src.length) return res.json({ copied: 0, ids: [] });
+    if (src.length * weeks.length > 300) throw bad('That would make over 300 events: copy fewer weeks');
+    const withGuests = !!req.body?.guests;
+    const ids = [];
+    const shift = (t, zone, days) => { const w = wallClock(t, zone); return fromWallClock(w.y, w.m, w.d + days, w.h, w.mi, w.s, w.ms, zone); };
+    for (const k of weeks.sort((a, b) => a - b)) for (const ev of src) {
+      const zone = ev.all_day ? tz : zoneOrUtc(ev.tz || tz);
+      const start = shift(ev.start, zone, 7 * k), end = shift(ev.end, zone, 7 * k);
+      const id = uid();
+      q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, kind, meet_code, calendar_id, show_as, private, attachments)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', NULL, ?, ?, NULL, ?, ?, ?, ?)`)
+        .run(id, req.user.id, ev.title, ev.description, ev.location, start, end, ev.all_day, ev.color, ev.tz, ev.kind, ev.calendar_id, ev.show_as, ev.private ?? 0, ev.attachments);
+      setReminders(id, req.user.id, remindersOf(ev.id, req.user.id));
+      if (withGuests && !SPECIAL.includes(ev.kind)) {
+        // As they'd be invited now: colleagues still here and reachable; people outside only while email is on.
+        const inside = guestsOf(ev.id).map((g) => q('SELECT id, username, name FROM users WHERE id = ? AND disabled = 0').get(g.id)).filter((u) => u && canReach(req.user, u.id));
+        const outsideEmails = mailEnabled() ? outsideOf(ev.id).map((g) => g.email) : [];
+        if (inside.length || outsideEmails.length) {
+          const { added } = setGuests(id, inside);
+          const outside = setOutside(id, outsideEmails);
+          const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
+          notify(req.user, saved, added, 'invite', ev.tz || tz, baseUrl(req));
+          declineAway(req.user, saved, added);
+          notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz: ev.tz || tz });
+          touch(added.map((g) => g.id));
+        }
+      }
+      ids.push(id);
+    }
+    touch([req.user.id, ...[...new Set(src.map((e) => e.calendar_id).filter(Boolean))].flatMap((c) => peopleOf(c))]);
+    audit(req, 'event.copy_week', { target: `${src.length} event${src.length === 1 ? '' : 's'}`, details: { weeks, guests: withGuests } });
+    res.status(201).json({ copied: ids.length, events: src.length, ids });
   });
 
   r.patch('/:id', (req, res) => {

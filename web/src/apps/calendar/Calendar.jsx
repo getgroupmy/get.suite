@@ -181,6 +181,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
     navigateTo(location.pathname, { replace: true, state: null }); // a reload doesn't open it again
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showTasks, setShowTasksState] = useState(savedTasks);
+  const [copyWeek, setCopyWeek] = useState(null); // the start of the week being copied (Copy this week…)
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
   const [roomsNow, setRoomsNow] = useState(() => new URLSearchParams(window.location.search).get('rooms') === 'now'); // from a check-in reminder
@@ -379,9 +380,11 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <QuickAdd minutes={newEventMinutes(me?.cal_prefs || DEFAULT_CAL_PREFS)} people={people.filter((p) => p.id !== me.id)} rooms={roomList} onPick={(ev) => { setAnchor(startOfDay(new Date(ev.start))); setEditing({ color: COLORS[0], location: '', description: '', ...ev }); }} onPlain={(t) => { newEvent(); setEditing((e) => (e ? { ...e, title: t } : e)); }} />
         {!acting && <>
         <button type="button" className="subnav-item" onClick={() => setTimeOff(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏖</span><span className="grow">Time off</span>{timeOffWaiting > 0 && <span className="timeoff-count" aria-label={`${timeOffWaiting} waiting for your answer`}>{timeOffWaiting}</span>}</button>
-        {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); loadHolidays(); }} onChanged={() => { load(); refreshTimeOff(); loadHolidays(); }} />}
+        {copyWeek !== null && <CopyWeek from={copyWeek} onClose={() => setCopyWeek(null)} onDone={() => { setCopyWeek(null); load(); }} />}
+      {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); loadHolidays(); }} onChanged={() => { load(); refreshTimeOff(); loadHolidays(); }} />}
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
+        {view === 'week' && <button type="button" className="subnav-item" onClick={() => setCopyWeek(startOfDay(days[0]).getTime())} title="Copy your own one-off events of this week to later weeks"><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>⧉</span><span className="grow">Copy this week…</span></button>}
         {!acting && <Menu trigger={(p) => <button type="button" className="subnav-item" {...p}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📋</span><span className="grow">{templates.length ? 'From a template…' : 'Templates…'}</span></button>}
           items={[
             ...templates.map((t) => ({ label: t.name, onClick: () => fromTemplate(t) })),
@@ -871,6 +874,44 @@ function QuickAdd({ minutes, people, rooms, onPick, onPlain }) {
         {ev ? <>{ev.title ? <strong>{ev.title}</strong> : <em>No title</em>} · {whenLabel(ev)}{ev.rrule && ` · ${describeRule(ev.rrule, ev.start)}`}{ev.guests.length > 0 && ` · with ${ev.guests.map((g) => people.find((p) => p.username === g)?.name || g).join(', ')}`}{ev.rooms.length > 0 && ` · in ${ev.rooms.map((id) => rooms.find((r) => r.id === id)?.name).join(', ')}`}</> : text.trim() ? 'Add a day or time, like “tomorrow 3pm”' : ''}
       </div>
     </form>
+  );
+}
+
+/**
+ * Copy this week: your own one-off events of the week shown, copied to the later weeks ticked (each gets them all),
+ * moved by whole days. Guests are invited only if asked; rooms aren't booked again. Undo takes the copies away.
+ */
+function CopyWeek({ from, onClose, onDone }) {
+  const toast = useToast();
+  const [weeks, setWeeks] = useState([1]);
+  const [guests, setGuests] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const day = (k) => new Date(new Date(from).setDate(new Date(from).getDate() + 7 * k));
+  const label = (k) => `${day(k).toLocaleDateString([], { day: 'numeric', month: 'short' })} – ${new Date(day(k + 1) - 1).toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
+  const go = async () => {
+    setBusy(true);
+    try {
+      const r = await post('/events/copy-week', { from, weeks, guests, tz: TZ });
+      if (!r.copied) { toast('Nothing to copy: no one-off events of yours this week', 'info'); setBusy(false); return; }
+      toast(`Copied ${r.events} event${r.events === 1 ? '' : 's'} to ${weeks.length === 1 ? 'the week of ' + label(weeks[0]).split(' – ')[0] : `${weeks.length} weeks`}`, 'info', {
+        action: { label: 'Undo', onClick: async () => { for (const id of r.ids) await del(`/events/${id}`).catch(() => {}); onDone(); } },
+      });
+      onDone();
+    } catch (e) { toast(e.message, 'error'); setBusy(false); }
+  };
+  return (
+    <Modal title="Copy this week" onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy || !weeks.length} onClick={go}>Copy</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>Your own one-off events of {label(0)} (not repeating ones, nor ones you're invited to) go to each week you tick, on the same days and times.</p>
+      <fieldset className="stack copy-weeks">
+        <legend>Copy to</legend>
+        {[1, 2, 3, 4, 5, 6, 7, 8].map((k) => (
+          <label key={k} className="check"><input type="checkbox" checked={weeks.includes(k)} onChange={(e) => setWeeks(e.target.checked ? [...weeks, k].sort((a, b) => a - b) : weeks.filter((x) => x !== k))} /> {k === 1 ? 'Next week' : `In ${k} weeks`} <span className="muted small">({label(k)})</span></label>
+        ))}
+      </fieldset>
+      <label className="check"><input type="checkbox" checked={guests} onChange={(e) => setGuests(e.target.checked)} /> Invite their guests too (they get invitations)</label>
+      <p className="muted small">Rooms aren't booked for the copies: add them again if you need them.</p>
+    </Modal>
   );
 }
 
