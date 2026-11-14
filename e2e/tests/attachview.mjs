@@ -120,7 +120,8 @@ await step('a page at a time: the API, and Look further in the window', async ()
   // A message's files stay together on one page.
   if (page2.items.map((a) => a.filename).join('|') !== 'budget.csv|Q3 report.pdf' || page2.next !== null) throw new Error(JSON.stringify(page2).slice(0, 300));
   // The window, with pages of one.
-  await page.route((u) => u.pathname === '/api/mail/attachments', (route) => route.continue({ url: `${route.request().url()}&limit=1` }));
+  const pagesOfOne = (u) => u.pathname === '/api/mail/attachments'; // the same function undoes it below
+  await page.route(pagesOfOne, (route) => route.continue({ url: `${route.request().url()}&limit=1` }));
   await page.getByRole('button', { name: 'Attachments', exact: true }).click();
   const d = page.getByRole('dialog', { name: 'Attachments' });
   const list = d.getByRole('list', { name: 'Attachments' });
@@ -128,7 +129,7 @@ await step('a page at a time: the API, and Look further in the window', async ()
   await d.getByRole('button', { name: 'Look further' }).click();
   await until(async () => (await list.locator('li strong').allInnerTexts().catch(() => [])).join('|') === 'site photo.png|budget.csv|Q3 report.pdf');
   if (await d.getByRole('button', { name: 'Look further' }).count()) throw new Error('nothing further to look at');
-  await page.unroute((u) => u.pathname === '/api/mail/attachments');
+  await page.unroute(pagesOfOne);
 });
 
 await step('pick two and download them as one .zip', async () => {
