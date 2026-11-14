@@ -58,6 +58,12 @@ export default function authRoutes({ secureCookies }) {
     return userFromToken(token);
   };
 
+  // This site, as passkeys see it: its address and host name.
+  const site = (req) => {
+    const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    return { origin, rpId: new URL(origin).hostname };
+  };
+
   r.get('/status', (req, res) => {
     const count = q('SELECT COUNT(*) AS n FROM users').get().n;
     res.json({ needsSetup: count === 0, can_reset: mailEnabled(), user: userFromToken(tokenFromReq(req), { idleMs: idleOf(req) }) });
@@ -92,6 +98,12 @@ export default function authRoutes({ secureCookies }) {
     if (!row.mail_hash) setMailPassword(row.id, password);
     // Two-step verification: the password was right; now ask for the code (no session yet).
     if (twoFactor.isEnabled(row.id)) return res.json({ twoFactor: true, ticket: twoFactor.newTicket(row.id) });
+    // No app, but passkeys, and the company requires two steps: the passkey is the second step.
+    if (q('SELECT o.require_2fa FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(row.id)?.require_2fa && passkeysOf(row.id).length) {
+      const ticket = b64url(crypto.randomBytes(18));
+      const challenge = newChallenge(`login:${ticket}`, row.id);
+      return res.json({ passkeyStep: true, ticket, options: { challenge, rpId: site(req).rpId, userVerification: 'required', timeout: 120000, allowCredentials: passkeysOf(row.id).map((p) => ({ type: 'public-key', id: p.id })) } });
+    }
     const u = startSession(req, res, row.id);
     audit(req, 'sign-in', { actor: u, target: u.username });
     res.json({ user: u });
@@ -227,7 +239,7 @@ export default function authRoutes({ secureCookies }) {
     res.json({ recoveryCodes: codes, ...twoFactor.status(req.user.id) });
   });
   r.post('/2fa/disable', requireAuth, (req, res) => {
-    if (q('SELECT require_2fa FROM orgs WHERE id = ?').get(req.user.org_id)?.require_2fa) throw bad('Your company requires two-step verification, so it can\'t be turned off');
+    if (q('SELECT require_2fa FROM orgs WHERE id = ?').get(req.user.org_id)?.require_2fa && !passkeysOf(req.user.id).length) throw bad('Your company requires two-step verification, so it can\'t be turned off (add a passkey first, and it can)');
     needPassword(req);
     if (twoFactor.isEnabled(req.user.id) && !twoFactor.verifySecondStep(req.user.id, req.body.code)) {
       throw bad('Enter a current code from your app (or a recovery code) to turn it off');
@@ -238,10 +250,6 @@ export default function authRoutes({ secureCookies }) {
   });
 
   // ---- passkeys: sign in with a fingerprint, face, PIN or security key instead of a password ----
-  const site = (req) => {
-    const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
-    return { origin, rpId: new URL(origin).hostname };
-  };
   r.get('/passkeys', requireAuth, (req, res) => res.json(passkeysOf(req.user.id)));
   // Making one: your password first, then the browser makes the key and we keep its public half.
   r.post('/passkeys/options', requireAuth, (req, res) => {
@@ -296,6 +304,7 @@ export default function authRoutes({ secureCookies }) {
       throw new HttpError(401, msg);
     };
     if (!p || !user) fail('passkey', 'That passkey isn’t on any account here. Sign in with your password, then add it in Settings.');
+    if (w.userId && w.userId !== user.id) fail('passkey', 'That passkey is for another account');
     if (user.disabled) fail('disabled', 'That account is suspended');
     let ok;
     try { ok = verifyAssertion(cred.response || {}, { publicKey: p.public_key, alg: p.alg, signCount: p.sign_count }, { challenge: w.challenge, ...site(req) }); } catch (e) { fail('passkey', e.message); }

@@ -88,3 +88,54 @@ test('passkeys: added with your password, sign in with one (no password, no code
   assert.deepEqual((await ana('DELETE', `/api/auth/passkeys/${key.id}`)).body, []);
   assert.equal((await signIn(client())).status, 401);
 });
+
+test('passkeys and a company that requires two steps: a passkey counts, and then it is the second step after a password', async () => {
+  const ana = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  const anaId = (await ana('GET', '/api/auth/me')).body.user.id;
+  const cat = client();
+  const catId = (await ana('POST', '/api/users', { local: 'cat', domain: 'acme.com', name: 'Cat Lee', password: 'password123' })).body.id;
+  await cat('POST', '/api/auth/login', { username: 'cat@acme.com', password: 'password123' });
+  const site = (id) => ({ origin: base, rp: '127.0.0.1', userHandle: b64url(Buffer.from(id)) });
+  const addKey = async (who, id) => {
+    const k = authenticator('ec', site(id));
+    const o = (await who('POST', '/api/auth/passkeys/options', { password: 'password123' })).body;
+    assert.equal((await who('POST', '/api/auth/passkeys', { credential: { id: k.id, response: k.create(o.challenge) }, name: 'Key' })).status, 201);
+    return k;
+  };
+  // Requiring it needs it yourself: a passkey is enough.
+  assert.equal((await ana('PATCH', '/api/orgs/current', { require_2fa: true })).status, 400);
+  const anaKey = await addKey(ana, anaId);
+  assert.equal((await ana('PATCH', '/api/orgs/current', { require_2fa: true })).status, 200);
+  assert.equal((await ana('GET', '/api/auth/me')).body.user.needs_two_factor, false, 'Ana has a passkey');
+  const left = (await ana('GET', '/api/orgs/current')).body.without_2fa;
+  // Cat has neither: must set something up; a passkey will do.
+  assert.equal((await cat('GET', '/api/auth/me')).body.user.needs_two_factor, true);
+  const catKey = await addKey(cat, catId);
+  assert.equal((await cat('GET', '/api/auth/me')).body.user.needs_two_factor, false);
+  assert.equal((await ana('GET', '/api/orgs/current')).body.without_2fa, left - 1);
+
+  // Cat's password now leads to the passkey step, for Cat's passkeys only.
+  const fresh = client();
+  const step = (await fresh('POST', '/api/auth/login', { username: 'cat@acme.com', password: 'password123' })).body;
+  assert.equal(step.passkeyStep, true);
+  assert.equal(step.user, undefined, 'not signed in yet');
+  assert.deepEqual(step.options.allowCredentials.map((c) => c.id), [catKey.id]);
+  assert.equal((await fresh('GET', '/api/auth/me')).status, 401);
+  // Someone else's passkey can't finish Cat's sign-in.
+  assert.equal((await fresh('POST', '/api/auth/login/passkey', { ticket: step.ticket, credential: { id: anaKey.id, response: anaKey.get(step.options.challenge) } })).status, 401);
+  const step2 = (await fresh('POST', '/api/auth/login', { username: 'cat@acme.com', password: 'password123' })).body;
+  const done = await fresh('POST', '/api/auth/login/passkey', { ticket: step2.ticket, credential: { id: catKey.id, response: catKey.get(step2.options.challenge) } });
+  assert.equal(done.status, 200);
+  assert.equal(done.body.user.username, 'cat@acme.com');
+
+  // The users list shows who has passkeys; an admin's reset (lost phone) takes them away and signs Cat out.
+  assert.equal((await ana('GET', '/api/users')).body.find((u) => u.id === catId).passkeys, 1);
+  assert.equal((await ana('PATCH', `/api/users/${catId}`, { reset_two_factor: true })).status, 200);
+  assert.deepEqual(q('SELECT id FROM passkeys WHERE user_id = ?').all(catId), []);
+  assert.equal((await cat('GET', '/api/auth/me')).status, 401);
+  // …and Cat's password alone then signs in, to set something up again.
+  const after = await client()('POST', '/api/auth/login', { username: 'cat@acme.com', password: 'password123' });
+  assert.equal(after.body.user?.needs_two_factor, true);
+  await ana('PATCH', '/api/orgs/current', { require_2fa: false });
+});

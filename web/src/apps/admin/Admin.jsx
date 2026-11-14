@@ -263,6 +263,7 @@ function Users({ orgId, setOrgId }) {
             <td className="hide-sm muted">{u.username}</td>
             <td className="hide-sm">{u.is_super ? <span className="pill">Platform owner</span> : u.is_admin ? <span className="pill">Admin</span> : 'User'}
               {u.two_factor ? <span className="pill ok" title="Signs in with a password and a code from their phone">2-step</span> : null}
+              {u.passkeys ? <span className="pill ok" title={`Has ${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}: signs in with a fingerprint, face, PIN or security key`}>🔑 Passkey</span> : null}
               {u.legal_hold ? <span className="pill warn" title={`Legal hold${u.hold_note ? `: ${u.hold_note}` : ''}${u.hold_by_name ? ` (by ${u.hold_by_name}` : ''}${u.hold_at ? `${u.hold_by_name ? ', ' : ' ('}${new Date(u.hold_at).toLocaleDateString()})` : u.hold_by_name ? ')' : ''}. Nothing of theirs is deleted for good.`}>On hold</span> : null}</td>
             <td className="hide-sm muted">{formatBytes(u.storage_used)}{u.drive_quota_mb ? ` of ${formatBytes(u.drive_quota_mb * 1048576)}` : ''}</td>
             <td className="hide-sm muted">{u.mail_quota_mb ? formatBytes(u.mail_quota_mb * 1048576) : 'Unlimited'}</td>
@@ -276,7 +277,7 @@ function Users({ orgId, setOrgId }) {
                   { label: 'Mailbox size', icon: 'mail', onClick: () => setDialog({ type: 'quota', user: u }) },
                   { label: 'Drive storage limit', icon: 'folder', onClick: () => setDialog({ type: 'drivequota', user: u }) },
                   { label: 'Signed-in devices', icon: 'logout', onClick: () => setDialog({ type: 'devices', user: u }) },
-                  u.two_factor && u.id !== me.id && { label: 'Reset two-step verification', icon: 'shield', onClick: () => setDialog({ type: 'reset2fa', user: u }) },
+                  (u.two_factor || u.passkeys) && u.id !== me.id && { label: 'Reset two-step verification', icon: 'shield', onClick: () => setDialog({ type: 'reset2fa', user: u }) },
                   u.id !== me.id && !u.is_super && { label: u.is_admin ? 'Remove admin' : 'Make admin', icon: 'shield', onClick: act(() => patch(`/users/${u.id}`, { is_admin: !u.is_admin }), 'Role updated') },
                   u.id !== me.id && !u.is_super && { label: u.disabled ? 'Enable account' : 'Disable account', icon: 'logout', onClick: act(() => patch(`/users/${u.id}`, { disabled: !u.disabled }), u.disabled ? 'Account enabled' : 'Account disabled') },
                   !u.is_super && (u.legal_hold
@@ -317,7 +318,7 @@ function Users({ orgId, setOrgId }) {
       onClose={() => setDialog(null)} onConfirm={async () => { await patch(`/users/${dialog.user.id}`, { legal_hold: false }); toast('Legal hold lifted'); load(); }} />}
     {dialog?.type === 'reset2fa' && (
       <ConfirmModal title={`Reset two-step verification for ${dialog.user.name}?`} confirm="Reset" danger={false}
-        message={`Use this when ${dialog.user.name} has lost their phone. They can then sign in with just their password, and should set two-step verification up again in Settings. They are signed out everywhere now. Only do this once you're sure it's really them asking.`}
+        message={`Use this when ${dialog.user.name} has lost their phone. Their authenticator app and their passkeys stop working, so they can sign in with just their password, and should set two-step verification (or a passkey) up again in Settings. They are signed out everywhere now. Only do this once you're sure it's really them asking.`}
         onClose={() => setDialog(null)} onConfirm={async () => { await patch(`/users/${dialog.user.id}`, { reset_two_factor: true }); toast('Two-step verification reset. They were signed out everywhere.'); load(); }} />
     )}
     {dialog?.type === 'delete' && (

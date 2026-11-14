@@ -1,3 +1,4 @@
+import './passkeys.js'; // its table, for the two-step check below
 import { cleanCalPrefs } from './calprefs.js';
 import crypto from 'node:crypto';
 import { rulesOf, passwordProblem, isExpired } from './passwordrules.js';
@@ -117,7 +118,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
   const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
                         o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
-                        (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
+                        (COALESCE((SELECT enabled FROM two_factor t WHERE t.user_id = u.id), 0) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
                  WHERE s.token = ?`).get(token);
   if (!row) return null;
@@ -142,7 +143,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
 }
 
 const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
-  o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled`;
+  o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (COALESCE((SELECT enabled FROM two_factor t WHERE t.user_id = u.id), 0) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)) AS tf_enabled`;
 
 /** The person an API token acts for (see apitokens.js), as requireAuth gives it, with req.apiToken set. */
 function userFromApiToken(req) {
@@ -166,7 +167,7 @@ function userOf(row) {
     is_admin: !!row.is_admin || !!row.is_super, is_super: !!row.is_super,
     org_id: row.org_id, org_name: row.org_name, allow_external: !!row.allow_external, allow_links: !!row.allow_links, link_max_days: row.link_max_days || null, link_password: !!row.link_password,
     org_accent: row.org_accent || null, org_logo: row.org_logo ? `/api/public/brand/logo/${row.org_id}?v=${row.org_logo.slice(0, 8)}` : null,
-    // The company requires two-step verification and this person hasn't set it up yet.
+    // The company requires two-step verification and this person hasn't set it up yet (an authenticator app or a passkey).
     needs_two_factor: !!row.require_2fa && !row.tf_enabled,
     // An admin set their password: they choose their own before anything else.
     // …or their password has expired under the company's rules (they choose a new one first, too).

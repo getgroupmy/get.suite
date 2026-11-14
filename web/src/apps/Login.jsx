@@ -20,12 +20,13 @@ export default function Login({ needsSetup, canReset = false }) {
   const [useRecovery, setUseRecovery] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const [forgot, setForgot] = useState(null); // null, or { sent: message } once asked
+  const [passkeyStep, setPasskeyStep] = useState(null); // after the password: { ticket, options } for the passkey
 
   // A passkey instead of the password (and code): the browser offers the ones it has for this site.
-  async function withPasskey() {
+  async function withPasskey(step) {
     setError(''); setBusy(true);
     try {
-      const { ticket: t, options } = await post('/auth/login/passkey/options', {});
+      const { ticket: t, options } = step || await post('/auth/login/passkey/options', {});
       const cred = await navigator.credentials.get({ publicKey: requestOptions(options) });
       const r = await post('/auth/login/passkey', { ticket: t, credential: credentialJson(cred) });
       setUser(r.user);
@@ -46,6 +47,8 @@ export default function Login({ needsSetup, canReset = false }) {
         ? await post('/auth/setup', { org_name: form.org_name, domain: form.domain, name: form.name, local: form.local, password: form.password })
         : await post('/auth/login', { username: form.username, password: form.password });
       if (r.twoFactor) { setTicket(r.ticket); setBusy(false); return; }
+      // The company requires two steps and this account's second step is a passkey.
+      if (r.passkeyStep) { setPasskeyStep(r); return withPasskey(r); }
       setUser(r.user);
     } catch (err) {
       setError(err.message);
@@ -135,9 +138,13 @@ export default function Login({ needsSetup, canReset = false }) {
         {needsSetup && (
           <label className="field"><span>Confirm password</span><input type="password" value={form.confirm} onChange={set('confirm')} autoComplete="new-password" required /></label>
         )}
+        {passkeyStep && <p role="status">Your company asks for two steps: confirm with your passkey (your fingerprint, face or PIN).</p>}
         {error && <p className="error" role="alert">{error}</p>}
-        <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : needsSetup ? 'Create workspace' : 'Sign in'}</button>
-        {!needsSetup && !ticket && passkeysSupported() && <button type="button" className="btn block" disabled={busy} onClick={withPasskey}>🔑 Use a passkey</button>}
+        {passkeyStep ? <button type="button" className="btn primary block" disabled={busy} onClick={async () => {
+          try { const again = await post('/auth/login', { username: form.username, password: form.password }); if (again.passkeyStep) { setPasskeyStep(again); withPasskey(again); } else if (again.user) setUser(again.user); } catch (err) { setError(err.message); }
+        }}>{busy ? 'Waiting for your passkey…' : 'Try the passkey again'}</button>
+          : <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : needsSetup ? 'Create workspace' : 'Sign in'}</button>}
+        {!needsSetup && !ticket && !passkeyStep && passkeysSupported() && <button type="button" className="btn block" disabled={busy} onClick={() => withPasskey()}>🔑 Use a passkey</button>}
         {!needsSetup && !ticket && canReset && <button type="button" className="link-btn small" onClick={() => setForgot({})}>Forgot password?</button>}
       </form>
     </div>

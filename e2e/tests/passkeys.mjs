@@ -95,6 +95,31 @@ await step('removed, it signs nobody in (and the page says why)', async () => {
   await axe(p, 'sign-in page');
   await p.close();
 });
+await step('a company that requires two steps: after the password, the passkey is the second step', async () => {
+  const sec = page.getByRole('region', { name: 'Passkeys' });
+  await sec.getByRole('button', { name: 'Add a passkey' }).click();
+  await sec.getByLabel('Your password').fill('password123');
+  await sec.getByLabel('Name it').fill('Desk key');
+  await sec.getByRole('button', { name: 'Continue' }).click();
+  await sec.getByRole('list', { name: 'Your passkeys' }).getByText('Desk key').waitFor();
+  const r = await api(page, 'PATCH', '/orgs/current', { require_2fa: true });
+  if (r.status !== 200) throw new Error(JSON.stringify(r.body));
+  const { credentials } = await mine.cdp.send('WebAuthn.getCredentials', { authenticatorId: mine.authenticatorId });
+  const p = await mk('second');
+  const a = await authenticatorOn(p);
+  for (const c of credentials) await a.cdp.send('WebAuthn.addCredential', { authenticatorId: a.authenticatorId, credential: c });
+  await p.goto(B);
+  await p.getByLabel('Email address').fill('olivia@acme.com');
+  await p.getByLabel('Password').fill('password123');
+  await p.getByRole('button', { name: 'Sign in' }).click();
+  await p.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
+  if ((await api(p, 'GET', '/auth/me')).body.user.needs_two_factor) throw new Error('asked to set up two-step');
+  await p.close();
+  // Admin → Users shows who has a passkey.
+  await page.goto(`${B}/admin`);
+  await page.getByText('🔑 Passkey').first().waitFor();
+  await api(page, 'PATCH', '/orgs/current', { require_2fa: false });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -47,7 +47,8 @@ function describe(org) {
     ask_outside: !!org.ask_outside,
     // People who still have to set up two-step verification (when it's required).
     without_2fa: q(`SELECT COUNT(*) AS n FROM users u WHERE u.org_id = ? AND u.disabled = 0
-                    AND NOT EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1)`).get(org.id).n,
+                    AND NOT EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1)
+                    AND NOT EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)`).get(org.id).n,
     domains: domainsOf(org.id),
     users: q('SELECT COUNT(*) AS n FROM users WHERE org_id = ?').get(org.id).n,
     storage_used: orgStorageUsed(org.id),
@@ -78,8 +79,8 @@ function updateOrg(orgId, body, { asSuper, user }) {
   if (body.push_private !== undefined) q('UPDATE orgs SET push_private = ? WHERE id = ?').run(body.push_private ? 1 : 0, orgId);
   if (body.require_2fa !== undefined) {
     // Requiring it without having it yourself would lock you out of these settings at once.
-    const own = q('SELECT 1 FROM two_factor WHERE user_id = ? AND enabled = 1').get(user.id);
-    if (body.require_2fa && user.org_id === orgId && !own) throw bad('Turn on two-step verification for your own account first (Settings), then require it for everyone');
+    const own = q('SELECT 1 FROM two_factor WHERE user_id = ? AND enabled = 1').get(user.id) || q('SELECT 1 FROM passkeys WHERE user_id = ?').get(user.id);
+    if (body.require_2fa && user.org_id === orgId && !own) throw bad('Turn on two-step verification for your own account first (or add a passkey, in Settings), then require it for everyone');
     q('UPDATE orgs SET require_2fa = ? WHERE id = ?').run(body.require_2fa ? 1 : 0, orgId);
   }
   if (body.trash_days !== undefined) {
