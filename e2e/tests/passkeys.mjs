@@ -120,6 +120,19 @@ await step('a company that requires two steps: after the password, the passkey i
   await page.getByText('🔑 Passkey').first().waitFor();
   await api(page, 'PATCH', '/orgs/current', { require_2fa: false });
 });
+await step('renamed in Settings; the bell says passkeys were added', async () => {
+  await page.goto(`${B}/settings`);
+  const sec = page.getByRole('region', { name: 'Passkeys' });
+  await sec.getByRole('button', { name: 'Rename Desk key' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Rename passkey' });
+  await dlg.getByLabel('Name').fill('Office key');
+  await dlg.getByLabel('Name').press('Enter');
+  await sec.getByRole('list', { name: 'Your passkeys' }).getByText('Office key').waitFor();
+  await page.getByRole('button', { name: /^Notifications/ }).first().click();
+  await page.getByText('A passkey was added to your account: “Desk key”').first().waitFor();
+  await page.getByText('A passkey was removed from your account: “Test laptop”').first().waitFor();
+  await axe(page, 'bell');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

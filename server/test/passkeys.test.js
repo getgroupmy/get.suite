@@ -139,3 +139,22 @@ test('passkeys and a company that requires two steps: a passkey counts, and then
   assert.equal(after.body.user?.needs_two_factor, true);
   await ana('PATCH', '/api/orgs/current', { require_2fa: false });
 });
+
+test('passkeys: you are told when one is added or removed; renamed (yours only)', async () => {
+  const dan = client();
+  const ana = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  const danId = (await ana('POST', '/api/users', { local: 'dan', domain: 'acme.com', name: 'Dan Ode', password: 'password123' })).body.id;
+  await dan('POST', '/api/auth/login', { username: 'dan@acme.com', password: 'password123' });
+  const k = authenticator('ec', { origin: base, rp: '127.0.0.1', userHandle: b64url(Buffer.from(danId)) });
+  const o = (await dan('POST', '/api/auth/passkeys/options', { password: 'password123' })).body;
+  await dan('POST', '/api/auth/passkeys', { credential: { id: k.id, response: k.create(o.challenge) }, name: 'Phone' });
+  const titles = () => q("SELECT title FROM notifications WHERE user_id = ? AND kind = 'signin' ORDER BY rowid").all(danId).map((n) => n.title);
+  assert.deepEqual(titles(), ['A passkey was added to your account: “Phone”']);
+  // Renamed: Dan's own only.
+  assert.deepEqual((await dan('PATCH', `/api/auth/passkeys/${k.id}`, { name: 'Pixel 9' })).body.map((p) => p.name), ['Pixel 9']);
+  assert.equal((await ana('PATCH', `/api/auth/passkeys/${k.id}`, { name: 'Mine now' })).status, 404);
+  assert.equal((await dan('PATCH', `/api/auth/passkeys/${k.id}`, { name: '' })).status, 400);
+  await dan('DELETE', `/api/auth/passkeys/${k.id}`);
+  assert.deepEqual(titles(), ['A passkey was added to your account: “Phone”', 'A passkey was removed from your account: “Pixel 9”']);
+});

@@ -52,3 +52,10 @@ export function newDeviceSignIn(userId, device, ip, at = Date.now()) {
   notify([userId], { kind: 'signin', title: `New sign-in to your account on ${device}`, body: `From ${ip || 'an unknown address'}. If it wasn't you, change your password and sign that device out in Settings.`, link: '/settings' });
   return true;
 }
+
+/** A passkey added to (or removed from) someone's account: they're told, on all their devices, in case it wasn't them. */
+export function passkeyChanged(userId, { added, name, device }) {
+  notify([userId], added
+    ? { kind: 'signin', title: `A passkey was added to your account: “${name}”`, body: `On ${device || 'a device'}. If it wasn't you, remove it in Settings → Passkeys and change your password.`, link: '/settings' }
+    : { kind: 'signin', title: `A passkey was removed from your account: “${name}”`, body: 'It no longer signs you in.', link: '/settings' });
+}

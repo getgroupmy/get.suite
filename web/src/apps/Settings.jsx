@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { api, get, patch, post, put, del, putBlob, postBlob, uploadFile, formatBytes } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
-import { Avatar, ConfirmModal, useToast } from '../components/ui.jsx';
+import { Avatar, ConfirmModal, PromptModal, useToast } from '../components/ui.jsx';
 import DrivePicker from '../components/DrivePicker.jsx';
 import Icon from '../components/Icon.jsx';
 import { allZones, zoneName, cityOf } from '../components/zones.js';
@@ -331,6 +331,7 @@ function Passkeys() {
   const [adding, setAdding] = useState(null); // { password, name }
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState(null);
+  const [renaming, setRenaming] = useState(null);
   useEffect(() => { get('/auth/passkeys').then(setList).catch(() => setList([])); }, []);
   if (!list) return null;
   const supported = passkeysSupported();
@@ -356,6 +357,7 @@ function Passkeys() {
           {list.map((p) => (
             <li key={p.id} className="row">
               <span className="grow">🔑 <strong>{p.name}</strong> <span className="muted small">· added {when(p.created_at)}{p.last_used_at ? ` · last used ${when(p.last_used_at)}` : ' · not used yet'}</span></span>
+              <button type="button" className="btn small" aria-label={`Rename ${p.name}`} onClick={() => setRenaming(p)}>Rename</button>
               <button type="button" className="btn small" aria-label={`Remove ${p.name}`} onClick={() => setRemoving(p)}>Remove</button>
             </li>
           ))}
@@ -372,6 +374,8 @@ function Passkeys() {
             </div>
           </form>
         ) : <div><button type="button" className="btn" onClick={() => setAdding({ password: '', name: '' })}>Add a passkey</button></div>}
+      {renaming && <PromptModal title="Rename passkey" label="Name" initial={renaming.name} onClose={() => setRenaming(null)}
+        onSubmit={async (name) => { setList(await patch(`/auth/passkeys/${encodeURIComponent(renaming.id)}`, { name })); toast('Renamed'); }} />}
       {removing && <ConfirmModal title="Remove this passkey?" message={`“${removing.name}” won't sign you in any more. (Remove it from the device's password manager too.)`} confirm="Remove"
         onClose={() => setRemoving(null)} onConfirm={async () => { try { setList(await del(`/auth/passkeys/${encodeURIComponent(removing.id)}`)); toast('Passkey removed'); } catch (err) { toast(err.message, 'error'); } }} />}
     </section>

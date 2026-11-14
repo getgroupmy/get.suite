@@ -16,7 +16,7 @@ import { verifyRegistration, verifyAssertion, b64url, ALLOWED_ALGS } from '../we
 import { newChallenge, takeChallenge, passkeysOf, passkeyById, MAX_PASSKEYS } from '../passkeys.js';
 import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
-import { newDeviceSignIn } from '../alerts.js';
+import { newDeviceSignIn, passkeyChanged } from '../alerts.js';
 import { smtpFor } from '../mail/imap.js';
 
 // "Forgot password?": a link (valid for an hour, once) sent to the personal recovery address someone
@@ -275,13 +275,22 @@ export default function authRoutes({ secureCookies }) {
     const name = str(req.body?.name || 'Passkey', { name: 'Name', max: 60 }) || 'Passkey';
     q('INSERT INTO passkeys (id, user_id, name, public_key, alg, sign_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(made.id, req.user.id, name, made.publicKey, made.alg, made.signCount, Date.now());
     audit(req, 'passkey.added', { target: req.user.username, details: { name } });
+    passkeyChanged(req.user.id, { added: true, name, device: describeDevice(req.headers['user-agent'] || '') });
     res.status(201).json(passkeysOf(req.user.id));
+  });
+  r.patch('/passkeys/:id', requireAuth, (req, res) => {
+    const p = passkeyById(req.params.id);
+    if (!p || p.user_id !== req.user.id) throw new HttpError(404, 'Passkey not found');
+    const name = str(req.body?.name, { required: true, name: 'Name', max: 60 });
+    q('UPDATE passkeys SET name = ? WHERE id = ?').run(name, p.id);
+    res.json(passkeysOf(req.user.id));
   });
   r.delete('/passkeys/:id', requireAuth, (req, res) => {
     const p = passkeyById(req.params.id);
     if (!p || p.user_id !== req.user.id) throw new HttpError(404, 'Passkey not found');
     q('DELETE FROM passkeys WHERE id = ?').run(p.id);
     audit(req, 'passkey.removed', { target: req.user.username, details: { name: p.name } });
+    passkeyChanged(req.user.id, { added: false, name: p.name });
     res.json(passkeysOf(req.user.id));
   });
   // Signing in with one: the browser offers the passkeys it has for this site (no name typed first).
