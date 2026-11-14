@@ -108,13 +108,18 @@ export default function Tasks() {
   const [sections, setSections] = useState([]); // headings splitting this list into parts, in order
   const [sectionEdit, setSectionEdit] = useState(null); // { add: true } | { rename: section } | { remove: section } | { addTask: section }
   const [dropSec, setDropSec] = useState(undefined); // the section a dragged task would land in
+  // Only the latest request's answers are shown: switching lists quickly, the list you left can answer last
+  // (and its tasks would show under the new list's name).
+  const loadSeq = useRef(0);
   const loadTasks = useCallback(() => {
     if (!listId) return Promise.resolve();
-    if (!VIRTUAL[listId] && !listId.startsWith('tag:')) { get(`/tasks/lists/${listId}/time`).then(setTimes).catch(() => setTimes({})); get(`/tasks/lists/${listId}/sections`).then(setSections).catch(() => setSections([])); }
+    const seq = ++loadSeq.current;
+    const latest = (fn) => (v) => { if (seq === loadSeq.current) fn(v); };
+    if (!VIRTUAL[listId] && !listId.startsWith('tag:')) { get(`/tasks/lists/${listId}/time`).then(latest(setTimes)).catch(() => latest(setTimes)({})); get(`/tasks/lists/${listId}/sections`).then(latest(setSections)).catch(() => latest(setSections)([])); }
     else { setTimes({}); setSections([]); }
-    if (listId.startsWith('tag:')) return get(`/tasks/tags?tag=${encodeURIComponent(listId.slice(4))}`).then((r) => setTasks(r.tasks)).catch((e) => toast(e.message, 'error'));
-    if (listId === MYDAY) get(`/tasks/myday/suggestions?today=${localToday()}`).then(setSuggested).catch(() => setSuggested([]));
-    return get(listId === MYDAY ? `/tasks/myday?today=${localToday()}` : listId === COMPLETED ? `/tasks/completed?days=${doneDays}` : VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
+    if (listId.startsWith('tag:')) return get(`/tasks/tags?tag=${encodeURIComponent(listId.slice(4))}`).then((r) => latest(setTasks)(r.tasks)).catch((e) => toast(e.message, 'error'));
+    if (listId === MYDAY) get(`/tasks/myday/suggestions?today=${localToday()}`).then(latest(setSuggested)).catch(() => latest(setSuggested)([]));
+    return get(listId === MYDAY ? `/tasks/myday?today=${localToday()}` : listId === COMPLETED ? `/tasks/completed?days=${doneDays}` : VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(latest(setTasks)).catch((e) => { if (seq !== loadSeq.current) return; toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
   }, [listId, toast, navigate, doneDays]);
   useEffect(() => { loadLists(); }, [loadLists]);
   useEffect(() => { setTasks(null); loadTasks(); }, [loadTasks]);
