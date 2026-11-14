@@ -127,7 +127,7 @@ export function createApp({
   app.use('/api/publish', requireAuth, publishRoutes());
   app.use('/api/tokens', requireAuth, apiTokenRoutes());
   app.use('/api/office-preview', requireAuth, officePreviewRoutes());
-  app.use('/api/links', requireAuth, linkRoutes());
+  app.use('/api/links', requireAuth, linkRoutes({ maxUploadBytes }));
   app.use('/api/comments', requireAuth, commentRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/time-off', requireAuth, timeOffRoutes());

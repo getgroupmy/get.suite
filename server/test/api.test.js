@@ -3352,6 +3352,47 @@ test('file requests: people send files into a folder without seeing it; the owne
   assert.equal((await pub('POST', `/api/public/links/${link.token}/upload?name=late.txt`, 'a', { raw: true })).status, 404);
 });
 
+test('file requests: only some kinds of file, a size per file, and a note for the people sending', async () => {
+  const pub = client(), me = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'reqlim', domain: 'acme.com', name: 'Req Lim', password: 'password123' })).status, 201);
+  await login(me, 'reqlim@acme.com');
+  const folder = (await me('POST', '/api/files/folder', { name: 'Expenses' })).body;
+  const bin = { raw: true, headers: { 'content-type': 'application/octet-stream' } };
+  // Checked when it's made.
+  assert.equal((await me('POST', '/api/links', { file_id: folder.id, mode: 'upload', accept: ['pdf', 'spells'] })).status, 400);
+  assert.equal((await me('POST', '/api/links', { file_id: folder.id, mode: 'upload', max_mb: 0 })).status, 400);
+  assert.equal((await me('POST', '/api/links', { file_id: folder.id, mode: 'upload', max_mb: 999999 })).status, 400, 'not over the server\'s own limit');
+  assert.equal((await me('POST', '/api/links', { file_id: folder.id, mode: 'upload', note: 'x'.repeat(501) })).status, 400);
+  const link = (await me('POST', '/api/links', { file_id: folder.id, mode: 'upload', accept: ['pictures', 'PDF', 'pdf'], max_mb: 1, note: '  Your receipts for October, please.\r\nOne file each.  ' })).body;
+  assert.deepEqual([link.accept, link.max_mb, link.note], [['pdf', 'pictures'], 1, 'Your receipts for October, please.\nOne file each.']);
+  // What the page people send from is told.
+  const info = (await pub('GET', `/api/public/links/${link.token}`)).body;
+  assert.deepEqual([info.accept, info.accept_text, info.max_mb, info.note], [['pdf', 'pictures'], 'PDFs or pictures', 1, 'Your receipts for October, please.\nOne file each.']);
+  assert.match(info.accept_attr, /^\.pdf,\.jpg,\.jpeg,\.png,/);
+  // Sending: the right kind and size goes in; others are refused, saying why, and nothing is kept.
+  const send = (name, body) => pub('POST', `/api/public/links/${link.token}/upload?name=${encodeURIComponent(name)}`, body, bin);
+  assert.equal((await send('taxi.PDF', '%PDF-1.4 taxi')).status, 201, 'any case');
+  assert.equal((await send('lunch.jpg', Buffer.alloc(900 * 1024, 1))).status, 201);
+  const wrong = await send('notes.docx', 'PK');
+  assert.deepEqual([wrong.status, wrong.body.error], [415, "notes.docx can't be sent here: this request only takes PDFs or pictures"]);
+  assert.equal((await send('noext', 'x')).status, 415);
+  const big = await send('scan.pdf', Buffer.alloc(1100 * 1024, 1));
+  assert.deepEqual([big.status, big.body.error], [413, 'scan.pdf is too large: files can be at most 1 MB here']);
+  const names = ((await me('GET', `/api/files?parent=${folder.id}`)).body.files || (await me('GET', `/api/files?parent=${folder.id}`)).body).map((f) => f.name).sort();
+  assert.deepEqual(names, ['lunch.jpg', 'taxi.PDF']);
+  // Changed later (the address stays); emptied again: any file, any size, no note.
+  const changed = (await me('PATCH', `/api/links/${link.id}`, { accept: ['documents'], max_mb: null, note: '' })).body;
+  assert.deepEqual([changed.token, changed.accept, changed.max_mb, changed.note], [link.token, ['documents'], null, null]);
+  assert.equal((await send('notes.docx', 'PK')).status, 201);
+  assert.equal((await send('taxi2.pdf', '%PDF')).status, 415);
+  assert.deepEqual((await me('PATCH', `/api/links/${link.id}`, { accept: [] })).body.accept, []);
+  assert.equal((await send('anything.xyz', 'x')).status, 201);
+  // Only file requests have these.
+  const view = (await me('POST', '/api/links', { file_id: folder.id, accept: ['pdf'] })).body;
+  assert.equal(view.accept, undefined, 'ignored on a view link');
+  assert.equal((await me('PATCH', `/api/links/${view.id}`, { note: 'hi' })).status, 400);
+});
+
 test('status: set, seen by colleagues in the directory, checked, and cleared by itself', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['sta', 'Stat Ann'], ['stb', 'Stat Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

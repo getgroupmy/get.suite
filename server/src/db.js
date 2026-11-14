@@ -237,6 +237,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS share_links (
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
 if (!hasColumn('share_links', 'mode')) db.exec("ALTER TABLE share_links ADD COLUMN mode TEXT NOT NULL DEFAULT 'view'"); // view, or upload (a file request: people send files into the folder)
+// A file request's limits: kinds of file it takes ('pdf,pictures', or null for any), MB per file, a note for senders.
+for (const [c, t] of [['req_accept', 'TEXT'], ['req_max_mb', 'INTEGER'], ['req_note', 'TEXT']]) if (!hasColumn('share_links', c)) db.exec(`ALTER TABLE share_links ADD COLUMN ${c} ${t}`);
 // A shared file's or folder's own Chat channel (Chat with people who have access), once made.
 if (!hasColumn('files', 'chat_channel_id')) db.exec('ALTER TABLE files ADD COLUMN chat_channel_id TEXT');
 

@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { q, FILES_DIR } from '../db.js';
 import { uid, now, bad, notFound, forbidden, HttpError, isInlineSafe, mimeFor } from '../util.js';
+import { cleanRequest, accepts, acceptText, acceptAttr } from '../filerequest.js';
 import { roleFor, subtreeIds } from '../access.js';
 import { hashPassword, verifyPassword, requireAdmin } from '../auth.js';
 import * as guard from '../security/guard.js';
@@ -26,7 +27,8 @@ const sameKey = (a, b) => typeof a === 'string' && a.length === b.length && cryp
 
 function describeLink(l) {
   return { id: l.id, token: l.token, file_id: l.file_id, mode: l.mode || 'view', created_at: l.created_at, expires_at: l.expires_at,
-    has_password: !!l.password_hash, notify_open: !!l.notify_open, opens: l.opens, last_opened: l.last_opened, expired: !!l.expires_at && l.expires_at <= now() };
+    has_password: !!l.password_hash, notify_open: !!l.notify_open, opens: l.opens, last_opened: l.last_opened, expired: !!l.expires_at && l.expires_at <= now(),
+    ...(l.mode === 'upload' && { accept: l.req_accept ? l.req_accept.split(',') : [], max_mb: l.req_max_mb ?? null, note: l.req_note ?? null }) };
 }
 
 /** Is the item (or a folder above it, up to `stopAt`) in the trash? */
@@ -78,7 +80,8 @@ function ownFile(fileId, user) {
 const linksAllowed = (orgId) => !!q('SELECT allow_links FROM orgs WHERE id = ?').get(orgId)?.allow_links;
 
 /** Signed-in owners: list, create and remove links. Mounted at /api/links. */
-export function linkRoutes() {
+export function linkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
+  const uploadMb = Math.floor(maxUploadBytes / 1024 / 1024);
   const r = Router();
 
   r.get('/', (req, res) => {
@@ -108,8 +111,11 @@ export function linkRoutes() {
     const link = { id: uid(), token: crypto.randomBytes(18).toString('base64url'), file_id: f.id, created_by: req.user.id, mode,
       created_at: now(), expires_at: expires, password_hash: password ? hashPassword(password) : null, opens: 0, last_opened: null };
     link.notify_open = req.body.notify_open ? 1 : 0;
-    q(`INSERT INTO share_links (id, token, file_id, created_by, created_at, expires_at, password_hash, mode, notify_open)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(link.id, link.token, link.file_id, link.created_by, link.created_at, link.expires_at, link.password_hash, mode, link.notify_open);
+    // A file request's limits (kinds of file, MB per file, a note for the people sending).
+    const ask = mode === 'upload' ? cleanRequest(req.body, uploadMb) : {};
+    Object.assign(link, { req_accept: ask.accept ?? null, req_max_mb: ask.max_mb ?? null, req_note: ask.note ?? null });
+    q(`INSERT INTO share_links (id, token, file_id, created_by, created_at, expires_at, password_hash, mode, notify_open, req_accept, req_max_mb, req_note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(link.id, link.token, link.file_id, link.created_by, link.created_at, link.expires_at, link.password_hash, mode, link.notify_open, link.req_accept, link.req_max_mb, link.req_note);
     audit(req, mode === 'upload' ? 'link.request' : 'link.create', { target: f.name, details: { password: !!password, expires: expires } });
     res.json(describeLink(link));
   });
@@ -122,8 +128,17 @@ export function linkRoutes() {
     const f = ownFile(l.file_id, req.user);
     if (!linksAllowed(req.user.org_id)) throw forbidden('Your company has turned off public links');
     const b = req.body || {};
-    if (!('expires_at' in b) && !('password' in b) && !('notify_open' in b)) throw bad('Say what to change: expires_at, password or notify_open');
+    const reqKeys = ['accept', 'max_mb', 'note'].filter((k) => k in b);
+    if (!('expires_at' in b) && !('password' in b) && !('notify_open' in b) && !reqKeys.length) throw bad('Say what to change: expires_at, password, notify_open (or, for a file request, accept, max_mb, note)');
+    if (reqKeys.length && l.mode !== 'upload') throw bad('Only a file request takes kinds of file, a size limit or a note');
     const out = { ...l };
+    if (reqKeys.length) {
+      const ask = cleanRequest(b, uploadMb);
+      if ('accept' in ask) out.req_accept = ask.accept;
+      if ('max_mb' in ask) out.req_max_mb = ask.max_mb;
+      if ('note' in ask) out.req_note = ask.note;
+      q('UPDATE share_links SET req_accept = ?, req_max_mb = ?, req_note = ? WHERE id = ?').run(out.req_accept ?? null, out.req_max_mb ?? null, out.req_note ?? null, l.id);
+    }
     if ('expires_at' in b) {
       let expires = null;
       if (b.expires_at !== null) {
@@ -283,7 +298,8 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
         bell([l.created_by], { kind: 'link', title: `Your link to ${l.name} was opened`, body: n === 1 ? 'For the first time.' : `It's been opened ${n} times.`, link: `/drive?share=${l.file_id}`, actor: null });
       }
     }
-    if (l.mode === 'upload') return res.json({ ...info, mode: 'upload' }); // a file request: nothing in the folder is shown
+    // A file request: nothing in the folder is shown; what it takes and the owner's note are.
+    if (l.mode === 'upload') return res.json({ ...info, mode: 'upload', accept: l.req_accept ? l.req_accept.split(',') : [], accept_text: acceptText(l.req_accept), accept_attr: acceptAttr(l.req_accept), max_mb: l.req_max_mb ?? null, note: l.req_note ?? null });
     Object.assign(info, { mime: l.mime, size: l.size, updated_at: l.updated_at, root: l.file_id });
     if (l.kind === 'folder') {
       const folder = itemIn(l, req.query.folder);
@@ -338,7 +354,14 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     if (verdict.action === 'reject') throw new HttpError(429, 'Too many uploads from your network. Try again later.');
     const name = cleanName(String(req.query.name || ''));
     const from = String(req.query.from || '').trim().replace(/[\u0000-\u001f]/g, '').slice(0, 100);
-    const { storage, size } = await receiveUpload(req, l.org_id, maxUploadBytes, l.created_by); // in the requester's Drive: their limit
+    // The request's own limits, checked before anything is received (the size again while it arrives).
+    if (!accepts(l.req_accept, name)) throw new HttpError(415, `${name} can't be sent here: this request only takes ${acceptText(l.req_accept)}`);
+    const limit = l.req_max_mb ? Math.min(maxUploadBytes, l.req_max_mb * 1024 * 1024) : maxUploadBytes;
+    if (l.req_max_mb && Number(req.headers['content-length'] || 0) > limit) throw new HttpError(413, `${name} is too large: files can be at most ${l.req_max_mb} MB here`);
+    let got;
+    try { got = await receiveUpload(req, l.org_id, limit, l.created_by); } // in the requester's Drive: their limit
+    catch (e) { if (e.status === 413 && l.req_max_mb) throw new HttpError(413, `${name} is too large: files can be at most ${l.req_max_mb} MB here`); throw e; }
+    const { storage, size } = got;
     const id = insertFile({ owner: l.created_by, parentId: l.file_id, name, kind: 'file', mime: mimeFor(name), size, storage, activity: { by: null, action: 'request', details: { from: from || null } } });
     q('UPDATE files SET description = ? WHERE id = ?').run(`Sent${from ? ` by ${from}` : ''} through a file request`, id);
     const saved = q('SELECT name FROM files WHERE id = ?').get(id).name;

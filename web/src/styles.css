@@ -13,7 +13,7 @@
   --on-danger: #fff;
   --danger: #c5221f;
   --warn-bg: #fef7e0;
-  --ok: #188038;
+  --ok: #137333; /* 4.5:1 or better on the light greys too */
   --ft-folder: #5f6368;
   --ft-doc: #4285f4;
   --ft-sheet: #0f9d58;
@@ -1496,7 +1496,8 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .file-request .drop-zone.over, .file-request .drop-zone:hover { border-color: var(--accent); background: var(--accent-soft); }
 .request-sent { list-style: none; margin: 0; padding: 0; width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; }
 .request-sent li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
-.request-sent li.ok .small { color: #188038; }
+.request-sent li.ok { color: var(--text); } /* the name in the usual colour (the page-wide .ok green is too faint on this grey) */
+.request-sent li.ok .small { color: var(--ok); }
 .request-sent li.error .small { color: var(--danger); }
 /* Your status */
 .avatar-btn { position: relative; }
@@ -3027,3 +3028,9 @@ select.meet-timer-btn option { color: #202124; }
 /* Grey secondary text (an address, a function's description) on a highlighted choice: --muted is too faint on
    --accent-soft (about 4:1), so it takes the highlight's own text colour there, as everything else on it does. */
 [role=option].on .muted, [role=option][aria-selected=true] .muted, .mention-list li:hover .muted, .formula-assist li:hover .muted { color: var(--accent-text); }
+
+/* A file request's note from its owner, and what it takes. */
+.request-note { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--text); border-radius: 0 8px 8px 0; white-space: pre-wrap; text-align: left; }
+.request-takes { margin: 0; }
+.request-limits { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px; margin: 8px 0 0; }
+.request-limits legend { font-weight: 600; padding: 0 4px; }

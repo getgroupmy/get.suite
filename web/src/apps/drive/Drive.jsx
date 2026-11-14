@@ -6,6 +6,7 @@ const PdfOrganizeDialog = lazy(() => import('./PdfOrganize.jsx'));
 import { BUILT_IN } from './templates.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar, useDataCheck } from '../../components/ui.jsx';
+import { REQUEST_KINDS, requestSummary } from './requestkinds.js';
 import SendInChat from '../../components/SendInChat.jsx';
 import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
@@ -970,6 +971,8 @@ function LinkSharing({ file }) {
   const [password, setPassword] = useState('');
   const [usePassword, setUsePassword] = useState(needPassword);
   const [uploadOnly, setUploadOnly] = useState(false); // a file request: people send files in, and see nothing
+  const [ask, setAsk] = useState(NO_LIMITS); // a new file request's limits: kinds of file, MB per file, a note
+  const [askFor, setAskFor] = useState(null); // the file request whose limits are being changed
   const [notifyOpen, setNotifyOpen] = useState(false); // tell me when it's opened
   const [pwFor, setPwFor] = useState(null); // the link whose password is being set
   const [busy, setBusy] = useState(false);
@@ -981,10 +984,10 @@ function LinkSharing({ file }) {
   async function create() {
     setBusy(true);
     try {
-      const l = await checkData((more) => post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }), ...(uploadOnly && { mode: 'upload' }), ...(notifyOpen && !uploadOnly && { notify_open: true }), ...more }));
+      const l = await checkData((more) => post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }), ...(uploadOnly && { mode: 'upload', accept: ask.accept, max_mb: ask.max_mb || null, note: ask.note }), ...(notifyOpen && !uploadOnly && { notify_open: true }), ...more }));
       if (!l) { setBusy(false); return; }
       setLinks([...links, l]);
-      setPassword(''); setUsePassword(false); setUploadOnly(false);
+      setPassword(''); setUsePassword(false); setUploadOnly(false); setAsk(NO_LIMITS);
       await copy(l, l.mode === 'upload' ? 'File request created and copied' : 'Link created and copied');
     } catch (e) { toast(e.message, 'error'); }
     setBusy(false);
@@ -1026,7 +1029,7 @@ function LinkSharing({ file }) {
             <div className="grow" style={{ minWidth: 0 }}>
               <input className="link-url" readOnly value={linkUrl(l.token)} aria-label="Share link" onFocus={(e) => e.target.select()} />
               <span className="muted small">
-                {[l.mode === 'upload' && 'File request (upload only)', l.expired ? 'Expired' : l.expires_at ? `Until ${formatDate(l.expires_at)}` : 'No expiry',
+                {[l.mode === 'upload' && 'File request (upload only)', l.mode === 'upload' && requestSummary(l), l.mode === 'upload' && l.note && 'With a note', l.expired ? 'Expired' : l.expires_at ? `Until ${formatDate(l.expires_at)}` : 'No expiry',
                   l.has_password && 'Password', l.opens ? `Opened ${l.opens === 1 ? 'once' : `${l.opens} times`}` : 'Not opened yet'].filter(Boolean).join(' · ')}
               </span>
             </div>
@@ -1035,6 +1038,7 @@ function LinkSharing({ file }) {
             {l.mode !== 'upload' && !l.expired && <button type="button" className="icon-btn" aria-pressed={l.notify_open} aria-label="Tell me when it’s opened"
               title={l.notify_open ? 'You’re told when it’s opened (at most once an hour). Click to stop.' : 'Tell me when it’s opened'}
               onClick={async () => { try { const n = await patch(`/links/${l.id}`, { notify_open: !l.notify_open }); setLinks((list) => list.map((x) => (x.id === l.id ? n : x))); toast(n.notify_open ? 'You’ll be told when it’s opened' : 'No more notices about it being opened'); } catch (e) { toast(e.message, 'error'); } }}>{l.notify_open ? '🔔' : '🔕'}</button>}
+            {l.mode === 'upload' && <button type="button" className="icon-btn" aria-label="What it takes" title="Kinds of file, size per file and a note for the people sending (the same link)" onClick={() => setAskFor(l)}>⚙</button>}
             <button type="button" className="icon-btn" aria-label={l.has_password ? 'Change password' : 'Add a password'} title={l.has_password ? 'Change the password (whoever used the old one needs the new one)' : 'Add a password to this link'} onClick={() => setPwFor(l)}>🔑</button>
             {l.has_password && !needPassword && <button type="button" className="icon-btn" aria-label="Remove password" title="Remove the password: anyone with the link can open it" onClick={() => setPassword_(l, '')}>🔓</button>}
             <select className="small" value="" aria-label="Change expiry" title="Change how long it works (the same link)" onChange={(e) => e.target.value && changeExpiry(l, e.target.value)}>
@@ -1055,8 +1059,10 @@ function LinkSharing({ file }) {
         {usePassword && <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" aria-label="Link password" autoComplete="off" />}
         <button type="button" className="btn" onClick={create} disabled={!links || busy || (usePassword && password.length < 6)}><Icon name={uploadOnly ? 'upload' : 'link'} size={18} /> {uploadOnly ? 'Create file request' : 'Create link'}</button>
       </div>
+      {uploadOnly && <RequestLimits value={ask} onChange={setAsk} />}
       {(maxDays || needPassword) && <p className="muted small">Your company asks for {[maxDays && `links that expire within ${maxDays} day${maxDays === 1 ? '' : 's'}`, needPassword && 'a password on every link'].filter(Boolean).join(' and ')}.</p>}
       {usePassword && <p className="muted small">Send the password separately from the link, for example by phone.</p>}
+      {askFor && <RequestLimitsModal link={askFor} onClose={() => setAskFor(null)} onSaved={(n) => { setLinks((list) => list.map((x) => (x.id === n.id ? n : x))); setAskFor(null); toast('File request changed: same link'); }} />}
       {pwFor && <PromptModal title={pwFor.has_password ? 'Change the link’s password' : 'Add a password to the link'} label="New password" confirm="Set password"
         message="At least 6 characters. Whoever opened it with the old password will need the new one."
         onSubmit={async (v) => { if (v.length < 6) throw new Error('Use a password of at least 6 characters'); await setPassword_(pwFor, v); setPwFor(null); }} onClose={() => setPwFor(null)} />}
@@ -1792,3 +1798,40 @@ function RenameMany({ files, onClose, onDone }) {
   );
 }
 
+
+const NO_LIMITS = { accept: [], max_mb: '', note: '' };
+
+/** A file request's limits: kinds of file (none ticked: any), MB per file (empty: any), a note shown to the people sending. */
+function RequestLimits({ value, onChange }) {
+  const set = (k, v) => onChange({ ...value, [k]: v });
+  return (
+    <fieldset className="request-limits stack">
+      <legend>What it takes</legend>
+      <div className="row wrap" role="group" aria-label="Kinds of file">
+        {REQUEST_KINDS.map(([k, label]) => (
+          <label key={k} className="check"><input type="checkbox" checked={value.accept.includes(k)} onChange={(e) => set('accept', e.target.checked ? [...value.accept, k] : value.accept.filter((x) => x !== k))} /> {label}</label>
+        ))}
+      </div>
+      <span className="muted small">{value.accept.length ? requestSummary({ accept: value.accept }) : 'None ticked: any kind of file.'}</span>
+      <label className="field"><span>Largest file (MB, empty for any size)</span>
+        <input type="number" min="1" step="1" inputMode="numeric" value={value.max_mb} onChange={(e) => set('max_mb', e.target.value.replace(/[^0-9]/g, ''))} /></label>
+      <label className="field"><span>A note for the people sending (shown on the page)</span>
+        <textarea rows={2} maxLength={500} value={value.note} placeholder="Your receipts for October, as PDFs or photos, please." onChange={(e) => set('note', e.target.value)} /></label>
+    </fieldset>
+  );
+}
+
+function RequestLimitsModal({ link, onClose, onSaved }) {
+  const toast = useToast();
+  const [value, setValue] = useState({ accept: link.accept || [], max_mb: link.max_mb ? String(link.max_mb) : '', note: link.note || '' });
+  const save = async () => {
+    try { onSaved(await patch(`/links/${link.id}`, { accept: value.accept, max_mb: value.max_mb ? Number(value.max_mb) : null, note: value.note })); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title="What the file request takes" onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
+      <RequestLimits value={value} onChange={setValue} />
+      <p className="muted small">The link stays the same. Files already sent stay where they are.</p>
+    </Modal>
+  );
+}

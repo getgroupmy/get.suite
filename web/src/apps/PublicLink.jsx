@@ -132,6 +132,15 @@ function FolderView({ info, onFolder, onOpen, download }) {
   );
 }
 
+/** Why a file can't go through this request (its kind or size), as the server would say it, or null. */
+export function notTaken(file, info) {
+  const exts = (info.accept_attr || '').split(',').filter(Boolean);
+  const ext = (/\.[a-z0-9]{1,8}$/i.exec(file.name)?.[0] || '').toLowerCase();
+  if (exts.length && !exts.includes(ext)) return `${file.name} can't be sent here: this request only takes ${info.accept_text}`;
+  if (info.max_mb && file.size > info.max_mb * 1024 * 1024) return `${file.name} is too large: files can be at most ${info.max_mb} MB here`;
+  return null;
+}
+
 /** A file request: send files into someone's folder. You see only what you sent from this page. */
 function FileRequest({ token, info, linkKey }) {
   const [from, setFrom] = useState(() => { try { return localStorage.getItem('nw.requestFrom') || ''; } catch { return ''; } });
@@ -141,6 +150,9 @@ function FileRequest({ token, info, linkKey }) {
     try { localStorage.setItem('nw.requestFrom', from); } catch { /* private window */ }
     for (const file of files) {
       const id = Math.random().toString(36).slice(2);
+      // The request's own limits, checked here first (the server checks again): no waiting to be told.
+      const wrong = notTaken(file, info);
+      if (wrong) { setSent((list) => [...list, { id, name: file.name, size: file.size, state: wrong }]); continue; }
       setSent((list) => [...list, { id, name: file.name, size: file.size, state: 'sending' }]);
       try {
         const res = await fetch(`/api/public/links/${encodeURIComponent(token)}/upload?name=${encodeURIComponent(file.name)}${from.trim() ? `&from=${encodeURIComponent(from.trim())}` : ''}`, {
@@ -158,11 +170,13 @@ function FileRequest({ token, info, linkKey }) {
       <Icon name="upload" size={40} />
       <h1>Send files to {info.owner_name}</h1>
       <p className="muted">They go into “{info.name}”. You won’t see anything else in it.</p>
+      {info.note && <blockquote className="request-note" aria-label={`A note from ${info.owner_name}`}>{info.note}</blockquote>}
+      {(info.accept?.length > 0 || info.max_mb) && <p className="request-takes"><strong>{info.accept?.length ? `Takes ${info.accept_text}` : 'Any kind of file'}</strong>{info.max_mb ? `, up to ${info.max_mb} MB each` : ''}.</p>}
       <label className="field"><span>Your name (so they know who sent them)</span>
         <input value={from} onChange={(e) => setFrom(e.target.value)} maxLength={100} placeholder="e.g. Bob Tan, Globex" /></label>
       <label className={`drop-zone ${over ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); send([...e.dataTransfer.files]); }}>
-        <input type="file" multiple hidden aria-label="Choose files to send" onChange={(e) => { send([...e.target.files]); e.target.value = ''; }} />
+        <input type="file" multiple hidden aria-label="Choose files to send" accept={info.accept_attr || undefined} onChange={(e) => { send([...e.target.files]); e.target.value = ''; }} />
         <strong>Drop files here</strong><span className="muted small">or click to choose them</span>
       </label>
       {sent.length > 0 && (
