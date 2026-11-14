@@ -18,8 +18,10 @@ q(`CREATE TABLE IF NOT EXISTS notifications (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at)').run();
 // Grouped ones (several files through one file request…): one notification counting them while it's unread and recent.
-for (const [c, t] of [['group_key', 'TEXT'], ['group_n', 'INTEGER']]) if (!q('PRAGMA table_info(notifications)').all().some((x) => x.name === c)) q(`ALTER TABLE notifications ADD COLUMN ${c} ${t}`).run();
+for (const [c, t] of [['group_key', 'TEXT'], ['group_n', 'INTEGER'], ['group_items', 'TEXT']]) if (!q('PRAGMA table_info(notifications)').all().some((x) => x.name === c)) q(`ALTER TABLE notifications ADD COLUMN ${c} ${t}`).run();
 export const GROUP_WINDOW = 10 * 60e3;
+export const GROUP_ITEMS = 20; // what a grouped one lists when opened up (the latest first)
+const itemsOf = (row) => { try { return JSON.parse(row?.group_items || '[]'); } catch { return []; } };
 
 const KEEP = 200;
 // Kinds someone can turn off (each person's choice; all on to begin with).
@@ -51,7 +53,7 @@ export function setOff(userId, kinds) {
   q('UPDATE users SET notify_off = ? WHERE id = ?').run(off.length ? JSON.stringify(off) : null, userId);
   return off;
 }
-const shape = (n) => ({ ...n, read: !!n.read_at });
+const shape = ({ group_items: gi, ...n }) => ({ ...n, read: !!n.read_at, ...(gi && { items: itemsOf({ group_items: gi }) }) });
 
 /**
  * Add a notification for each of these people (and tell their open tabs). With `group` ({ key, many(n) → { title,
@@ -63,11 +65,14 @@ export function notify(userIds, { kind, title, body = null, link = null, actor =
   for (const userId of new Set(userIds)) {
     if (!userId || offFor(userId).includes(kind)) continue; // they turned this kind off
     const id = uid();
-    const prev = group && q('SELECT id, group_n FROM notifications WHERE user_id = ? AND group_key = ? AND read_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 1').get(userId, group.key, at - GROUP_WINDOW);
+    const prev = group && q('SELECT id, group_n, group_items, link FROM notifications WHERE user_id = ? AND group_key = ? AND read_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 1').get(userId, group.key, at - GROUP_WINDOW);
+    // Each one in a group: { label, link } (group.item names it; the first one's comes from the notification it was).
+    const items = !group ? null : [{ label: String(group.item ?? title).slice(0, 120), link }, ...(prev ? (itemsOf(prev).length ? itemsOf(prev) : []) : [])].slice(0, GROUP_ITEMS);
     let t = title, b = body, l = link, n = 1;
     if (prev) { n = (prev.group_n || 1) + 1; ({ title: t, body: b = null, link: l = link } = group.many(n)); q('DELETE FROM notifications WHERE id = ?').run(prev.id); }
     q('INSERT INTO notifications (id, user_id, kind, title, body, link, actor, created_at, group_key, group_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, userId, kind, String(t).slice(0, 200), b ? String(b).slice(0, 300) : null, l, actor, at, group?.key ?? null, group ? n : null);
+    if (items) q('UPDATE notifications SET group_items = ? WHERE id = ?').run(JSON.stringify(items), id);
     // Only the latest are kept.
     q(`DELETE FROM notifications WHERE user_id = ? AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ${KEEP})`).run(userId, userId);
     sendTo([userId], { type: 'notification', notification: shape(q('SELECT * FROM notifications WHERE id = ?').get(id)), ...(prev && { replaces: prev.id }) });

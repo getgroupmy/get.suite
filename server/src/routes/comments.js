@@ -159,7 +159,7 @@ function tellFollowers(user, file, body, threadId, isReply, skipNames) {
   const by = user.name || user.username;
   notify(who, { kind: 'reply', title: isReply ? `${by} replied to a comment on “${file.name}”` : `${by} commented on “${file.name}”`,
     body, link: linkTo(file, threadId), actor: user.name,
-    group: { key: `comments:${file.id}:${user.id}`, many: (n) => ({ title: `${by} left ${n} comments on “${file.name}”`, body: `The latest: ${body}` }) } });
+    group: { key: `comments:${file.id}:${user.id}`, item: body.length > 80 ? `${body.slice(0, 79)}…` : body, many: (n) => ({ title: `${by} left ${n} comments on “${file.name}”`, body: `The latest: ${body}` }) } });
 }
 
 /** Mentioned people: notify those who can open the file; say who can't. `already`: mentioned before (an edit), not told again. */

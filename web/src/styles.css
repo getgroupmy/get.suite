@@ -1356,6 +1356,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .bell-item:hover { background: var(--hover); }
 .bell-item.unread { background: var(--accent-soft); }
 .bell-item.unread .bell-title { font-weight: 600; }
+.bell-item.unread .muted { color: var(--accent-text); } /* grey is too faint on the unread tint (dark mode) */
 .bell-item > svg { flex: none; margin-top: 2px; color: var(--muted); }
 .bell-title, .bell-body { display: block; }
 .bell-body { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -3034,3 +3035,8 @@ select.meet-timer-btn option { color: #202124; }
 .request-takes { margin: 0; }
 .request-limits { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px; margin: 8px 0 0; }
 .request-limits legend { font-weight: 600; padding: 0 4px; }
+
+/* A grouped notification, opened up: each of them, going to its own place. */
+.bell-more { margin: -4px 0 4px 38px; }
+.bell-panel .bell-items { list-style: none; margin: 0 0 6px 38px; padding: 0 0 0 10px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+.bell-items .link-btn { text-align: left; }

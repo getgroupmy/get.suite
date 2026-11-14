@@ -378,7 +378,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     const saved = q('SELECT name FROM files WHERE id = ?').get(id).name;
     // Several in a row from the same person: one notification counting them.
     bell([l.created_by], { kind: 'link', title: `${from || 'Someone'} sent “${saved}”`, body: `Into ${l.name} through a file request`, link: `/drive/folder/${l.file_id}`, actor: from || null,
-      group: { key: `request:${l.id}:${(from || '').toLowerCase()}`, many: (n) => ({ title: `${from || 'Someone'} sent ${n} files`, body: `Into ${l.name} through a file request, the latest “${saved}”` }) } });
+      group: { key: `request:${l.id}:${(from || '').toLowerCase()}`, item: saved, many: (n) => ({ title: `${from || 'Someone'} sent ${n} files`, body: `Into ${l.name} through a file request, the latest “${saved}”` }) } });
     sendTo([l.created_by], { type: 'files-changed', parent_id: l.file_id });
     res.status(201).json({ name: saved, size });
   });

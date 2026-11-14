@@ -22,6 +22,7 @@ export function ago(ms, now = Date.now()) {
 export default function Bell() {
   const navigate = useNavigate();
   const [data, setData] = useState({ items: [], unread: 0 });
+  const [openGroup, setOpenGroup] = useState(null); // the grouped notification opened up to show what's in it
   useEffect(() => { setBadgePart('bell', data.unread); }, [data.unread]); // on the app's icon, with unread mail
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
@@ -58,12 +59,24 @@ export default function Bell() {
           {data.items.length === 0 ? <p className="muted small bell-empty">Nothing yet. Mentions, tasks given to you, invitations and things shared with you will show here.</p> : (
             <ul>
               {data.items.map((n) => (
-                <li key={n.id}>
+                <li key={n.id} className={n.items?.length > 1 ? 'bell-group' : ''}>
                   <button type="button" className={`bell-item ${n.read ? '' : 'unread'}`} onClick={() => go(n)}>
                     <Icon name={ICONS[n.kind] || 'bell'} size={18} />
                     <span className="grow"><span className="bell-title">{n.title}</span>{n.body && <span className="muted small bell-body">{n.body}</span>}</span>
                     <span className="muted small nowrap">{ago(n.created_at)}</span>
                   </button>
+                  {/* A grouped one: open it up for each of them, each going to its own place. */}
+                  {n.items?.length > 1 && (
+                    <>
+                      <button type="button" className="link-btn small bell-more" aria-expanded={openGroup === n.id} aria-controls={`bell-items-${n.id}`}
+                        onClick={() => setOpenGroup(openGroup === n.id ? null : n.id)}>{openGroup === n.id ? 'Hide them' : `Show ${n.items.length === (n.group_n || n.items.length) ? `all ${n.items.length}` : `the latest ${n.items.length}`}`}</button>
+                      {openGroup === n.id && (
+                        <ul id={`bell-items-${n.id}`} className="bell-items" aria-label={`In “${n.title}”`}>
+                          {n.items.map((it, i) => <li key={i}><button type="button" className="link-btn small" onClick={() => go({ ...n, link: it.link || n.link })}>{it.label}</button></li>)}
+                        </ul>
+                      )}
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

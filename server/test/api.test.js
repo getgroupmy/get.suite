@@ -3425,6 +3425,12 @@ test('file requests: several files from one person are one notification counting
   got = await mine();
   assert.equal(got.items[0].title, 'Bob Client sent “e.pdf”');
   assert.equal(got.unread, 1);
+  // A big batch: counted in full, the latest 20 listed.
+  for (let i = 1; i <= 21; i++) await send(`r${i}.pdf`, 'Bob Client');
+  got = await mine();
+  assert.equal(got.items[0].title, 'Bob Client sent 22 files');
+  assert.equal(got.items[0].items.length, 20);
+  assert.deepEqual([got.items[0].items[0].label, got.items[0].items[19].label], ['r21.pdf', 'r2.pdf']);
 });
 
 test('forms: many responses in a row are one notification counting them, while it\'s unread', async () => {
@@ -3459,6 +3465,9 @@ test('notifications: several files shared, or several tasks given, by one person
   }
   let got = await bell('share');
   assert.deepEqual(got.map((n) => [n.title, n.body, n.link]), [['Give Ann shared 3 files with you', 'The latest “Q3 report”', '/drive/shared']]);
+  // Opened up, it lists each one (the latest first) with its own link.
+  assert.deepEqual(got[0].items.map((x) => x.label), ['Q3 report', 'Q2 report', 'Q1 report']);
+  assert.match(got[0].items[2].link, /^\/docs\//);
   // Tasks: per list.
   const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body.id;
   const other = (await a('POST', '/api/tasks/lists', { name: 'Hiring' })).body.id;
@@ -3470,6 +3479,8 @@ test('notifications: several files shared, or several tasks given, by one person
     ['Give Ann gave you “Read CVs”', 'On Hiring', `/tasks/${other}?task=${(await b('GET', `/api/tasks/lists/${other}/tasks`)).body[0].id}`],
     ['Give Ann gave you 3 tasks', 'On Launch · the latest “Send invites”', `/tasks/${list}`],
   ]);
+  assert.deepEqual(got[1].items.map((x) => x.label), ['Send invites', 'Order cake', 'Book venue']);
+  assert.deepEqual(got[0].items.map((x) => x.label), ['Read CVs'], 'a single one: itself');
   assert.equal((await b('GET', '/api/notifications')).body.unread, 3);
 });
 

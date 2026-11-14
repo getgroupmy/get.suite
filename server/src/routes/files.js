@@ -336,7 +336,7 @@ const SUBTREE = 'WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files 
 
 /** Stream an upload into storage, within the size limit and the company's quota. */
 /** Someone sharing several files with you one after another: one notification counting them (Shared with me). */
-const sharedGroup = (by, f) => ({ key: `shared:${by.id}`, many: (n) => ({ title: `${by.name || by.username} shared ${n} files with you`, body: `The latest “${f.name}”`, link: '/drive/shared' }) });
+const sharedGroup = (by, f) => ({ key: `shared:${by.id}`, item: f.name, many: (n) => ({ title: `${by.name || by.username} shared ${n} files with you`, body: `The latest “${f.name}”`, link: '/drive/shared' }) });
 
 export async function receiveUpload(req, orgId, maxUploadBytes, ownerId = null) {
   const declared = Number(req.headers['content-length'] || 0);
