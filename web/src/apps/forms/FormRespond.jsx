@@ -160,6 +160,7 @@ export default function FormRespond({ token, onSignIn }) {
               <span className="form-fill-title">Your email<span className="req" aria-hidden="true"> *</span></span>
               {form.send_copy && <span className="muted small form-help">A copy of your answers will be sent to it.</span>}
               {form.one_per_email && <span className="muted small form-help">One response per email address.</span>}
+              {form.email_domains?.length > 0 && <span className="muted small form-help">Addresses at {form.email_domains.join(', ')} only.</span>}
               <input type="email" aria-label="Your email (required)" autoComplete="email" value={email} maxLength={200} onChange={(e) => { setEmail(e.target.value); setEmailMissing(false); }} />
               {emailMissing && <span className="error small" role="alert">Enter your email address</span>}
             </label>

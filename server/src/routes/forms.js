@@ -141,7 +141,7 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
 )`).run();
 // allow_edit: people can change their response afterwards, with the private link they get on sending it.
 // collect_email: "anyone with the link" forms ask for an email address; send_copy: people get their answers by email.
-for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT']]) {
+for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT'], ['email_domains', 'TEXT']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -708,6 +708,7 @@ export default function formRoutes() {
       show_results: 'show_results' in b ? !!b.show_results : f.show_results,
       collect_email: 'collect_email' in b ? !!b.collect_email : f.collect_email,
       send_copy: 'send_copy' in b ? !!b.send_copy : f.send_copy,
+      email_domains: 'email_domains' in b ? cleanDomains(b.email_domains).join(', ') || null : f.email_domains || null,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
       open_at: 'open_at' in b ? (b.open_at == null || b.open_at === '' ? null : Number(b.open_at)) : f.open_at,
       auto_remind: 'auto_remind' in b ? !!b.auto_remind : !!f.auto_remind,
@@ -723,10 +724,10 @@ export default function formRoutes() {
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
        close_at = ?, open_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, auto_remind = ?,
-       auto_reminded_at = CASE WHEN ? THEN NULL ELSE auto_reminded_at END, theme = ?, show_results = ?, updated_at = ? WHERE id = ?`)
+       auto_reminded_at = CASE WHEN ? THEN NULL ELSE auto_reminded_at END, theme = ?, show_results = ?, email_domains = ?, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
         next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, next.auto_remind ? 1 : 0,
-        next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, next.show_results ? 1 : 0, now(), f.id); // a new closing date: the automatic reminder can go again
+        next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, next.show_results ? 1 : 0, next.email_domains, now(), f.id); // a new closing date: the automatic reminder can go again
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -939,6 +940,19 @@ export default function formRoutes() {
 }
 
 const recent = new Map(); // ip -> times of anonymous responses in the last hour
+/**
+ * The domains a form for anyone takes email addresses from ("acme.com, partner.org"; none: any), as a list:
+ * lower case, without "@" or spaces, at most 20. Something that isn't a domain is refused.
+ */
+export function cleanDomains(v) {
+  const list = [...new Set(String(v ?? '').split(/[\s,;]+/).map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean))];
+  for (const d of list) if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d)) throw bad(`“${d}” isn't a domain such as acme.com`);
+  if (list.length > 20) throw bad('At most 20 domains');
+  return list;
+}
+/** Is an address at one of the domains (or a subdomain of one)? Any address when there are none. */
+export const emailAllowed = (email, domains) => !domains.length || domains.some((d) => { const at = String(email).toLowerCase().split('@')[1] || ''; return at === d || at.endsWith(`.${d}`); });
+
 /** Forget the limits (tests, which all answer from one address). */
 export const resetResponseLimits = () => recent.clear();
 function limit(ip) {
@@ -1044,7 +1058,8 @@ export function publicFormRoutes() {
     const left = placesLeft(form.id, form.questions);
     const team = !!user && teamOf(form).includes(user.id);
     res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, theme: form.theme, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
-      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, one_per_email: form.audience === 'public' && form.collect_email && form.one_per_person, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
+      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, one_per_email: form.audience === 'public' && form.collect_email && form.one_per_person,
+      ...(form.audience === 'public' && form.collect_email && form.email_domains && { email_domains: cleanDomains(form.email_domains) }), send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team, can_save: !!user, show_results: form.show_results,
       // For a card when the link is pasted in Chat: whether you've sent a response, and (for its team) how many came.
       responded: !!user && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id),
@@ -1135,6 +1150,8 @@ export function publicFormRoutes() {
     if (form.audience === 'public' && form.collect_email) {
       email = String(req.body?.email || '').trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw bad('Your email: enter your email address');
+      const domains = cleanDomains(form.email_domains);
+      if (!emailAllowed(email, domains)) throw bad(`Your email: this form takes addresses at ${domains.join(', ')} only`);
     }
     // One response per email address (a form for anyone that collects them): checked before any files move, and again when saving.
     const onePerEmail = form.audience === 'public' && form.collect_email && form.one_per_person;

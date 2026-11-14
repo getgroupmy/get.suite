@@ -14847,3 +14847,30 @@ test('forms for anyone: one response per email address, when the form collects t
   assert.equal((await anon('POST', url, { answers: { n: 'Nobody' } })).status, 201);
   assert.equal((await anon('POST', url, { answers: { n: 'Nobody again' } })).status, 201);
 });
+
+test('forms for anyone: email addresses only at some domains', async () => {
+  const { cleanDomains, emailAllowed, resetResponseLimits } = await import('../src/routes/forms.js');
+  resetResponseLimits();
+  assert.deepEqual(cleanDomains(' @Acme.com, partner.org;acme.com '), ['acme.com', 'partner.org']);
+  assert.deepEqual(cleanDomains(''), []);
+  assert.throws(() => cleanDomains('acme'), /isn't a domain/);
+  assert.ok(emailAllowed('kim@acme.com', ['acme.com']));
+  assert.ok(emailAllowed('kim@eu.acme.com', ['acme.com']), 'a subdomain');
+  assert.ok(!emailAllowed('kim@notacme.com', ['acme.com']));
+  assert.ok(emailAllowed('anyone@example.org', []));
+  const f = (await owner('POST', '/api/forms', { title: 'Partner day' })).body;
+  assert.equal((await owner('PUT', `/api/forms/${f.id}`, { email_domains: 'not a domain!' })).status, 400);
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { audience: 'public', collect_email: true, email_domains: 'acme.com partner.org', questions: [{ id: 'n', type: 'short', title: 'Name' }] })).body;
+  assert.equal(saved.email_domains, 'acme.com, partner.org');
+  const url = `/api/public/forms/${saved.token}`;
+  const anon = client();
+  assert.deepEqual((await anon('GET', url)).body.email_domains, ['acme.com', 'partner.org']);
+  const no = await anon('POST', url, { email: 'pat@gmail.com', answers: { n: 'Pat' } });
+  assert.equal(no.status, 400);
+  assert.match(no.body.error, /addresses at acme\.com, partner\.org only/);
+  assert.equal((await anon('POST', url, { email: 'Lee@Partner.org', answers: { n: 'Lee' } })).status, 201);
+  // Cleared: any address again.
+  await owner('PUT', `/api/forms/${f.id}`, { email_domains: '' });
+  assert.equal((await anon('GET', url)).body.email_domains, undefined);
+  assert.equal((await anon('POST', url, { email: 'pat@gmail.com', answers: { n: 'Pat' } })).status, 201);
+});
