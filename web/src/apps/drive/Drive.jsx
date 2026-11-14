@@ -31,7 +31,7 @@ function useDriveRoute() {
   const [params] = useSearchParams();
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
-  if (['drives', 'shared', 'recent', 'starred', 'trash', 'approvals', 'signatures', 'activity', 'links'].includes(parts[0])) return { view: parts[0] };
+  if (['drives', 'shared', 'sharedbyme', 'recent', 'starred', 'trash', 'approvals', 'signatures', 'activity', 'links'].includes(parts[0])) return { view: parts[0] };
   if (parts[0] === 'label' && parts[1]) return { view: 'label', label: decodeURIComponent(parts[1]) };
   if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '', filters: Object.fromEntries(FILTERS.map(([k]) => [k, params.get(k) || ''])) };
   return { view: 'mine', folderId: null };
@@ -95,7 +95,7 @@ export function goesIn(at, now = Date.now()) {
   const days = Math.ceil((at - now) / 864e5);
   return days <= 1 ? (days <= 0 ? 'Soon' : 'Tomorrow') : `In ${days} days`;
 }
-const TITLES = { drives: 'Shared drives', shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures', activity: 'Activity', links: 'Shared by link' };
+const TITLES = { drives: 'Shared drives', shared: 'Shared with me', sharedbyme: 'Shared by me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures', activity: 'Activity', links: 'Shared by link' };
 const DRAG_TYPE = 'application/x-workspace-files';
 
 export default function Drive() {
@@ -529,6 +529,7 @@ export default function Drive() {
         <NavLink end to="/drive" className={() => `subnav-item ${route.view === 'mine' && !crumbs[0]?.is_drive ? 'active' : ''}`}><Icon name="folder" />My Drive</NavLink>
         <NavLink to="/drive/drives" className={() => `subnav-item ${route.view === 'drives' || (route.view === 'mine' && crumbs[0]?.is_drive) ? 'active' : ''}`}><Icon name="people" />Shared drives</NavLink>
         <NavLink to="/drive/shared" className="subnav-item"><Icon name="share" />Shared with me</NavLink>
+        <NavLink to="/drive/sharedbyme" className="subnav-item"><Icon name="people" />Shared by me</NavLink>
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
         <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" /><span className="grow">Approvals</span>{waitingCount > 0 && <span className="count" aria-label={`${waitingCount} waiting for you`}>{waitingCount}</span>}</NavLink>
@@ -635,6 +636,7 @@ export default function Drive() {
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />
+              : route.view === 'sharedbyme' ? <Empty icon="people" title="You haven't shared anything yet">Files and folders you share with people, groups or everyone in the company show up here.</Empty>
               : route.view === 'drives' ? <Empty icon="people" title="No shared drives yet">A shared drive belongs to a team: everyone in it sees the same files, and what people add stays when they leave. Make one with New shared drive.</Empty>
                 : <Empty icon="upload" title="Drop files here">or use the New button to create a folder, document or spreadsheet</Empty>
         ) : look.layout === 'grid' ? (
@@ -673,7 +675,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{f.shared_with?.length > 0 && <span className="muted small shared-with"> · with {f.shared_with.slice(0, 3).join(', ')}{f.shared_with.length > 3 ? ` and ${f.shared_with.length - 3} more` : ''}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>

@@ -503,6 +503,21 @@ export default function fileRoutes({ maxUploadBytes }) {
       const company = q(`SELECT ${COLS}, f.org_role AS role ${FROM} WHERE f.org_role IS NOT NULL AND u.org_id = ? AND f.owner_id != ? AND f.trashed = 0 AND f.is_drive = 0 ${ORDER}`).all(org, me)
         .filter((f) => !ids.has(f.id)).map((f) => ({ ...f, role: roleFor(f.id, me) || f.role }));
       rows = [...rows, ...company];
+    } else if (view === 'sharedbyme') {
+      // Yours that other people can open: shared with people (until it ends), with groups, or with
+      // everyone in the company, with who, in words ("Kim Park", "Design (group)", "Everyone at Acme").
+      rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 0 AND f.is_drive = 0 AND (
+                  f.org_role IS NOT NULL
+                  OR EXISTS (SELECT 1 FROM shares s WHERE s.file_id = f.id AND s.direct_role IS NOT NULL AND (s.expires_at IS NULL OR s.expires_at > ?))
+                  OR EXISTS (SELECT 1 FROM group_shares g WHERE g.file_id = f.id)) ${ORDER}`).all(me, Date.now())
+        .map((f) => {
+          const people = q(`SELECT u.name, u.username, u.org_id FROM shares s JOIN users u ON u.id = s.user_id
+                            WHERE s.file_id = ? AND s.direct_role IS NOT NULL AND (s.expires_at IS NULL OR s.expires_at > ?) ORDER BY u.name COLLATE NOCASE`).all(f.id, Date.now());
+          const groups = q('SELECT gr.name FROM group_shares g JOIN groups gr ON gr.id = g.group_id WHERE g.file_id = ? ORDER BY gr.name COLLATE NOCASE').all(f.id);
+          const orgName = f.org_role ? q('SELECT name FROM orgs WHERE id = ?').get(org)?.name : null;
+          const shared_with = [...(orgName ? [`Everyone at ${orgName}`] : []), ...groups.map((g) => `${g.name} (group)`), ...people.map((p) => `${p.name || p.username}${p.org_id !== org ? ' (outside)' : ''}`)];
+          return { ...publicFile(f, 'owner'), shared_with };
+        });
     } else if (view === 'drives') {
       // The shared drives you're a member of (or own), by name, with how many people are in each.
       rows = q(`SELECT ${COLS} ${FROM} WHERE f.is_drive = 1 AND f.trashed = 0 AND (u.org_id = ? OR f.id IN (SELECT file_id FROM shares WHERE user_id = ?)) AND ${REACHABLE} ORDER BY f.name COLLATE NOCASE`)

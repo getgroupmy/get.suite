@@ -82,3 +82,19 @@ test('Admin → Shared outside: what the company shares with other companies, an
   const log = (await ana('GET', '/api/audit?action=file')).body.entries;
   assert.ok(log.some((e) => e.label === 'Changed sharing' && e.details?.by_admin && e.details?.company));
 });
+
+test('Drive → Shared by me: your files others can open, and with whom, in words', async () => {
+  const mine = async () => (await kim('GET', '/api/files?view=sharedbyme')).body.map((f) => [f.name, f.shared_with]);
+  // After the admin stopped the outside shares above, only the memo (shared with Ana) is left.
+  assert.deepEqual(await mine(), [['memo.txt', ['Ana Admin']]]);
+  const deck = (await kim('POST', '/api/files/upload?name=deck.txt', 'deck', true)).body;
+  const group = (await ana('POST', '/api/groups', { name: 'Design' })).body;
+  assert.equal((await kim('PUT', `/api/files/${deck.id}/groups`, { groups: [{ group_id: group.id, role: 'viewer' }] })).status, 200);
+  assert.equal((await kim('PUT', `/api/files/${deck.id}/company`, { role: 'viewer' })).status, 200);
+  assert.equal((await kim('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: id('gil@globex.com'), role: 'viewer' }] })).status, 200);
+  assert.deepEqual(await mine(), [['deck.txt', ['Everyone at Acme', 'Design (group)', 'Gil (outside)']], ['memo.txt', ['Ana Admin']]]);
+  // A share that has ended doesn't count; nor does what isn't yours.
+  q('UPDATE shares SET expires_at = ? WHERE file_id = ?').run(Date.now() - 1000, (await kim('GET', '/api/files?view=sharedbyme')).body.find((f) => f.name === 'memo.txt').id);
+  assert.deepEqual((await mine()).map((x) => x[0]), ['deck.txt']);
+  assert.deepEqual((await ana('GET', '/api/files?view=sharedbyme')).body, []);
+});
