@@ -20,16 +20,15 @@ export function MovePicker({ title, items, onPick, onClose }) {
           else if (e.key === 'ArrowUp') { e.preventDefault(); setAt(Math.max(cur - 1, 0)); }
           else if (e.key === 'Enter' && shown[cur]) { e.preventDefault(); onPick(shown[cur]); }
         }} />
+      {/* The options themselves are clicked (no buttons inside them); ↑ ↓ and Enter work from the Find box above. */}
       <ul className="move-picker" role="listbox" aria-label={title}>
         {shown.map((it, i) => (
-          <li key={it.key} role="option" aria-selected={i === cur}>
-            <button type="button" className={i === cur ? 'on' : ''} onMouseEnter={() => setAt(i)} onClick={() => onPick(it)}>
-              {it.dot && <span className="label-dot" style={{ background: it.dot }} />}<span className="grow ellipsis">{it.name}</span>{it.hint && <span className="muted small">{it.hint}</span>}
-            </button>
+          <li key={it.key} role="option" aria-selected={i === cur} className={i === cur ? 'on' : ''} onMouseEnter={() => setAt(i)} onClick={() => onPick(it)}>
+            {it.dot && <span className="label-dot" style={{ background: it.dot }} />}<span className="grow ellipsis">{it.name}</span>{it.hint && <span className="muted small">{it.hint}</span>}
           </li>
         ))}
-        {!shown.length && <li className="muted small">Nothing matches “{typed}”</li>}
       </ul>
+      {!shown.length && <p className="muted small" role="status">Nothing matches “{typed}”</p>}
     </Modal>
   );
 }

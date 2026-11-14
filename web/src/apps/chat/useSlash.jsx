@@ -20,7 +20,7 @@ export function useSlash(text, setText, box) {
   };
   const list = shown.length > 0 && (
     <ul className="slash-list" role="listbox" aria-label="Commands">
-      {shown.map((c, i) => <li key={c.cmd}><button type="button" role="option" aria-selected={i === pick} className={i === pick ? 'on' : ''} onClick={() => choose(c)}><strong>{c.hint}</strong> <span className="muted small">{c.what}</span></button></li>)}
+      {shown.map((c, i) => <li key={c.cmd} role="presentation"><button type="button" role="option" aria-selected={i === pick} className={i === pick ? 'on' : ''} onClick={() => choose(c)}><strong>{c.hint}</strong> <span className="muted small">{c.what}</span></button></li>)}
     </ul>
   );
   return { list, keyDown };
