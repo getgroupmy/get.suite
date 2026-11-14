@@ -140,7 +140,7 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
 )`).run();
 // allow_edit: people can change their response afterwards, with the private link they get on sending it.
 // collect_email: "anyone with the link" forms ask for an email address; send_copy: people get their answers by email.
-for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
+for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -441,6 +441,34 @@ export function cleanDraft(questions, answers, trail) {
   return { answers: json, trail: JSON.stringify(t[0] === 0 ? t : [0]) };
 }
 
+/**
+ * The summary people who've answered may see (when the form shares it): per question how many answered,
+ * and for choices, scales, ratings, grids and rankings how the answers went. Never who answered, and not
+ * what anyone typed, uploaded or signed: for those only the count.
+ */
+export function publicSummary(questions, responses) {
+  return questions.filter((qu) => qu.type !== 'section').map((qu) => {
+    const answers = responses.map((r) => r.answers?.[qu.id]).filter((a) => a !== undefined && a !== '' && !(Array.isArray(a) && !a.length));
+    const out = { id: qu.id, title: qu.title || 'Untitled question', type: qu.type, answered: answers.length };
+    const bars = (keys, picks, n) => keys.map((k) => { const c = picks.filter((v) => [v].flat().map(String).includes(String(k))).length; return { label: String(k), count: c, share: n ? c / n : 0 }; });
+    if (qu.type === 'rank') {
+      out.ranks = qu.options.map((o) => {
+        const places = answers.map((a) => a.indexOf(o)).filter((k) => k >= 0);
+        return { label: o, average: places.length ? Math.round((places.reduce((x, y) => x + y + 1, 0) / places.length) * 10) / 10 : null, first: places.filter((k) => k === 0).length };
+      }).sort((a, b) => (a.average ?? 99) - (b.average ?? 99));
+    } else if (WITH_OPTIONS.has(qu.type) || qu.type === 'scale' || qu.type === 'rating') {
+      const keys = qu.type === 'scale' || qu.type === 'rating' ? Array.from({ length: qu.max }, (_, i) => i + 1) : qu.options;
+      out.bars = bars(keys, answers, answers.length);
+      // "Other" answers are counted together, without what was typed.
+      if (qu.other) { const c = answers.filter((a) => [a].flat().some((v) => !qu.options.includes(v))).length; out.bars.push({ label: 'Other', count: c, share: answers.length ? c / answers.length : 0 }); }
+      if (qu.type === 'scale' || qu.type === 'rating') out.average = answers.length ? Math.round((answers.reduce((x, y) => x + Number(y), 0) / answers.length) * 10) / 10 : null;
+    } else if (GRIDS.has(qu.type)) {
+      out.grid = qu.rows.map((row) => { const picks = answers.map((a) => a?.[row]).filter((v) => v !== undefined); return { row, answered: picks.length, bars: bars(qu.columns, picks, picks.length) }; });
+    }
+    return out;
+  });
+}
+
 /** One answer as text, for CSV and spreadsheets. */
 const asText = (a) => (Array.isArray(a) ? a.map((x) => (x && typeof x === 'object' ? x.name : x)).join('; ') : a == null ? '' : String(a));
 const csvCell = (v) => {
@@ -449,7 +477,7 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, collect_email: !!f.collect_email, send_copy: !!f.send_copy, auto_remind: !!f.auto_remind, theme: themeOf(f) });
+const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, show_results: !!f.show_results, collect_email: !!f.collect_email, send_copy: !!f.send_copy, auto_remind: !!f.auto_remind, theme: themeOf(f) });
 const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, r.email, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
   .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), ...(r.email && { email: r.email }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
@@ -676,6 +704,7 @@ export default function formRoutes() {
       quiz: 'quiz' in b ? !!b.quiz : f.quiz,
       show_score: 'show_score' in b ? !!b.show_score : f.show_score,
       allow_edit: 'allow_edit' in b ? !!b.allow_edit : f.allow_edit,
+      show_results: 'show_results' in b ? !!b.show_results : f.show_results,
       collect_email: 'collect_email' in b ? !!b.collect_email : f.collect_email,
       send_copy: 'send_copy' in b ? !!b.send_copy : f.send_copy,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
@@ -693,10 +722,10 @@ export default function formRoutes() {
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
        close_at = ?, open_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, auto_remind = ?,
-       auto_reminded_at = CASE WHEN ? THEN NULL ELSE auto_reminded_at END, theme = ?, updated_at = ? WHERE id = ?`)
+       auto_reminded_at = CASE WHEN ? THEN NULL ELSE auto_reminded_at END, theme = ?, show_results = ?, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
         next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, next.auto_remind ? 1 : 0,
-        next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, now(), f.id); // a new closing date: the automatic reminder can go again
+        next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, next.show_results ? 1 : 0, now(), f.id); // a new closing date: the automatic reminder can go again
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -917,6 +946,15 @@ function limit(ip) {
 }
 
 /** The form behind a link, and whether this visitor may fill it in. */
+/** The key that opens a form's shared summary (made the first time it's needed). */
+function resultsKeyOf(form) {
+  const had = q('SELECT results_key FROM forms WHERE id = ?').get(form.id)?.results_key;
+  if (had) return had;
+  const key = crypto.randomBytes(18).toString('base64url');
+  q('UPDATE forms SET results_key = ? WHERE id = ?').run(key, form.id);
+  return key;
+}
+
 function openForm(req) {
   const f = q(`SELECT f.*, u.disabled AS owner_disabled, u.name AS owner_name, o.name AS org_name, o.allow_links
                FROM forms f JOIN users u ON u.id = f.owner_id JOIN orgs o ON o.id = f.org_id WHERE f.token = ?`).get(String(req.params.token));
@@ -1002,10 +1040,24 @@ export function publicFormRoutes() {
     const team = !!user && teamOf(form).includes(user.id);
     res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, theme: form.theme, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
-      you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team, can_save: !!user,
+      you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team, can_save: !!user, show_results: form.show_results,
       // For a card when the link is pasted in Chat: whether you've sent a response, and (for its team) how many came.
       responded: !!user && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id),
       ...(team && { responses: q('SELECT COUNT(*) AS n FROM form_responses WHERE form_id = ?').get(form.id).n }) });
+  });
+
+  // The summary of answers, for people who've answered (when the form shares it): someone on a company form
+  // who sent a response, anyone with the key given on sending, and the form's own team.
+  r.get('/:token/results', (req, res) => {
+    const { form, user } = openForm(req);
+    if (!form.show_results) throw notFound('The answers to this form aren\'t shared');
+    const team = !!user && teamOf(form).includes(user.id);
+    const answered = !!user && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id);
+    const key = String(req.query.key || '');
+    const keyOk = !!form.results_key && key.length === form.results_key.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(form.results_key));
+    if (!team && !answered && !keyOk) throw forbidden('Send your response to see what others answered');
+    const responses = q('SELECT answers FROM form_responses WHERE form_id = ?').all(form.id).map((x) => ({ answers: JSON.parse(x.answers) }));
+    res.json({ title: form.title, responses: responses.length, questions: publicSummary(form.questions, responses) });
   });
 
   // Drafts: the answers someone signed in has started (see form_drafts). { draft: { answers, trail, updated_at } | null }
@@ -1126,7 +1178,7 @@ export function publicFormRoutes() {
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
     emailTeam(form, answers, { by: user?.id || null, who, email: form.audience === 'public' ? email : null, link: `${baseUrlOf(req)}/forms/${form.id}?tab=responses` });
     if (form.send_copy && email) sendCopy(form, email, answers, result, editKey ? `${baseUrlOf(req)}/f/${form.token}?edit=${editKey}` : null);
-    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(editKey && { edit_key: editKey }), ...(form.send_copy && email && mailEnabled() && { copy_to: email }), ...(result && { score: result.score, max: result.max, right: result.right, feedback: result.feedback }) });
+    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(form.show_results && { results_key: resultsKeyOf(form) }), ...(editKey && { edit_key: editKey }), ...(form.send_copy && email && mailEnabled() && { copy_to: email }), ...(result && { score: result.score, max: result.max, right: result.right, feedback: result.feedback }) });
   });
 
   // Changing a response afterwards (when the form allows it), with its private key. File answers stay

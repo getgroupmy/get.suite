@@ -14508,3 +14508,54 @@ test('forms: an old draft (over 30 days untouched) is not offered, and is cleare
   await owner('PUT', `${url}/draft`, { answers: { a: 'mine' } }); // anyone saving clears the old ones away
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM form_drafts WHERE form_id = ?').get(f.id).n, 1);
 });
+
+test('forms: sharing the summary with people who answered — counts only, never names or typed answers', async () => {
+  const [ana, ben] = [client(), client()];
+  for (const [c, local] of [[ana, 'resa'], [ben, 'resb']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: `Res ${local}`, password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const f = (await owner('POST', '/api/forms', { title: 'Team offsite' })).body;
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { audience: 'org', questions: [
+    { id: 'where', type: 'choice', title: 'Where?', options: ['Lisbon', 'Porto'], other: true },
+    { id: 'stars', type: 'rating', title: 'How excited?', max: 5 },
+    { id: 'order', type: 'rank', title: 'Activities', options: ['Hike', 'Boat', 'Food'] },
+    { id: 'g', type: 'grid', title: 'Days', rows: ['Mon', 'Tue'], columns: ['Yes', 'No'] },
+    { id: 'note', type: 'paragraph', title: 'Secret wish' },
+  ] })).body;
+  const url = `/api/public/forms/${saved.token}`;
+  assert.equal((await ana('GET', url)).body.show_results, false);
+  // Not shared: nobody outside the team sees it, even after answering.
+  assert.equal((await ana('POST', url, { answers: { where: 'Lisbon', stars: 5, order: ['Food', 'Hike', 'Boat'], g: { Mon: 'Yes' }, note: 'A pony' } })).status, 201);
+  assert.equal((await ana('GET', `${url}/results`)).status, 404);
+  const put = await owner('PUT', `/api/forms/${f.id}`, { show_results: true });
+  assert.equal(put.body.show_results, true);
+  assert.equal((await ana('GET', url)).body.show_results, true);
+  // Ben hasn't answered: not yet. Once he has, he sees it.
+  assert.equal((await ben('GET', `${url}/results`)).status, 403);
+  const sent = await ben('POST', url, { answers: { where: 'Faro', stars: 3, order: ['Hike', 'Food', 'Boat'], g: { Mon: 'No', Tue: 'Yes' }, note: 'Karaoke' } });
+  assert.ok(sent.body.results_key, 'a key to come back with');
+  const r = (await ben('GET', `${url}/results`)).body;
+  assert.equal(r.responses, 2);
+  const by = Object.fromEntries(r.questions.map((x) => [x.id, x]));
+  assert.deepEqual(by.where.bars.map((b) => [b.label, b.count]), [['Lisbon', 1], ['Porto', 0], ['Other', 1]]);
+  assert.equal(by.stars.average, 4);
+  assert.deepEqual(by.order.ranks.map((x) => [x.label, x.average, x.first]), [['Hike', 1.5, 1], ['Food', 1.5, 1], ['Boat', 3, 0]]);
+  assert.deepEqual(by.g.grid.map((x) => [x.row, x.answered, x.bars.map((b) => b.count)]), [['Mon', 2, [1, 1]], ['Tue', 1, [1, 0]]]);
+  assert.deepEqual(by.note, { id: 'note', title: 'Secret wish', type: 'paragraph', answered: 2 });
+  const text = JSON.stringify(r);
+  for (const secret of ['A pony', 'Karaoke', 'Faro', 'Res resa', 'resa@acme.com']) assert.ok(!text.includes(secret), secret);
+  // The team sees it without answering; the key opens it for anyone who can open the form.
+  assert.equal((await owner('GET', `${url}/results`)).status, 200);
+  await owner('PUT', `/api/forms/${f.id}`, { audience: 'public' });
+  const anon = client();
+  assert.equal((await anon('GET', `${url}/results`)).status, 403);
+  assert.equal((await anon('GET', `${url}/results?key=nope`)).status, 403);
+  assert.equal((await anon('GET', `${url}/results?key=${sent.body.results_key}`)).status, 200);
+  const third = await anon('POST', url, { answers: { where: 'Porto' } });
+  assert.equal(third.body.results_key, sent.body.results_key, 'one key for the form');
+  // Turned off again: closed to all but the team.
+  await owner('PUT', `/api/forms/${f.id}`, { show_results: false });
+  assert.equal((await anon('GET', `${url}/results?key=${sent.body.results_key}`)).status, 404);
+  assert.equal((await anon('POST', url, { answers: { where: 'Porto' } })).body.results_key, undefined);
+});

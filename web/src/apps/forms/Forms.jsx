@@ -629,6 +629,7 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
       {form.audience === 'public' && <label className="check"><input type="checkbox" checked={!!form.collect_email} onChange={(e) => setting({ collect_email: e.target.checked })} /> Collect email addresses (people type theirs in before the questions)</label>}
       <label className="check"><input type="checkbox" checked={!!form.send_copy} onChange={(e) => setting({ send_copy: e.target.checked })} /> Send people a copy of their answers by email{form.audience === 'public' ? ' (needs email addresses collected)' : ''}</label>
       <label className="check"><input type="checkbox" checked={!!form.allow_edit} onChange={(e) => setting({ allow_edit: e.target.checked })} /> Let people change their response after sending it (they get a private link to it)</label>
+      <label className="check"><input type="checkbox" checked={!!form.show_results} onChange={(e) => setting({ show_results: e.target.checked })} /> Show people who've answered what others answered (counts and charts for choices, scales and rankings; never who said what, nor anything typed)</label>
       <label className="check"><input type="checkbox" checked={form.notify} onChange={(e) => setting({ notify: e.target.checked })} /> Notify me of each new response</label>
       {form.mail && <label className="check"><input type="checkbox" checked={!!form.email_me} onChange={async (e) => {
           const on = e.target.checked;

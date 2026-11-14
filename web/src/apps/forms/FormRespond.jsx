@@ -5,6 +5,7 @@ import { checkProblem } from './formcheck.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { sectionsOf, nextPage, prefillFrom, shuffled, draftFrom } from './formmath.js';
 import { themeStyle } from './formtheme.js';
+import FormResults, { resultsKey } from './FormResults.jsx';
 import { SignaturePad, textPicture, trimmed, SCRIPT_FONT } from '../../components/SignaturePad.jsx';
 
 async function call(method, url, body) {
@@ -27,6 +28,7 @@ export default function FormRespond({ token, onSignIn }) {
   const touched = useRef(false); // changed something here (only then is anything saved)
   const [restored, setRestored] = useState(null); // when the draft that came back was saved
   const [saving, setSaving] = useState(null); // 'saving' | 'saved' | 'failed'
+  const [showResults, setShowResults] = useState(false); // what others answered (when the form shares it)
   const [cleared, setCleared] = useState(0); // Clear form starts each question afresh (a drawn signature too)
   const [error, setError] = useState(null); // { status, message }
   const [answers, setAnswers] = useState({});
@@ -104,7 +106,9 @@ export default function FormRespond({ token, onSignIn }) {
     // File questions hold the uploads ({ id, name }); the form gets their ids.
     const out = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, form.questions.find((q) => q.id === k)?.type === 'file' ? (v || []).map((f) => f.id) : v]));
     try {
-      setDone(editing ? await call('PUT', `/${encodeURIComponent(token)}/response/${encodeURIComponent(editing.key)}`, { answers: out }) : await call('POST', `/${encodeURIComponent(token)}`, { answers: out, ...(form.collect_email && { email: email.trim() }) }));
+      const sent = editing ? await call('PUT', `/${encodeURIComponent(token)}/response/${encodeURIComponent(editing.key)}`, { answers: out }) : await call('POST', `/${encodeURIComponent(token)}`, { answers: out, ...(form.collect_email && { email: email.trim() }) });
+      if (sent.results_key) resultsKey.set(token, sent.results_key);
+      setShowResults(false); setDone(sent);
       window.scrollTo(0, 0);
     } catch (err) { setSendError(err.message); } finally { setBusy(false); }
   };
@@ -125,6 +129,9 @@ export default function FormRespond({ token, onSignIn }) {
         <h1>{form.title}</h1>
         <p style={{ whiteSpace: 'pre-wrap' }}>{done.confirmation || 'Your response has been recorded.'}</p>
         {done.max > 0 && <p className="quiz-score" role="status">Your score: <strong>{done.score} / {done.max}</strong></p>}
+        {(done.results_key || (form.show_results && (editing || form.you))) && (showResults
+          ? <FormResults token={token} k={done.results_key || resultsKey.get(token)} onClose={() => setShowResults(false)} />
+          : <div><button type="button" className="btn" onClick={() => setShowResults(true)}>See what others answered</button></div>)}
         {done.right && (
           <ul className="quiz-review">
             {form.questions.filter((q) => q.id in done.right).map((q) => (
@@ -146,7 +153,8 @@ export default function FormRespond({ token, onSignIn }) {
         {form.description && <p className="form-desc">{form.description}</p>}
         {form.you && <p className="muted small" style={{ margin: 0 }}>Signed in as {form.you.name} ({form.you.email}). Your name is recorded with your answers.</p>}
         {closed ? <p role="status"><strong>{form.answered && form.accepting ? 'You have already filled in this form.' : form.closed === 'notyet' && form.opens_at ? `This form opens on ${new Date(form.opens_at).toLocaleString([], { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}. Come back then.` : `${form.closed_text || 'This form is no longer accepting responses'}.`}</strong>
-          {form.answered && form.accepting && form.my_edit_key && <> <a href={`/f/${encodeURIComponent(token)}?edit=${encodeURIComponent(form.my_edit_key)}`}>Change your response</a></>}</p> : editing && !editing.loaded ? <p className="muted">Loading your response…</p> : <>
+          {form.answered && form.accepting && form.my_edit_key && <> <a href={`/f/${encodeURIComponent(token)}?edit=${encodeURIComponent(form.my_edit_key)}`}>Change your response</a></>}
+          {form.answered && form.show_results && !showResults && <> <button type="button" className="link-btn" onClick={() => setShowResults(true)}>See what others answered</button></>}</p> : editing && !editing.loaded ? <p className="muted">Loading your response…</p> : <>
           {form.collect_email && !editing && page === 0 && (
             <label id="q-email" className={`field form-fill-q ${emailMissing ? 'missing' : ''}`}>
               <span className="form-fill-title">Your email<span className="req" aria-hidden="true"> *</span></span>
@@ -171,6 +179,8 @@ export default function FormRespond({ token, onSignIn }) {
             {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { touched.current = true; setAnswers({}); setMissing([]); setTrail([0]); setCleared((n) => n + 1); setRestored(null); }}>Clear form</button>}
             {drafting && saving && <span className="muted small form-draft-state" role="status">{saving === 'saving' ? 'Saving your answers…' : saving === 'saved' ? (Object.keys(answers).length ? 'Your answers are saved: come back to finish any time' : 'Draft deleted') : 'Your answers couldn’t be saved just now'}</span>}</div>
         </>}
+        {form.show_results && !form.answered && !editing && !closed && resultsKey.get(token) && !showResults && <p className="muted small" style={{ margin: 0 }}>You've answered this form before. <button type="button" className="link-btn small" onClick={() => setShowResults(true)}>See what others answered</button></p>}
+        {showResults && <FormResults token={token} k={resultsKey.get(token)} onClose={() => setShowResults(false)} />}
         {form.is_owner && <p className="muted small" style={{ margin: 0 }}>This is your form. <a href="/forms">Edit it in Forms</a></p>}
       </form>
     );
