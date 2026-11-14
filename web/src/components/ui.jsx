@@ -4,7 +4,7 @@ import { avatarColor } from './avatarcolor.js';
 import Icon from './Icon.jsx';
 import { usePhoto } from './photos.js';
 
-export function Modal({ title, onClose, children, footer, wide }) {
+export function Modal({ title, onClose, children, footer, wide, scrollLabel }) {
   const ref = useRef();
   useEffect(() => {
     // With a dialog opened from another (e.g. the picture editor inside Compose) only the top one closes.
@@ -23,7 +23,8 @@ export function Modal({ title, onClose, children, footer, wide }) {
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" /></button>
         </div>
-        <div className="modal-body">{children}</div>
+        {/* scrollLabel: long read-only content scrolls; keyboard users can focus it to scroll (WCAG 2.1.1) */}
+        <div className="modal-body" {...(scrollLabel && { tabIndex: 0, role: 'region', 'aria-label': scrollLabel })}>{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
     </div>

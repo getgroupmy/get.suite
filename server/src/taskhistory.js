@@ -35,15 +35,22 @@ const FIELDS = {
   repeat: (t) => t.repeat || null,
   tags: (t) => t.tags || null,
   estimate: (t) => (t.estimate == null ? null : String(t.estimate)),
-  // Lists in a set order (by id), so moving a step up or down isn't a change.
+  // Kept in their own order; compared in a set order (see same), so moving a step up or down isn't a change.
   steps: (t) => canonical(t.steps, (x) => ({ id: x.id, title: x.title, done: !!x.done })),
   files: (t) => canonical(t.attachments, (x) => ({ id: x.id, name: x.name })),
   waiting: (t) => canonical(t.blocked_by, (x) => x),
 };
 function canonical(json, pick) {
   const l = json ? JSON.parse(json) : [];
-  if (!l.length) return null;
-  return JSON.stringify(l.map(pick).sort((a, b) => String(a.id ?? a).localeCompare(String(b.id ?? b))));
+  return l.length ? JSON.stringify(l.map(pick)) : null;
+}
+const LISTS = new Set(['steps', 'files', 'waiting']);
+/** Two values the same? Lists whatever their order. */
+function same(field, a, b) {
+  if (a === b) return true;
+  if (!LISTS.has(field) || a == null || b == null) return false;
+  const key = (v) => JSON.stringify(JSON.parse(v).sort((x, y) => String(x.id ?? x).localeCompare(String(y.id ?? y))));
+  return key(a) === key(b);
 }
 
 /** Record what changed between two versions of a task's row (before and after an update), by userId. Call inside the update's transaction. */
@@ -51,11 +58,11 @@ export function recordChanges(before, after, userId, at = now()) {
   {
     for (const [field, value] of Object.entries(FIELDS)) {
       const a = value(before), b = value(after);
-      if (a === b) continue;
+      if (same(field, a, b)) continue;
       const last = q('SELECT * FROM task_history WHERE task_id = ? AND field = ? ORDER BY id DESC LIMIT 1').get(after.id, field);
       if (last && last.user_id === userId && at - last.at < MERGE_MS) {
         if (field === 'notes') q('UPDATE task_history SET after = ?, at = ? WHERE id = ?').run(b ? '1' : null, at, last.id);
-        else if (last.before === b) q('DELETE FROM task_history WHERE id = ?').run(last.id); // back as it was: nothing happened
+        else if (same(field, last.before, b)) q('DELETE FROM task_history WHERE id = ?').run(last.id); // back as it was: nothing happened
         else q('UPDATE task_history SET after = ?, at = ? WHERE id = ?').run(b, at, last.id);
         continue;
       }

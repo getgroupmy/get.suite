@@ -51,12 +51,15 @@ export const SHORTCUTS = {
     [`${alt}+↑ / ${alt}+↓`, 'Previous or next conversation'], [`${alt}+Shift+↑ / ${alt}+Shift+↓`, 'Previous or next unread conversation'],
     ['Shift+Escape', 'Mark all conversations as read'],
   ] },
+  tasks: { title: 'Tasks', keys: [
+    ['J / K', 'Next or previous task'], ['Enter / O', 'Open the task'], ['X', 'Tick it off'], ['S', 'Mark important, or not'], ['#', 'Delete it (with Undo)'], ['N', 'Add a task'],
+  ] },
   all: { title: 'Everywhere', keys: [[`${mod}+/`, 'This list (or ? outside a text field)'], ['Escape', 'Close a dialog or menu'], ['/', 'Search everything (in Mail: search mail)'],
     ...GO_TO.map(([k, , name]) => [`G then ${k.toUpperCase()}`, `Go to ${name}`])] },
 };
 
 const appOf = (path) => (/^\/docs\//.test(path) ? 'docs' : /^\/sheets\//.test(path) ? 'sheets' : /^\/slides\//.test(path) ? 'slides'
-  : /^\/mail/.test(path) ? 'mail' : /^\/calendar/.test(path) ? 'calendar' : /^\/chat/.test(path) ? 'chat' : null);
+  : /^\/mail/.test(path) ? 'mail' : /^\/calendar/.test(path) ? 'calendar' : /^\/chat/.test(path) ? 'chat' : /^\/tasks/.test(path) ? 'tasks' : null);
 
 export function ShortcutsHelp() {
   const { pathname } = useLocation();
@@ -98,7 +101,7 @@ export function ShortcutsHelp() {
   const here = appOf(pathname);
   const order = [here, ...Object.keys(SHORTCUTS).filter((k) => k !== here && k !== 'all'), 'all'].filter(Boolean);
   return (
-    <Modal title="Keyboard shortcuts" wide onClose={() => setOpen(false)}>
+    <Modal title="Keyboard shortcuts" wide scrollLabel="The shortcuts" onClose={() => setOpen(false)}>
       <div className="shortcuts">
         {order.map((k) => (
           <section key={k}>

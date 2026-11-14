@@ -98,7 +98,7 @@ test('task history: steps, files, what it waits on, and skipping a repeat', asyn
   assert.deepEqual(await entries(), before, 'reordering steps is not history');
   assert.equal(before.length, 1);
   assert.deepEqual(before[0].before, []);
-  assert.deepEqual(before[0].after.map((x) => [x.title, x.done]).sort(), [['Order paper', false], ['Proof', true]]);
+  assert.deepEqual(before[0].after.map((x) => [x.title, x.done]), [['Proof', true], ['Order paper', false]], 'in the checklist’s order');
   // Waiting on another task, by its title (and still named once that task is deleted).
   await me('PUT', `/api/tasks/tasks/${t.id}/waiting-on`, { task_ids: [design.id] });
   await me('DELETE', `/api/tasks/tasks/${design.id}`);

@@ -17,6 +17,7 @@ import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
 import { historyText } from './taskhistory.js';
+import { taskKey, stepTask, afterLeaving } from './taskkeys.js';
 import { taskLink } from '../chat/filelinks.js';
 import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
 
@@ -161,6 +162,45 @@ export default function Tasks() {
     const again = next.next_id && (await get(`/tasks/lists/${next.list_id}/tasks`).catch(() => [])).find((x) => x.id === next.next_id);
     toast(`“${t.title}” done${again?.due ? ` · next due ${dueLabel(again.due).text}` : ''}`, 'info', { action: { label: 'Undo', onClick: () => update(next, { done: false }) } });
   };
+  /** Delete a task (to its list's trash), with Undo. */
+  const deleteTask = async (gone) => {
+    try { await del(`/tasks/tasks/${gone.id}`); toast('Task deleted', 'info', { action: { label: 'Undo', onClick: () => post(`/tasks/trash/${gone.id}/restore`).then(() => { loadTasks(); loadLists(); }).catch((e) => toast(e.message, 'error')) } }); loadTasks(); loadLists(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+
+  // Keyboard shortcuts (see taskkeys.js) in the list view: J / K move between the open tasks (focus moves
+  // with them), O or Enter opens one, X ticks it off, S stars it, # deletes it, N goes to Add a task.
+  const keyState = useRef();
+  keyState.current = { on: user?.keys !== false, view, tasks, toggle, update, deleteTask, addBox };
+  useEffect(() => {
+    const focusTask = (id) => {
+      const b = id && document.querySelector(`li.task[data-task="${CSS.escape(id)}"] .task-main`);
+      if (b) { b.focus(); b.scrollIntoView?.({ block: 'nearest' }); }
+    };
+    const onKey = (e) => {
+      const st = keyState.current;
+      if (!st.on || st.view !== 'list') return;
+      const action = taskKey(e);
+      if (!action || document.querySelector('.modal-backdrop, [role=menu], [role=dialog]')) return;
+      if (action === 'new') { if (st.addBox.current) { e.preventDefault(); st.addBox.current.focus(); } return; }
+      const ids = [...document.querySelectorAll('li.task[data-task]:not(.done)')].map((li) => li.dataset.task);
+      const here = document.activeElement?.closest?.('li.task[data-task]')?.dataset.task || null;
+      if (action === 'next' || action === 'prev') { const id = stepTask(ids, here, action); if (id) { e.preventDefault(); focusTask(id); } return; }
+      const t = here && (st.tasks || []).find((x) => x.id === here);
+      if (!t) return;
+      e.preventDefault();
+      if (action === 'open') document.activeElement.closest('li.task').querySelector('.task-main')?.click();
+      else if (action === 'star') { if (!t.done) st.update(t, { important: !t.important }); }
+      else if (action === 'done' || action === 'delete') {
+        const next = t.done ? null : afterLeaving(ids, t.id);
+        if (action === 'done') st.toggle(t); else st.deleteTask(t);
+        setTimeout(() => focusTask(next), 50);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Quick add: "Call Kim tomorrow 3pm !" fills in the due date, time and star (shown before adding).
   const quick = title.trim() && !asTyped ? parseQuickAdd(title, { today: localToday(), people: list?.members.length ? people : [] }) : null;
   async function add(e) {
@@ -197,7 +237,7 @@ export default function Tasks() {
     const due = t.due && dueLabel(t.due, new Date(), t.due_time);
     const waits = virtual ? [] : waitingOn(t, tasks);
     return (
-      <li key={t.id} className={`task ${t.done ? 'done' : ''} ${t.id === openId ? 'open' : ''} ${dropAt === i && dragging ? 'drop-before' : ''}`}
+      <li key={t.id} data-task={t.id} className={`task ${t.done ? 'done' : ''} ${t.id === openId ? 'open' : ''} ${dropAt === i && dragging ? 'drop-before' : ''}`}
         draggable={!t.done && !virtual && sortBy === 'mine'} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
         onDragEnd={() => { setDragging(null); setDropAt(null); }}
         onDragOver={(e) => { if (!dragging || t.done) return; e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1); setDropSec(t.section_id || null); }}
@@ -313,7 +353,7 @@ export default function Tasks() {
               {found.list.map((t) => {
                 const due = t.due && dueLabel(t.due, new Date(), t.due_time);
                 return (
-                  <li key={t.id} className={`task ${t.done ? 'done' : ''}`}>
+                  <li key={t.id} data-task={t.id} className={`task ${t.done ? 'done' : ''}`}>
                     <button type="button" className="task-main" onClick={() => { setFound(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }}>
                       <span className="task-title">{t.done ? '✓ ' : ''}{t.title}</span>
                       <span className="task-meta"><span className="muted small">{t.list_name}</span>{due && !t.done && <span className={`pill due ${due.tone}`}>{due.text}</span>}{t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}</span>
@@ -536,7 +576,7 @@ export default function Tasks() {
       </section>
       {current && list && <TaskDetails key={current.id} task={current} sections={sections} inMyDay={myDay.some((x) => x.id === current.id)} onMyDay={(on) => toMyDay(current, on)} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
         onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
-        onDelete={async () => { const gone = current; show(null); try { await del(`/tasks/tasks/${gone.id}`); toast('Task deleted', 'info', { action: { label: 'Undo', onClick: () => post(`/tasks/trash/${gone.id}/restore`).then(() => { loadTasks(); loadLists(); }).catch((e) => toast(e.message, 'error')) } }); loadTasks(); loadLists(); } catch (e) { toast(e.message, 'error'); } }}
+        onDelete={() => { show(null); deleteTask(current); }}
         onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
       {dialog === 'new' && <PromptModal title="New list" label="List name" confirm="Create" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
