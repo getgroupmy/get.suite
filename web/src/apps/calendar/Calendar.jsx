@@ -267,14 +267,17 @@ function Calendar({ acting = null, managed = [], onPick }) {
   useEffect(() => { const t = setInterval(loadBusy, 60e3); return () => clearInterval(t); }, [loadBusy]);
   // The upcoming list (next 30 days) doesn't depend on the period on screen.
   const [upcomingList, setUpcoming] = useState([]);
+  // Only the latest request's answer is shown: going through weeks quickly, one you left can answer last.
+  const loadSeq = useRef(0);
   const load = useCallback(() => {
+    const seq = ++loadSeq.current;
     const from = days[0].getTime();
     const to = days[days.length - 1].getTime() + DAY;
     // Repeating events come back once; each occurrence is worked out here, in local time.
     const hidden = new Set(hiddenKey ? hiddenKey.split(',') : []);
     const shown = (list) => list.filter((e) => !((e.role === 'organizer' || e.role === 'shared') && e.calendar_id && hidden.has(e.calendar_id))
       && (showDeclined || !(e.role === 'guest' && e.my_status === 'no')));
-    get(`/events?from=${from}&to=${to}`).then((list) => setEvents(expandAll(shown(list), from, to))).catch((e) => toast(e.message, 'error'));
+    get(`/events?from=${from}&to=${to}`).then((list) => { if (seq === loadSeq.current) setEvents(expandAll(shown(list), from, to)); }).catch((e) => { if (seq === loadSeq.current) toast(e.message, 'error'); });
     const now = Date.now();
     get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(shown(list), now, now + 30 * DAY))).catch(() => {});
   }, [days, toast, hiddenKey, showDeclined]);

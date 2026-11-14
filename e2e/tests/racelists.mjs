@@ -77,6 +77,34 @@ await step('Chat: switching conversations quickly, the one you left answering la
   await page.waitForTimeout(2500);
   if (await page.getByText('said in the first room').count()) throw new Error('the first room’s messages shown in the second');
 });
+await step('Calendar: going through weeks quickly, a week you left answering last doesn’t take over', async () => {
+  const at = (days, h) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, 0, 0, 0); return d.getTime(); };
+  await api(page, 'POST', '/events', { title: 'This week meeting', start: at(0, 23) - 30 * 60e3, end: at(0, 23) });
+  await api(page, 'POST', '/events', { title: 'Next week meeting', start: at(7, 23) - 30 * 60e3, end: at(7, 23) });
+  await api(page, 'PUT', '/users/me/keys', { on: true });
+  // This week's request: the one for seven days (the 30-day one is the upcoming list).
+  const isWeek = (u) => { const f = Number(u.searchParams.get('from')), t = Number(u.searchParams.get('to')); return u.pathname === '/api/events' && t - f <= 8 * 864e5; };
+  let thisWeek = null;
+  page.on('request', (r) => { const u = new URL(r.url()); if (!thisWeek && isWeek(u)) thisWeek = u.searchParams.get('from'); });
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radiogroup', { name: 'View' }).waitFor();
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('w');
+  await page.getByText('This week meeting').first().waitFor();
+  thisWeek = null; await page.reload(); await page.getByText('This week meeting').first().waitFor();
+  const slowFrom = thisWeek;
+  await page.route((u) => isWeek(u) && u.searchParams.get('from') === slowFrom, async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('k'); await page.waitForTimeout(150);
+  await page.keyboard.press('j'); await page.waitForTimeout(150); // this week again: its answer will be late
+  await page.keyboard.press('j');
+  // (The sidebar's Upcoming list shows both whatever week is on screen: look in the week itself.)
+  const grid = page.locator('.timegrid');
+  await grid.getByText('Next week meeting').first().waitFor();
+  await page.waitForTimeout(2500);
+  if (await grid.getByText('This week meeting').count()) throw new Error('this week’s event shown in next week');
+  if (!(await grid.getByText('Next week meeting').count())) throw new Error('next week’s event gone');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
