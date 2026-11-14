@@ -1,0 +1,4 @@
+Name,Seats,Where,Equipment,Admins only,Check-in
+Boardroom,12,2nd floor,"Video, Whiteboard",yes,no
+Huddle,4,Ground floor,Video,no,yes
+,3,,,,

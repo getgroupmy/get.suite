@@ -1,0 +1,13 @@
+{
+  "name": "workspace-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests: each script in tests/ drives the real app in Chromium (run.sh starts a server for it).",
+  "scripts": {
+    "test": "bash run-all.sh"
+  },
+  "devDependencies": {
+    "axe-core": "4.10.2",
+    "playwright": "1.63.0"
+  }
+}
