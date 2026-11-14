@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 import { get, post, del } from '../api.js';
 import Icon from './Icon.jsx';
 import { useAuth } from '../App.jsx';
-import { matchActions, detailedActions, wantsEvent } from './searchactions.js';
+import { matchActions, detailedActions, wantsPeople } from './searchactions.js';
 import { localToday } from '../apps/tasks/taskmath.js';
 import { addToTasksWithToast } from '../apps/tasks/addtask.js';
 import { newEventMinutes, DEFAULT_CAL_PREFS } from '../apps/calendar/calprefs.js';
@@ -71,15 +71,15 @@ export default function GlobalSearch() {
   const [recent, setRecent] = useState(null); // your recent searches (loaded when the box is first opened)
   const [mailOn, setMailOn] = useState(false);
   useEffect(() => { mailEnabled().then(setMailOn); }, []);
-  // "event …" offers that event (colleagues for @name, rooms for "in the Boardroom", loaded the first time it's typed).
+  // "event …" offers that event, "email @kim …" that message (colleagues for @name, rooms for "in the Boardroom", loaded the first time it's typed).
   const [eventCtx, setEventCtx] = useState(null);
-  const eventy = wantsEvent(text);
+  const eventy = wantsPeople(text);
   useEffect(() => {
     if (!eventy || eventCtx) return;
     Promise.all([get('/users/directory').catch(() => []), get('/rooms').catch(() => [])]).then(([people, rooms]) => setEventCtx({ people: people.filter((p) => p.id !== user?.id), rooms }));
   }, [eventy, eventCtx, user?.id]);
-  const detailed = detailedActions(text, { today: localToday(), minutes: newEventMinutes(user?.cal_prefs || DEFAULT_CAL_PREFS), ...(eventCtx || {}) })
-    .map((a) => ({ ...a, key: `a${a.key}`, action: true, sub: a.quickEvent ? eventWhen(a.quickEvent) : taskWhen(a.quickTask) }));
+  const detailed = detailedActions(text, { today: localToday(), minutes: newEventMinutes(user?.cal_prefs || DEFAULT_CAL_PREFS), mail: mailOn, ...(eventCtx || {}) })
+    .map((a) => ({ ...a, key: `a${a.key}`, action: true, sub: a.quickEvent ? eventWhen(a.quickEvent) : a.quickTask ? taskWhen(a.quickTask) : a.quickMail ? (a.quickMail.subject ? `“${a.quickMail.subject}”` : 'no subject yet') : a.quickNote?.labels.length ? a.quickNote.labels.map((l) => `#${l}`).join(' ') : '' }));
   const actions = [...detailed, ...(detailed.length ? [] : matchActions(text, { mail: mailOn, admin: !!user?.is_admin }))].map((a) => (a.action ? a : { ...a, key: `a${a.key}`, action: true }));
   const toast = useToast();
   const showRecent = !text.trim() && recent?.length > 0;
@@ -120,6 +120,11 @@ export default function GlobalSearch() {
       return;
     }
     if (r.quickTask) { await addToTasksWithToast(toast, navigate, r.quickTask); return; }
+    if (r.quickNote) {
+      try { const n = await post('/notes', r.quickNote); toast(n.items ? 'Checklist added to Notes' : 'Note added', 'info', { action: { label: 'Open', onClick: () => navigate('/notes', { state: { openNote: n.id } }) } }); } catch (e) { toast(e.message, 'error'); }
+      return;
+    }
+    if (r.quickMail) { navigate(`/mail?compose=${encodeURIComponent(r.quickMail.to.join(', '))}${r.quickMail.subject ? `&subject=${encodeURIComponent(r.quickMail.subject)}` : ''}`); return; }
     if (r.event) {
       const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
       navigate('/calendar', { state: { newEvent: { title: '', start: t.getTime(), end: t.getTime() + 36e5, all_day: 0, location: '', description: '' } } });

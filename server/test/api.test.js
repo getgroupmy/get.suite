@@ -2806,6 +2806,19 @@ test('top search "task …": the quick-add task goes on your own list with every
   assert.deepEqual([plain.title, plain.due, plain.link_url ?? null], ['Buy milk', null, null]);
 });
 
+test('top search "note …" / "list …": the note it sends is kept as a note or a checklist, with its labels', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'srnote', domain: 'acme.com', name: 'Search Note', password: 'password123' })).status, 201);
+  await login(a, 'srnote@acme.com');
+  const list = await a('POST', '/api/notes', { items: [{ text: 'milk', done: false }, { text: 'eggs', done: false }], labels: ['shopping'] });
+  assert.equal(list.status, 201, JSON.stringify(list.body));
+  assert.deepEqual([list.body.items.map((i) => [i.text, !!i.done]), list.body.labels, list.body.title], [[['milk', false], ['eggs', false]], ['shopping'], '']);
+  const note = (await a('POST', '/api/notes', { body: 'Call the bank about the card', labels: ['home'] })).body;
+  assert.deepEqual([note.body, note.items ?? null, note.labels], ['Call the bank about the card', null, ['home']]);
+  const mine = (await a('GET', '/api/notes')).body;
+  assert.deepEqual((mine.notes || mine).slice(0, 2).map((n) => n.id), [note.id, list.body.id], 'newest at the top');
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);

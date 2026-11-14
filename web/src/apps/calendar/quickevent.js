@@ -48,20 +48,20 @@ const EMAIL = /(?<=^|[\s,(<])([a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{
  * Returns { text, guests: [email], names: [name] }: a colleague's "@…" becomes their name; an address is
  * taken out (with a "with" or "and" left dangling before it). An "@word" matching nobody stays as typed.
  */
-export function guestsIn(input, people = []) {
+export function guestsIn(input, people = [], { drop = false } = {}) { // drop: a colleague's "@…" is taken out too (marked, for tidy)
   let s = ` ${input} `;
   const guests = [];
   const names = [];
   const add = (email, name) => { const e = email.toLowerCase(); if (!guests.includes(e)) { guests.push(e); if (name) names.push(name); } };
   const first = (p) => p.name?.toLowerCase().split(/\s+/)[0];
-  s = s.replace(/(^|[\s,(])@([\p{L}][\p{L}.'-]*)(?:\s+([\p{L}][\p{L}'-]*))?(?=$|[\s,.)])/gu, (all, pre, a, b) => {
+  s = s.replace(/(^|[\s,(])@([\p{L}][\p{L}.'-]*)(?:\s+([\p{L}][\p{L}'-]*))?(?=$|[\s,.;:!?)])/gu, (all, pre, a, b) => {
     const full = b && people.find((p) => p.name?.toLowerCase() === `${a} ${b}`.toLowerCase());
-    if (full) { add(full.username, full.name); return `${pre}${full.name}`; }
+    if (full) { add(full.username, full.name); return `${pre}${drop ? ' \u2043 ' : full.name}`; }
     const w = a.toLowerCase();
     const matches = people.filter((p) => first(p) === w || p.username?.toLowerCase().split('@')[0] === w || p.name?.toLowerCase() === w);
     if (matches.length !== 1) return all; // nobody, or more than one Kim: as typed
     add(matches[0].username, matches[0].name);
-    return `${pre}${matches[0].name.split(/\s+/)[0]}${b ? ` ${b}` : ''}`;
+    return `${pre}${drop ? ' \u2043 ' : matches[0].name.split(/\s+/)[0]}${b ? ` ${b}` : ''}`;
   });
   for (let m; (m = EMAIL.exec(s));) {
     add(m[1]);
@@ -71,7 +71,7 @@ export function guestsIn(input, people = []) {
 }
 
 /** Where addresses were taken out: drop the marks, with a "with", "and" or comma left hanging before them. */
-function tidy(title) {
+export function tidy(title) {
   let t = ` ${title} `;
   for (let i = 0; i < 20 && t.includes('\u2043'); i++) t = t.replace(/(?:\s*(?:,|\band\b|&|\bwith\b))*\s*\u2043\s*/i, ' ');
   return t.replace(/\(\s*\)/g, '').replace(/\s+([,.])/g, '$1').replace(/[\s,]+$/, '').replace(/\s+/g, ' ').trim();

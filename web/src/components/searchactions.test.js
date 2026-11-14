@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchActions, detailedActions, wantsEvent } from './searchactions.js';
+import { matchActions, detailedActions, wantsEvent, wantsPeople, noteFrom, mailFrom } from './searchactions.js';
 
 const keys = (l) => l.map((a) => a.key);
 
@@ -38,4 +38,28 @@ test('"task …": that task, read by Tasks quick add', () => {
   assert.deepEqual(detailedActions('todo Buy milk', { today })[0].quickTask.due, null);
   assert.deepEqual(detailedActions('tasks', { today }), []);
   assert.deepEqual(detailedActions('budget review', { today }), []);
+});
+
+test('"note …" and "list …": a note or a checklist, #labels taken out', () => {
+  const [a] = detailedActions('note Call the bank about the card #home', { today });
+  assert.deepEqual([a.title, a.quickNote], ['Add note: Call the bank about the card', { body: 'Call the bank about the card', labels: ['home'] }]);
+  const [l] = detailedActions('list milk, eggs ,  bread, #Shopping', { today });
+  assert.deepEqual(l.quickNote, { items: [{ text: 'milk', done: false }, { text: 'eggs', done: false }, { text: 'bread', done: false }], labels: ['shopping'] });
+  assert.equal(l.title, 'Add checklist: milk, eggs, bread');
+  assert.equal(noteFrom('note', '#only'), null);
+  assert.deepEqual(detailedActions('notes', { today }), []);
+  assert.deepEqual(detailedActions('note', { today }), []);
+});
+
+test('"email @kim …": a message to them with the rest as its subject; nobody named: nothing', () => {
+  const people = [{ name: 'Kim Park', username: 'kim@acme.com' }, { name: 'Ana Silva', username: 'ana@acme.com' }];
+  const [a] = detailedActions('email @kim Budget figures', { today, people });
+  assert.deepEqual([a.title, a.quickMail], ['Email Kim Park', { to: ['kim@acme.com'], subject: 'Budget figures' }]);
+  assert.deepEqual(mailFrom('@Ana Silva and jo@client.com about the Q3 plan', people), { to: ['ana@acme.com', 'jo@client.com'], subject: 'the Q3 plan' });
+  assert.deepEqual(mailFrom('kim@acme.com', people), { to: ['kim@acme.com'], subject: '' });
+  assert.deepEqual(mailFrom('@kim, @ana: lunch?', people), { to: ['kim@acme.com', 'ana@acme.com'], subject: 'lunch?' });
+  assert.deepEqual(detailedActions('email the team', { today, people }), [], 'nobody: the plain "Write an email" does');
+  assert.deepEqual(detailedActions('email @kim hi', { today, people, mail: false }), [], 'no email on this server');
+  assert.equal(wantsPeople('write to @kim'), true);
+  assert.equal(wantsPeople('task x'), false);
 });

@@ -186,12 +186,12 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     const next = new URLSearchParams(search); next.delete('storage'); setSearch(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.get('storage')]);
-  // Opened to write to someone (/mail?compose=addresses, e.g. from a contact group).
+  // Opened to write to someone (/mail?compose=addresses[&subject=…], e.g. from a contact group or the search box).
   useEffect(() => {
     const to = search.get('compose');
     if (to === null) return;
-    setCompose(withSignature({ to }, 'new'));
-    const next = new URLSearchParams(search); next.delete('compose'); setSearch(next, { replace: true });
+    setCompose(withSignature({ to, ...(search.get('subject') && { subject: search.get('subject').slice(0, 300) }) }, 'new')); // &subject= from the search box's "email @kim …"
+    const next = new URLSearchParams(search); next.delete('compose'); next.delete('subject'); setSearch(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.get('compose')]);
 

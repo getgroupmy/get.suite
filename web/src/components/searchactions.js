@@ -2,7 +2,7 @@
 // and it's offered first. Each has words it answers to; every word typed must start one of them.
 // "event Lunch with @kim tomorrow 1pm" and "task Send invoice friday !" are read by Calendar's and
 // Tasks' quick add, and offered as that very event or task.
-import { parseQuickEvent } from '../apps/calendar/quickevent.js';
+import { parseQuickEvent, guestsIn, tidy } from '../apps/calendar/quickevent.js';
 import { parseQuickAdd } from '../apps/tasks/quickadd.js';
 export const ACTIONS = [
   { key: 'doc', title: 'New document', icon: 'doc', words: 'new document doc write docs', make: 'doc' },
@@ -26,22 +26,63 @@ export function matchActions(text, { mail = true, admin = false, max = 3 } = {})
     .slice(0, max);
 }
 
+const NOTE_WORDS = /^(?:new\s+)?(note|list|checklist)\s+(.+)$/i;
+const MAIL_WORDS = /^(?:new\s+)?(?:email|mail|message|write\s+to)\s+(.+)$/i;
+/** Whether a line wants colleagues looked up (an event's guests, an email's recipients). */
+export const wantsPeople = (text) => EVENT_WORDS.test(String(text || '').trim()) || MAIL_WORDS.test(String(text || '').trim());
+
+/**
+ * "note Call the bank", "list milk, eggs, bread #shopping": a note (a checklist for "list", its items split at
+ * commas), with "#label"s as its labels. Null when there's nothing to keep.
+ */
+export function noteFrom(kind, rest) {
+  const labels = [];
+  const words = ` ${rest} `.replace(/\s#(\p{L}[\p{L}\p{N}_-]{0,29})(?=[\s,.]|$)/gu, (_, l) => { if (!labels.includes(l.toLowerCase())) labels.push(l.toLowerCase()); return ' '; }).replace(/\s+/g, ' ').trim();
+  if (!words) return null;
+  if (/list/i.test(kind)) {
+    const items = words.split(/\s*,\s*/).filter(Boolean).slice(0, 100);
+    return items.length ? { items: items.map((text) => ({ text, done: false })), labels } : null;
+  }
+  return { body: words.slice(0, 20000), labels };
+}
+
+/** "email @kim and jo@client.com about Budget figures": { to: [addresses], subject }. Colleagues by "@name" (from `people`). */
+export function mailFrom(rest, people = []) {
+  const who = guestsIn(rest, people, { drop: true });
+  const subject = tidy(who.text).replace(/^(?:about|re:?|regarding|subject:?|[-:])\s*/i, '').trim();
+  return { to: who.guests, subject };
+}
+
 const EVENT_WORDS = /^(?:new\s+)?(?:event|meeting|appointment)\s+(.+)$/i;
 const TASK_WORDS = /^(?:new\s+)?(?:task|todo|to-do|remind\s+me\s+to)\s+(.+)$/i;
 /** Whether a line starts like a detailed event (so the caller knows to have people and rooms ready). */
 export const wantsEvent = (text) => EVENT_WORDS.test(String(text || '').trim());
 
 /**
- * "event …" or "task …" with details: [{ key, title, sub, quickEvent | quickTask }] (one at most), or [].
+ * "event …", "task …", "note …" / "list …" or "email @…" with details: [{ key, title, quickEvent | quickTask | quickNote | quickMail }]
+ * (one at most), or [].
  * An event needs a day or time in it; a task just words after "task".
  */
-export function detailedActions(text, { today, people = [], rooms = [], minutes = 60 } = {}) {
+export function detailedActions(text, { today, people = [], rooms = [], minutes = 60, mail = true } = {}) {
   const t = String(text || '').trim();
   let m = EVENT_WORDS.exec(t);
   if (m) {
     const ev = parseQuickEvent(m[1], { today, people, rooms, minutes });
     if (!ev) return [];
     return [{ key: 'qevent', icon: 'calendar', title: `New event: ${ev.title || '(no title)'}`, quickEvent: ev }];
+  }
+  m = NOTE_WORDS.exec(t);
+  if (m) {
+    const note = noteFrom(m[1], m[2]);
+    if (!note) return [];
+    const what = note.items ? note.items.map((i) => i.text).join(', ') : note.body;
+    return [{ key: 'qnote', icon: 'note', title: `${note.items ? 'Add checklist' : 'Add note'}: ${what.slice(0, 80)}`, quickNote: note }];
+  }
+  m = MAIL_WORDS.exec(t);
+  if (m && mail) {
+    const msg = mailFrom(m[1], people);
+    if (!msg.to.length) return []; // nobody to write to: the plain "Write an email" does
+    return [{ key: 'qmail', icon: 'mail', title: `Email ${msg.to.map((a) => people.find((p) => p.username.toLowerCase() === a)?.name || a).join(', ')}`, quickMail: msg }];
   }
   m = TASK_WORDS.exec(t);
   if (m) {
