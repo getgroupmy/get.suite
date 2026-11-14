@@ -14685,3 +14685,26 @@ test('time off: adding a country\'s public holidays as company holidays (admins)
   assert.equal((await pat('GET', '/api/time-off/holidays/public?country=US&year=2031')).status, 200, 'anyone may look');
   for (const h of listed) await owner('DELETE', `/api/time-off/holidays/${h.id}`);
 });
+
+test('calendar: your own "Holidays in …", for the days shown, separate from the company\'s', async () => {
+  const pat = client();
+  await owner('POST', '/api/users', { local: 'myhol', domain: 'acme.com', name: 'My Hol', password: 'password123' });
+  await login(pat, 'myhol@acme.com');
+  const start = (await pat('GET', '/api/time-off/my-holidays')).body;
+  assert.equal(start.country, '');
+  assert.ok(start.countries.some((c) => c.code === 'DE'));
+  assert.deepEqual((await pat('GET', '/api/time-off/my-holidays?from=2026-12-01&to=2026-12-31')).body.holidays, []);
+  assert.equal((await pat('PUT', '/api/time-off/my-holidays', { country: 'zz' })).status, 400);
+  assert.deepEqual((await pat('PUT', '/api/time-off/my-holidays', { country: 'de' })).body, { country: 'DE' });
+  const dec = (await pat('GET', '/api/time-off/my-holidays?from=2026-12-01&to=2027-01-06')).body;
+  assert.equal(dec.country, 'DE');
+  assert.deepEqual(dec.holidays.map((h) => `${h.date} ${h.name}`), ['2026-12-25 1. Weihnachtstag', '2026-12-26 2. Weihnachtstag', '2027-01-01 Neujahr']);
+  // The US's New Year's Day 2028 is observed on Friday 31 December 2027: in a December 2027 view.
+  await pat('PUT', '/api/time-off/my-holidays', { country: 'US' });
+  const us = (await pat('GET', '/api/time-off/my-holidays?from=2027-12-20&to=2027-12-31')).body.holidays.map((h) => h.date);
+  assert.deepEqual(us, ['2027-12-24', '2027-12-31']);
+  // Only yours: someone else has none.
+  assert.equal((await owner('GET', '/api/time-off/my-holidays')).body.country, '');
+  assert.deepEqual((await pat('PUT', '/api/time-off/my-holidays', { country: '' })).body, { country: '' });
+  assert.deepEqual((await pat('GET', '/api/time-off/my-holidays?from=2026-12-01&to=2026-12-31')).body.holidays, []);
+});

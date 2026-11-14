@@ -48,6 +48,18 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = (d) => DATE.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
 
 /** Weekdays (Monday to Friday) from a to b, both included, but not holidays: how many working days a request takes. */
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'holiday_country')) q('ALTER TABLE users ADD COLUMN holiday_country TEXT').run();
+
+/** A country's public holidays between two days (YYYY-MM-DD, at most three years apart), for a calendar. */
+export function holidaysBetween(country, from, to) {
+  if (!DATE.test(from) || !DATE.test(to) || from > to) return [];
+  const y0 = Number(from.slice(0, 4)), y1 = Math.min(Number(to.slice(0, 4)), y0 + 2);
+  const out = [];
+  // A year before too: a US holiday can be observed on the last day of the year before.
+  for (let y = y0 - 1; y <= y1 + 1; y++) for (const h of publicHolidays(country, y) || []) if (h.date >= from && h.date <= to) out.push(h);
+  return out.filter((h, i) => out.findIndex((x) => x.date === h.date) === i);
+}
+
 export function workdays(a, b, holidays = new Set()) {
   let n = 0;
   for (let t = Date.parse(`${a}T00:00:00Z`), end = Date.parse(`${b}T00:00:00Z`); t <= end; t += 864e5) {
@@ -217,6 +229,18 @@ export default function timeOffRoutes() {
     if (!days) throw bad('Choose a country and a year');
     const have = new Set(q('SELECT date FROM company_holidays WHERE org_id = ?').all(req.user.org_id).map((h) => h.date));
     res.json({ holidays: days.map((h) => ({ ...h, added: have.has(h.date) })) });
+  });
+  // Your own "Holidays in …" on your calendar (any country with rules; '' for none), separate from the company's.
+  r.get('/my-holidays', (req, res) => {
+    const country = q('SELECT holiday_country FROM users WHERE id = ?').get(req.user.id)?.holiday_country || '';
+    if (!req.query.from) return res.json({ country, countries: COUNTRIES });
+    res.json({ country, holidays: country ? holidaysBetween(country, String(req.query.from), String(req.query.to || req.query.from)) : [] });
+  });
+  r.put('/my-holidays', (req, res) => {
+    const country = String(req.body?.country || '').toUpperCase();
+    if (country && !COUNTRIES.some((c) => c.code === country)) throw bad('Choose a country');
+    q('UPDATE users SET holiday_country = ? WHERE id = ?').run(country || null, req.user.id);
+    res.json({ country });
   });
   r.post('/holidays/public', (req, res) => {
     if (!req.user.is_admin) throw forbidden('Only admins set company holidays');

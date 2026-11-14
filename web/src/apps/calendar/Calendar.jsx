@@ -51,14 +51,15 @@ const birthdayItems = (list) => list.map((b) => {
   const title = b.label ? `🗓 ${b.label}: ${b.name}${b.years ? ` (${b.years})` : ''}` : `🎂 ${b.name}${b.age ? ` (${b.age})` : ''}`;
   return { key: `bday:${b.contact_id}:${b.date}:${b.label || ''}`, birthday: b, title, start, end: start + DAY - 1, all_day: 1 };
 });
-/** Company holidays as all-day items. */
-const holidayItems = (list) => list.map((h) => {
-  const [y, m, d] = h.date.split('-').map(Number);
-  const start = new Date(y, m - 1, d).getTime();
-  return { key: `hol:${h.id}`, holiday: h, title: `🏳 ${h.name}`, start, end: start + DAY - 1, all_day: 1 };
-});
+/** Company holidays as all-day items, then your own "Holidays in …" (🎉) on the days the company has none. */
+const holidayItems = (list, mine = []) => {
+  const item = (h, key, title) => { const [y, m, d] = h.date.split('-').map(Number); const start = new Date(y, m - 1, d).getTime(); return { key, holiday: h, title, start, end: start + DAY - 1, all_day: 1 }; };
+  const company = new Set(list.map((h) => h.date));
+  return [...list.map((h) => item(h, `hol:${h.id}`, `🏳 ${h.name}`)),
+    ...mine.filter((h) => !company.has(h.date)).map((h) => item({ ...h, public: true }, `pub:${h.date}`, `🎉 ${h.name}`))];
+};
 function HolidayChip({ ev }) {
-  return <span className="chip allday holiday-chip" title={`Company holiday: ${ev.holiday.name}`}>{ev.title}</span>;
+  return <span className="chip allday holiday-chip" title={`${ev.holiday.public ? 'Public holiday' : 'Company holiday'}: ${ev.holiday.name}`}>{ev.title}</span>;
 }
 function BirthdayChip({ ev }) {
   const navigate = useNavigate();
@@ -205,6 +206,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const setShowBirthdays = (on) => { setShowBirthdaysState(on); try { localStorage.setItem('nw.calBirthdays', on ? '1' : '0'); } catch { /* private window */ } };
   const [birthdays, setBirthdays] = useState([]);
   const [holidays, setHolidays] = useState([]); // the company's holidays in view
+  const [myHolidays, setMyHolidays] = useState({ country: '', countries: [], list: [] }); // your own "Holidays in …"
   const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
@@ -292,7 +294,12 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const loadHolidays = useCallback(() => {
     const last = new Date(days[days.length - 1]);
     get(`/time-off/holidays?from=${toDateInput(days[0].getTime())}&to=${toDateInput(last.getTime())}`).then(setHolidays).catch(() => setHolidays([]));
+    get(`/time-off/my-holidays?from=${toDateInput(days[0].getTime())}&to=${toDateInput(last.getTime())}`).then((r) => setMyHolidays((x) => ({ ...x, country: r.country, list: r.holidays }))).catch(() => {});
   }, [days]);
+  useEffect(() => { get('/time-off/my-holidays').then((r) => setMyHolidays((x) => ({ ...x, countries: r.countries }))).catch(() => {}); }, []);
+  const pickHolidayCountry = async (country) => {
+    try { await put('/time-off/my-holidays', { country }); setMyHolidays((x) => ({ ...x, country })); loadHolidays(); } catch (e) { toast(e.message, 'error'); }
+  };
   useEffect(() => { loadHolidays(); }, [loadHolidays]);
   useEffect(() => onLive((m) => { if (refreshOn(m, 'tasks-changed')) loadTasks(); }), [loadTasks]);
   const taskDone = async (t) => {
@@ -351,7 +358,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const moving = drag.drag || pendingMove;
   const shown = useMemo(() => [...(moving
     ? events.map((e) => ((e.key || e.id) === (moving.ev.key || moving.ev.id) ? { ...e, start: moving.start, end: moving.end, dragging: true } : e))
-    : events), ...taskItems(tasks), ...birthdayItems(birthdays), ...holidayItems(holidays)], [events, moving, tasks, birthdays, holidays]);
+    : events), ...taskItems(tasks), ...birthdayItems(birthdays), ...holidayItems(holidays, myHolidays.list)], [events, moving, tasks, birthdays, holidays, myHolidays.list]);
 
   // Arrow keys move between periods in the week and day views (when nothing else has focus).
   useEffect(() => {
@@ -433,6 +440,14 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <Feeds onChanged={load} />
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays and dates</label>
+        {myHolidays.countries.length > 0 && (
+          <label className="row small cal-show-tasks" style={{ gap: 6 }}>Holidays in
+            <select value={myHolidays.country} onChange={(e) => pickHolidayCountry(e.target.value)} aria-label="Show public holidays in">
+              <option value="">(none)</option>
+              {myHolidays.countries.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </label>
+        )}
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekends} onChange={(e) => setWeekends(e.target.checked)} /> Show weekends</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekNums} onChange={(e) => setWeekNums(e.target.checked)} /> Show week numbers</label>
         <label className="check cal-show-tasks" title="Invitations you said No to, shown faded"><input type="checkbox" checked={showDeclined} onChange={(e) => setShowDeclined(e.target.checked)} /> Show declined events</label>
