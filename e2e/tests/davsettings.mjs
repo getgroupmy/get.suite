@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
 const SP = process.argv[2];
-const B = 'http://localhost:8080';
+const B = process.env.BASE || 'http://localhost:8080';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAKElEQVR42u3OMQEAAAgDoNm/tKbwgQJ0Uhk1NBQQEBAQEBAQEBAQEBAQ1gWjYCbJAAAAAElFTkSuQmCC', 'base64');
 const browser = await chromium.launch();
 const errors = [];
@@ -32,9 +32,9 @@ await step('setup', async () => {
 await step('settings explain phone sync, and an app password works without email', async () => {
   await page.goto(B + '/settings');
   const sec = page.getByRole('region', { name: 'Calendar and contacts on your phone', exact: true });
-  await sec.getByText('localhost:8080', { exact: true }).waitFor();
-  await sec.getByText('http://localhost:8080/dav/', { exact: true }).waitFor();
-  await sec.getByText('http://localhost:8080/dav/files/', { exact: true }).waitFor();
+  await sec.getByText(new URL(B).host, { exact: true }).waitFor();
+  await sec.getByText(`${B}/dav/`, { exact: true }).waitFor();
+  await sec.getByText(`${B}/dav/files/`, { exact: true }).waitFor();
   await sec.getByText(/Connect to Server/).waitFor();
   await sec.getByText(/Add CalDAV Account/).waitFor();
   await sec.getByText('your account password', { exact: true }).waitFor();
@@ -45,7 +45,7 @@ await step('settings explain phone sync, and an app password works without email
   if (!/^[a-z]{4}(-[a-z]{4}){3}$/.test(pw)) throw new Error(pw);
   await page.screenshot({ path: `${SP}/shots/davsettings.png` });
   // The phone signs in with it.
-  const r = await fetch('http://localhost:8080/dav/', { method: 'PROPFIND', headers: { depth: '0', authorization: `Basic ${Buffer.from(`olivia@acme.com:${pw}`).toString('base64')}` } });
+  const r = await fetch(`${B}/dav/`, { method: 'PROPFIND', headers: { depth: '0', authorization: `Basic ${Buffer.from(`olivia@acme.com:${pw}`).toString('base64')}` } });
   if (r.status !== 207) throw new Error(`dav ${r.status}`);
 });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));

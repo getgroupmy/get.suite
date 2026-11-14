@@ -114,7 +114,6 @@ zip.mjs
 chatemail.mjs
 coedit.mjs
 companysig.mjs
-davsettings.mjs
 digest.mjs
 groupemail.mjs
 mailmerge.mjs
