@@ -14874,3 +14874,53 @@ test('forms for anyone: email addresses only at some domains', async () => {
   assert.equal((await anon('GET', url)).body.email_domains, undefined);
   assert.equal((await anon('POST', url, { email: 'pat@gmail.com', answers: { n: 'Pat' } })).status, 201);
 });
+
+test('booking pages: group sessions — several people at one time, on one event, private from each other', async () => {
+  (await import('../src/routes/booking.js')).resetBookingLimits(); // every test books from 127.0.0.1
+  const { isGroupBooking } = await import('../src/routes/calendar.js');
+  const made = await owner('POST', '/api/bookings', { title: 'Pottery class', duration: 60, days: [0, 1, 2, 3, 4, 5, 6], from_min: 540, to_min: 600, tz: 'UTC', days_ahead: 3, notice_hours: 0, seats: 3 });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal(made.body.seats, 3);
+  assert.equal((await owner('PATCH', `/api/bookings/${made.body.id}`, { seats: 500 })).status, 400);
+  const token = made.body.url.split('/b/')[1];
+  const pub = client();
+  const page = async () => (await pub('GET', `/api/public/book/${token}`)).body;
+  const p0 = await page();
+  const first = p0.days[0]; // the first day with a free time
+  const start = first.slots[0];
+  assert.equal((await page()).left[start], 3);
+  const book = (name) => pub('POST', `/api/public/book/${token}`, { start, name, email: `${name.toLowerCase()}@example.org` });
+  const a = await book('Ana');
+  assert.equal(a.status, 201, JSON.stringify(a.body));
+  assert.equal((await page()).left[start], 2, 'still offered, with fewer places');
+  assert.equal((await book('Ana')).status, 409, 'once each');
+  assert.equal((await book('Ben')).status, 201);
+  assert.equal((await book('Cy')).status, 201);
+  assert.ok(!(await page()).days.some((d) => d.slots.includes(start)), 'full: no longer offered');
+  assert.equal((await book('Dee')).status, 409);
+  // One event, named after the page, with the three of them as guests.
+  const evs = (await owner('GET', `/api/events?from=${start - 1}&to=${start + 36e5}`)).body.filter((e) => e.title === 'Pottery class');
+  assert.equal(evs.length, 1);
+  const { db } = await import('../src/db.js');
+  assert.deepEqual(db.prepare('SELECT email FROM event_outside_guests WHERE event_id = ? ORDER BY email').all(evs[0].id).map((g) => g.email), ['ana@example.org', 'ben@example.org', 'cy@example.org']);
+  assert.ok(isGroupBooking(evs[0].id));
+  // A guest's invitation page doesn't show the notes (which list who's coming).
+  const tok = db.prepare("SELECT token FROM event_outside_guests WHERE event_id = ? AND email = 'ben@example.org'").get(evs[0].id).token;
+  const inv = (await pub('GET', `/api/public/invites/${tok}`)).body;
+  assert.equal(inv.description, null);
+  assert.match(evs[0].description || '', /Ana <ana@example\.org>[\s\S]*Ben <ben@example\.org>/, 'the host sees who is coming');
+  // Ben cancels: the session stays for the others, and his place is free again. Moving isn't offered.
+  const linkOf = (who) => db.prepare('SELECT cancel_token FROM bookings WHERE event_id = ? AND email = ?').get(evs[0].id, `${who}@example.org`).cancel_token;
+  const benLink = linkOf('ben');
+  const info = (await pub('GET', `/api/public/book/cancel/${benLink}`)).body;
+  assert.equal(info.days, undefined);
+  assert.equal((await pub('POST', `/api/public/book/cancel/${benLink}/move`, { start })).status, 400);
+  assert.equal((await pub('POST', `/api/public/book/cancel/${benLink}`)).status, 200);
+  assert.deepEqual(db.prepare('SELECT email FROM event_outside_guests WHERE event_id = ? ORDER BY email').all(evs[0].id).map((g) => g.email), ['ana@example.org', 'cy@example.org']);
+  assert.equal((await page()).left[start], 1);
+  // The last ones out: the event goes.
+  for (const who of ['ana', 'cy']) await pub('POST', `/api/public/book/cancel/${linkOf(who)}`);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM events WHERE id = ?').get(evs[0].id).n, 0);
+  assert.equal((await page()).left[start], 3);
+  await owner('DELETE', `/api/bookings/${made.body.id}`);
+});

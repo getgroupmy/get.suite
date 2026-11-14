@@ -276,14 +276,24 @@ export const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${
  * Email people outside the server: an invitation, an update or a cancellation, each with the
  * calendar file their mail app understands and a personal link to answer (best effort).
  */
+/**
+ * A group session from a booking page (several people booking the same time): each visitor is a guest,
+ * and none of them is shown the others (their addresses) or the session's notes, which list who's coming.
+ */
+export function isGroupBooking(eventId) {
+  try { return !!q('SELECT 1 FROM bookings b JOIN booking_pages p ON p.id = b.page_id WHERE b.event_id = ? AND p.seats > 1').get(eventId); } catch { return false; }
+}
+
 export function notifyOutside(organizer, e, recipients, kind, { base, tz }) {
   if (!mailEnabled() || !recipients.length) return;
   const zone = zoneOrUtc(tz || e.tz);
+  if (isGroupBooking(e.id)) e = { ...e, description: null }; // and only themselves as a guest, below
+  const group = isGroupBooking(e.id);
   const everyone = [...guestsOf(e.id).map((g) => ({ email: g.email, name: g.name, status: g.status })), ...outsideOf(e.id).map((g) => ({ email: g.email, status: g.status }))];
   for (const g of recipients) {
     const method = kind === 'cancel' ? 'CANCEL' : 'REQUEST';
     const ics = buildIcs(e, { method, uid: icsUid(e), sequence: e.sequence || 0, tz: zone, organizer: { name: organizer.name, email: organizer.username },
-      attendees: kind === 'cancel' ? [{ email: g.email, status: g.status }] : everyone });
+      attendees: kind === 'cancel' || group ? [{ email: g.email, status: g.status }] : everyone });
     const subject = `${{ invite: 'Invitation', update: 'Updated invitation', cancel: 'Cancelled' }[kind]}: ${e.title}`;
     const link = `${base}/i/${g.token}`;
     const lines = kind === 'cancel'
@@ -1121,7 +1131,7 @@ export function publicInviteRoutes() {
     return g;
   };
   const shown = (g) => ({
-    title: g.title, start: g.start, end: g.end, all_day: !!g.all_day, location: g.location, description: g.description,
+    title: g.title, start: g.start, end: g.end, all_day: !!g.all_day, location: g.location, description: isGroupBooking(g.id) ? null : g.description,
     rrule: g.rrule ? JSON.parse(g.rrule) : null, when: whenText(outEvent(g), g.tz), email: g.email, status: g.status, note: g.answer_note || null,
     organizer: { name: g.organizer_name, email: g.organizer_email },
   });
@@ -1142,7 +1152,7 @@ export function publicInviteRoutes() {
   // "Add to my calendar" for apps that didn't pick up the emailed invitation.
   r.get('/:token/ics', (req, res) => {
     const g = find(req.params.token);
-    const e = outEvent(g);
+    const e = isGroupBooking(g.id) ? { ...outEvent(g), description: null } : outEvent(g);
     const ics = buildIcs(e, { method: 'PUBLISH', uid: icsUid(e), sequence: g.sequence || 0, tz: g.tz,
       organizer: { name: g.organizer_name, email: g.organizer_email }, attendees: [{ email: g.email, status: g.status }] });
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');

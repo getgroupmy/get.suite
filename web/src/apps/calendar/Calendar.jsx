@@ -2159,6 +2159,8 @@ function BookingForm({ page, onSave, onCancel }) {
           {[[7, '1 week'], [14, '2 weeks'], [30, '30 days'], [60, '60 days'], [90, '90 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label className="field"><span>Gap before and after</span><select value={p.buffer_min ?? 0} onChange={(e) => set('buffer_min', Number(e.target.value))}>
           {[[0, 'None'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes'], [30, '30 minutes'], [60, '1 hour']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="field"><span>People at a time</span><input type="number" min="1" max="100" value={p.seats ?? 1} onChange={(e) => set('seats', Math.max(1, Math.min(100, Number(e.target.value) || 1)))} style={{ width: 90 }}
+          title="More than 1: a group session (a class, a tour). People booking the same time join one event, and don't see each other." /></label>
         <label className="field"><span>Bookings a day</span><select value={p.max_per_day ?? 0} onChange={(e) => set('max_per_day', Number(e.target.value))}>
           {[[0, 'No limit'], [1, 'At most 1'], [2, 'At most 2'], [3, 'At most 3'], [4, 'At most 4'], [5, 'At most 5'], [8, 'At most 8'], [10, 'At most 10']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       </div>

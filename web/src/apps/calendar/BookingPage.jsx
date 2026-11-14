@@ -140,7 +140,7 @@ export default function BookingPage({ token }) {
       <section className="invite-card stack booking">
         <p className="muted small">Book time with {page.owner.name}</p>
         <h1>{page.title}</h1>
-        <p className="muted" style={{ margin: 0 }}>{page.duration} minutes{page.where?.kind === 'video' ? ' · 📹 Video meeting' : page.where?.kind === 'place' ? ` · 📍 ${page.where.text}` : ''}{page.description ? ` · ${page.description}` : ''}</p>
+        <p className="muted" style={{ margin: 0 }}>{page.duration} minutes{page.seats > 1 ? ` · up to ${page.seats} people` : ''}{page.where?.kind === 'video' ? ' · 📹 Video meeting' : page.where?.kind === 'place' ? ` · 📍 ${page.where.text}` : ''}{page.description ? ` · ${page.description}` : ''}</p>
         {!days.length ? <p>There are no free times in the next few weeks. Please get in touch with {page.owner.name} another way.</p> : !slot ? <>
           <div className="booking-days" role="tablist" aria-label="Days">
             {days.map(([k, list]) => (
@@ -150,7 +150,7 @@ export default function BookingPage({ token }) {
             ))}
           </div>
           <div className="booking-slots" role="group" aria-label={`Times on ${chosen ? longDay(byDay.get(chosen)[0]) : ''}`}>
-            {(byDay.get(chosen) || []).map((t) => <button key={t} type="button" className="btn" onClick={() => setSlot(t)}>{time(t)}</button>)}
+            {(byDay.get(chosen) || []).map((t) => <button key={t} type="button" className="btn" onClick={() => setSlot(t)}>{time(t)}{page.left?.[t] !== undefined && <span className="muted small booking-left">{page.left[t] === 1 ? '1 place left' : `${page.left[t]} places left`}</span>}</button>)}
           </div>
           <p className="muted small" style={{ margin: 0 }}>Times are in your time zone{zone ? ` (${zone})` : ''}.</p>
         </> : (
