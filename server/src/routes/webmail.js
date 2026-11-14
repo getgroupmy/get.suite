@@ -19,6 +19,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor, sendWithRetry } from '../mail/imap.js';
 import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
+import { applyRule } from '../mail/applyrule.js';
 import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers, delegatedMailboxesFor, delegatedMailboxFor, delegatesOf, MAX_DELEGATES } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
@@ -682,6 +683,14 @@ export default function webmailRoutes() {
   // there (same conditions and actions) is added at the end: { added, skipped, rules }.
   r.post('/rules/import', (req, res) => {
     res.json(importMailRules(req.user, req.body));
+  });
+
+  // Run a filter once over the mail already in the Inbox ({ rule }): { matched, moved }. Not forwarding.
+  r.post('/rules/apply', async (req, res) => {
+    const [rule] = ownLabels(req.user, normalizeRules([req.body?.rule]));
+    const keyword = rule.actions.label ? q('SELECT keyword FROM mail_labels WHERE id = ? AND user_id = ?').get(rule.actions.label, req.user.id)?.keyword : null;
+    const trash = (await withClient(req.user, (c) => c.list())).find((b) => b.specialUse === '\\Trash')?.path || 'Trash';
+    res.json(await withFolder(req.user, 'INBOX', (c) => applyRule(c, rule, { keyword, trash })));
   });
 
   r.put('/rules', (req, res) => {

@@ -61,9 +61,18 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
     return (
       <RuleEditor rule={editing.rule} isNew={editing.index === -1} folders={folders} labels={labels} onFoldersChanged={onFoldersChanged}
         onCancel={() => (startWith && editing.index === -1 ? onClose() : setEditing(null))}
-        onSave={async (rule) => {
+        onSave={async (rule, applyNow) => {
           const next = editing.index === -1 ? [...rules, rule] : rules.map((r, i) => (i === editing.index ? rule : r));
-          if (await save(next, 'Filter saved')) { if (startWith && editing.index === -1) onClose(); else setEditing(null); }
+          if (!(await save(next, applyNow ? null : 'Filter saved'))) return;
+          if (applyNow) {
+            // Also the mail already in the Inbox (the server runs it once, as the mail server does on new mail).
+            try {
+              const r = await post('/mail/rules/apply', { rule });
+              toast(r.matched ? `Filter saved, and applied to ${r.matched} message${r.matched === 1 ? '' : 's'} already in the Inbox` : 'Filter saved. No messages in the Inbox match it');
+              onFoldersChanged?.();
+            } catch (e) { toast(`Filter saved, but it couldn't be applied to the Inbox: ${e.message}`, 'error'); }
+          }
+          if (startWith && editing.index === -1) onClose(); else setEditing(null);
         }} />
     );
   }
@@ -159,6 +168,7 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
   const [r, setR] = useState(() => JSON.parse(JSON.stringify({ ...blank, ...(rule || {}) })));
   const [newFolder, setNewFolder] = useState('');
   const [error, setError] = useState('');
+  const [applyNow, setApplyNow] = useState(false); // also to the mail already in the Inbox
   const a = r.actions;
   const setA = (patch) => setR({ ...r, actions: { ...a, ...patch } });
   const setC = (i, patch) => setR({ ...r, conditions: r.conditions.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
@@ -176,7 +186,7 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
       catch (err) { if (!/already exists/.test(err.message)) return setError(err.message); }
       out.actions = { ...out.actions, moveTo: name };
     }
-    onSave(out);
+    onSave(out, applyNow);
   }
 
   return (
@@ -237,6 +247,7 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
           <label className="check"><input type="checkbox" checked={!!a.delete} onChange={(e) => setA({ delete: e.target.checked, ...(e.target.checked && { moveTo: null, label: null }) })} /> Delete it</label>
           <label className="check muted small"><input type="checkbox" checked={a.stop !== false} onChange={(e) => setA({ stop: e.target.checked })} /> Don't apply later filters to matching messages</label>
         </fieldset>
+        <label className="check"><input type="checkbox" checked={applyNow} onChange={(e) => setApplyNow(e.target.checked)} /> Also apply to messages already in the Inbox{a.forwardTo ? ' (they aren\u2019t forwarded)' : ''}</label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onCancel}>Cancel</button><button className="btn primary">Save filter</button></div>
       </form>
