@@ -1,5 +1,6 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
+import { REQUEST_KINDS } from '../drive/requestkinds.js';
 import { printHtml } from '../mail/mailprint.js';
 import { responsesPrintHtml, blankFormHtml, summaryPrintHtml } from './formprint.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -380,7 +381,16 @@ function QuestionsTab({ form, edit }) {
             </details>
           )}
           {q.type === 'file' && (
-            <label className="row small">People can send up to <select aria-label={`Files for question ${i + 1}`} value={q.max_files || 1} onChange={(e) => change(i, { max_files: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select> file{(q.max_files || 1) === 1 ? '' : 's'}, 10 MB each. They go into a “(File uploads)” folder in {form.owner?.name ? `${form.owner.name}’s` : 'your'} Drive.</label>
+            <div className="stack file-q-limits">
+            <label className="row small">People can send up to <select aria-label={`Files for question ${i + 1}`} value={q.max_files || 1} onChange={(e) => change(i, { max_files: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select> file{(q.max_files || 1) === 1 ? '' : 's'}, up to <select aria-label={`Largest file for question ${i + 1}`} value={q.max_mb || ''} onChange={(e) => change(i, { max_mb: e.target.value ? Number(e.target.value) : undefined })}><option value="">10</option>{[1, 2, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select> MB each. They go into a “(File uploads)” folder in {form.owner?.name ? `${form.owner.name}’s` : 'your'} Drive.</label>
+            <div className="row wrap small" role="group" aria-label={`Kinds of file for question ${i + 1}`}>
+              <span className="muted">Only:</span>
+              {REQUEST_KINDS.map(([k, kl]) => (
+                <label key={k} className="check"><input type="checkbox" checked={(q.accept || []).includes(k)} onChange={(e) => { const next = e.target.checked ? [...(q.accept || []), k] : (q.accept || []).filter((x) => x !== k); change(i, { accept: next.length ? next : undefined }); }} /> {kl}</label>
+              ))}
+              <span className="muted">{q.accept?.length ? '' : '(none ticked: any kind)'}</span>
+            </div>
+            </div>
           )}
           {form.quiz && <AnswerKey q={q} n={i + 1} onChange={(patch) => change(i, patch)} />}
           {CHECKS[q.type] && <CheckEditor q={q} n={i + 1} onChange={(check) => change(i, { check })} />}

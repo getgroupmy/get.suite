@@ -1,5 +1,6 @@
 // The page people fill a form in on (/f/<token>). Company forms need the visitor signed in to that
 // company (they can sign in right here); "anyone with the link" forms need nothing.
+import { requestSummary } from '../drive/requestkinds.js';
 import { checkProblem } from './formcheck.js';
 import { useEffect, useMemo, useState } from 'react';
 import { sectionsOf, nextPage, prefillFrom, shuffled } from './formmath.js';
@@ -298,14 +299,19 @@ function FileQuestion({ q, token, value, onChange, title, help, err, cls, label 
   const [busy, setBusy] = useState(0);
   const [problem, setProblem] = useState('');
   const max = q.max_files || 1;
+  const mb = q.max_mb || 10;
   const add = async (files) => {
     setProblem('');
     let list = value;
     for (const file of [...files].slice(0, max - list.length)) {
-      if (file.size > 10 * 1024 * 1024) { setProblem(`${file.name} is larger than 10 MB`); continue; }
+      // The question's own limits (kinds of file, size), checked here first; the server checks again (contents too).
+      const exts = (q.accept_attr || '').split(',').filter(Boolean);
+      const ext = (/\.[a-z0-9]{1,8}$/i.exec(file.name)?.[0] || '').toLowerCase();
+      if (exts.length && !exts.includes(ext)) { setProblem(`${file.name} can't be sent here: this question only takes ${q.accept_text}`); continue; }
+      if (file.size > mb * 1024 * 1024) { setProblem(`${file.name} is too large: files can be up to ${mb} MB`); continue; }
       setBusy((n) => n + 1);
       try {
-        const r = await fetch(`/api/public/forms/${encodeURIComponent(token)}/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', credentials: 'same-origin', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
+        const r = await fetch(`/api/public/forms/${encodeURIComponent(token)}/upload?name=${encodeURIComponent(file.name)}&question=${encodeURIComponent(q.id)}`, { method: 'POST', credentials: 'same-origin', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
         const b = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(b.error || 'The file could not be sent');
         list = [...list, b];
@@ -324,10 +330,10 @@ function FileQuestion({ q, token, value, onChange, title, help, err, cls, label 
       {value.length < max && (
         <label className="btn" style={{ alignSelf: 'flex-start' }}>
           {busy ? 'Sending…' : value.length ? 'Add another file' : 'Add file'}
-          <input type="file" hidden multiple={max > 1} aria-label={`Add a file: ${label}`} disabled={busy > 0} onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
+          <input type="file" hidden multiple={max > 1} accept={q.accept_attr || undefined} aria-label={`Add a file: ${label}`} disabled={busy > 0} onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
         </label>
       )}
-      <span className="muted small">Up to {max === 1 ? '1 file' : `${max} files`}, 10 MB each</span>
+      <span className="muted small">{q.accept?.length ? `${q.accept_text || requestSummary({ accept: q.accept }).replace(/^Takes /, '')}: up` : 'Up'} to {max === 1 ? '1 file' : `${max} files`}, {mb} MB each</span>
       {problem && <span className="error small" role="alert">{problem}</span>}
       {err}
     </fieldset>

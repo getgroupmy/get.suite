@@ -6094,6 +6094,42 @@ test('forms: file upload questions; files go to the owner’s Drive and open for
   assert.match(csv, /cv\.pdf; letter\.pdf/);
 });
 
+test('forms: a file question can take only some kinds of file, and smaller ones; checked by name, contents and question', async () => {
+  const f = (await owner('POST', '/api/forms', { title: 'Expense claim' })).body;
+  const qs = [
+    { id: 'rc', type: 'file', title: 'Receipt', required: true, accept: ['pdf', 'PICTURES', 'spells'], max_mb: 1 },
+    { id: 'any', type: 'file', title: 'Anything else' },
+    { id: 'huge', type: 'file', title: 'Big', max_mb: 50 },
+  ];
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { questions: qs, audience: 'org' })).body; // a company form: no per-network limit to run into
+  assert.deepEqual([saved.questions[0].accept, saved.questions[0].max_mb], [['pdf', 'pictures'], 1], 'known kinds only');
+  assert.deepEqual([saved.questions[1].accept, saved.questions[1].max_mb], [undefined, undefined]);
+  assert.equal(saved.questions[2].max_mb, undefined, 'not above the 10 MB every form has');
+  const tok = saved.token;
+  const shown = (await owner('GET', `/api/public/forms/${tok}`)).body.questions[0];
+  assert.deepEqual([shown.accept_text, shown.accept_attr.split(',').slice(0, 2)], ['PDFs or pictures', ['.pdf', '.jpg']]);
+  const up = (name, body, question) => owner('POST', `/api/public/forms/${tok}/upload?name=${encodeURIComponent(name)}${question ? `&question=${question}` : ''}`, body, { raw: true, headers: { 'content-type': 'application/octet-stream' } });
+  const which = await up('r.pdf', '%PDF-1.4');
+  assert.deepEqual([which.status, which.body.error], [400, 'Say which question the file is for']);
+  assert.equal((await up('r.pdf', '%PDF-1.4', 'nope')).status, 400);
+  const ok = await up('receipt.pdf', '%PDF-1.4 taxi', 'rc');
+  assert.equal(ok.status, 201);
+  const kind = await up('notes.docx', 'PK\x03\x04', 'rc');
+  assert.deepEqual([kind.status, kind.body.error], [415, "notes.docx can't be sent here: this question only takes PDFs or pictures"]);
+  const big = await up('scan.pdf', Buffer.concat([Buffer.from('%PDF-1.4'), Buffer.alloc(1100 * 1024)]), 'rc');
+  assert.deepEqual([big.status, big.body.error], [413, 'scan.pdf is too large: files can be up to 1 MB']);
+  const fake = await up('photo.jpg', 'MZ a program', 'rc');
+  assert.deepEqual([fake.status, fake.body.error], [415, "photo.jpg doesn't look like the kind of file its name says, so it wasn't sent"]);
+  const other = await up('notes.docx', 'anything', 'any');
+  assert.equal(other.status, 201, 'the question without limits takes anything');
+  // An upload counts only for the question it was checked against.
+  const send = (answers) => owner('POST', `/api/public/forms/${tok}`, { answers });
+  assert.equal((await send({ rc: [other.body.id] })).status, 400, 'a file sent for "Anything else" is not a receipt');
+  assert.equal((await send({ rc: [ok.body.id], any: [other.body.id] })).status, 201);
+  const rs = (await owner('GET', `/api/forms/${f.id}/responses`)).body;
+  assert.deepEqual((rs.responses || rs)[0].answers.rc.map((x) => x.name), ['receipt.pdf']);
+});
+
 test('forms: sections, and going to a section depending on the answer', async () => {
   const { cleanQuestions, checkAnswers, responseTable } = await import('../src/routes/forms.js');
   const qs = cleanQuestions([

@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
 import { mimeFor } from '../util.js';
+import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 
 q(`CREATE TABLE IF NOT EXISTS forms (
   id TEXT PRIMARY KEY,
@@ -171,6 +172,8 @@ q(`CREATE TABLE IF NOT EXISTS form_uploads (
   created_at INTEGER NOT NULL
 )`).run();
 if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'files_folder')) q('ALTER TABLE forms ADD COLUMN files_folder TEXT').run();
+// The file question an upload was for (its kinds and size were checked against it).
+if (!q('PRAGMA table_info(form_uploads)').all().some((c) => c.name === 'question_id')) q('ALTER TABLE form_uploads ADD COLUMN question_id TEXT').run();
 // linked_sheet: a spreadsheet in the owner's Drive that each response is added to as it arrives.
 if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'linked_sheet')) q('ALTER TABLE forms ADD COLUMN linked_sheet TEXT').run();
 /** Throw away uploads that never became part of a response. */
@@ -237,7 +240,14 @@ export function cleanQuestions(list) {
     if (type === 'section') { delete out.required; return out; } // a new page: its title and help only
     // Response validation; a rule that isn't finished yet (no number typed) is kept out until it is.
     if (CHECKS[type]) { try { const c = cleanCheck(type, raw?.check); if (c) out.check = c; } catch {} }
-    if (type === 'file') out.max_files = Math.min(MAX_FILES, Math.max(1, Math.round(Number(raw?.max_files)) || 1)); // up to this many files
+    if (type === 'file') {
+      out.max_files = Math.min(MAX_FILES, Math.max(1, Math.round(Number(raw?.max_files)) || 1)); // up to this many files
+      // Only some kinds of file (as file requests: PDFs, pictures…; none: any), and a smaller size than the 10 MB.
+      const kinds = Object.keys(REQUEST_KINDS).filter((k) => Array.isArray(raw?.accept) && raw.accept.map((x) => String(x).toLowerCase()).includes(k));
+      if (kinds.length) out.accept = kinds;
+      const mb = Math.round(Number(raw?.max_mb));
+      if (mb >= 1 && mb < MAX_FILE_BYTES / 1024 / 1024) out.max_mb = mb;
+    }
     if (type === 'rating') { // 3 to 10 stars (or hearts, or thumbs)
       out.max = Math.min(10, Math.max(3, Math.round(Number(raw?.max)) || 5));
       out.icon = ['star', 'heart', 'thumb'].includes(raw?.icon) ? raw.icon : 'star';
@@ -306,7 +316,9 @@ export function scoreOf(questions, answers) {
   return { score, max, right, feedback };
 }
 /** The questions as people filling the form in see them: no answer key. */
-const withoutKey = (questions) => questions.map(({ answer, points, feedback, ...qu }) => qu);
+const withoutKey = (questions) => questions.map(({ answer, points, feedback, ...qu }) => (qu.type === 'file' && qu.accept ? { ...qu, accept_text: acceptText(qu.accept.join(',')), accept_attr: acceptAttr(qu.accept.join(',')) } : qu));
+/** The limits of a file question: { accept: 'pdf,pictures' | null, bytes, mb }. */
+const fileLimits = (qu) => ({ accept: qu?.accept?.length ? qu.accept.join(',') : null, mb: qu?.max_mb || MAX_FILE_BYTES / 1024 / 1024, bytes: qu?.max_mb ? qu.max_mb * 1024 * 1024 : MAX_FILE_BYTES });
 
 /** Check one person's answers against the questions; returns what's kept (only answered questions). */
 export function checkAnswers(questions, answers) {
@@ -954,10 +966,24 @@ export function publicFormRoutes() {
     if (form.audience === 'public') limit(req.ip);
     dropStaleUploads();
     const name = cleanName(String(req.query.name || 'file'));
+    // Which question it's for (?question=): its kinds of file and size. Needed once any file question has limits.
+    const qu = req.query.question ? form.questions.find((x) => x.id === String(req.query.question) && x.type === 'file') : null;
+    if (req.query.question && !qu) throw bad('No such file question');
+    if (!qu && form.questions.some((x) => x.type === 'file' && (x.accept || x.max_mb))) throw bad('Say which question the file is for');
+    const lim = fileLimits(qu);
+    if (!accepts(lim.accept, name)) throw new HttpError(415, `${name} can't be sent here: this question only takes ${acceptText(lim.accept)}`);
+    const tooBig = () => new HttpError(413, `${name} is too large: files can be up to ${lim.mb} MB`);
+    if (Number(req.headers['content-length'] || 0) > lim.bytes) throw tooBig();
     // Files go to the form owner's Drive: their storage limit too (a full one says so, not "too large").
-    const { storage, size } = await receiveUpload(req, form.org_id, MAX_FILE_BYTES, form.owner_id).catch((e) => { throw e.status === 413 && /too large/i.test(e.message) ? new HttpError(413, 'Files can be up to 10 MB') : e; });
+    const { storage, size } = await receiveUpload(req, form.org_id, lim.bytes, form.owner_id).catch((e) => { throw e.status === 413 && /too large/i.test(e.message) ? tooBig() : e; });
+    if (lim.accept) { // only some kinds: the file must also be what its name says
+      const head = Buffer.alloc(4096);
+      const fd = fs.openSync(path.join(FILES_DIR, storage), 'r');
+      const n = (() => { try { return fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); } })();
+      if (!looksLike(name, head.subarray(0, n))) { fs.rmSync(path.join(FILES_DIR, storage), { force: true }); throw new HttpError(415, `${name} doesn't look like the kind of file its name says, so it wasn't sent`); }
+    }
     const id = crypto.randomBytes(16).toString('base64url');
-    q('INSERT INTO form_uploads (id, form_id, storage, name, size, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, form.id, storage, name, size, now());
+    q('INSERT INTO form_uploads (id, form_id, storage, name, size, created_at, question_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, form.id, storage, name, size, now(), qu?.id ?? null);
     res.status(201).json({ id, name, size });
   });
 
@@ -975,7 +1001,10 @@ export function publicFormRoutes() {
     // File answers: uploads to this form that haven't been used.
     const fileQs = form.questions.filter((qu) => qu.type === 'file' && answers[qu.id]);
     for (const qu of fileQs) for (const up of answers[qu.id]) {
-      if (!q('SELECT 1 FROM form_uploads WHERE id = ? AND form_id = ?').get(up, form.id)) throw bad(`${qu.title || 'A file question'}: upload the file again`);
+      const u = q('SELECT question_id FROM form_uploads WHERE id = ? AND form_id = ?').get(up, form.id);
+      if (!u) throw bad(`${qu.title || 'A file question'}: upload the file again`);
+      // A file checked for another question (or for none) doesn't count for one with limits.
+      if ((qu.accept || qu.max_mb) && u.question_id !== qu.id) throw bad(`${qu.title || 'A file question'}: upload the file again`);
     }
     if (form.audience === 'public') limit(req.ip);
     const id = uid();
