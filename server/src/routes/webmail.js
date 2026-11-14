@@ -39,7 +39,7 @@ import { tidyRoutes } from '../mail/tidy.js';
 import { attachPrefRoutes } from '../mail/attachprefs.js';
 import { includeRoutes } from '../mail/includes.js';
 import { afterHoursRoutes } from '../mail/afterhours.js';
-import { externalRoutes, askOutside, outsideRecipients } from '../mail/external.js';
+import { externalRoutes, askOutside, outsideRecipients, incomingWarning } from '../mail/external.js';
 import { mailStorage } from '../mail/storage.js';
 import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
@@ -1125,6 +1125,8 @@ export default function webmailRoutes() {
       flagged: flags.has('\\Flagged'),
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
+      // From outside the company (when it marks such mail), or using a colleague's name from outside.
+      outside: incomingWarning(req.user, addrList(p.from)[0]),
       attachments: attachmentList(p),
       invite: inviteFor(req.user, p),
       // The sender asked for a read receipt (and it hasn't been answered yet): offered, never sent by itself.

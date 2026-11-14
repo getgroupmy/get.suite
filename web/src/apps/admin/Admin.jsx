@@ -653,6 +653,14 @@ function CompanySettings() {
         </label>
         <p className="muted small" style={{ margin: 0 }}>Everyone sees who's outside as they write. With this on, <strong>Send</strong> (and <strong>Send later</strong>) also asks <em>Send outside …?</em> with those addresses, and the message only goes once they say so. Mail between colleagues goes as usual.</p>
       </div>
+      <div className="card stack" aria-labelledby="markext-h">
+        <h2 id="markext-h">Mail coming from outside the company</h2>
+        <label className="check">
+          <input type="checkbox" checked={!!org.mark_external} onChange={(e) => save({ mark_external: e.target.checked }, e.target.checked ? 'Mail from outside the company now shows a warning' : 'Mail from outside the company is no longer marked')} />
+          Mark email from outside the company
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>Emails from addresses that aren't on your company's domains show a note above them: <em>From outside {org.name}: be careful with links, attachments and requests for money or passwords</em>. Whether this is on or not, an email from outside that uses the name of someone who works here (a common trick) always gets a stronger warning.</p>
+      </div>
       <div className="card stack" aria-labelledby="sess-h">
         <h2 id="sess-h">Sign-in sessions</h2>
         <label className="field" style={{ maxWidth: 320 }}><span>Sign out after no activity for</span>

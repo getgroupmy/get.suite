@@ -924,6 +924,11 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         </div>
       )}
       {m.spam && <div className="banner warn">This message was marked as likely spam. Be careful with links and attachments.</div>}
+      {m.outside?.lookalike ? (
+        <div className="banner danger" role="note"><strong>⚠ Careful: this may be someone pretending to be {m.outside.lookalike}.</strong> It uses the name of someone who works at {m.outside.company || 'your company'}, but it comes from an outside address ({m.outside.address}). Check with them another way before you reply, click anything or send money or passwords.</div>
+      ) : m.outside?.external ? (
+        <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
+      ) : null}
       {blocking && (
         <ConfirmModal title={`Block ${m.from.address}?`} confirm="Block"
           message="Their messages will go straight to Junk, marked read, from now on (on your phone too). This one moves to Junk now. You can undo it in Filters."

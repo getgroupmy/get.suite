@@ -315,6 +315,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
 .banner { margin: 0 16px 8px; padding: 8px 16px; border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .banner.warn { background: var(--warn-bg); }
+/* Mail from outside the company (when marked), and from outside under a colleague's name. */
+.banner.outside { background: var(--warn-bg); border-left: 4px solid #e37400; display: block; }
+.banner.danger { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); border-left: 4px solid var(--danger); display: block; }
 .doc-scroll { flex: 1; overflow: auto; padding: 8px 16px 48px; cursor: text; }
 .paper { max-width: 816px; min-height: 1056px; margin: 0 auto; background: var(--surface); box-shadow: var(--shadow); padding: 72px 88px; cursor: auto; }
 .paper .tiptap { outline: none; min-height: 900px; font-size: 15px; line-height: 1.6; }
