@@ -116,6 +116,41 @@ await step('no stray 0 in a file’s windows', async () => {
   if (found.length) throw new Error(found.join(' || '));
 });
 
+await step('no stray 0 deeper in: a form and its responses, a private channel and a DM, a task, an event, a note', async () => {
+  found.length = 0;
+  const form = (await api(page, 'POST', '/forms', { title: 'Team lunch', questions: [{ id: 'q1', type: 'choice', title: 'Food?', options: ['Pizza', 'Sushi'], required: false }, { id: 'q2', type: 'short', title: 'Anything else?' }] })).body;
+  await api(page, 'PUT', `/forms/${form.id}`, { audience: 'company' });
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('tab', { name: 'Questions' }).waitFor();
+  const formTabs = await page.getByRole('tab').allInnerTexts();
+  if (formTabs.length < 2) throw new Error(`form tabs: ${formTabs.join('|')}`);
+  for (const t of formTabs) {
+    await page.getByRole('tab', { name: t, exact: true }).first().click();
+    await check(page, `Form ${t}`);
+  }
+  const ch = (await api(page, 'POST', '/chat/channels', { name: 'secret-plans', private: true })).body;
+  const dir = (await api(page, 'GET', '/users/directory')).body;
+  const kimId = (Array.isArray(dir) ? dir : dir.users || []).find((u) => u.username === 'kim@acme.com')?.id;
+  if (!kimId) throw new Error('no Kim in the directory');
+  const dm = (await api(page, 'POST', '/chat/dm', { user_id: kimId })).body.id;
+  for (const [id, name] of [[ch.id, 'secret-plans'], [dm, 'Kim Park']]) {
+    await page.goto(`${B}/chat/${id}`);
+    await page.locator('.chat-head').getByText(name).first().waitFor();
+    await check(page, `Chat ${name}`);
+  }
+  await page.goto(`${B}/tasks`);
+  await page.getByText('Send the report').first().click();
+  await check(page, 'Task details');
+  await page.goto(`${B}/calendar`);
+  await page.getByText('Planning').first().click().catch(() => {});
+  await check(page, 'Event window');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/notes`);
+  await page.getByText('A note').first().click();
+  await check(page, 'Open note');
+  if (found.length) throw new Error(found.join(' || '));
+});
+
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
