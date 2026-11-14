@@ -69,9 +69,17 @@ await step('the filters survive going back; Clear filters shows everything again
   await until(async () => (await names()).length === 5);
 });
 await step('no words needed: every PDF', async () => {
+  // The pointer is still where the last step clicked, which the tips list would cover when it opens:
+  // hovering picks a tip (and Enter would open it). Move it away first, then press Enter until the Search page shows.
+  await page.mouse.move(5, 600);
   await page.getByLabel('Search everything').fill('');
-  await page.keyboard.press('Enter');
-  await page.getByRole('heading', { name: 'Search', exact: true }).waitFor();
+  await until(async () => {
+    if (await page.getByRole('heading', { name: 'Search', exact: true }).count()) return true;
+    await page.getByLabel('Search everything').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
+    return false;
+  }, 20000);
   await page.getByLabel('Type').selectOption({ label: 'PDFs' });
   await until(async () => (await names()).join('|') === 'Project brief.pdf');
   await page.getByLabel('Type').selectOption({ label: 'Folders' });

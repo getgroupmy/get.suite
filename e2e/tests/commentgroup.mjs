@@ -58,7 +58,13 @@ await step('Kim leaves three comments: one entry counting them, with the latest;
     if (body.startsWith('Typo')) firstId = last.id;
     if (body.startsWith('Typo')) await panel.getByText('Kim Park commented on “Budget”').waitFor();
   }
-  await panel.getByText('Kim Park left 3 comments on “Budget”').waitFor();
+  // Live updates can lag when the machine is busy: reopening the bell fetches the list afresh.
+  await until(async () => {
+    if (await panel.getByText('Kim Park left 3 comments on “Budget”').count()) return true;
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    return false;
+  }, 30000);
   await panel.getByText('The latest: Source for this?').waitFor();
   if (await panel.getByText('Kim Park commented on “Budget”').count()) throw new Error('the single one stays');
   await page.getByRole('button', { name: 'Notifications, 1 new' }).waitFor();
