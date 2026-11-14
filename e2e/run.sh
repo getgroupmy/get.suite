@@ -40,5 +40,5 @@ pass=$(echo "$out" | grep -cE '^PASS'); fail=$(echo "$out" | grep -cE '^FAIL')
 [ $code -ne 0 ] && [ $fail -eq 0 ] && fail=1 && out="$out
 FAIL (the script stopped: exit $code) $(echo "$out" | tail -3 | tr '\n' ' ')"
 echo "$T: $pass passed, $fail failed"
-echo "$out" | grep -E "^FAIL|^ERRORS" | cut -c1-500
+echo "$out" | grep -E "^FAIL|^ERRORS" | grep -vE '^ERRORS:? *(\[\])?$' | cut -c1-500 # no errors: nothing to show
 [ $fail -eq 0 ]
