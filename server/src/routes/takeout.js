@@ -85,7 +85,8 @@ export function mailSettingsFiles(userId, username) {
   const out = [];
   const rules = (() => { try { return JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(userId)?.rules || '[]'); } catch { return []; } })();
   if (rules.length) {
-    out.push(['Mail settings/filters.sieve', userSieve({ username, rules }) || '']);
+    const labels = (() => { try { return new Map(q('SELECT id, keyword FROM mail_labels WHERE user_id = ?').all(userId).map((l) => [l.id, l.keyword])); } catch { return new Map(); } })();
+    out.push(['Mail settings/filters.sieve', userSieve({ username, rules, labels }) || '']);
     out.push(['Mail settings/filters.json', `${JSON.stringify(rules, null, 2)}\n`]);
   }
   const sig = q("SELECT html FROM mail_signatures WHERE user_id = ? AND html != ''").get(userId);

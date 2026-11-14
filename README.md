@@ -1010,8 +1010,8 @@ Your business fixed IP is what makes this work. Do these once:
   - Inside a table, the toolbar offers **+ Row / − Row / + Column / − Column / Delete table**. Tables can't be put inside other tables.
 - **Filters** (Mail → Filters, or **Filter messages like this** on any message): rules run by the mail server as mail arrives, so they apply to phones too. They run in order, and can be reordered and switched on or off.
 - **Moving filters:** **Export** in the Filters window saves them as *filters.json* (Download your data has the same file, and a Sieve script); **Import…** reads one back on this or another Workspace server, adding only the filters not already there, at the end of the list.
-  - Conditions: From, To or Cc, or Subject *contains*, *doesn't contain* or *is exactly* a value, matching all or any of them.
-  - Actions: move to a folder (created if needed, e.g. `Clients/Acme`), mark as read, star, forward a copy, or delete.
+  - Conditions: From, To or Cc, or Subject *contains*, *doesn't contain* or *is exactly* a value; **Size** *is larger than* or *is smaller than* a size (*5 MB*, *300 KB*); **Attachments** *has some* or *has none*. A filter can match all of its conditions or any of them.
+  - Actions: move to a folder (created if needed, e.g. `Clients/Acme`), mark as read, star, **label it** with one of your [labels](#email) (it shows in Workspace and as a tag in mail apps that show keywords), forward a copy, or delete. Deleting a label takes it out of the filters that used it, and a filter left with nothing else to do is switched off. Filters brought in from another server drop labels that don't exist here.
   - A matching filter stops later ones unless you untick "Don't apply later filters".
   - Mail a filter files away still gets your vacation reply; mail it deletes doesn't.
   - Forwarded copies keep the original sender. Some receiving servers treat forwarded mail from outside domains with suspicion (SPF), so forwarding works best within your own companies.

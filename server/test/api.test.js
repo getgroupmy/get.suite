@@ -14635,3 +14635,20 @@ test('notes: voice recordings on a note — checked to be audio, played with ran
   for (const st of stored) assert.ok(!fs.existsSync(path.join(FILES_DIR, st)), 'file removed');
   assert.equal((await rae('GET', `/api/notes/${copy.id}/recordings/${copy.recordings[0].id}`, undefined, { binary: true })).status, 200, 'the copy keeps its own');
 });
+
+test('mail filters: a label action only with your own labels; one brought from elsewhere is dropped', async () => {
+  const { ownLabels, importMailRules } = await import('../src/routes/webmail.js');
+  const { normalizeRules } = await import('../src/mail/sieve.js');
+  const { db } = await import('../src/db.js');
+  const me = (await owner('GET', '/api/auth/me')).body.user;
+  db.prepare('INSERT INTO mail_labels (id, user_id, name, color, keyword, created_at) VALUES (?, ?, ?, ?, ?, ?)').run('labbig', me.id, 'Big files', '#1a73e8', 'nwl_labbig', Date.now());
+  const rules = normalizeRules([{ name: 'Large', match: 'all', conditions: [{ field: 'size', op: 'over', value: '5mb' }, { field: 'attachment', op: 'has' }], actions: { label: 'labbig' } }]);
+  assert.equal(ownLabels(me, rules)[0].actions.label, 'labbig');
+  assert.throws(() => ownLabels(me, normalizeRules([{ ...rules[0], actions: { label: 'notmine' } }])), /label doesn't exist/);
+  const imp = importMailRules(me, { rules: [{ name: 'Elsewhere', match: 'all', conditions: [{ field: 'subject', op: 'contains', value: 'invoice' }], actions: { label: 'fromanotherserver' } }] });
+  const got = imp.rules.find((x) => x.name === 'Elsewhere');
+  assert.equal(got.actions.label, null);
+  assert.equal(got.enabled, false);
+  db.prepare('DELETE FROM mail_rules WHERE user_id = ?').run(me.id);
+  db.prepare("DELETE FROM mail_labels WHERE id = 'labbig'").run();
+});

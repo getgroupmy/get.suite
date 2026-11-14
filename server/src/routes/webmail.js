@@ -388,9 +388,23 @@ function uidList(v) {
   return arr;
 }
 
+/**
+ * Filters that label mail may only use your own labels. `strict`: an unknown one is refused (saving
+ * filters); otherwise it's dropped (filters brought from elsewhere), and a filter with nothing else to do is switched off.
+ */
+export function ownLabels(user, rules, { strict = true } = {}) {
+  const mine = new Set(q('SELECT id FROM mail_labels WHERE user_id = ?').all(user.id).map((l) => l.id));
+  return rules.map((x) => {
+    if (!x.actions.label || mine.has(x.actions.label)) return x;
+    if (strict) throw bad(`${x.name}: that label doesn't exist any more`);
+    const actions = { ...x.actions, label: null };
+    return { ...x, actions, enabled: (actions.moveTo || actions.markRead || actions.star || actions.forwardTo || actions.delete) ? x.enabled : false };
+  });
+}
+
 /** Mail filters from filters.json ({ rules }): the ones not already there are added. { added, skipped, rules } */
 export function importMailRules(user, body) {
-  const incoming = normalizeRules(Array.isArray(body?.rules) ? body.rules : []);
+  const incoming = ownLabels(user, normalizeRules(Array.isArray(body?.rules) ? body.rules : []), { strict: false });
   if (!incoming.length) throw bad('There are no filters in that file');
   const current = JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(user.id)?.rules || '[]');
   const key = (x) => JSON.stringify([x.match, x.conditions, x.actions]);
@@ -398,7 +412,7 @@ export function importMailRules(user, body) {
   const added = incoming.filter((x) => !have.has(key(x)) && have.add(key(x)));
   const outside = added.find((x) => x.actions.forwardTo && !forwardingAllowed(user.org_id, x.actions.forwardTo));
   if (outside) throw new HttpError(403, `${outside.name}: your company only allows forwarding to its own addresses`);
-  const rules = normalizeRules([...current, ...added]);
+  const rules = [...current, ...added];
   q(`INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET rules = excluded.rules, updated_at = excluded.updated_at`)
     .run(user.id, JSON.stringify(rules), Date.now());
@@ -663,7 +677,7 @@ export default function webmailRoutes() {
   });
 
   r.put('/rules', (req, res) => {
-    const rules = normalizeRules(req.body.rules);
+    const rules = ownLabels(req.user, normalizeRules(req.body.rules));
     // A company that keeps mail inside: no new copies to outside addresses (ones already there are left
     // alone so other changes still save; the mail server doesn't send them anyway, see mail/config.js).
     const before = new Set(JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(req.user.id)?.rules || '[]').map((x) => x.actions?.forwardTo).filter(Boolean));
@@ -829,6 +843,18 @@ export default function webmailRoutes() {
       }).catch(() => {});
     }
     q('DELETE FROM mail_labels WHERE id = ?').run(l.id);
+    // Filters that put it on mail stop doing so (a filter left with nothing else to do is switched off).
+    const rules = JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(req.user.id)?.rules || '[]');
+    if (rules.some((x) => x.actions?.label === l.id)) {
+      const next = rules.map((x) => {
+        if (x.actions?.label !== l.id) return x;
+        const actions = { ...x.actions, label: null };
+        const left = actions.moveTo || actions.markRead || actions.star || actions.forwardTo || actions.delete;
+        return { ...x, actions, enabled: left ? x.enabled : false };
+      });
+      q('UPDATE mail_rules SET rules = ?, updated_at = ? WHERE user_id = ?').run(JSON.stringify(next), Date.now(), req.user.id);
+      scheduleMailConfig();
+    }
     res.json({ ok: true, messages: n });
   });
   // Put labels on messages, or take them off: { folder, uids, add: [labelId], remove: [labelId] }.

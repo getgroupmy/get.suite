@@ -3,18 +3,23 @@ import { get, put, post, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 
-const FIELD = { from: 'From', to: 'To or Cc', subject: 'Subject' };
+const FIELD = { from: 'From', to: 'To or Cc', subject: 'Subject', size: 'Size', attachment: 'Attachments' };
 const OP = { contains: 'contains', not_contains: "doesn't contain", is: 'is exactly' };
+// Size and attachments have their own comparisons (size takes "5 MB" or "300 KB"; attachments no value).
+const OPS_FOR = { size: { over: 'is larger than', under: 'is smaller than' }, attachment: { has: 'has some', has_not: 'has none' } };
+export const opsFor = (field) => OPS_FOR[field] || OP;
 const NEW_FOLDER = '__new__';
 
-export function describeRule(r) {
-  const conds = r.conditions.map((c) => `${FIELD[c.field]} ${OP[c.op]} “${c.value}”`).join(r.match === 'any' ? ' or ' : ' and ');
+export function describeRule(r, labels = []) {
+  const conds = r.conditions.map((c) => (c.field === 'attachment' ? (c.op === 'has_not' ? 'it has no attachments' : 'it has attachments')
+    : c.field === 'size' ? `it ${opsFor('size')[c.op]} ${c.value}` : `${FIELD[c.field]} ${OP[c.op]} “${c.value}”`)).join(r.match === 'any' ? ' or ' : ' and ');
   const a = r.actions;
   const acts = [
     a.delete && 'delete it',
     a.moveTo && `move to ${a.moveTo}`,
     a.markRead && 'mark as read',
     a.star && 'star it',
+    a.label && `label it “${labels.find((l) => l.id === a.label)?.name || 'a deleted label'}”`,
     a.forwardTo && `forward a copy to ${a.forwardTo}`,
   ].filter(Boolean).join(', ');
   return `If ${conds}: ${acts}`;
@@ -27,6 +32,8 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
   const fileRef = useRef(null);
   const [editing, setEditing] = useState(startWith ? { index: -1, rule: startWith } : null);
   useEffect(() => { get('/mail/rules').then(setRules).catch((e) => toast(e.message, 'error')); }, [toast]);
+  const [labels, setLabels] = useState([]); // for filters that label mail
+  useEffect(() => { get('/mail/labels').then((r) => setLabels(r.labels || [])).catch(() => {}); }, []);
 
   async function save(next, msg) {
     try { setRules(await put('/mail/rules', { rules: next })); if (msg) toast(msg); return true; }
@@ -51,7 +58,7 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
 
   if (editing && rules) {
     return (
-      <RuleEditor rule={editing.rule} isNew={editing.index === -1} folders={folders} onFoldersChanged={onFoldersChanged}
+      <RuleEditor rule={editing.rule} isNew={editing.index === -1} folders={folders} labels={labels} onFoldersChanged={onFoldersChanged}
         onCancel={() => (startWith && editing.index === -1 ? onClose() : setEditing(null))}
         onSave={async (rule) => {
           const next = editing.index === -1 ? [...rules, rule] : rules.map((r, i) => (i === editing.index ? rule : r));
@@ -80,7 +87,7 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
             </label>
             <div className="grow">
               <strong>{r.name}</strong>
-              <div className="muted small">{describeRule(r)}{r.actions.stop || r.actions.delete ? '' : ' · then keep checking other filters'}</div>
+              <div className="muted small">{describeRule(r, labels)}{r.actions.stop || r.actions.delete ? '' : ' · then keep checking other filters'}</div>
             </div>
             <button className="icon-btn" aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
             <button className="icon-btn" aria-label={`Move ${r.name} down`} disabled={i === rules.length - 1} onClick={() => move(i, 1)}>↓</button>
@@ -146,7 +153,7 @@ function MutedList() {
   );
 }
 
-function RuleEditor({ rule, isNew, folders, onFoldersChanged, onCancel, onSave }) {
+function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCancel, onSave }) {
   const blank = { name: '', enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: '' }], actions: { stop: true } };
   const [r, setR] = useState(() => JSON.parse(JSON.stringify({ ...blank, ...(rule || {}) })));
   const [newFolder, setNewFolder] = useState('');
@@ -182,14 +189,15 @@ function RuleEditor({ rule, isNew, folders, onFoldersChanged, onCancel, onSave }
             </select> of these are true</legend>
           {r.conditions.map((c, i) => (
             <div key={i} className="row wrap rule-cond">
-              <select aria-label={`Condition ${i + 1} field`} value={c.field} onChange={(e) => setC(i, { field: e.target.value })}>
+              <select aria-label={`Condition ${i + 1} field`} value={c.field} onChange={(e) => { const f = e.target.value; const kindChanged = !!OPS_FOR[f] || !!OPS_FOR[c.field]; setC(i, { field: f, ...(kindChanged && { op: Object.keys(opsFor(f))[0], value: '' }) }); }}>
                 {Object.entries(FIELD).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
               <select aria-label={`Condition ${i + 1} comparison`} value={c.op} onChange={(e) => setC(i, { op: e.target.value })}>
-                {Object.entries(OP).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {Object.entries(opsFor(c.field)).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
-              <input className="grow" aria-label={`Condition ${i + 1} value`} value={c.value} required onChange={(e) => setC(i, { value: e.target.value })}
-                placeholder={c.field === 'subject' ? 'invoice' : 'name@company.com'} />
+              {c.field !== 'attachment' && <input className="grow" aria-label={`Condition ${i + 1} value`} value={c.value} required onChange={(e) => setC(i, { value: e.target.value })}
+                pattern={c.field === 'size' ? '\\s*\\d+([.,]\\d+)?\\s*([kKmM][bB]?)?\\s*' : undefined} title={c.field === 'size' ? 'A size such as 5 MB or 300 KB' : undefined}
+                placeholder={c.field === 'subject' ? 'invoice' : c.field === 'size' ? '5 MB' : 'name@company.com'} />}
               {r.conditions.length > 1 && <button type="button" className="icon-btn" aria-label={`Remove condition ${i + 1}`} onClick={() => setR({ ...r, conditions: r.conditions.filter((_, j) => j !== i) })}><Icon name="close" size={16} /></button>}
             </div>
           ))}
@@ -212,11 +220,20 @@ function RuleEditor({ rule, isNew, folders, onFoldersChanged, onCancel, onSave }
           </div>
           <label className="check"><input type="checkbox" checked={!!a.markRead} onChange={(e) => setA({ markRead: e.target.checked })} /> Mark as read</label>
           <label className="check"><input type="checkbox" checked={!!a.star} onChange={(e) => setA({ star: e.target.checked })} /> Star it</label>
+          {labels.length > 0 && (
+            <div className="row wrap">
+              <label className="check"><input type="checkbox" checked={!!a.label} disabled={a.delete} onChange={(e) => setA({ label: e.target.checked ? labels[0].id : null })} /> Label it</label>
+              {a.label && <select aria-label="Label" value={labels.some((l) => l.id === a.label) ? a.label : ''} onChange={(e) => setA({ label: e.target.value })}>
+                {!labels.some((l) => l.id === a.label) && <option value="">(a deleted label)</option>}
+                {labels.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>}
+            </div>
+          )}
           <div className="row wrap">
             <label className="check"><input type="checkbox" checked={a.forwardTo !== undefined && a.forwardTo !== null} onChange={(e) => setA({ forwardTo: e.target.checked ? '' : null })} /> Forward a copy to</label>
             {a.forwardTo !== undefined && a.forwardTo !== null && <input type="email" aria-label="Forward to" required value={a.forwardTo} onChange={(e) => setA({ forwardTo: e.target.value })} placeholder="name@company.com" />}
           </div>
-          <label className="check"><input type="checkbox" checked={!!a.delete} onChange={(e) => setA({ delete: e.target.checked, ...(e.target.checked && { moveTo: null }) })} /> Delete it</label>
+          <label className="check"><input type="checkbox" checked={!!a.delete} onChange={(e) => setA({ delete: e.target.checked, ...(e.target.checked && { moveTo: null, label: null }) })} /> Delete it</label>
           <label className="check muted small"><input type="checkbox" checked={a.stop !== false} onChange={(e) => setA({ stop: e.target.checked })} /> Don't apply later filters to matching messages</label>
         </fieldset>
         {error && <p className="error">{error}</p>}
