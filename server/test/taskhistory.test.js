@@ -145,6 +145,26 @@ test('list activity: changes, tasks added and deleted, newest first, a page at a
   assert.equal(new Set(seen.map((e) => `${e.at}${e.field}${e.after}`)).size, 64);
 });
 
+test('Download your data: Task history.csv, oldest first, as plain text', async () => {
+  const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'ben@acme.com', password: 'password123' }) });
+  const cookie = r.headers.get('set-cookie').split(';')[0];
+  const zipRes = await fetch(`${base}/api/takeout`, { headers: { cookie, 'x-requested-with': 'nas-workspace' } });
+  assert.equal(zipRes.status, 200);
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(Buffer.from(await zipRes.arrayBuffer()));
+  const csv = await zip.file('Task history.csv').async('string');
+  const lines = csv.replace(/^\ufeff/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'List,Task,When (UTC),Who,What,Before,After');
+  const steps = lines.filter((l) => l.startsWith('Steps,Print flyers'));
+  assert.ok(steps.some((l) => l.includes('Added,')), 'the task added');
+  assert.ok(steps.some((l) => /,Steps,,(✓ Proof; Order paper|Order paper; ✓ Proof)$/.test(l)), steps.join('\n'));
+  assert.ok(steps.some((l) => /,Waiting on,,Design$/.test(l)));
+  assert.ok(steps.some((l) => /,Due,2026-12-01,2026-12-08$/.test(l)), 'the skip');
+  assert.ok(lines.some((l) => /^Steps,Design \(deleted\),.*,Deleted,,$/.test(l)));
+  assert.ok(!csv.includes('Launch'), 'Ana’s list is hers, not in Ben’s download');
+  assert.match(await zip.file('README.txt').async('string'), /Task history\.csv/);
+});
+
 test('task history: entries far apart stay apart; changing it back by someone else is its own entry; at most 200 kept', () => {
   const row = (x) => ({ id: 'tk1', title: 'A', notes: null, due: null, due_time: null, start: null, assignee_id: null, done_at: null, started: 0, priority: null, important: 0, list_id: 'l', section_id: null, repeat: null, tags: null, estimate: null, ...x });
   const u = q('SELECT id FROM users LIMIT 2').all().map((x) => x.id);

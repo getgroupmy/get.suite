@@ -128,3 +128,37 @@ export function listActivity(listId, { before = Infinity, limit = 50 } = {}) {
 export function forgetGoneHistory() {
   q('DELETE FROM task_history WHERE task_id NOT IN (SELECT id FROM tasks) AND task_id NOT IN (SELECT id FROM task_trash)').run();
 }
+
+const LABEL = { added: 'Added', deleted: 'Deleted', title: 'Title', notes: 'Notes', due: 'Due', start: 'Starts', assignee: 'Assigned to', status: 'Status', priority: 'Priority',
+  important: 'Important', list: 'List', section: 'Section', repeat: 'Repeat', tags: 'Tags', estimate: 'Estimate (minutes)', steps: 'Steps', files: 'Files', waiting: 'Waiting on' };
+const STATUS = { todo: 'To do', progress: 'In progress', done: 'Done' };
+const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+/** A value from an entry, as plain text for a spreadsheet. */
+function plain(field, v) {
+  if (v == null || v === false) return '';
+  switch (field) {
+    case 'notes': return '';
+    case 'assignee': return v.name;
+    case 'status': return STATUS[v] || v;
+    case 'priority': return cap(v);
+    case 'important': return 'yes';
+    case 'tags': return v.map((t) => `#${t}`).join(' ');
+    case 'steps': return v.map((x) => `${x.done ? '✓ ' : ''}${x.title}`).join('; ');
+    case 'files': return v.map((x) => x.name).join('; ');
+    case 'waiting': return v.map((x) => x.title).join('; ');
+    default: return String(v);
+  }
+}
+
+/** The history of the tasks on someone's own lists (for Download your data): a heading row, then oldest first. */
+export function historyTable(userId) {
+  const rows = [['List', 'Task', 'When (UTC)', 'Who', 'What', 'Before', 'After']];
+  for (const l of q('SELECT id, name FROM task_lists WHERE owner_id = ? ORDER BY created_at').all(userId)) {
+    const all = listActivity(l.id, { limit: 1e6 }).entries.reverse();
+    for (const e of all) {
+      rows.push([l.name, `${e.task.title}${e.task.gone ? ' (deleted)' : ''}`, new Date(e.at).toISOString().replace('T', ' ').slice(0, 16), e.user.name, LABEL[e.field] || e.field,
+        plain(e.field, e.before), e.field === 'notes' ? (e.after ? 'changed' : 'cleared') : plain(e.field, e.after)]);
+    }
+  }
+  return rows;
+}
