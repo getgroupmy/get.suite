@@ -14729,3 +14729,44 @@ test('booking pages and Find a time skip the company\'s holidays', async () => {
   await owner('DELETE', `/api/time-off/holidays/${hol.id}`);
   await owner('DELETE', `/api/bookings/${made.body.id}`);
 });
+
+test('time off: unused vacation days carried over into the next year, up to the company\'s limit', async () => {
+  const { db } = await import('../src/db.js');
+  const { balanceOf, carriedInto } = await import('../src/routes/timeoff.js');
+  const c = client();
+  const u = (await owner('POST', '/api/users', { local: 'carry', domain: 'acme.com', name: 'Cary Over', password: 'password123' })).body;
+  await login(c, 'carry@acme.com');
+  db.prepare('UPDATE users SET created_at = ?, vacation_days = 20 WHERE id = ?').run(Date.UTC(2023, 0, 1), u.id);
+  // Weekdays only count: 2023-07-03 (Mon) to 07-14 (Fri) is 10 days; 2024-03-04 to 03-29 is 20; 2025-06-02 to 06-06 is 5.
+  const add = (a, b, status = 'approved') => db.prepare("INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, status, created_at) VALUES (?, ?, ?, ?, 'UTC', 'vacation', ?, ?)").run(`co-${a}`, u.id, a, b, status, Date.now());
+  add('2023-07-03', '2023-07-14');
+  add('2024-03-04', '2024-03-29');
+  add('2025-06-02', '2025-06-06');
+  add('2025-08-04', '2025-08-08', 'pending'); // asked for, not taken: doesn't change what carries over
+  // No carrying over yet: each year is 20.
+  assert.equal(carriedInto(u.id, 2024), 0);
+  assert.equal(balanceOf(u.id, 2024).days, 20);
+  assert.equal((await c('GET', '/api/time-off')).body.balance.carried, 0);
+  // Admins only; then up to 5 days.
+  assert.equal((await c('PUT', '/api/time-off/carry-over', { days: 5 })).status, 403);
+  assert.equal((await owner('PUT', '/api/time-off/carry-over', { days: -1 })).status, 400);
+  assert.deepEqual((await owner('PUT', '/api/time-off/carry-over', { days: 5 })).body, { days: 5 });
+  // 2023: 10 of 20 left → 5 (the limit) into 2024. 2024: 20 taken, the 5 carried first, so 5 of its own left → 5 into 2025.
+  // 2025: 5 taken (carried ones first) → all 20 of its own left → 5 into 2026.
+  assert.equal(carriedInto(u.id, 2024), 5);
+  assert.equal(carriedInto(u.id, 2025), 5);
+  assert.equal(carriedInto(u.id, 2026), 5);
+  const b24 = balanceOf(u.id, 2024);
+  assert.deepEqual([b24.days, b24.carried, b24.used, b24.left], [25, 5, 20, 5]);
+  // Using everything in 2024 (and more): nothing of its own left, nothing carried.
+  add('2024-09-02', '2024-09-06');
+  assert.equal(carriedInto(u.id, 2025), 0);
+  const team = (await owner('GET', '/api/time-off/team?year=2024')).body;
+  assert.equal(team.carry_over, 5);
+  assert.equal(team.people.find((p) => p.id === u.id).balance.carried, 5);
+  // Nothing before the account was made.
+  db.prepare('UPDATE users SET created_at = ? WHERE id = ?').run(Date.UTC(2025, 5, 1), u.id);
+  assert.equal(carriedInto(u.id, 2025), 0);
+  await owner('PUT', '/api/time-off/carry-over', { days: 0 });
+  assert.equal(carriedInto(u.id, 2026), 0);
+});

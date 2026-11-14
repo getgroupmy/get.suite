@@ -118,6 +118,7 @@ export default function TimeOff({ onClose, onChanged }) {
 function Team({ team, onChanged }) {
   const toast = useToast();
   const [company, setCompany] = useState(team.company_days ?? '');
+  const [carry, setCarry] = useState(team.carry_over || 0);
   const setDays = async (url, days, msg) => { try { await put(url, { days: days === '' ? null : Number(days) }); toast(msg); onChanged(); } catch (e) { toast(e.message, 'error'); } };
   return (
     <div className="stack">
@@ -126,6 +127,13 @@ function Team({ team, onChanged }) {
           <label className="field"><span>Vacation days a year (company)</span><input type="number" min="0" max="366" value={company} placeholder="No limit" onChange={(e) => setCompany(e.target.value)} style={{ width: 140 }} /></label>
           <button type="submit" className="btn">Save</button>
           <span className="muted small grow">Leave it empty for no limit. Anyone can have their own number below.</span>
+        </form>
+      )}
+      {team.can_set && (
+        <form className="row wrap" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); setDays('/time-off/carry-over', carry === '' ? 0 : carry, Number(carry) ? `Up to ${carry} unused day${Number(carry) === 1 ? '' : 's'} carry over into the next year` : 'Unused days no longer carry over'); }}>
+          <label className="field"><span>Carry over up to (days)</span><input type="number" min="0" max="366" value={carry} onChange={(e) => setCarry(e.target.value)} style={{ width: 140 }} /></label>
+          <button type="submit" className="btn">Save</button>
+          <span className="muted small grow">Unused vacation days that move into the next year (0: none). Days carried in are used first, so they don't carry on again.</span>
         </form>
       )}
       {team.can_set && <Holidays year={team.year} />}
