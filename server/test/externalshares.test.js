@@ -176,3 +176,28 @@ test('Stop sharing several at once: people, groups and the whole company; only y
   assert.deepEqual((await kim('GET', '/api/files?view=sharedbyme')).body.filter((f) => ['u1.txt', 'u2.txt'].includes(f.name)), []);
   assert.equal((await kim('POST', '/api/files/unshare', { ids: [] })).status, 400);
 });
+
+test('a company limit on shares with other companies: they end within its days', async () => {
+  const doc = (await kim('POST', '/api/files/upload?name=limited.txt', 'l', true)).body;
+  assert.equal((await ana('PATCH', '/api/orgs/current', { external_share_days: 400 })).status, 400);
+  assert.equal((await ana('PATCH', '/api/orgs/current', { external_share_days: 30 })).body.external_share_days, 30);
+  assert.equal((await kim('PATCH', '/api/orgs/current', { external_share_days: null })).status, 403, 'admins only');
+  const now = Date.now();
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('gil@globex.com'), role: 'viewer' }, { user_id: id('ana@acme.com'), role: 'editor' }] });
+  const end = (u) => q('SELECT expires_at FROM shares WHERE file_id = ? AND user_id = ?').get(doc.id, id(u))?.expires_at;
+  const gilEnd = end('gil@globex.com');
+  assert.ok(gilEnd >= now + 30 * 864e5 - 5000 && gilEnd <= Date.now() + 30 * 864e5, 'outside: ends in 30 days');
+  assert.equal(end('ana@acme.com'), null, 'inside the company: no limit');
+  // A sooner end that's asked for stays; a later one is cut to the limit.
+  const soon = Date.now() + 5 * 864e5;
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('gil@globex.com'), role: 'viewer', expires_at: soon }] });
+  assert.equal(end('gil@globex.com'), soon);
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('gil@globex.com'), role: 'viewer', expires_at: Date.now() + 200 * 864e5 }] });
+  assert.ok(end('gil@globex.com') <= Date.now() + 30 * 864e5);
+  // Saving again without a date (a role change) keeps the end it has; it isn't pushed later each time.
+  const was = end('gil@globex.com');
+  await new Promise((r) => setTimeout(r, 5));
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('gil@globex.com'), role: 'editor' }] });
+  assert.equal(end('gil@globex.com'), was);
+  await ana('PATCH', '/api/orgs/current', { external_share_days: null });
+});

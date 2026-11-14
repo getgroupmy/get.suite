@@ -592,7 +592,7 @@ function CompanySettings() {
     try {
       const o = await patch('/orgs/current', body);
       setOrg({ ...o, your_ip: before.your_ip });
-      setUser({ ...user, org_name: o.name, allow_external: o.allow_external, allow_links: o.allow_links, link_max_days: o.link_max_days, link_password: o.link_password });
+      setUser({ ...user, org_name: o.name, allow_external: o.allow_external, allow_links: o.allow_links, link_max_days: o.link_max_days, link_password: o.link_password, external_share_days: o.external_share_days });
       toast(msg);
     } catch (e) { setOrg(before); toast(e.message, 'error'); }
   }
@@ -612,6 +612,15 @@ function CompanySettings() {
           Allow people to share files and chat with other companies on this server
         </label>
         <p className="muted small" style={{ margin: 0 }}>Turning this off immediately removes outside access to your files and pauses external direct messages. Turning it back on restores them.</p>
+        {org.allow_external && (
+          <label className="field" style={{ maxWidth: 360 }}><span>Files shared with people at other companies stay shared for</span>
+            <select value={org.external_share_days || ''} onChange={(e) => save({ external_share_days: e.target.value ? Number(e.target.value) : null }, e.target.value ? `Shares with other companies now end after ${e.target.value} days` : 'Shares with other companies no longer end by themselves')}>
+              <option value="">As long as whoever shares them likes</option>
+              {[7, 30, 90, 180, 365].map((d) => <option key={d} value={d}>At most {d} days</option>)}
+            </select>
+          </label>
+        )}
+        {org.allow_external && org.external_share_days && <p className="muted small" style={{ margin: 0 }}>Applies to sharing done or changed from now on: each share with someone outside gets an end date at most {org.external_share_days} days ahead (an earlier one chosen in the Share window stays). Existing shares keep theirs: see Admin → Shared outside.</p>}
       </div>
       <div className="card stack">
         <h2>Links for people without an account</h2>

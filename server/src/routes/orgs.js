@@ -38,6 +38,7 @@ function describe(org) {
     allow_external: !!org.allow_external,
     allow_links: !!org.allow_links,
     link_max_days: org.link_max_days || null,
+    external_share_days: org.external_share_days || null,
     link_password: !!org.link_password,
     meet_guests: org.meet_guests === undefined ? true : !!org.meet_guests,
     allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
@@ -72,6 +73,12 @@ function updateOrg(orgId, body, { asSuper, user }) {
     const d = body.link_max_days === null ? null : Number(body.link_max_days);
     if (d !== null && (!Number.isInteger(d) || d < 1 || d > 365)) throw bad('Links can be limited to between 1 and 365 days');
     q('UPDATE orgs SET link_max_days = ? WHERE id = ?').run(d, orgId);
+  }
+  // Shares with people at other companies: made or changed from now on end within this many days.
+  if (body.external_share_days !== undefined) {
+    const d = body.external_share_days === null ? null : Number(body.external_share_days);
+    if (d !== null && (!Number.isInteger(d) || d < 1 || d > 365)) throw bad('Shares with other companies can be limited to between 1 and 365 days');
+    q('UPDATE orgs SET external_share_days = ? WHERE id = ?').run(d, orgId);
   }
   if (body.link_password !== undefined) q('UPDATE orgs SET link_password = ? WHERE id = ?').run(body.link_password ? 1 : 0, orgId);
   if (body.allow_api_tokens !== undefined) q('UPDATE orgs SET allow_api_tokens = ? WHERE id = ?').run(body.allow_api_tokens ? 1 : 0, orgId);

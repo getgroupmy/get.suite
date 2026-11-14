@@ -975,6 +975,7 @@ export function ShareDialog({ file, onClose }) {
       </form>
       {error && <p className="error small" role="alert">{error}</p>}
       {!user.allow_external && <p className="muted small">Your company only allows sharing with colleagues.</p>}
+      {user.allow_external && user.external_share_days && external > 0 && <p className="muted small">Your company ends shares with people at other companies after at most {user.external_share_days} days: an end date is set for them when you save.</p>}
       <ul className="share-list">
         <li><Avatar name={file.owner_name} size={28} userId={file.owner_id} /><span className="grow">{file.owner_name}</span><span className="muted">Owner</span></li>
         {manages && (

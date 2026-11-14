@@ -223,6 +223,8 @@ if (!hasColumn('orgs', 'trash_days')) db.exec('ALTER TABLE orgs ADD COLUMN trash
 if (!hasColumn('orgs', 'allow_links')) db.exec('ALTER TABLE orgs ADD COLUMN allow_links INTEGER NOT NULL DEFAULT 1');
 // Company rules for links: they must expire within link_max_days (empty: no limit), and have a password (link_password).
 if (!hasColumn('orgs', 'link_max_days')) db.exec('ALTER TABLE orgs ADD COLUMN link_max_days INTEGER');
+// Shares with people at other companies end after this many days (empty: no limit).
+if (!hasColumn('orgs', 'external_share_days')) db.exec('ALTER TABLE orgs ADD COLUMN external_share_days INTEGER');
 if (!hasColumn('orgs', 'link_password')) db.exec('ALTER TABLE orgs ADD COLUMN link_password INTEGER NOT NULL DEFAULT 0');
 db.exec(`CREATE TABLE IF NOT EXISTS share_links (
   id TEXT PRIMARY KEY,

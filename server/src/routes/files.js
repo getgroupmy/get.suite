@@ -2047,14 +2047,25 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (outsiders.length && await fileRulesStop(req, res, filesFor(f), 'shared outside the company', audit, f.name)) return;
     const before = audienceFor(f.id);
     const had = new Set(q('SELECT user_id FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => x.user_id));
+    const ownerOrgId = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id)?.org_id;
+    const endsBefore = new Map(q('SELECT user_id, expires_at FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => [x.user_id, x.expires_at])); // read before they're cleared below
     tx(() => {
       // People shared with one by one; access through groups is worked out again after (syncShares).
       q('UPDATE shares SET direct_role = NULL, expires_at = NULL WHERE file_id = ?').run(f.id);
       for (const s of list) {
         if (!['viewer', 'commenter', 'editor'].includes(s.role)) throw bad('role must be viewer, commenter or editor');
         // Until when (optional): a moment in the future, up to a year ahead.
-        const until = s.expires_at === undefined || s.expires_at === null || s.expires_at === '' ? null : Number(s.expires_at);
+        let until = s.expires_at === undefined || s.expires_at === null || s.expires_at === '' ? null : Number(s.expires_at);
         if (until !== null && (!Number.isFinite(until) || until <= Date.now() || until > Date.now() + MAX_SHARE_DAYS * 864e5)) throw bad('Access can end at a time in the next year');
+        // Someone at another company, when the company limits that: access ends within its days.
+        const theirOrg = q('SELECT org_id FROM users WHERE id = ?').get(String(s.user_id || ''))?.org_id;
+        const limitDays = theirOrg && theirOrg !== ownerOrgId ? q('SELECT external_share_days FROM orgs WHERE id = ?').get(ownerOrgId)?.external_share_days : null;
+        if (limitDays) {
+          const latest = Date.now() + limitDays * 864e5;
+          const kept = endsBefore.get(s.user_id);
+          // Already shared within the limit: that end stays; otherwise the limit from now.
+          if (until === null || until > latest) until = until === null && kept && kept <= latest && kept > Date.now() ? kept : latest;
+        }
         if (s.user_id === f.owner_id) continue;
         if (!canReach(req.user, s.user_id)) throw bad('You cannot share with that person (external sharing may be turned off)');
         // shared_at/by: when someone first got it directly (kept when the share is saved again).
