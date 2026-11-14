@@ -1,5 +1,6 @@
 // Small spreadsheet formula engine: arithmetic, comparisons, text, cell refs, ranges, common functions.
 
+import { convertUnits } from './unitconvert.js';
 import { runQuery, QueryError } from './query.js';
 import { tablesOf, plainTableRefs } from './tablerefs.js';
 import { normCdf, normPdf, normInv, tCdf, tPdf, tInv, chiCdf, chiPdf, binomPmf, binomCdf, poissonPmf, poissonCdf, tTest, interestPart, capitalPart, ddb, db, yearFrac, parseDateText, parseTimeText } from './statmath.js';
@@ -342,7 +343,25 @@ function formatDate(ms, f) {
   });
 }
 const holidaySet = (h) => new Set(h === undefined ? [] : flat([h]).filter((x) => x !== null && x !== '').map((x) => toDate(x)));
-const isWorkday = (ms, hol) => { const w = new Date(ms).getUTCDay(); return w !== 0 && w !== 6 && !hol.has(ms); };
+const isWorkday = (ms, hol, weekend = WEEKEND) => !weekend.has(new Date(ms).getUTCDay()) && !hol.has(ms);
+const WEEKEND = new Set([0, 6]);
+/**
+ * The weekend days (0 Sunday … 6 Saturday) for NETWORKDAYS.INTL and WORKDAY.INTL: 1 Saturday and Sunday,
+ * 2–7 the next pairs (Sunday–Monday … Friday–Saturday), 11–17 one day (Sunday … Saturday), or seven
+ * 0s and 1s from Monday ("0000011" is Saturday and Sunday). Every day a weekend: #VALUE!.
+ */
+function weekendOf(v) {
+  if (v === undefined || v === null || v === '') return WEEKEND;
+  if (typeof v === 'string' && !/^\d+$/.test(v) || (typeof v === 'string' && v.length === 7)) {
+    if (!/^[01]{7}$/.test(v) || v === '1111111') err('#VALUE!');
+    return new Set([...v].flatMap((c, i) => (c === '1' ? [(i + 1) % 7] : [])));
+  }
+  const n = Math.trunc(toNum(v));
+  if (n === 1) return WEEKEND;
+  if (n >= 2 && n <= 7) return new Set([n - 2, n - 1]);
+  if (n >= 11 && n <= 17) return new Set([n - 11]);
+  return err('#NUM!');
+}
 /** Loan maths shared by PMT, PV and FV (type 1: payments at the start of each period). */
 function pmt(rate, n, pv, fv, type) {
   if (!n) err('#NUM!');
@@ -987,6 +1006,25 @@ const FUNCS = {
     while (left) { t += step; if (isWorkday(t, hol)) left -= Math.sign(left); }
     return dateText(t);
   },
+  // …with your own weekend (see weekendOf): a Friday–Saturday week, or Sundays only.
+  'NETWORKDAYS.INTL': ([start, end, weekend, holidays]) => {
+    let a = toDate(start), b = toDate(end), sign = 1;
+    if (b < a) { [a, b] = [b, a]; sign = -1; }
+    if ((b - a) / DAY_MS > 36600) err('#NUM!');
+    const hol = holidaySet(holidays), wk = weekendOf(weekend);
+    let n = 0;
+    for (let t = a; t <= b; t += DAY_MS) if (isWorkday(t, hol, wk)) n++;
+    return n * sign;
+  },
+  'WORKDAY.INTL': ([start, days, weekend, holidays]) => {
+    let t = toDate(start), left = Math.trunc(toNum(days));
+    if (Math.abs(left) > 36600) err('#NUM!');
+    const step = left < 0 ? -DAY_MS : DAY_MS, hol = holidaySet(holidays), wk = weekendOf(weekend);
+    while (left) { t += step; if (isWorkday(t, hol, wk)) left -= Math.sign(left); }
+    return dateText(t);
+  },
+  // Units: CONVERT(6, "ft", "m"), CONVERT(100, "C", "F") (see unitconvert.js).
+  CONVERT: ([v, from, to]) => { const out = convertUnits(toNum(v), toStr(from), toStr(to)); return out === null ? err('#N/A') : out; },
   DATEDIF: ([start, end, unit]) => {
     const a = new Date(toDate(start)), b = new Date(toDate(end));
     if (b < a) err('#NUM!');

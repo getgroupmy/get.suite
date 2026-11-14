@@ -622,3 +622,30 @@ test('IMPORTFEED: asks for the feed with its query, headers and how many', async
   assert.deepEqual(asked.slice(0, 2), [['https://acme.com/feed', 'feed', { query: 'items title', headers: '1', num: '5' }], ['https://acme.com/feed', 'feed', { query: 'items', headers: '0', num: '20' }]]);
   assert.match(v('E1').why, /1 to 200/);
 });
+
+test('NETWORKDAYS.INTL and WORKDAY.INTL: your own weekend', () => {
+  const g = ev({ H1: '2026-11-11',
+    A1: '=NETWORKDAYS.INTL("2026-11-02", "2026-11-13")', A2: '=NETWORKDAYS.INTL("2026-11-02", "2026-11-13", 7)', A3: '=NETWORKDAYS.INTL("2026-11-02", "2026-11-13", 11)',
+    A4: '=NETWORKDAYS.INTL("2026-11-02", "2026-11-13", "0000011", H1)', A5: '=NETWORKDAYS.INTL("2026-11-02", "2026-11-13", "1111111")', A6: '=NETWORKDAYS.INTL("2026-11-02", "2026-11-13", 9)',
+    A7: '=NETWORKDAYS.INTL("2026-11-02", "2026-11-13", "0000110")',
+    B1: '=WORKDAY.INTL("2026-11-05", 1, 7)', B2: '=WORKDAY.INTL("2026-11-05", 1)', B3: '=WORKDAY.INTL("2026-11-08", -1, 7)', B4: '=WORKDAY.INTL("2026-11-10", 1, 1, H1)' });
+  assert.equal(g('A1'), 10, 'Saturday and Sunday by default');
+  assert.equal(g('A2'), 9, 'Friday and Saturday off: Sunday to Thursday');
+  assert.equal(g('A3'), 11, 'only Sundays off');
+  assert.equal(g('A4'), 9, 'a mask, and a holiday');
+  assert.equal(g('A5').error, '#VALUE!');
+  assert.equal(g('A6').error, '#NUM!');
+  assert.equal(g('A7'), 9, 'Friday and Saturday by mask, as 7');
+  assert.equal(g('B1'), '2026-11-08', 'Thursday + 1 with a Friday–Saturday weekend: Sunday');
+  assert.equal(g('B2'), '2026-11-06');
+  assert.equal(g('B3'), '2026-11-05');
+  assert.equal(g('B4'), '2026-11-12');
+});
+
+test('CONVERT in formulas', () => {
+  const g = ev({ A1: 6, A2: '=CONVERT(A1, "ft", "m")', A3: '=CONVERT(100, "C", "F")', A4: '=CONVERT(1, "m", "kg")', A5: '=ROUND(CONVERT(1, "mi", "km"), 3)' });
+  assert.equal(g('A2'), 1.8288);
+  assert.equal(g('A3'), 212);
+  assert.equal(g('A4').error, '#N/A');
+  assert.equal(g('A5'), 1.609);
+});

@@ -49,7 +49,7 @@ const numToExcel = (f) => {
 const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS', 'XMATCH', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'ISOWEEKNUM', 'MODE.SNGL', 'PERCENTILE.INC', 'QUARTILE.INC', 'FORECAST.LINEAR', 'LET', 'LAMBDA', 'MAP', 'REDUCE', 'SCAN', 'BYROW', 'BYCOL', 'MAKEARRAY', 'TEXTBEFORE', 'TEXTAFTER', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'EXPAND', 'SORTBY', 'RANDARRAY', 'UNICODE', 'UNICHAR', 'BASE',
   'NORM.DIST', 'NORM.S.DIST', 'NORM.INV', 'NORM.S.INV', 'T.DIST', 'T.DIST.RT', 'T.DIST.2T', 'T.INV', 'T.INV.2T', 'T.TEST', 'CHISQ.DIST', 'CHISQ.DIST.RT',
   'CHISQ.TEST', 'CONFIDENCE.NORM', 'CONFIDENCE.T', 'Z.TEST', 'COVARIANCE.P', 'COVARIANCE.S', 'BINOM.DIST', 'POISSON.DIST', 'EXPON.DIST', 'PERCENTRANK.INC',
-  'ARABIC', 'DECIMAL', 'ENCODEURL', 'ISFORMULA', 'FORMULATEXT'];
+  'ARABIC', 'DECIMAL', 'ENCODEURL', 'ISFORMULA', 'FORMULATEXT', 'NETWORKDAYS.INTL', 'WORKDAY.INTL'];
 const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replaceAll('.', '\\.')).join('|')})(?=\\()`, 'gi');
 export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm)\./gi, (m, s) => s || '');
 // The dynamic-array functions; FILTER and SORT also carry "_xlws." in the file.

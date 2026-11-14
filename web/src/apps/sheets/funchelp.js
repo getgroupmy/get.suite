@@ -214,6 +214,9 @@ export const HELP = {
   EOMONTH: ['date, months', 'The last day of a month some months later'],
   NETWORKDAYS: ['start, end, [holidays]', 'Working days (Monday to Friday) between two dates'],
   WORKDAY: ['start, days, [holidays]', 'The date some working days later'],
+  'NETWORKDAYS.INTL': ['start, end, [weekend], [holidays]', 'Working days between two dates, with your own weekend (7 = Friday and Saturday, 11 = Sunday only, or "0000011")'],
+  'WORKDAY.INTL': ['start, days, [weekend], [holidays]', 'The date some working days later, with your own weekend'],
+  CONVERT: ['number, from_unit, to_unit', 'A measurement in other units: CONVERT(6, "ft", "m"), CONVERT(100, "C", "F"), CONVERT(1, "kWh", "J")'],
   // statistics and distributions
   'NORM.DIST': ['x, mean, standard_deviation, cumulative', 'The normal distribution: with cumulative TRUE the share below x, otherwise the height of the curve'],
   NORMDIST: ['x, mean, standard_deviation, cumulative', 'The same as NORM.DIST'],
