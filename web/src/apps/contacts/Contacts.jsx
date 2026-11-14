@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { contactKey } from './contactkeys.js';
+import { stepTask } from '../tasks/taskkeys.js';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
@@ -52,6 +54,34 @@ export default function Contacts() {
   const toast = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Keyboard (contactkeys.js): J / K move between the people listed (the focus with them), and the row's
+  // own buttons do the rest: Enter or O opens (edit, or a colleague's card), S stars, # deletes; C a new one.
+  const keysOn = useRef(true);
+  keysOn.current = user?.keys !== false;
+  useEffect(() => {
+    const rows = () => [...document.querySelectorAll('tbody tr[data-contact]')];
+    const onKey = (e) => {
+      if (document.querySelector('.modal-backdrop, [role=menu], [role=dialog]')) return;
+      const row = document.activeElement?.closest?.('tr[data-contact]');
+      const action = contactKey(e, !!row && document.activeElement === row);
+      if (!action || (!keysOn.current && e.key !== 'Enter')) return;
+      if (action === 'new') { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'New contact'); if (b) { e.preventDefault(); b.click(); } return; }
+      if (action === 'next' || action === 'prev') {
+        const all = rows();
+        const ids = all.map((r) => r.dataset.contact);
+        const id = stepTask(ids, row?.dataset.contact || null, action);
+        const to = all[ids.indexOf(id)];
+        if (to) { e.preventDefault(); to.focus(); to.scrollIntoView?.({ block: 'nearest' }); }
+        return;
+      }
+      if (!row) return;
+      const button = action === 'open' ? row.querySelector('button[aria-label^="Edit "], td.name button')
+        : action === 'star' ? row.querySelector('button.star') : row.querySelector('button[aria-label^="Delete "]');
+      if (button) { e.preventDefault(); button.click(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const [tab, setTab] = useState(() => (['touch', 'dir', 'frequent'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'mine')); // ?tab=touch or ?tab=dir from Home
   const [contacts, setContacts] = useState(null);
   const [directory, setDirectory] = useState([]);
@@ -215,7 +245,7 @@ export default function Contacts() {
           <thead><tr>{selecting && <th className="pick-col"><input type="checkbox" aria-label="Select all shown" checked={allShown} onChange={() => setPicked(allShown ? new Set() : new Set(list.map((c) => c.id)))} /></th>}<th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">Company</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {list.map((c) => (
-              <tr key={c.id} className={picked.has(c.id) ? 'picked' : ''}>
+              <tr key={c.id} data-contact={c.id} tabIndex={-1} aria-label={c.name} className={picked.has(c.id) ? 'picked' : ''}>
                 {selecting && <td className="pick-col"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={() => pickOne(c.id)} /></td>}
                 <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location"> · {placeText(whereToday[c.id])} {dayName(whereDay)}</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}

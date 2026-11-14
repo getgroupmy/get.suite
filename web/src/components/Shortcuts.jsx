@@ -59,6 +59,9 @@ export const SHORTCUTS = {
   notes: { title: 'Notes', keys: [
     ['J / K', 'Next or previous note'], ['Enter', 'Open it'], ['F', 'Pin or unpin'], ['E', 'Archive (or unarchive)'], ['#', 'Delete it (with Undo)'], ['C', 'Take a new note'],
   ] },
+  contacts: { title: 'Contacts', keys: [
+    ['J / K', 'Next or previous person'], ['Enter / O', 'Open (edit a contact, or a colleague’s card)'], ['S', 'Star or unstar'], ['#', 'Delete (it goes to Trash)'], ['C', 'New contact'],
+  ] },
   tasks: { title: 'Tasks', keys: [
     ['J / K', 'Next or previous task'], ['Enter / O', 'Open the task'], ['X', 'Tick it off'], ['S', 'Mark important, or not'], ['#', 'Delete it (with Undo)'], ['N', 'Add a task'],
   ] },
@@ -67,7 +70,7 @@ export const SHORTCUTS = {
 };
 
 const appOf = (path) => (/^\/docs\//.test(path) ? 'docs' : /^\/sheets\//.test(path) ? 'sheets' : /^\/slides\//.test(path) ? 'slides'
-  : /^\/mail/.test(path) ? 'mail' : /^\/calendar/.test(path) ? 'calendar' : /^\/chat/.test(path) ? 'chat' : /^\/tasks/.test(path) ? 'tasks' : /^\/drive/.test(path) ? 'drive' : /^\/notes/.test(path) ? 'notes' : null);
+  : /^\/mail/.test(path) ? 'mail' : /^\/calendar/.test(path) ? 'calendar' : /^\/chat/.test(path) ? 'chat' : /^\/tasks/.test(path) ? 'tasks' : /^\/drive/.test(path) ? 'drive' : /^\/notes/.test(path) ? 'notes' : /^\/contacts/.test(path) ? 'contacts' : null);
 
 export function ShortcutsHelp() {
   const { pathname } = useLocation();
