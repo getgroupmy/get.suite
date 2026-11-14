@@ -28,7 +28,7 @@ import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richte
 import { FiltersDialog } from './Filters.jsx';
 import { ForwardingDialog } from './Forwarding.jsx';
 import { MovePicker } from './MovePicker.jsx';
-import { AttachmentsDialog } from './Attachments.jsx';
+import { AttachmentsDialog, FILE_ICON } from './Attachments.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import { parseAddresses } from '../../components/addresses.js';
 import { fileLinksIn } from '../chat/filelinks.js';
@@ -627,6 +627,20 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                         setSentNudge((n) => { const next = new Set(n); next.delete(m.uid); return next; });
                       } catch (e) { toast(e.message, 'error'); }
                     }}>Not now</button>
+                )}
+                {m.files?.length > 0 && !user?.mail_list?.compact && special !== '\\Drafts' && (
+                  <div className="msg-files" role="group" aria-label={`Attachments: ${m.subject || '(no subject)'}`}>
+                    {m.files.map((f) => {
+                      const view = f.kind === 'pdf' || f.kind === 'image';
+                      return (
+                        <a key={f.part} className="file-chip" href={`/api/mail/messages/${m.uid}/parts/${f.part}?folder=${enc(folder)}${view ? '&view' : ''}${mailboxParam()}`}
+                          {...(view ? { target: '_blank', rel: 'noopener noreferrer' } : { download: f.filename })} aria-label={view ? `Open ${f.filename}` : `Download ${f.filename}`} title={view ? `Open ${f.filename}` : `Download ${f.filename}`}>
+                          <span aria-hidden="true">{FILE_ICON[f.kind] || '📎'}</span><span className="ellipsis">{f.filename}</span>
+                        </a>
+                      );
+                    })}
+                    {m.fileCount > m.files.length && <button type="button" className="file-chip more" onClick={() => go(folder, m.uid)}>+{m.fileCount - m.files.length} more</button>}
+                  </div>
                 )}
               </li>
             ))}

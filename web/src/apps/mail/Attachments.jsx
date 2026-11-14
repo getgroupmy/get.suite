@@ -7,7 +7,7 @@ import { Modal, useToast } from '../../components/ui.jsx';
 import { previewKind } from '../../components/viewkind.js';
 
 const KINDS = [['', 'All files'], ['pdf', 'PDFs'], ['image', 'Pictures'], ['document', 'Documents'], ['spreadsheet', 'Spreadsheets'], ['presentation', 'Presentations'], ['archive', 'Archives'], ['other', 'Other']];
-const ICON = { pdf: '📕', image: '🖼', document: '📄', spreadsheet: '📊', presentation: '📽', archive: '🗜', other: '📎' };
+export const FILE_ICON = { pdf: '📕', image: '🖼', document: '📄', spreadsheet: '📊', presentation: '📽', archive: '🗜', other: '📎' };
 const enc = encodeURIComponent;
 
 export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
@@ -77,7 +77,7 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
           {items.map((a) => (
             <li key={keyOf(a)}>
               <input type="checkbox" aria-label={`Pick ${a.filename}`} checked={picked.has(keyOf(a))} onChange={() => toggle(a)} />
-              <span aria-hidden="true" className="attach-kind">{ICON[a.kind] || '📎'}</span>
+              <span aria-hidden="true" className="attach-kind">{FILE_ICON[a.kind] || '📎'}</span>
               <span className="grow" style={{ minWidth: 0 }}>
                 <strong className="ellipsis" style={{ display: 'block' }}>{a.filename}</strong>
                 <span className="muted small">{formatBytes(a.size)} · {a.from?.name || a.from?.address || 'Unknown sender'} · {day(a.date)} · {a.subject || '(No subject)'}</span>

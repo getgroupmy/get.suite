@@ -1062,6 +1062,7 @@ export default function webmailRoutes() {
           answered: m.flags.has('\\Answered'),
           labels: [...m.flags].map((f) => byKeyword.get(String(f).toLowerCase())).filter(Boolean),
           attachment: hasAttachment(m.bodyStructure),
+          ...filesOf(m.bodyStructure),
           size: m.size,
           messageId: env.messageId || null,
         });
@@ -2321,6 +2322,12 @@ function vacationOf(userId) {
   const ev = q("SELECT e.id FROM vacations v JOIN events e ON e.id = v.ooo_event_id AND e.kind = 'ooo' WHERE v.user_id = ?").get(userId);
   out.calendar = !!ev;
   return out;
+}
+
+/** The first few attachments, for chips under a message in the list (and how many there are). */
+function filesOf(node) {
+  const all = partsOf(node);
+  return all.length ? { files: all.slice(0, 3).map(({ part, filename, kind }) => ({ part, filename, kind })), fileCount: all.length } : {};
 }
 
 function hasAttachment(node) {
