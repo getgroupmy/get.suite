@@ -3,10 +3,11 @@ import { get, put, post, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 
-const FIELD = { from: 'From', to: 'To or Cc', subject: 'Subject', size: 'Size', attachment: 'Attachments' };
+const FIELD = { from: 'From', to: 'To or Cc', subject: 'Subject', body: 'Message text', list: 'Mailing list', size: 'Size', attachment: 'Attachments' };
 const OP = { contains: 'contains', not_contains: "doesn't contain", is: 'is exactly' };
 // Size and attachments have their own comparisons (size takes "5 MB" or "300 KB"; attachments no value).
-const OPS_FOR = { size: { over: 'is larger than', under: 'is smaller than' }, attachment: { has: 'has some', has_not: 'has none' } };
+const TEXT_OPS = { contains: 'contains', not_contains: "doesn't contain" };
+const OPS_FOR = { size: { over: 'is larger than', under: 'is smaller than' }, attachment: { has: 'has some', has_not: 'has none' }, body: TEXT_OPS, list: TEXT_OPS };
 export const opsFor = (field) => OPS_FOR[field] || OP;
 const NEW_FOLDER = '__new__';
 
@@ -189,7 +190,7 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
             </select> of these are true</legend>
           {r.conditions.map((c, i) => (
             <div key={i} className="row wrap rule-cond">
-              <select aria-label={`Condition ${i + 1} field`} value={c.field} onChange={(e) => { const f = e.target.value; const kindChanged = !!OPS_FOR[f] || !!OPS_FOR[c.field]; setC(i, { field: f, ...(kindChanged && { op: Object.keys(opsFor(f))[0], value: '' }) }); }}>
+              <select aria-label={`Condition ${i + 1} field`} value={c.field} onChange={(e) => { const f = e.target.value; const ops = opsFor(f); const other = (x) => x === 'size' || x === 'attachment'; setC(i, { field: f, op: c.op in ops ? c.op : Object.keys(ops)[0], ...((other(f) || other(c.field)) && { value: '' }) }); }}>
                 {Object.entries(FIELD).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
               <select aria-label={`Condition ${i + 1} comparison`} value={c.op} onChange={(e) => setC(i, { op: e.target.value })}>
@@ -197,7 +198,7 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
               </select>
               {c.field !== 'attachment' && <input className="grow" aria-label={`Condition ${i + 1} value`} value={c.value} required onChange={(e) => setC(i, { value: e.target.value })}
                 pattern={c.field === 'size' ? '\\s*\\d+([.,]\\d+)?\\s*([kKmM][bB]?)?\\s*' : undefined} title={c.field === 'size' ? 'A size such as 5 MB or 300 KB' : undefined}
-                placeholder={c.field === 'subject' ? 'invoice' : c.field === 'size' ? '5 MB' : 'name@company.com'} />}
+                placeholder={c.field === 'subject' || c.field === 'body' ? 'invoice' : c.field === 'size' ? '5 MB' : c.field === 'list' ? 'news.example.com' : 'name@company.com'} />}
               {r.conditions.length > 1 && <button type="button" className="icon-btn" aria-label={`Remove condition ${i + 1}`} onClick={() => setR({ ...r, conditions: r.conditions.filter((_, j) => j !== i) })}><Icon name="close" size={16} /></button>}
             </div>
           ))}

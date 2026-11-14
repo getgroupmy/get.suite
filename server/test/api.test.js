@@ -14652,3 +14652,12 @@ test('mail filters: a label action only with your own labels; one brought from e
   db.prepare('DELETE FROM mail_rules WHERE user_id = ?').run(me.id);
   db.prepare("DELETE FROM mail_labels WHERE id = 'labbig'").run();
 });
+
+test('mail: a message\'s mailing list, from its List-Id header', async () => {
+  const { listIdOf } = await import('../src/routes/webmail.js');
+  assert.equal(listIdOf([{ key: 'list-id', line: 'List-Id: Acme News <news.acme.com>' }]), 'news.acme.com');
+  assert.equal(listIdOf([{ key: 'List-ID', line: 'List-ID: <team.lists.example.org>' }]), 'team.lists.example.org');
+  assert.equal(listIdOf([{ key: 'list-id', line: 'List-Id: plain-list.example.org' }]), 'plain-list.example.org');
+  assert.equal(listIdOf([{ key: 'subject', line: 'Subject: hi' }]), null);
+  assert.equal(listIdOf(undefined), null);
+});

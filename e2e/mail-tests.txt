@@ -43,6 +43,7 @@ emoji.mjs
 emptytrash.mjs
 eventdraft.mjs
 eventemail.mjs
+filterlist.mjs
 filtersize.mjs
 followup.mjs
 forgot.mjs

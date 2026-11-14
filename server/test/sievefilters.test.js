@@ -51,3 +51,27 @@ test('filters on size and attachments, and filters that label mail', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('filters on the message text and on the mailing list it came through', () => {
+  const rules = normalizeRules([
+    rule([{ field: 'body', op: 'contains', value: ' unsubscribe ' }, { field: 'list', op: 'contains', value: 'news.acme.com' }], { moveTo: 'Lists' }),
+    rule([{ field: 'body', op: 'not_contains', value: 'urgent "now"' }], { markRead: true }),
+  ]);
+  assert.deepEqual(rules[0].conditions, [{ field: 'body', op: 'contains', value: 'unsubscribe' }, { field: 'list', op: 'contains', value: 'news.acme.com' }]);
+  assert.throws(() => normalizeRules([rule([{ field: 'body', op: 'is', value: 'x' }], { star: true })]), /unknown comparison/);
+  assert.throws(() => normalizeRules([rule([{ field: 'list', op: 'contains', value: '  ' }], { star: true })]), /empty/);
+  const script = userSieve({ username: 'k@acme.com', rules });
+  assert.match(script, /require \[[^\]]*"body"\]/);
+  assert.match(script, /allof\(body :text :contains "unsubscribe", header :contains "list-id" "news\.acme\.com"\)/);
+  assert.match(script, /not body :text :contains "urgent \\"now\\""/);
+  // Without a text condition, "body" isn't required.
+  assert.ok(!/"body"/.test(userSieve({ username: 'k@acme.com', rules: normalizeRules([rule([{ field: 'list', op: 'contains', value: 'x' }], { star: true })]) })));
+  let sievec;
+  try { sievec = execFileSync('sh', ['-c', 'command -v sievec'], { encoding: 'utf8' }).trim(); } catch { /* not installed */ }
+  if (sievec) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sieve-'));
+    fs.writeFileSync(path.join(dir, 'f.sieve'), script);
+    execFileSync(sievec, [path.join(dir, 'f.sieve'), path.join(dir, 'f.svbin')], { stdio: 'pipe' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

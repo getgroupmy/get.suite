@@ -388,6 +388,14 @@ function uidList(v) {
   return arr;
 }
 
+/** A message's mailing list id from its List-Id header (the part in <>, else the whole value), or null. */
+export function listIdOf(headerLines) {
+  const line = (headerLines || []).find((h) => String(h.key).toLowerCase() === 'list-id')?.line || '';
+  const v = line.replace(/^list-id:\s*/i, '').replace(/\s+/g, ' ').trim();
+  const id = (/<([^<>\s]{1,200})>/.exec(v) || [])[1] || v.slice(0, 200);
+  return id || null;
+}
+
 /**
  * Filters that label mail may only use your own labels. `strict`: an unknown one is refused (saving
  * filters); otherwise it's dropped (filters brought from elsewhere), and a filter with nothing else to do is switched off.
@@ -1096,6 +1104,8 @@ export default function webmailRoutes() {
         const to = receiptRequest(p, identities(req.user).map((i) => i.address));
         return to ? { to } : null;
       })(),
+      // The mailing list it came through (List-Id: "News <news.acme.com>" → news.acme.com), for a filter.
+      listId: listIdOf(p.headerLines),
       // A mailing list's way out: done here (one click, or an email), or a page to open.
       unsubscribe: (() => {
         const u = unsubscribeOptions(p.headerLines);

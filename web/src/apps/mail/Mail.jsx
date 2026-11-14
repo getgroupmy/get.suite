@@ -643,7 +643,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         {openUid ? (
           <Reader key={`${folder}:${openUid}`} shared={shared} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)} labels={labels} onNewLabel={() => setLabelDialog({})}
             onClose={() => go(folder)} onRemoved={() => go(folder, special === '\\Drafts' ? null : afterRemoval(shown, openUid, user?.mail_advance))} onOpen={(f, u) => go(f, u)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
-            onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
+            onFilter={(from, list) => setFilters({ startWith: list // a mailing list: the list itself, whoever sends to it
+              ? { name: `List ${list}`, enabled: true, match: 'all', conditions: [{ field: 'list', op: 'contains', value: list }], actions: { stop: true } }
+              : { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
@@ -900,7 +902,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           onClick={async () => { if (await act('flags', { uids: [uid], flagged: !m.flagged })) setM({ ...m, flagged: !m.flagged }); }}>
           <span aria-hidden="true" style={{ fontSize: 20 }}>{m.flagged ? '★' : '☆'}</span>
         </button>
-        {!shared && m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address)}>Filter messages like this</button>}
+        {!shared && m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address, m.listId)}>Filter messages like this</button>}
         {!shared && m.from?.address && special !== '\\Junk' && <button className="btn small" onClick={() => setBlocking(true)}>Block sender</button>}
         {!shared && m.messageId && !muted && <button className="btn small" title="Replies in this conversation skip the Inbox" onClick={mute}>Mute</button>}
       </div>
