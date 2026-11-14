@@ -4,40 +4,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { post } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
-import { SignaturePad } from '../docs/Signatures.jsx';
+import { SignaturePad, textPicture, trimmed } from '../../components/SignaturePad.jsx';
+
+export { textPicture };
 
 const PAGE_PX = 640; // how wide each page shows
-const INK = '#1a237e';
-
-/** Text as a PNG picture (twice the size shown, so it prints sharply): { png, w, h } in shown pixels. */
-export function textPicture(text, { size = 14, font = 'Helvetica, Arial, sans-serif', color = INK } = {}) {
-  const k = 3, c = document.createElement('canvas'), g = c.getContext('2d');
-  g.font = `${size * k}px ${font}`;
-  const w = Math.ceil(g.measureText(text).width) + 4 * k, h = Math.ceil(size * 1.35 * k);
-  c.width = w; c.height = h;
-  g.font = `${size * k}px ${font}`; g.fillStyle = color; g.textBaseline = 'middle';
-  g.fillText(text, 2 * k, h / 2);
-  return { png: c.toDataURL('image/png'), w: w / k, h: h / k };
-}
-/** A drawn signature's picture trimmed to its ink: { png, w, h } (shown pixels at 160 wide). */
-function trimmed(dataUrl) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
-      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
-      const { data } = g.getImageData(0, 0, c.width, c.height);
-      let x0 = c.width, y0 = c.height, x1 = 0, y1 = 0;
-      for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (data[(y * c.width + x) * 4 + 3] > 10) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
-      if (x1 <= x0) return resolve(null);
-      const out = document.createElement('canvas'); out.width = x1 - x0 + 8; out.height = y1 - y0 + 8;
-      out.getContext('2d').drawImage(c, x0 - 4, y0 - 4, out.width, out.height, 0, 0, out.width, out.height);
-      const w = 160, h = (out.height / out.width) * 160;
-      resolve({ png: out.toDataURL('image/png'), w, h });
-    };
-    img.src = dataUrl;
-  });
-}
 
 export default function PdfSignDialog({ file, onClose, onDone }) {
   const toast = useToast();

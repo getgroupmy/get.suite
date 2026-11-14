@@ -1,10 +1,13 @@
 // Signatures: sending a document out for signing, the banner on it while it's out (and once it's
 // signed), and the signing page each signer opens from their private link (no account needed).
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { get, post, onLive } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { DocPreview } from './DocEditor.jsx';
+import { SignaturePad } from '../../components/SignaturePad.jsx';
+
+export { SignaturePad };
 
 const PdfPages = lazy(() => import('../drive/PdfPages.jsx')); // pdf.js only for PDFs
 const PdfBoxesDialog = lazy(() => import('../drive/PdfBoxes.jsx'));
@@ -100,29 +103,6 @@ function SignatureRecord({ s, onClose }) {
   );
 }
 
-/** A box to draw a signature in (mouse, pen or finger). `onChange(dataUrl | null)`. */
-export function SignaturePad({ onChange }) {
-  const ref = useRef();
-  const drawing = useRef(false);
-  const [empty, setEmpty] = useState(true);
-  useEffect(() => {
-    const c = ref.current, ctx = c.getContext('2d');
-    const ratio = window.devicePixelRatio || 1;
-    c.width = c.clientWidth * ratio; c.height = c.clientHeight * ratio;
-    ctx.scale(ratio, ratio); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1a237e';
-  }, []);
-  const at = (e) => { const r = ref.current.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  const down = (e) => { e.preventDefault(); ref.current.setPointerCapture(e.pointerId); drawing.current = true; const ctx = ref.current.getContext('2d'); ctx.beginPath(); ctx.moveTo(...at(e)); };
-  const move = (e) => { if (!drawing.current) return; const ctx = ref.current.getContext('2d'); ctx.lineTo(...at(e)); ctx.stroke(); setEmpty(false); };
-  const up = () => { if (!drawing.current) return; drawing.current = false; onChange(ref.current.toDataURL('image/png')); };
-  const clear = () => { const c = ref.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); setEmpty(true); onChange(null); };
-  return (
-    <div className="sign-pad-wrap">
-      <canvas ref={ref} className="sign-pad" aria-label="Draw your signature" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} />
-      {!empty && <button type="button" className="link-btn small" onClick={clear}>Clear</button>}
-    </div>
-  );
-}
 
 /** The signing page (from a private link). */
 export function SignPage({ token }) {

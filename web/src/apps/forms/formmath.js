@@ -3,7 +3,7 @@
 export const TYPES = [
   ['short', 'Short answer'], ['paragraph', 'Paragraph'], ['choice', 'Multiple choice'], ['checkbox', 'Tick boxes'],
   ['dropdown', 'Dropdown'], ['scale', 'Linear scale'], ['rating', 'Rating'], ['date', 'Date'], ['time', 'Time'], ['file', 'File upload'],
-  ['grid', 'Multiple choice grid'], ['checkgrid', 'Tick box grid'], ['rank', 'Ranking'],
+  ['grid', 'Multiple choice grid'], ['checkgrid', 'Tick box grid'], ['rank', 'Ranking'], ['signature', 'Signature'],
 ];
 export const HAS_OPTIONS = new Set(['choice', 'checkbox', 'dropdown', 'rank']); // rank: people put the options in order
 export const MAX_RANKED = 10;
@@ -43,7 +43,7 @@ export function prefillFrom(questions, raw) {
   const out = {};
   for (const q of questions || []) {
     const v = data[q.id];
-    if (v === undefined || v === null || q.type === 'file' || q.type === 'section') continue;
+    if (v === undefined || v === null || q.type === 'file' || q.type === 'signature' || q.type === 'section') continue;
     if (q.type === 'rank') {
       const l = [v].flat().map(String);
       if (l.length === q.options.length && new Set(l).size === l.length && l.every((x) => q.options.includes(x))) out[q.id] = l;
@@ -107,6 +107,8 @@ export function summarize(questions, responses) {
         const picks = answers.map((a) => a?.[row]).filter((v) => v !== undefined);
         return { row, answered: picks.length, bars: (q.columns || []).map((c) => { const n = picks.filter((v) => [v].flat().includes(c)).length; return { label: c, count: n, share: picks.length ? n / picks.length : 0 }; }) };
       });
+    } else if (q.type === 'signature') {
+      out.signatures = answers.slice().reverse().filter((a) => typeof a === 'string'); // newest first
     } else if (q.type === 'file') {
       out.files = answers.slice().reverse().flat().filter((f) => f && typeof f === 'object'); // newest first
     } else {

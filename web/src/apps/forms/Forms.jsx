@@ -2,7 +2,7 @@
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
 import { REQUEST_KINDS } from '../drive/requestkinds.js';
 import { printHtml } from '../mail/mailprint.js';
-import { responsesPrintHtml, blankFormHtml, summaryPrintHtml } from './formprint.js';
+import { responsesPrintHtml, blankFormHtml, summaryPrintHtml, isSignature } from './formprint.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, del, onLive, formatDate, uploadFile } from '../../api.js';
@@ -407,6 +407,7 @@ function QuestionsTab({ form, edit }) {
               <label className="row">Shown as <select aria-label={`Rating icon of question ${i + 1}`} value={q.icon || 'star'} onChange={(e) => change(i, { icon: e.target.value })}><option value="star">★ Stars</option><option value="heart">♥ Hearts</option><option value="thumb">👍 Thumbs</option></select></label>
             </div>
           )}
+          {q.type === 'signature' && <p className="muted small form-q-sample">They sign in a box with a mouse, pen or finger (or type their name)</p>}
           {(q.type === 'short' || q.type === 'paragraph' || q.type === 'date' || q.type === 'time') && <p className="muted small form-q-sample">{q.type === 'date' ? 'They pick a date' : q.type === 'time' ? 'They pick a time' : q.type === 'short' ? 'Short answer text' : 'Long answer text'}</p>}
           <div className="row form-q-foot">
             <label className="check grow"><input type="checkbox" checked={q.required} onChange={(e) => change(i, { required: e.target.checked })} /> Required</label>
@@ -530,7 +531,9 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
               <details className="form-others"><summary className="small">What people typed for Other ({s.others.length})</summary>
                 <ul className="form-texts">{s.others.slice(0, 100).map((t, k) => <li key={k}>{t}</li>)}</ul></details>
             ) : null}
-            {s.bars || s.grid || s.ranks ? null : s.files ? (
+            {s.bars || s.grid || s.ranks ? null : s.signatures ? (
+              <ul className="form-sigs" aria-label={`Signatures for ${s.title || 'this question'}`}>{s.signatures.slice(0, 24).map((src, k) => isSignature(src) && <li key={k}><img src={src} alt={`Signature ${k + 1}`} /></li>)}{s.signatures.length > 24 && <li className="muted small">and {s.signatures.length - 24} more</li>}</ul>
+            ) : s.files ? (
               <ul className="form-texts">{s.files.slice(0, 100).map((f) => <li key={f.file_id}><a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></li>)}</ul>
             ) : (
               <ul className="form-texts">{s.texts.slice(0, 100).map((t, k) => <li key={k}>{t}</li>)}{s.texts.length > 100 && <li className="muted small">and {s.texts.length - 100} more (download the CSV for all of them)</li>}</ul>
@@ -548,7 +551,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
             {form.questions.filter((q) => q.type !== 'section').map((q) => {
               const a = one.answers[q.id];
               const mark = one.right && q.id in one.right ? (one.right[q.id] ? <span className="quiz-right" aria-label="right"> ✓</span> : <span className="quiz-wrong" aria-label="wrong"> ✗</span>) : null;
-              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : GRIDS.has(q.type) ? q.rows.filter((row) => a[row] !== undefined).map((row) => `${row}: ${[a[row]].flat().join(', ')}`).join('\n') : q.type === 'file' && Array.isArray(a) ? a.map((f, k) => <span key={f.file_id || k}>{k > 0 && ', '}<a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></span>) : q.type === 'rank' && Array.isArray(a) ? a.map((o, k) => `${k + 1}. ${o}`).join('\n') : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
+              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : q.type === 'signature' ? (isSignature(a) ? <img className="form-sig" src={a} alt={`Signature for ${q.title || 'this question'}`} /> : 'Signed') : GRIDS.has(q.type) ? q.rows.filter((row) => a[row] !== undefined).map((row) => `${row}: ${[a[row]].flat().join(', ')}`).join('\n') : q.type === 'file' && Array.isArray(a) ? a.map((f, k) => <span key={f.file_id || k}>{k > 0 && ', '}<a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></span>) : q.type === 'rank' && Array.isArray(a) ? a.map((o, k) => `${k + 1}. ${o}`).join('\n') : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
             })}
           </section>
         )}

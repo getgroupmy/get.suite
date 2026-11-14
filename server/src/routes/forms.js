@@ -151,7 +151,7 @@ q(`CREATE TABLE IF NOT EXISTS form_email_me (
   PRIMARY KEY (form_id, user_id)
 )`).run();
 
-export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'time', 'rating', 'file', 'grid', 'checkgrid', 'rank', 'section'];
+export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'time', 'rating', 'file', 'grid', 'checkgrid', 'rank', 'signature', 'section'];
 const MAX_RANKED = 10; // options a ranking question can have
 // Grids: rows (the things asked about) by columns (the choices); one choice per row, or several (checkgrid).
 const GRIDS = new Set(['grid', 'checkgrid']);
@@ -320,6 +320,19 @@ const withoutKey = (questions) => questions.map(({ answer, points, feedback, ...
 /** The limits of a file question: { accept: 'pdf,pictures' | null, bytes, mb }. */
 const fileLimits = (qu) => ({ accept: qu?.accept?.length ? qu.accept.join(',') : null, mb: qu?.max_mb || MAX_FILE_BYTES / 1024 / 1024, bytes: qu?.max_mb ? qu.max_mb * 1024 * 1024 : MAX_FILE_BYTES });
 
+/** The largest drawn signature kept (a PNG picture; a signature drawn on the form is a few KB). */
+export const MAX_SIGNATURE_BYTES = 100 * 1024;
+/**
+ * A signature question's answer: the PNG picture drawn on the form, as a data: URL. The same string
+ * back when it is one (really a PNG, not too big), otherwise null.
+ */
+export function signatureOf(a) {
+  const m = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(typeof a === 'string' ? a : '');
+  if (!m || m[1].length > Math.ceil(MAX_SIGNATURE_BYTES / 3) * 4) return null;
+  const png = Buffer.from(m[1], 'base64');
+  return png.length > 24 && png.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? a : null;
+}
+
 /** Check one person's answers against the questions; returns what's kept (only answered questions). */
 export function checkAnswers(questions, answers) {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) throw bad('answers must be an object');
@@ -367,6 +380,9 @@ export function checkAnswers(questions, answers) {
       if (others.some((x) => x.length > 200)) throw bad(`${name}: that answer is too long`);
       a = [...qu.options.filter((o) => a.includes(o)), ...others]; // the form's order, no repeats; "Other" last
       if (!a.length) a = undefined;
+    } else if (qu.type === 'signature') {
+      a = a == null || a === '' ? undefined : signatureOf(a);
+      if (a === null) throw bad(`${name}: draw your signature again`);
     } else if (qu.type === 'scale' || qu.type === 'rating') {
       if (a === '' || a == null) a = undefined;
       else {
@@ -422,7 +438,7 @@ export function responseTable(form, responses, { withPeople = form.audience === 
   // One column per question; a grid gets one per row, "Question [Row]".
   const cols = form.questions.filter((qu) => qu.type !== 'section').flatMap((qu) => (GRIDS.has(qu.type)
     ? qu.rows.map((row) => ({ title: `${qu.title || 'Untitled question'} [${row}]`, of: (ans) => ans[qu.id]?.[row] }))
-    : [{ title: qu.title || 'Untitled question', of: qu.type === 'rank' ? (ans) => ans[qu.id]?.map((o, k) => `${k + 1}. ${o}`) : (ans) => ans[qu.id] }]));
+    : [{ title: qu.title || 'Untitled question', of: qu.type === 'rank' ? (ans) => ans[qu.id]?.map((o, k) => `${k + 1}. ${o}`) : qu.type === 'signature' ? (ans) => (ans[qu.id] ? 'Signed' : '') : (ans) => ans[qu.id] }]));
   const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(emails ? ['Email'] : []), ...(quiz ? ['Score'] : []), ...cols.map((c) => c.title)];
   const rows = responses.map((r) => {
     const sc = quiz ? scoreOf(form.questions, r.answers) : null;
@@ -888,6 +904,7 @@ export function answersText(questions, answers) {
     if (qu.type === 'section') { lines.push('', `— ${qu.title || 'Section'} —`); continue; }
     if (!(qu.id in answers)) continue;
     const a = answers[qu.id];
+    if (qu.type === 'signature') { lines.push(`${qu.title || 'Untitled question'}: Signed`); continue; }
     if (GRIDS.has(qu.type)) { lines.push(`${qu.title || 'Untitled question'}:`, ...qu.rows.filter((row) => row in a).map((row) => `  ${row}: ${[a[row]].flat().join(', ')}`)); continue; }
     lines.push(`${qu.title || 'Untitled question'}: ${Array.isArray(a) ? a.map((x) => (x && typeof x === 'object' ? x.name : x)).join(', ') : a}`);
   }

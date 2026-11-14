@@ -63,3 +63,19 @@ test('the summary as a report: counts with shares, grids, averages, written answ
   assert.match(html, /2 answers · average 4\.5/);
   assert.match(html, /line 1<br>line 2/);
 });
+
+test('signature answers: "Signed" as text; the picture when printed, and only a PNG picture', async () => {
+  const { isSignature, summaryPrintHtml } = await import('./formprint.js');
+  const sig = 'data:image/png;base64,iVBORw0KGgo=';
+  const q = { id: 's', type: 'signature', title: 'Sign here' };
+  assert.equal(answerText(q, sig), 'Signed');
+  assert.equal(answerText(q, undefined), null);
+  assert.ok(isSignature(sig));
+  for (const bad of ['data:image/svg+xml;base64,PHN2Zz4=', 'javascript:alert(1)', `${sig}" onerror="x`, 42]) assert.ok(!isSignature(bad));
+  const html = responsesPrintHtml({ title: 'Consent', questions: [q] }, [{ created_at: 0, answers: { s: sig } }, { created_at: 1, answers: { s: `${sig}" onerror="alert(1)` } }]);
+  assert.ok(html.includes(`<img class="sig" src="${sig}" alt="Signature">`));
+  assert.ok(!html.includes('onerror="alert'));
+  assert.ok(html.includes('Signed')); // the one that isn't a picture reads as text
+  const sum = summaryPrintHtml({ title: 'Consent', questions: [q] }, [{ id: 's', title: 'Sign here', type: 'signature', answered: 2, signatures: [sig, 'javascript:x'] }], 2);
+  assert.equal(sum.match(/<img class="sig"/g).length, 1);
+});

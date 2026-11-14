@@ -5,6 +5,7 @@ import { checkProblem } from './formcheck.js';
 import { useEffect, useMemo, useState } from 'react';
 import { sectionsOf, nextPage, prefillFrom, shuffled } from './formmath.js';
 import { themeStyle } from './formtheme.js';
+import { SignaturePad, textPicture, trimmed, SCRIPT_FONT } from '../../components/SignaturePad.jsx';
 
 async function call(method, url, body) {
   const res = await fetch(`/api/public/forms${url}`, {
@@ -54,6 +55,7 @@ export default function FormRespond({ token, onSignIn }) {
   }, [form?.opens_at]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { document.title = form?.title || 'Form'; }, [form?.title]);
 
+  const [cleared, setCleared] = useState(0); // Clear form starts each question afresh (a drawn signature too)
   const set = (id, v) => { setAnswers((a) => ({ ...a, [id]: v })); setMissing((m) => m.filter((x) => x !== id)); };
   const pages = form ? sectionsOf(form.questions) : [];
   const page = trail[trail.length - 1];
@@ -127,12 +129,12 @@ export default function FormRespond({ token, onSignIn }) {
           {pages[page]?.id && <div className="form-section-head"><h2>{pages[page].title || 'Untitled section'}</h2>{pages[page].help && <p className="muted" style={{ margin: 0 }}>{pages[page].help}</p>}</div>}
           {(pages[page]?.items || []).map((q) => (editing && q.type === 'file'
             ? <div key={q.id} className="form-fill-q"><span className="form-fill-title">{q.title || 'Untitled question'}</span><span className="muted small">{editing.files[q.id]?.length ? `Already sent: ${editing.files[q.id].join(', ')}` : 'No files were sent'} (files can't be changed)</span></div>
-            : <Question key={q.id} q={form.left?.[q.id] ? { ...q, left: form.left[q.id] } : q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />))}
+            : <Question key={`${q.id}-${cleared}`} q={form.left?.[q.id] ? { ...q, left: form.left[q.id] } : q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />))}
           {sendError && <p className="error small" role="alert">{sendError}</p>}
           <div className="row">
             {trail.length > 1 && <button type="button" className="btn" onClick={() => { setTrail(trail.slice(0, -1)); setMissing([]); }}>Back</button>}
             <button className="btn primary" disabled={busy}>{after < pages.length ? 'Next' : busy ? 'Sending…' : editing ? 'Save changes' : 'Submit'}</button>
-            {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { setAnswers({}); setMissing([]); setTrail([0]); }}>Clear form</button>}</div>
+            {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { setAnswers({}); setMissing([]); setTrail([0]); setCleared((n) => n + 1); }}>Clear form</button>}</div>
         </>}
         {form.is_owner && <p className="muted small" style={{ margin: 0 }}>This is your form. <a href="/forms">Edit it in Forms</a></p>}
       </form>
@@ -146,6 +148,45 @@ export default function FormRespond({ token, onSignIn }) {
         {body}
       </main>
     </div>
+  );
+}
+
+/**
+ * A signature: drawn in the box (mouse, pen or finger) or typed (for the keyboard), either way kept as
+ * a PNG picture. One already given (changing a response) shows, with "Sign again".
+ */
+function SignatureQuestion({ q, value, onChange, title, help, err, cls, label }) {
+  // Until they choose (or start drawing), one already given shows (it may arrive after the page, when changing a response).
+  const [chosen, setMode] = useState(null);
+  const mode = chosen ?? (value ? 'done' : 'draw');
+  const [name, setName] = useState('');
+  const pick = (m) => { setMode(m); setName(''); onChange(undefined); };
+  return (
+    <fieldset id={`q-${q.id}`} className={cls} aria-label={label}>
+      <legend>{title}</legend>{help}
+      {mode === 'done' && value ? (
+        <div className="form-sig-done">
+          <img src={value} alt={`Your signature for ${q.title || 'this question'}`} />
+          <button type="button" className="link-btn small" onClick={() => pick('draw')}>Sign again</button>
+        </div>
+      ) : (
+        <>
+          <div className="row" role="radiogroup" aria-label="How to sign">
+            <label className="check"><input type="radio" name={`${q.id}-how`} checked={mode === 'draw'} onChange={() => pick('draw')} /> Draw</label>
+            <label className="check"><input type="radio" name={`${q.id}-how`} checked={mode === 'type'} onChange={() => pick('type')} /> Type it instead</label>
+          </div>
+          {mode === 'draw'
+            ? <SignaturePad onChange={async (d) => { setMode('draw'); onChange(d ? (await trimmed(d))?.png : undefined); }} />
+            : <>
+              <label className="field"><span>Your name, as your signature</span>
+                <input value={name} maxLength={80} autoComplete="name" onChange={(e) => { setName(e.target.value); const t = e.target.value.trim(); onChange(t ? textPicture(t, { size: 28, font: SCRIPT_FONT }).png : undefined); }} />
+              </label>
+              <div className="sign-typed big" aria-hidden="true">{name || '\u00a0'}</div>
+            </>}
+        </>
+      )}
+      {err}
+    </fieldset>
   );
 }
 
@@ -187,6 +228,7 @@ export function Question({ q, token, value, onChange, missing }) {
       </fieldset>
     );
   }
+  if (q.type === 'signature') return <SignatureQuestion q={q} value={value} onChange={onChange} title={title} help={help} err={err} cls={cls} label={label} />;
   if (q.type === 'file') return <FileQuestion q={q} token={token} value={value || []} onChange={onChange} title={title} help={help} err={err} cls={cls} label={label} />;
   if (q.type === 'rating') {
     // Stars (or hearts, or thumbs): pick how many; the ones up to the pick fill in.

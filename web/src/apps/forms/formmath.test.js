@@ -71,3 +71,14 @@ test('rankings: kept when every option is there once; summed up by average place
   assert.deepEqual(rankSummary(['A', 'B'], []), [{ label: 'A', average: null, first: 0 }, { label: 'B', average: null, first: 0 }]);
   assert.equal(retype({ id: 'x', type: 'choice', options: ['Only'] }, 'rank').options.length, 2, 'two at least');
 });
+
+test('signature questions: listed as a type, never pre-filled, summarized as the pictures, newest first', async () => {
+  const { TYPES, prefillFrom, summarize } = await import('./formmath.js');
+  assert.ok(TYPES.some(([t, label]) => t === 'signature' && label === 'Signature'));
+  const qs = [{ id: 'n', type: 'short', title: 'Name' }, { id: 's', type: 'signature', title: 'Sign' }];
+  assert.deepEqual(prefillFrom(qs, JSON.stringify({ n: 'Kim', s: 'data:image/png;base64,AAAA' })), { n: 'Kim' });
+  const [, s] = summarize(qs, [{ answers: { s: 'data:image/png;base64,AAAA' } }, { answers: {} }, { answers: { s: 'data:image/png;base64,BBBB' } }]);
+  assert.equal(s.answered, 2);
+  assert.deepEqual(s.signatures, ['data:image/png;base64,BBBB', 'data:image/png;base64,AAAA']);
+  assert.equal(s.texts, undefined);
+});
