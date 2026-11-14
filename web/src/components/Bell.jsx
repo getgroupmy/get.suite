@@ -29,7 +29,7 @@ export default function Bell() {
   const load = useCallback(() => get('/notifications').then(setData).catch(() => {}), []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => onLive((m) => {
-    if (m.type === 'notification') setData((d) => ({ items: [m.notification, ...d.items.filter((x) => x.id !== m.notification.id)].slice(0, 100), unread: d.unread + 1 }));
+    if (m.type === 'notification') setData((d) => ({ items: [m.notification, ...d.items.filter((x) => x.id !== m.notification.id && x.id !== m.replaces)].slice(0, 100), unread: d.unread + (m.replaces && d.items.some((x) => x.id === m.replaces && !x.read) ? 0 : 1) })); // replaces: a grouped one counting more now
     else if (m.type === 'notifications-read' || m.type === 'live-connected') load();
   }), [load]);
   useEffect(() => {

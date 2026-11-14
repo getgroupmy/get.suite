@@ -376,7 +376,9 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     const id = insertFile({ owner: l.created_by, parentId: l.file_id, name, kind: 'file', mime: mimeFor(name), size, storage, activity: { by: null, action: 'request', details: { from: from || null } } });
     q('UPDATE files SET description = ? WHERE id = ?').run(`Sent${from ? ` by ${from}` : ''} through a file request`, id);
     const saved = q('SELECT name FROM files WHERE id = ?').get(id).name;
-    bell([l.created_by], { kind: 'link', title: `${from || 'Someone'} sent “${saved}”`, body: `Into ${l.name} through a file request`, link: `/drive/folder/${l.file_id}`, actor: from || null });
+    // Several in a row from the same person: one notification counting them.
+    bell([l.created_by], { kind: 'link', title: `${from || 'Someone'} sent “${saved}”`, body: `Into ${l.name} through a file request`, link: `/drive/folder/${l.file_id}`, actor: from || null,
+      group: { key: `request:${l.id}:${(from || '').toLowerCase()}`, many: (n) => ({ title: `${from || 'Someone'} sent ${n} files`, body: `Into ${l.name} through a file request, the latest “${saved}”` }) } });
     sendTo([l.created_by], { type: 'files-changed', parent_id: l.file_id });
     res.status(201).json({ name: saved, size });
   });

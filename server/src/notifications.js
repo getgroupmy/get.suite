@@ -17,6 +17,9 @@ q(`CREATE TABLE IF NOT EXISTS notifications (
   read_at INTEGER
 )`).run();
 q('CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at)').run();
+// Grouped ones (several files through one file request…): one notification counting them while it's unread and recent.
+for (const [c, t] of [['group_key', 'TEXT'], ['group_n', 'INTEGER']]) if (!q('PRAGMA table_info(notifications)').all().some((x) => x.name === c)) q(`ALTER TABLE notifications ADD COLUMN ${c} ${t}`).run();
+export const GROUP_WINDOW = 10 * 60e3;
 
 const KEEP = 200;
 // Kinds someone can turn off (each person's choice; all on to begin with).
@@ -50,18 +53,25 @@ export function setOff(userId, kinds) {
 }
 const shape = (n) => ({ ...n, read: !!n.read_at });
 
-/** Add a notification for each of these people (and tell their open tabs). */
-export function notify(userIds, { kind, title, body = null, link = null, actor = null }) {
+/**
+ * Add a notification for each of these people (and tell their open tabs). With `group` ({ key, many(n) → { title,
+ * body } }), one that's still unread and came less than 10 minutes ago with the same key is replaced by one counting
+ * them all (n), at the top again; phones aren't buzzed again for it.
+ */
+export function notify(userIds, { kind, title, body = null, link = null, actor = null, group = null }) {
   const at = Date.now();
   for (const userId of new Set(userIds)) {
     if (!userId || offFor(userId).includes(kind)) continue; // they turned this kind off
     const id = uid();
-    q('INSERT INTO notifications (id, user_id, kind, title, body, link, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, userId, kind, String(title).slice(0, 200), body ? String(body).slice(0, 300) : null, link, actor, at);
+    const prev = group && q('SELECT id, group_n FROM notifications WHERE user_id = ? AND group_key = ? AND read_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 1').get(userId, group.key, at - GROUP_WINDOW);
+    let t = title, b = body, n = 1;
+    if (prev) { n = (prev.group_n || 1) + 1; ({ title: t, body: b = null } = group.many(n)); q('DELETE FROM notifications WHERE id = ?').run(prev.id); }
+    q('INSERT INTO notifications (id, user_id, kind, title, body, link, actor, created_at, group_key, group_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, userId, kind, String(t).slice(0, 200), b ? String(b).slice(0, 300) : null, link, actor, at, group?.key ?? null, group ? n : null);
     // Only the latest are kept.
     q(`DELETE FROM notifications WHERE user_id = ? AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ${KEEP})`).run(userId, userId);
-    sendTo([userId], { type: 'notification', notification: shape(q('SELECT * FROM notifications WHERE id = ?').get(id)) });
-    pushTo(userId, { title, body, link, tag: kind }).catch((e) => console.error('[push]', e.message)); // phones and computers with it turned on
+    sendTo([userId], { type: 'notification', notification: shape(q('SELECT * FROM notifications WHERE id = ?').get(id)), ...(prev && { replaces: prev.id }) });
+    if (!prev) pushTo(userId, { title, body, link, tag: kind }).catch((e) => console.error('[push]', e.message)); // phones and computers with it turned on
   }
 }
 

@@ -3402,6 +3402,31 @@ test('file requests: only some kinds of file, a size per file, and a note for th
   assert.equal((await me('PATCH', `/api/links/${view.id}`, { note: 'hi' })).status, 400);
 });
 
+test('file requests: several files from one person are one notification counting them, while it\'s unread', async () => {
+  const pub = client(), me = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'reqgrp', domain: 'acme.com', name: 'Req Group', password: 'password123' })).status, 201);
+  await login(me, 'reqgrp@acme.com');
+  const folder = (await me('POST', '/api/files/folder', { name: 'Receipts' })).body;
+  const link = (await me('POST', '/api/links', { file_id: folder.id, mode: 'upload' })).body;
+  const send = (name, from) => pub('POST', `/api/public/links/${link.token}/upload?name=${encodeURIComponent(name)}&from=${encodeURIComponent(from)}`, 'x', { raw: true, headers: { 'content-type': 'application/octet-stream' } });
+  const mine = async () => (await me('GET', '/api/notifications')).body;
+  await send('a.pdf', 'Bob Client');
+  assert.deepEqual((await mine()).items.map((n) => n.title), ['Bob Client sent “a.pdf”'], 'the first: by name');
+  await send('b.pdf', 'Bob Client');
+  await send('c.pdf', 'bob client');
+  await send('d.pdf', 'Cat Supplier');
+  let got = await mine();
+  assert.deepEqual(got.items.map((n) => n.title), ['Cat Supplier sent “d.pdf”', 'bob client sent 3 files'], 'Bob\'s three as one (any case), Cat\'s apart');
+  assert.equal(got.items[1].body, 'Into Receipts through a file request, the latest “c.pdf”');
+  assert.equal(got.unread, 2);
+  // Once read, the next one starts again.
+  await me('POST', '/api/notifications/read', { all: true });
+  await send('e.pdf', 'Bob Client');
+  got = await mine();
+  assert.equal(got.items[0].title, 'Bob Client sent “e.pdf”');
+  assert.equal(got.unread, 1);
+});
+
 test('status: set, seen by colleagues in the directory, checked, and cleared by itself', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['sta', 'Stat Ann'], ['stb', 'Stat Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
