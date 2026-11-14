@@ -1117,7 +1117,7 @@ function RecoveryEmail() {
   return (
     <form className="card stack" aria-labelledby="rec-h" onSubmit={(e) => { e.preventDefault(); save(email.trim()); }}>
       <h2 id="rec-h">Recovery email</h2>
-      <p className="muted small" style={{ margin: 0 }}>A personal address (not this account's) where <strong>Forgot password?</strong> on the sign-in page can send you a link to choose a new password.
+      <p className="muted small" style={{ margin: 0 }}>A personal address (not this account's) where <strong>Forgot password?</strong> on the sign-in page can send you a link to choose a new password. It's also told when your account is signed in on a new device or gets a new passkey, so you'd hear of it even if someone else were in your account.
         {user.recovery_email ? <> Now: <strong>{user.recovery_email}</strong>.</> : ' None yet.'}</p>
       <label className="field"><span>Recovery address</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>
       <label className="field"><span>Your password (to confirm it's you)</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>

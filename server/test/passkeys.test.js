@@ -185,3 +185,46 @@ test('signed-in devices say how each signed in: password, code, passkey', async 
   const methods = (await ana('GET', '/api/auth/sessions')).body.map((s) => s.method);
   for (const m of ['password', 'passkey', 'code']) assert.ok(methods.includes(m), m);
 });
+
+test('security emails to the recovery address: a new device, a passkey added (and nothing without one)', async () => {
+  const { setSecurityMailer } = await import('../src/alerts.js');
+  const sent = [];
+  setSecurityMailer(async (user, to, m) => { sent.push({ to, ...m }); });
+  const ana = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  const me = (await ana('GET', '/api/auth/me')).body.user;
+  // No recovery address yet: a new device sends nothing.
+  q('DELETE FROM known_devices WHERE user_id = ?').run(me.id);
+  q("INSERT INTO known_devices (user_id, device, first_at) VALUES (?, 'Old browser', 1)").run(me.id);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(sent.length, 0);
+  assert.equal((await ana('PUT', '/api/auth/recovery-email', { email: 'ana.home@example.org', password: 'password123' })).status, 200);
+  // A sign-in from a device it hasn't seen: an email there too.
+  const fresh = async (ua) => {
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json', 'user-agent': ua }, body: JSON.stringify({ username: 'ana@acme.com', password: 'password123' }) });
+    assert.equal(r.status, 200);
+  };
+  await fresh('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/140.0');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'ana.home@example.org');
+  assert.match(sent[0].subject, /^New sign-in to your Workspace account on /);
+  assert.match(sent[0].text, /hasn't used before.*from 127\.0\.0\.1/s);
+  assert.match(sent[0].text, /change your password/);
+  // The same device again: nothing new.
+  await fresh('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/140.0');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(sent.length, 1);
+  // A passkey added: an email (removing one isn't, it's only less access).
+  const k = authenticator('ec', { origin: base, rp: '127.0.0.1', userHandle: b64url(Buffer.from(me.id)) });
+  const o = (await ana('POST', '/api/auth/passkeys/options', { password: 'password123' })).body;
+  await ana('POST', '/api/auth/passkeys', { credential: { id: k.id, response: k.create(o.challenge) }, name: 'Tablet' });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(sent.length, 2);
+  assert.match(sent[1].subject, /A passkey was added/);
+  assert.match(sent[1].text, /“Tablet”/);
+  await ana('DELETE', `/api/auth/passkeys/${k.id}`);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(sent.length, 2);
+  setSecurityMailer(null);
+});

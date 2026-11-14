@@ -1153,7 +1153,7 @@ A passkey signs you in with your fingerprint, face, screen lock or a security ke
 
 ## Signed-in devices
 
-Settings → **Signed-in devices** lists every browser where you're signed in: what it is ("Chrome on Windows", "Safari on iPhone"), when it was last active, its network address, and when and how it signed in (*with a password*, *with a password and a code*, *with a passkey*…), so a sign-in with just a password you don't recognise stands out. The one you're using is marked **This device**.
+Settings → **Signed-in devices** lists every browser where you're signed in: what it is ("Chrome on Windows", "Safari on iPhone"), when it was last active, its network address, and when and how it signed in (*with a password*, *with a password and a code*, *with a passkey*…), so a sign-in with just a password you don't recognise stands out. A sign-in on a device your account hasn't used before (and a passkey added to it) is also emailed to your **recovery address** (Settings → Recovery email), outside Workspace, so you'd hear of it even if someone else were in your account; nothing is sent without one. The one you're using is marked **This device**.
 
 - **Sign out** ends one device's session; it's signed out at its next click.
 - **Sign out all other devices** ends every session except this one.
