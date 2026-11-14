@@ -1,6 +1,9 @@
 // Notes: quick notes and checklists on coloured cards. "Take a note…" at the top, pinned ones first,
 // labels and the archive on the left, and sharing with colleagues (they see changes as they happen).
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { noteKey } from './notekeys.js';
+import { stepTask, afterLeaving } from '../tasks/taskkeys.js';
+import { useAuth } from '../../App.jsx';
 import { useLocation, useNavigate } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
 import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
@@ -57,6 +60,41 @@ const LABEL_COLORS = [['#d93025', 'Red'], ['#e8710a', 'Orange'], ['#f9ab00', 'Ye
 
 export default function Notes() {
   const toast = useToast();
+  // Keyboard (see notekeys.js): the card's own buttons do the work, so the keys act as clicking them does.
+  const { user } = useAuth();
+  const keyState = useRef({});
+  useEffect(() => {
+    const cards = () => [...document.querySelectorAll('article.note-card:not(.trashed) .note-open')];
+    const focusCard = (el) => { if (el) { el.focus(); el.scrollIntoView?.({ block: 'nearest' }); } };
+    const onKey = (e) => {
+      const st = keyState.current;
+      if (!st.keysOn || document.querySelector('.modal-backdrop, [role=menu], [role=dialog]')) return;
+      const action = noteKey(e);
+      if (!action) return;
+      if (action === 'new') { const take = document.querySelector('.note-take'); if (take) { e.preventDefault(); take.click(); } return; }
+      const all = cards();
+      const here = all.indexOf(document.activeElement?.closest?.('article.note-card')?.querySelector('.note-open'));
+      const ids = all.map((_, i) => String(i));
+      if (action === 'next' || action === 'prev') {
+        const j = stepTask(ids, here < 0 ? null : String(here), action);
+        if (j !== null) { e.preventDefault(); focusCard(all[Number(j)]); }
+        return;
+      }
+      if (here < 0) return;
+      const card = all[here].closest('article.note-card');
+      const n = (st.notes || []).find((x) => x.id === card.dataset.note);
+      if (!n) return;
+      e.preventDefault();
+      const id = n.id;
+      if (action === 'pin') { st.change(n, { pinned: !n.pinned }); setTimeout(() => focusCard(document.querySelector(`article.note-card[data-note="${CSS.escape(id)}"] .note-open`)), 100); return; }
+      const nextOne = all[Number(afterLeaving(ids, String(here)))] || null;
+      const after = () => setTimeout(() => focusCard(nextOne?.isConnected ? nextOne : cards()[0]), 150);
+      if (action === 'archive') { st.archive(n, !n.archived); after(); return; }
+      if (action === 'delete') { if (n.mine) { st.trash(n); after(); } else st.setDeleting(n); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const [notes, setNotes] = useState(null);
   const [labels, setLabels] = useState([]);
   const [labelColors, setLabelColors] = useState({}); // your colour for each label
@@ -124,6 +162,8 @@ export default function Notes() {
     load();
     toast('Note moved to the trash', 'info', { action: { label: 'Undo', onClick: async () => { await post(`/notes/${n.id}/restore`); load(); } } });
   };
+  keyState.current = { keysOn: user?.keys !== false, notes, change, archive, trash, setDeleting };
+
   const restore = async (n) => { try { await post(`/notes/${n.id}/restore`); toast('Note restored'); load(); } catch (e) { toast(e.message, 'error'); } };
   const [forever, setForever] = useState(null); // a note (or 'all') to delete for good
   const copy = async (n) => { try { await post(`/notes/${n.id}/copy`); toast('Copy made'); load(); } catch (e) { toast(e.message, 'error'); } };
@@ -404,7 +444,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
   const done = items.filter((i) => i.done);
   const tick = (it) => onChange({ items: tickItem(items, it.id, !it.done) });
   return (
-    <article className={`note-card ${dragging ? 'dragging' : ''} ${picked ? 'picked' : ''} ${picking ? 'picking' : ''}`} {...drag} style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
+    <article data-note={n.id} className={`note-card ${dragging ? 'dragging' : ''} ${picked ? 'picked' : ''} ${picking ? 'picking' : ''}`} {...drag} style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
       {onPick && <button type="button" className="note-select" aria-pressed={!!picked} aria-label={`Select note: ${n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}`} onClick={onPick}>✓</button>}
       <button type="button" className={`icon-btn note-pin ${n.pinned ? 'on' : ''}`} aria-pressed={n.pinned} aria-label={n.pinned ? 'Unpin note' : 'Pin note'} onClick={() => onChange({ pinned: !n.pinned })}>📌</button>
       <div className="note-open" role="button" tabIndex={0} onClick={picking ? onPick : onOpen} onKeyDown={(e) => { if (e.key === 'Enter') (picking ? onPick : onOpen)(); }}>
