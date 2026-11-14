@@ -1,3 +1,4 @@
+import VoiceRecorder from '../../components/VoiceRecorder.jsx';
 import FileViewer from '../../components/FileViewer.jsx';
 import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -2111,50 +2112,6 @@ function Highlighted({ text, words }) {
   return String(text).slice(0, 300).split(re).map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part));
 }
 
-/** Record a voice message with the microphone: 🎙, then ■ to stop; it's added like an attached file. */
-function VoiceRecorder({ onDone }) {
-  const toast = useToast();
-  const [rec, setRec] = useState(null); // { recorder, started }
-  const [secs, setSecs] = useState(0);
-  useEffect(() => {
-    if (!rec) return undefined;
-    const t = setInterval(() => setSecs(Math.floor((Date.now() - rec.started) / 1000)), 250);
-    const max = setTimeout(() => rec.recorder.state === 'recording' && rec.recorder.stop(), 5 * 60e3); // five minutes at most
-    return () => { clearInterval(t); clearTimeout(max); };
-  }, [rec]);
-  if (typeof window === 'undefined' || !window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return null;
-  const start = async () => {
-    let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { toast('Allow the microphone to record a voice message', 'error'); return; }
-    const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
-    const recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
-    const chunks = [];
-    const started = Date.now();
-    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-    recorder.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop());
-      setRec(null);
-      const kind = (recorder.mimeType || type || 'audio/webm').split(';')[0];
-      const blob = new Blob(chunks, { type: kind });
-      const s = Math.max(1, Math.round((Date.now() - started) / 1000));
-      if (!blob.size || recorder.cancelled) return;
-      const ext = kind === 'audio/mp4' ? 'm4a' : kind === 'audio/ogg' ? 'ogg' : 'weba';
-      onDone(new File([blob], `Voice message ${Math.floor(s / 60)}.${String(s % 60).padStart(2, '0')}.${ext}`, { type: kind }));
-    };
-    recorder.start(250);
-    setSecs(0);
-    setRec({ recorder, started });
-  };
-  const stop = (cancel = false) => { if (rec) { rec.recorder.cancelled = cancel; rec.recorder.stop(); } };
-  if (!rec) return <button type="button" className="icon-btn" aria-label="Record a voice message" title="Record a voice message" onClick={start}>🎙</button>;
-  return (
-    <span className="voice-rec" role="status" aria-label="Recording">
-      <span className="rec-dot" aria-hidden="true" /> {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
-      <button type="button" className="icon-btn" aria-label="Stop recording" title="Stop and add it" onClick={() => stop(false)}>■</button>
-      <button type="button" className="icon-btn" aria-label="Cancel recording" title="Throw it away" onClick={() => stop(true)}><Icon name="close" size={14} /></button>
-    </span>
-  );
-}
 
 /** A message's files: voice messages play here; pictures show; clicking a file opens the viewer when it can be shown. */
 function MessageFiles({ m, mine }) {

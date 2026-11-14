@@ -15,6 +15,7 @@ import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
 import DrawPad from '../../components/DrawPad.jsx';
+import VoiceRecorder from '../../components/VoiceRecorder.jsx';
 
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
@@ -25,6 +26,16 @@ async function addPicture(noteId, file) {
   if (!res.ok) throw new Error(data?.error || 'The picture could not be added');
   return data;
 }
+/** Put a voice recording on a note (up to five, 10 MB each), with how long it ran. */
+async function addRecording(noteId, file, ms) {
+  const res = await fetch(`/api/notes/${noteId}/recordings?duration_ms=${Math.round(ms) || ''}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || 'The recording could not be added');
+  return data;
+}
+/** 0:04, 2:31 */
+export const clock = (ms) => { const s = Math.max(0, Math.round((ms || 0) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
 function PictureButton({ noteId, onAdded, label = 'Insert picture' }) {
   const toast = useToast();
   const input = useRef();
@@ -403,6 +414,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           </div>
         )}
         {n.title && <h3>{n.title}</h3>}
+        {n.recordings?.length > 0 && <span className="note-rec-chip small" title="Open the note to listen">🎙 {n.recordings.length === 1 ? `Recording ${clock(n.recordings[0].duration_ms)}` : `${n.recordings.length} recordings`}</span>}
         {n.body && <p className="note-body">{n.body.length > 800 ? `${n.body.slice(0, 800)}…` : n.body}</p>}
       </div>
       {items.length > 0 && (
@@ -487,10 +499,23 @@ function NoteEditor({ note, onClose }) {
             ))}
           </ul>
         )}
+        {note.recordings?.length > 0 && (
+          <ul className="note-recordings" aria-label="Recordings">
+            {note.recordings.map((x, i) => (
+              <li key={x.id} className="row">
+                <span className="small nowrap">🎙 {i + 1}{x.duration_ms ? ` · ${clock(x.duration_ms)}` : ''}</span>
+                <audio controls preload="metadata" src={`/api/notes/${note.id}/recordings/${x.id}`} aria-label={`Recording ${i + 1}`} />
+                <button type="button" className="chip-x" aria-label={`Remove recording ${i + 1}`} onClick={() => del(`/notes/${note.id}/recordings/${x.id}`).catch((e) => toast(e.message, 'error'))}>×</button>
+              </li>
+            ))}
+          </ul>
+        )}
         <input aria-label="Title" placeholder="Title" value={f.title} maxLength={300} onChange={(e) => edit({ title: e.target.value })} />
         {f.items ? <ChecklistEdit items={f.items} onChange={(items) => edit({ items })} />
           : <textarea aria-label="Note" rows={8} value={f.body} onChange={(e) => edit({ body: e.target.value })} />}
-        <div className="row"><PictureButton noteId={note.id} /><button type="button" className="link-btn small" onClick={() => edit(f.items ? { items: null, body: f.items.map((i) => i.text).filter(Boolean).join('\n') } : { items: (f.body ? f.body.split('\n') : ['']).map((t) => newItem(t)), body: '' })}>
+        <div className="row"><PictureButton noteId={note.id} />
+          {(note.recordings?.length || 0) < 5 && <VoiceRecorder what="a voice recording" name="Recording" maxSecs={10 * 60} onDone={(file, ms) => addRecording(note.id, file, ms).then(() => toast('Recording added')).catch((e) => toast(e.message, 'error'))} />}
+          <button type="button" className="link-btn small" onClick={() => edit(f.items ? { items: null, body: f.items.map((i) => i.text).filter(Boolean).join('\n') } : { items: (f.body ? f.body.split('\n') : ['']).map((t) => newItem(t)), body: '' })}>
           {f.items ? 'Change to plain text' : 'Change to a checklist'}</button></div>
       </div>
     </Modal>

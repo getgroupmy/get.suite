@@ -14577,3 +14577,61 @@ test('forms: responses and their downloads filtered by an answer', async () => {
   const xlsx = (await owner('GET', `/api/forms/${f.id}/responses.xlsx?fq=where&fv=Porto`, undefined, { binary: true }));
   assert.equal(xlsx.status, 200);
 });
+
+test('notes: voice recordings on a note — checked to be audio, played with ranges, copied, zipped, gone with the note', async () => {
+  const { looksLikeAudio, MAX_RECORDINGS } = await import('../src/routes/notes.js');
+  // A WebM file starts with the EBML header; Ogg with "OggS"; MP4 has "ftyp" at 4; MP3 "ID3" or a frame sync.
+  const webm = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(2000, 7)]);
+  assert.ok(looksLikeAudio('audio/webm', webm));
+  assert.ok(looksLikeAudio('audio/ogg', Buffer.from('OggS\0\0\0\0')));
+  assert.ok(looksLikeAudio('audio/mp4', Buffer.from('\0\0\0\x18ftypM4A ')));
+  assert.ok(looksLikeAudio('audio/mpeg', Buffer.from('ID3\x04')));
+  assert.ok(!looksLikeAudio('audio/webm', Buffer.from('<html>')));
+  assert.ok(!looksLikeAudio('text/html', webm));
+  const rae = client();
+  const made = await owner('POST', '/api/users', { local: 'noterec', domain: 'acme.com', name: 'Rae Rec', password: 'password123' });
+  await login(rae, 'noterec@acme.com');
+  const n = (await owner('POST', '/api/notes', { title: 'Standup thoughts' })).body;
+  assert.deepEqual(n.recordings, []);
+  const up = (body, type, ms = 4200) => owner('POST', `/api/notes/${n.id}/recordings?duration_ms=${ms}`, body, { raw: true, headers: { 'content-type': type } });
+  assert.equal((await up(webm, 'video/webm')).status, 400, 'audio only');
+  assert.equal((await up(Buffer.from('<script>alert(1)</script>'), 'audio/webm')).status, 415, 'not really audio');
+  const added = await up(webm, 'audio/webm; codecs=opus');
+  assert.equal(added.status, 201);
+  assert.equal(added.body.recordings.length, 1);
+  const rec = added.body.recordings[0];
+  assert.equal(rec.duration_ms, 4200);
+  // Played by people on the note only; skipping through asks for ranges.
+  assert.equal((await rae('GET', `/api/notes/${n.id}/recordings/${rec.id}`, undefined, { binary: true })).status, 404);
+  await owner('PUT', `/api/notes/${n.id}/shares`, { user_ids: [made.body.id] });
+  const got = await rae('GET', `/api/notes/${n.id}/recordings/${rec.id}`, undefined, { binary: true });
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get('content-type'), 'audio/webm');
+  assert.deepEqual(got.body, webm);
+  const part = await rae('GET', `/api/notes/${n.id}/recordings/${rec.id}`, undefined, { binary: true, headers: { range: 'bytes=0-3' } });
+  assert.equal(part.status, 206);
+  assert.deepEqual(part.body, webm.subarray(0, 4));
+  // A copy has its own; the zip has it, linked from the Markdown.
+  const copy = (await rae('POST', `/api/notes/${n.id}/copy`)).body;
+  assert.equal(copy.recordings.length, 1);
+  assert.notEqual(copy.recordings[0].id, rec.id);
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync((await owner('GET', `/api/notes/export.zip?ids=${n.id}`, undefined, { binary: true })).body);
+  assert.ok(zip.file('Standup thoughts files/recording-1.webm'));
+  assert.match(await zip.file('Standup thoughts.md').async('string'), /\[🎙 Recording 1\]\(Standup%20thoughts%20files\/recording-1\.webm\)/);
+  // Up to five; a silly duration is capped.
+  for (let i = 1; i < MAX_RECORDINGS; i++) assert.equal((await up(webm, 'audio/webm', 9e9)).status, 201);
+  assert.equal((await up(webm, 'audio/webm')).status, 400);
+  const list = (await owner('GET', '/api/notes')).body;
+  const all = (Array.isArray(list) ? list : list.notes).find((x) => x.id === n.id).recordings;
+  assert.equal(all.at(-1).duration_ms, 10 * 60 * 1000);
+  // Taking one off; deleting the note for good removes the files.
+  assert.equal((await rae('DELETE', `/api/notes/${n.id}/recordings/${rec.id}`)).body.recordings.length, MAX_RECORDINGS - 1);
+  const { db } = await import('../src/db.js');
+  const stored = db.prepare('SELECT storage FROM note_recordings WHERE note_id = ?').all(n.id).map((x) => x.storage);
+  assert.equal((await owner('DELETE', `/api/notes/${n.id}?forever=1`)).status, 200);
+  const { FILES_DIR } = await import('../src/db.js');
+  await new Promise((r) => setTimeout(r, 100));
+  for (const st of stored) assert.ok(!fs.existsSync(path.join(FILES_DIR, st)), 'file removed');
+  assert.equal((await rae('GET', `/api/notes/${copy.id}/recordings/${copy.recordings[0].id}`, undefined, { binary: true })).status, 200, 'the copy keeps its own');
+});
