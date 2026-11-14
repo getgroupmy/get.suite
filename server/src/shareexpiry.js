@@ -12,7 +12,30 @@ if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'expires_at')) 
 // When someone was shared a file directly, and by whom (Home → Shared with you); null for older shares.
 for (const col of ['shared_at INTEGER', 'shared_by TEXT']) if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === col.split(' ')[0])) q(`ALTER TABLE shares ADD COLUMN ${col}`).run();
 
+// The end a share was last warned about (a new end date warns again).
+if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'warned_for')) q('ALTER TABLE shares ADD COLUMN warned_for INTEGER').run();
+
 export const MAX_SHARE_DAYS = 366;
+export const WARN_DAYS = 3;
+
+/**
+ * A few days before someone's access ends: tell them (and who to ask) and the owner (who can extend it),
+ * once for each end date. Returns how many shares were warned about.
+ */
+export function warnEndingShares(at = Date.now()) {
+  const rows = q(`SELECT s.file_id, s.user_id, s.expires_at, f.owner_id, f.name, f.kind, u.name AS who, o.name AS owner_name FROM shares s
+                  JOIN files f ON f.id = s.file_id JOIN users u ON u.id = s.user_id JOIN users o ON o.id = f.owner_id
+                  WHERE s.direct_role IS NOT NULL AND s.expires_at > ? AND s.expires_at <= ? AND (s.warned_for IS NULL OR s.warned_for != s.expires_at) AND f.trashed = 0`)
+    .all(at, at + WARN_DAYS * 864e5);
+  const day = (ms) => new Date(ms).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  for (const r of rows) {
+    q('UPDATE shares SET warned_for = expires_at WHERE file_id = ? AND user_id = ?').run(r.file_id, r.user_id);
+    const open = r.kind === 'doc' ? `/docs/${r.file_id}` : r.kind === 'sheet' ? `/sheets/${r.file_id}` : r.kind === 'slides' ? `/slides/${r.file_id}` : '/drive/shared';
+    bell([r.user_id], { kind: 'share', title: `Your access to “${r.name}” ends ${day(r.expires_at)}`, body: `Shared by ${r.owner_name} until then. Ask them if you still need it.`, link: open, actor: r.owner_name });
+    bell([r.owner_id], { kind: 'share', title: `${r.who}'s access to “${r.name}” ends ${day(r.expires_at)}`, body: 'Open its Share window to give them longer.', link: '/drive/sharedbyme', actor: r.who });
+  }
+  return rows.length;
+}
 
 /** Take away the shares whose time is up (now or before `at`); returns how many. */
 export function expireShares(at = Date.now()) {
@@ -30,5 +53,5 @@ export function expireShares(at = Date.now()) {
 }
 
 export function startShareExpiry() {
-  setInterval(() => { try { expireShares(); } catch (e) { console.error('[share expiry]', e.message); } }, 60e3).unref();
+  setInterval(() => { try { expireShares(); warnEndingShares(); } catch (e) { console.error('[share expiry]', e.message); } }, 60e3).unref();
 }

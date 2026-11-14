@@ -222,3 +222,29 @@ test('apply the limit to existing outside shares: they end within it; owners tol
   assert.equal((await ana('POST', '/api/external-shares/enforce')).body.changed, 0, 'nothing left to change');
   await ana('PATCH', '/api/orgs/current', { external_share_days: null });
 });
+
+test('a few days before someone’s access ends: they and the owner are told, once per end date', async () => {
+  const { warnEndingShares, WARN_DAYS } = await import('../src/shareexpiry.js');
+  const doc = (await kim('POST', '/api/files/upload?name=ending.txt', 'e', true)).body;
+  const now = Date.now();
+  const soon = now + 2 * 864e5, later = now + 10 * 864e5;
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'viewer', expires_at: soon }, { user_id: id('gil@globex.com'), role: 'viewer', expires_at: later }] });
+  const told = (u, like) => q('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND title LIKE ?').get(id(u), like).n;
+  assert.equal(WARN_DAYS, 3);
+  warnEndingShares(now); // (earlier tests' shares may be warned about too)
+  assert.equal(told('ana@acme.com', 'Your access to “ending.txt” ends %'), 1);
+  assert.equal(told('kim@acme.com', "Ana Admin's access to “ending.txt” ends %"), 1);
+  assert.equal(told('gil@globex.com', 'Your access to “ending.txt” ends %'), 0, 'not yet');
+  warnEndingShares(now + 60e3);
+  assert.equal(told('ana@acme.com', 'Your access to “ending.txt” ends %'), 1, 'once');
+  // Given longer, then nearly up again: warned again for the new end.
+  const newEnd = now + 5 * 864e5;
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'viewer', expires_at: newEnd }, { user_id: id('gil@globex.com'), role: 'viewer', expires_at: later }] });
+  warnEndingShares(now);
+  assert.equal(told('ana@acme.com', 'Your access to “ending.txt” ends %'), 1, 'more than 3 days away now');
+  warnEndingShares(newEnd - 864e5);
+  assert.equal(told('ana@acme.com', 'Your access to “ending.txt” ends %'), 2);
+  // Gil's turn comes too.
+  warnEndingShares(later - 2 * 864e5);
+  assert.equal(told('gil@globex.com', 'Your access to “ending.txt” ends %'), 1);
+});
