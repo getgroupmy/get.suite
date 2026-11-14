@@ -284,13 +284,17 @@ export function isGroupBooking(eventId) {
   try { return !!q('SELECT 1 FROM bookings b JOIN booking_pages p ON p.id = b.page_id WHERE b.event_id = ? AND p.seats > 1').get(eventId); } catch { return false; }
 }
 
-export function notifyOutside(organizer, e, recipients, kind, { base, tz }) {
-  if (!mailEnabled() || !recipients.length) return;
+/**
+ * The emails an event sends people outside the server ({ to, subject, text, method, ics } each): an
+ * invitation, an update or a cancellation. A group session's (see isGroupBooking) list only the one it
+ * goes to and leave out the notes.
+ */
+export function outsideEmails(organizer, e, recipients, kind, { base, tz }) {
   const zone = zoneOrUtc(tz || e.tz);
-  if (isGroupBooking(e.id)) e = { ...e, description: null }; // and only themselves as a guest, below
   const group = isGroupBooking(e.id);
+  if (group) e = { ...e, description: null };
   const everyone = [...guestsOf(e.id).map((g) => ({ email: g.email, name: g.name, status: g.status })), ...outsideOf(e.id).map((g) => ({ email: g.email, status: g.status }))];
-  for (const g of recipients) {
+  return recipients.map((g) => {
     const method = kind === 'cancel' ? 'CANCEL' : 'REQUEST';
     const ics = buildIcs(e, { method, uid: icsUid(e), sequence: e.sequence || 0, tz: zone, organizer: { name: organizer.name, email: organizer.username },
       attendees: kind === 'cancel' || group ? [{ email: g.email, status: g.status }] : everyone });
@@ -301,11 +305,17 @@ export function notifyOutside(organizer, e, recipients, kind, { base, tz }) {
       : [`${organizer.name} ${kind === 'update' ? 'changed this event' : 'invited you to'}:`, '', e.title, whenText(e, zone),
         ...(e.location ? [`Where: ${e.location}`] : []), ...(e.description ? ['', e.description] : []),
         '', `Answer Yes, Maybe or No: ${link}`, '', 'The attached invitation can be added to Outlook, Gmail or your phone\'s calendar.'];
+    return { to: g.email, subject, text: lines.join('\n'), method, ics };
+  });
+}
+
+export function notifyOutside(organizer, e, recipients, kind, opts) {
+  if (!mailEnabled() || !recipients.length) return;
+  for (const m of outsideEmails(organizer, e, recipients, kind, opts)) {
     smtpFor(organizer).sendMail({
       from: { name: organizer.name, address: organizer.username },
-      to: g.email,
-      subject, text: lines.join('\n'),
-      icalEvent: { method, filename: kind === 'cancel' ? 'cancel.ics' : 'invite.ics', content: ics },
+      to: m.to, subject: m.subject, text: m.text,
+      icalEvent: { method: m.method, filename: kind === 'cancel' ? 'cancel.ics' : 'invite.ics', content: m.ics },
     }).catch((err) => console.error('[calendar] outside invitation failed:', err.message));
   }
 }

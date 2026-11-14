@@ -14909,6 +14909,19 @@ test('booking pages: group sessions — several people at one time, on one event
   const inv = (await pub('GET', `/api/public/invites/${tok}`)).body;
   assert.equal(inv.description, null);
   assert.match(evs[0].description || '', /Ana <ana@example\.org>[\s\S]*Ben <ben@example\.org>/, 'the host sees who is coming');
+  // The emails each gets: only themselves as a guest, and not the notes.
+  const { outsideEmails } = await import('../src/routes/calendar.js');
+  const host = (await owner('GET', '/api/auth/me')).body.user;
+  const guests = db.prepare('SELECT * FROM event_outside_guests WHERE event_id = ?').all(evs[0].id);
+  const ev = { ...evs[0], ...db.prepare('SELECT * FROM events WHERE id = ?').get(evs[0].id), rrule: null, exdates: [] };
+  const mails = outsideEmails({ name: host.name, username: host.username }, ev, guests, 'update', { base: 'https://ws.example', tz: 'UTC' });
+  assert.equal(mails.length, 3);
+  for (const m of mails) {
+    const others = guests.map((g) => g.email).filter((x) => x !== m.to);
+    for (const o of others) { assert.ok(!m.text.includes(o), `${m.to}'s email names ${o}`); assert.ok(!m.ics.includes(o), `${m.to}'s .ics names ${o}`); }
+    assert.ok(m.ics.toLowerCase().includes(`mailto:${m.to}`));
+    assert.ok(!/Coming:/.test(m.text));
+  }
   // Ben cancels: the session stays for the others, and his place is free again. Moving isn't offered.
   const linkOf = (who) => db.prepare('SELECT cancel_token FROM bookings WHERE event_id = ? AND email = ?').get(evs[0].id, `${who}@example.org`).cancel_token;
   const benLink = linkOf('ben');
