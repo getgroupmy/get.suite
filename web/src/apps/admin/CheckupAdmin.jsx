@@ -28,8 +28,8 @@ export default function CheckupAdmin({ onGo }) {
               <strong>{x.title}</strong> <span className="sr-only">({MARK[x.status][1]})</span>
               {x.detail && <p className="small" style={{ margin: '2px 0 0' }}>{x.detail}</p>}
             </div>
-            {x.remind === 'recovery' && <button type="button" className="btn small" onClick={async () => {
-              try { const r = await post('/orgs/current/checkup/remind-recovery'); toast(`Reminded ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'} to add a recovery email`); } catch (e) { toast(e.message, 'error'); }
+            {x.remind && <button type="button" className="btn small" aria-label={`Remind them: ${x.title}`} onClick={async () => {
+              try { const r = await post(`/orgs/current/checkup/remind-${x.remind}`); toast(`Reminded ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'} ${x.remind === 'recovery' ? 'to add a recovery email' : 'to add a second step'}`); } catch (e) { toast(e.message, 'error'); }
             }}>Remind them</button>}
             {x.fix && <button type="button" className="btn small primary" onClick={async () => {
               try { await patch('/orgs/current', x.fix.settings); toast(`Done: ${x.fix.label.toLowerCase()}`); setReload((n) => n + 1); } catch (e) { toast(e.message, 'error'); }

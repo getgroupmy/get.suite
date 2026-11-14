@@ -137,3 +137,16 @@ test('remind people without a recovery email: a notification each, at most daily
   assert.throws(() => remindRecovery(orgId, Date.now() + 3600e3), /less than a day/);
   assert.equal(remindRecovery(orgId, Date.now() + 2 * 864e5), 1, 'a day later, again');
 });
+
+test('remind people with just a password to add a second step; an unknown reminder is refused', async () => {
+  const { remind } = await import('../src/checkup.js');
+  const orgId = q("SELECT org_id FROM users WHERE username = 'ana@acme.com'").get().org_id;
+  q('UPDATE orgs SET require_2fa = 0 WHERE id = ?').run(orgId);
+  const item = (await checkup(orgId, Date.now(), { mail: false })).find((x) => x.id === 'require-2fa');
+  assert.equal(item.remind, 'two-step');
+  const kimId = q("SELECT id FROM users WHERE username = 'kim@acme.com'").get().id;
+  assert.equal(remind(orgId, 'two-step'), 1, 'Kim (Ana has an app, Old is suspended)');
+  assert.equal(q("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND title = 'Protect your account with a second step'").get(kimId).n, 1);
+  assert.throws(() => remind(orgId, 'two-step'), /less than a day/);
+  assert.throws(() => remind(orgId, 'everything'), /Unknown reminder/);
+});

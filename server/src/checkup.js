@@ -54,7 +54,7 @@ function checkupNow(orgId, at) {
   // Everyone else.
   const weak = people.filter((p) => !p.strong);
   if (org?.require_2fa) add({ id: 'require-2fa', status: weak.length ? 'tip' : 'ok', title: 'Two-step verification is required', detail: weak.length ? `${plural(weak.length, 'person', 'people')} still ha${weak.length === 1 ? 's' : 've'} to set it up at their next sign-in.` : '', tab: 'company' });
-  else add({ id: 'require-2fa', status: weak.length ? 'warn' : 'ok', title: weak.length ? `${plural(weak.length, 'person', 'people')} sign in with just a password` : 'Everyone has two-step verification or a passkey', detail: weak.length ? 'Require two-step verification for everyone (Company settings), so a guessed or leaked password isn’t enough.' : '', tab: 'company', ...(weak.length && { fix: { label: 'Require two-step verification', settings: { require_2fa: true } } }) });
+  else add({ id: 'require-2fa', status: weak.length ? 'warn' : 'ok', title: weak.length ? `${plural(weak.length, 'person', 'people')} sign in with just a password` : 'Everyone has two-step verification or a passkey', detail: weak.length ? 'Require two-step verification for everyone (Company settings), so a guessed or leaked password isn’t enough.' : '', tab: 'company', ...(weak.length && { fix: { label: 'Require two-step verification', settings: { require_2fa: true } }, remind: 'two-step' }) });
 
   // Accounts nobody uses: a way in that nobody would notice.
   const stale = people.filter((p) => (p.last_active || p.created_at) < at - INACTIVE_DAYS * 864e5);
@@ -113,12 +113,28 @@ export async function weeklyCheckupNotice(at = Date.now(), opts = {}) {
   return told;
 }
 
-/** Remind everyone in a company without a recovery email to add one (a notification each), at most daily. Returns how many were told. */
+/** What a reminder asks people to do: who gets it, and what it says. */
+const REMINDERS = {
+  recovery: {
+    who: "SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND (recovery_email IS NULL OR recovery_email = '')",
+    note: { title: 'Add a recovery email to your account', body: 'A personal address (not this one) lets you reset a forgotten password yourself, and tells you if your account signs in somewhere new. Settings → Recovery email.' },
+  },
+  'two-step': {
+    who: `SELECT u.id FROM users u WHERE u.org_id = ? AND u.disabled = 0
+           AND NOT EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AND NOT EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)`,
+    note: { title: 'Protect your account with a second step', body: 'Turn on two-step verification or add a passkey (Settings), so a guessed or leaked password isn’t enough to get into your account.' },
+  },
+};
 const lastRemind = new Map();
-export function remindRecovery(orgId, at = Date.now()) {
-  if (lastRemind.get(orgId) > at - 864e5) throw Object.assign(new Error('They were reminded less than a day ago'), { status: 429 });
-  const ids = q("SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND (recovery_email IS NULL OR recovery_email = '')").all(orgId).map((u) => u.id);
-  if (ids.length) notify(ids, { kind: 'signin', title: 'Add a recovery email to your account', body: 'A personal address (not this one) lets you reset a forgotten password yourself, and tells you if your account signs in somewhere new. Settings → Recovery email.', link: '/settings' });
-  lastRemind.set(orgId, at);
+/** Remind everyone in a company who hasn't done it (a notification each), at most daily per kind. Returns how many were told. */
+export function remind(orgId, kind, at = Date.now()) {
+  const r = REMINDERS[kind];
+  if (!r) throw Object.assign(new Error('Unknown reminder'), { status: 400 });
+  const key = `${orgId}:${kind}`;
+  if (lastRemind.get(key) > at - 864e5) throw Object.assign(new Error('They were reminded less than a day ago'), { status: 429 });
+  const ids = q(r.who).all(orgId).map((u) => u.id);
+  if (ids.length) notify(ids, { kind: 'signin', ...r.note, link: '/settings' });
+  lastRemind.set(key, at);
   return ids.length;
 }
+export const remindRecovery = (orgId, at) => remind(orgId, 'recovery', at);

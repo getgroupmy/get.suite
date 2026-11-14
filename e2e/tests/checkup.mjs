@@ -103,14 +103,19 @@ await step('fix right there: sign people out after 8 hours away; requiring two s
 await step('no recovery email: Remind them sends each a notice (and not twice in a day)', async () => {
   await page.goto(`${B}/admin?tab=checkup`);
   const item = list().locator('li', { hasText: 'no recovery email' });
-  await item.getByRole('button', { name: 'Remind them' }).click();
+  await item.getByRole('button', { name: /^Remind them/ }).click();
   await page.getByText(/^Reminded \d+ (person|people) to add a recovery email$/).waitFor();
-  await item.getByRole('button', { name: 'Remind them' }).click();
+  await item.getByRole('button', { name: /^Remind them/ }).click();
   await page.getByText('They were reminded less than a day ago').waitFor();
   const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
   await kim.goto(B);
   await kim.getByRole('button', { name: /^Notifications/ }).first().click();
   await kim.getByText('Add a recovery email to your account').first().waitFor();
+});
+await step('people with just a password: Remind them asks each to add a second step', async () => {
+  await page.goto(`${B}/admin?tab=checkup`);
+  await list().locator('li', { hasText: 'sign in with just a password' }).filter({ hasNotText: 'admin' }).getByRole('button', { name: /^Remind them/ }).click();
+  await page.getByText(/^Reminded \d+ (person|people) to add a second step$/).waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

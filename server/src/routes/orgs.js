@@ -1,6 +1,6 @@
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
 import { sweepInboxes } from '../mail/sweep.js';
-import { checkup, remindRecovery } from '../checkup.js';
+import { checkup, remind } from '../checkup.js';
 import { SIGNATURE_MODES } from '../mail/companysig.js';
 import { MAIL_EMPTY_CHOICES } from '../mail/config.js';
 import { IDLE_CHOICES, MAX_HOURS_CHOICES } from '../auth.js';
@@ -200,10 +200,11 @@ export default function orgRoutes() {
   // Storage: the company's total (and quota), how much each person uses (files, earlier versions,
   // the trash), and the largest files. The platform owner may ask about any company (?org_id=).
   // Security checkup (Admin → Security checkup): the company's open security points.
-  r.post('/current/checkup/remind-recovery', requireAdmin, (req, res) => {
+  // Remind the people a checkup item is about: recovery (no recovery email) or two-step (password only).
+  r.post('/current/checkup/remind-:kind', requireAdmin, (req, res) => {
     let n;
-    try { n = remindRecovery(req.user.org_id); } catch (e) { throw new HttpError(e.status || 400, e.message); }
-    audit(req, 'checkup.remind', { target: `${n} people`, details: { what: 'recovery email' } });
+    try { n = remind(req.user.org_id, req.params.kind); } catch (e) { throw new HttpError(e.status || 400, e.message); }
+    audit(req, 'checkup.remind', { target: `${n} people`, details: { what: req.params.kind } });
     res.json({ reminded: n });
   });
   r.get('/current/checkup', requireAdmin, async (req, res) => res.json({ items: await checkup(req.user.org_id) }));
