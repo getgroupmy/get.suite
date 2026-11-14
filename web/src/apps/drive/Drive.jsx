@@ -440,6 +440,13 @@ export default function Drive() {
       !f.is_drive && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: () => copyMany([f]) },
       !f.is_drive && !viewOnly(f) && { label: 'Copy to…', icon: 'copy', onClick: () => setDialog({ type: 'copyto', files: [f] }) },
       { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
+      route.view === 'shared' && !!f.direct && f.owner_id !== user.id && { label: 'Remove from Shared with me', icon: 'close', onClick: async () => {
+        try {
+          const r = await del(`/files/${f.id}/my-access`);
+          toast(r.still ? `Removed: you can still open “${f.name}” through a group or your company` : `“${f.name}” removed: ask its owner if you need it again`);
+          load();
+        } catch (e) { toast(e.message, 'error'); }
+      } },
       f.kind !== 'folder' && '-',
       f.kind !== 'folder' && canEdit && !f.locked_at && { label: 'Lock (stop changes)', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: true }), 'Locked: nobody can change it until it’s unlocked') },
       f.locked_at && (f.locked_by === user.id || f.role === 'owner') && { label: 'Unlock', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: false }), 'Unlocked') },

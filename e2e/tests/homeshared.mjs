@@ -83,6 +83,21 @@ await step('Drive → Shared with me: newest shared first, with who shared it an
   await axe(kim, 'shared with me');
 });
 
+await step('Remove from Shared with me: gone for Kim, and from Olivia’s Shared by me', async () => {
+  const kim = await mk('kim3');
+  await signIn(kim, 'kim@acme.com');
+  await kim.goto(`${B}/drive/shared`);
+  const rows = kim.locator('.files tbody tr');
+  await until(async () => (await rows.count()) === 2);
+  await rows.filter({ hasText: 'Budget.csv' }).getByRole('button', { name: 'Actions for Budget.csv' }).click();
+  await kim.getByRole('menuitem', { name: 'Remove from Shared with me' }).click();
+  await kim.getByText('“Budget.csv” removed: ask its owner if you need it again').waitFor();
+  await until(async () => (await rows.count()) === 1);
+  await page.goto(`${B}/drive/sharedbyme`);
+  const mine = page.locator('.files tbody tr');
+  await until(async () => (await mine.count()) === 1 && (await mine.first().innerText()).includes('Project brief.txt'));
+});
+
 await step('Olivia, who shared them, has no such card', async () => {
   await page.goto(`${B}/home`);
   await page.getByRole('region', { name: 'Recent files' }).waitFor();

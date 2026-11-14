@@ -510,7 +510,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     } else if (view === 'shared') {
       // Shared with you, and shared with everyone in your company (by someone else).
       // Newest shared first (when that's known), then by name; with who shared it, and when.
-      rows = q(`SELECT ${COLS}, s.role, s.shared_at, sb.name AS shared_by_name ${FROM} JOIN shares s ON s.file_id = f.id
+      rows = q(`SELECT ${COLS}, s.role, s.shared_at, sb.name AS shared_by_name, s.direct_role IS NOT NULL AS direct ${FROM} JOIN shares s ON s.file_id = f.id
                 LEFT JOIN users sb ON sb.id = s.shared_by
                 WHERE s.user_id = ? AND f.trashed = 0 AND f.is_drive = 0 AND ${REACHABLE}
                 ORDER BY s.shared_at IS NULL, s.shared_at DESC, (f.kind = 'folder') DESC, f.name COLLATE NOCASE`).all(me, org, org);
@@ -1990,6 +1990,22 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Replace the share list: [{ user_id, role }]
+  // Remove from Shared with me: take yourself off something shared with you directly. What you can
+  // still open through a group or the whole company stays (and the answer says so).
+  r.delete('/:id/my-access', (req, res) => {
+    const f = q('SELECT id, name, owner_id, parent_id FROM files WHERE id = ?').get(req.params.id);
+    const row = f && q('SELECT direct_role FROM shares WHERE file_id = ? AND user_id = ?').get(f.id, req.user.id);
+    if (!row?.direct_role) throw notFound('That isn’t shared with you directly');
+    const before = audienceFor(f.id);
+    tx(() => {
+      q('UPDATE shares SET direct_role = NULL, expires_at = NULL WHERE file_id = ? AND user_id = ?').run(f.id, req.user.id);
+      syncShares(f.id);
+    });
+    sendTo(new Set([...before, f.owner_id]), { type: 'files-changed', parent_id: f.parent_id });
+    audit(req, 'file.share', { target: f.name, details: { left: req.user.username } });
+    res.json({ removed: true, still: roleFor(f.id, req.user.id) });
+  });
+
   r.put('/:id/shares', async (req, res) => {
     const f = loadManaged(req.params.id, req.user);
     const list = Array.isArray(req.body.shares) ? req.body.shares : null;

@@ -135,3 +135,23 @@ test('Drive → Shared with me: newest shared first, with who shared it and when
   const again = (await ana('GET', '/api/files?view=shared')).body.map((f) => f.name);
   assert.ok(again.indexOf('alpha.txt') < again.indexOf('zulu.txt'));
 });
+
+test('Remove from Shared with me: off a direct share; a group or company share stays', async () => {
+  const doc = (await kim('POST', '/api/files/upload?name=minutes.txt', 'm', true)).body;
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'editor' }, { user_id: id('gil@globex.com'), role: 'viewer' }] });
+  const shared = async () => (await ana('GET', '/api/files?view=shared')).body.find((f) => f.name === 'minutes.txt');
+  assert.equal((await shared()).direct, 1);
+  const r = await ana('DELETE', `/api/files/${doc.id}/my-access`);
+  assert.deepEqual(r.body, { removed: true, still: null });
+  assert.equal(await shared(), undefined);
+  assert.equal((await ana('GET', `/api/files/${doc.id}`)).status, 404, 'no access');
+  assert.equal((await gil('GET', `/api/files/${doc.id}`)).status, 200, 'others keep theirs');
+  assert.equal((await ana('DELETE', `/api/files/${doc.id}/my-access`)).status, 404, 'not shared any more');
+  assert.equal((await kim('DELETE', `/api/files/${doc.id}/my-access`)).status, 404, 'the owner has no share to leave');
+  // Also shared with the whole company: it's still there for her, and she's told.
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'editor' }] });
+  await kim('PUT', `/api/files/${doc.id}/company`, { role: 'viewer' });
+  assert.equal((await ana('DELETE', `/api/files/${doc.id}/my-access`)).body.still, 'viewer');
+  assert.ok((await shared()), 'still listed, through the company');
+  assert.equal(!!(await shared()).direct, false);
+});
