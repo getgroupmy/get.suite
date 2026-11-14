@@ -67,6 +67,20 @@ export function prefillFrom(questions, raw) {
   }
   return out;
 }
+/**
+ * A saved draft's answers, as the form is now: those still fitting their question (as a pre-filled link's
+ * are), and drawn signatures. `trail`: the pages they'd been through, if the form still has them.
+ */
+export function draftFrom(questions, answers, trail, pages) {
+  const out = prefillFrom(questions, JSON.stringify(answers || {}));
+  for (const q of questions || []) {
+    const v = answers?.[q.id];
+    if (q.type === 'signature' && typeof v === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(v)) out[q.id] = v;
+  }
+  const t = Array.isArray(trail) && trail[0] === 0 && trail.every((n) => Number.isInteger(n) && n >= 0 && n < pages) ? trail : [0];
+  return { answers: out, trail: t };
+}
+
 /** The text for ?prefill= from answers, leaving out the empty ones. */
 export function prefillParam(answers) {
   const kept = Object.fromEntries(Object.entries(answers || {}).filter(([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && !v.length) && !(v && typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)));

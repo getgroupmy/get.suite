@@ -2,8 +2,8 @@
 // company (they can sign in right here); "anyone with the link" forms need nothing.
 import { requestSummary } from '../drive/requestkinds.js';
 import { checkProblem } from './formcheck.js';
-import { useEffect, useMemo, useState } from 'react';
-import { sectionsOf, nextPage, prefillFrom, shuffled } from './formmath.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { sectionsOf, nextPage, prefillFrom, shuffled, draftFrom } from './formmath.js';
 import { themeStyle } from './formtheme.js';
 import { SignaturePad, textPicture, trimmed, SCRIPT_FONT } from '../../components/SignaturePad.jsx';
 
@@ -22,6 +22,12 @@ const unanswered = (q, a) => (q.type === 'grid' || q.type === 'checkgrid' ? (q.r
 
 export default function FormRespond({ token, onSignIn }) {
   const [form, setForm] = useState(null);
+  // Drafts (signed in): what they've answered is kept on the server as they go, to finish later.
+  const draft = useRef({ checked: false, timer: null });
+  const touched = useRef(false); // changed something here (only then is anything saved)
+  const [restored, setRestored] = useState(null); // when the draft that came back was saved
+  const [saving, setSaving] = useState(null); // 'saving' | 'saved' | 'failed'
+  const [cleared, setCleared] = useState(0); // Clear form starts each question afresh (a drawn signature too)
   const [error, setError] = useState(null); // { status, message }
   const [answers, setAnswers] = useState({});
   const [email, setEmail] = useState(''); // asked for when the form collects email addresses
@@ -44,6 +50,16 @@ export default function FormRespond({ token, onSignIn }) {
     setForm(f); setError(null);
     const pre = new URLSearchParams(window.location.search).get('prefill');
     if (pre && !editing) setAnswers((a) => ({ ...prefillFrom(f.questions, pre), ...a }));
+    // Signed in: the answers they'd started here before come back (not over a pre-filled link's).
+    if (f.can_save && f.accepting && !f.answered && !editing && !pre && !draft.current.checked) {
+      draft.current.checked = true;
+      call('GET', `/${encodeURIComponent(token)}/draft`).then(({ draft: d }) => {
+        if (!d || touched.current) return;
+        const back = draftFrom(f.questions, d.answers, d.trail, sectionsOf(f.questions).length);
+        if (!Object.keys(back.answers).length) return;
+        setAnswers(back.answers); setTrail(back.trail); setRestored(d.updated_at); setCleared((n) => n + 1);
+      }).catch(() => {});
+    }
   }).catch((e) => setError({ status: e.status, message: e.message }));
   useEffect(() => { load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
   // A form that opens later: the page opens it by itself when the time comes (if it's left open).
@@ -55,19 +71,36 @@ export default function FormRespond({ token, onSignIn }) {
   }, [form?.opens_at]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { document.title = form?.title || 'Form'; }, [form?.title]);
 
-  const [cleared, setCleared] = useState(0); // Clear form starts each question afresh (a drawn signature too)
-  const set = (id, v) => { setAnswers((a) => ({ ...a, [id]: v })); setMissing((m) => m.filter((x) => x !== id)); };
+  const set = (id, v) => { touched.current = true; setAnswers((a) => ({ ...a, [id]: v })); setMissing((m) => m.filter((x) => x !== id)); };
   const pages = form ? sectionsOf(form.questions) : [];
   const page = trail[trail.length - 1];
   const after = form ? nextPage(pages, Math.min(page, pages.length - 1), answers) : 0;
+  // Saved a second after the last change (an empty form deletes the draft); not once it's sent.
+  const drafting = !!form?.can_save && form.accepting && !form.answered && !editing && !done;
+  useEffect(() => {
+    if (!drafting || !touched.current) return undefined;
+    const d = draft.current;
+    clearTimeout(d.timer);
+    d.timer = setTimeout(() => {
+      setSaving('saving');
+      d.inflight = call('PUT', `/${encodeURIComponent(token)}/draft`, { answers, trail })
+        .then(() => setSaving('saved'), () => setSaving('failed'));
+    }, 1000);
+    return () => clearTimeout(d.timer);
+  }, [answers, trail, drafting]); // eslint-disable-line react-hooks/exhaustive-deps
+  const step = (t) => { touched.current = true; setTrail(t); };
+
   const submit = async (e) => {
     e.preventDefault();
     const need = (pages[page]?.items || []).filter((q) => (q.required && unanswered(q, answers[q.id]) && !(editing && q.type === 'file')) || checkProblem(q.check, answers[q.id])).map((q) => q.id);
     if (form.collect_email && !editing && trail.length === 1 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setEmailMissing(true); document.getElementById('q-email')?.scrollIntoView({ block: 'center' }); return; }
-    if (!need.length && after < pages.length) { setTrail([...trail, after]); setMissing([]); window.scrollTo(0, 0); return; } // Next
+    if (!need.length && after < pages.length) { step([...trail, after]); setMissing([]); window.scrollTo(0, 0); return; } // Next
     setMissing(need);
     if (need.length) { document.getElementById(`q-${need[0]}`)?.scrollIntoView({ block: 'center' }); return; }
     setBusy(true); setSendError('');
+    // A draft still being saved mustn't land after the response (sending it deletes the draft).
+    clearTimeout(draft.current.timer);
+    await draft.current.inflight;
     // File questions hold the uploads ({ id, name }); the form gets their ids.
     const out = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, form.questions.find((q) => q.id === k)?.type === 'file' ? (v || []).map((f) => f.id) : v]));
     try {
@@ -123,6 +156,7 @@ export default function FormRespond({ token, onSignIn }) {
             </label>
           )}
           {form.send_copy && !form.collect_email && form.you && !editing && page === 0 && <p className="muted small" style={{ margin: 0 }}>A copy of your answers will be emailed to {form.you.email}.</p>}
+          {restored && drafting && <p className="banner small" role="status" style={{ margin: 0 }}>Your answers from {new Date(restored).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} are back, as you left them. <button type="button" className="link-btn" onClick={() => { touched.current = true; setAnswers({}); setMissing([]); setTrail([0]); setCleared((n) => n + 1); setRestored(null); }}>Start over</button></p>}
           {editing && <p className="banner small" role="status" style={{ margin: 0 }}>You're changing the response you sent. Send it again to keep the changes.</p>}
           {form.questions.some((q) => q.required) && <p className="muted small" style={{ margin: 0 }}><span className="req">*</span> Required</p>}
           {pages.length > 1 && <p className="muted small form-page-of" style={{ margin: 0 }}>Page {trail.length} · {pages.length} sections</p>}
@@ -132,9 +166,10 @@ export default function FormRespond({ token, onSignIn }) {
             : <Question key={`${q.id}-${cleared}`} q={form.left?.[q.id] ? { ...q, left: form.left[q.id] } : q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />))}
           {sendError && <p className="error small" role="alert">{sendError}</p>}
           <div className="row">
-            {trail.length > 1 && <button type="button" className="btn" onClick={() => { setTrail(trail.slice(0, -1)); setMissing([]); }}>Back</button>}
+            {trail.length > 1 && <button type="button" className="btn" onClick={() => { step(trail.slice(0, -1)); setMissing([]); }}>Back</button>}
             <button className="btn primary" disabled={busy}>{after < pages.length ? 'Next' : busy ? 'Sending…' : editing ? 'Save changes' : 'Submit'}</button>
-            {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { setAnswers({}); setMissing([]); setTrail([0]); setCleared((n) => n + 1); }}>Clear form</button>}</div>
+            {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { touched.current = true; setAnswers({}); setMissing([]); setTrail([0]); setCleared((n) => n + 1); setRestored(null); }}>Clear form</button>}
+            {drafting && saving && <span className="muted small form-draft-state" role="status">{saving === 'saving' ? 'Saving your answers…' : saving === 'saved' ? (Object.keys(answers).length ? 'Your answers are saved: come back to finish any time' : 'Draft deleted') : 'Your answers couldn’t be saved just now'}</span>}</div>
         </>}
         {form.is_owner && <p className="muted small" style={{ margin: 0 }}>This is your form. <a href="/forms">Edit it in Forms</a></p>}
       </form>

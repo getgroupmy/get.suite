@@ -14433,3 +14433,78 @@ test('meet: a meeting’s calendar event and its notes — for its organiser and
   assert.equal((await c('GET', `/api/meet/${code}/event`)).body, null, 'not for someone not on it');
   assert.equal((await d('GET', `/api/meet/${code}/event`)).body, null, 'nor for a guest who said no');
 });
+
+test('forms: drafts — answers started while signed in are kept for later, then gone once sent', async () => {
+  const kim = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'drafta', domain: 'acme.com', name: 'Draft Kim', password: 'password123' })).status, 201);
+  await login(kim, 'drafta@acme.com');
+  const f = (await owner('POST', '/api/forms', { title: 'Long survey' })).body;
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { audience: 'org', questions: [
+    { id: 'name', type: 'short', title: 'Name', required: true },
+    { id: 'cv', type: 'file', title: 'CV' },
+    { id: 'p2', type: 'section', title: 'Part two' },
+    { id: 'food', type: 'checkbox', title: 'Food', options: ['Pizza', 'Sushi'] },
+    { id: 'why', type: 'paragraph', title: 'Why?', required: true },
+  ] })).body;
+  const url = `/api/public/forms/${saved.token}`;
+  assert.equal((await kim('GET', url)).body.can_save, true);
+  assert.deepEqual((await kim('GET', `${url}/draft`)).body, { draft: null });
+  // Half done, on page two: only the form's own questions are kept (not the file, not made-up ones).
+  const put = await kim('PUT', `${url}/draft`, { answers: { name: 'Kim', cv: ['up1'], food: ['Sushi'], nope: 'x', why: '' }, trail: [0, 1] });
+  assert.equal(put.status, 200);
+  const d = (await kim('GET', `${url}/draft`)).body.draft;
+  assert.deepEqual(d.answers, { name: 'Kim', food: ['Sushi'] });
+  assert.deepEqual(d.trail, [0, 1]);
+  assert.ok(d.updated_at > 0);
+  // A page that isn't there, or a trail not starting at the first page: back to the start.
+  await kim('PUT', `${url}/draft`, { answers: { name: 'Kim' }, trail: [0, 7] });
+  assert.deepEqual((await kim('GET', `${url}/draft`)).body.draft.trail, [0]);
+  await kim('PUT', `${url}/draft`, { answers: { name: 'Kim' }, trail: [1] });
+  assert.deepEqual((await kim('GET', `${url}/draft`)).body.draft.trail, [0]);
+  // Only theirs: someone else has none.
+  assert.equal((await owner('GET', `${url}/draft`)).body.draft, null);
+  // Too much, or not answers at all.
+  assert.equal((await kim('PUT', `${url}/draft`, { answers: { why: 'x'.repeat(600 * 1024) } })).status, 413);
+  assert.equal((await kim('PUT', `${url}/draft`, { answers: 'hi' })).status, 400);
+  // Nothing left to keep (a cleared form): the draft goes.
+  await kim('PUT', `${url}/draft`, { answers: { food: ['Pizza'] }, trail: [0, 1] });
+  assert.deepEqual((await kim('PUT', `${url}/draft`, { answers: {} })).body, { draft: null });
+  assert.equal((await kim('GET', `${url}/draft`)).body.draft, null);
+  // Sending the form ends it.
+  await kim('PUT', `${url}/draft`, { answers: { name: 'Kim', why: 'Because' }, trail: [0, 1] });
+  assert.equal((await kim('POST', url, { answers: { name: 'Kim', why: 'Because' } })).status, 201);
+  assert.equal((await kim('GET', `${url}/draft`)).body.draft, null);
+  // DELETE clears one too.
+  await kim('PUT', `${url}/draft`, { answers: { name: 'Again' } });
+  assert.equal((await kim('DELETE', `${url}/draft`)).status, 200);
+  assert.equal((await kim('GET', `${url}/draft`)).body.draft, null);
+  // A form that's closed takes no more drafts.
+  await owner('PUT', `/api/forms/${f.id}`, { accepting: false });
+  assert.equal((await kim('PUT', `${url}/draft`, { answers: { name: 'Late' } })).status, 409);
+  // Signed out (a form for anyone with the link): nothing is kept.
+  await owner('PUT', `/api/forms/${f.id}`, { accepting: true, audience: 'public' });
+  const anon = client();
+  assert.equal((await anon('GET', url)).body.can_save, false);
+  assert.equal((await anon('PUT', `${url}/draft`, { answers: { name: 'Anon' } })).status, 401);
+  assert.equal((await anon('GET', `${url}/draft`)).status, 401);
+  // Deleting the form deletes the drafts.
+  await kim('PUT', `${url}/draft`, { answers: { name: 'Kim' } });
+  assert.equal((await owner('DELETE', `/api/forms/${f.id}`)).status, 200);
+  const { db } = await import('../src/db.js');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM form_drafts WHERE form_id = ?').get(f.id).n, 0);
+});
+
+test('forms: an old draft (over 30 days untouched) is not offered, and is cleared away', async () => {
+  const pat = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'draftb', domain: 'acme.com', name: 'Draft Pat', password: 'password123' })).status, 201);
+  await login(pat, 'draftb@acme.com');
+  const f = (await owner('POST', '/api/forms', { title: 'Old one' })).body;
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { audience: 'org', questions: [{ id: 'a', type: 'short', title: 'A' }] })).body;
+  const url = `/api/public/forms/${saved.token}`;
+  await pat('PUT', `${url}/draft`, { answers: { a: 'x' } });
+  const { db } = await import('../src/db.js');
+  db.prepare('UPDATE form_drafts SET updated_at = ? WHERE form_id = ?').run(Date.now() - 31 * 864e5, f.id);
+  assert.equal((await pat('GET', `${url}/draft`)).body.draft, null);
+  await owner('PUT', `${url}/draft`, { answers: { a: 'mine' } }); // anyone saving clears the old ones away
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM form_drafts WHERE form_id = ?').get(f.id).n, 1);
+});

@@ -145,6 +145,19 @@ for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['se
 }
 const MAX_EDITORS = 50;
 // People on a form's team who get an email for each new response (each chooses for themselves).
+// Answers someone signed in has started but not sent: kept as they go, so a long form can be finished later
+// (the page they were on too). Gone when they send it or clear the form, and after DRAFT_DAYS untouched.
+q(`CREATE TABLE IF NOT EXISTS form_drafts (
+  form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  answers TEXT NOT NULL,
+  trail TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (form_id, user_id)
+)`).run();
+export const DRAFT_DAYS = 30;
+export const MAX_DRAFT_BYTES = 512 * 1024;
+
 q(`CREATE TABLE IF NOT EXISTS form_email_me (
   form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -403,6 +416,29 @@ export function checkAnswers(questions, answers) {
     out[qu.id] = a;
   }
   return out;
+}
+
+/**
+ * What's kept of a draft: answers only for the form's own questions (not file uploads, which last a day,
+ * nor section headings), and the pages they went through (page numbers, starting with 0). Null when
+ * there's nothing to keep. Answers aren't checked as a response is: a draft may be half done.
+ */
+export function cleanDraft(questions, answers, trail) {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) throw bad('answers must be an object');
+  const kept = {};
+  for (const qu of questions) {
+    if (qu.type === 'file' || qu.type === 'section' || !(qu.id in answers)) continue;
+    const a = answers[qu.id];
+    if (a === undefined || a === null || a === '' || (Array.isArray(a) && !a.length)) continue;
+    if (!['string', 'number', 'object'].includes(typeof a)) continue;
+    kept[qu.id] = a;
+  }
+  if (!Object.keys(kept).length) return null;
+  const pages = questions.filter((qu) => qu.type === 'section').length + 1;
+  const t = (Array.isArray(trail) ? trail : [0]).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < pages).slice(0, 100);
+  const json = JSON.stringify(kept);
+  if (Buffer.byteLength(json) > MAX_DRAFT_BYTES) throw new HttpError(413, 'Too much to keep as a draft');
+  return { answers: json, trail: JSON.stringify(t[0] === 0 ? t : [0]) };
 }
 
 /** One answer as text, for CSV and spreadsheets. */
@@ -966,10 +1002,38 @@ export function publicFormRoutes() {
     const team = !!user && teamOf(form).includes(user.id);
     res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, theme: form.theme, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
-      you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team,
+      you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team, can_save: !!user,
       // For a card when the link is pasted in Chat: whether you've sent a response, and (for its team) how many came.
       responded: !!user && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id),
       ...(team && { responses: q('SELECT COUNT(*) AS n FROM form_responses WHERE form_id = ?').get(form.id).n }) });
+  });
+
+  // Drafts: the answers someone signed in has started (see form_drafts). { draft: { answers, trail, updated_at } | null }
+  const draftOwner = (req) => {
+    const { form, user } = openForm(req);
+    if (!user) throw new HttpError(401, 'Sign in to keep your answers for later');
+    return { form, user };
+  };
+  r.get('/:token/draft', (req, res) => {
+    const { form, user } = draftOwner(req);
+    const d = q('SELECT * FROM form_drafts WHERE form_id = ? AND user_id = ? AND updated_at > ?').get(form.id, user.id, now() - DRAFT_DAYS * 864e5);
+    res.json({ draft: d ? { answers: JSON.parse(d.answers), trail: JSON.parse(d.trail), updated_at: d.updated_at } : null });
+  });
+  r.put('/:token/draft', (req, res) => {
+    const { form, user } = draftOwner(req);
+    if (closedReason(form)) throw new HttpError(409, 'This form is closed');
+    const d = cleanDraft(form.questions, req.body?.answers, req.body?.trail);
+    const at = now();
+    q('DELETE FROM form_drafts WHERE updated_at < ?').run(at - DRAFT_DAYS * 864e5); // the old ones nobody came back to
+    if (!d) { q('DELETE FROM form_drafts WHERE form_id = ? AND user_id = ?').run(form.id, user.id); return res.json({ draft: null }); }
+    q(`INSERT INTO form_drafts (form_id, user_id, answers, trail, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (form_id, user_id) DO UPDATE SET answers = excluded.answers, trail = excluded.trail, updated_at = excluded.updated_at`).run(form.id, user.id, d.answers, d.trail, at);
+    res.json({ updated_at: at });
+  });
+  r.delete('/:token/draft', (req, res) => {
+    const { form, user } = draftOwner(req);
+    q('DELETE FROM form_drafts WHERE form_id = ? AND user_id = ?').run(form.id, user.id);
+    res.json({ ok: true });
   });
 
   r.get('/:token/pictures/:pic', (req, res) => { const { form } = openForm(req); sendPicture(form, req.params.pic, res); });
@@ -1050,6 +1114,7 @@ export function publicFormRoutes() {
       q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, edit_key, email) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(id, form.id, form.audience === 'org' ? user.id : null, JSON.stringify(answers), now(), editKey, form.audience === 'public' ? email : null);
     });
+    if (user) q('DELETE FROM form_drafts WHERE form_id = ? AND user_id = ?').run(form.id, user.id); // sent: the draft is done with
     const team = teamOf(form);
     sendTo(team, { type: 'form-response', form_id: form.id });
     try { addToLinkedSheet(form, id); } catch (e) { console.error('[forms] linked sheet:', e.message); }

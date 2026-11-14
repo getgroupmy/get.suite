@@ -82,3 +82,12 @@ test('signature questions: listed as a type, never pre-filled, summarized as the
   assert.deepEqual(s.signatures, ['data:image/png;base64,BBBB', 'data:image/png;base64,AAAA']);
   assert.equal(s.texts, undefined);
 });
+
+test('a saved draft comes back as the form is now: answers that still fit, signatures, and the pages if still there', async () => {
+  const { draftFrom } = await import('./formmath.js');
+  const qs = [{ id: 'n', type: 'short', title: 'Name' }, { id: 'c', type: 'choice', title: 'Pick', options: ['A', 'B'] }, { id: 's', type: 'signature' }, { id: 'f', type: 'file' }];
+  const sig = 'data:image/png;base64,iVBORw0KGgo=';
+  assert.deepEqual(draftFrom(qs, { n: 'Kim', c: 'Gone option', s: sig, f: ['x'], old: 'y' }, [0, 1], 2), { answers: { n: 'Kim', s: sig }, trail: [0, 1] });
+  assert.deepEqual(draftFrom(qs, { s: 'javascript:x' }, [0, 3], 2), { answers: {}, trail: [0] });
+  assert.deepEqual(draftFrom(qs, null, null, 1), { answers: {}, trail: [0] });
+});
