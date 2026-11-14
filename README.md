@@ -110,6 +110,8 @@ Pictures in documents and presentations can be given **Alt text** for screen rea
 
 Lists that open as you type or press a key are checked open too: the search box at the top (with its tips, recent searches and results, light and dark), Chat's **/** commands (in a conversation and in a thread), the Calendar's quick add with what it understood and the event it opens (guests and room chosen), Mail's **Move to** and **Label as** pickers (also with nothing matching) and its address suggestions while writing, Chat's *@* suggestions and **Jump to**, Sheets' function suggestions and a dropdown cell's choices, the Docs *@* menu, and a form's file question with its kinds of file and size (in the editor, and on the form with a file just refused). On a highlighted choice, its grey details (an address, what a function does) take the highlight's text colour, so they stay readable in both light and dark. In each, the list holds only its choices; buttons such as *Clear recent searches* or *Hide tips* and notes such as *Nothing found* sit under it, where screen readers don't take them for choices.
 
+
+**On a phone:** rows of tabs that don't fit (Admin's, Contacts', Forms'…) scroll sideways by themselves, with the page staying where it is; a browser test opens today's newer screens at phone width and checks nothing on the page is wider than the screen or slides out of view.
 ## Install as an app (phones and computers)
 
 Once Workspace is published over HTTPS (above), it can be installed like an app, with its own icon and window, without an app store:
