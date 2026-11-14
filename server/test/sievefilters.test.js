@@ -96,3 +96,26 @@ test('a filter can say which Inbox tab mail shows in', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('filters on an attachment’s file name (any part, contains or not); the mime extension only when used', () => {
+  const rules = normalizeRules([
+    rule([{ field: 'filename', op: 'contains', value: ' .pdf ' }], { moveTo: 'Invoices' }),
+    rule([{ field: 'from', op: 'contains', value: 'scanner' }, { field: 'filename', op: 'not_contains', value: 'draft "1"' }], { star: true }),
+  ]);
+  assert.deepEqual(rules[0].conditions, [{ field: 'filename', op: 'contains', value: '.pdf' }]);
+  assert.throws(() => normalizeRules([rule([{ field: 'filename', op: 'is', value: 'a.pdf' }], { star: true })]), /unknown comparison/);
+  assert.throws(() => normalizeRules([rule([{ field: 'filename', op: 'contains', value: ' ' }], { star: true })]), /empty/);
+  const script = userSieve({ username: 'k@acme.com', rules });
+  assert.match(script, /require \[[^\]]*"mime"\]/);
+  assert.match(script, /anyof\(header :mime :anychild :param "filename" :contains "Content-Disposition" "\.pdf", header :mime :anychild :param "name" :contains "Content-Type" "\.pdf"\)/);
+  assert.match(script, /not anyof\(header :mime :anychild :param "filename" :contains "Content-Disposition" "draft \\"1\\""/);
+  assert.ok(!/"mime"/.test(userSieve({ username: 'k@acme.com', rules: normalizeRules([rule([{ field: 'subject', op: 'contains', value: 'x' }], { star: true })]) })));
+  let sievec;
+  try { sievec = execFileSync('sh', ['-c', 'command -v sievec'], { encoding: 'utf8' }).trim(); } catch { /* not installed */ }
+  if (sievec) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sieve-'));
+    fs.writeFileSync(path.join(dir, 'f.sieve'), script);
+    execFileSync(sievec, [path.join(dir, 'f.sieve'), path.join(dir, 'f.svbin')], { stdio: 'pipe' });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

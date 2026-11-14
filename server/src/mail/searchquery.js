@@ -94,7 +94,7 @@ export function filesMatch(parts, files) {
 
 /**
  * A search as the start of a filter (Mail's "Create a filter from this search"): from: to: subject:
- * has:attachment larger: smaller: become their conditions (with - as "doesn't"), and plain words or
+ * has:attachment filename: larger: smaller: become their conditions (with - as "doesn't"), and plain words or
  * "phrases" look in the message text. What only makes sense for mail already there (is:unread,
  * before:, newer_than: …) is left out and listed. → { rule, left } or { error }.
  */
@@ -114,6 +114,7 @@ export function ruleFromSearch(text) {
     if (key === 'from' || key === 'subject') conditions.push({ field: key, op, value: v });
     else if (key === 'to' || key === 'cc') conditions.push({ field: 'to', op, value: v });
     else if (key === 'has' && /^attachments?$/i.test(v)) conditions.push({ field: 'attachment', op: neg ? 'has_not' : 'has', value: '' });
+    else if (key === 'filename') conditions.push({ field: 'filename', op, value: v });
     else if ((key === 'larger' || key === 'smaller') && !neg) {
       const s = kb(v);
       if (!s) return { error: `Write sizes like 5M or 200K (${key}:${v})` };

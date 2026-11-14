@@ -68,3 +68,17 @@ test('applying a tab: the other tab\'s mark comes off first', async () => {
   await applyRule(c, { match: 'all', conditions: [{ field: 'from', op: 'contains', value: 'acme' }], actions: { tab: 'primary' } });
   assert.deepEqual(c.done, [['unflag', '4', ['$NwUpdates']], ['flags', '4', ['$NwPrimary']]]);
 });
+
+test('an attachment-name condition on mail already there: checked against each message’s structure', async () => {
+  const pdf = { childNodes: [{ part: '1', type: 'text/plain' }, { part: '2', type: 'application/pdf', disposition: 'attachment', dispositionParameters: { filename: 'Invoice 12.PDF' } }] };
+  const draft = { childNodes: [{ part: '1', type: 'text/plain' }, { part: '2', type: 'application/pdf', disposition: 'attachment', dispositionParameters: { filename: 'invoice draft.pdf' } }] };
+  const plain = { part: '1', type: 'text/plain' };
+  const structures = { 1: pdf, 2: draft, 3: plain };
+  const c = {
+    async search(q) { return JSON.stringify(q) === '{"all":true}' ? [1, 2, 3] : JSON.stringify(q) === '{"header":{"content-type":"multipart/mixed"}}' ? [1, 2] : []; },
+    async *fetch(set) { for (const uid of set.split(',').map(Number)) yield { uid, bodyStructure: structures[uid] }; },
+  };
+  assert.deepEqual(await matchingUids(c, { match: 'all', conditions: [{ field: 'filename', op: 'contains', value: 'invoice' }] }), [1, 2]);
+  assert.deepEqual(await matchingUids(c, { match: 'all', conditions: [{ field: 'filename', op: 'contains', value: '.pdf' }, { field: 'filename', op: 'not_contains', value: 'draft' }] }), [1]);
+  assert.deepEqual(await matchingUids(c, { match: 'all', conditions: [{ field: 'filename', op: 'not_contains', value: 'pdf' }] }), [3]);
+});

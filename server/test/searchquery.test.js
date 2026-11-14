@@ -73,6 +73,8 @@ test('filename: narrows to mail with attachments, and names are checked afterwar
   assert.equal(filesMatch(parts, [{ name: 'pdf', neg: false }]), true);
   assert.equal(filesMatch(parts, [{ name: 'docx', neg: false }]), false);
   assert.equal(filesMatch([], [{ name: 'zip', neg: true }]), true, 'no files: none of them is a zip');
-  // A filter can't use it (it's left out and said so).
-  assert.deepEqual(ruleFromSearch('from:kim filename:pdf').left, ['filename:pdf']);
+  // A filter from it looks at the names of arriving mail's attachments.
+  const f = ruleFromSearch('from:kim filename:pdf -filename:draft');
+  assert.deepEqual(f.left, []);
+  assert.deepEqual(f.rule.conditions.slice(1), [{ field: 'filename', op: 'contains', value: 'pdf' }, { field: 'filename', op: 'not_contains', value: 'draft' }]);
 });

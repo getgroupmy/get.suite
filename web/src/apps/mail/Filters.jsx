@@ -3,11 +3,11 @@ import { get, put, post, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 
-const FIELD = { from: 'From', to: 'To or Cc', subject: 'Subject', body: 'Message text', list: 'Mailing list', size: 'Size', attachment: 'Attachments' };
+const FIELD = { from: 'From', to: 'To or Cc', subject: 'Subject', body: 'Message text', list: 'Mailing list', filename: 'Attachment name', size: 'Size', attachment: 'Attachments' };
 const OP = { contains: 'contains', not_contains: "doesn't contain", is: 'is exactly' };
 // Size and attachments have their own comparisons (size takes "5 MB" or "300 KB"; attachments no value).
 const TEXT_OPS = { contains: 'contains', not_contains: "doesn't contain" };
-const OPS_FOR = { size: { over: 'is larger than', under: 'is smaller than' }, attachment: { has: 'has some', has_not: 'has none' }, body: TEXT_OPS, list: TEXT_OPS };
+const OPS_FOR = { size: { over: 'is larger than', under: 'is smaller than' }, attachment: { has: 'has some', has_not: 'has none' }, body: TEXT_OPS, list: TEXT_OPS, filename: TEXT_OPS };
 export const opsFor = (field) => OPS_FOR[field] || OP;
 const NEW_FOLDER = '__new__';
 
@@ -209,7 +209,7 @@ function RuleEditor({ rule, isNew, folders, labels = [], onFoldersChanged, onCan
               </select>
               {c.field !== 'attachment' && <input className="grow" aria-label={`Condition ${i + 1} value`} value={c.value} required onChange={(e) => setC(i, { value: e.target.value })}
                 pattern={c.field === 'size' ? '\\s*\\d+([.,]\\d+)?\\s*([kKmM][bB]?)?\\s*' : undefined} title={c.field === 'size' ? 'A size such as 5 MB or 300 KB' : undefined}
-                placeholder={c.field === 'subject' || c.field === 'body' ? 'invoice' : c.field === 'size' ? '5 MB' : c.field === 'list' ? 'news.example.com' : 'name@company.com'} />}
+                placeholder={c.field === 'subject' || c.field === 'body' ? 'invoice' : c.field === 'size' ? '5 MB' : c.field === 'list' ? 'news.example.com' : c.field === 'filename' ? '.pdf or invoice' : 'name@company.com'} />}
               {r.conditions.length > 1 && <button type="button" className="icon-btn" aria-label={`Remove condition ${i + 1}`} onClick={() => setR({ ...r, conditions: r.conditions.filter((_, j) => j !== i) })}><Icon name="close" size={16} /></button>}
             </div>
           ))}

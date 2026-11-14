@@ -4,6 +4,8 @@
 // "contains", then checked exactly against the message's envelope (as Sieve compares: case aside).
 import { parseSize } from './sieve.js';
 import { TO_PRIMARY, TO_UPDATES } from './tabs.js';
+import { partsOf } from './attachlist.js';
+import { filesMatch } from './searchquery.js';
 
 export const MAX_APPLY = 5000;
 
@@ -18,6 +20,9 @@ export function conditionQuery(c) {
     case 'list': return { query: neg({ header: { 'list-id': c.value } }), exact: false };
     case 'size': { const bytes = (parseSize(c.value)?.kb || 1) * 1024; return { query: c.op === 'under' ? { smaller: bytes } : { larger: bytes }, exact: false }; }
     case 'attachment': return { query: neg({ header: { 'content-type': 'multipart/mixed' } }), exact: false };
+    // An attachment's name: the server can't search names (they may be encoded), so every message
+    // is a candidate (with an attachment, unless it's "doesn't contain"), checked by its structure.
+    case 'filename': return { query: c.op === 'not_contains' ? { all: true } : { header: { 'content-type': 'multipart/mixed' } }, exact: false, files: [{ name: String(c.value).toLowerCase(), neg: c.op === 'not_contains' }] };
     default: throw new Error(`unknown field ${c.field}`);
   }
 }
@@ -36,8 +41,13 @@ export function exactly(c, env) {
 export async function matchingUids(client, rule) {
   const sets = [];
   for (const c of rule.conditions) {
-    const { query, exact } = conditionQuery(c);
+    const { query, exact, files } = conditionQuery(c);
     let uids = (await client.search(query, { uid: true })) || [];
+    if (files && uids.length) {
+      const keep = [];
+      for await (const m of client.fetch(uids.slice(-MAX_APPLY).join(','), { uid: true, bodyStructure: true }, { uid: true })) if (filesMatch(partsOf(m.bodyStructure), files)) keep.push(m.uid);
+      uids = keep;
+    }
     if (exact && uids.length) {
       const keep = [];
       for await (const m of client.fetch(uids.slice(-MAX_APPLY).join(','), { uid: true, envelope: true }, { uid: true })) if (exactly(c, m.envelope)) keep.push(m.uid);
