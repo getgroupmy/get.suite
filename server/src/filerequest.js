@@ -63,3 +63,28 @@ export function acceptText(accept) {
 
 /** The extensions a browser's file picker can be limited to (".pdf,.jpg,…"), or '' for any. */
 export const acceptAttr = (accept) => (accept || '').split(',').flatMap((k) => REQUEST_KINDS[k]?.ext || []).map((e) => `.${e}`).join(',');
+
+// What a file of each extension starts with, so a renamed file (a program called receipt.pdf) is caught.
+const PK = (b) => b[0] === 0x50 && b[1] === 0x4b && (b[2] === 3 || b[2] === 5 || b[2] === 7); // zip (Office, OpenDocument, iWork)
+const OLE = (b) => b.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])); // old Office
+const ascii = (b, at, s) => b.subarray(at, at + s.length).toString('latin1') === s;
+const text = (b) => !b.includes(0); // plain text: no NUL bytes in what was read
+const ftyp = (brands) => (b) => ascii(b, 4, 'ftyp') && (!brands || brands.includes(b.subarray(8, 12).toString('latin1')));
+const SIGNS = {
+  pdf: (b) => b.subarray(0, 1024).includes(Buffer.from('%PDF-')),
+  jpg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff, png: (b) => ascii(b, 0, '\x89PNG'), gif: (b) => ascii(b, 0, 'GIF8'),
+  webp: (b) => ascii(b, 0, 'RIFF') && ascii(b, 8, 'WEBP'), bmp: (b) => ascii(b, 0, 'BM'),
+  tif: (b) => ascii(b, 0, 'II*\x00') || ascii(b, 0, 'MM\x00*'),
+  heic: ftyp(['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1', 'heim', 'heis']),
+  docx: PK, xlsx: PK, pptx: PK, odt: PK, ods: PK, odp: PK, pages: PK, numbers: PK, key: PK, zip: PK,
+  doc: OLE, xls: OLE, ppt: OLE, rtf: (b) => ascii(b, 0, '{\\rtf'), txt: text, md: text, csv: text,
+  mp4: ftyp(), mov: (b) => ftyp()(b) || ['moov', 'mdat', 'wide', 'free'].some((t) => ascii(b, 4, t)), m4v: ftyp(),
+  webm: (b) => b.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])), avi: (b) => ascii(b, 0, 'RIFF') && ascii(b, 8, 'AVI '),
+};
+Object.assign(SIGNS, { jpeg: SIGNS.jpg, tiff: SIGNS.tif, heif: SIGNS.heic });
+
+/** Whether a file's first bytes (`head`, a Buffer of up to 4 KB) are what its name's extension says it is. */
+export function looksLike(name, head) {
+  const sign = SIGNS[extOf(name)];
+  return !sign || (head.length > 0 && sign(head));
+}

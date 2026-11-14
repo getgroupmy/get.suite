@@ -8,9 +8,10 @@ import { filesFor, fileRulesStop } from '../dlp.js';
 import { audit } from '../audit.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs';
 import { q, FILES_DIR } from '../db.js';
 import { uid, now, bad, notFound, forbidden, HttpError, isInlineSafe, mimeFor } from '../util.js';
-import { cleanRequest, accepts, acceptText, acceptAttr } from '../filerequest.js';
+import { cleanRequest, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 import { roleFor, subtreeIds } from '../access.js';
 import { hashPassword, verifyPassword, requireAdmin } from '../auth.js';
 import * as guard from '../security/guard.js';
@@ -362,6 +363,16 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     try { got = await receiveUpload(req, l.org_id, limit, l.created_by); } // in the requester's Drive: their limit
     catch (e) { if (e.status === 413 && l.req_max_mb) throw new HttpError(413, `${name} is too large: files can be at most ${l.req_max_mb} MB here`); throw e; }
     const { storage, size } = got;
+    // Limited to some kinds: the file must also be what its name says (a renamed program is not a PDF).
+    if (l.req_accept) {
+      const head = Buffer.alloc(4096);
+      const fd = fs.openSync(path.join(FILES_DIR, storage), 'r');
+      const n = (() => { try { return fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); } })();
+      if (!looksLike(name, head.subarray(0, n))) {
+        fs.rmSync(path.join(FILES_DIR, storage), { force: true });
+        throw new HttpError(415, `${name} doesn't look like the kind of file its name says, so it wasn't sent`);
+      }
+    }
     const id = insertFile({ owner: l.created_by, parentId: l.file_id, name, kind: 'file', mime: mimeFor(name), size, storage, activity: { by: null, action: 'request', details: { from: from || null } } });
     q('UPDATE files SET description = ? WHERE id = ?').run(`Sent${from ? ` by ${from}` : ''} through a file request`, id);
     const saved = q('SELECT name FROM files WHERE id = ?').get(id).name;

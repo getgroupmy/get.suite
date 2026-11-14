@@ -3372,18 +3372,27 @@ test('file requests: only some kinds of file, a size per file, and a note for th
   // Sending: the right kind and size goes in; others are refused, saying why, and nothing is kept.
   const send = (name, body) => pub('POST', `/api/public/links/${link.token}/upload?name=${encodeURIComponent(name)}`, body, bin);
   assert.equal((await send('taxi.PDF', '%PDF-1.4 taxi')).status, 201, 'any case');
-  assert.equal((await send('lunch.jpg', Buffer.alloc(900 * 1024, 1))).status, 201);
+  const jpeg = (n) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n, 1)]);
+  assert.equal((await send('lunch.jpg', jpeg(900 * 1024))).status, 201);
+  // What the name says, the contents must be: a renamed program (or a text file called .pdf) isn't taken, and isn't kept.
+  const renamed = await send('receipt.pdf', Buffer.concat([Buffer.from('MZ\x90\x00'), Buffer.alloc(64, 0)]));
+  assert.deepEqual([renamed.status, renamed.body.error], [415, "receipt.pdf doesn't look like the kind of file its name says, so it wasn't sent"]);
+  assert.equal((await send('photo.png', jpeg(10))).status, 415, 'a JPEG called .png');
+  assert.equal((await send('Photo.JPEG', jpeg(10))).status, 201, 'any case, either spelling');
   const wrong = await send('notes.docx', 'PK');
   assert.deepEqual([wrong.status, wrong.body.error], [415, "notes.docx can't be sent here: this request only takes PDFs or pictures"]);
   assert.equal((await send('noext', 'x')).status, 415);
   const big = await send('scan.pdf', Buffer.alloc(1100 * 1024, 1));
   assert.deepEqual([big.status, big.body.error], [413, 'scan.pdf is too large: files can be at most 1 MB here']);
   const names = ((await me('GET', `/api/files?parent=${folder.id}`)).body.files || (await me('GET', `/api/files?parent=${folder.id}`)).body).map((f) => f.name).sort();
-  assert.deepEqual(names, ['lunch.jpg', 'taxi.PDF']);
+  assert.deepEqual(names, ['Photo.JPEG', 'lunch.jpg', 'taxi.PDF']);
   // Changed later (the address stays); emptied again: any file, any size, no note.
   const changed = (await me('PATCH', `/api/links/${link.id}`, { accept: ['documents'], max_mb: null, note: '' })).body;
   assert.deepEqual([changed.token, changed.accept, changed.max_mb, changed.note], [link.token, ['documents'], null, null]);
-  assert.equal((await send('notes.docx', 'PK')).status, 201);
+  assert.equal((await send('notes.docx', 'PK\x03\x04 a zip inside')).status, 201);
+  assert.equal((await send('old.doc', 'just text')).status, 415, 'an old Word file starts with its own header');
+  assert.equal((await send('readme.txt', Buffer.from([0x68, 0x00, 0x69]))).status, 415, 'text has no NUL bytes');
+  assert.equal((await send('readme.txt', 'plain words')).status, 201);
   assert.equal((await send('taxi2.pdf', '%PDF')).status, 415);
   assert.deepEqual((await me('PATCH', `/api/links/${link.id}`, { accept: [] })).body.accept, []);
   assert.equal((await send('anything.xyz', 'x')).status, 201);

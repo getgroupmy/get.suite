@@ -26,3 +26,23 @@ test('checking what a request asks for', () => {
   assert.deepEqual(cleanRequest({}, 100), {}, 'nothing said: nothing changed');
   for (const b of [{ accept: ['exe'] }, { max_mb: 0 }, { max_mb: 1.5 }, { max_mb: 101 }, { note: 'x'.repeat(501) }]) assert.throws(() => cleanRequest(b, 100), JSON.stringify(b));
 });
+
+test('contents match the name: a renamed file is caught', async () => {
+  const { looksLike } = await import('../src/filerequest.js');
+  const B = (x) => Buffer.from(x, 'latin1');
+  assert.equal(looksLike('a.pdf', B('%PDF-1.7\n')), true);
+  assert.equal(looksLike('a.pdf', B('\r\n%PDF-1.4')), true, 'a little before the header is allowed');
+  assert.equal(looksLike('a.pdf', B('MZ\x90\x00')), false);
+  assert.equal(looksLike('a.png', B('\x89PNG\r\n\x1a\n')), true);
+  assert.equal(looksLike('a.png', B('\xff\xd8\xff\xe0')), false);
+  assert.equal(looksLike('a.webp', B('RIFF\0\0\0\0WEBPVP8 ')), true);
+  assert.equal(looksLike('a.heic', B('\0\0\0\x18ftypheic')), true);
+  assert.equal(looksLike('a.mp4', B('\0\0\0\x20ftypisom')), true);
+  assert.equal(looksLike('a.xlsx', B('PK\x03\x04')), true);
+  assert.equal(looksLike('a.xls', B('\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1')), true);
+  assert.equal(looksLike('a.xls', B('PK\x03\x04')), false);
+  assert.equal(looksLike('a.csv', B('a,b\n1,2')), true);
+  assert.equal(looksLike('a.csv', B('a\0b')), false);
+  assert.equal(looksLike('a.pdf', B('')), false, 'empty');
+  assert.equal(looksLike('a.xyz', B('anything')), true, 'kinds not checked: as before');
+});
