@@ -824,7 +824,7 @@ export default function Chat() {
                 </div>
               )}
             </div>
-            {(current.dm_key || current.private) && !current.archived_at && <button type="button" className="icon-btn" aria-label="Schedule a meeting with this conversation" title="Schedule a meeting with everyone here, at the first time you're all free"
+            {!!(current.dm_key || current.private) && !current.archived_at && <button type="button" className="icon-btn" aria-label="Schedule a meeting with this conversation" title="Schedule a meeting with everyone here, at the first time you're all free"
               onClick={async () => {
                 try {
                   const people = (await get(`/chat/channels/${current.id}/members`)).filter((p) => p.id !== user.id && !p.disabled); // a turned-off account can't be invited
