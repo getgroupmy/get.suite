@@ -148,6 +148,8 @@ function Team({ team, onChanged }) {
           <a href={`/api/time-off/report.csv?year=${team.year}`} download>Download {team.year}'s time off (.csv)</a>
           <span className="muted"> · approved time off with the working days each took, for payroll · </span>
           <a href={`/api/time-off/report.csv?year=${team.year}&all=1`} download>with every request</a>
+          <span className="muted"> · </span>
+          <a href={`/api/time-off/balances.csv?year=${team.year}`} download>Everyone's {team.year} balance (.csv)</a>
         </p>
       )}
       <table className="timeoff-team">

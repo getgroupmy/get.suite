@@ -14807,3 +14807,21 @@ test('time off: start dates, and the first year in proportion when the company p
   assert.equal((await owner('PUT', `/api/time-off/start-date/${u.id}`, { date: null })).body.started, '2026-01-05');
   await owner('PUT', '/api/time-off/prorate', { on: false });
 });
+
+test('time off: everyone\'s vacation balances for a year as CSV, for admins', async () => {
+  const { db } = await import('../src/db.js');
+  const u = (await owner('POST', '/api/users', { local: 'balcsv', domain: 'acme.com', name: '=Balance Csv', password: 'password123' })).body;
+  db.prepare('UPDATE users SET vacation_days = 20, start_date = ? WHERE id = ?').run('2030-01-01', u.id);
+  db.prepare("INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, status, created_at) VALUES ('bc1', ?, '2030-03-04', '2030-03-08', 'UTC', 'vacation', 'approved', ?)").run(u.id, Date.now());
+  db.prepare("INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, status, created_at) VALUES ('bc2', ?, '2030-05-06', '2030-05-07', 'UTC', 'vacation', 'pending', ?)").run(u.id, Date.now());
+  const r = await owner('GET', '/api/time-off/balances.csv?year=2030');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-disposition'), /vacation-balances-2030\.csv/);
+  const lines = r.body.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Name,Email,Started,Days for 2030,Carried over,Taken,Waiting for an answer,Left');
+  // A name starting with "=" can't run as a formula in a spreadsheet.
+  assert.ok(lines.includes("'=Balance Csv,balcsv@acme.com,2030-01-01,20,0,5,2,13"), lines.join('\n'));
+  const c = client();
+  await login(c, 'balcsv@acme.com');
+  assert.equal((await c('GET', '/api/time-off/balances.csv?year=2030')).status, 403);
+});

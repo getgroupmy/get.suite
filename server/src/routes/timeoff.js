@@ -233,6 +233,20 @@ export default function timeOffRoutes() {
     res.json({ date, out, holiday, waiting });
   });
 
+  // Everyone's vacation balance for a year (admins), for HR and payroll: allowance, carried over, taken, waiting, left.
+  r.get('/balances.csv', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins download the time off report');
+    const year = Number(req.query.year) || new Date().getUTCFullYear();
+    const cell = (v) => { const x = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(x) ? `'${x}` : x; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+    const people = q('SELECT id, name, username FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name COLLATE NOCASE').all(req.user.org_id);
+    const lines = [['Name', 'Email', 'Started', `Days for ${year}`, 'Carried over', 'Taken', 'Waiting for an answer', 'Left']].concat(people.map((u) => {
+      const b = balanceOf(u.id, year);
+      return [u.name, u.username, startOf(u.id), b.days ?? 'no limit', b.carried, b.used, b.pending, b.days === null ? '' : b.left];
+    }));
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="vacation-balances-${year}.csv"`);
+    res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);
+  });
   // A year's time off as a spreadsheet (admins, for payroll): one row per approved request, with the
   // working days it took in that year; ?all=1 adds waiting, declined and cancelled ones.
   r.get('/report.csv', (req, res) => {
