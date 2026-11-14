@@ -200,7 +200,7 @@ export default function orgRoutes() {
   // Storage: the company's total (and quota), how much each person uses (files, earlier versions,
   // the trash), and the largest files. The platform owner may ask about any company (?org_id=).
   // Security checkup (Admin → Security checkup): the company's open security points.
-  r.get('/current/checkup', requireAdmin, (req, res) => res.json({ items: checkup(req.user.org_id) }));
+  r.get('/current/checkup', requireAdmin, async (req, res) => res.json({ items: await checkup(req.user.org_id) }));
   // Phishing reports from people in the company (Admin → Phishing).
   r.get('/current/phishing', requireAdmin, (req, res) => res.json(phishingFor(req.user.org_id)));
   r.post('/current/phishing/handled', requireAdmin, (req, res) => {

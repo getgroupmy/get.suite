@@ -164,6 +164,12 @@ async function checkRecord(rec) {
   }
 }
 
+/** A domain's sender records (what stops others sending mail as it): [{ name: 'SPF' | 'DKIM' | 'DMARC', ok, found, note }]. */
+export async function senderRecords(domain) {
+  const recs = recordsFor(domain).filter((r) => /^v=(spf1|DKIM1|DMARC1)/.test(r.value));
+  return Promise.all(recs.map(async (r) => ({ name: r.value.startsWith('v=spf1') ? 'SPF' : r.value.startsWith('v=DKIM1') ? 'DKIM' : 'DMARC', ...(await checkRecord(r)) })));
+}
+
 function parseTargets(list) {
   const arr = (Array.isArray(list) ? list : String(list || '').split(/[,\s]+/)).map((t) => String(t).trim().toLowerCase()).filter(Boolean);
   if (!arr.length) throw bad('Add at least one recipient');

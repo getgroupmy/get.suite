@@ -36,7 +36,7 @@ test('security checkup: what’s open, worst first, and what changes it', async 
   q('UPDATE users SET created_at = ?, last_active = ? WHERE id = ?').run(now - 200 * 864e5, now - 120 * 864e5, oldId);
 
   const ids = (list) => list.map((x) => `${x.id}:${x.status}`);
-  let c = checkup(orgId, now);
+  let c = await checkup(orgId, now, { mail: false });
   assert.deepEqual(ids(c), ['admin-2fa:warn', 'require-2fa:warn', 'inactive:warn', 'mark-external:tip', 'idle:tip']);
   assert.match(c[0].title, /^1 admin signs in with just a password$/);
   assert.match(c[0].detail, /^Ana Admin\./);
@@ -47,14 +47,14 @@ test('security checkup: what’s open, worst first, and what changes it', async 
   q('INSERT INTO two_factor (user_id, secret, enabled) VALUES (?, ?, 1)').run(q("SELECT id FROM users WHERE username = 'ana@acme.com'").get().id, 'JBSWY3DPEHPK3PXP');
   q('UPDATE orgs SET require_2fa = 1, mark_external = 1, session_idle_min = 60 WHERE id = ?').run(orgId);
   q('UPDATE users SET disabled = 1 WHERE id = ?').run(oldId);
-  c = checkup(orgId, now);
+  c = await checkup(orgId, now, { mail: false });
   assert.deepEqual(ids(c), ['require-2fa:tip', 'admin-2fa:ok']);
   assert.match(c[0].detail, /^1 person still has to set it up/);
 
   // A share link for anyone, for ever, without a password; an open phishing report.
   q("INSERT INTO share_links (id, token, file_id, created_by, created_at) VALUES ('l1', 't1', ?, ?, ?)").run(f.id, kimId, now);
   q("INSERT INTO phishing_reports (id, org_id, user_id, sender, at) VALUES ('p1', ?, ?, 'x@evil.example', ?)").run(orgId, kimId, now);
-  c = checkup(orgId, now);
+  c = await checkup(orgId, now, { mail: false });
   assert.deepEqual(ids(c), ['phishing:warn', 'require-2fa:tip', 'links:tip', 'admin-2fa:ok']);
   assert.equal(c.find((x) => x.id === 'links').title, '1 share link never expires and has no password');
 
@@ -63,4 +63,23 @@ test('security checkup: what’s open, worst first, and what changes it', async 
   const r = await ana('GET', '/api/orgs/current/checkup');
   assert.equal(r.status, 200);
   assert.deepEqual(ids(r.body.items), ids(c));
+});
+
+test('security checkup: the domain’s sender records (SPF, DKIM, DMARC), when email is on', async () => {
+  const orgId = q("SELECT org_id FROM users WHERE username = 'ana@acme.com'").get().org_id;
+  q("INSERT OR IGNORE INTO domains (org_id, name, created_at) VALUES (?, 'acme.org', ?)").run(orgId, Date.now() + 1);
+  const answers = {
+    'acme.com': [{ name: 'SPF', ok: true, found: ['v=spf1 mx ~all'] }, { name: 'DKIM', ok: false, found: [] }, { name: 'DMARC', ok: false, found: [] }],
+    'acme.org': [{ name: 'SPF', ok: true }, { name: 'DKIM', ok: true }, { name: 'DMARC', ok: true, found: ['v=DMARC1; p=none; rua=mailto:x@acme.org'] }],
+  };
+  const c = await checkup(orgId, Date.now(), { mail: true, dns: async (d) => answers[d] });
+  const dns = c.filter((x) => /^(dns|dmarc)-/.test(x.id)).map((x) => [x.id, x.status, x.title]);
+  assert.deepEqual(dns, [['dns-acme.com', 'warn', 'acme.com: DKIM, DMARC aren’t set up right'], ['dmarc-acme.org', 'tip', 'acme.org: DMARC only reports forged mail']]);
+  answers['acme.org'][2].found = ['v=DMARC1; p=quarantine'];
+  answers['acme.com'] = answers['acme.org'];
+  const c2 = await checkup(orgId, Date.now(), { mail: true, dns: async (d) => answers[d] });
+  assert.deepEqual(c2.filter((x) => x.id.startsWith('dns-')).map((x) => x.status), ['ok', 'ok']);
+  // A lookup that fails isn't reported as a problem.
+  const c3 = await checkup(orgId, Date.now(), { mail: true, dns: async () => { throw new Error('no network'); } });
+  assert.equal(c3.filter((x) => x.id.startsWith('dns-')).length, 0);
 });

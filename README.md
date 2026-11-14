@@ -1264,7 +1264,7 @@ When the company has to keep someone's data (a dispute, an audit, an investigati
 
 ## Security checkup (admins)
 
-**Admin → Security checkup** lists the company's open security points, worst first (⚠ needs attention, 💡 worth doing, ✓ done), each with what to do and a button to the Admin tab that fixes it: admins who sign in with just a password; people without two-step verification or a passkey (or how many still have to set it up, when it's required); accounts nobody has used for 90 days; mail forwarded outside the company by itself; share links that never expire and have no password; phishing reports nobody has dealt with; and settings worth having (marking mail from outside the company, signing people out when they're away).
+**Admin → Security checkup** lists the company's open security points, worst first (⚠ needs attention, 💡 worth doing, ✓ done), each with what to do and a button to the Admin tab that fixes it: admins who sign in with just a password; people without two-step verification or a passkey (or how many still have to set it up, when it's required); accounts nobody has used for 90 days; mail forwarded outside the company by itself; share links that never expire and have no password; phishing reports nobody has dealt with; with email on, each of the company's domains looked up in DNS (*acme.com: DKIM, DMARC aren't set up right*, so anyone could send mail that looks like yours; or a DMARC policy of `p=none`, which only reports forged mail; a lookup that fails isn't counted as a problem); and settings worth having (marking mail from outside the company, signing people out when they're away).
 
 ## Activity log
 

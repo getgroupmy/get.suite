@@ -2,12 +2,38 @@
 // Items: { id, status: 'warn' | 'tip' | 'ok', title, detail, tab (the Admin tab that fixes it), people? }.
 import { q } from './db.js';
 import { activeForwarding } from './mail/forwarding.js';
+import { mailEnabled } from './mail/config.js';
 
 export const INACTIVE_DAYS = 90;
 const names = (rows, n = 5) => rows.slice(0, n).map((r) => r.name || r.username).join(', ') + (rows.length > n ? ` and ${rows.length - n} more` : '');
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-export function checkup(orgId, at = Date.now()) {
+/**
+ * The checkup. With email on, each of the company's domains is also looked up in DNS (SPF, DKIM, DMARC:
+ * what stops others sending mail that looks like it's from you); `dns` replaces that lookup in tests.
+ */
+export async function checkup(orgId, at = Date.now(), { mail = mailEnabled(), dns = null } = {}) {
+  const items = checkupNow(orgId, at);
+  if (mail) {
+    const lookup = dns || (await import('./routes/mailAdmin.js')).senderRecords;
+    for (const d of q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((x) => x.name)) {
+      let recs;
+      try { recs = await lookup(d); } catch { continue; }
+      const missing = recs.filter((r) => !r.ok).map((r) => r.name);
+      if (missing.length) {
+        items.push({ id: `dns-${d}`, status: 'warn', title: `${d}: ${missing.join(', ')} ${missing.length === 1 ? 'isn’t' : 'aren’t'} set up right`, detail: 'Without these DNS records, anyone can send email that looks like it comes from you, and your own mail is more likely to land in spam. Admin → Email shows the records to add.', tab: 'email' });
+        continue;
+      }
+      const policy = /\bp=(\w+)/i.exec(recs.find((r) => r.name === 'DMARC')?.found?.[0] || '')?.[1]?.toLowerCase();
+      if (policy === 'none') items.push({ id: `dmarc-${d}`, status: 'tip', title: `${d}: DMARC only reports forged mail`, detail: 'Its policy is p=none, so receivers still deliver mail forged in your name. Once the reports look right, change it to p=quarantine (or p=reject).', tab: 'email' });
+      else items.push({ id: `dns-${d}`, status: 'ok', title: `${d}: SPF, DKIM and DMARC are set up`, detail: '', tab: 'email' });
+    }
+  }
+  const rank = { warn: 0, tip: 1, ok: 2 };
+  return items.sort((a, b) => rank[a.status] - rank[b.status]);
+}
+
+function checkupNow(orgId, at) {
   const org = q('SELECT * FROM orgs WHERE id = ?').get(orgId);
   const people = q(`SELECT u.id, u.name, u.username, u.is_admin, u.created_at,
                            MAX(COALESCE(u.last_active, 0), COALESCE((SELECT MAX(s.last_seen) FROM sessions s WHERE s.user_id = u.id), 0)) AS last_active,

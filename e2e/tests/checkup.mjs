@@ -50,7 +50,10 @@ await step('Admin → Security checkup: what needs attention, worst first', asyn
   await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
   await page.goto(`${B}/admin`);
   await tabBtn('Security checkup').click();
-  await page.getByRole('status').getByText(/2 things need attention/).waitFor();
+  // 2 without email; with email on, acme.com's missing SPF/DKIM/DMARC (not set up here) makes 3.
+  await page.getByRole('status').getByText(/^[23] things need attention$/).waitFor();
+  const mailOn = (await api(page, 'GET', '/mail/status').catch(() => null))?.body?.enabled;
+  if (mailOn && !(await list().getByText(/acme\.com: .*(SPF|DKIM|DMARC).* set up right/).count())) throw new Error('no DNS item with email on');
   const items = await list().locator('li').allInnerTexts();
   if (!/^⚠\s*1 admin signs in with just a password/.test(items[0])) throw new Error(items[0]);
   if (!items.some((x) => /Mail from outside the company isn’t marked/.test(x))) throw new Error(items.join(' | '));
