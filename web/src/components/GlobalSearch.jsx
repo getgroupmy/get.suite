@@ -181,6 +181,9 @@ export default function GlobalSearch() {
     setOpen(false);
     navigate(`/drive/search?q=${encodeURIComponent(text.trim())}`); // empty: everything, to narrow with the filters
   };
+  // The mouse picks a result only when it really moves over one: not when the list opens (or changes) under a
+  // pointer resting there, which Chrome reports as moving, so Enter doesn't open something you never chose.
+  const hover = (e, me) => { if ((e.movementX || e.movementY) && pick !== me) setPick(me); };
   let i = -1;
   return (
     <form className="search global-search" role="search" onSubmit={submit} ref={box}>
@@ -207,7 +210,7 @@ export default function GlobalSearch() {
                 const me = i;
                 return (
                   <div key={r.key} className="row search-recent">
-                    <button type="button" role="option" aria-selected={pick === me} className={`search-hit grow ${pick === me ? 'on' : ''}`} onMouseEnter={() => setPick(me)} onClick={() => go(r)}>
+                    <button type="button" role="option" aria-selected={pick === me} className={`search-hit grow ${pick === me ? 'on' : ''}`} onMouseMove={(e) => hover(e, me)} onClick={() => go(r)}>
                       <Icon name="clock" size={18} /><span className="grow ellipsis search-hit-title">{r.title}</span>
                     </button>
                     <button type="button" role="option" aria-selected={false} className="icon-btn" aria-label={`Forget “${r.title}”`} onClick={() => del(`/users/me/recent-searches?q=${encodeURIComponent(r.title)}`).then(setRecent).catch(() => {})}><Icon name="close" size={14} /></button>
@@ -223,7 +226,7 @@ export default function GlobalSearch() {
                 i += 1;
                 const me = i;
                 return (
-                  <button key={r.key} type="button" role="option" aria-selected={pick === me} className={`search-hit ${pick === me ? 'on' : ''}`} onMouseEnter={() => setPick(me)} onClick={() => go(r)}>
+                  <button key={r.key} type="button" role="option" aria-selected={pick === me} className={`search-hit ${pick === me ? 'on' : ''}`} onMouseMove={(e) => hover(e, me)} onClick={() => go(r)}>
                     <Icon name={r.icon} size={18} /><span className="grow ellipsis"><span className="search-hit-title">{r.title}</span><span className="muted small"> {r.sub}</span></span>
                   </button>
                 );
@@ -237,7 +240,7 @@ export default function GlobalSearch() {
                 i += 1;
                 const me = i;
                 return (
-                  <button key={r.key} type="button" role="option" aria-selected={pick === me} className={`search-hit ${pick === me ? 'on' : ''}`} onMouseEnter={() => setPick(me)} onClick={() => go(r)}>
+                  <button key={r.key} type="button" role="option" aria-selected={pick === me} className={`search-hit ${pick === me ? 'on' : ''}`} onMouseMove={(e) => hover(e, me)} onClick={() => go(r)}>
                     <Icon name={r.icon} size={18} /><span className="grow ellipsis"><span className="search-hit-title">{r.title}</span>{r.sub && <span className="muted small"> {r.sub}</span>}</span>
                   </button>
                 );
@@ -252,7 +255,7 @@ export default function GlobalSearch() {
                 const me = i;
                 return (
                   <button key={r.key} type="button" role="option" aria-selected={pick === me} className={`search-hit ${pick === me ? 'on' : ''}`}
-                    onMouseEnter={() => setPick(me)} onClick={() => go(r)}>
+                    onMouseMove={(e) => hover(e, me)} onClick={() => go(r)}>
                     <Icon name={r.icon} size={18} />
                     <span className="grow ellipsis"><span className="search-hit-title">{r.title}</span>{r.sub && <span className="muted small"> {r.sub}</span>}</span>
                   </button>
