@@ -22,9 +22,9 @@ function detailText(d) {
   return Object.entries(d).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${Array.isArray(v) ? v.join(', ') || 'nobody' : typeof v === 'object' && v ? JSON.stringify(v) : String(v)}`).join(' · ');
 }
 
-export default function ActivityAdmin({ orgId, orgPicker }) {
+export default function ActivityAdmin({ orgId, orgPicker, initialKind = '' }) {
   const toast = useToast();
-  const [kind, setKind] = useState('');
+  const [kind, setKind] = useState(KINDS.some(([v]) => v === initialKind) ? initialKind : ''); // the security checkup can open it filtered
   const [text, setText] = useState('');
   const [words, setWords] = useState(''); // what was searched (applied after a pause)
   const [from, setFrom] = useState('');

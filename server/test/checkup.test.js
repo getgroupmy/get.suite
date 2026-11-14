@@ -150,3 +150,25 @@ test('remind people with just a password to add a second step; an unknown remind
   assert.throws(() => remind(orgId, 'two-step'), /less than a day/);
   assert.throws(() => remind(orgId, 'everything'), /Unknown reminder/);
 });
+
+test('many failed sign-ins on an account this week: a warning, opening Activity on failed sign-ins', async () => {
+  const orgId = q("SELECT org_id FROM users WHERE username = 'ana@acme.com'").get().org_id;
+  const now = Date.now();
+  const fail = q("INSERT INTO audit_log (org_id, at, actor_id, actor_name, action, target, details, ip) VALUES (?, ?, NULL, NULL, 'sign-in.failed', ?, '{\"reason\":\"password\"}', '203.0.113.9')");
+  const none = (await checkup(orgId, now, { mail: false })).find((x) => x.id === 'failed-signins');
+  assert.equal(none, undefined, 'nothing yet');
+  for (let i = 0; i < 6; i++) fail.run(orgId, now - i * 60e3, 'kim@acme.com');
+  for (let i = 0; i < 4; i++) fail.run(orgId, now - i * 60e3, 'ana@acme.com'); // a few typos: fine
+  for (let i = 0; i < 9; i++) fail.run(orgId, now - 8 * 864e5, 'ana@acme.com'); // last week's: over
+  for (let i = 0; i < 7; i++) fail.run(orgId, now, 'nobody@acme.com'); // not an account here
+  const item = (await checkup(orgId, now, { mail: false })).find((x) => x.id === 'failed-signins');
+  assert.equal(item.status, 'warn');
+  assert.equal(item.title, '1 account had many failed sign-ins this week');
+  assert.match(item.detail, /^Kim Park \(6\)\. Someone may be guessing/);
+  assert.equal(item.tab, 'activity');
+  assert.equal(item.filter, 'sign-in.failed');
+  assert.deepEqual(item.people, ['Kim Park']);
+  // Another company's tries don't count here.
+  const other = (await checkup('no-such-org', now, { mail: false })).find((x) => x.id === 'failed-signins');
+  assert.equal(other, undefined);
+});

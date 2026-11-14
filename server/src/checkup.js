@@ -7,6 +7,7 @@ import { notify } from './notifications.js';
 
 export const INACTIVE_DAYS = 90;
 const names = (rows, n = 5) => rows.slice(0, n).map((r) => r.name || r.username).join(', ') + (rows.length > n ? ` and ${rows.length - n} more` : '');
+const FAILED_DAYS = 7, FAILED_MIN = 5; // "many failed sign-ins": 5 or more in a week
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
@@ -59,6 +60,12 @@ function checkupNow(orgId, at) {
   // Accounts nobody uses: a way in that nobody would notice.
   const stale = people.filter((p) => (p.last_active || p.created_at) < at - INACTIVE_DAYS * 864e5);
   if (stale.length) add({ id: 'inactive', status: 'warn', title: `${plural(stale.length, 'account')} not used for ${INACTIVE_DAYS} days`, detail: `${names(stale)}. Suspend the ones that are no longer needed: unused accounts are a way in nobody notices.`, tab: 'users', people: stale.map((p) => p.name), ids: stale.map((p) => p.id) });
+
+  // Someone keeps trying their password: a guessing attempt (or a phone with an old password).
+  const tries = q(`SELECT target, COUNT(*) AS n, MAX(at) AS last FROM audit_log WHERE org_id = ? AND action = 'sign-in.failed' AND at > ? GROUP BY target HAVING n >= ? ORDER BY n DESC`).all(orgId, at - FAILED_DAYS * 864e5, FAILED_MIN);
+  const byName = new Map(people.map((p) => [p.username, p]));
+  const tried = tries.filter((t) => byName.has(t.target)).map((t) => ({ ...byName.get(t.target), n: t.n }));
+  if (tried.length) add({ id: 'failed-signins', status: 'warn', title: `${plural(tried.length, 'account')} had many failed sign-ins this week`, detail: `${tried.slice(0, 5).map((p) => `${p.name} (${p.n})`).join(', ')}${tried.length > 5 ? ` and ${tried.length - 5} more` : ''}. Someone may be guessing their password, or an old password is saved on a phone. Look at where the tries came from; if it wasn’t them, sign them out everywhere and reset their password.`, tab: 'activity', filter: 'sign-in.failed', people: tried.map((p) => p.name) });
 
   // No recovery address: no password reset by themselves, and no security emails outside Workspace.
   const noRecovery = people.filter((p) => !p.recovery_email);

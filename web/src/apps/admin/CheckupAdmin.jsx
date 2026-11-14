@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { get, post, patch } from '../../api.js';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
 
-const TAB_NAMES = { users: 'Users', company: 'Company settings', links: 'Share links', phishing: 'Phishing', email: 'Email' };
+const TAB_NAMES = { users: 'Users', company: 'Company settings', links: 'Share links', phishing: 'Phishing', email: 'Email', activity: 'Activity' };
 const MARK = { warn: ['⚠', 'Needs attention'], tip: ['💡', 'Worth doing'], ok: ['✓', 'Done'] };
 
 export default function CheckupAdmin({ onGo }) {
@@ -35,7 +35,7 @@ export default function CheckupAdmin({ onGo }) {
               try { await patch('/orgs/current', x.fix.settings); toast(`Done: ${x.fix.label.toLowerCase()}`); setReload((n) => n + 1); } catch (e) { toast(e.message, 'error'); }
             }}>{x.fix.label}</button>}
             {x.id === 'inactive' && x.ids?.length > 0 && <button type="button" className="btn small" onClick={() => setSuspending(x)}>Suspend {x.ids.length === 1 ? 'this account' : `these ${x.ids.length} accounts`}</button>}
-            {x.status !== 'ok' && x.tab && TAB_NAMES[x.tab] && <button type="button" className="btn small" onClick={() => onGo(x.tab)}>Go to {TAB_NAMES[x.tab]}</button>}
+            {x.status !== 'ok' && x.tab && TAB_NAMES[x.tab] && <button type="button" className="btn small" onClick={() => onGo(x.tab, x.filter)}>Go to {TAB_NAMES[x.tab]}</button>}
           </li>
         ))}
       </ul>

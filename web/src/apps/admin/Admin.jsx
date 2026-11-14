@@ -84,6 +84,7 @@ export default function Admin() {
   const { user } = useAuth();
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
+  const [activityKind, setActivityKind] = useState(''); // Activity opened filtered (from the security checkup)
   const mail = useMailStatus();
   const tabs = [['users', 'Users'], ['checkup', 'Security checkup'], ...(mail?.enabled ? [['email', 'Email'], ['phishing', 'Phishing']] : []), ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['links', 'Share links'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
 
@@ -92,18 +93,18 @@ export default function Admin() {
       <div className="page-head"><h1>Admin</h1></div>
       <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
         {tabs.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => { setActivityKind(''); setTab(k); }}>{label}</button>
         ))}
       </div>
       {tab === 'users' && <Users orgId={orgId} setOrgId={setOrgId} />}
       {tab === 'email' && <EmailAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
-      {tab === 'checkup' && <CheckupAdmin onGo={setTab} />}
+      {tab === 'checkup' && <CheckupAdmin onGo={(t, filter) => { setActivityKind(filter || ''); setTab(t); }} />}
       {tab === 'phishing' && <PhishingAdmin />}
       {tab === 'company' && <CompanySettings />}
       {tab === 'dlp' && <DataProtectionAdmin />}
       {tab === 'groups' && <GroupsAdmin />}
       {tab === 'announcements' && <AnnouncementsAdmin mail={!!mail?.enabled} />}
-      {tab === 'activity' && <ActivityAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
+      {tab === 'activity' && <ActivityAdmin initialKind={activityKind} orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'reports' && <ReportsAdmin orgId={user.is_super && orgId !== user.org_id ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'storage' && <StorageAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'drives' && <DrivesAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
