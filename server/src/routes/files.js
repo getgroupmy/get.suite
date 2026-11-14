@@ -479,6 +479,18 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Suggested files at the top of My Drive (suggested.js).
   r.get('/suggested', (req, res) => res.json(suggestedFor(req.user.id)));
 
+  // Home → Shared with you: what people shared with you directly in the last two weeks (that you can
+  // still open), newest first, with who and when.
+  r.get('/shared-recently', (req, res) => {
+    const me = req.user.id;
+    const rows = q(`SELECT f.id, f.name, f.kind, f.mime, s.role, s.shared_at, u.name AS by_name FROM shares s JOIN files f ON f.id = s.file_id
+                    LEFT JOIN users u ON u.id = s.shared_by
+                    WHERE s.user_id = ? AND s.direct_role IS NOT NULL AND s.shared_at > ? AND (s.shared_by IS NULL OR s.shared_by != ?) AND f.trashed = 0
+                      AND (s.expires_at IS NULL OR s.expires_at > ?)
+                    ORDER BY s.shared_at DESC LIMIT 30`).all(me, Date.now() - 14 * 864e5, me, Date.now());
+    res.json(rows.filter((r) => roleFor(r.id, me)).slice(0, 6));
+  });
+
   r.get('/', (req, res) => {
     const me = req.user.id;
     const org = req.user.org_id;
@@ -1013,7 +1025,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (req.body.approve) {
       const role = ['viewer', 'commenter', 'editor'].includes(req.body.role) ? req.body.role : a.role;
       if (!canReach(req.user, a.user_id)) throw bad('You can’t share with that person (external sharing may be turned off)');
-      q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role`).run(f.id, a.user_id, role, role);
+      q(`INSERT INTO shares (file_id, user_id, role, direct_role, shared_at, shared_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role,
+         shared_at = COALESCE(shares.shared_at, excluded.shared_at), shared_by = COALESCE(shares.shared_by, excluded.shared_by)`).run(f.id, a.user_id, role, role, Date.now(), req.user.id);
       syncShares(f.id);
       const who = q('SELECT name FROM users WHERE id = ?').get(a.user_id)?.name || 'someone';
       recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view'})`], removed: [] });
@@ -1994,8 +2007,11 @@ export default function fileRoutes({ maxUploadBytes }) {
         if (until !== null && (!Number.isFinite(until) || until <= Date.now() || until > Date.now() + MAX_SHARE_DAYS * 864e5)) throw bad('Access can end at a time in the next year');
         if (s.user_id === f.owner_id) continue;
         if (!canReach(req.user, s.user_id)) throw bad('You cannot share with that person (external sharing may be turned off)');
-        q(`INSERT INTO shares (file_id, user_id, role, direct_role, expires_at) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role, expires_at = excluded.expires_at`).run(f.id, s.user_id, s.role, s.role, until);
+        // shared_at/by: when someone first got it directly (kept when the share is saved again).
+        q(`INSERT INTO shares (file_id, user_id, role, direct_role, expires_at, shared_at, shared_by) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role, expires_at = excluded.expires_at,
+             shared_at = COALESCE(shares.shared_at, excluded.shared_at), shared_by = COALESCE(shares.shared_by, excluded.shared_by)`)
+          .run(f.id, s.user_id, s.role, s.role, until, had.has(s.user_id) ? null : Date.now(), had.has(s.user_id) ? null : req.user.id);
       }
       syncShares(f.id);
     });

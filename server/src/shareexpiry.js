@@ -9,6 +9,8 @@ import { notify as bell } from './notifications.js';
 import { recordActivity } from './fileactivity.js';
 
 if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'expires_at')) q('ALTER TABLE shares ADD COLUMN expires_at INTEGER').run();
+// When someone was shared a file directly, and by whom (Home → Shared with you); null for older shares.
+for (const col of ['shared_at INTEGER', 'shared_by TEXT']) if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === col.split(' ')[0])) q(`ALTER TABLE shares ADD COLUMN ${col}`).run();
 
 export const MAX_SHARE_DAYS = 366;
 

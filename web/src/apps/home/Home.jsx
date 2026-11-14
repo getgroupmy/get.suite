@@ -32,7 +32,7 @@ function dayText(d) {
 export const lateOk = (e, now) => !e.all_day && e.my_status !== 'no' && now >= e.start - 30 * 60e3 && now <= e.end
   && ((e.guests?.length || 0) > 0 || e.my_status != null); // guests on yours, or you're a guest
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings', sharedwithyou: 'Shared with you' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -54,7 +54,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders, meetings] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders, meetings, sharedNew] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -72,6 +72,7 @@ export default function Home() {
       safe(get('/chat/reminders'), []),
       safe(get('/notes?reminders=1'), []),
       safe(get('/meet'), []),
+      safe(get('/files/shared-recently'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -96,6 +97,7 @@ export default function Home() {
       reminders: reminders.slice(0, 5), remindersMore: Math.max(0, reminders.length - 5),
       noteReminders: noteReminders.filter((n) => n.remind_at).slice(0, 5), noteRemindersMore: Math.max(0, noteReminders.length - 5),
       // Video meetings used in the last week (yours, and ones you've been in), newest first.
+      sharedNew: Array.isArray(sharedNew) ? sharedNew : [],
       meetings: (Array.isArray(meetings) ? meetings : []).filter((m) => m.people > 0 || m.last_used >= Date.now() - 7 * 864e5).slice(0, 4),
     });
   }, [mail?.enabled]);
@@ -248,6 +250,19 @@ export default function Home() {
               </ul>
             )}
           </section>
+          {data.sharedNew.length > 0 && (
+            <section className="card home-card" aria-label="Shared with you" {...cardProps('sharedwithyou')}>
+              <h2><Link to="/drive/shared"><Icon name="share" size={18} /> Shared with you</Link></h2>
+              <ul className="home-list">
+                {data.sharedNew.map((f) => (
+                  <li key={f.id}><Icon name={f.kind === 'folder' ? 'folder' : { doc: 'doc', sheet: 'sheet', slides: 'slides' }[f.kind] || 'file'} size={16} />
+                    <span className="grow" style={{ minWidth: 0 }}><Link className="home-item ellipsis" style={{ display: 'block' }} to={FILE_LINK[f.kind]?.(f) || '/drive/shared'}>{f.name}</Link>
+                      <span className="muted small">{f.by_name ? `${f.by_name} · ` : ''}{f.role === 'editor' ? 'can edit' : f.role === 'commenter' ? 'can comment' : 'can view'}</span></span>
+                    <span className="muted small nowrap">{formatDate(f.shared_at)}</span></li>
+                ))}
+              </ul>
+            </section>
+          )}
           {data.dates.length > 0 && (
             <section className="card home-card" aria-label="Birthdays and dates" {...cardProps('dates')}>
               <h2><Link to="/contacts"><span aria-hidden="true">🎂</span> Birthdays and dates</Link></h2>

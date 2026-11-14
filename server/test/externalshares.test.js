@@ -98,3 +98,25 @@ test('Drive → Shared by me: your files others can open, and with whom, in word
   assert.deepEqual((await mine()).map((x) => x[0]), ['deck.txt']);
   assert.deepEqual((await ana('GET', '/api/files?view=sharedbyme')).body, []);
 });
+
+test('Home → Shared with you: what people shared with you directly lately, who and when', async () => {
+  const recent = async (c) => (await c('GET', '/api/files/shared-recently')).body.map((f) => [f.name, f.by_name, f.role]);
+  const report = (await kim('POST', '/api/files/upload?name=report.txt', 'r', true)).body;
+  const sheet = (await kim('POST', '/api/files/upload?name=numbers.csv', 'n', true)).body;
+  await kim('PUT', `/api/files/${report.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'editor' }] });
+  await kim('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'viewer' }] });
+  assert.deepEqual((await recent(ana)).slice(0, 2), [['numbers.csv', 'Kim Park', 'viewer'], ['report.txt', 'Kim Park', 'editor']]);
+  // Saving the sharing again (a role changed) keeps when it was first shared.
+  const first = q('SELECT shared_at FROM shares WHERE file_id = ? AND user_id = ?').get(report.id, id('ana@acme.com')).shared_at;
+  await new Promise((r) => setTimeout(r, 5));
+  await kim('PUT', `/api/files/${report.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'viewer' }] });
+  assert.equal(q('SELECT shared_at FROM shares WHERE file_id = ? AND user_id = ?').get(report.id, id('ana@acme.com')).shared_at, first);
+  // Older than two weeks, in the trash, or no longer shared: not listed. The owner sees none of it.
+  q('UPDATE shares SET shared_at = ? WHERE file_id = ?').run(Date.now() - 15 * 864e5, sheet.id);
+  await kim('PUT', `/api/files/${report.id}/shares`, { shares: [] });
+  assert.deepEqual((await recent(ana)).filter(([n]) => ['numbers.csv', 'report.txt'].includes(n)), []);
+  assert.deepEqual(await recent(kim), []);
+  // It's a Home card (in the layout list).
+  const { HOME_CARDS } = await import('../src/auth.js');
+  assert.ok(HOME_CARDS.includes('sharedwithyou'));
+});
