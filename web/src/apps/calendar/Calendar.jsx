@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../App.jsx';
+import { calKey } from './calkeys.js';
 import { get, post, put, patch, del, onLive, refreshOn, postText, setCalendarOwner } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import { eventLink } from '../chat/filelinks.js';
@@ -370,6 +371,24 @@ function Calendar({ acting = null, managed = [], onPick }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [view, editing]);
+  // Single keys (calkeys.js): T today, D / W / M / Y / A a view, J / N next, K / P previous, C a new event.
+  const calKeyState = useRef();
+  calKeyState.current = { on: me?.keys !== false, editing, view, setView, newEvent };
+  useEffect(() => {
+    const onKey = (e) => {
+      const st = calKeyState.current;
+      if (!st.on || st.editing || document.querySelector('.modal-backdrop, [role=menu], [role=dialog]')) return;
+      const k = calKey(e);
+      if (!k) return;
+      e.preventDefault();
+      if (k.today) setAnchor(startOfDay(new Date()));
+      else if (k.view) st.setView(k.view);
+      else if (k.step) setAnchor((a) => shift(st.view, a, k.step));
+      else if (k.create) st.newEvent();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <div className="calendar">

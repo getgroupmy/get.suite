@@ -44,6 +44,7 @@ export const SHORTCUTS = {
     [`${mod}+B / ${mod}+I / ${mod}+U`, 'Bold, italic, underline'],
   ] },
   calendar: { title: 'Calendar', keys: [
+    ['T', 'Today'], ['D / W / M / Y / A', 'Day, week, month, year or schedule view'], ['J / N, K / P', 'Next or previous day, week, month…'], ['C', 'New event'],
     ['← / →', 'Previous or next week or day'], ['Escape', 'Cancel a drag'],
   ] },
   chat: { title: 'Chat', keys: [
