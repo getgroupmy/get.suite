@@ -1542,10 +1542,10 @@ cd web && npx vite build                                 # what the tests open
 cd e2e && npm install && npx playwright install chromium
 bash run.sh reqgroup.mjs                                 # one test: "reqgroup.mjs: 4 passed, 0 failed"
 bash run.sh searchquick2.mjs --mail                      # one that needs the mail server (below)
-NO_MAIL=1 bash run-all.sh                                # all of them (those needing mail left out)
+JOBS=3 bash run-all.sh                                   # all of them, 3 at a time (mail ones one by one after)
 ```
 
-Those listed in `e2e/mail-tests.txt` need this machine's mail server, as for the mail integration test below (`run-all.sh` passes `--mail` for them; `--mail` clears its mailboxes, using sudo). Screenshots, downloads, the server's log and each test's output go to `e2e/out/<test>/`. A test is a plain script: `step('what it checks', async () => { … })` lines print `PASS` or `FAIL`.
+Those listed in `e2e/mail-tests.txt` need this machine's mail server, as for the mail integration test below (`run-all.sh` passes `--mail` for them; `--mail` clears its mailboxes, using sudo). Screenshots, downloads, the server's log and each test's output go to `e2e/out/<test>/`. A test is a plain script: `step('what it checks', async () => { … })` lines print `PASS` or `FAIL`. A test that needs the server set up differently says so in its first lines: `// e2e-env: NAME=value` (such as a pretend DNS server's address), or `// e2e-restart` (the server is started again when it stops, as Docker does after a restore).
 
 The mail integration test runs the app against a real Postfix, Dovecot and Rspamd. On Ubuntu 24.04, install `postfix dovecot-imapd dovecot-lmtpd dovecot-sieve rspamd`, apply the build steps from `mail/Dockerfile`, start `mail/entrypoint.sh` as root, then run:
 

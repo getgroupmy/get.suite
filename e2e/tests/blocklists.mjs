@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
+// e2e-env: MAIL_DNS_SERVERS=127.0.0.1:5353
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
 const browser = await chromium.launch();

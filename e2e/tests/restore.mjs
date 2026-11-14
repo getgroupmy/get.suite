@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
+// e2e-restart (a restore stops the server; like Docker, it is started again)
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
 const browser = await chromium.launch();

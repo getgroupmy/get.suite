@@ -8,7 +8,6 @@ adminmail.mjs
 afterhours.mjs
 aliasimg.mjs
 announcemail.mjs
-archive-head.mjs
 archive.mjs
 attachas.mjs
 attview.mjs
@@ -23,7 +22,6 @@ chatwait.mjs
 colors.mjs
 confidential.mjs
 conversation.mjs
-cropedit-head.mjs
 cropedit.mjs
 delegate.mjs
 dlp.mjs
@@ -113,3 +111,14 @@ unsub.mjs
 vacooo.mjs
 vd.mjs
 zip.mjs
+chatemail.mjs
+coedit.mjs
+companysig.mjs
+davsettings.mjs
+digest.mjs
+groupemail.mjs
+mailmerge.mjs
+office.mjs
+oooreply.mjs
+rename.mjs
+versions.mjs
