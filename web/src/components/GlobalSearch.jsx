@@ -2,7 +2,8 @@
 // events, forms, chat conversations by name, contacts and colleagues) and lists the best few of each; Enter (with nothing picked) searches
 // Drive in full, as before.
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
+import { notAShortcut } from './goto.js';
 import { get, post, put, del } from '../api.js';
 import Icon from './Icon.jsx';
 import { useAuth } from '../App.jsx';
@@ -24,6 +25,14 @@ const eventWhen = (e) => `${dayOf(e.start)}, ${e.all_day ? 'all day' : `${timeOf
 /** "due Fri 20 Nov, 15:00 · repeats · high priority", or "no due date". */
 const taskWhen = (t) => [t.due ? `due ${dayOf(new Date(`${t.due}T12:00`).getTime())}${t.due_time ? `, ${t.due_time}` : ''}` : 'no due date',
   t.repeat && 'repeats', t.priority && `${t.priority} priority`, t.important && 'important', ...(t.tags || []).map((x) => `#${x}`)].filter(Boolean).join(' · ');
+
+const TIPS = [
+  ['event Lunch tomorrow 1pm', 'a new event (add @name to invite, “in the Boardroom” for a room)', 'calendar'],
+  ['task Send invoice friday !high', 'a task, added at once', 'check'],
+  ['note ', 'a note (or “list milk, eggs” for a checklist)', 'note'],
+  ['email @', 'a message to a colleague, the rest its subject', 'mail'],
+  ['chat @', 'start a chat message to someone (or #channel)', 'chat'],
+];
 
 let mailOnce = null;
 const mailEnabled = () => (mailOnce ??= get('/mail/status').then((st) => !!st.enabled).catch(() => false));
@@ -66,7 +75,7 @@ export async function searchAll(text) {
 
 export default function GlobalSearch() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [text, setText] = useState('');
   const [recent, setRecent] = useState(null); // your recent searches (loaded when the box is first opened)
   const [mailOn, setMailOn] = useState(false);
@@ -89,6 +98,19 @@ export default function GlobalSearch() {
   const [open, setOpen] = useState(false);
   const [pick, setPick] = useState(-1);
   const box = useRef();
+  const input = useRef();
+  // "/" anywhere (outside a text field, and not in Mail, where it searches mail) puts you in this box.
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (user?.keys === false) return undefined; // Settings → Keyboard shortcuts: single keys off
+    const onKey = (e) => {
+      if (e.key !== '/' || notAShortcut(e) || /^\/mail(\/|$)/.test(pathname) || document.querySelector('.modal-backdrop')) return;
+      e.preventDefault();
+      input.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pathname, user?.keys]);
   const seq = useRef(0);
   useEffect(() => {
     const t = text.trim();
@@ -104,9 +126,14 @@ export default function GlobalSearch() {
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
   const recentHits = showRecent ? recent.map((q) => ({ key: `r${q}`, icon: 'clock', title: q, recent: true })) : [];
-  const flat = [...recentHits, ...actions, ...(text.trim().length >= 2 ? (groups || []).flatMap(([, list]) => list) : [])];
+  // Tips (in the empty box): what can be typed to make things, each filling the box when picked. "Hide tips" for good.
+  const showTips = !text.trim() && user?.search_tips !== false; // kept with your account (Settings → Search tips)
+  const tipHits = showTips ? TIPS.map(([fill, what, icon]) => ({ key: `t${fill}`, icon, title: fill, sub: what, tip: true })) : [];
+  const hideTips = () => put('/users/me/search-tips', { on: false }).then(() => { setUser({ ...user, search_tips: false }); toast('Tips hidden: Settings → Search tips brings them back'); }).catch((e) => toast(e.message, 'error'));
+  const flat = [...recentHits, ...tipHits, ...actions, ...(text.trim().length >= 2 ? (groups || []).flatMap(([, list]) => list) : [])];
   const go = async (r) => {
     if (r.recent) { setText(r.title); setPick(-1); return; } // search for it again
+    if (r.tip) { setText(r.title.replace(/…$/, '')); setPick(-1); input.current?.focus(); return; }
     setOpen(false);
     const typed = text;
     setText('');
@@ -158,7 +185,7 @@ export default function GlobalSearch() {
   return (
     <form className="search global-search" role="search" onSubmit={submit} ref={box}>
       <Icon name="search" />
-      <input name="q" placeholder="Search everything" aria-label="Search everything" autoComplete="off" value={text}
+      <input ref={input} name="q" placeholder="Search everything" aria-label="Search everything" autoComplete="off" value={text}
         role="combobox" aria-expanded={open && !!groups} aria-controls="search-results"
         onFocus={() => { setOpen(true); if (recent === null) get('/users/me/recent-searches').then(setRecent).catch(() => setRecent([])); }}
         onChange={(e) => { setText(e.target.value); setOpen(true); setPick(-1); }}
@@ -168,7 +195,7 @@ export default function GlobalSearch() {
           if (e.key === 'ArrowUp') { e.preventDefault(); setPick((p) => Math.max(-1, p - 1)); }
           if (e.key === 'Escape') { setOpen(false); e.currentTarget.blur(); }
         }} />
-      {open && (showRecent || actions.length > 0 || (groups && text.trim().length >= 2)) && (
+      {open && (showRecent || showTips || actions.length > 0 || (groups && text.trim().length >= 2)) && (
         <div className="search-results" id="search-results" role="listbox" aria-label="Search results">
           {showRecent && (
             <div className="search-group" role="group" aria-label="Recent searches">
@@ -184,6 +211,21 @@ export default function GlobalSearch() {
                     </button>
                     <button type="button" className="icon-btn" aria-label={`Forget “${r.title}”`} onClick={() => del(`/users/me/recent-searches?q=${encodeURIComponent(r.title)}`).then(setRecent).catch(() => {})}><Icon name="close" size={14} /></button>
                   </div>
+                );
+              })}
+            </div>
+          )}
+          {showTips && (
+            <div className="search-group" role="group" aria-label="Tips">
+              <div className="search-group-head muted small row">Type to make things<span className="grow" />
+                <button type="button" className="link-btn small" onClick={hideTips}>Hide tips</button></div>
+              {tipHits.map((r) => {
+                i += 1;
+                const me = i;
+                return (
+                  <button key={r.key} type="button" role="option" aria-selected={pick === me} className={`search-hit ${pick === me ? 'on' : ''}`} onMouseEnter={() => setPick(me)} onClick={() => go(r)}>
+                    <Icon name={r.icon} size={18} /><span className="grow ellipsis"><span className="search-hit-title">{r.title}</span><span className="muted small"> {r.sub}</span></span>
+                  </button>
                 );
               })}
             </div>

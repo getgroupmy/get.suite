@@ -2837,6 +2837,18 @@ test('top search "chat @kim …": the direct message is started and the words wa
   assert.equal((await a('GET', '/api/chat/drafts')).body[id].body, 'Are we still on for 3?\nBring the figures');
 });
 
+test('search tips: on by default, hidden and shown again with your account (every device)', async () => {
+  const a = client(), a2 = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'stips', domain: 'acme.com', name: 'Search Tips', password: 'password123' })).status, 201);
+  assert.equal((await login(a, 'stips@acme.com')).search_tips, true);
+  assert.deepEqual((await a('PUT', '/api/users/me/search-tips', { on: false })).body, { search_tips: false });
+  assert.equal((await login(a2, 'stips@acme.com')).search_tips, false, 'signed in elsewhere: hidden there too');
+  assert.equal((await a2('GET', '/api/auth/me')).body.user.search_tips, false);
+  await a2('PUT', '/api/users/me/search-tips', { on: true });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.search_tips, true);
+  assert.equal((await client()('PUT', '/api/users/me/search-tips', { on: false })).status, 401, 'signed in only');
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);

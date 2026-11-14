@@ -67,6 +67,7 @@ export default function Settings() {
       <MailTips />
       <CallRing />
       <KeyboardKeys />
+      <SearchTips />
       <Devices />
       <SignInApps />
       <WorkLocation />
@@ -416,6 +417,23 @@ function MailTips() {
       <h2 id="mtips-h">Tips while writing</h2>
       <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Show tips under the addresses as I write an email</label>
       <p className="muted small" style={{ margin: 0 }}>People you usually include, colleagues outside their working hours, away or with a full mailbox, how many people a big message goes to, and who's outside the company. If your company asks before mail goes outside it, that question still comes.</p>
+    </section>
+  );
+}
+
+/** The search box's "Type to make things" tips (event …, task …): shown in the empty box, or hidden. */
+function SearchTips() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [on, setOn] = useState(user.search_tips !== false);
+  const set = async (next) => {
+    setOn(next);
+    try { await put('/users/me/search-tips', { on: next }); setUser({ ...user, search_tips: next }); toast(next ? 'Search tips are on' : 'Search tips are off'); } catch (e) { setOn(!next); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="stips-h">
+      <h2 id="stips-h">Search tips</h2>
+      <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Show what I can type to make things (<em>event …</em>, <em>task …</em>, <em>note …</em>) when I click into the search box</label>
     </section>
   );
 }

@@ -51,7 +51,7 @@ export const SHORTCUTS = {
     [`${alt}+↑ / ${alt}+↓`, 'Previous or next conversation'], [`${alt}+Shift+↑ / ${alt}+Shift+↓`, 'Previous or next unread conversation'],
     ['Shift+Escape', 'Mark all conversations as read'],
   ] },
-  all: { title: 'Everywhere', keys: [[`${mod}+/`, 'This list (or ? outside a text field)'], ['Escape', 'Close a dialog or menu'],
+  all: { title: 'Everywhere', keys: [[`${mod}+/`, 'This list (or ? outside a text field)'], ['Escape', 'Close a dialog or menu'], ['/', 'Search everything (in Mail: search mail)'],
     ...GO_TO.map(([k, , name]) => [`G then ${k.toUpperCase()}`, `Go to ${name}`])] },
 };
 

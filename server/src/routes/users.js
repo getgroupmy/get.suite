@@ -329,6 +329,13 @@ export default function userRoutes() {
     res.json({ mail_tips: on });
   });
 
+  // The search box's tips ("Type to make things": event …, task …, note …): shown in the empty box, or hidden.
+  r.put('/me/search-tips', (req, res) => {
+    const on = req.body?.on !== false;
+    q('UPDATE users SET search_tips_off = ? WHERE id = ?').run(on ? 0 : 1, req.user.id);
+    res.json({ search_tips: on });
+  });
+
   // Single-key shortcuts (C to write, J/K, G then M, ? for the list): on or off. Shortcuts with Ctrl or ⌘ stay.
   r.put('/me/keys', (req, res) => {
     const on = req.body?.on !== false;
