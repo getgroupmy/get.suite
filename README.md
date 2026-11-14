@@ -1158,6 +1158,8 @@ Settings → **Signed-in devices** lists every browser where you're signed in: w
 - **Sign out** ends one device's session; it's signed out at its next click.
 - **Sign out all other devices** ends every session except this one.
 - If you don't recognise a device, sign it out and change your password. Changing your password, or turning on two-step verification, also signs out all other devices.
+
+Below it, **Recent security activity** is your own record of the last 30 days, said to you: *You signed in with a passkey*, *Someone tried to sign in as you: wrong password*, *Your recovery email was set*, *1 device was signed out · by Olivia Owner* (when an admin did it), each with the time and network address. Failed attempts and changes worth a second look (two-step verification or a passkey removed, forwarding turned on…) are highlighted, with a count of failed attempts at the top, and **Change your password** takes you straight to the form. It shows only what's about you: an admin's own list doesn't fill up with what they did to other people's accounts. (Admins see everyone's in Admin → Activity.)
 - Mail apps aren't listed (they don't keep a web session). Use a mail-app password to control those.
 - Sessions from before this version show as "Browser" without details until they next sign in.
 

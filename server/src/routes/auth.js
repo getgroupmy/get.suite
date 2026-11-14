@@ -8,6 +8,7 @@ import {
   requireAuth, validatePassword, hashPassword, userFromToken, idleOf, sessionId, describeDevice,
 } from '../auth.js';
 import * as guard from '../security/guard.js';
+import { securityActivity } from '../securityactivity.js';
 import { createOrg } from '../tenancy.js';
 import { setMailPassword, setMailAppPassword, mailEnabled, MAIL_HOSTNAME } from '../mail/config.js';
 import crypto from 'node:crypto';
@@ -332,6 +333,8 @@ export default function authRoutes({ secureCookies }) {
   });
 
   // ---- signed-in devices (web sessions) ----
+  // Your own sign-ins, attempts and sign-in changes over the last 30 days (Settings).
+  r.get('/security-activity', requireAuth, (req, res) => res.json(securityActivity(req.user, { limit: Math.min(200, Math.max(1, Number(req.query.limit) || 100)) })));
   r.get('/sessions', requireAuth, (req, res) => {
     const mine = tokenFromReq(req);
     const rows = q('SELECT token, created_at, last_seen, user_agent, ip, method FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC').all(req.user.id, Date.now());

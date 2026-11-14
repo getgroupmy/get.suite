@@ -47,8 +47,8 @@ export default function Settings() {
         <div className="row end"><button className="btn primary">Save profile</button></div>
       </form>
       <Appearance />
-      <form className="card stack" onSubmit={savePassword}>
-        <h2>Change password</h2>
+      <form className="card stack" onSubmit={savePassword} aria-labelledby="password-h">
+        <h2 id="password-h" tabIndex={-1}>Change password</h2>
         <label className="field"><span>Current password</span><input type="password" autoComplete="current-password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} required /></label>
         <PasswordRulesNote />
         <label className="field"><span>New password</span><input type="password" autoComplete="new-password" minLength={8} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} required /></label>
@@ -71,6 +71,7 @@ export default function Settings() {
       <KeyboardKeys />
       <SearchTips />
       <Devices />
+      <SecurityActivity />
       <SignInApps />
       <WorkLocation />
       <SecondZone />
@@ -986,6 +987,40 @@ function Devices() {
         ))}
       </ul>
       {others.length > 0 && <div className="row end"><button type="button" className="btn" onClick={signOutOthers}>Sign out all other devices</button></div>}
+    </section>
+  );
+}
+
+/** Your own sign-ins, attempts and sign-in changes, last 30 days: "was that you?" */
+function SecurityActivity() {
+  const [data, setData] = useState(null);
+  const [all, setAll] = useState(false);
+  useEffect(() => { get('/auth/security-activity').then(setData).catch(() => {}); }, []);
+  if (!data) return null;
+  const shown = all ? data.entries : data.entries.slice(0, 8);
+  const toPassword = () => { const h = document.getElementById('password-h'); h?.scrollIntoView({ block: 'center' }); h?.focus(); };
+  return (
+    <section className="card stack" aria-labelledby="secact-h">
+      <h2 id="secact-h">Recent security activity</h2>
+      <p role="status" className={data.failed ? 'small pill warn' : 'muted small'} style={{ margin: 0, alignSelf: 'flex-start' }}>
+        {data.failed ? `${data.failed} failed sign-in attempt${data.failed === 1 ? '' : 's'} in the last ${data.days} days` : `Sign-ins and changes to how you sign in, last ${data.days} days.`}
+      </p>
+      {data.entries.length === 0 ? <p className="muted small">Nothing in the last {data.days} days.</p> : (
+        <ul className="device-list" aria-label="Recent security activity">
+          {shown.map((e) => (
+            <li key={e.id}>
+              <span className="grow">
+                <span className="device-name">{e.warn ? <span className="pill warn">{e.text}</span> : <strong>{e.text}</strong>}</span>
+                <span className="muted small">{new Date(e.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}{e.ip ? ` · ${e.ip}` : ''}{e.by ? ` · by ${e.by}` : ''}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!all && data.entries.length > 8 && <div className="row"><button type="button" className="btn small" onClick={() => setAll(true)}>Show all {data.entries.length}{data.more ? '+' : ''}</button></div>}
+      <p className="muted small" style={{ margin: 0 }}>
+        Something you don't recognise? <button type="button" className="link-btn small" onClick={toPassword}>Change your password</button>, then sign out the devices you don't know above.
+      </p>
     </section>
   );
 }
