@@ -78,7 +78,7 @@ await step('Word, Excel and PowerPoint attachments open read-only in the viewer'
     attachments: [{ filename: 'Tender.docx', content: docx }, { filename: 'Costs.xlsx', content: xlsx }, { filename: 'Results.pptx', content: pptx }, { filename: 'Old.doc', content: 'binary' }] });
   await refreshUntil(page, inboxRow('Tender pack'));
   await inboxRow('Tender pack').click();
-  await page.getByRole('link', { name: /Tender\.docx/ }).click();
+  await page.locator('.mail-reader').getByRole('link', { name: /Tender\.docx/ }).click();
   await dlg().getByRole('heading', { name: 'Tender response' }).waitFor();
   await dlg().getByText('Delivery within six weeks.').waitFor();
   if (await dlg().locator('[contenteditable="true"]').count()) throw new Error('should be read-only');

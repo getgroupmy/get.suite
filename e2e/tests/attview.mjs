@@ -70,7 +70,7 @@ await step('clicking a picture attachment opens it in the viewer, with the other
       { filename: 'report.pdf', content: PDF }, { filename: 'logo.svg', content: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>' }] });
   await refreshUntil(page, inboxRow('Site visit'));
   await inboxRow('Site visit').click();
-  await page.getByRole('link', { name: /photo\.png/ }).click();
+  await page.locator('.mail-reader').getByRole('link', { name: /photo\.png/ }).click();
   await dlg().getByRole('img', { name: 'photo.png' }).waitFor();
   await until(() => dlg().getByRole('img', { name: 'photo.png' }).evaluate((i) => i.complete && i.naturalWidth === 2));
   await dlg().getByText('1 of 3').waitFor();
@@ -95,7 +95,7 @@ await step('the viewer downloads and saves to Drive; it closes with Escape', asy
   await page.getByRole('link', { name: /Site visit|photo\.png/ }).first().waitFor();
 });
 await step('kinds that could run script, or that the browser can’t show, still download', async () => {
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: /bundle\.rar/ }).click()]);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.mail-reader').getByRole('link', { name: /bundle\.rar/ }).click()]);
   if (dl.suggestedFilename() !== 'bundle.rar') throw new Error(dl.suggestedFilename());
   if (await dlg().count()) throw new Error('no viewer for a rar');
   const href = await page.getByRole('link', { name: /logo\.svg/ }).getAttribute('href');

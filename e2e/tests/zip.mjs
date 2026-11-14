@@ -69,7 +69,7 @@ await step('a zip attachment opens to show what is inside', async () => {
   await smtp.sendMail({ from: 'Raj Kumar <raj@acme.com>', to: 'olivia@acme.com', subject: 'Site files', text: 'Zipped.', attachments: [{ filename: 'Site files.zip', content: zipBuf }] });
   await refreshUntil(page, inboxRow('Site files'));
   await inboxRow('Site files').click();
-  await page.getByRole('link', { name: /Site files\.zip/ }).click();
+  await page.locator('.mail-reader').getByRole('link', { name: /Site files\.zip/ }).click();
   const list = dlg().getByRole('list', { name: 'Inside the zip' });
   await list.waitFor();
   const items = await list.locator('li').allInnerTexts();

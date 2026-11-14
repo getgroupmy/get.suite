@@ -69,7 +69,7 @@ await step('a file: ⋮ → Email as attachment opens a new message with it atta
   await d.waitFor({ state: 'detached', timeout: 30000 });
   kim = await mk('kim');
   await signIn(kim, 'kim@acme.com');
-  await kim.locator('.mail-list').getByText('report.txt', { exact: true }).click({ timeout: 40000 });
+  await kim.locator('.mail-list .msg-subject').getByText('report.txt', { exact: true }).click({ timeout: 40000 });
   await kim.locator('.mail-reader').getByText('report.txt').first().waitFor();
 });
 await step('a document: it asks what to attach it as first (Word here)', async () => {

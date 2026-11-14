@@ -74,7 +74,7 @@ await step('sent: Kim gets Offer letter.odt and can look at it in Mail', async (
   k.on('pageerror', (e) => errors.push(`kim: ${e.message}`));
   await signIn(k, 'kim@acme.com');
   await k.locator('.mail-list').getByText('Your offer', { exact: true }).click({ timeout: 40000 });
-  await k.getByText('Offer letter.odt').first().click();
+  await k.locator('.mail-reader').getByText('Offer letter.odt').first().click(); // not its chip in the list
   await k.getByText('we are pleased to offer you the role').first().waitFor({ timeout: 20000 });
   await k.screenshot({ path: `${SP}/shots/attachas-received.png` });
 });
