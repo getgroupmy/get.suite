@@ -1,7 +1,7 @@
 // Admin → Security checkup: the company's open security points, worst first, each with a way to the fix.
 import { useEffect, useState } from 'react';
-import { get } from '../../api.js';
-import { useToast } from '../../components/ui.jsx';
+import { get, post } from '../../api.js';
+import { ConfirmModal, useToast } from '../../components/ui.jsx';
 
 const TAB_NAMES = { users: 'Users', company: 'Company settings', links: 'Share links', phishing: 'Phishing', email: 'Email' };
 const MARK = { warn: ['⚠', 'Needs attention'], tip: ['💡', 'Worth doing'], ok: ['✓', 'Done'] };
@@ -9,7 +9,9 @@ const MARK = { warn: ['⚠', 'Needs attention'], tip: ['💡', 'Worth doing'], o
 export default function CheckupAdmin({ onGo }) {
   const toast = useToast();
   const [items, setItems] = useState(null);
-  useEffect(() => { get('/orgs/current/checkup').then((r) => setItems(r.items)).catch((e) => toast(e.message, 'error')); }, [toast]);
+  const [reload, setReload] = useState(0);
+  const [suspending, setSuspending] = useState(null); // the "not used" item, while confirming
+  useEffect(() => { get('/orgs/current/checkup').then((r) => setItems(r.items)).catch((e) => toast(e.message, 'error')); }, [toast, reload]);
   if (!items) return null;
   const warns = items.filter((x) => x.status === 'warn').length;
   return (
@@ -26,10 +28,17 @@ export default function CheckupAdmin({ onGo }) {
               <strong>{x.title}</strong> <span className="sr-only">({MARK[x.status][1]})</span>
               {x.detail && <p className="small" style={{ margin: '2px 0 0' }}>{x.detail}</p>}
             </div>
+            {x.id === 'inactive' && x.ids?.length > 0 && <button type="button" className="btn small" onClick={() => setSuspending(x)}>Suspend {x.ids.length === 1 ? 'this account' : `these ${x.ids.length} accounts`}</button>}
             {x.status !== 'ok' && x.tab && TAB_NAMES[x.tab] && <button type="button" className="btn small" onClick={() => onGo(x.tab)}>Go to {TAB_NAMES[x.tab]}</button>}
           </li>
         ))}
       </ul>
+      {suspending && <ConfirmModal title={`Suspend ${suspending.ids.length === 1 ? suspending.people[0] : `${suspending.ids.length} accounts`}?`} confirm="Suspend"
+        message={`${suspending.people.join(', ')}: they're signed out everywhere and can't sign in until restored (Admin → Users). Their mail keeps arriving and nothing is deleted.`}
+        onClose={() => setSuspending(null)} onConfirm={async () => {
+          try { const r = await post('/users/bulk', { ids: suspending.ids, action: 'suspend' }); toast(`Suspended ${r.done}${r.skipped.length ? ` (skipped: ${r.skipped.map((x) => `${x.name}: ${x.reason}`).join('; ')})` : ''}`); setReload((n) => n + 1); }
+          catch (e) { toast(e.message, 'error'); }
+        }} />}
     </section>
   );
 }

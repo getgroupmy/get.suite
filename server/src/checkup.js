@@ -58,7 +58,7 @@ function checkupNow(orgId, at) {
 
   // Accounts nobody uses: a way in that nobody would notice.
   const stale = people.filter((p) => (p.last_active || p.created_at) < at - INACTIVE_DAYS * 864e5);
-  if (stale.length) add({ id: 'inactive', status: 'warn', title: `${plural(stale.length, 'account')} not used for ${INACTIVE_DAYS} days`, detail: `${names(stale)}. Suspend the ones that are no longer needed: unused accounts are a way in nobody notices.`, tab: 'users', people: stale.map((p) => p.name) });
+  if (stale.length) add({ id: 'inactive', status: 'warn', title: `${plural(stale.length, 'account')} not used for ${INACTIVE_DAYS} days`, detail: `${names(stale)}. Suspend the ones that are no longer needed: unused accounts are a way in nobody notices.`, tab: 'users', people: stale.map((p) => p.name), ids: stale.map((p) => p.id) });
 
   // Mail going out by itself.
   const ours = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(orgId).map((d) => d.name.toLowerCase()));

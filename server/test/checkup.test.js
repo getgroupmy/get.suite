@@ -42,6 +42,7 @@ test('security checkup: what’s open, worst first, and what changes it', async 
   assert.match(c[0].detail, /^Ana Admin\./);
   assert.equal(c[1].title, '3 people sign in with just a password');
   assert.deepEqual(c[2].people, ['Old Timer']);
+  assert.deepEqual(c[2].ids, [oldId], 'so they can be suspended from the checkup');
 
   // Fixed: Ana's two-step on, two steps required, Old suspended, outside mail marked, idle sign-out.
   q('INSERT INTO two_factor (user_id, secret, enabled) VALUES (?, ?, 1)').run(q("SELECT id FROM users WHERE username = 'ana@acme.com'").get().id, 'JBSWY3DPEHPK3PXP');

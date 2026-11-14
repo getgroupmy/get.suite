@@ -73,6 +73,25 @@ await step('the weekly notice’s link opens the checkup', async () => {
   await list().waitFor();
   if ((await page.getByRole('tab', { name: 'Security checkup' }).getAttribute('aria-selected')) !== 'true') throw new Error('not the checkup tab');
 });
+await step('accounts unused for 90 days: suspended from the checkup', async () => {
+  const oldId = (await api(page, 'POST', '/users', { local: 'old', domain: 'acme.com', name: 'Old Timer', password: 'password123' })).body.id;
+  // Nobody can be 90 days old in a test: set it in the database, as the server keeps it.
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(`${SP}/data/workspace.db`);
+  db.prepare('UPDATE users SET created_at = ?, last_active = ? WHERE id = ?').run(Date.now() - 200 * 864e5, Date.now() - 120 * 864e5, oldId);
+  db.close();
+  await page.goto(`${B}/admin?tab=checkup`);
+  const item = list().locator('li', { hasText: 'not used for 90 days' });
+  await item.getByText(/Old Timer/).waitFor();
+  await item.getByRole('button', { name: 'Suspend this account' }).click();
+  const d = page.getByRole('dialog', { name: 'Suspend Old Timer?' });
+  await axe(page, 'suspend');
+  await d.getByRole('button', { name: 'Suspend' }).click();
+  await page.getByText('Suspended 1').waitFor();
+  await until(async () => !(await list().getByText('not used for 90 days').count()));
+  const u = (await api(page, 'GET', '/users')).body.find((x) => x.id === oldId);
+  if (!u.disabled) throw new Error('not suspended');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
