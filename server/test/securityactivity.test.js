@@ -78,3 +78,26 @@ test('older than 30 days is left out; a passkey or two-step sign-in says how', (
   assert.ok(!r.entries.some((e) => e.text === 'Your password was changed'), 'too old');
   assert.equal(securityActivity(u, { limit: 2 }).more, true);
 });
+
+test('an admin sees a person’s recent security activity, worded about them; nobody else can', async () => {
+  const ana = client(), kim = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  await kim('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' });
+  const kimId = q("SELECT id FROM users WHERE username = 'kim@acme.com'").get().id;
+  const anaId = q("SELECT id FROM users WHERE username = 'ana@acme.com'").get().id;
+  const r = await ana('GET', `/api/users/${kimId}/security-activity`);
+  assert.equal(r.status, 200);
+  const texts = r.body.entries.map((e) => e.text);
+  assert.equal(texts[0], 'Signed in');
+  assert.ok(texts.includes('Failed sign-in: wrong password'), texts.join(' | '));
+  assert.ok(texts.includes('Recovery email set'));
+  assert.ok(!texts.some((t) => /\byou\b/i.test(t)), 'not “you”');
+  assert.equal(r.body.failed, 1);
+  assert.equal((await kim('GET', `/api/users/${anaId}/security-activity`)).status, 403);
+  assert.equal((await kim('GET', `/api/users/${kimId}/security-activity`)).status, 403, 'not even your own, this way');
+  // Another company's admin can't look.
+  const gx = client();
+  await ana('POST', '/api/orgs', { name: 'Globex', domain: 'globex.com', admin_name: 'Gil', admin_local: 'gil', admin_password: 'password123' });
+  await gx('POST', '/api/auth/login', { username: 'gil@globex.com', password: 'password123' });
+  assert.equal((await gx('GET', `/api/users/${kimId}/security-activity`)).status, 404);
+});

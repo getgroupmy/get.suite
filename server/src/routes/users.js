@@ -1,4 +1,5 @@
 import { cleanCalPrefs, colorRulesOf } from '../calprefs.js';
+import { securityActivity } from '../securityactivity.js';
 import { checkFull } from '../mail/storage.js';
 import { activePerDay } from '../activedays.js';
 import { syncCompanyGroupAliases } from '../groups.js';
@@ -634,6 +635,12 @@ export default function userRoutes() {
     res.json({ days, from, to, active, people: rows, per_day: activePerDay(orgId, from, to), meet });
   });
 
+  // Someone's recent security activity (sign-ins, failed attempts, sign-in changes; 30 days), for an admin.
+  r.get('/:id/security-activity', (req, res) => {
+    const u = loadManagedUser(req);
+    if (u.is_super && !req.user.is_super) throw forbidden('Only the platform owner can see this account’s activity');
+    res.json(securityActivity(u, { about: true, limit: 50 }));
+  });
   // Someone's signed-in devices (web sessions), for an admin: see them and sign one or all out.
   r.get('/:id/sessions', (req, res) => {
     const u = loadManagedUser(req);

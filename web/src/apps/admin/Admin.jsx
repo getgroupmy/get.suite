@@ -137,10 +137,11 @@ function Networks({ org, save }) {
 function UserDevices({ user, onClose }) {
   const toast = useToast();
   const [list, setList] = useState(null);
+  const [changed, setChanged] = useState(0); // a sign-out shows up in the activity below
   const load = useCallback(() => get(`/users/${user.id}/sessions`).then(setList).catch((e) => { toast(e.message, 'error'); onClose(); }), [user.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
   const out = async (sid) => {
-    try { const r = await del(`/users/${user.id}/sessions/${sid}`); toast(r.signedOut ? `Signed out ${r.signedOut === 1 ? 'that device' : `${r.signedOut} devices`}` : 'Nothing to sign out'); load(); } catch (e) { toast(e.message, 'error'); }
+    try { const r = await del(`/users/${user.id}/sessions/${sid}`); toast(r.signedOut ? `Signed out ${r.signedOut === 1 ? 'that device' : `${r.signedOut} devices`}` : 'Nothing to sign out'); load(); setChanged((n) => n + 1); } catch (e) { toast(e.message, 'error'); }
   };
   return (
     <Modal title={`${user.name}'s signed-in devices`} onClose={onClose} footer={<>
@@ -159,7 +160,40 @@ function UserDevices({ user, onClose }) {
         </ul>
       )}
       <p className="muted small">Phones and mail apps that sync with a password keep working until the password is changed (⋮ → Reset password).</p>
+      <UserSecurityActivity user={user} changed={changed} />
     </Modal>
+  );
+}
+
+/** Their sign-ins, failed attempts and sign-in changes over the last 30 days (in the devices window). */
+function UserSecurityActivity({ user, changed }) {
+  const [data, setData] = useState(null);
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    let live = true;
+    get(`/users/${user.id}/security-activity`).then((r) => live && setData(r)).catch(() => live && setData(false));
+    return () => { live = false; };
+  }, [user.id, changed]);
+  if (!data) return null;
+  const shown = all ? data.entries : data.entries.slice(0, 6);
+  return (
+    <section aria-labelledby="usa-h" className="stack" style={{ gap: 6 }}>
+      <h3 id="usa-h" style={{ margin: '8px 0 0' }}>Recent security activity</h3>
+      <p role="status" className={data.failed ? 'small pill warn' : 'muted small'} style={{ margin: 0, alignSelf: 'flex-start' }}>
+        {data.failed ? `${data.failed} failed sign-in attempt${data.failed === 1 ? '' : 's'} in the last ${data.days} days` : `No failed sign-ins in the last ${data.days} days`}
+      </p>
+      {data.entries.length === 0 ? <p className="muted small">Nothing in the last {data.days} days.</p> : (
+        <ul className="storage-list" aria-label="Recent security activity">
+          {shown.map((e) => (
+            <li key={e.id}>
+              <span className="grow">{e.warn ? <span className="pill warn">{e.text}</span> : e.text}<br />
+                <span className="muted small">{new Date(e.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}{e.ip ? ` · ${e.ip}` : ''}{e.by ? ` · by ${e.by}` : ''}</span></span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!all && data.entries.length > 6 && <div><button type="button" className="btn small" onClick={() => setAll(true)}>Show all {data.entries.length}{data.more ? '+' : ''}</button></div>}
+    </section>
   );
 }
 
