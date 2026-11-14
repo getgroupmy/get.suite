@@ -112,3 +112,28 @@ test('weekly notice: admins of a company with warnings are told, at most once a 
   q("UPDATE phishing_reports SET handled_at = 1 WHERE org_id = ?").run(orgId);
   assert.deepEqual(await weeklyCheckupNotice(t0 + 3 * NOTICE_EVERY_MS, { mail: false }), []);
 });
+
+test('remind people without a recovery email: a notification each, at most daily, admins only', async () => {
+  const { remindRecovery } = await import('../src/checkup.js');
+  const ana = client(), kim = client();
+  // Ana has an authenticator app (from the first test): the code step too.
+  const step = (await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' })).body;
+  const { codeAt } = await import('../src/totp.js');
+  assert.equal((await ana('POST', '/api/auth/login/code', { ticket: step.ticket, code: codeAt('JBSWY3DPEHPK3PXP', Math.floor(Date.now() / 30000)) })).status, 200);
+  const orgId = q("SELECT org_id FROM users WHERE username = 'ana@acme.com'").get().org_id;
+  q("UPDATE users SET recovery_email = NULL WHERE username = 'kim@acme.com'").run();
+  q("UPDATE users SET recovery_email = 'ana.home@example.org' WHERE username = 'ana@acme.com'").run();
+  const item = (await checkup(orgId, Date.now(), { mail: false })).find((x) => x.id === 'recovery');
+  assert.equal(item.remind, 'recovery');
+  // Kim can't (and needs two steps first anyway); Ana can.
+  await kim('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' });
+  assert.notEqual((await kim('POST', '/api/orgs/current/checkup/remind-recovery')).status, 200);
+  const r = await ana('POST', '/api/orgs/current/checkup/remind-recovery');
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.reminded, 1, 'only Kim: Ana has one, Old is suspended');
+  const kimId = q("SELECT id FROM users WHERE username = 'kim@acme.com'").get().id;
+  assert.equal(q("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND title = 'Add a recovery email to your account'").get(kimId).n, 1);
+  assert.equal((await ana('POST', '/api/orgs/current/checkup/remind-recovery')).status, 429, 'not twice in a day');
+  assert.throws(() => remindRecovery(orgId, Date.now() + 3600e3), /less than a day/);
+  assert.equal(remindRecovery(orgId, Date.now() + 2 * 864e5), 1, 'a day later, again');
+});

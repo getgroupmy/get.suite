@@ -9,7 +9,7 @@ const mk = async (who) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errors.push(`${who}: ${e.message}`));
-  p.on('console', (m) => m.type() === 'error' && !/40[0-4]|503|Content Security|sandboxed/.test(m.text()) && errors.push(`${who}: ${m.text()}`));
+  p.on('console', (m) => m.type() === 'error' && !/40[0-4]|429|503|Content Security|sandboxed/.test(m.text()) && errors.push(`${who}: ${m.text()}`));
   return p;
 };
 const page = await mk('olivia');
@@ -99,6 +99,18 @@ await step('fix right there: sign people out after 8 hours away; requiring two s
   await until(async () => !(await list().getByText('People stay signed in while away').count()));
   await list().getByRole('button', { name: 'Require two-step verification' }).click();
   await page.getByText(/Turn on two-step verification for your own account first/).waitFor();
+});
+await step('no recovery email: Remind them sends each a notice (and not twice in a day)', async () => {
+  await page.goto(`${B}/admin?tab=checkup`);
+  const item = list().locator('li', { hasText: 'no recovery email' });
+  await item.getByRole('button', { name: 'Remind them' }).click();
+  await page.getByText(/^Reminded \d+ (person|people) to add a recovery email$/).waitFor();
+  await item.getByRole('button', { name: 'Remind them' }).click();
+  await page.getByText('They were reminded less than a day ago').waitFor();
+  const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
+  await kim.goto(B);
+  await kim.getByRole('button', { name: /^Notifications/ }).first().click();
+  await kim.getByText('Add a recovery email to your account').first().waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

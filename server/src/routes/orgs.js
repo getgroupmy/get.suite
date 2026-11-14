@@ -1,6 +1,6 @@
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
 import { sweepInboxes } from '../mail/sweep.js';
-import { checkup } from '../checkup.js';
+import { checkup, remindRecovery } from '../checkup.js';
 import { SIGNATURE_MODES } from '../mail/companysig.js';
 import { MAIL_EMPTY_CHOICES } from '../mail/config.js';
 import { IDLE_CHOICES, MAX_HOURS_CHOICES } from '../auth.js';
@@ -200,6 +200,12 @@ export default function orgRoutes() {
   // Storage: the company's total (and quota), how much each person uses (files, earlier versions,
   // the trash), and the largest files. The platform owner may ask about any company (?org_id=).
   // Security checkup (Admin → Security checkup): the company's open security points.
+  r.post('/current/checkup/remind-recovery', requireAdmin, (req, res) => {
+    let n;
+    try { n = remindRecovery(req.user.org_id); } catch (e) { throw new HttpError(e.status || 400, e.message); }
+    audit(req, 'checkup.remind', { target: `${n} people`, details: { what: 'recovery email' } });
+    res.json({ reminded: n });
+  });
   r.get('/current/checkup', requireAdmin, async (req, res) => res.json({ items: await checkup(req.user.org_id) }));
   // Phishing reports from people in the company (Admin → Phishing).
   r.get('/current/phishing', requireAdmin, (req, res) => res.json(phishingFor(req.user.org_id)));

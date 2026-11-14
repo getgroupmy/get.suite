@@ -62,7 +62,7 @@ function checkupNow(orgId, at) {
 
   // No recovery address: no password reset by themselves, and no security emails outside Workspace.
   const noRecovery = people.filter((p) => !p.recovery_email);
-  if (noRecovery.length) add({ id: 'recovery', status: 'tip', title: `${plural(noRecovery.length, 'person', 'people')} ha${noRecovery.length === 1 ? 's' : 've'} no recovery email`, detail: `${names(noRecovery)}. Without one they can’t reset a forgotten password themselves, and they aren’t emailed when their account signs in somewhere new or its password changes. Each adds one in Settings → Recovery email.`, tab: 'users', people: noRecovery.map((p) => p.name) });
+  if (noRecovery.length) add({ id: 'recovery', status: 'tip', title: `${plural(noRecovery.length, 'person', 'people')} ha${noRecovery.length === 1 ? 's' : 've'} no recovery email`, detail: `${names(noRecovery)}. Without one they can’t reset a forgotten password themselves, and they aren’t emailed when their account signs in somewhere new or its password changes. Each adds one in Settings → Recovery email.`, tab: 'users', people: noRecovery.map((p) => p.name), remind: 'recovery' });
 
   // Mail going out by itself.
   const ours = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(orgId).map((d) => d.name.toLowerCase()));
@@ -111,4 +111,14 @@ export async function weeklyCheckupNotice(at = Date.now(), opts = {}) {
     told.push(org.id);
   }
   return told;
+}
+
+/** Remind everyone in a company without a recovery email to add one (a notification each), at most daily. Returns how many were told. */
+const lastRemind = new Map();
+export function remindRecovery(orgId, at = Date.now()) {
+  if (lastRemind.get(orgId) > at - 864e5) throw Object.assign(new Error('They were reminded less than a day ago'), { status: 429 });
+  const ids = q("SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND (recovery_email IS NULL OR recovery_email = '')").all(orgId).map((u) => u.id);
+  if (ids.length) notify(ids, { kind: 'signin', title: 'Add a recovery email to your account', body: 'A personal address (not this one) lets you reset a forgotten password yourself, and tells you if your account signs in somewhere new. Settings → Recovery email.', link: '/settings' });
+  lastRemind.set(orgId, at);
+  return ids.length;
 }
