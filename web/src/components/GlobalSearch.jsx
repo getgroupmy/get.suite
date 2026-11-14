@@ -6,12 +6,24 @@ import { useNavigate } from 'react-router';
 import { get, post, del } from '../api.js';
 import Icon from './Icon.jsx';
 import { useAuth } from '../App.jsx';
-import { matchActions } from './searchactions.js';
+import { matchActions, detailedActions, wantsEvent } from './searchactions.js';
+import { localToday } from '../apps/tasks/taskmath.js';
+import { addToTasksWithToast } from '../apps/tasks/addtask.js';
+import { newEventMinutes, DEFAULT_CAL_PREFS } from '../apps/calendar/calprefs.js';
+import { useToast } from './ui.jsx';
 
 const FILE_LINK = { doc: (f) => `/docs/${f.id}`, sheet: (f) => `/sheets/${f.id}`, slides: (f) => `/slides/${f.id}`, folder: (f) => `/drive/folder/${f.id}` };
 const FILE_ICON = { doc: 'doc', sheet: 'sheet', slides: 'slides', folder: 'folder' };
 const PER_GROUP = 4;
 const when = (ms) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+
+const timeOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const dayOf = (ms) => new Date(ms).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+/** "Sat 14 Nov, 1:00 PM – 2:00 PM" or "Sat 14 Nov, all day" (and "· repeats"). */
+const eventWhen = (e) => `${dayOf(e.start)}, ${e.all_day ? 'all day' : `${timeOf(e.start)} – ${timeOf(e.end)}`}${e.rrule ? ' · repeats' : ''}`;
+/** "due Fri 20 Nov, 15:00 · repeats · high priority", or "no due date". */
+const taskWhen = (t) => [t.due ? `due ${dayOf(new Date(`${t.due}T12:00`).getTime())}${t.due_time ? `, ${t.due_time}` : ''}` : 'no due date',
+  t.repeat && 'repeats', t.priority && `${t.priority} priority`, t.important && 'important', ...(t.tags || []).map((x) => `#${x}`)].filter(Boolean).join(' · ');
 
 let mailOnce = null;
 const mailEnabled = () => (mailOnce ??= get('/mail/status').then((st) => !!st.enabled).catch(() => false));
@@ -59,7 +71,17 @@ export default function GlobalSearch() {
   const [recent, setRecent] = useState(null); // your recent searches (loaded when the box is first opened)
   const [mailOn, setMailOn] = useState(false);
   useEffect(() => { mailEnabled().then(setMailOn); }, []);
-  const actions = matchActions(text, { mail: mailOn, admin: !!user?.is_admin }).map((a) => ({ ...a, key: `a${a.key}`, action: true }));
+  // "event …" offers that event (colleagues for @name, rooms for "in the Boardroom", loaded the first time it's typed).
+  const [eventCtx, setEventCtx] = useState(null);
+  const eventy = wantsEvent(text);
+  useEffect(() => {
+    if (!eventy || eventCtx) return;
+    Promise.all([get('/users/directory').catch(() => []), get('/rooms').catch(() => [])]).then(([people, rooms]) => setEventCtx({ people: people.filter((p) => p.id !== user?.id), rooms }));
+  }, [eventy, eventCtx, user?.id]);
+  const detailed = detailedActions(text, { today: localToday(), minutes: newEventMinutes(user?.cal_prefs || DEFAULT_CAL_PREFS), ...(eventCtx || {}) })
+    .map((a) => ({ ...a, key: `a${a.key}`, action: true, sub: a.quickEvent ? eventWhen(a.quickEvent) : taskWhen(a.quickTask) }));
+  const actions = [...detailed, ...(detailed.length ? [] : matchActions(text, { mail: mailOn, admin: !!user?.is_admin }))].map((a) => (a.action ? a : { ...a, key: `a${a.key}`, action: true }));
+  const toast = useToast();
   const showRecent = !text.trim() && recent?.length > 0;
   const remember = (q) => { if (q.trim().length >= 2) post('/users/me/recent-searches', { q: q.trim() }).then(setRecent).catch(() => {}); };
   const [groups, setGroups] = useState(null);
@@ -91,6 +113,13 @@ export default function GlobalSearch() {
       try { const f = await post('/files/new', { kind: r.make }); navigate(`/${r.make === 'doc' ? 'docs' : r.make === 'sheet' ? 'sheets' : 'slides'}/${f.id}`); } catch { /* the app shows its own errors */ }
       return;
     }
+    if (r.quickEvent) {
+      const e = r.quickEvent;
+      navigate('/calendar', { state: { newEvent: { title: e.title, start: e.start, end: e.end, all_day: e.all_day, location: '', description: '', ...(e.rrule && { rrule: e.rrule }),
+        ...(e.guests.length && { guests: e.guests.map((email) => ({ email })) }), ...(e.rooms.length && { pick_rooms: e.rooms }) } } });
+      return;
+    }
+    if (r.quickTask) { await addToTasksWithToast(toast, navigate, r.quickTask); return; }
     if (r.event) {
       const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
       navigate('/calendar', { state: { newEvent: { title: '', start: t.getTime(), end: t.getTime() + 36e5, all_day: 0, location: '', description: '' } } });
@@ -148,7 +177,7 @@ export default function GlobalSearch() {
                 const me = i;
                 return (
                   <button key={r.key} type="button" role="option" aria-selected={pick === me} className={`search-hit ${pick === me ? 'on' : ''}`} onMouseEnter={() => setPick(me)} onClick={() => go(r)}>
-                    <Icon name={r.icon} size={18} /><span className="grow ellipsis"><span className="search-hit-title">{r.title}</span></span>
+                    <Icon name={r.icon} size={18} /><span className="grow ellipsis"><span className="search-hit-title">{r.title}</span>{r.sub && <span className="muted small"> {r.sub}</span>}</span>
                   </button>
                 );
               })}

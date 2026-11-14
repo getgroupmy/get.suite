@@ -2789,6 +2789,23 @@ test('chat /event: who a conversation has to invite (members, turned-off ones ma
   assert.ok(all.some((m) => m.username === 'evout@acme.com') && !all.some((m) => m.username === 'evoff@acme.com'));
 });
 
+test('top search "task …": the quick-add task goes on your own list with everything read from it', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'srtask', domain: 'acme.com', name: 'Search Task', password: 'password123' })).status, 201);
+  await login(a, 'srtask@acme.com');
+  const { lists } = (await a('GET', '/api/tasks/lists')).body;
+  const list = lists.find((l) => l.mine) || lists[0];
+  // What the search box sends for "task Send invoice friday 3pm every month !high #billing" (as addToTasks posts it).
+  const r = await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Send invoice', notes: null, due: '2027-01-15', due_time: '15:00', repeat: 'monthly', important: false, priority: 'high', tags: ['billing'] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const got = (await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body;
+  const t = (got.tasks || got).find((x) => x.id === r.body.id);
+  assert.deepEqual([t.title, t.due, t.due_time, t.repeat, !!t.important, t.priority, t.tags], ['Send invoice', '2027-01-15', '15:00', 'monthly', false, 'high', ['billing']]);
+  // Without any of it ("todo Buy milk"): just the title, no link.
+  const plain = (await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Buy milk', notes: null, due: null, due_time: null, repeat: null, important: false, tags: [] })).body;
+  assert.deepEqual([plain.title, plain.due, plain.link_url ?? null], ['Buy milk', null, null]);
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);

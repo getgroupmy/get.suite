@@ -13,10 +13,11 @@ export function mailLink(m) {
   return m.messageId ? `/mail?open=${encodeURIComponent(m.messageId)}` : `/mail/${encodeURIComponent(m.folder)}/${m.uid}`;
 }
 
-export async function addToTasks({ title, notes, link }) {
+export async function addToTasks({ title, notes, link, ...more }) {
   const { lists } = await get('/tasks/lists');
   const list = lists.find((l) => l.mine) || lists[0];
-  const task = await post(`/tasks/lists/${list.id}/tasks`, { title: title || 'Untitled', notes: notes || null, link });
+  // more: what quick add read (due, due_time, repeat, important, priority, tags), when it came from there
+  const task = await post(`/tasks/lists/${list.id}/tasks`, { title: title || 'Untitled', notes: notes || null, ...(link && { link }), ...more });
   return { task, list };
 }
 

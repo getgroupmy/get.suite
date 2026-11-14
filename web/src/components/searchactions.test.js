@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchActions } from './searchactions.js';
+import { matchActions, detailedActions, wantsEvent } from './searchactions.js';
 
 const keys = (l) => l.map((a) => a.key);
 
@@ -15,4 +15,27 @@ test('quick actions: every word typed starts one of theirs; mail and admin only 
   assert.deepEqual(keys(matchActions('n')), [], 'too short');
   assert.deepEqual(keys(matchActions('budget review')), [], 'a plain search finds no action');
   assert.equal(matchActions('new').length, 3, 'at most three');
+});
+
+const today = '2026-11-13'; // a Friday
+test('"event …" with a day or time: that very event, read by Calendar quick add', () => {
+  const [a] = detailedActions('event Lunch with @kim tomorrow 1pm in Lisbon', { today, people: [{ name: 'Kim Park', username: 'kim@acme.com' }], rooms: [{ id: 'l', name: 'Lisbon' }] });
+  assert.equal(a.title, 'New event: Lunch with Kim');
+  assert.equal(a.quickEvent.start, new Date(2026, 10, 14, 13).getTime());
+  assert.deepEqual([a.quickEvent.guests, a.quickEvent.rooms], [['kim@acme.com'], ['l']]);
+  assert.equal(detailedActions('Meeting tomorrow 3pm', { today })[0].title, 'New event: (no title)');
+  assert.deepEqual(detailedActions('event planning', { today }), [], 'no day or time: the plain "New event" does');
+  assert.deepEqual(detailedActions('events in november', { today }), [], '"events" is a search');
+  assert.equal(wantsEvent('new event Retro friday 4pm'), true);
+  assert.equal(wantsEvent('eventual'), false);
+});
+
+test('"task …": that task, read by Tasks quick add', () => {
+  const [a] = detailedActions('task Send invoice friday 3pm every month !high #billing', { today });
+  assert.equal(a.title, 'Add task: Send invoice');
+  assert.deepEqual(a.quickTask, { title: 'Send invoice', due: '2026-11-20', due_time: '15:00', repeat: 'monthly', important: false, priority: 'high', tags: ['billing'] });
+  assert.deepEqual(detailedActions('remind me to call Bo tomorrow', { today })[0].quickTask.due, '2026-11-14');
+  assert.deepEqual(detailedActions('todo Buy milk', { today })[0].quickTask.due, null);
+  assert.deepEqual(detailedActions('tasks', { today }), []);
+  assert.deepEqual(detailedActions('budget review', { today }), []);
 });
