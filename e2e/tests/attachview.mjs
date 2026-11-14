@@ -154,6 +154,22 @@ await step('pick two and download them as one .zip', async () => {
   await page.keyboard.press('Escape');
 });
 
+await step('pick two and save them to Drive at once', async () => {
+  await page.getByRole('button', { name: 'Attachments', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Attachments' });
+  await d.getByRole('checkbox', { name: 'Pick budget.csv' }).check();
+  await d.getByRole('checkbox', { name: 'Pick site photo.png' }).check();
+  await d.getByRole('group', { name: 'Picked attachments' }).getByRole('button', { name: 'Save to Drive' }).click();
+  await page.getByText('Saved 2 files to Drive').waitFor();
+  if (await d.getByRole('group', { name: 'Picked attachments' }).count()) throw new Error('still picked');
+  const folder = ((await api(page, 'GET', '/files')).body || []).find((f) => f.name === 'Email attachments');
+  const inside = ((await api(page, 'GET', `/files?parent=${folder.id}`)).body || []).map((f) => f.name).sort();
+  if (!inside.includes('budget.csv') || !inside.includes('site photo.png')) throw new Error(inside.join('|'));
+  const bad = await api(page, 'POST', '/mail/attachments/save', { folder: 'INBOX', items: [{ uid: 1, part: 'HEADER' }] });
+  if (bad.status !== 404) throw new Error(JSON.stringify(bad));
+  await page.keyboard.press('Escape');
+});
+
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

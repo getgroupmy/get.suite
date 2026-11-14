@@ -59,6 +59,15 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
       setTimeout(() => URL.revokeObjectURL(href), 10000);
     } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
+  const savePicked = async () => {
+    const chosen = items.filter((a) => picked.has(keyOf(a)));
+    setBusy(true);
+    try {
+      const r = await post('/mail/attachments/save', { folder, items: chosen.map((a) => ({ uid: a.uid, part: a.part })) });
+      toast(`Saved ${r.files.length === 1 ? r.files[0].name : `${r.files.length} files`} to Drive`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
+      setPicked(new Set());
+    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
   const day = (ms) => (ms ? new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) : '');
   return (
     <Modal wide title="Attachments" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
@@ -94,6 +103,7 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
         <div className="row" role="group" aria-label="Picked attachments" style={{ gap: 8, marginTop: 8 }}>
           <span className="grow small">{picked.size} picked</span>
           <button type="button" className="btn small" onClick={() => setPicked(new Set())}>Clear</button>
+          <button type="button" className="btn small" disabled={busy || picked.size > 50} onClick={savePicked}>Save to Drive</button>
           <button type="button" className="btn small primary" disabled={busy || picked.size > 50} onClick={zipPicked}>{picked.size > 50 ? 'Up to 50 at a time' : 'Download as .zip'}</button>
         </div>
       )}

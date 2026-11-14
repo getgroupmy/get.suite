@@ -1579,17 +1579,41 @@ export default function webmailRoutes() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(buf);
   });
+  /** Put attachments (fetched by partOf) in your Drive's "Email attachments" folder. → { folder_id, files } */
+  const saveParts = (user, list) => {
+    checkQuota(user.org_id, list.reduce((n, a) => n + a.content.length, 0), user.id);
+    let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Email attachments' AND trashed = 0").get(user.id)?.id;
+    if (!folderId) folderId = insertFile({ owner: user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
+    const files = list.map((a) => {
+      const storage = newId();
+      fs.writeFileSync(path.join(FILES_DIR, storage), a.content);
+      const name = cleanName(String(a.filename || '').replace(/[/\\\0]/g, '_').trim().slice(0, 255).replace(/^\.{1,2}$/, '') || 'attachment');
+      const id = insertFile({ owner: user.id, parentId: folderId, name, kind: 'file', mime: mimeFor(name), size: a.content.length, storage });
+      return q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id);
+    });
+    sendTo([user.id], { type: 'files-changed', parent_id: folderId });
+    return { folder_id: folderId, files };
+  };
   r.post('/messages/:uid/parts/:part/save', async (req, res) => {
     const a = await partOf(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), String(req.params.part));
-    checkQuota(req.user.org_id, a.content.length, req.user.id);
-    let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Email attachments' AND trashed = 0").get(req.user.id)?.id;
-    if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
-    const storage = newId();
-    fs.writeFileSync(path.join(FILES_DIR, storage), a.content);
-    const name = cleanName(String(a.filename || '').replace(/[/\\\0]/g, '_').trim().slice(0, 255).replace(/^\.{1,2}$/, '') || 'attachment');
-    const id = insertFile({ owner: req.user.id, parentId: folderId, name, kind: 'file', mime: mimeFor(name), size: a.content.length, storage });
-    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
-    res.status(201).json({ folder_id: folderId, file: q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id) });
+    const out = saveParts(req.user, [a]);
+    res.status(201).json({ folder_id: out.folder_id, file: out.files[0] });
+  });
+  // Several (picked in Mail → Attachments) at once: { folder, items: [{ uid, part }] }, up to 50 and 100 MB.
+  r.post('/attachments/save', async (req, res) => {
+    const folder = String(req.body?.folder || 'INBOX');
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 51) : [];
+    if (!items.length) throw bad('Pick some attachments');
+    if (items.length > 50) throw bad('Up to 50 attachments at a time');
+    const list = [];
+    let total = 0;
+    for (const it of items) {
+      const a = await partOf(req.user, folder, Number(it?.uid), String(it?.part ?? ''));
+      total += a.content.length;
+      if (total > 100 * 1024 * 1024) throw bad('Those come to more than 100 MB: pick fewer');
+      list.push(a);
+    }
+    res.status(201).json(saveParts(req.user, list));
   });
 
   r.post('/messages/flags', async (req, res) => {
