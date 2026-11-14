@@ -6,7 +6,8 @@ import path from 'node:path';
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-phish-'));
 const { createApp } = await import('../src/app.js');
-const { recordPhishing, phishingFor } = await import('../src/phishing.js');
+const { recordPhishing, phishingFor, blockValue } = await import('../src/phishing.js');
+const { buildMailConfig } = await import('../src/mail/config.js');
 const { securityAlert } = await import('../src/alerts.js');
 const { q } = await import('../src/db.js');
 
@@ -59,4 +60,42 @@ test('phishing reports: grouped by sender for admins, once per person and email,
   assert.equal(n.title, 'Kim Park reported a phishing email from payroll@evil.example');
   assert.match(n.body, /“Update your bank details”\. 2 reports of this sender so far\./);
   assert.equal(q("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND kind = 'security'").get(kimId).n, 0);
+});
+
+test('blocked for everyone: an address or a domain, not your own; reports handled; in everyone’s mail filters; unblocked', async () => {
+  assert.equal(blockValue(' Payroll@EvilPay.com '), 'payroll@evilpay.com');
+  assert.equal(blockValue('@evilpay.com'), 'evilpay.com');
+  assert.throws(() => blockValue('not a thing'), /email address .* or a domain/);
+  assert.throws(() => blockValue('x@acme.com', ['acme.com']), /your own company/);
+  assert.throws(() => blockValue('mail.acme.com', ['acme.com']), /your own company/);
+
+  const ana = client(), kim = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  await kim('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' });
+  assert.equal((await kim('POST', '/api/orgs/current/blocked', { value: 'evil.example' })).status, 403);
+  assert.equal((await ana('POST', '/api/orgs/current/blocked', { value: 'kim@acme.com' })).status, 400);
+  // payroll@evil.example had open reports (from the test before): blocking the domain handles them.
+  const kimU = q("SELECT * FROM users WHERE username = 'kim@acme.com'").get();
+  recordPhishing(kimU, { from: 'hr@mail.evil.example', subject: 'Holiday form', messageId: '<m9@x>' });
+  const r = await ana('POST', '/api/orgs/current/blocked', { value: 'evil.example' });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.blocked.map((b) => [b.value, b.added_by]), [['evil.example', 'Ana Admin']]);
+  const evil = r.body.reports.filter((g) => g.domain.endsWith('evil.example'));
+  assert.ok(evil.length >= 2 && evil.every((g) => g.handled_at), 'the domain’s reports, subdomains too, are handled');
+  assert.ok(r.body.reports.some((g) => g.sender === 'ceo@lookalike.example' && !g.handled_at), 'others are not');
+  await ana('POST', '/api/orgs/current/blocked', { value: 'ceo@lookalike.example' });
+
+  // Everyone in the company gets it first in their filters; another company doesn't.
+  await ana('POST', '/api/orgs', { name: 'Other', domain: 'other.com', admin_name: 'Oz', admin_local: 'oz', admin_password: 'password123' });
+  const files = buildMailConfig();
+  for (const who of ['ana@acme.com', 'kim@acme.com', 'leo@acme.com']) {
+    const sieve = files[`sieve/${who}.sieve`] || '';
+    assert.match(sieve, /# Blocked for everyone[\s\S]*"ceo@lookalike\.example"[\s\S]*:domain "from" \["evil\.example"\][\s\S]*"\*\.evil\.example"[\s\S]*fileinto :create "Junk";\n  stop;/, who);
+  }
+  assert.ok(!files['sieve/oz@other.com.sieve'], 'other companies are not affected');
+
+  // Unblocked: gone from the filters.
+  assert.deepEqual((await ana('DELETE', '/api/orgs/current/blocked/evil.example')).body.blocked.map((b) => b.value), ['ceo@lookalike.example']);
+  assert.equal((await ana('DELETE', '/api/orgs/current/blocked/evil.example')).status, 404);
+  assert.doesNotMatch(buildMailConfig()['sieve/kim@acme.com.sieve'], /evil\.example/);
 });

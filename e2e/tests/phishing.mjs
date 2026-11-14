@@ -95,6 +95,30 @@ await step('Olivia (an admin) is told, and Admin → Phishing lists the sender; 
   await sec.getByRole('status').getByText('All handled').waitFor();
   await sec.getByText(/Handled by Olivia Owner/).waitFor();
 });
+await step('Block domain: their next email goes to everyone’s Junk, marked read; Unblock', async () => {
+  const sec = page.getByRole('region', { name: 'Phishing reports' });
+  await sec.getByRole('button', { name: 'Block domain evilpay.com' }).click();
+  await page.getByRole('dialog', { name: 'Block evilpay.com for everyone?' }).getByRole('button', { name: 'Block for everyone' }).click();
+  await sec.getByRole('list', { name: 'Blocked for everyone' }).getByText('evilpay.com').waitFor();
+  await sec.getByText('Blocked', { exact: true }).waitFor();
+  await axe(page, 'blocked');
+  await page.waitForTimeout(3000); // the mail server's filters are rewritten a moment later
+  const ctx = await browser.newContext();
+  const g = await ctx.newPage();
+  await g.goto(B);
+  await g.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'payroll@evilpay.com', password: 'password123' }) }));
+  for (const to of ['kim@acme.com', 'olivia@acme.com']) await api(g, 'POST', '/mail/send', { to, subject: 'Second try: bank details', text: 'Please hurry.' });
+  await ctx.close();
+  for (const p of [kim, page]) {
+    let junk = [];
+    await until(async () => { junk = ((await api(p, 'GET', '/mail/messages?folder=Junk')).body?.messages || []).filter((m) => m.subject === 'Second try: bank details'); return junk.length > 0; }, 30000);
+    if (!junk[0].seen) throw new Error(`not marked read: ${JSON.stringify(junk[0]).slice(0, 200)}`);
+    const inbox = ((await api(p, 'GET', '/mail/messages?folder=INBOX')).body?.messages || []).filter((m) => m.subject === 'Second try: bank details');
+    if (inbox.length) throw new Error('also in the Inbox');
+  }
+  await sec.getByRole('button', { name: 'Unblock evilpay.com' }).click();
+  await until(async () => !(await sec.getByRole('list', { name: 'Blocked for everyone' }).count()));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

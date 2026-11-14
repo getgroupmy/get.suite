@@ -1,5 +1,6 @@
 // Generates the mail server's tables from the database and writes them to
 // MAIL_CONFIG_DIR, which the mail container watches (see mail/entrypoint.sh).
+import { allBlocked } from '../phishing.js';
 import { activeForwarding, insideCompany } from './forwarding.js';
 import '../hold.js'; // users.legal_hold (no automatic emptying of Trash and Junk)
 import fs from 'node:fs';
@@ -163,6 +164,7 @@ export function buildMailConfig() {
   const labelSets = new Map();
   try { for (const l of q('SELECT id, user_id, keyword FROM mail_labels').all()) labelSets.set(l.user_id, (labelSets.get(l.user_id) || new Map()).set(l.id, l.keyword)); } catch { /* no labels yet */ }
   const outsideOk = new Map(q('SELECT id, allow_forwarding FROM orgs').all().map((o) => [o.id, !!o.allow_forwarding]));
+  const blockedByOrg = allBlocked(); // senders each company blocked for everyone
   for (const u of users) {
     if (u.disabled) continue;
     const v = vacations.get(u.id);
@@ -170,7 +172,7 @@ export function buildMailConfig() {
     const rules = (ruleSets.get(u.id) || []).map((r) => (r.actions?.forwardTo && outsideOk.get(u.org_id) === false && !insideCompany(u.org_id, r.actions.forwardTo)
       ? { ...r, actions: { ...r.actions, forwardTo: null } } : r));
     const addresses = [u.username, ...[...aliasMap].filter(([, t]) => t.includes(u.username)).map(([a]) => a)];
-    const script = userSieve({ username: u.username, rules, forward: forwards.get(u.id) || null, muted: [...new Set(muted.get(u.id) || [])], plusFolders: !!u.plus_folders, labels: labelSets.get(u.id), vacation: v ? { ...v, name: u.name, addresses } : null });
+    const script = userSieve({ username: u.username, rules, forward: forwards.get(u.id) || null, muted: [...new Set(muted.get(u.id) || [])], plusFolders: !!u.plus_folders, labels: labelSets.get(u.id), vacation: v ? { ...v, name: u.name, addresses } : null, blocked: blockedByOrg.get(u.org_id) || [] });
     if (script) files[`sieve/${u.username}.sieve`] = script;
   }
   // Shared mailboxes with an automatic reply: Sieve's vacation reply, once a day per sender.

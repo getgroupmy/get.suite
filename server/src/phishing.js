@@ -55,3 +55,40 @@ export function setHandled(orgId, sender, adminId, handled = true, at = Date.now
     .run(handled ? at : null, handled ? adminId : null, orgId, String(sender || '').toLowerCase()).changes;
   if (!n) throw notFound('No reports for that sender');
 }
+
+// Senders blocked for everyone in a company: an address, or a whole domain (with its subdomains).
+q(`CREATE TABLE IF NOT EXISTS org_blocked_senders (
+  org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  value TEXT NOT NULL,               -- a@b.com, or b.com
+  added_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  added_at INTEGER NOT NULL,
+  PRIMARY KEY (org_id, value)
+)`).run();
+
+/** What can be blocked: an address or a domain (with or without @ in front), lower case; or a reason it can't. */
+export function blockValue(input, ownDomains = []) {
+  const v = String(input || '').trim().toLowerCase().replace(/^@/, '');
+  const address = /^[^\s@"\\]+@([a-z0-9-]+(\.[a-z0-9-]+)+)$/.exec(v);
+  const domain = !v.includes('@') && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(v) ? v : null;
+  if (!address && !domain) throw bad('Give an email address (name@example.com) or a domain (example.com)');
+  const dom = address ? address[1] : domain;
+  if (ownDomains.some((d) => dom === d || dom.endsWith(`.${d}`))) throw bad('That’s your own company’s address: block it in a person’s filters instead');
+  return v;
+}
+export const blockedFor = (orgId) => q(`SELECT b.value, b.added_at, u.name AS added_by FROM org_blocked_senders b LEFT JOIN users u ON u.id = b.added_by
+                                        WHERE b.org_id = ? ORDER BY b.added_at DESC`).all(orgId);
+/** Block it for everyone; the reports for it (an address, or every address at a domain) are then handled. */
+export function addBlock(orgId, value, adminId, at = Date.now()) {
+  q('INSERT OR IGNORE INTO org_blocked_senders (org_id, value, added_by, added_at) VALUES (?, ?, ?, ?)').run(orgId, value, adminId, at);
+  const like = value.includes('@') ? value : `%@${value}`;
+  q("UPDATE phishing_reports SET handled_at = ?, handled_by = ? WHERE org_id = ? AND handled_at IS NULL AND (sender LIKE ? OR sender LIKE ?)").run(at, adminId, orgId, like, value.includes('@') ? value : `%@%.${value}`);
+}
+export function removeBlock(orgId, value) {
+  if (!q('DELETE FROM org_blocked_senders WHERE org_id = ? AND value = ?').run(orgId, String(value || '').toLowerCase()).changes) throw notFound('That isn’t blocked');
+}
+/** Every company's blocked senders (for the mail server's filters): org id → [values]. */
+export function allBlocked() {
+  const m = new Map();
+  for (const b of q('SELECT org_id, value FROM org_blocked_senders ORDER BY value').all()) m.set(b.org_id, [...(m.get(b.org_id) || []), b.value]);
+  return m;
+}

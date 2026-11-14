@@ -1,4 +1,4 @@
-import { phishingFor, setHandled } from '../phishing.js';
+import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
 import { SIGNATURE_MODES } from '../mail/companysig.js';
 import { MAIL_EMPTY_CHOICES } from '../mail/config.js';
 import { IDLE_CHOICES, MAX_HOURS_CHOICES } from '../auth.js';
@@ -200,6 +200,21 @@ export default function orgRoutes() {
   r.post('/current/phishing/handled', requireAdmin, (req, res) => {
     setHandled(req.user.org_id, req.body?.sender, req.user.id, req.body?.handled !== false);
     res.json(phishingFor(req.user.org_id));
+  });
+  // Senders blocked for everyone in the company: their mail goes to Junk (marked read) for all.
+  r.get('/current/blocked', requireAdmin, (req, res) => res.json(blockedFor(req.user.org_id)));
+  r.post('/current/blocked', requireAdmin, (req, res) => {
+    const value = blockValue(req.body?.value, domainsOf(req.user.org_id));
+    addBlock(req.user.org_id, value, req.user.id);
+    scheduleMailConfig();
+    audit(req, 'mail.blocked', { target: value });
+    res.status(201).json({ blocked: blockedFor(req.user.org_id), reports: phishingFor(req.user.org_id) });
+  });
+  r.delete('/current/blocked/:value', requireAdmin, (req, res) => {
+    removeBlock(req.user.org_id, req.params.value);
+    scheduleMailConfig();
+    audit(req, 'mail.unblocked', { target: String(req.params.value).toLowerCase() });
+    res.json({ blocked: blockedFor(req.user.org_id) });
   });
   r.get('/current/storage', requireAdmin, (req, res) => {
     const orgId = req.query.org_id && req.user.is_super ? String(req.query.org_id) : req.user.org_id;
