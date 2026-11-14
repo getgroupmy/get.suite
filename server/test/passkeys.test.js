@@ -228,3 +228,35 @@ test('security emails to the recovery address: a new device, a passkey added (an
   assert.equal(sent.length, 2);
   setSecurityMailer(null);
 });
+
+test('security emails: password changed, two-step off, recovery address changed (to the old one)', async () => {
+  const { setSecurityMailer } = await import('../src/alerts.js');
+  const sent = [];
+  setSecurityMailer(async (user, to, m) => { sent.push({ to, subject: m.subject, text: m.text }); });
+  const ana = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  const me = (await ana('GET', '/api/auth/me')).body.user;
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+  await settle(); sent.length = 0; // (this test's own sign-in may count as a new device)
+  // (The recovery address from the test before: ana.home@example.org.)
+  assert.equal((await ana('PATCH', '/api/auth/me', { currentPassword: 'password123', newPassword: 'Another-pass-456' })).status, 200);
+  await settle();
+  assert.deepEqual(sent.map((m) => [m.to, m.subject]), [['ana.home@example.org', 'Your Workspace password was changed']]);
+  q('INSERT OR REPLACE INTO two_factor (user_id, secret, enabled) VALUES (?, ?, 1)').run(me.id, 'JBSWY3DPEHPK3PXP');
+  const { codeAt } = await import('../src/totp.js');
+  assert.equal((await ana('POST', '/api/auth/2fa/disable', { password: 'Another-pass-456', code: codeAt('JBSWY3DPEHPK3PXP', Math.floor(Date.now() / 30000)) })).status, 200);
+  await settle();
+  assert.equal(sent[1].subject, 'Two-step verification was turned off on your Workspace account');
+  // A new recovery address: the old one hears of it; the new one doesn't need to.
+  assert.equal((await ana('PUT', '/api/auth/recovery-email', { email: 'evil@example.net', password: 'Another-pass-456' })).status, 200);
+  await settle();
+  assert.equal(sent[2].to, 'ana.home@example.org');
+  assert.match(sent[2].text, /changed from this address to evil@example\.net/);
+  assert.match(sent[2].text, /your previous recovery address/);
+  // Setting the same address again sends nothing.
+  await ana('PUT', '/api/auth/recovery-email', { email: 'evil@example.net', password: 'Another-pass-456' });
+  await settle();
+  assert.equal(sent.length, 3);
+  setSecurityMailer(null);
+  q("UPDATE users SET password_hash = ? WHERE id = ?").run((await import('../src/auth.js')).hashPassword('password123'), me.id);
+});

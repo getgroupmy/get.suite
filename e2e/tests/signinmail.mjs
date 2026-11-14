@@ -76,6 +76,18 @@ await step('a sign-in from a device the account hasn’t used: an email to the r
   await kim.locator('.mail-reader').getByText(/hasn't used before/).waitFor();
   await kim.locator('.mail-reader').getByText(/change your password/).waitFor();
 });
+await step('password changed, then the recovery address moved: both told to the (old) recovery address', async () => {
+  let r = await api(page, 'PATCH', '/auth/me', { currentPassword: 'password123', newPassword: 'Another-pass-456' });
+  if (r.status !== 200) throw new Error(JSON.stringify(r.body));
+  r = await api(page, 'PUT', '/auth/recovery-email', { email: 'someone@example.net', password: 'Another-pass-456' });
+  if (r.status !== 200) throw new Error(JSON.stringify(r.body));
+  for (const subject of ['Your Workspace password was changed', 'Your Workspace recovery address was changed']) {
+    const row = kim.locator('.mail-list').getByText(subject, { exact: true });
+    await until(async () => { if (await row.count()) return true; await kim.getByRole('button', { name: 'Refresh' }).click().catch(() => {}); return false; }, 30000);
+  }
+  await kim.locator('.mail-list').getByText('Your Workspace recovery address was changed', { exact: true }).click();
+  await kim.locator('.mail-reader').getByText(/changed from this address to someone@example\.net/).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

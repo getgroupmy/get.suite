@@ -16,7 +16,7 @@ import { verifyRegistration, verifyAssertion, b64url, ALLOWED_ALGS } from '../we
 import { newChallenge, takeChallenge, passkeysOf, passkeyById, MAX_PASSKEYS } from '../passkeys.js';
 import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
-import { newDeviceSignIn, passkeyChanged } from '../alerts.js';
+import { newDeviceSignIn, passkeyChanged, accountChanged } from '../alerts.js';
 import { smtpFor } from '../mail/imap.js';
 
 // "Forgot password?": a link (valid for an hour, once) sent to the personal recovery address someone
@@ -151,7 +151,9 @@ export default function authRoutes({ secureCookies }) {
     const email = req.body?.email ? String(req.body.email).trim().toLowerCase() : null;
     if (email && (!EMAIL_RE.test(email) || email.length > 200)) throw bad('Enter an email address');
     if (email && email === req.user.username) throw bad('Use a personal address, not this account’s own: you couldn’t read it without signing in');
+    const previous = q('SELECT recovery_email FROM users WHERE id = ?').get(req.user.id)?.recovery_email || null;
     q('UPDATE users SET recovery_email = ? WHERE id = ?').run(email, req.user.id);
+    accountChanged(req.user.id, 'recovery', { previousRecovery: previous, newRecovery: email });
     audit(req, email ? 'recovery.set' : 'recovery.remove', { target: req.user.username });
     res.json({ recovery_email: email });
   });
@@ -209,6 +211,7 @@ export default function authRoutes({ secureCookies }) {
       // Sign out every other session for this user.
       q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
       audit(req, 'password.change', { target: req.user.username });
+      accountChanged(req.user.id, 'password');
     }
     res.json({ user: userFromToken(tokenFromReq(req)) });
   });
@@ -246,6 +249,7 @@ export default function authRoutes({ secureCookies }) {
     }
     twoFactor.disable(req.user.id);
     audit(req, '2fa.off', { target: req.user.username });
+    accountChanged(req.user.id, '2fa-off');
     res.json(twoFactor.status(req.user.id));
   });
 

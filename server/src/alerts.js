@@ -12,9 +12,11 @@ import { notify } from './notifications.js';
  */
 let securityMailer = null;
 export const setSecurityMailer = (fn) => { securityMailer = fn; };
-async function emailRecovery(userId, subject, lines) {
+async function emailRecovery(userId, subject, lines, to = null) {
   const u = q('SELECT id, username, name, org_id, recovery_email FROM users WHERE id = ?').get(userId);
-  if (!u?.recovery_email) return false;
+  if (!u) return false;
+  const address = to || u.recovery_email;
+  if (!address) return false;
   let send = securityMailer;
   if (!send) {
     const [{ mailEnabled }, { smtpFor }] = await Promise.all([import('./mail/config.js'), import('./mail/imap.js')]);
@@ -22,8 +24,8 @@ async function emailRecovery(userId, subject, lines) {
     send = (user, to, m) => smtpFor(user).sendMail({ from: { name: 'Workspace', address: user.username }, to, subject: m.subject, text: m.text });
   }
   const base = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
-  const text = [`Hello ${u.name || ''},`.replace(' ,', ','), '', ...lines, '', 'If it was you, there is nothing to do.', `If it wasn't, change your password${base ? ` (${base}/settings)` : ' in Workspace → Settings'} and sign out the devices you don't know (Settings → Signed-in devices).`, '', `This was sent to your recovery address for ${u.username}.`].join('\n');
-  try { await send(u, u.recovery_email, { subject, text }); return true; } catch (e) { console.error('[alerts] recovery email:', e.message); return false; }
+  const text = [`Hello ${u.name || ''},`.replace(' ,', ','), '', ...lines, '', 'If it was you, there is nothing to do.', `If it wasn't, change your password${base ? ` (${base}/settings)` : ' in Workspace → Settings'} and sign out the devices you don't know (Settings → Signed-in devices).`, '', `This was sent to ${to ? 'your previous' : 'your'} recovery address for ${u.username}.`].join('\n');
+  try { await send(u, address, { subject, text }); return true; } catch (e) { console.error('[alerts] recovery email:', e.message); return false; }
 }
 
 const FAILS = 5, FAIL_WINDOW = 15 * 60e3, QUIET = 60 * 60e3; // 5 failures in 15 minutes; then at most hourly per account
@@ -85,4 +87,15 @@ export function passkeyChanged(userId, { added, name, device }) {
   notify([userId], added
     ? { kind: 'signin', title: `A passkey was added to your account: “${name}”`, body: `On ${device || 'a device'}. If it wasn't you, remove it in Settings → Passkeys and change your password.`, link: '/settings' }
     : { kind: 'signin', title: `A passkey was removed from your account: “${name}”`, body: 'It no longer signs you in.', link: '/settings' });
+}
+
+/** Changes someone (or someone in their account) made to how it's protected: emailed to the recovery address. */
+export function accountChanged(userId, kind, { previousRecovery = null, newRecovery = null } = {}) {
+  if (kind === 'password') return emailRecovery(userId, 'Your Workspace password was changed', ['The password of your Workspace account was just changed, and every other device was signed out.']);
+  if (kind === '2fa-off') return emailRecovery(userId, 'Two-step verification was turned off on your Workspace account', ['Two-step verification was just turned off on your Workspace account: a password alone now signs in.']);
+  // The recovery address itself: the old one is told (someone taking over an account changes it first).
+  if (kind === 'recovery' && previousRecovery && previousRecovery !== newRecovery) {
+    return emailRecovery(userId, 'Your Workspace recovery address was changed', [newRecovery ? `The recovery address of your Workspace account was changed from this address to ${newRecovery}.` : 'This address was removed as the recovery address of your Workspace account.'], previousRecovery);
+  }
+  return Promise.resolve(false);
 }
