@@ -6,6 +6,7 @@ import { shownQuestions } from '../formpath.js';
 import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
+import { filterFrom, matchesFilter } from '../formfilter.js';
 import { cleanTheme, themeOf } from '../formtheme.js';
 import { templateList, templateById } from '../formtemplates.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
@@ -857,9 +858,11 @@ export default function formRoutes() {
     res.json(editorsOf(f.id));
   });
 
+  // ?fq=<question id>&fv=<value>: only the responses passing that filter (see formfilter.js), as downloads are.
+  const filtered = (f, query) => { const flt = filterFrom(query); return responsesOf(f.id).filter((x) => matchesFilter(f.questions, x.answers, flt)); };
   r.get('/:id/responses', (req, res) => {
     const f = ownForm(req.params.id, req.user);
-    const list = responsesOf(f.id);
+    const list = filtered(f, req.query);
     res.json({ questions: f.questions, audience: f.audience, quiz: f.quiz, responses: f.quiz ? list.map((x) => ({ ...x, ...scoreOf(f.questions, x.answers) })) : list });
   });
 
@@ -879,12 +882,12 @@ export default function formRoutes() {
 
   r.get('/:id/responses.xlsx', async (req, res) => {
     const f = ownForm(req.params.id, req.user);
-    sendXlsx(res, `${f.title.replace(/[^\w .-]+/g, '').trim() || 'form'} responses.xlsx`, await excelFromTable('Responses', responseTable(f, responsesOf(f.id))));
+    sendXlsx(res, `${f.title.replace(/[^\w .-]+/g, '').trim() || 'form'} responses.xlsx`, await excelFromTable('Responses', responseTable(f, filtered(f, req.query))));
   });
 
   r.get('/:id/responses.csv', (req, res) => {
     const f = ownForm(req.params.id, req.user);
-    const csv = responseTable(f, responsesOf(f.id)).map((row) => row.map(csvCell).join(',')).join('\r\n');
+    const csv = responseTable(f, filtered(f, req.query)).map((row) => row.map(csvCell).join(',')).join('\r\n');
     const name = `${f.title.replace(/[^\w .-]+/g, '').trim() || 'form'} responses.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(name)}`);

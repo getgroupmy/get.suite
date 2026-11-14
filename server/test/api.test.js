@@ -14559,3 +14559,21 @@ test('forms: sharing the summary with people who answered — counts only, never
   assert.equal((await anon('GET', `${url}/results?key=${sent.body.results_key}`)).status, 404);
   assert.equal((await anon('POST', url, { answers: { where: 'Porto' } })).body.results_key, undefined);
 });
+
+test('forms: responses and their downloads filtered by an answer', async () => {
+  const f = (await owner('POST', '/api/forms', { title: 'Filter me' })).body;
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { audience: 'org', questions: [
+    { id: 'where', type: 'choice', title: 'Where', options: ['Lisbon', 'Porto'] }, { id: 'note', type: 'short', title: 'Note' },
+  ] })).body;
+  for (const [where, note] of [['Lisbon', 'sun'], ['Porto', 'wine'], ['Lisbon', 'tram']]) {
+    assert.equal((await owner('POST', `/api/public/forms/${saved.token}`, { answers: { where, note } })).status, 201);
+  }
+  const notes = async (qs) => (await owner('GET', `/api/forms/${f.id}/responses${qs}`)).body.responses.map((r) => r.answers.note);
+  assert.deepEqual(await notes(''), ['sun', 'wine', 'tram']);
+  assert.deepEqual(await notes('?fq=where&fv=Lisbon'), ['sun', 'tram']);
+  assert.deepEqual(await notes('?fq=note&fv=WI'), ['wine']);
+  const text = (await owner('GET', `/api/forms/${f.id}/responses.csv?fq=where&fv=Porto`)).body;
+  assert.ok(/wine/.test(text) && !/sun|tram/.test(text), text);
+  const xlsx = (await owner('GET', `/api/forms/${f.id}/responses.xlsx?fq=where&fv=Porto`, undefined, { binary: true }));
+  assert.equal(xlsx.status, 200);
+});

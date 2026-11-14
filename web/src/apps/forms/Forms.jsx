@@ -2,6 +2,7 @@
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
 import { REQUEST_KINDS } from '../drive/requestkinds.js';
 import { printHtml } from '../mail/mailprint.js';
+import { matchesFilter, filterOptions, ANSWERED, BLANK } from './formfilter.js';
 import { responsesPrintHtml, blankFormHtml, summaryPrintHtml, isSignature } from './formprint.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -447,7 +448,31 @@ function PrefillModal({ form, onClose }) {
   );
 }
 
-function ResponsesTab({ form, responses, reload, setting, flush }) {
+/** Only the responses with one answer: a question, then an option (or a number, or words they wrote). */
+function ResponseFilter({ form, filter, onChange }) {
+  const qs = form.questions.filter((x) => x.type !== 'section');
+  const fq = filter && qs.find((x) => x.id === filter.q);
+  const opts = fq && filterOptions(fq);
+  const words = opts?.words && ![ANSWERED, BLANK].includes(filter.v);
+  return (
+    <div className="row wrap form-filter" role="group" aria-label="Filter responses">
+      <label className="row" style={{ gap: 6 }}><span className="small">Show responses where</span>
+        <select aria-label="Filter by question" value={fq ? fq.id : ''} onChange={(e) => { const q = qs.find((x) => x.id === e.target.value); onChange(q ? { q: q.id, v: filterOptions(q).values[0][0] } : null); }}>
+          <option value="">(all responses)</option>
+          {qs.map((x, i) => <option key={x.id} value={x.id}>{x.title || `Question ${i + 1}`}</option>)}
+        </select></label>
+      {fq && (
+        <select aria-label="Answer to filter by" value={words ? '' : filter.v} onChange={(e) => onChange({ q: fq.id, v: e.target.value })}>
+          {opts.values.map(([v, label]) => <option key={v || 'words'} value={v}>{label}</option>)}
+        </select>
+      )}
+      {words && <input aria-label="Words in the answer" placeholder="Words in the answer" value={filter.v} maxLength={200} onChange={(e) => onChange({ q: fq.id, v: e.target.value })} />}
+      {fq && <button type="button" className="link-btn small" onClick={() => onChange(null)}>Clear filter</button>}
+    </div>
+  );
+}
+
+function ResponsesTab({ form, responses: all, reload, setting, flush }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [view, setView] = useState('summary');
@@ -455,6 +480,12 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
   const [clear, setClear] = useState(false);
   const [linked, setLinked] = useState(form.linked_sheet || null);
   useEffect(() => { setLinked(form.linked_sheet || null); }, [form.linked_sheet]);
+  // Filter by one question's answer: the summary, each response, printing and downloads all follow it.
+  const [filter, setFilter] = useState(null); // { q, v }
+  const fq = filter && form.questions.find((x) => x.id === filter.q);
+  const responses = all && (fq ? all.filter((r) => matchesFilter(form.questions, r.answers, filter)) : all);
+  const query = fq ? `?fq=${encodeURIComponent(filter.q)}&fv=${encodeURIComponent(filter.v)}` : '';
+  const pickFilter = (next) => { setFilter(next); setAt(0); };
   if (!responses) return <p className="muted">Loading…</p>; // (after the hooks: they run in the same order every time)
   const linkSheet = async () => {
     await flush();
@@ -471,10 +502,10 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
   return (
     <div className="stack">
       <div className="row wrap">
-        <strong className="grow">{responses.length === 1 ? '1 response' : `${responses.length} responses`}</strong>
+        <strong className="grow nowrap" role="status">{fq ? `${responses.length} of ${all.length} responses` : responses.length === 1 ? '1 response' : `${responses.length} responses`}</strong>
         <label className="check"><input type="checkbox" checked={form.accepting} onChange={(e) => setting({ accepting: e.target.checked })} /> Accepting responses</label>
-        <a className="btn" href={`/api/forms/${form.id}/responses.csv`} download>Download CSV</a>
-        <a className="btn" href={`/api/forms/${form.id}/responses.xlsx`} download>Download Excel</a>
+        <a className="btn" href={`/api/forms/${form.id}/responses.csv${query}`} download>Download CSV</a>
+        <a className="btn" href={`/api/forms/${form.id}/responses.xlsx${query}`} download>Download Excel</a>
         {responses.length > 0 && <button type="button" className="btn" title="Every response on its own page, with each question and answer" onClick={() => printHtml(responsesPrintHtml(form, responses, { when: formatDate }))}><Icon name="print" size={18} /> Print</button>}
         {responses.length > 0 && <button type="button" className="btn" title="The Summary as a report: each question's counts, bars and averages" onClick={() => printHtml(summaryPrintHtml(form, summarize(form.questions, responses), { count: responses.length }))}><Icon name="print" size={18} /> Print summary</button>}
         {linked
@@ -482,10 +513,11 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
             <button type="button" className="link-btn small" onClick={unlink}>Unlink</button></span>
           : <button type="button" className="btn" title="A spreadsheet in your Drive that each new response is added to as it arrives" onClick={linkSheet}><Icon name="sheet" size={18} /> Link to Sheets</button>}
         <button type="button" className="btn" title="A copy of the responses so far, in a new spreadsheet" onClick={toSheet}>Open in Sheets</button>
-        {responses.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
+        {all.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
       </div>
       {closedNote(form) && <p className="muted small" style={{ margin: 0 }} role="status">{closedNote(form)}</p>}
-      {!responses.length ? <Empty icon="form" title="No responses yet">Share the link (<strong>Copy link</strong> at the top) and answers show up here as they come in.</Empty> : <>
+      {all.length > 1 && <ResponseFilter form={form} filter={filter} onChange={pickFilter} />}
+      {!responses.length && all.length ? <Empty icon="form" title="No responses match">Try another answer, or <button type="button" className="link-btn" onClick={() => pickFilter(null)}>show all responses</button>.</Empty> : !responses.length ? <Empty icon="form" title="No responses yet">Share the link (<strong>Copy link</strong> at the top) and answers show up here as they come in.</Empty> : <>
         <div className="tabs" role="tablist" aria-label="Show" style={{ alignSelf: 'flex-start' }}>
           <button type="button" role="tab" aria-selected={view === 'summary'} className={view === 'summary' ? 'on' : ''} onClick={() => setView('summary')}>Summary</button>
           <button type="button" role="tab" aria-selected={view === 'one'} className={view === 'one' ? 'on' : ''} onClick={() => setView('one')}>Individual</button>
