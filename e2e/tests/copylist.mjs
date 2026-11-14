@@ -55,8 +55,8 @@ await step('a checklist copied for the next person, its dates moved to a new sta
   await dlg.screenshot({ path: `${SP}/shots/copy-list.png` });
   await dlg.getByRole('button', { name: 'Make a copy' }).click();
   await page.getByText('3 tasks copied to “Onboarding: Kim”').waitFor();
-  await page.waitForURL(/\/tasks\/[^/]+$/);
-  if (page.url().endsWith(list)) throw new Error('still on the original');
+  // The original's address matches /tasks/… too: wait for the copy's (a different list).
+  await page.waitForURL((u) => /\/tasks\/[^/]+$/.test(u.pathname) && !u.pathname.endsWith(list));
   const id = page.url().split('/tasks/')[1];
   const tasks = (await api(page, 'GET', `/tasks/lists/${id}/tasks`)).body;
   const dues = Object.fromEntries(tasks.map((t) => [t.title, t.due]));

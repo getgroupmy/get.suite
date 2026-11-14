@@ -367,6 +367,7 @@ function ImportUsers({ orgId, domains, onClose, onDone }) {
   const [csv, setCsv] = useState('');
   const [fileName, setFileName] = useState('');
   const [domain, setDomain] = useState(domains[0] || '');
+  useEffect(() => { if (domains.length && !domains.includes(domain)) setDomain(domains[0]); }, [domains, domain]); // (the list may arrive after this opens)
   const [rows, setRows] = useState(null); // the check
   const [done, setDone] = useState(null); // the results
   const [error, setError] = useState('');
@@ -437,6 +438,8 @@ function ImportTable({ rows, result = false }) {
 
 function NewUser({ orgId, domains, onClose, onSaved }) {
   const [f, setF] = useState({ name: '', local: '', domain: domains[0] || '', password: '', is_admin: false, must_change_password: true });
+  // The domains may arrive after the dialog opens (a slow connection): take the first then, as the list shows it.
+  useEffect(() => { if (domains.length && !domains.includes(f.domain)) setF((x) => ({ ...x, domain: domains[0] })); }, [domains, f.domain]);
   const [error, setError] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   return (
