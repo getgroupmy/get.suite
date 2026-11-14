@@ -81,6 +81,25 @@ await step('steps added in the details show as one line', async () => {
   await until(async () => (await history().locator('li').first().innerText()).startsWith('You added the steps “Call the venue”, “Pay the deposit”'));
   await axe(page, 'history with steps');
 });
+await step('the list’s Activity: what happened to every task, newest first; a task opens from it', async () => {
+  const gone = (await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Order cake' })).body.id;
+  await api(kim, 'DELETE', `/tasks/tasks/${gone}`);
+  await page.goto(`${B}/tasks/${list}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Activity…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Activity · Launch' });
+  const items = dlg.getByRole('list', { name: 'Activity' }).locator(':scope > li');
+  await until(async () => (await items.count()) >= 6);
+  const first = (await items.first().innerText()).replace(/\s+/g, ' ');
+  if (!/Kim Park deleted it · .*Order cake \(deleted\)/.test(first)) throw new Error(first);
+  const all = (await items.allInnerTexts()).join(' | ');
+  for (const want of ['You added it', 'Kim Park ticked it off', 'You set the priority to High', 'Kim Park took it on']) if (!all.includes(want)) throw new Error(`${want} missing: ${all.slice(0, 400)}`);
+  await page.screenshot({ path: `${SP}/shots/list-activity.png` });
+  await axe(page, 'activity');
+  await dlg.getByRole('button', { name: 'Book venue' }).first().click();
+  await details().waitFor();
+  if (!page.url().includes(`task=${tid}`)) throw new Error(page.url());
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

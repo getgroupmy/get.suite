@@ -1675,6 +1675,8 @@ button.usage:hover .muted { color: var(--text); }
 .storage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
 .storage-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .task-history { margin: 4px 0 10px; }
+.list-activity { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; overflow-wrap: anywhere; }
+.list-activity-day { font-size: .85rem; margin: 8px 0 2px; color: var(--muted); }
 .task-history summary { cursor: pointer; font-weight: 600; font-size: .9rem; padding: 4px 0; }
 .task-history-list { list-style: none; margin: 4px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--border); display: flex; flex-direction: column; gap: 6px; font-size: .88rem; overflow-wrap: anywhere; }
 .task-comment-list { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }

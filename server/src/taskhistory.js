@@ -69,28 +69,59 @@ export function recordChanges(before, after, userId, at = now()) {
 }
 
 const PRIORITY = { 1: 'low', 2: 'medium', 3: 'high' };
+const userName = (id) => (id ? q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'Someone who has left' : null);
+const listName = (id) => (id ? q('SELECT name FROM task_lists WHERE id = ?').get(id)?.name || 'a list that was deleted' : null);
+const sectionName = (id) => (id ? q('SELECT name FROM task_sections WHERE id = ?').get(id)?.name || 'a section that was deleted' : null);
+const taskTitle = (id) => q('SELECT title FROM tasks WHERE id = ?').get(id)?.title || q('SELECT title FROM task_trash WHERE id = ?').get(id)?.title || 'a task that was deleted';
+const SHOW = {
+  assignee: (v) => (v ? { id: v, name: userName(v) } : null),
+  list: listName, section: sectionName,
+  priority: (v) => (v ? PRIORITY[v] || null : null),
+  tags: (v) => (v ? JSON.parse(v) : []),
+  estimate: (v) => (v ? Number(v) : null),
+  important: (v) => !!v,
+  steps: (v) => (v ? JSON.parse(v) : []),
+  files: (v) => (v ? JSON.parse(v) : []),
+  waiting: (v) => (v ? JSON.parse(v).map((id) => ({ id, title: taskTitle(id) })) : []),
+};
+const shapeEntry = (h) => {
+  const f = SHOW[h.field] || ((v) => v);
+  return { at: h.at, field: h.field, user: { id: h.user_id, name: h.user_name || 'Someone who has left' }, before: f(h.before), after: f(h.after) };
+};
+
 /** A task's history, newest first, with the names of the people and lists involved. */
 export function historyOf(taskId) {
-  const userName = (id) => (id ? q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'Someone who has left' : null);
-  const listName = (id) => (id ? q('SELECT name FROM task_lists WHERE id = ?').get(id)?.name || 'a list that was deleted' : null);
-  const sectionName = (id) => (id ? q('SELECT name FROM task_sections WHERE id = ?').get(id)?.name || 'a section that was deleted' : null);
-  const show = {
-    assignee: (v) => (v ? { id: v, name: userName(v) } : null),
-    list: listName, section: sectionName,
-    priority: (v) => (v ? PRIORITY[v] || null : null),
-    tags: (v) => (v ? JSON.parse(v) : []),
-    estimate: (v) => (v ? Number(v) : null),
-    important: (v) => !!v,
-    steps: (v) => (v ? JSON.parse(v) : []),
-    files: (v) => (v ? JSON.parse(v) : []),
-    waiting: (v) => (v ? JSON.parse(v).map((id) => ({ id, title: taskTitle(id) })) : []),
-  };
-  const taskTitle = (id) => q('SELECT title FROM tasks WHERE id = ?').get(id)?.title || q('SELECT title FROM task_trash WHERE id = ?').get(id)?.title || 'a task that was deleted';
   return q(`SELECT h.*, u.name AS user_name FROM task_history h LEFT JOIN users u ON u.id = h.user_id
-            WHERE h.task_id = ? ORDER BY h.at DESC, h.id DESC`).all(taskId).map((h) => {
-    const f = show[h.field] || ((v) => v);
-    return { at: h.at, field: h.field, user: { id: h.user_id, name: h.user_name || 'Someone who has left' }, before: f(h.before), after: f(h.after) };
+            WHERE h.task_id = ? ORDER BY h.at DESC, h.id DESC`).all(taskId).map(shapeEntry);
+}
+
+/**
+ * What happened on a list, newest first: the history of its tasks (and of those in its trash), tasks
+ * added and tasks deleted, each with the task's id and title (and `gone` for one that's deleted).
+ * `before` (a time) pages back; entries at the same moment are never split between pages.
+ */
+export function listActivity(listId, { before = Infinity, limit = 50 } = {}) {
+  const sql = `SELECT * FROM (
+      SELECT h.at, h.id AS n, h.field, h.before, h.after, h.user_id, h.task_id FROM task_history h WHERE h.task_id IN (SELECT id FROM tasks WHERE list_id = :l)
+      UNION ALL SELECT h.at, h.id, h.field, h.before, h.after, h.user_id, h.task_id FROM task_history h WHERE h.task_id IN (SELECT id FROM task_trash WHERE list_id = :l)
+      UNION ALL SELECT created_at, 0, 'added', NULL, NULL, created_by, id FROM tasks WHERE list_id = :l
+      UNION ALL SELECT json_extract(row, '$.created_at'), 0, 'added', NULL, NULL, json_extract(row, '$.created_by'), id FROM task_trash WHERE list_id = :l
+      UNION ALL SELECT deleted_at, 0, 'deleted', NULL, NULL, deleted_by, id FROM task_trash WHERE list_id = :l
+    ) WHERE at %s ORDER BY at DESC, n DESC`;
+  const cap = Number.isFinite(before) ? before : Number.MAX_SAFE_INTEGER;
+  let rows = q(`${sql.replace('%s', '< :b')} LIMIT :n`).all({ l: listId, b: cap, n: limit });
+  let more = false;
+  if (rows.length === limit) { // finish the moment the page ends on
+    const last = rows.at(-1).at;
+    rows = [...rows.filter((r) => r.at > last), ...q(sql.replace('%s', '= :b')).all({ l: listId, b: last })];
+    more = q(`${sql.replace('%s', '< :b')} LIMIT 1`).all({ l: listId, b: last }).length > 0;
+  }
+  const entries = rows.map((r) => {
+    const live = q('SELECT title FROM tasks WHERE id = ? AND list_id = ?').get(r.task_id, listId);
+    const task = { id: r.task_id, title: live?.title ?? q('SELECT title FROM task_trash WHERE id = ?').get(r.task_id)?.title ?? 'a task', gone: !live };
+    return { ...shapeEntry({ ...r, user_name: userName(r.user_id) }), task };
   });
+  return { entries, more, before: entries.length ? entries.at(-1).at : null };
 }
 
 /** Forget the history of tasks that are gone for good (not on a list, nor in a list's trash). */

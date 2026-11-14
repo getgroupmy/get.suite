@@ -6,7 +6,7 @@ import path from 'node:path';
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-taskhist-'));
 const { createApp } = await import('../src/app.js');
-const { recordChanges, historyOf, MERGE_MS } = await import('../src/taskhistory.js');
+const { recordChanges, historyOf, listActivity, MERGE_MS } = await import('../src/taskhistory.js');
 const { q } = await import('../src/db.js');
 
 let server, base;
@@ -112,6 +112,37 @@ test('task history: steps, files, what it waits on, and skipping a repeat', asyn
   assert.equal((await me('POST', `/api/tasks/tasks/${t.id}/skip`, { today: '2026-11-14' })).status, 200);
   const d = (await entries())[0];
   assert.deepEqual([d.field, d.before, d.after], ['due', '2026-12-01', '2026-12-08']);
+});
+
+test('list activity: changes, tasks added and deleted, newest first, a page at a time; for people on the list', async () => {
+  const ana = client(), zed = client();
+  assert.equal((await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await zed('POST', '/api/auth/login', { username: 'zed@acme.com', password: 'password123' })).status, 200);
+  const list = (await ana('POST', '/api/tasks/lists', { name: 'Activity' })).body.id;
+  const a = (await ana('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Alpha' })).body;
+  const b = (await ana('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Beta' })).body;
+  await ana('PATCH', `/api/tasks/tasks/${a.id}`, { done: true });
+  await ana('DELETE', `/api/tasks/tasks/${b.id}`);
+  const act = (await ana('GET', `/api/tasks/lists/${list}/activity`)).body;
+  assert.deepEqual(act.entries.map((e) => [e.field, e.task.title, e.task.gone, e.user.name]),
+    [['deleted', 'Beta', true, 'Ana Silva'], ['status', 'Alpha', false, 'Ana Silva'], ['added', 'Beta', true, 'Ana Silva'], ['added', 'Alpha', false, 'Ana Silva']]);
+  assert.equal(act.more, false);
+  assert.equal((await zed('GET', `/api/tasks/lists/${list}/activity`)).status, 404, 'not on the list');
+  assert.equal((await ana('GET', `/api/tasks/lists/${list}/activity?before=soon`)).status, 400);
+
+  // Pages: never split a moment between them, and every entry is seen once.
+  const t0 = Date.now() + 1e6;
+  for (let i = 0; i < 60; i++) q('INSERT INTO task_history (task_id, user_id, at, field, before, after) VALUES (?, NULL, ?, ?, NULL, ?)').run(a.id, t0 + Math.floor(i / 3), 'title', `T${i}`);
+  const seen = [];
+  let page = listActivity(list, { limit: 50 });
+  seen.push(...page.entries);
+  assert.equal(page.more, true);
+  assert.ok(page.entries.length >= 50);
+  page = listActivity(list, { before: page.before, limit: 50 });
+  seen.push(...page.entries);
+  assert.equal(page.more, false);
+  assert.equal(seen.length, 64, 'all 60 and the 4 from before, none twice');
+  assert.equal(new Set(seen.map((e) => `${e.at}${e.field}${e.after}`)).size, 64);
 });
 
 test('task history: entries far apart stay apart; changing it back by someone else is its own entry; at most 200 kept', () => {

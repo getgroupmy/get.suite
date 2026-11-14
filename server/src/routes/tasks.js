@@ -18,7 +18,7 @@ import { audienceFor, roleFor, atLeast } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { insertFile } from './files.js';
 import { scheduleTask, blocksOf, clashes } from '../taskblocks.js';
-import { recordChanges, historyOf, forgetGoneHistory } from '../taskhistory.js';
+import { recordChanges, historyOf, forgetGoneHistory, listActivity } from '../taskhistory.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
@@ -561,6 +561,13 @@ export default function taskRoutes() {
     res.status(201).json(scheduleTask(req.user, task, { ...req.body, link: `${base}/tasks/${task.list_id}?task=${task.id}` }));
   });
 
+  // What happened on a list lately, newest first (?before= a time from the last page for older).
+  r.get('/lists/:id/activity', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const before = req.query.before === undefined ? Infinity : Number(req.query.before);
+    if (Number.isNaN(before)) throw bad('Bad time');
+    res.json(listActivity(list.id, { before }));
+  });
   // Who changed what on a task, newest first (and who added it, and when).
   r.get('/tasks/:id/history', (req, res) => {
     const task = q('SELECT t.id, t.list_id, t.created_at, t.created_by, u.name AS created_by_name FROM tasks t LEFT JOIN users u ON u.id = t.created_by WHERE t.id = ?').get(req.params.id);

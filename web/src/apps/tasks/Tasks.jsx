@@ -369,6 +369,7 @@ export default function Tasks() {
               } }] : []),
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); toast('Completed tasks deleted: ⋮ → Deleted tasks… puts them back'); } }] : []),
+              { label: 'Activity…', icon: 'clock', onClick: () => setDialog('activity') },
               { label: 'Deleted tasks…', icon: 'trash', onClick: () => setDialog('trash') },
               list.mine ? { label: 'Delete list', icon: 'trash', danger: true, onClick: () => setDialog('delete') } : { label: 'Leave list', icon: 'logout', onClick: () => setDialog('delete') },
             ]} />
@@ -556,6 +557,7 @@ export default function Tasks() {
         </ConfirmModal>;
       })()}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
+      {dialog === 'activity' && list && <ListActivity list={list} onClose={() => setDialog(null)} onOpen={(id) => { setDialog(null); navigate(`/tasks/${list.id}?task=${id}`); }} />}
       {dialog === 'trash' && list && <TaskTrash list={list} onClose={() => setDialog(null)} onRestored={() => { loadTasks(); loadLists(); }} />}
       {dialog === 'look' && list && <ListLook list={list} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'copy' && list && <CopyList list={list} onClose={() => setDialog(null)} onDone={async (r) => { setDialog(null); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
@@ -1240,6 +1242,44 @@ function untilDefault(task) {
 }
 
 /** A list's deleted tasks (kept 30 days), newest first: Restore puts one back as it was, with its comments. */
+/** What happened on a list lately, newest first: changes to its tasks, tasks added and deleted. */
+function ListActivity({ list, onClose, onOpen }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { get(`/tasks/lists/${list.id}/activity`).then(setData).catch((e) => toast(e.message, 'error')); }, [list.id, toast]);
+  const older = async () => {
+    setBusy(true);
+    try { const r = await get(`/tasks/lists/${list.id}/activity?before=${data.before}`); setData({ ...r, entries: [...data.entries, ...r.entries] }); } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  const text = (e) => (e.field === 'added' ? 'added it' : e.field === 'deleted' ? 'deleted it' : historyText(e, { me: user.id }));
+  let day = '';
+  return (
+    <Modal title={`Activity · ${list.name}`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      {!data ? <p className="muted">Loading…</p> : !data.entries.length ? <p className="muted">Nothing has happened on this list yet.</p> : (
+        <ol className="list-activity" aria-label="Activity">
+          {data.entries.map((e, i) => {
+            const d = new Date(e.at).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+            const head = d !== day ? (day = d) : null;
+            return (
+              <li key={i}>
+                {head && <h3 className="list-activity-day">{head}</h3>}
+                <div><strong>{e.user.id === user.id ? 'You' : e.user.name}</strong> {text(e)}<span className="muted small"> · {new Date(e.at).toLocaleTimeString([], { timeStyle: 'short' })}</span></div>
+                <div className="small">{e.task.gone ? <span className="muted">{e.task.title} (deleted)</span>
+                  : <button type="button" className="link-btn" onClick={() => onOpen(e.task.id)}>{e.task.title}</button>}</div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {data?.more && <button type="button" className="btn small" disabled={busy} onClick={older}>Show older</button>}
+      <p className="muted small">Changes to the tasks on this list, and tasks added and deleted. A task moved to another list takes its history with it.</p>
+    </Modal>
+  );
+}
+
 function TaskTrash({ list, onClose, onRestored }) {
   const toast = useToast();
   const [items, setItems] = useState(null);
