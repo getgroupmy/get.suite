@@ -832,7 +832,8 @@ export default function chatRoutes() {
   r.get('/channels/:id/members', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     const ids = c.dm_key || c.private ? membersOf(c) : orgMemberIds(c.org_id);
-    res.json(q(`SELECT id, name, username FROM users WHERE id IN (SELECT value FROM json_each(?)) ORDER BY name COLLATE NOCASE`).all(JSON.stringify(ids)));
+    // A turned-off account stays a member (to take off), marked, so it isn't invited to meetings from here.
+    res.json(q(`SELECT id, name, username, disabled FROM users WHERE id IN (SELECT value FROM json_each(?)) ORDER BY name COLLATE NOCASE`).all(JSON.stringify(ids)).map((u) => ({ ...u, disabled: !!u.disabled })));
   });
   r.post('/channels/:id/members', (req, res) => {
     const c = loadChannel(req.params.id, req.user);

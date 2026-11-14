@@ -1463,7 +1463,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   };
   const [guestInput, setGuestInput] = useState('');
   const [directory, setDirectory] = useState([]);
-  useEffect(() => { get('/users/directory').then(setDirectory).catch(() => {}); }, []);
+  const [dirReady, setDirReady] = useState(false); // until it's loaded, nobody is marked as outside ("by email")
+  useEffect(() => { get('/users/directory').then((l) => { setDirectory(l); setDirReady(true); }).catch(() => {}); }, []);
   const [groups, setGroups] = useState([]);
   useEffect(() => { get('/groups').then(setGroups).catch(() => {}); }, []);
   const { user: me } = useAuth();
@@ -1600,8 +1601,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             <ul className="guest-chips" aria-label="Invited guests">
               {guests.map((g) => {
                 const known = (event.guests || []).find((x) => x.email === g && x.status); // saved with an answer (not just named, as from a template or quick add)
-                const outside = known ? known.external : !directory.some((d) => d.username === g);
-                return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || known?.name || g}
+                const outside = known ? known.external : dirReady && !directory.some((d) => d.username === g);
+                return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || (event.guests || []).find((x) => x.email === g)?.name || g}
                   {outside && <span className="muted small" title="Invited by email: they answer on a web page"> · by email</span>}
                   {known && <span className="muted small"> · {ANSWER_LABELS[known.status]}{known.status !== 'no' && known.join_how ? `, ${JOIN_LABELS[known.join_how]}` : ''}</span>}
                   {known?.answer_note && <span className="small guest-note" title="Their note with the answer"> “{known.answer_note}”</span>}
@@ -1626,7 +1627,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             </select>
           )}
           {guests.length > 0 && <span className="muted small">They'll see it in their calendar{event.id ? '' : ' and get an email'} and can answer Yes, Maybe or No.
-            {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g && x.status); return k ? k.external : !directory.some((d) => d.username === g); })
+            {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g && x.status); return k ? k.external : dirReady && !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
         </div>}
         {!special && <RoomPicker eventId={event.id} people={guests.length + 1} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}

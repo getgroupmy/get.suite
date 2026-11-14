@@ -4,6 +4,7 @@ export const SLASH = [
   { cmd: 'meet', alone: true, hint: '/meet', what: 'start a video meeting and share it here' },
   { cmd: 'poll', hint: '/poll Question | option | option', what: 'ask a question with options' },
   { cmd: 'task', hint: '/task what to do', what: 'add a task to your list (with a link to here)' },
+  { cmd: 'event', alone: true, hint: '/event Planning fri 3pm', what: 'a calendar event with the people here (alone: the first free time)' },
   { cmd: 'dnd', alone: true, hint: '/dnd 2h', what: 'pause notifications (an hour; /dnd off resumes them)' },
   { cmd: 'status', alone: true, hint: '/status 🍔 Lunch 1h', what: 'set your status (/status alone clears it)' },
 ];
@@ -54,6 +55,7 @@ export function parseSlash(text) {
   if (cmd === 'meet') return { cmd };
   if (cmd === 'status') return parseStatus(rest);
   if (cmd === 'dnd') return parseDnd(rest);
+  if (cmd === 'event') return { cmd, text: rest.slice(0, 300) };
   if (cmd === 'task') return rest ? { cmd, title: rest.slice(0, 500) } : { cmd, error: 'Write the task after /task' };
   if (cmd === 'poll') {
     const [question, ...opts] = rest.split('|').map((x) => x.trim());

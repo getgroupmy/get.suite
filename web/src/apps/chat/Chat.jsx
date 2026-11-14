@@ -15,7 +15,10 @@ import Icon from '../../components/Icon.jsx';
 import Bookmarks from './Bookmarks.jsx';
 import ConvFiles from './ConvFiles.jsx';
 import { saveItems, withFileState } from './savefile.js';
-import { scheduleWith } from '../../components/scheduleWith.js';
+import { scheduleWith, withFreeTime } from '../../components/scheduleWith.js';
+import { eventFromChat } from './eventfrom.js';
+import { localToday } from '../tasks/taskmath.js';
+import { newEventMinutes, DEFAULT_CAL_PREFS } from '../calendar/calprefs.js';
 import { parseSlash } from './slash.js';
 import { useSlash } from './useSlash.jsx';
 import SaveToFolder from './SaveToFolder.jsx';
@@ -423,6 +426,7 @@ export default function Chat() {
         } else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}`, label: `Chat: ${title}` } });
         else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
         else if (slash.cmd === 'dnd') await pauseFrom(slash, toast);
+        else if (slash.cmd === 'event') await eventFromSlash(slash, current, { user, navigate, toast });
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }
@@ -803,7 +807,7 @@ export default function Chat() {
             {(current.dm_key || current.private) && !current.archived_at && <button type="button" className="icon-btn" aria-label="Schedule a meeting with this conversation" title="Schedule a meeting with everyone here, at the first time you're all free"
               onClick={async () => {
                 try {
-                  const people = (await get(`/chat/channels/${current.id}/members`)).filter((p) => p.id !== user.id);
+                  const people = (await get(`/chat/channels/${current.id}/members`)).filter((p) => p.id !== user.id && !p.disabled); // a turned-off account can't be invited
                   if (!people.length) { toast('There’s nobody else here to meet', 'error'); return; }
                   if (people.length > 20) { toast('At most 20 people: invite them from Calendar instead', 'error'); return; }
                   await scheduleWith(people.map((p) => ({ id: p.id, email: p.username, name: p.name })), { navigate, toast, title: current.dm_key ? '' : current.name, fromChat: current.id });
@@ -897,7 +901,7 @@ export default function Chat() {
           )}
         </>}
       </section>
-      {current && threadId && <Thread key={threadId} id={threadId} channelId={channelId} user={user} onClose={() => setThreadId(null)} />}
+      {current && threadId && <Thread key={threadId} id={threadId} channelId={channelId} channel={current} user={user} onClose={() => setThreadId(null)} />}
       {pickingTime && <ScheduleDialog title="Schedule message" confirm="Schedule" withinYear note={(at) => `It will be sent ${whenText(at)}, as if you sent it then, even if Workspace isn’t open.`}
         onClose={() => setPickingTime(false)} onPick={(at) => { setPickingTime(false); scheduleAt(at); }} />}
       {scheduledOpen && <ScheduledMessages list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={loadScheduled} />}
@@ -935,8 +939,25 @@ async function pauseFrom(slash, toast) {
   toast(at ? `Notifications paused until ${whenText(at)}` : 'Notifications are back on');
 }
 
+/**
+ * /event: Calendar opens a new event from the words (quick add: a day, time, length, @people, a room), with the
+ * people here invited in a direct message or private channel; saving posts its card here. No day or time: the
+ * first time everyone is free (as the 📅 button). Nothing is posted until it's saved.
+ */
+async function eventFromSlash(slash, channel, { user, navigate, toast }) {
+  const [members, directory, rooms] = await Promise.all([get(`/chat/channels/${channel.id}/members`), get('/users/directory'), get('/rooms').catch(() => [])]);
+  const r = eventFromChat(slash.text, { channel, members, directory, rooms, me: user, today: localToday(), minutes: newEventMinutes(user.cal_prefs || DEFAULT_CAL_PREFS) });
+  if (r.error) throw new Error(r.error);
+  let { ev } = r;
+  if (r.findTime) {
+    const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
+    ({ ev } = await withFreeTime({ ...ev, start: t.getTime(), end: t.getTime() + 30 * 60e3, all_day: 0 }));
+  }
+  navigate('/calendar', { state: { newEvent: ev } });
+}
+
 /** A thread beside the conversation: the message, its replies (live), and a box to reply. */
-function Thread({ id, channelId, user, onClose }) {
+function Thread({ id, channelId, channel, user, onClose }) {
   const toast = useToast();
   const [parent, setParent] = useState(null);
   const [replies, setReplies] = useState([]);
@@ -1002,6 +1023,7 @@ function Thread({ id, channelId, user, onClose }) {
         else if (slash.cmd === 'task') await addToTasksWithToast(toast, navigate, { title: slash.title, link: { url: `/chat/${channelId}?msg=${id}&thread=${id}`, label: 'Chat thread' } });
         else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
         else if (slash.cmd === 'dnd') await pauseFrom(slash, toast);
+        else if (slash.cmd === 'event') await eventFromSlash(slash, channel, { user, navigate, toast });
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }

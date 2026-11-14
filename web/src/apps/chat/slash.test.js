@@ -20,7 +20,7 @@ test('not commands: text, a path, an unknown word', () => {
 });
 
 test('suggestions while typing', () => {
-  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'dnd', 'status']);
+  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'event', 'dnd', 'status']);
   assert.deepEqual(slashSuggestions('/p').map((s) => s.cmd), ['poll']);
   assert.deepEqual(slashSuggestions('/s').map((s) => s.cmd), ['status']);
   assert.deepEqual(slashSuggestions('/poll x'), []);
@@ -44,7 +44,7 @@ test('/status: emoji, words and how long; alone it clears', () => {
 });
 
 test('which commands are complete on their own', () => {
-  assert.deepEqual(SLASH.filter((s) => s.alone).map((s) => s.cmd), ['meet', 'dnd', 'status']);
+  assert.deepEqual(SLASH.filter((s) => s.alone).map((s) => s.cmd), ['meet', 'event', 'dnd', 'status']);
 });
 
 test('/dnd: an hour, how long, tomorrow, or off', () => {
@@ -56,4 +56,9 @@ test('/dnd: an hour, how long, tomorrow, or off', () => {
   assert.match(parseSlash('/dnd forever').error, /\/dnd 30m/);
   assert.match(parseSlash('/dnd 0m').error, /up to a month/);
   assert.match(parseSlash('/dnd 800h').error, /up to a month/);
+});
+
+test('/event: the words after it, read by Calendar quick add', () => {
+  assert.deepEqual(parseSlash('/event'), { cmd: 'event', text: '' });
+  assert.deepEqual(parseSlash('/event Planning friday 3pm'), { cmd: 'event', text: 'Planning friday 3pm' });
 });

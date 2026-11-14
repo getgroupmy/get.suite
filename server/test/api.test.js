@@ -2765,6 +2765,30 @@ test('calendar quick add: everyone gets the room names to match ("in Zq Boardroo
   for (const r of [big, small]) await owner('DELETE', `/api/rooms/${r.id}`);
 });
 
+test('chat /event: who a conversation has to invite (members, turned-off ones marked), and only for people in it', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['evann', 'Ev Ann'], ['evbob', 'Ev Bob'], ['evout', 'Ev Out'], ['evoff', 'Ev Off']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'evann@acme.com');
+  const bid = (await login(b, 'evbob@acme.com')).id;
+  await login(x, 'evout@acme.com');
+  const off = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'evoff@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'ev-private', private: true, members: [bid, off.id] })).body.id;
+  await owner('PATCH', `/api/users/${off.id}`, { disabled: true });
+  const members = (await a('GET', `/api/chat/channels/${ch}/members`)).body;
+  assert.deepEqual(members.map((m) => [m.name, m.disabled]), [['Ev Ann', false], ['Ev Bob', false], ['Ev Off', true]], 'kept (to take off), marked');
+  assert.equal((await x('GET', `/api/chat/channels/${ch}/members`)).status, 404, 'not for someone outside it');
+  // Inviting the turned-off one is refused, so /event and 📅 leave them out.
+  const t = Date.now() + 2 * 864e5;
+  assert.match((await a('POST', '/api/events', { title: 'Sync', start: t, end: t + 36e5, guests: ['evbob@acme.com', 'evoff@acme.com'] })).body.error, /evoff@acme\.com can't be invited/);
+  const ok = await a('POST', '/api/events', { title: 'Sync', start: t, end: t + 36e5, guests: ['evbob@acme.com'] });
+  assert.equal(ok.status, 201);
+  await a('DELETE', `/api/events/${ok.body.id}`);
+  // An open channel lists the company's active people (the /event there invites only those named with @).
+  const general = (await a('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  const all = (await a('GET', `/api/chat/channels/${general}/members`)).body;
+  assert.ok(all.some((m) => m.username === 'evout@acme.com') && !all.some((m) => m.username === 'evoff@acme.com'));
+});
+
 test('status: your recent statuses, latest first, to set again in one click', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);
