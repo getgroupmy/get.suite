@@ -23,6 +23,10 @@ export function securityAlert({ orgId, action, actor, target, details, at = Date
     if (details.is_admin === false) send(`${by} took away ${target}'s admin rights`);
     if (details.reset_two_factor) send(`${by} reset two-step verification for ${target}`, 'They can sign in with just their password until they set it up again.');
   }
+  if (action === 'mail.phishing' && target) {
+    const n = details?.reports || 1;
+    send(`${by} reported a phishing email from ${target}`, `${details?.subject ? `“${details.subject}”. ` : ''}${n > 1 ? `${n} reports of this sender so far. ` : ''}Admin → Phishing has the details: warn people, and block the sender if it's real.`);
+  }
   if (action === '2fa.off') send(`${by} turned off two-step verification`, 'Their account is protected by their password alone now.');
   if (action === 'data.export' && target && actor && target !== actor.username) send(`${by} downloaded ${target}'s data`);
   if (action === 'sign-in.failed' && target) {

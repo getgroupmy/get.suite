@@ -1,3 +1,4 @@
+import PhishingAdmin from './PhishingAdmin.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, put, patch, del, formatBytes, postText, postBlob } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -83,7 +84,7 @@ export default function Admin() {
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
   const mail = useMailStatus();
-  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['links', 'Share links'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
+  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email'], ['phishing', 'Phishing']] : []), ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['links', 'Share links'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
 
   return (
     <div className="page">
@@ -95,6 +96,7 @@ export default function Admin() {
       </div>
       {tab === 'users' && <Users orgId={orgId} setOrgId={setOrgId} />}
       {tab === 'email' && <EmailAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
+      {tab === 'phishing' && <PhishingAdmin />}
       {tab === 'company' && <CompanySettings />}
       {tab === 'dlp' && <DataProtectionAdmin />}
       {tab === 'groups' && <GroupsAdmin />}

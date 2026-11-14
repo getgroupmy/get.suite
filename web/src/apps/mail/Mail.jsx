@@ -818,6 +818,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   const [wholeQuote, setWholeQuote] = useState(false); // the quoted history under a reply, unfolded
   useEffect(() => { setWholeQuote(false); }, [uid]);
   const [blocking, setBlocking] = useState(false);
+  const [phishing, setPhishing] = useState(false);
   const [unsubscribing, setUnsubscribing] = useState(false);
   const [muted, setMuted] = useState(null); // its conversation is muted: the entry's id
   useEffect(() => {
@@ -908,6 +909,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         </button>
         {!shared && m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address, m.listId)}>Filter messages like this</button>}
         {!shared && m.from?.address && special !== '\\Junk' && <button className="btn small" onClick={() => setBlocking(true)}>Block sender</button>}
+        {!shared && m.from?.address && special !== '\\Junk' && <button className="btn small" onClick={() => setPhishing(true)}>⚠ Report phishing</button>}
         {!shared && m.messageId && !muted && <button className="btn small" title="Replies in this conversation skip the Inbox" onClick={mute}>Mute</button>}
       </div>
       {muted && <div className="banner" role="status">🔕 This conversation is muted: replies go straight to Archive. <button type="button" className="link-btn" onClick={unmute}>Unmute</button></div>}
@@ -931,6 +933,18 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
               await post('/mail/block', { address: m.from.address });
               setBlocking(false);
               done('move', { to: 'junk' }, `Blocked ${m.from.address}: their mail goes to Junk`);
+            } catch (e) { toast(e.message, 'error'); }
+          }} />
+      )}
+      {phishing && (
+        <ConfirmModal title="Report this email as phishing?" confirm="Report phishing"
+          message={`It moves to Junk, and your company's admins are told about ${m.from.address} so they can warn everyone. Don't click its links, open its attachments or reply to it.`}
+          onClose={() => setPhishing(false)}
+          onConfirm={async () => {
+            try {
+              const r = await post(`/mail/messages/${uid}/phishing`, { folder });
+              setPhishing(false);
+              done('move', { to: 'junk' }, r.already ? 'You reported this one already: moved to Junk' : 'Reported as phishing: your admins have been told, and it’s in Junk');
             } catch (e) { toast(e.message, 'error'); }
           }} />
       )}

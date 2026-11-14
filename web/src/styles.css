@@ -487,6 +487,8 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .msg-list li input { margin-top: 14px; }
 .msg-list li:hover { background: var(--surface-2); }
 .msg-list li.open { background: var(--accent-soft); }
+/* The open message's row: its muted text a little stronger, to stay readable on the highlight (dark mode too). */
+.msg-list li.open .msg-row { color: color-mix(in srgb, var(--muted), var(--text) 45%); }
 .msg-row { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; text-align: left; border: 0; background: none; padding: 10px 14px 10px 6px; cursor: pointer; color: var(--muted); }
 .msg-from { color: var(--text); }
 .msg-subject { grid-column: 1 / -1; font-size: 13px; }

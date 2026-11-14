@@ -1,6 +1,7 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
 import { notify as notifyBell } from '../notifications.js';
 import { audit } from '../audit.js';
+import { recordPhishing } from '../phishing.js';
 import crypto from 'node:crypto';
 import { fillTemplate, mergeHtml, unknownPlaceholders } from '../mail/merge.js';
 import express, { Router } from 'express';
@@ -731,6 +732,18 @@ export default function webmailRoutes() {
       scheduleMailConfig();
     }
     res.json({ ok: true, rule: name, folder: junk });
+  });
+
+  // Report phishing: the email's sender and subject (read from the mail server, not taken from the browser)
+  // go to the company's admins. The browser then moves it to Junk, as Block sender does (with Undo).
+  r.post('/messages/:uid/phishing', async (req, res) => {
+    const folder = String(req.body?.folder || 'INBOX');
+    const msg = await withFolder(req.user, folder, (c) => c.fetchOne(String(Number(req.params.uid)), { envelope: true }, { uid: true }));
+    if (!msg?.envelope) throw notFound('Message not found');
+    const from = msg.envelope.from?.[0]?.address;
+    const r2 = recordPhishing(req.user, { from, subject: msg.envelope.subject, messageId: msg.envelope.messageId });
+    if (!r2.already) audit(req, 'mail.phishing', { target: String(from).toLowerCase(), details: { subject: msg.envelope.subject || null, reports: r2.reports } });
+    res.json(r2);
   });
 
   // ---- folders: create, rename, delete (built-in folders are protected) ----
