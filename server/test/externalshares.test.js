@@ -155,3 +155,24 @@ test('Remove from Shared with me: off a direct share; a group or company share s
   assert.ok((await shared()), 'still listed, through the company');
   assert.equal(!!(await shared()).direct, false);
 });
+
+test('Stop sharing several at once: people, groups and the whole company; only your own', async () => {
+  const a = (await kim('POST', '/api/files/upload?name=u1.txt', 'a', true)).body;
+  const b = (await kim('POST', '/api/files/upload?name=u2.txt', 'b', true)).body;
+  const c = (await kim('POST', '/api/files/upload?name=u3.txt', 'c', true)).body; // never shared
+  await kim('PUT', `/api/files/${a.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'editor' }] });
+  const group = (await ana('GET', '/api/groups')).body.find((g) => g.name === 'Design');
+  await kim('PUT', `/api/files/${b.id}/groups`, { groups: [{ group_id: group.id, role: 'viewer' }] });
+  await kim('PUT', `/api/files/${b.id}/company`, { role: 'viewer' });
+  const link = (await kim('POST', '/api/links', { file_id: a.id })).body;
+  assert.equal((await ana('POST', '/api/files/unshare', { ids: [a.id] })).status, 404, 'not hers');
+  const r = await kim('POST', '/api/files/unshare', { ids: [a.id, b.id, c.id] });
+  assert.deepEqual(r.body, { files: 2, people: 1 });
+  assert.equal((await ana('GET', `/api/files/${a.id}`)).status, 404);
+  assert.equal((await ana('GET', `/api/files/${b.id}`)).status, 404, 'company and group access gone too');
+  assert.equal(q('SELECT COUNT(*) AS n FROM group_shares WHERE file_id = ?').get(b.id).n, 0);
+  assert.equal(q('SELECT org_role FROM files WHERE id = ?').get(b.id).org_role, null);
+  assert.ok(q('SELECT 1 FROM share_links WHERE id = ?').get(link.id), 'links stay');
+  assert.deepEqual((await kim('GET', '/api/files?view=sharedbyme')).body.filter((f) => ['u1.txt', 'u2.txt'].includes(f.name)), []);
+  assert.equal((await kim('POST', '/api/files/unshare', { ids: [] })).status, 400);
+});

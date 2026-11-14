@@ -68,6 +68,32 @@ await step('Drive → Shared by me: your files others can open, with whom', asyn
   await until(async () => (await rows.filter({ hasText: 'Brief.txt' }).count()) === 0);
 });
 
+await step('select and Stop sharing: gone from Shared by me, and Kim can no longer open it', async () => {
+  await page.goto(`${B}/drive/sharedbyme`);
+  const rows = page.locator('.files tbody tr');
+  await until(async () => (await rows.count()) === 1);
+  await page.getByRole('checkbox', { name: 'Select all' }).check();
+  const bar = page.getByRole('toolbar', { name: 'Selected files' });
+  await bar.getByRole('button', { name: 'Stop sharing' }).click();
+  const d = page.getByRole('dialog', { name: 'Stop sharing “Handbook.txt”?' });
+  await d.getByText(/Links for people without an account stay/).waitFor();
+  await axe(page, 'stop sharing');
+  await d.getByRole('button', { name: 'Stop sharing' }).click();
+  await page.getByText('Stopped sharing 1 item').waitFor();
+  await page.getByText("You haven't shared anything yet").waitFor();
+  // Not offered for something that isn't yours.
+  const kim = await mk('kim-x');
+  await signIn(kim, 'kim@acme.com');
+  const f = await kim.evaluate(async () => (await fetch('/api/files/upload?name=kims.txt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'x' })).json());
+  const me = (await api(page, 'GET', '/auth/me')).body.user;
+  await api(kim, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: me.id, role: 'viewer' }] });
+  await page.goto(`${B}/drive/shared`);
+  await page.locator('.files tbody tr', { hasText: 'kims.txt' }).getByRole('checkbox').check();
+  await page.getByRole('toolbar', { name: 'Selected files' }).waitFor();
+  if (await page.getByRole('toolbar', { name: 'Selected files' }).getByRole('button', { name: 'Stop sharing' }).count()) throw new Error('offered for someone else’s file');
+  await api(kim, 'POST', '/files/unshare', { ids: [f.id] }); // Kim has shared nothing again, for the next step
+});
+
 await step('nothing shared: says so', async () => {
   const kim = await mk('kim');
   await signIn(kim, 'kim@acme.com');

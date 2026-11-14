@@ -632,6 +632,7 @@ export default function Drive() {
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
               {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
               {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => setDialog({ type: 'copyto', files: picked })}><Icon name="copy" size={16} /> Copy to</button>}
+              {picked.every((f) => f.owner_id === user.id && !f.is_drive && !f.shortcut_id) && <button className="btn small" title="Take away everyone's access: people, groups and your whole company" onClick={() => setDialog({ type: 'unshare', files: picked })}><Icon name="share" size={16} /> Stop sharing</button>}
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
                 {picked.length > 1 && <button className="btn small" onClick={() => setDialog({ type: 'rename-many', files: picked })}><Icon name="edit" size={16} /> Rename</button>}
@@ -769,6 +770,18 @@ export default function Drive() {
           navigate(openPath(f));
         } catch (e) { toast(e.message, 'error'); }
       }} />}
+      {dialog?.type === 'unshare' && (
+        <ConfirmModal title={`Stop sharing ${dialog.files.length === 1 ? `“${dialog.files[0].name}”` : `${dialog.files.length} items`}?`} confirm="Stop sharing" danger
+          message="Everyone you shared it with (people, groups and your whole company) loses access now. Links for people without an account stay: stop those under Shared by link."
+          onClose={() => setDialog(null)}
+          onConfirm={async () => {
+            try {
+              const r = await post('/files/unshare', { ids: dialog.files.map((f) => f.id) });
+              toast(r.files ? `Stopped sharing ${r.files === 1 ? '1 item' : `${r.files} items`}${r.people ? ` with ${r.people} ${r.people === 1 ? 'person' : 'people'}` : ''}` : 'None of them was shared');
+              setChecked(new Set()); load();
+            } catch (e) { toast(e.message, 'error'); }
+          }} />
+      )}
       {dialog?.type === 'rename-many' && <RenameMany files={dialog.files} onClose={() => setDialog(null)} onDone={(changed) => {
         setDialog(null); setChecked(new Set()); load();
         // Undo puts each name back as it was.

@@ -1990,6 +1990,37 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Replace the share list: [{ user_id, role }]
+  // Stop sharing several of your own files and folders at once: people, groups and the whole company
+  // (links for people without an account stay: they're under Shared by link). { ids } → { files, people }
+  r.post('/unshare', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].slice(0, 500) : [];
+    if (!ids.length) throw bad('Pick something first');
+    let files = 0;
+    const people = new Set();
+    for (const id of ids) {
+      const f = q('SELECT id, name, owner_id, parent_id, org_role FROM files WHERE id = ?').get(id);
+      if (!f || f.owner_id !== req.user.id) throw notFound('Only your own files and folders can be unshared this way');
+    }
+    for (const id of ids) {
+      const f = q('SELECT id, name, owner_id, parent_id, org_role FROM files WHERE id = ?').get(id);
+      const before = audienceFor(f.id);
+      const had = q('SELECT user_id FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => x.user_id);
+      const groups = q('SELECT COUNT(*) AS n FROM group_shares WHERE file_id = ?').get(f.id).n;
+      if (!had.length && !groups && !f.org_role) continue;
+      tx(() => {
+        q('UPDATE shares SET direct_role = NULL, expires_at = NULL WHERE file_id = ?').run(f.id);
+        q('DELETE FROM group_shares WHERE file_id = ?').run(f.id);
+        q('UPDATE files SET org_role = NULL WHERE id = ?').run(f.id);
+        syncShares(f.id);
+      });
+      files++;
+      for (const u of had) people.add(u);
+      sendTo(new Set([...before, req.user.id]), { type: 'files-changed', parent_id: f.parent_id });
+      audit(req, 'file.share', { target: f.name, details: { stopped: true, people: had.length, groups, company: !!f.org_role } });
+    }
+    res.json({ files, people: people.size });
+  });
+
   // Remove from Shared with me: take yourself off something shared with you directly. What you can
   // still open through a group or the whole company stays (and the answer says so).
   r.delete('/:id/my-access', (req, res) => {
