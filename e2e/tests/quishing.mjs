@@ -55,21 +55,31 @@ const axe = async (p, label) => {
 };
 const QRCode = (await import('module')).createRequire(`${ROOT}/web/package.json`)('qrcode');
 const qrPng = (await QRCode.toBuffer('https://evil.example/login', { width: 240 })).toString('base64');
+const { PDFDocument, StandardFonts } = (await import('module')).createRequire(`${ROOT}/server/package.json`)('pdf-lib');
+/** A one-page PDF with some text, and the QR code on it when asked. */
+const pdf = async (withQr) => {
+  const d = await PDFDocument.create();
+  const page = d.addPage([595, 842]);
+  page.drawText('Your invoice is ready. Scan the code to pay.', { x: 50, y: 780, size: 14, font: await d.embedFont(StandardFonts.Helvetica) });
+  if (withQr) page.drawImage(await d.embedPng(Buffer.from(qrPng, 'base64')), { x: 50, y: 500, width: 200, height: 200 });
+  return Buffer.from(await d.save()).toString('base64');
+};
 const PLAIN = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==';
 /** An email with an inline picture or an attached one. */
-const put = (from, subject, { inline = null, attached = null } = {}) => page.evaluate(async ([f, s, inl, att]) => {
+const put = (from, subject, { inline = null, attached = null, pdfFile = null } = {}) => page.evaluate(async ([f, s, inl, att, pdfB64]) => {
   const b = 'BOUNDARY42';
   const parts = [`--${b}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Scan to verify your account.</p>${inl ? `<p><img src="data:image/png;base64,${inl}" alt="code"></p>` : ''}\r\n`];
+  if (pdfB64) parts.push(`--${b}\r\nContent-Type: application/pdf; name="invoice.pdf"\r\nContent-Disposition: attachment; filename="invoice.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\n${pdfB64}\r\n`);
   if (att) parts.push(`--${b}\r\nContent-Type: image/png; name="scan.png"\r\nContent-Disposition: attachment; filename="scan.png"\r\nContent-Transfer-Encoding: base64\r\n\r\n${att}\r\n`);
   const body = `From: ${f}\r\nTo: olivia@acme.com\r\nSubject: ${s}\r\nMessage-ID: <${s.replace(/\W/g, '')}@x>\r\nDate: ${new Date().toUTCString()}\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="${b}"\r\n\r\n${parts.join('')}--${b}--\r\n`;
   return (await fetch('/api/mail/messages/upload?folder=INBOX', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'message/rfc822' }, body })).status;
-}, [from, subject, inline, attached]);
+}, [from, subject, inline, attached, pdfFile]);
 const open = async (subject) => {
   await page.goto(`${B}/mail/INBOX`);
   await page.locator('.msg-subject', { hasText: subject }).first().click();
   await page.frameLocator('iframe[title="Message"]').getByText('Scan to verify your account.').waitFor();
 };
-const banner = () => page.locator('.mail-reader').getByText('This email has a QR code in it.');
+const banner = () => page.locator('.mail-reader').getByText('This email has a QR code in it.', { exact: false });
 await step('a QR code in a picture of an email from outside: a warning (inline, or attached)', async () => {
   for (const [f, s, o] of [['"IT Desk" <it@helpdesk.example>', 'Inline code', { inline: qrPng }], ['"IT Desk" <it@helpdesk.example>', 'Attached code', { attached: qrPng }],
     ['"IT Desk" <it@helpdesk.example>', 'Just a picture', { inline: PLAIN, attached: PLAIN }], ['"Raj Kumar" <raj@acme.com>', 'Code from a colleague', { inline: qrPng }]]) {
@@ -89,6 +99,17 @@ await step('no warning for ordinary pictures, or a QR code from a colleague', as
     await page.waitForTimeout(1500);
     if (await banner().count()) throw new Error(`warned: ${s}`);
   }
+});
+await step('a QR code in an attached PDF: a warning that says so; a PDF without one: none', async () => {
+  for (const [s, withQr] of [['Invoice with code', true], ['Invoice without code', false]]) {
+    const st = await put('"Billing" <billing@vendor.example>', s, { pdfFile: await pdf(withQr) });
+    if (st >= 300) throw new Error(`upload ${st}`);
+  }
+  await open('Invoice with code');
+  await page.locator('.mail-reader').getByText('This email has a QR code in it (in an attached PDF).').waitFor({ timeout: 20000 });
+  await open('Invoice without code');
+  await page.waitForTimeout(3000);
+  if (await banner().count() || await page.locator('.mail-reader').getByText(/has a QR code/).count()) throw new Error('warned about a PDF without a code');
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
