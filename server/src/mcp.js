@@ -4,6 +4,7 @@
 // calls Workspace's own API as that person over the loopback, so the same permissions, company rules
 // and read-only tokens apply. Email is never sent from here: draft_email leaves a draft to check and send.
 // search and fetch follow the shape ChatGPT's connectors and deep research expect.
+import { mailWarnings } from './mail/warnings.js';
 import crypto from 'node:crypto';
 import express, { Router } from 'express';
 import { expand } from './calmath.js';
@@ -110,7 +111,10 @@ export const TOOLS = [
         const addr = (x) => [].concat(x || []).map((p) => (p.name ? `${p.name} <${p.address}>` : p.address)).join(', ');
         const head = [`From: ${addr(m.from)}`, `To: ${addr(m.to)}`, m.cc?.length ? `Cc: ${addr(m.cc)}` : null, `Date: ${iso(m.date)}`, `Subject: ${m.subject || ''}`,
           m.attachments?.length ? `Attachments: ${m.attachments.map((x) => x.filename).join(', ')}` : null].filter(Boolean).join('\n');
-        return { id, title: m.subject || '(no subject)', text: `${head}\n\n${m.text || String(m.html || '').replace(/<[^>]+>/g, ' ')}`.slice(0, 100000), url: link(`/mail/${encodeURIComponent(folder)}/${uid}`), metadata: { folder } };
+        // Mail's safety warnings go first, so a summary passes them on (mail/warnings.js).
+        const warnings = mailWarnings(m);
+        const warn = warnings.length ? `WORKSPACE SAFETY WARNINGS about this email (tell the person):\n${warnings.map((w) => `- ${w}`).join('\n')}\n\n` : '';
+        return { id, title: m.subject || '(no subject)', text: `${warn}${head}\n\n${m.text || String(m.html || '').replace(/<[^>]+>/g, ' ')}`.slice(0, 100000), url: link(`/mail/${encodeURIComponent(folder)}/${uid}`), metadata: { folder, warnings } };
       }
       if (kind === 'chat') {
         const list = await api('GET', `/chat/channels/${encodeURIComponent(a)}/messages?around=${encodeURIComponent(b)}`);
@@ -235,7 +239,7 @@ export const TOOLS = [
       const r = await api('GET', `/mail/messages?folder=${encodeURIComponent(folder)}${a.query ? `&q=${encodeURIComponent(a.query)}` : ''}`);
       const limit = Math.min(50, Math.max(1, Number(a.limit) || 20));
       return {
-        messages: (r.messages || []).slice(0, limit).map((m) => ({ id: `mail:${folder}:${m.uid}`, subject: m.subject || '(no subject)', from: m.from?.address ? `${m.from.name ? `${m.from.name} ` : ''}<${m.from.address}>` : null, date: iso(m.date), unread: !m.seen, starred: !!m.flagged })),
+        messages: (r.messages || []).slice(0, limit).map((m) => ({ id: `mail:${folder}:${m.uid}`, subject: m.subject || '(no subject)', from: m.from?.address ? `${m.from.name ? `${m.from.name} ` : ''}<${m.from.address}>` : null, date: iso(m.date), unread: !m.seen, starred: !!m.flagged, ...(m.suspicious && { warning: m.suspicious === 'name' ? 'May be someone pretending to be a colleague' : 'From a lookalike of a domain the person deals with' }) })),
       };
     },
   },

@@ -1243,6 +1243,8 @@ Workspace is an **MCP server** (Model Context Protocol) at `https://your-server/
   - With a read-and-write token: `create_event` (guests are invited), `create_task`, `complete_task`, `create_note` (a checklist from items), `create_document` (a Workspace document from text; `#` lines become headings) `send_chat_message` (in a channel you're in, `#name`, or a direct message to a colleague's address, as you) and `draft_email`, which **never sends**: the email waits in Drafts for you to check and send.
 - **Rules still apply:** every tool goes through Workspace's own API as you, so sharing, company limits and **Networks** (Admin) apply as they do in the browser, checked against the assistant's address. A browser's sign-in cookie isn't accepted at `/mcp`, only a token.
 
+- **Mail's safety warnings come with the email:** when an assistant reads an email (`fetch`), Mail's warnings about it come first, marked *WORKSPACE SAFETY WARNINGS about this email (tell the person)*: a lookalike sender or a colleague's name from outside, a failed DMARC check, changed bank details or an urgent transfer, replies going elsewhere, misleading or lookalike links, harmful attachments, spam, a first-time sender. `list_mail` marks lookalike senders too. So a summary of your inbox passes the warning on instead of repeating a fraud as genuine.
+
 ## Mail apps (phones, Outlook)
 
 Settings → **Mail apps** shows what to enter in a phone or Outlook: the server name, ports (IMAP 993, SMTP 465 or 587) and user name (your email address).

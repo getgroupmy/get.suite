@@ -2180,6 +2180,25 @@ test('look-alike sender domains: the company’s own (acrne.com for acme.com) an
   assert.ok(!c?.domain_like, 'the real one');
 });
 
+test('an AI assistant reading an email through MCP is given Mail’s safety warnings first', async () => {
+  await olivia('PATCH', '/api/orgs/current', { allow_api_tokens: true });
+  const made = await olivia('POST', '/api/tokens', { password: 'password123', name: 'Claude', scope: 'read', days: 30 });
+  const token = made.body?.token;
+  assert.ok(token, JSON.stringify(made));
+  const subject = `Remittance${Date.now()}`;
+  const eml = `From: "Accounts" <accounts@acrne.com>\r\nTo: olivia@acme.com\r\nSubject: ${subject}\r\nMessage-ID: <${subject}@x>\r\nDate: ${new Date().toUTCString()}\r\n\r\nOur banking details have been changed. Please pay into our new account.\r\n`;
+  assert.ok((await olivia('POST', '/api/mail/messages/upload?folder=INBOX', Buffer.from(eml), { raw: true, headers: { 'content-type': 'message/rfc822' } })).status < 300);
+  const rpc = async (name, args) => {
+    const res = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+    return (await res.json()).result;
+  };
+  const listed = await eventually(async () => (await rpc('list_mail', { query: `subject:${subject}` })).structuredContent?.messages?.find((m) => m.subject === subject));
+  assert.equal(listed.warning, 'From a lookalike of a domain the person deals with');
+  const read = (await rpc('fetch', { id: listed.id })).structuredContent;
+  assert.match(read.text, /^WORKSPACE SAFETY WARNINGS about this email \(tell the person\):\n- It comes from acrne\.com, which looks like acme\.com but isn't\.\n- It says bank or payment details have changed/);
+  assert.ok(read.metadata.warnings.length >= 2);
+});
+
 test('a company that refuses programs by email: mail with one attached (or disguised, or zipped) is turned away; other mail arrives', async () => {
   const file = path.join(process.env.MAIL_CONFIG_DIR, 'rspamd', 'block_programs.map');
   assert.equal((await olivia('PATCH', '/api/orgs/current', { block_programs: true })).status, 200);
