@@ -1171,6 +1171,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         )}
         {m.contact && <ContactInMessage m={m} />}
         {m.email && <EmailInMessage e={m.email} />}
+        {m.link_like?.length > 0 && <p className="msg-link-warn small" role="note">⚠ {m.link_like.map((l) => `${l.host} is made to look like ${l.like}`).join('; ')}, but it isn’t. Don’t sign in or pay there; go to the real site yourself.</p>}
         {!editing && <FileCards text={m.body} />}
         {!editing && <MessageCards text={m.body} self={m.id} />}
         {!editing && <TaskCards text={m.body} />}

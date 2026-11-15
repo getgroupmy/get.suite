@@ -78,6 +78,16 @@ await step('their messages carry the External tag beside their name; ours don’
   if (await ours.getByText(/External/).count()) throw new Error('tagged our own message');
   await axe(page, 'external tag on messages');
 });
+await step('a link from outside to a lookalike of the company’s site is warned about; the same from a colleague isn’t', async () => {
+  await api(gina, 'POST', `/chat/channels/${dm}/messages`, { body: 'Please reset it at https://acme-login.com/reset today' });
+  await api(page, 'POST', `/chat/channels/${dm}/messages`, { body: 'Our own page: https://www.acme.com/help' });
+  await page.goto(`${B}/chat/${dm}`);
+  const theirs = page.locator('.msg', { hasText: 'Please reset it at' });
+  await theirs.getByRole('note').getByText(/acme-login\.com is made to look like acme\.com, but it isn’t/).waitFor();
+  if (await page.locator('.msg', { hasText: 'Our own page' }).getByRole('note').count()) throw new Error('warned about our own link');
+  await page.screenshot({ path: `${SP}/shots/chat-lookalike.png` });
+  await axe(page, 'chat lookalike link');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

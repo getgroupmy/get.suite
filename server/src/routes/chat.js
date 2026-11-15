@@ -1,3 +1,4 @@
+import { linkLookalike } from '../mail/external.js';
 import { pushTo } from '../push.js';
 import { offFor } from '../notifications.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
@@ -249,6 +250,24 @@ const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, 
              FROM messages m LEFT JOIN users u ON u.id = m.user_id`;
 
 /** Messages as the app shows them: attached files and reactions ({ emoji, users: [{ id, name }] }) included. */
+/**
+ * Links in messages from outside the company (another company's people, apps posting by webhook) to a
+ * site made to look like the company's or one the reader deals with (external.js): m.link_like = [{ host, like }].
+ */
+function flagLinks(user, list) {
+  let likeOf = null;
+  for (const m of list) {
+    if (!m.body || (m.user_org_id && m.user_org_id === user.org_id)) continue;
+    const hosts = new Set();
+    for (const u of String(m.body).matchAll(/https?:\/\/[^\s<>"]+/g)) { try { hosts.add(new URL(u[0]).hostname.toLowerCase()); } catch { /* not a link */ } }
+    if (!hosts.size) continue;
+    likeOf ||= linkLookalike(user);
+    const flagged = [...hosts].map((h) => ({ host: h, like: likeOf(h)?.domain })).filter((x) => x.like);
+    if (flagged.length) m.link_like = flagged;
+  }
+  return list;
+}
+
 function shape(rows) {
   if (!rows.length) return rows;
   const reactions = q(`SELECT r.message_id, r.emoji, r.user_id, u.name FROM message_reactions r LEFT JOIN users u ON u.id = r.user_id
@@ -1049,11 +1068,11 @@ export default function chatRoutes() {
       if (!m) throw notFound('Message not found');
       const older = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at < ? ORDER BY m.created_at DESC LIMIT 50`).all(c.id, m.created_at).reverse();
       const newer = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at >= ? ORDER BY m.created_at LIMIT 50`).all(c.id, m.created_at);
-      return res.json(shape([...older, ...newer]));
+      return res.json(flagLinks(req.user, shape([...older, ...newer])));
     }
     const before = Number(req.query.before) || 8.64e15;
     const rows = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at < ? ORDER BY m.created_at DESC LIMIT 100`).all(c.id, before);
-    res.json(shape(rows.reverse()));
+    res.json(flagLinks(req.user, shape(rows.reverse())));
   });
 
   // Search: messages with all these words, in the conversations you can see (thread replies too),
@@ -1193,7 +1212,7 @@ export default function chatRoutes() {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
     if (!m || m.parent_id) throw notFound('Message not found');
     loadChannel(m.channel_id, req.user);
-    res.json({ message: one(m.id), replies: shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id)), following: inThread(req.user.id, m.id) });
+    res.json({ message: one(m.id), replies: flagLinks(req.user, shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id))), following: inThread(req.user.id, m.id) });
   });
 
   // Follow a thread (its replies count as unread for you, and it's in your Threads) or unfollow it (they
