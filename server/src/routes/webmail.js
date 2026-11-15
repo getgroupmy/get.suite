@@ -3,6 +3,7 @@ import { checkLinks } from '../mail/linkcheck.js';
 import { senderVerdict } from '../mail/senderauth.js';
 import { isFirstContact } from '../mail/firstcontact.js';
 import { paymentRisk } from '../mail/paymentrisk.js';
+import { aiInstructions } from '../mail/aiinstructions.js';
 import { proxyImages, checkImageSig, imageFor, overLimit } from '../mail/imageproxy.js';
 import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
@@ -1174,6 +1175,8 @@ export default function webmailRoutes() {
       outside: incomingWarning(req.user, addrList(p.from)[0]),
       // From an address that isn't on one of the company's domains (Mail looks for QR codes in its pictures).
       from_outside: (() => { const d = String(addrList(p.from)[0]?.address || '').toLowerCase().split('@')[1]; return !!d && !q('SELECT 1 FROM domains WHERE org_id = ? AND name = ?').get(req.user.org_id, d); })(),
+      // Text aimed at AI assistants, perhaps hidden from people (aiinstructions.js).
+      ai_instructions: aiInstructions({ text: p.text, html: p.html }),
       // From outside, asking for money to go somewhere new (changed bank details, an urgent transfer, gift cards): paymentrisk.js.
       payment_risk: (() => {
         const d = String(addrList(p.from)[0]?.address || '').toLowerCase().split('@')[1];

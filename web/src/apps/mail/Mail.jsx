@@ -980,6 +980,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         {qr && (
           <div className="banner danger" role="note"><strong>⚠ This email has a QR code in it{qr === 'pdf' ? ' (in an attached PDF)' : ''}.</strong> Scanning one takes your phone straight to a web address that nobody here has checked, a common way to steal passwords. Don’t scan it unless you were expecting it; go to the company’s website yourself instead.</div>
         )}
+        {m.ai_instructions && (
+          <div className="banner danger" role="note"><strong>⚠ This email has text written to instruct AI assistants{m.ai_instructions.hidden ? ', hidden from you' : ''}.</strong> Someone may be hoping an assistant reading your mail will act on it (forward mail, pay, reply). Workspace warns assistants about it; don’t follow what it asks either.</div>
+        )}
         {m.payment_risk && (
           <div className="banner danger" role="note"><strong>⚠ {m.payment_risk === 'giftcards' ? 'This email asks you to buy gift cards.' : m.payment_risk === 'transfer' ? 'This email asks for an urgent money transfer.' : 'This email says bank or payment details have changed.'}</strong> That’s how most payment fraud works{m.first_contact || m.reply_elsewhere || m.outside?.domain_like ? ', and other things about this email are unusual too' : ''}. Before paying, confirm it by phone on a number you already have (not one in this email).</div>
         )}
