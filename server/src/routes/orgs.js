@@ -1,4 +1,5 @@
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
+import { migrationOf } from '../migrationstatus.js';
 import { cleanMsApp } from '../mail/msimport.js';
 import { cleanGoogleApp } from '../mail/googleimport.js';
 import { sweepInboxes } from '../mail/sweep.js';
@@ -261,6 +262,8 @@ export default function orgRoutes() {
     audit(req, 'mail.unblocked', { target: String(req.params.value).toLowerCase() });
     res.json({ blocked: blockedFor(req.user.org_id) });
   });
+  // Admin → Moving here: each person's latest mail import and export brought in (migrationstatus.js).
+  r.get('/current/migration', requireAdmin, (req, res) => res.json(migrationOf(req.user.org_id)));
   r.get('/current/storage', requireAdmin, (req, res) => {
     const orgId = req.query.org_id && req.user.is_super ? String(req.query.org_id) : req.user.org_id;
     const org = q('SELECT * FROM orgs WHERE id = ?').get(orgId);

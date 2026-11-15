@@ -15157,3 +15157,32 @@ test('importing from Google: the client secret is kept on the server, never sent
   assert.equal((await owner('PATCH', '/api/orgs/current', { g_client_id: '' })).body.g_has_secret, false);
   assert.equal((await owner('PATCH', '/api/orgs/current', { g_client_id: 'not-a-client' })).status, 400);
 });
+
+test('Admin → Moving here: each person’s latest mail import and the export they brought in', async () => {
+  const { q } = await import('../src/db.js');
+  const JSZip = (await import('jszip')).default;
+  const m1 = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'movea', domain: 'acme.com', name: 'Move Ann', password: 'password123' })).status, 201);
+  await login(m1, 'movea@acme.com');
+  assert.equal((await owner('POST', '/api/users', { local: 'moveb', domain: 'acme.com', name: 'Move Ben', password: 'password123' })).status, 201);
+  const ben = q("SELECT id FROM users WHERE username = 'moveb@acme.com'").get().id;
+  // Ann brings in a Google Takeout; an admin brings one in for Ben; Ben's mail import failed.
+  const z = new JSZip();
+  z.file('Takeout/Contacts/All Contacts/All Contacts.vcf', 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Zed Moved\r\nEMAIL:zed@example.com\r\nEND:VCARD\r\n');
+  z.file('Takeout/Drive/a.txt', 'hi');
+  assert.equal((await m1('POST', '/api/takeout/restore?tz=UTC', await z.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 200);
+  assert.equal((await owner('POST', `/api/takeout/restore?tz=UTC&user=${ben}`, await z.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 200);
+  q('INSERT INTO mail_imports (id, user_id, host, username, status, total, copied, error, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('imp-old', ben, 'imap.gmail.com', 'ben@gmail.com', 'done', 5, 5, null, 1000, 2000);
+  q('INSERT INTO mail_imports (id, user_id, host, username, status, total, copied, error, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('imp-new', ben, 'imap.gmail.com', 'ben@gmail.com', 'failed', 900, 120, 'Connection closed', Date.now() - 1000, Date.now());
+  const r = await owner('GET', '/api/orgs/current/migration');
+  assert.equal(r.status, 200);
+  const by = Object.fromEntries(r.body.people.map((p) => [p.email, p]));
+  assert.deepEqual([by['movea@acme.com'].data.from, by['movea@acme.com'].data.summary, by['movea@acme.com'].data.by_admin], ['Google', '1 file, 1 contact', false]);
+  assert.equal(by['movea@acme.com'].mail, null);
+  assert.equal(by['moveb@acme.com'].data.by_admin, true, 'brought in by an admin, shown as Ben’s');
+  assert.deepEqual([by['moveb@acme.com'].mail.status, by['moveb@acme.com'].mail.copied, by['moveb@acme.com'].mail.error], ['failed', 120, 'Connection closed'], 'the latest import');
+  assert.ok(r.body.counts.mail_failed >= 1 && r.body.counts.data >= 2);
+  assert.equal((await m1('GET', '/api/orgs/current/migration')).status, 403, 'admins only');
+});
