@@ -1078,6 +1078,14 @@ export default function webmailRoutes() {
         });
       }
       messages.sort((a, b) => b.uid - a.uid);
+      // Senders imitating a colleague's name or a domain you know (external.js): marked in the list too.
+      const seenFrom = new Map();
+      for (const m of messages) {
+        const a = m.from?.address?.toLowerCase();
+        if (!a) continue;
+        if (!seenFrom.has(a)) { const w = incomingWarning(req.user, m.from); seenFrom.set(a, w?.lookalike ? 'name' : w?.domain_like ? 'domain' : null); }
+        if (seenFrom.get(a)) m.suspicious = seenFrom.get(a);
+      }
       // Nudges: in your own Inbox, mail from people you haven't answered in 3 to 14 days ("Received 5 days ago. Reply?").
       if (folder === 'INBOX' && messages.length && !req.user.shared_mailbox && !req.user.delegate && nudgesOn(req.user)) {
         const nudged = new Set((await client.search(nudgeQuery(), { uid: true })) || []);

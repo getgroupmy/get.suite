@@ -149,6 +149,14 @@ await step('an email from outside about changed bank details: confirm by phone; 
   await open('Supplier update');
   if (await w.count()) throw new Error('warned about a colleague');
 });
+await step('the message list marks lookalike senders with ⚠ before opening', async () => {
+  await page.goto(`${B}/mail/INBOX`);
+  const row = (subject) => page.locator('.mail-list li, .mail-list [role="option"], .mail-list .msg').filter({ hasText: subject }).first();
+  await row('Urgent invoice').getByRole('img', { name: 'Warning: from a lookalike of a domain you know' }).waitFor();
+  await row('New bank details').getByRole('img', { name: /Warning/ }).waitFor();
+  if (await row('Monthly statement').getByRole('img', { name: /Warning/ }).count()) throw new Error('marked the real one');
+  await axe(page, 'list with lookalike marks');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
