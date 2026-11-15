@@ -18,7 +18,8 @@ import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheet
 import { removeDuplicates, splitColumn, trimText, changeCase, mapText, shuffleRows } from './data.js';
 import { fixSpaces, fixSpelling } from './cleanup.js';
 import { CleanupDialog } from './SheetCleanup.jsx';
-import { DedupeDialog, SplitDialog } from './SheetData.jsx';
+import { DedupeDialog, SplitDialog, SmartFillDialog } from './SheetData.jsx';
+import { planSmartFill, describeFill } from './smartfill.js';
 import { NamesDialog } from './SheetNames.jsx';
 import { FunctionsDialog } from './SheetFunctions.jsx';
 import { targetOf, cleanTarget } from './names.js';
@@ -531,6 +532,33 @@ export default function SheetEditor() {
     toast(`Split into ${out.columns} columns${out.overwritten ? ` (${out.overwritten} cell${out.overwritten === 1 ? '' : 's'} written over)` : ''}`);
     gridRef.current?.focus();
   }
+  /** Smart fill: learn from the examples typed in this column how they're made from the table's other columns. */
+  function smartFill() {
+    if (readOnly) return;
+    let g = sortTarget();
+    const target = sel.c;
+    const has = (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '';
+    // An empty column beside a table: the table is what's learnt from (the nearest filled cell to the left on this row).
+    if (!anchor && g.c1 === g.c2) {
+      let c = sel.c - 1;
+      while (c >= 0 && sel.c - c <= 3 && !has(c, sel.r)) c--;
+      if (c >= 0 && has(c, sel.r)) { const t = dataRegion({ c, r: sel.r }, has); g = { ...t, c2: Math.max(t.c2, sel.c) }; }
+    }
+    const shown = (c, r) => { const v = evaluate(cellKey(c, r)); return v === null || v === undefined || typeof v === 'object' ? '' : String(v); };
+    const cols = [];
+    for (let c = g.c1; c <= g.c2; c++) if (c !== target) cols.push(c);
+    const plan = planSmartFill({ r1: g.r1, r2: g.r2, target, cols, header: g.r2 > g.r1 && looksLikeHeader(g, evaluate), value: (i, r) => shown(i, r) });
+    if (plan.error) { toast(plan.error); return; }
+    setDialog({ type: 'smartfill', col: colName(target), plan: { ...plan, describe: describeFill(plan.pattern, cols.map(colName)) }, target });
+  }
+  function runSmartFill({ plan, target }) {
+    const cur = dataRef.current, sh = cur.sheets[active];
+    const next = { ...(sh.cells || {}) };
+    for (const f of plan.fills) { const k = cellKey(target, f.r); if (next[k] === undefined || next[k] === '') next[k] = f.v; }
+    commitData({ ...cur, sheets: cur.sheets.map((x, i) => (i === active ? { ...x, cells: next } : x)) });
+    toast(`Filled ${plan.fills.length} cell${plan.fills.length === 1 ? '' : 's'} in column ${colName(target)}`);
+    gridRef.current?.focus();
+  }
   // ---- pivot tables: a sheet with { pivot } is filled from its source whenever the data changes ----
   const pivotHeadings = (src, p) => {
     const ev = createEvaluator(src.cells || {}, src.names);
@@ -1007,6 +1035,7 @@ export default function SheetEditor() {
     { label: 'Trim whitespace', onClick: () => tidyText((v) => trimText(v), (n) => `Trimmed whitespace in ${n} cell${n === 1 ? '' : 's'}`, 'No extra spaces found') },
     { label: 'Change case…', onClick: () => setDialog({ type: 'case' }) },
     { label: 'Split text to columns…', onClick: () => setDialog({ type: 'split' }) },
+    { label: 'Smart fill…', onClick: smartFill },
     { label: 'Pivot table…', onClick: newPivot },
     { label: 'Name this range…', onClick: () => setDialog({ type: 'names', initial: selText }) },
   ];
@@ -1438,6 +1467,7 @@ export default function SheetEditor() {
       {dialog?.type === 'dedupe' && (() => { const g = sortTarget(); return (
         <DedupeDialog range={g} header={looksLikeHeader(g, evaluate)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={(o) => { setDialog(null); dedupe(g, o); }} />
       ); })()}
+      {dialog?.type === 'smartfill' && <SmartFillDialog col={dialog.col} plan={dialog.plan} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={() => { const d = dialog; setDialog(null); runSmartFill(d); }} />}
       {dialog?.type === 'split' && (() => { const g = anchor ? range : sortTarget(); const col = anchor ? { ...g, c2: g.c1 } : { ...g, c1: sel.c, c2: sel.c }; return (
         <SplitDialog range={col} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={(o) => { setDialog(null); split(col, o); }} />
       ); })()}
