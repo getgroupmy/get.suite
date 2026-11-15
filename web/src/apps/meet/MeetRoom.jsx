@@ -9,7 +9,7 @@ import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
-import { addCaption, shownCaptions } from './meetcaptions.js';
+import { addCaption, shownCaptions, addTranscriptLine, transcriptDoc } from './meetcaptions.js';
 import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
 import { Attendance, KeptChat, useMeetPast } from '../../components/MeetHistory.jsx';
@@ -348,6 +348,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const [cc, setCc] = useState(false); // live captions: see everyone's, and share yours
   const [caps, setCaps] = useState([]); // the captions heard (meetcaptions.js)
   const [ccError, setCcError] = useState('');
+  const tx = useRef(null); // keeping a transcript: { started, lines } (finished captions, with who and when)
+  const [txSaving, setTxSaving] = useState(false);
   const [startedAt, setStartedAt] = useState(0);
   const startedRef = useRef(0);
   startedRef.current = startedAt;
@@ -410,7 +412,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     const m = new Mesh({
       code, room, guestName: guest ? guestName.trim() : '', stream: local?.stream, iceServers: info?.ice_servers || [], mic: mic && hasAudio, cam: cam && hasVideo,
       onChange: redraw,
-      onCaption: (c) => setCaps((l) => addCaption(l, c)),
+      onCaption: (c) => { setCaps((l) => addCaption(l, c)); if (tx.current && c.final) tx.current.lines = addTranscriptLine(tx.current.lines, c); },
       onChat: (msg) => { setMessages((list) => [...list.slice(-199), msg]); if (panelRef.current !== 'chat' && !msg.mine) setUnread((n) => n + 1); },
       onReact: (r) => {
         const key = Math.random();
@@ -489,6 +491,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         const res = e.results[k], text = res[0].transcript.trim();
         if (!text) continue;
         setCaps((l) => addCaption(l, { id: 'me', name: 'You', text, final: res.isFinal }));
+        if (tx.current && res.isFinal) tx.current.lines = addTranscriptLine(tx.current.lines, { name: user?.name || guestName || 'You', text });
         mesh.current?.caption(text, res.isFinal);
       }
     };
@@ -505,7 +508,26 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   // Fade captions after a quiet spell.
   const [, tickCaps] = useReducer((x) => x + 1, 0);
   useEffect(() => { if (!cc) return undefined; const t = setInterval(tickCaps, 1000); return () => clearInterval(t); }, [cc]);
-  const leave = async () => { if (recorder.current) await stopRecording(); noteLeft(); mesh.current?.leave(); mesh.current = null; setStartedAt(0); setPhase('left'); setMessages([]); };
+  // Keep a transcript: everyone in the meeting is shown that you are; turning it off (or leaving) saves it to your Drive.
+  const startTranscript = () => {
+    tx.current = { started: Date.now(), lines: [] };
+    setCc(true);
+    mesh.current?.setState({ tx: true });
+    toast('Keeping a transcript of the captions. Everyone in the meeting can see that you are.');
+  };
+  const stopTranscript = async () => {
+    const t = tx.current;
+    if (!t) return;
+    tx.current = null;
+    mesh.current?.setState({ tx: false });
+    setTxSaving(true);
+    const title = info?.title || code;
+    const stamp = new Date(t.started).toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+    try { const f = await post('/files/new', { kind: 'doc', name: `${title} transcript ${stamp}`, content: transcriptDoc(title, t.lines, t.started) }); toast(`Saved “${f.name}” to your Drive`); }
+    catch (e) { toast(`The transcript couldn’t be saved: ${e.message}`, 'error'); }
+    finally { setTxSaving(false); }
+  };
+  const leave = async () => { if (recorder.current) await stopRecording(); if (tx.current) await stopTranscript(); noteLeft(); mesh.current?.leave(); mesh.current = null; setStartedAt(0); setPhase('left'); setMessages([]); };
 
   const m = mesh.current;
   const peers = m ? [...m.peers.values()] : [];
@@ -601,6 +623,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   };
   return (
     <div className="meet-page meet-call">
+      {tiles.some((t) => t.state.tx) && <div className="meet-rec-banner" role="status">📝 {tiles.filter((t) => t.state.tx).map((t) => (t.me ? 'You are' : `${t.name} is`)).join(', ')} keeping a transcript of the captions</div>}
       {tiles.some((t) => t.state.rec) && <div className="meet-rec-banner" role="status">🔴 {tiles.filter((t) => t.state.rec).map((t) => (t.me ? 'You are' : `${t.name} is`)).join(', ')} recording this meeting</div>}
       {m.mayAdmit && m.knocking.length > 0 && <div className="meet-knock" role="region" aria-label="Waiting to join">
         {m.knocking.map((g) => <div key={g.id} className="row"><span className="grow"><strong>{g.name}</strong> (guest) wants to join</span>
@@ -696,7 +719,10 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         <button type="button" className={`meet-btn ${m.state.hand ? 'on' : ''}`} aria-pressed={m.state.hand} aria-label={m.state.hand ? 'Lower hand' : 'Raise hand'} onClick={() => m.setState({ hand: !m.state.hand })}>✋</button>
         <button type="button" className={`meet-btn ${cc ? 'on' : ''}`} aria-pressed={cc} aria-label={cc ? 'Turn off captions' : 'Captions'}
           title={(window.SpeechRecognition || window.webkitSpeechRecognition) ? 'Captions: see what people with captions on say, and share yours' : 'Captions: see what others with captions on say (this browser can’t caption your words)'}
-          onClick={() => { setCc((v) => !v); setCcError(''); setCaps([]); }}>CC</button>
+          onClick={() => { if (cc && tx.current) { toast('Stop the transcript first: it’s made from the captions'); return; } setCc((v) => !v); setCcError(''); setCaps([]); }}>CC</button>
+        {!guest && <button type="button" className={`meet-btn ${m.state.tx ? 'on rec' : ''}`} disabled={txSaving} aria-pressed={!!m.state.tx}
+          aria-label={txSaving ? 'Saving the transcript' : m.state.tx ? 'Stop and save the transcript' : 'Keep a transcript'} title={m.state.tx ? 'Stop and save it to your Drive as a document' : 'Keep a transcript of the captions (saved to your Drive)'}
+          onClick={m.state.tx ? stopTranscript : startTranscript}>{txSaving ? '…' : '🗒'}</button>}
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>
         {calEvent && (calEvent.notes || calEvent.organiser) && <button type="button" className="meet-btn" aria-label={calEvent.notes ? 'Open the meeting notes' : 'Take meeting notes'} title={calEvent.notes ? `Meeting notes for “${calEvent.title}”` : `Start meeting notes for “${calEvent.title}” (everyone invited can write in them)`} onClick={openNotes}>📝</button>}
         <button type="button" className={`meet-btn ${panel === 'devices' ? 'on' : ''}`} aria-label="Audio and video settings" title="Camera and microphone" onClick={() => setPanel(panel === 'devices' ? null : 'devices')}>⚙</button>

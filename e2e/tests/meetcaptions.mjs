@@ -104,6 +104,23 @@ await step('two speakers: each on their own line, the latest last', async () => 
   const lines = await caps(max).locator('p').allInnerTexts();
   if (lines.length !== 2 || !lines[1].startsWith('Olivia Owner')) throw new Error(JSON.stringify(lines));
 });
+await step('Keep a transcript: everyone is told; stopping saves who said what to Drive as a document', async () => {
+  await page.getByRole('button', { name: 'Keep a transcript' }).click();
+await max.getByRole('status').getByText('Olivia Owner is keeping a transcript of the captions').waitFor();
+  await page.getByRole('status').getByText('You are keeping a transcript of the captions').waitFor();
+  await max.evaluate(() => window.__hear('the budget is approved'));
+  await max.evaluate(() => window.__hear('not yet final', false)); // never finished: not in the transcript
+  await page.evaluate(() => window.__hear('great news thank you'));
+await caps(page).getByText(/^You: .*great news thank you$/).waitFor();
+  await page.getByRole('button', { name: 'Stop and save the transcript' }).click();
+  await page.getByText(/^Saved “Standup transcript .+” to your Drive$/).waitFor();
+  await until(async () => !(await max.getByText(/keeping a transcript/).count()));
+  const f = await until(async () => (await api(page, 'GET', '/files')).body.find((x) => /^Standup transcript /.test(x.name)));
+  const text = JSON.stringify((await api(page, 'GET', `/files/${f.id}/content`)).body);
+  for (const want of ['Standup: transcript', 'Max Meet:', 'the budget is approved', 'Olivia Owner:', 'great news thank you']) if (!text.includes(want)) throw new Error(`missing ${want}: ${text.slice(0, 400)}`);
+  if (text.includes('not yet final')) throw new Error('kept words still being heard');
+  if (!(await max.getByRole('button', { name: 'Keep a transcript' }).count())) throw new Error('Max has no button');
+});
 await step('microphone off: your words stop being heard; CC off: no captions shown', async () => {
   await max.getByRole('button', { name: 'Turn off microphone' }).click();
   await until(() => max.evaluate(() => window.__rec.stopped));

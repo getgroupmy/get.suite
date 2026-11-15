@@ -7,6 +7,7 @@ export function nextState(prev = {}, patch = {}, t = Date.now()) {
   const hand = !!s.hand;
   return {
     mic: s.mic !== false, cam: s.cam !== false, hand, screen: !!s.screen, rec: !!s.rec, // rec: they're recording the meeting (everyone is shown)
+    tx: !!s.tx, // tx: they're keeping a transcript from the live captions (everyone is shown)
     hand_at: hand ? (prev.hand && prev.hand_at ? prev.hand_at : t) : null,
   };
 }

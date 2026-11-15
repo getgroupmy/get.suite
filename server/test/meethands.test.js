@@ -4,7 +4,7 @@ import { nextState, handQueue } from '../src/meethands.js';
 
 test('a raised hand is stamped when it goes up, kept while it stays up, cleared when lowered', () => {
   const s0 = nextState({}, { mic: false }, 100);
-  assert.deepEqual(s0, { mic: false, cam: true, hand: false, screen: false, rec: false, hand_at: null });
+  assert.deepEqual(s0, { mic: false, cam: true, hand: false, screen: false, rec: false, tx: false, hand_at: null });
   const s1 = nextState(s0, { hand: true }, 200);
   assert.equal(s1.hand_at, 200);
   const s2 = nextState(s1, { mic: true, hand: true }, 300);
@@ -22,4 +22,10 @@ test('the queue: hands up, first raised first', () => {
   ];
   assert.deepEqual(handQueue(people), ['c', 'd', 'a']);
   assert.deepEqual(handQueue([]), []);
+});
+
+test('keeping a transcript is part of the state everyone sees', () => {
+  assert.equal(nextState({}, { tx: true }).tx, true);
+  assert.equal(nextState({ tx: true }, { hand: true }).tx, true, 'stays on');
+  assert.equal(nextState({ tx: true }, { tx: false }).tx, false);
 });

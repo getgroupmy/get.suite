@@ -4980,7 +4980,7 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   a.ws.send(JSON.stringify({ type: 'state', state: { mic: false, hand: true, bogus: 1 } }));
   const st = await b.next('state');
   const { hand_at: handAt, ...rest } = st.state;
-  assert.deepEqual(rest, { mic: false, cam: false, hand: true, screen: false, rec: false });
+  assert.deepEqual(rest, { mic: false, cam: false, hand: true, screen: false, rec: false, tx: false });
   assert.ok(Math.abs(handAt - Date.now()) < 5000, 'the server stamps when the hand went up');
   b.ws.send(JSON.stringify({ type: 'chat', text: '  hello  ' }));
   assert.equal((await a.next('chat')).text, 'hello');

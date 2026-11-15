@@ -23,3 +23,18 @@ test('speaking again after a pause starts afresh', () => {
   l = addCaption(l, { id: 'a', name: 'Kim', text: 'second point', final: true }, QUIET_MS + 10);
   assert.equal(shownCaptions(l, QUIET_MS + 20)[0].text, 'second point');
 });
+
+test('transcript lines: a speaker still talking joins their line; someone else starts a new one', async () => {
+  const { addTranscriptLine, transcriptDoc } = await import('./meetcaptions.js');
+  let l = addTranscriptLine([], { name: 'Kim', text: 'good morning' }, 0);
+  l = addTranscriptLine(l, { name: 'Kim', text: 'shall we start' }, 5000);
+  l = addTranscriptLine(l, { name: 'Max', text: 'yes' }, 6000);
+  l = addTranscriptLine(l, { name: 'Max', text: '  ' }, 6500);
+  l = addTranscriptLine(l, { name: 'Max', text: 'later point' }, 6000 + 31000);
+  assert.deepEqual(l.map((x) => [x.name, x.text]), [['Kim', 'good morning shall we start'], ['Max', 'yes'], ['Max', 'later point']]);
+  const doc = transcriptDoc('Standup', l, 0);
+  assert.equal(doc.content[0].content[0].text, 'Standup: transcript');
+  assert.equal(doc.content.length, 2 + 3);
+  assert.deepEqual(doc.content[2].content.slice(1).map((x) => x.text), ['Kim:', ' good morning shall we start']);
+  assert.match(JSON.stringify(transcriptDoc('X', [], 0)), /Nothing was said/);
+});
