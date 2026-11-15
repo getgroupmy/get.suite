@@ -4984,6 +4984,13 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   assert.ok(Math.abs(handAt - Date.now()) < 5000, 'the server stamps when the hand went up');
   b.ws.send(JSON.stringify({ type: 'chat', text: '  hello  ' }));
   assert.equal((await a.next('chat')).text, 'hello');
+  // Live captions go to the others in the room (not back to whoever spoke), trimmed and limited.
+  b.ws.send(JSON.stringify({ type: 'caption', text: '  good   morning ', final: false }));
+  const cap = await a.next('caption');
+  assert.deepEqual([cap.text, cap.final, typeof cap.name], ['good morning', false, 'string']);
+  b.ws.send(JSON.stringify({ type: 'caption', text: 'x'.repeat(500) }));
+  const long = await a.next('caption');
+  assert.deepEqual([long.text.length, long.final], [300, true]);
   b.ws.send(JSON.stringify({ type: 'react', emoji: '💣' }));
   b.ws.send(JSON.stringify({ type: 'react', emoji: '👍' }));
   assert.equal((await a.next('react')).emoji, '👍', 'only the offered reactions');

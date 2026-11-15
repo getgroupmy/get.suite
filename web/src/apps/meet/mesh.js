@@ -4,8 +4,8 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent, onHost }) {
-    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent, onHost });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent, onHost, onCaption }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent, onHost, onCaption });
     this.polls = new Map(); // the meeting's polls, by id
     this.questions = new Map(); // Q&A, by id
     this.board = []; // the whiteboard's strokes, in order
@@ -108,6 +108,7 @@ export class Mesh {
       if (p) p.state = m.state;
     } else if (m.type === 'signal') await this.signal(m.from, m.data);
     else if (m.type === 'chat') { this.onChat?.({ ...m, mine: m.id === this.id }); return; }
+    else if (m.type === 'caption') { this.onCaption?.(m); return; }
     else if (m.type === 'knock') this.knocking = m.guests;
     else if (m.type === 'breakouts') { this.breakouts = m; this.breakoutCount = m.count; }
     else if (m.type === 'breakout') { this.onBreakout?.(m); return; }
@@ -244,6 +245,7 @@ export class Mesh {
   }
 
   chat(text) { this.send({ type: 'chat', text }); }
+  caption(text, final) { this.send({ type: 'caption', text, final }); }
   react(emoji) { this.send({ type: 'react', emoji }); }
 
   closeAll() {

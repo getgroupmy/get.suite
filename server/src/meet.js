@@ -473,6 +473,11 @@ function enterRoom(ws, req, code, m, user) {
           if (settingsOf(code).keep_chat) q('INSERT INTO meeting_chat (code, room, user_id, name, text, at) VALUES (?, ?, ?, ?, ?, ?)').run(code, n, user.guest ? null : user.id, user.guest ? `${user.name} (guest)` : user.name, text, at);
           toAll({ type: 'chat', id, name: user.name, text, at });
         }
+      } else if (msg?.type === 'caption') {
+        // Live captions: what someone with captions on said (their browser hears it), for the others in the
+        // room with captions on. Not kept anywhere.
+        const text = String(msg.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+        if (text) toOthers({ type: 'caption', id, name: user.guest ? `${user.name} (guest)` : user.name, text, final: msg.final !== false });
       } else if (msg?.type === 'lower' && isHost()) {
         // The host lowers someone's hand (they've had their say), or everyone's.
         for (const [pid, p] of room) {

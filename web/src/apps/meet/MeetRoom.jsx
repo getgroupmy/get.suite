@@ -9,6 +9,7 @@ import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
+import { addCaption, shownCaptions } from './meetcaptions.js';
 import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
 import { Attendance, KeptChat, useMeetPast } from '../../components/MeetHistory.jsx';
@@ -344,6 +345,9 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const boardRef = useRef(board);
   boardRef.current = board;
   const [floating, setFloating] = useState([]); // reactions shown for a moment
+  const [cc, setCc] = useState(false); // live captions: see everyone's, and share yours
+  const [caps, setCaps] = useState([]); // the captions heard (meetcaptions.js)
+  const [ccError, setCcError] = useState('');
   const [startedAt, setStartedAt] = useState(0);
   const startedRef = useRef(0);
   startedRef.current = startedAt;
@@ -406,6 +410,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     const m = new Mesh({
       code, room, guestName: guest ? guestName.trim() : '', stream: local?.stream, iceServers: info?.ice_servers || [], mic: mic && hasAudio, cam: cam && hasVideo,
       onChange: redraw,
+      onCaption: (c) => setCaps((l) => addCaption(l, c)),
       onChat: (msg) => { setMessages((list) => [...list.slice(-199), msg]); if (panelRef.current !== 'chat' && !msg.mine) setUnread((n) => n + 1); },
       onReact: (r) => {
         const key = Math.random();
@@ -465,6 +470,41 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     catch (e) { toast(`The recording couldn’t be saved: ${e.message}`, 'error'); }
     finally { setSaving(false); }
   };
+  // Captions: with CC on, your browser hears you (while your microphone is on) and your words go to the others
+  // with captions on; everyone's show along the bottom. The browser's speech service does the hearing (as
+  // for voice typing); nothing is kept.
+  const micOn = phase === 'call' && !!mesh.current?.state.mic;
+  useEffect(() => {
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!cc || !micOn || !R) return undefined;
+    let on = true;
+    const r = new R();
+    r.continuous = true;
+    r.interimResults = true;
+    let lang = '';
+    try { lang = localStorage.getItem('nw-voice-typing-lang') || ''; } catch { /* private window */ }
+    r.lang = lang || document.documentElement.lang || navigator.language || 'en-GB';
+    r.onresult = (e) => {
+      for (let k = e.resultIndex; k < e.results.length; k++) {
+        const res = e.results[k], text = res[0].transcript.trim();
+        if (!text) continue;
+        setCaps((l) => addCaption(l, { id: 'me', name: 'You', text, final: res.isFinal }));
+        mesh.current?.caption(text, res.isFinal);
+      }
+    };
+    r.onerror = (e) => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      on = false;
+      setCcError(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Your words can’t be captioned: the browser’s speech service isn’t allowed. Others’ captions still show.'
+        : e.error === 'network' ? 'Your words can’t be captioned: the browser’s speech service can’t be reached. Others’ captions still show.' : `Captioning your words stopped (${e.error}).`);
+    };
+    r.onend = () => { if (on) { try { r.start(); } catch { /* starting */ } } };
+    try { r.start(); } catch { /* started */ }
+    return () => { on = false; try { r.stop(); } catch { /* stopped */ } };
+  }, [cc, micOn]);
+  // Fade captions after a quiet spell.
+  const [, tickCaps] = useReducer((x) => x + 1, 0);
+  useEffect(() => { if (!cc) return undefined; const t = setInterval(tickCaps, 1000); return () => clearInterval(t); }, [cc]);
   const leave = async () => { if (recorder.current) await stopRecording(); noteLeft(); mesh.current?.leave(); mesh.current = null; setStartedAt(0); setPhase('left'); setMessages([]); };
 
   const m = mesh.current;
@@ -641,6 +681,12 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           </aside>
         )}
       </div>
+      {cc && (
+        <div className="meet-captions" role="region" aria-label="Captions">
+          {ccError && <p className="meet-cap-note" role="alert">{ccError}</p>}
+          {shownCaptions(caps).map((c) => <p key={c.id}><strong>{c.name}:</strong> {c.text}</p>)}
+        </div>
+      )}
       <footer className="meet-bar" role="toolbar" aria-label="Meeting controls">
         <button type="button" className={`meet-btn ${m.state.mic ? '' : 'off'}`} disabled={!hasAudio} aria-pressed={m.state.mic} aria-label={m.state.mic ? 'Turn off microphone' : 'Turn on microphone'} onClick={toggleMic}>{m.state.mic ? '🎙' : '🔇'}</button>
         <button type="button" className={`meet-btn ${m.state.cam ? '' : 'off'}`} disabled={!hasVideo} aria-pressed={m.state.cam} aria-label={m.state.cam ? 'Turn off camera' : 'Turn on camera'} onClick={toggleCam}>{m.state.cam ? '📷' : '🚫'}</button>
@@ -648,6 +694,9 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           disabled={!sharing && !m.host && !!m.settings?.host_present} title={!sharing && !m.host && m.settings?.host_present ? 'Only the host can present in this meeting' : undefined}
           onClick={() => (sharing ? m.stopScreen() : m.shareScreen().catch(() => {}))}>🖥</button>}
         <button type="button" className={`meet-btn ${m.state.hand ? 'on' : ''}`} aria-pressed={m.state.hand} aria-label={m.state.hand ? 'Lower hand' : 'Raise hand'} onClick={() => m.setState({ hand: !m.state.hand })}>✋</button>
+        <button type="button" className={`meet-btn ${cc ? 'on' : ''}`} aria-pressed={cc} aria-label={cc ? 'Turn off captions' : 'Captions'}
+          title={(window.SpeechRecognition || window.webkitSpeechRecognition) ? 'Captions: see what people with captions on say, and share yours' : 'Captions: see what others with captions on say (this browser can’t caption your words)'}
+          onClick={() => { setCc((v) => !v); setCcError(''); setCaps([]); }}>CC</button>
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>
         {calEvent && (calEvent.notes || calEvent.organiser) && <button type="button" className="meet-btn" aria-label={calEvent.notes ? 'Open the meeting notes' : 'Take meeting notes'} title={calEvent.notes ? `Meeting notes for “${calEvent.title}”` : `Start meeting notes for “${calEvent.title}” (everyone invited can write in them)`} onClick={openNotes}>📝</button>}
         <button type="button" className={`meet-btn ${panel === 'devices' ? 'on' : ''}`} aria-label="Audio and video settings" title="Camera and microphone" onClick={() => setPanel(panel === 'devices' ? null : 'devices')}>⚙</button>
