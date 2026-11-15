@@ -54,14 +54,15 @@ sync_tls() {
 sync_config() {
   local tmp="$LIVE.new"
   rm -rf "$tmp"
-  mkdir -p "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim" "$tmp/sieve"
+  mkdir -p "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim" "$tmp/sieve" "$tmp/rspamd"
   [[ -d $SRC ]] && cp -r "$SRC/." "$tmp/" 2>/dev/null || true
   # Every table must exist even before the app has written anything.
-  for f in postfix/domains postfix/mailboxes postfix/aliases postfix/senders dovecot/passwd dovecot/masters; do
+  for f in postfix/domains postfix/mailboxes postfix/aliases postfix/senders dovecot/passwd dovecot/masters rspamd/known_senders.map; do
     touch "$tmp/$f"
   done
   chown -R root:root "$tmp"
-  chmod 755 "$tmp" "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim" "$tmp/sieve"
+  chmod 755 "$tmp" "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim" "$tmp/sieve" "$tmp/rspamd"
+  chmod 644 "$tmp"/rspamd/* # maps Rspamd reads (and re-reads when they change)
   # Sieve scripts are read during delivery, which runs as the vmail user.
   find "$tmp/sieve" -type f -exec chmod 644 {} +
   chmod 644 "$tmp"/postfix/*

@@ -96,6 +96,25 @@ function policyConf() {
 // ---------- table generation ----------
 const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
 
+/**
+ * Senders the company already deals with, for Rspamd (multimap.conf, composites.conf): every address
+ * anyone here has written to, and every contact's, one per line (the company's own addresses left out),
+ * at most 100,000, most written-to first. Mail from them that passes SPF or DKIM scores 6 points less.
+ */
+export function knownSendersMap() {
+  const ours = new Set(q('SELECT name FROM domains').all().map((d) => d.name.toLowerCase()));
+  const seen = new Set();
+  const add = (e) => {
+    const a = String(e || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a) || ours.has(a.split('@')[1]) || seen.has(a)) return;
+    seen.add(a);
+  };
+  const rows = (sql) => { try { return q(sql).all(); } catch { return []; } }; // tables made by other modules (Mail, Contacts)
+  for (const r of rows('SELECT email FROM mail_sent_to GROUP BY email ORDER BY SUM(times) DESC LIMIT 100000')) add(r.email);
+  for (const r of rows('SELECT email FROM contacts WHERE email IS NOT NULL LIMIT 100000')) { if (seen.size >= 100000) break; add(r.email); }
+  return `# Senders the company deals with (written to, or kept as contacts): written by Workspace\n${[...seen].sort().join('\n')}${seen.size ? '\n' : ''}`;
+}
+
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'plus_folders')) q('ALTER TABLE users ADD COLUMN plus_folders INTEGER NOT NULL DEFAULT 0').run(); // you+name@ into the folder "name"
@@ -184,6 +203,7 @@ export function buildMailConfig() {
     const k = ensureDkim(d.name);
     if (k?.dkim_private) files[`dkim/${d.name}.${DKIM_SELECTOR}.key`] = k.dkim_private;
   }
+  files['rspamd/known_senders.map'] = knownSendersMap();
   return files;
 }
 
@@ -213,7 +233,7 @@ export function writeMailConfig(dir = MAIL_CONFIG_DIR) {
   if (!dir) return false;
   changedAt = Date.now();
   const files = buildMailConfig();
-  for (const sub of ['postfix', 'dovecot', 'dkim', 'sieve']) fs.mkdirSync(path.join(dir, sub), { recursive: true, mode: 0o750 });
+  for (const sub of ['postfix', 'dovecot', 'dkim', 'sieve', 'rspamd']) fs.mkdirSync(path.join(dir, sub), { recursive: true, mode: 0o750 });
   for (const [rel, content] of Object.entries(files)) {
     const target = path.join(dir, rel);
     let current = null;
@@ -229,6 +249,14 @@ export function writeMailConfig(dir = MAIL_CONFIG_DIR) {
     }
   }
   return true;
+}
+
+// The known senders change as people write to new addresses: written again every hour (only when changed).
+let hourly = null;
+export function startKnownSendersRefresh() {
+  if (!MAIL_CONFIG_DIR || hourly) return;
+  hourly = setInterval(() => { try { writeMailConfig(); } catch (e) { console.error('Writing mail configuration failed:', e); } }, 60 * 60e3);
+  hourly.unref?.();
 }
 
 let timer = null;

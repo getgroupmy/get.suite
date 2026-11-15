@@ -924,6 +924,7 @@ Your business fixed IP is what makes this work. Do these once:
 - **Mailbox size limits** (Admin → Users → ⋮ → Mailbox size). When a mailbox is full, new mail bounces to the sender.
 - **Emptying Trash and Junk:** Admin → Company settings → **Emptying Trash and Junk** has the mail server delete mail that has been in Trash, or in Junk, for a while (7, 14, 30, 60 or 90 days, or a year; *Never* by default), for everyone's mailbox in the company, whether it's read in Workspace, on a phone or in Outlook. It frees the space it took.
 - **Spam:** Rspamd scores incoming mail, rejects obvious spam and files likely spam in Junk.
+  - **People you deal with aren't sent to Junk:** anyone someone in the company has written to, and everyone in Contacts, counts as a known sender, so their mail scores well below the Junk line. That only applies when the message really comes from them (it passes SPF or DKIM for their domain), so a forged *From* gets no benefit; the company's own addresses are left out. The list is rebuilt every hour and as soon as someone writes to a new address.
 - **Suspended users:** disabling a user blocks sign-in everywhere, but their mail keeps arriving.
 - **Drafts:** compose saves to the Drafts folder 2 seconds after you stop typing. Closing the window keeps the draft, the bin icon discards it, and clicking a draft in Drafts resumes it.
   - Drafts live on the mail server, so phones and Outlook see them.

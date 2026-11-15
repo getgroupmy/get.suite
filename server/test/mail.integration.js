@@ -2180,6 +2180,15 @@ test('look-alike sender domains: the company’s own (acrne.com for acme.com) an
   assert.ok(!c?.domain_like, 'the real one');
 });
 
+test('spam filter: people anyone here writes to become known senders (rspamd/known_senders.map)', async () => {
+  const addr = `partner${Date.now()}@initech.example`;
+  const r = await olivia('POST', '/api/mail/send', { to: addr, subject: 'Hello partner', text: 'Nice to meet you.' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const file = path.join(process.env.MAIL_CONFIG_DIR, 'rspamd', 'known_senders.map');
+  await eventually(() => { try { return fs.readFileSync(file, 'utf8').split('\n').includes(addr); } catch { return false; } }, 10000);
+  assert.equal(fs.readFileSync(file, 'utf8').includes('@acme.com'), false, 'not the company’s own addresses');
+});
+
 test('DMARC and TLS reports sent to postmaster@ are read and added up for the admin', async () => {
   const zlib = await import('node:zlib');
   const { DMARC, TLS } = await import('./fixtures/reports.js');

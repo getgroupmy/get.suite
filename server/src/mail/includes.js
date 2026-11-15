@@ -3,6 +3,7 @@
 // it together (mail_together, with a < b), for messages to 2 to 20 people. Someone is suggested when, on
 // average across those already on the message, at least half the mail to them also went to that person
 // (and that happened at least twice).
+import { scheduleMailConfig } from './config.js';
 import { q } from '../db.js';
 
 q(`CREATE TABLE IF NOT EXISTS mail_sent_to (
@@ -27,10 +28,13 @@ export function recordTogether(user, addresses, at = Date.now()) {
     const e = clean(a?.address);
     if (e && e !== me && e.length <= 254 && !seen.has(e)) seen.set(e, String(a.name || '').trim().slice(0, 200) || null);
   }
+  let fresh = false;
   for (const [email, name] of seen) {
+    if (!fresh && !q('SELECT 1 FROM mail_sent_to WHERE email = ?').get(email)) fresh = true; // nobody here has written to them before
     q(`INSERT INTO mail_sent_to (owner_id, email, name, times, last_at) VALUES (?, ?, ?, 1, ?)
        ON CONFLICT(owner_id, email) DO UPDATE SET times = times + 1, last_at = excluded.last_at, name = COALESCE(excluded.name, mail_sent_to.name)`).run(user.id, email, name, at);
   }
+  if (fresh) scheduleMailConfig(); // a new known sender for the spam filter (config.js: knownSendersMap)
   const list = [...seen.keys()].sort();
   if (list.length >= 2 && list.length <= MAX_GROUP) {
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {

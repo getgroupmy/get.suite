@@ -48,7 +48,7 @@ import davRoutes from './dav.js';
 import webdavRoutes from './webdav.js';
 import commentRoutes from './routes/comments.js';
 import auditRoutes from './routes/audit.js';
-import { writeMailConfig, mailEnabled } from './mail/config.js';
+import { writeMailConfig, mailEnabled, startKnownSendersRefresh } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
 
@@ -62,7 +62,7 @@ export function createApp({
   maxUploadBytes = Number(process.env.MAX_UPLOAD_MB || 4096) * 1024 * 1024,
 } = {}) {
   for (const { id } of q('SELECT id FROM orgs').all()) ensureGeneralChannel(id);
-  if (mailEnabled()) writeMailConfig();
+  if (mailEnabled()) { writeMailConfig(); startKnownSendersRefresh(); }
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', trustProxy);
