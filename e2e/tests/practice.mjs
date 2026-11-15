@@ -135,6 +135,16 @@ await step('write your own practice email: Kim gets it as written, with the link
   await kim.locator('.mail-reader').getByText('DHL Express', { exact: true }).waitFor();
   await kim.locator('.mail-reader').getByText(/A fee of RM 3\.50 is due\. Pay here: https?:\/\/\S+\/practice\//).waitFor();
 });
+await step('send automatically every 3 months: said what happens and when next, kept after a reload', async () => {
+  await page.goto(`${B}/admin?tab=phishing`);
+  const card = page.getByRole('region', { name: 'Practice emails' });
+  await card.getByLabel('Send automatically').selectOption('3');
+  await page.getByText('A practice round goes out every 3 months').waitFor();
+  await card.getByRole('status').getByText(/A random third of the company gets one of the ready-made practice emails, sent as Olivia Owner; next on or after/).waitFor();
+  await page.reload();
+  if (await page.getByRole('region', { name: 'Practice emails' }).getByLabel('Send automatically').inputValue() !== '3') throw new Error('not kept');
+  await axe(page, 'automatic practice');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

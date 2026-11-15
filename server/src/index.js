@@ -1,4 +1,5 @@
 import { weeklyCheckupNotice } from './checkup.js';
+import { autoPracticeTick } from './phishpractice.js';
 import { warnExpiringLinks } from './routes/links.js';
 import { sendDueFormReminders } from './routes/forms.js';
 import { sendDateReminders } from './contactreminders.js';
@@ -59,6 +60,7 @@ setInterval(() => { try { sendDateReminders(); } catch (e) { console.error('[con
 setInterval(() => { try { notifyDueTouches(); } catch (e) { console.error('[contacts] keep in touch:', e.message); } }, 3600e3).unref(); // contacts due to be in touch with
 setInterval(() => { try { askCheckIns(); releaseNoShows(); } catch (e) { console.error('[rooms] check-in:', e.message); } }, 60e3).unref(); // rooms nobody checked in to go back
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
+setInterval(() => { if (mailEnabled()) autoPracticeTick().catch((e) => console.error('[practice]', e.message)); }, 6 * 3600e3).unref(); // automatic phishing practice rounds
 setInterval(() => weeklyCheckupNotice().catch((e) => console.error('[checkup]', e.message)), 6 * 3600e3).unref(); // admins told weekly of what the security checkup finds
 setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than each company keeps it
 setTimeout(() => emptyOldTrash(), 60e3).unref();

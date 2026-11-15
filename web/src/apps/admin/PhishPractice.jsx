@@ -1,7 +1,7 @@
 // Admin → Phishing → Practice emails: send chosen colleagues a practice phishing email, and see who
 // clicked its link and who reported it (Mail → Report phishing). See server/src/phishpractice.js.
 import { useEffect, useState } from 'react';
-import { get, post } from '../../api.js';
+import { get, post, put } from '../../api.js';
 import { useToast } from '../../components/ui.jsx';
 
 export default function PhishPractice() {
@@ -52,6 +52,16 @@ export default function PhishPractice() {
         <div className="practice-list">{people.map((p) => <label key={p.id} className="check"><input type="checkbox" checked={chosen.has(p.id)} onChange={() => toggle(p.id)} /> {p.name} <span className="muted small">{p.username}</span></label>)}</div>
       </fieldset>
       <div className="row"><button type="button" className="btn primary" disabled={busy || !chosen.size || (template === 'custom' && !(custom.from.trim() && custom.subject.trim() && custom.text.trim()))} onClick={send}>{busy ? 'Sending…' : `Send to ${chosen.size || 'no'} ${chosen.size === 1 ? 'person' : 'people'}`}</button></div>
+      <label className="field" style={{ maxWidth: 360 }}><span>Send automatically</span>
+        <select aria-label="Send automatically" value={data.auto.every} onChange={async (e) => {
+          try { const auto = await put('/orgs/current/phish-practice/auto', { every: Number(e.target.value) }); setData({ ...data, auto: { ...data.auto, ...auto } }); toast(auto.every ? `A practice round goes out every ${auto.every === 1 ? 'month' : `${auto.every} months`}` : 'No automatic practice rounds'); } catch (err) { toast(err.message, 'error'); }
+        }}>
+          <option value={0}>Never</option><option value={1}>Every month</option><option value={3}>Every 3 months</option><option value={6}>Every 6 months</option>
+        </select></label>
+      {data.auto.every > 0 && <p className="muted small" style={{ margin: 0 }} role="status">
+        A random third of the company gets one of the ready-made practice emails, sent as {data.auto.by || 'you'}{data.auto.next_at ? `; next on or after ${new Date(data.auto.next_at).toLocaleDateString([], { dateStyle: 'medium' })}` : ''}.
+        {!data.auto.ready && <strong> It needs the server’s public address (PUBLIC_URL) to make the links: until that’s set, none go out.</strong>}
+      </p>}
       {data.rounds.length > 0 && (
         <table className="files" aria-label="Practice rounds">
           <thead><tr><th scope="col">Sent</th><th scope="col">Email</th><th scope="col">To</th><th scope="col">Clicked</th><th scope="col">Reported</th><th /></tr></thead>

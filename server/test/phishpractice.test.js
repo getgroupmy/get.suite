@@ -61,3 +61,28 @@ test('an admin’s own practice email: name, subject and text with {link}; check
   await assert.rejects(sendPractice(ana, { template: 'custom', userIds: ['k'], base: 'x', custom: { subject: 'x', text: 'y' } }), /pretends to be from/);
   await assert.rejects(sendPractice(ana, { template: 'custom', userIds: ['k'], base: 'x', custom: { from: 'x', text: 'y' } }), /subject/);
 });
+
+test('automatic rounds: due every N months from the last round, to a random third, as the admin who set it', async () => {
+  const { setAutoPractice, autoPracticeOf, autoPracticeTick } = await import('../src/phishpractice.js');
+  for (let i = 0; i < 6; i++) q("INSERT INTO users (id, org_id, username, name, password_hash, created_at) VALUES (?, 'o1', ?, ?, 'x', 0)").run(`p${i}`, `p${i}@acme.com`, `Person ${i}`);
+  assert.throws(() => setAutoPractice(ana, 2), /Every 1, 3 or 6 months/);
+  assert.deepEqual(autoPracticeOf('o1').every, 0);
+  const sent = [];
+  const send = async (m) => sent.push(m);
+  assert.deepEqual(await autoPracticeTick(Date.now(), { base: 'https://ws', send }), [], 'off');
+  const auto = setAutoPractice(ana, 3);
+  assert.equal(auto.every, 3); assert.equal(auto.by, 'Ana Admin');
+  const last = autoPracticeOf('o1').last_at;
+  assert.deepEqual(await autoPracticeTick(last + 10 * 864e5, { base: 'https://ws', send }), [], 'not due yet: a round went out lately');
+  assert.deepEqual(await autoPracticeTick(last + 91 * 864e5, { base: 'https://ws', send, pick: () => 0.5 }), ['o1']);
+  const active = q("SELECT COUNT(*) AS n FROM users WHERE org_id = 'o1' AND disabled = 0").get().n;
+  assert.equal(sent.length, Math.round(active / 3));
+  assert.ok(sent.every((m) => m.from.address === 'ana@acme.com'));
+  assert.deepEqual(await autoPracticeTick(Date.now() + 1000, { base: 'https://ws', send }), [], 'just sent');
+  assert.deepEqual(await autoPracticeTick(Date.now() + 200 * 864e5, { base: '', send }), [], 'no server address: waits');
+  q("UPDATE users SET disabled = 1 WHERE id = 'a'").run();
+  assert.deepEqual(await autoPracticeTick(Date.now() + 200 * 864e5, { base: 'https://ws', send }), [], 'the admin left: waits');
+  q("UPDATE users SET disabled = 0 WHERE id = 'a'").run();
+  setAutoPractice(ana, 0);
+  assert.equal(autoPracticeOf('o1').next_at, null);
+});

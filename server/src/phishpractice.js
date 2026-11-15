@@ -112,3 +112,40 @@ export function practicePage(found) {
 <p><strong>Next time:</strong> don’t click; use <strong>Report phishing</strong> on the message in Mail. That warns your admins, and in a practice round it counts as spotting it.</p>
 </body></html>`;
 }
+
+// Automatic rounds (Admin → Phishing → Practice emails → Send automatically): every 1, 3 or 6 months, a
+// random third of the company (at least one person) gets one of the ready-made practice emails, sent as the
+// admin who turned it on. orgs.practice_every (months, 0 = off), practice_by (that admin).
+for (const [col, type] of [['practice_every', 'INTEGER NOT NULL DEFAULT 0'], ['practice_by', 'TEXT']]) {
+  if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === col)) q(`ALTER TABLE orgs ADD COLUMN ${col} ${type}`).run();
+}
+export const EVERY_CHOICES = [0, 1, 3, 6];
+export function setAutoPractice(admin, months) {
+  const m = Number(months);
+  if (!EVERY_CHOICES.includes(m)) throw bad('Every 1, 3 or 6 months, or never');
+  q('UPDATE orgs SET practice_every = ?, practice_by = ? WHERE id = ?').run(m, m ? admin.id : null, admin.org_id);
+  return autoPracticeOf(admin.org_id);
+}
+export function autoPracticeOf(orgId) {
+  const o = q('SELECT practice_every, practice_by FROM orgs WHERE id = ?').get(orgId);
+  const last = q('SELECT MAX(created_at) AS at FROM phish_practice WHERE org_id = ?').get(orgId)?.at || null;
+  const every = o?.practice_every || 0;
+  return { every, by: o?.practice_by ? q('SELECT name FROM users WHERE id = ?').get(o.practice_by)?.name || null : null, last_at: last, next_at: every ? (last || 0) + every * 30 * 864e5 : null };
+}
+
+/** Send the rounds that are due (checked every few hours). → the companies sent to. */
+export async function autoPracticeTick(now = Date.now(), { base = process.env.PUBLIC_URL || '', send = null, pick = Math.random } = {}) {
+  const done = [];
+  for (const o of q('SELECT id, practice_every, practice_by FROM orgs WHERE practice_every > 0').all()) {
+    const last = q('SELECT MAX(created_at) AS at FROM phish_practice WHERE org_id = ?').get(o.id)?.at || 0;
+    if (now - last < o.practice_every * 30 * 864e5) continue;
+    const admin = q('SELECT id, org_id, username FROM users WHERE id = ? AND org_id = ? AND disabled = 0').get(o.practice_by, o.id);
+    if (!admin || !base) continue; // the admin left, or the server's address isn't known: wait
+    const people = q('SELECT id FROM users WHERE org_id = ? AND disabled = 0').all(o.id).map((u) => u.id);
+    for (let i = people.length - 1; i > 0; i--) { const j = Math.floor(pick() * (i + 1)); [people[i], people[j]] = [people[j], people[i]]; }
+    const chosen = people.slice(0, Math.max(1, Math.round(people.length / 3)));
+    const ids = Object.keys(TEMPLATES);
+    try { await sendPractice(admin, { template: ids[Math.floor(pick() * ids.length)], userIds: chosen, base }, { send }); done.push(o.id); } catch (e) { console.error('[practice]', e.message); }
+  }
+  return done;
+}
