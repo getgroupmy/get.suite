@@ -1,5 +1,6 @@
 import { mcpRoutes, innerIp } from './mcp.js';
 import { googleImportRoutes } from './mail/googleimport.js';
+import { msImportRoutes } from './mail/msimport.js';
 import { mcpAuthRoutes } from './mcpauth.js';
 import slideQaRoutes from './routes/slideqa.js';
 import webImportRoutes from './routes/webimport.js';
@@ -128,6 +129,7 @@ export function createApp({
   app.use('/api/orgs', requireAuth, orgRoutes());
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());
   app.use('/api/mail/import/google', requireAuth, googleImportRoutes()); // Google sign-in for imports (works without mail too)
+  app.use('/api/mail/import/microsoft', requireAuth, msImportRoutes()); // Microsoft sign-in for imports (calendars, contacts and OneDrive without mail too)
   app.use('/api/mail', requireAuth, webmailRoutes());
   app.use('/api/security', requireAuth, securityRoutes());
   app.use('/api/dlp', requireAuth, dlpRoutes());

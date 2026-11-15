@@ -113,12 +113,12 @@ function MicrosoftImport({ org, save }) {
   useEffect(() => { setId(org.ms_client_id || ''); setTenant(org.ms_tenant || ''); }, [org.ms_client_id, org.ms_tenant]);
   return (
     <form className="card stack" aria-labelledby="msimport-h" onSubmit={(e) => { e.preventDefault(); save({ ms_client_id: id.trim(), ms_tenant: tenant.trim() }, id.trim() ? 'People can now import mail from Microsoft 365' : 'Importing from Microsoft 365 is off'); }}>
-      <h2 id="msimport-h">Importing mail from Microsoft 365</h2>
+      <h2 id="msimport-h">Importing from Microsoft 365</h2>
       <p className="muted small" style={{ margin: 0 }}>Microsoft 365 work accounts don’t accept passwords from other mail programs, so Mail → Import mail signs people in at Microsoft instead (with a code, on Microsoft’s own page; their password never comes here). That needs your company’s own app at Microsoft, made once:</p>
       <ol className="small move-steps">
         <li>In the Microsoft Entra admin center: <strong>App registrations → New registration</strong>, any name (<em>Workspace import</em>), accounts in your organization only (or any organization).</li>
         <li>In the app’s <strong>Authentication</strong>, turn on <strong>Allow public client flows</strong>.</li>
-        <li>In <strong>API permissions → Add a permission → APIs my organization uses → Office 365 Exchange Online</strong> (or search “IMAP”): <strong>Delegated → IMAP.AccessAsUser.All</strong>, then <strong>Grant admin consent</strong>.</li>
+        <li>In <strong>API permissions → Add a permission → APIs my organization uses → Office 365 Exchange Online</strong> (or search “IMAP”): <strong>Delegated → IMAP.AccessAsUser.All</strong> (for mail); and <strong>Microsoft Graph → Delegated → Calendars.Read, Contacts.Read, Files.Read</strong> (for calendars, contacts and OneDrive from Settings → Move here). Then <strong>Grant admin consent</strong>.</li>
         <li>Copy the app’s <strong>Application (client) ID</strong> (and the <strong>Directory (tenant) ID</strong>) here.</li>
       </ol>
       <div className="row wrap" style={{ gap: 12 }}>

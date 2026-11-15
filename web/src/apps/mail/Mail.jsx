@@ -1127,6 +1127,7 @@ function ImportMail({ from = '', onClose, onDone }) {
     return () => clearInterval(t);
   }, [ms?.status]);
   const microsoft = f.host === 'outlook.office365.com' && ms?.available;
+  const msMail = ms?.what === 'data' ? { ...ms, status: 'none' } : ms; // a sign-in for calendars and files (Settings) isn't this one
   // Gmail and Google Workspace: off to Google's sign-in page and back (the import then starts by itself).
   const [google, setGoogle] = useState(null);
   useEffect(() => { get('/mail/import/google').then(setGoogle).catch(() => setGoogle(null)); }, []);
@@ -1181,7 +1182,7 @@ function ImportMail({ from = '', onClose, onDone }) {
                 {IMPORT_FROM.map(([h, n]) => <option key={n} value={h}>{n}</option>)}
               </select></label>
             <p className="muted small" style={{ margin: 0 }}>You sign in at Microsoft with a code (on Microsoft’s own page, so your password never comes here); then everything in the mailbox is copied, as for any account. Microsoft asks you to let your company’s import app read your mail: say yes.</p>
-            {ms.status === 'waiting' ? (
+            {msMail.status === 'waiting' ? (
               <div className="ms-code stack-tight" role="status">
                 <p style={{ margin: 0 }}>Go to <a href={ms.verification_uri} target="_blank" rel="noopener noreferrer"><strong>{ms.verification_uri.replace(/^https?:\/\//, '')}</strong></a> and enter this code, then sign in as <strong>{ms.email}</strong>:</p>
                 <div className="row" style={{ gap: 8 }}><code className="ms-user-code" aria-label="Your code">{ms.user_code}</code>
@@ -1190,7 +1191,7 @@ function ImportMail({ from = '', onClose, onDone }) {
                 <div className="row"><button type="button" className="btn small" onClick={msCancel}>Cancel</button></div>
               </div>
             ) : <>
-              {['declined', 'expired', 'error'].includes(ms.status) && <p className="error" role="alert">{ms.status === 'declined' ? 'The sign-in at Microsoft was declined.' : ms.status === 'expired' ? 'The code ran out before you signed in: try again.' : `It didn’t work: ${ms.error}`}</p>}
+              {['declined', 'expired', 'error'].includes(msMail.status) && <p className="error" role="alert">{msMail.status === 'declined' ? 'The sign-in at Microsoft was declined.' : ms.status === 'expired' ? 'The code ran out before you signed in: try again.' : `It didn’t work: ${ms.error}`}</p>}
               <label className="field"><span>Your Microsoft 365 address</span><input required type="email" autoComplete="off" value={msEmail} onChange={(e) => setMsEmail(e.target.value)} placeholder="you@yourcompany.com" /></label>
               {error && <p className="error">{error}</p>}
               <div className="row end"><button className="btn primary" disabled={busy}>{busy ? 'Starting…' : 'Sign in with Microsoft'}</button></div>

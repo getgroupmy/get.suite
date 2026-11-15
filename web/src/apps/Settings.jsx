@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { useEffect, useRef, useState } from 'react';
 import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
-import { api, get, patch, post, put, del, putBlob, postBlob, uploadFile, formatBytes } from '../api.js';
+import { api, get, patch, post, put, del, putBlob, postBlob, uploadFile, formatBytes, onLive } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
 import { Avatar, ConfirmModal, PromptModal, useToast } from '../components/ui.jsx';
@@ -755,7 +755,7 @@ const MOVE_FROM = {
       <>Put the .csv and .ics into the OneDrive .zip (or a .zip of their own), and press <strong>Bring in a .zip…</strong> below. The OneDrive folder comes in as one new Drive folder, contacts and the calendar into yours.</>,
       <><strong>Mail:</strong> <strong>Import mail</strong> signs in at Microsoft with a code for Microsoft 365 work accounts, once your admin has set that up (Admin → Company settings); Outlook.com accounts can use an app password. Otherwise: add the account to Thunderbird (it signs in to Microsoft 365 by itself) and either drag its folders into this server's account added there too (see <strong>Mail apps</strong> below), or save the folders as .mbox or .eml files (Thunderbird's ImportExportTools NG add-on) and bring them in as a .zip. Outlook's own .pst files can't be read here.</>,
     ],
-    notes: 'Word, Excel and PowerPoint files open and edit here as they are; Settings → File format for downloads → Convert uploads makes new uploads Workspace documents.',
+    notes: 'Quicker, when your admin has set it up: Calendars, contacts and OneDrive from Microsoft… signs you in at Microsoft with a code and brings them all at once, no export needed. Word, Excel and PowerPoint files open and edit here as they are; Settings → File format for downloads → Convert uploads makes new uploads Workspace documents.',
   },
   zoho: {
     name: 'Zoho Workplace or Zoho Mail',
@@ -795,6 +795,20 @@ function MoveHere() {
     }
     window.history.replaceState(null, '', '/settings#move-here');
   }, [toast]);
+  // Calendars, contacts and OneDrive straight from Microsoft (sign in there with a code).
+  const [msData, setMsData] = useState(null); // { available, status, user_code, verification_uri, what, step, result, error }
+  useEffect(() => { get('/mail/import/microsoft').then(setMsData).catch(() => setMsData(null)); }, []);
+  useEffect(() => onLive((m) => { if (m.type === 'ms-import') setMsData((x) => ({ ...x, ...m.ms })); }), []);
+  useEffect(() => {
+    if (!['waiting', 'signed-in', 'importing'].includes(msData?.status) || msData?.what !== 'data') return undefined;
+    const t = setInterval(() => get('/mail/import/microsoft').then(setMsData).catch(() => {}), 3000);
+    return () => clearInterval(t);
+  }, [msData?.status, msData?.what]);
+  const fromMicrosoft = async () => {
+    try { setMsData({ available: true, ...(await post('/mail/import/microsoft', { what: 'data' })) }); } catch (e) { toast(e.message, 'error'); }
+  };
+  const msShown = msData?.what === 'data' && msData.status !== 'none';
+  const plural = (x, one, many) => `${x} ${x === 1 ? one : many}`;
   const fromGoogle = async () => {
     setGoogleBusy(true);
     try { window.location.assign((await post('/mail/import/google/start', { what: 'data' })).url); } catch (e) { toast(e.message, 'error'); setGoogleBusy(false); }
@@ -812,10 +826,26 @@ function MoveHere() {
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className="btn primary" disabled={bring.restoring} onClick={bring.pick}><Icon name="upload" size={18} /> {bring.label || 'Bring in a .zip…'}</button>
         <button type="button" className="btn" disabled={bring.restoring} onClick={bring.pickFromDrive}>From Drive…</button>
+        {from === 'microsoft' && msData?.available && !(msShown && ['waiting', 'signed-in', 'importing'].includes(msData.status)) && <button type="button" className="btn" onClick={fromMicrosoft} title="Sign in at Microsoft with a code and bring your calendars, contacts and OneDrive now, no export needed">Calendars, contacts and OneDrive from Microsoft…</button>}
         {from === 'google' && google?.available && <button type="button" className="btn" disabled={googleBusy} onClick={fromGoogle} title="Sign in at Google and bring your calendars and contacts now, no export needed">{googleBusy ? 'Going to Google…' : 'Calendars and contacts from Google…'}</button>}
         {mail?.enabled && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Copy messages from the account…</Link>}
         {bring.controls(`Your ${m.name} export (.zip)`, `Bring in your ${m.name} export from Drive`)}
       </div>
+      {from === 'microsoft' && msShown && (
+        <div className="ms-code stack-tight" role="status" aria-label="From Microsoft">
+          {msData.status === 'waiting' && <>
+            <p style={{ margin: 0 }}>Go to <a href={msData.verification_uri} target="_blank" rel="noopener noreferrer"><strong>{msData.verification_uri.replace(/^https?:\/\//, '')}</strong></a>, enter this code and sign in with your Microsoft account:</p>
+            <div className="row" style={{ gap: 8 }}><code className="ms-user-code" aria-label="Your code">{msData.user_code}</code>
+              <button type="button" className="btn small" onClick={() => navigator.clipboard?.writeText(msData.user_code).catch(() => {})}>Copy code</button>
+              <button type="button" className="btn small" onClick={async () => { await del('/mail/import/microsoft').catch(() => {}); setMsData({ available: true, status: 'none' }); }}>Cancel</button></div>
+          </>}
+          {['signed-in', 'importing'].includes(msData.status) && <p style={{ margin: 0 }}>Signed in. Bringing in your {({ calendar: 'calendars', contacts: 'contacts', drive: 'OneDrive files' })[msData.step] || 'things'}… (this carries on if you leave this page)</p>}
+          {msData.status === 'done' && msData.result && <p style={{ margin: 0 }}><strong>From Microsoft:</strong> {[
+            `${plural(msData.result.calendar?.added ?? 0, 'event', 'events')}${msData.result.calendar?.calendars?.length ? ` (with ${msData.result.calendar.calendars.join(', ')} as calendars of their own)` : ''}`,
+            plural(msData.result.contacts?.added ?? 0, 'contact', 'contacts'), msData.result.drive ? `${plural(msData.result.drive.files, 'file', 'files')} into “${msData.result.drive.folder}” in Drive` : null].filter(Boolean).join(', ')} brought in.</p>}
+          {['declined', 'expired', 'error'].includes(msData.status) && <p className="error" style={{ margin: 0 }}>{msData.status === 'declined' ? 'The sign-in at Microsoft was declined.' : msData.status === 'expired' ? 'The code ran out before you signed in: try again.' : `It didn’t work: ${msData.error}`}</p>}
+        </div>
+      )}
       <p className="muted small" style={{ margin: 0 }}>{m.notes}{m.imap && mail?.enabled ? ` ${m.imap}` : ''}</p>
     </section>
   );

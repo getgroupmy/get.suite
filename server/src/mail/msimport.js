@@ -6,10 +6,17 @@
 // Each company registers an app at Microsoft once (Entra ID → App registrations: a public client with
 // "Allow public client flows" on and the delegated permission IMAP.AccessAsUser.All) and gives its
 // client ID (and tenant, or "organizations") in Admin → Company settings.
+import { Router } from 'express';
 import { q } from '../db.js';
 import { bad } from '../util.js';
 import { sendTo } from '../hub.js';
 import { startImport } from './importer.js';
+import { audit } from '../audit.js';
+import { msCalendars, msContacts, msDriveItems, graphCalendarIcs, graphContactToVcard } from '../migrate/msgraph.js';
+import { importCalendar } from '../calimport.js';
+import { addCalendar } from '../mycalendars.js';
+import { importContacts } from '../routes/contacts.js';
+import { intoDrive } from '../routes/takeout.js';
 
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'ms_client_id')) q('ALTER TABLE orgs ADD COLUMN ms_client_id TEXT').run();
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'ms_tenant')) q('ALTER TABLE orgs ADD COLUMN ms_tenant TEXT').run();
@@ -17,6 +24,8 @@ if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'ms_tenant')) q('
 const LOGIN = () => (process.env.MS_LOGIN_URL || 'https://login.microsoftonline.com').replace(/\/$/, '');
 const IMAP_HOST = () => process.env.MS_IMAP_HOST || 'outlook.office365.com';
 export const MS_SCOPE = 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access';
+/** For calendars, contacts and OneDrive (Settings → Move here): read-only Graph permissions. */
+export const MS_DATA_SCOPE = 'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/Contacts.Read https://graph.microsoft.com/Files.Read offline_access';
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The company's Microsoft app, or null: { clientId, tenant }. */
@@ -51,17 +60,18 @@ export const msStatusOf = (userId) => {
  * Start: ask Microsoft for a code for this person to enter at microsoft.com/devicelogin; then wait for
  * them in the background, and start the import once they've signed in. → what to show them.
  */
-export async function startMsImport(user, { email }, { start = startImport, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+export async function startMsImport(user, { email, what = 'mail' }, { start = startImport, bringData = null, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const data = what === 'data';
   const app = msAppOf(user.org_id);
   if (!app) throw bad('Your company hasn’t set up importing from Microsoft 365 yet (Admin → Company settings)');
   const mailbox = String(email || '').trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mailbox)) throw bad('Give the address of the Microsoft 365 mailbox');
+  if (!data && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mailbox)) throw bad('Give the address of the Microsoft 365 mailbox');
   const old = pending.get(user.id);
   if (old?.status === 'waiting') old.cancelled = true;
-  const r = await form(`${LOGIN()}/${encodeURIComponent(app.tenant)}/oauth2/v2.0/devicecode`, { client_id: app.clientId, scope: MS_SCOPE }).catch((e) => ({ status: 0, body: { error_description: e.message } }));
+  const r = await form(`${LOGIN()}/${encodeURIComponent(app.tenant)}/oauth2/v2.0/devicecode`, { client_id: app.clientId, scope: data ? MS_DATA_SCOPE : MS_SCOPE }).catch((e) => ({ status: 0, body: { error_description: e.message } }));
   if (r.status !== 200 || !r.body.device_code) throw bad(`Microsoft didn’t start the sign-in: ${String(r.body.error_description || r.body.error || r.status).split('\n')[0].slice(0, 200)}`);
   const job = {
-    status: 'waiting', email: mailbox, user_code: r.body.user_code, verification_uri: r.body.verification_uri || 'https://microsoft.com/devicelogin',
+    status: 'waiting', what: data ? 'data' : 'mail', email: mailbox, user_code: r.body.user_code, verification_uri: r.body.verification_uri || 'https://microsoft.com/devicelogin',
     expires_at: Date.now() + (Number(r.body.expires_in) || 900) * 1000, device_code: r.body.device_code,
   };
   pending.set(user.id, job);
@@ -76,6 +86,14 @@ export async function startMsImport(user, { email }, { start = startImport, slee
         .catch((e) => ({ status: 0, body: { error: 'network', error_description: e.message } }));
       if (t.status === 200 && t.body.access_token) {
         job.status = 'signed-in'; delete job.device_code; tell();
+        if (data) {
+          // Calendars, contacts and OneDrive: brought in here (the result is shown when done).
+          job.status = 'importing'; tell();
+          try { job.result = await (bringData || bringMsData)(user, t.body.access_token, (step) => { job.step = step; tell(); }); job.status = 'done'; audit(null, 'takeout.restore', { actor: user, details: { from: 'Microsoft', ...job.result } }); }
+          catch (e) { job.status = 'error'; job.error = String(e.message || e).slice(0, 300); }
+          tell();
+          return;
+        }
         try { await start(user, { host: IMAP_HOST(), port: 993, username: job.email, accessToken: t.body.access_token }); job.status = 'importing'; }
         catch (e) { job.status = 'error'; job.error = e.message; }
         tell();
@@ -98,4 +116,47 @@ export async function startMsImport(user, { email }, { start = startImport, slee
 export function cancelMsImport(userId) {
   const p = pending.get(userId);
   if (p) { p.cancelled = true; pending.delete(userId); }
+}
+
+const CAL_COLORS = ['#039be5', '#7986cb', '#33b679', '#8e24aa', '#e67c73', '#f6bf26', '#f4511e', '#616161'];
+/**
+ * Calendars (the default one into yours, others as their own), contacts (doubles skipped) and OneDrive (one
+ * new Drive folder, "From Microsoft" and the date, with its folders) from Microsoft Graph. → { calendar, contacts, drive }
+ */
+export async function bringMsData(user, token, onStep = () => {}) {
+  const out = {};
+  onStep('calendar');
+  const cals = await msCalendars(token).catch((e) => { throw bad(`Couldn’t read your Microsoft calendars: ${e.message}`); });
+  const cal = { added: 0, skipped: 0, calendars: [] };
+  for (const [i, c] of cals.entries()) {
+    let calId = null;
+    if (!c.primary) {
+      const name = String(c.name || 'Outlook calendar').slice(0, 60);
+      calId = q('SELECT id FROM user_calendars WHERE owner_id = ? AND name = ? COLLATE NOCASE').get(user.id, name)?.id;
+      if (!calId) { try { calId = addCalendar(user.id, { name, color: CAL_COLORS[i % CAL_COLORS.length] }).id; } catch { calId = null; } }
+      if (calId) cal.calendars.push(name);
+    }
+    const r = importCalendar(user.id, graphCalendarIcs(c.events), 'UTC', calId);
+    if (!r.error) { cal.added += r.added; cal.skipped += r.skipped; }
+  }
+  out.calendar = cal;
+  onStep('contacts');
+  const people = await msContacts(token).catch((e) => { throw bad(`Couldn’t read your Microsoft contacts: ${e.message}`); });
+  const cards = people.map(graphContactToVcard).filter(Boolean);
+  out.contacts = cards.length ? importContacts(user, cards.join('\r\n')) : { added: 0, skipped: 0 };
+  onStep('drive');
+  const items = await msDriveItems(token).catch((e) => { throw bad(`Couldn’t read your OneDrive: ${e.message}`); });
+  if (items.some((x) => !x.dir)) {
+    Object.assign(out, await intoDrive(user, { drive: items.map((x) => ({ e: { stream: x.stream }, path: x.path, dir: x.dir })), mail: [], rootName: `From Microsoft ${new Date().toISOString().slice(0, 10)}` }));
+  }
+  return out;
+}
+
+/** Under /api/mail/import/microsoft (signed in), mounted ahead of Mail. */
+export function msImportRoutes() {
+  const r = Router();
+  r.get('/', (req, res) => res.json({ available: !!msAppOf(req.user.org_id), ...msStatusOf(req.user.id) }));
+  r.post('/', async (req, res) => res.status(201).json(await startMsImport(req.user, req.body || {})));
+  r.delete('/', (req, res) => { cancelMsImport(req.user.id); res.json({ ok: true }); });
+  return r;
 }

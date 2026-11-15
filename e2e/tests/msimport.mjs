@@ -73,7 +73,7 @@ await new Promise((r) => ms.listen(8188, '127.0.0.1', r));
 await step('an admin gives the company’s Microsoft app', async () => {
   await page.goto(`${B}/admin`);
   await page.getByRole('tab', { name: 'Company settings' }).or(page.getByRole('button', { name: 'Company settings' })).first().click();
-  const card = page.getByRole('form', { name: 'Importing mail from Microsoft 365' }).or(page.locator('form', { has: page.getByRole('heading', { name: 'Importing mail from Microsoft 365' }) })).first();
+  const card = page.getByRole('form', { name: 'Importing from Microsoft 365' }).or(page.locator('form', { has: page.getByRole('heading', { name: 'Importing from Microsoft 365' }) })).first();
   await card.getByLabel('Application (client) ID').fill('not-a-guid');
   await card.getByRole('button', { name: 'Save' }).click();
   await page.getByText(/looks like 00000000/).waitFor();
