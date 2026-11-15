@@ -27,6 +27,8 @@ import AltTextDialog from '../../components/AltTextDialog.jsx';
 import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace } from './findReplace.js';
+import { ReadAloud } from './readaloud.js';
+import { ReadAloudBar, canReadAloud } from './ReadAloudBar.jsx';
 import { WordCountDialog, WordCounter, counterOn } from './WordCount.jsx';
 import { Autocorrect } from './autocorrect.js';
 import { sortTransaction } from './sortlines.js';
@@ -244,6 +246,7 @@ function SharedDoc({ file, setFile }) {
       CommentMark,
       DocImage.configure({ docId: file.id }),
       FindReplace,
+      ReadAloud,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
@@ -493,6 +496,7 @@ function SharedDoc({ file, setFile }) {
   const [active, setActive] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
   const [finding, setFinding] = useState(null); // { replace, n }
+  const [reading, setReading] = useState(null); // Read aloud is on (a key, so starting again restarts it)
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   const [wordCount, setWordCount] = useState(false);
   const [liveCount, setLiveCount] = useState(counterOn);
@@ -507,6 +511,11 @@ function SharedDoc({ file, setFile }) {
   useEffect(() => {
     const onKey = (e) => {
       const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyR' && canReadAloud()) { // Read aloud
+        e.preventDefault();
+        setReading((n) => (n ? null : Date.now()));
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && k === 'c') { // Word count, as in Google Docs
         if (document.querySelector('.modal-backdrop')) return;
         e.preventDefault();
@@ -637,6 +646,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
+          ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => setReading((n) => (n ? null : Date.now())) }] : []),
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
@@ -659,6 +669,7 @@ function SharedDoc({ file, setFile }) {
       <style>{printCss(file.page_setup)}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {reading && <ReadAloudBar key={reading} editor={editor} onClose={() => { setReading(null); editor.view.focus(); }} />}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
         {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setTabsPanel(false)} />}
