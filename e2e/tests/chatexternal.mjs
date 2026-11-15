@@ -44,13 +44,13 @@ const axe = async (p, label) => {
   }
   await p.emulateMedia({ colorScheme: 'light' });
 };
-let dm, colleagueDm, gina;
+let dm, colleagueDm, gina, ginaId;
 await step('a direct message with someone at another company, and one with a colleague', async () => {
   const r = await api(page, 'POST', '/orgs', { name: 'Globex Shipping', domain: 'globex.com', admin_name: 'Gina Globex', admin_local: 'gina', admin_password: 'password123' });
   if (r.status >= 300) throw new Error(JSON.stringify(r));
   await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
   gina = await mk('gina'); await signIn(gina, 'gina@globex.com');
-  const ginaId = (await api(gina, 'GET', '/auth/me')).body.user.id;
+  ginaId = (await api(gina, 'GET', '/auth/me')).body.user.id;
   const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
   dm = (await api(page, 'POST', '/chat/dm', { user_id: ginaId })).body.id;
   colleagueDm = (await api(page, 'POST', '/chat/dm', { user_id: kimId })).body.id;
@@ -87,6 +87,20 @@ await step('a link from outside to a lookalike of the company’s site is warned
   if (await page.locator('.msg', { hasText: 'Our own page' }).getByRole('note').count()) throw new Error('warned about our own link');
   await page.screenshot({ path: `${SP}/shots/chat-lookalike.png` });
   await axe(page, 'chat lookalike link');
+});
+await step('a comment on a shared document by someone at another company: External · their company beside their name', async () => {
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Joint plan', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shipping schedule draft' }] }] } })).body;
+  const sh = await api(page, 'PUT', `/files/${doc.id}/shares`, { shares: [{ user_id: ginaId, role: 'editor' }] });
+  if (sh.status >= 300) throw new Error(JSON.stringify(sh));
+  const c1 = await api(gina, 'POST', `/comments/${doc.id}`, { body: 'Can we ship on Friday?', anchor: { quote: 'Shipping' } });
+  if (c1.status >= 300) throw new Error(JSON.stringify(c1));
+  await api(page, 'POST', `/comments/${doc.id}`, { body: 'Friday works', anchor: { quote: 'schedule' } });
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.getByRole('button', { name: /Comments/ }).first().click();
+  const panel = page.getByRole('complementary', { name: 'Comments' });
+  await panel.locator('.comment-meta', { hasText: 'Gina Globex' }).getByText('External · Globex Shipping').waitFor();
+  if (await panel.locator('.comment-meta', { hasText: 'Olivia Owner' }).getByText(/External/).count()) throw new Error('tagged our own comment');
+  await axe(page, 'external comment');
 });
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();

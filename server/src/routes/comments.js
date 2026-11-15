@@ -118,7 +118,7 @@ function reactionsOf(fileId) {
 }
 const listOf = (fileId) => {
   const reactions = reactionsOf(fileId);
-  return q(`SELECT c.*, u.name AS author_name, u.username AS author_email, r.name AS resolved_by_name, a.name AS assignee_name
+  return q(`SELECT c.*, u.name AS author_name, u.username AS author_email, u.org_id AS author_org_id, (SELECT o.name FROM orgs o WHERE o.id = u.org_id) AS author_org, r.name AS resolved_by_name, a.name AS assignee_name
             FROM file_comments c LEFT JOIN users u ON u.id = c.author_id LEFT JOIN users r ON r.id = c.resolved_by LEFT JOIN users a ON a.id = c.assignee_id
             WHERE c.file_id = ? ORDER BY c.created_at`).all(fileId).map((c) => ({ ...shown(c), reactions: reactions.get(c.id) || [] }));
 };

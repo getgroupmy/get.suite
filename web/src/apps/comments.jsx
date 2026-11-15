@@ -164,7 +164,7 @@ export function CommentsPanel({ fileId, fileRole, threads, seenAt, onSeen, canEd
             </div>
             {[t, ...t.replies].map((c) => (
               <div key={c.id} className="comment">
-                <div className="row comment-meta"><Avatar name={c.author_name || '?'} size={24} /><strong className="grow">{c.author_name || 'Someone'}</strong><span className="muted small">{formatDate(c.created_at)}{c.edited_at ? ' · edited' : ''}</span>
+                <div className="row comment-meta"><Avatar name={c.author_name || '?'} size={24} /><strong className="grow">{c.author_name || 'Someone'}{c.author_org_id && user?.org_id && c.author_org_id !== user.org_id && <span className="pill ext small" title={`${c.author_org}, outside your company`}>External · {c.author_org}</span>}</strong><span className="muted small">{formatDate(c.created_at)}{c.edited_at ? ' · edited' : ''}</span>
                   {canEdit && c.author_id === user?.id && editing?.id !== c.id && <button type="button" className="icon-btn" aria-label={`Edit comment by ${c.author_name}`} title="Edit" onClick={(e) => { e.stopPropagation(); setActive(t.id); setEditing({ id: c.id, text: c.body }); }}><Icon name="edit" size={16} /></button>}
                   {canEdit && (c.author_id === user?.id || fileRole === 'owner') && <button type="button" className="icon-btn" aria-label={`Delete comment by ${c.author_name}`} onClick={async (e) => { e.stopPropagation(); try { await del(`/comments/${fileId}/${c.id}`); if (c.id === t.id) onDeleted?.(t); } catch (err) { toast(err.message, 'error'); } }}><Icon name="trash" size={16} /></button>}</div>
                 {editing?.id === c.id
