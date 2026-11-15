@@ -47,6 +47,9 @@ await step('setup: a task due today and one overdue', async () => {
   await api(kim, 'PUT', `/tasks/lists/${shared}/members`, { user_ids: [me] });
 });
 await step('the morning note: once, with a way to the tasks', async () => {
+  // Opening Kim's page in setup can bring this tab back into view, which already shows (and remembers) today's
+  // note: start from "not shown yet today".
+  await page.evaluate((d) => localStorage.removeItem(`nw:reminded:tasks:${d}`), iso(new Date()));
   await page.goto(`${B}/drive`);
   const note = page.locator('.toast', { hasText: '“Pay the rent” is due today, and 1 is overdue' });
   if (new Date().getHours() < 9) { await page.waitForTimeout(2000); if (await note.count()) throw new Error('too early'); return; }
