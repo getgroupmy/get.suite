@@ -46,3 +46,12 @@ test('isFirstContact: never for colleagues, people written to or contacts, or wh
   assert.equal(await isFirstContact(me, 'not an address'), false);
   assert.equal(await isFirstContact(me, 'new@stranger.example'), false, 'no mail server here: says nothing rather than guess');
 });
+
+test('outsideRecipients: a new address on a lookalike of the company’s domain or a known one is marked', () => {
+  const list = outsideRecipients(me, ['billing@acrne.com', 'pat@partner.example', 'x@partmer.example', 'new@unrelated-shop.example']);
+  const by = Object.fromEntries(list.map((o) => [o.email, o.like || null]));
+  assert.deepEqual(by['billing@acrne.com'], { domain: 'acme.com', kind: 'company' });
+  assert.equal(by['pat@partner.example'], null, 'someone you write to');
+  assert.equal(by['x@partmer.example']?.domain, 'partner.example');
+  assert.equal(by['new@unrelated-shop.example'], null);
+});

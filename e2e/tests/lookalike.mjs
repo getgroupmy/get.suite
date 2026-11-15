@@ -111,6 +111,27 @@ await step('“You don’t often get email from …” for an outside address se
     if (await note().count()) throw new Error(`note on: ${s}`);
   }
 });
+await step('writing to a lookalike address: a red warning, and Send asks first', async () => {
+  await page.goto(`${B}/mail/INBOX`);
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('To', { exact: true }).fill('accounts@acrne.com');
+  await page.getByLabel('Subject').fill('Payment');
+  await page.getByRole('textbox', { name: 'Message' }).click();
+  await page.keyboard.type('Done today.');
+  const warn = page.locator('.compose-lookalike');
+  await warn.getByText(/acrne\.com looks like acme\.com/).waitFor();
+  await axe(page, 'lookalike in compose');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const ask = page.getByRole('dialog', { name: 'Check the address' });
+  await ask.getByText(/accounts@acrne\.com is on acrne\.com, which looks like acme\.com but isn’t/).waitFor();
+  await ask.getByRole('button', { name: 'Go back' }).click();
+  await ask.waitFor({ state: 'detached' });
+  // An ordinary outside address: no such warning.
+  await page.getByLabel('To', { exact: true }).fill('someone@unrelated-shop.example');
+  await page.waitForTimeout(1200);
+  if (await warn.count()) throw new Error('warned about an ordinary address');
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

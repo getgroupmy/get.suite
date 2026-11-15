@@ -1667,7 +1667,8 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const [outsideAsk, setOutsideAsk] = useState(null); // { list: [{ email, new }], next }
   useEffect(() => { outsideOk.current = false; }, [f.to, f.cc, f.bcc]);
   const askOutsideFirst = (next) => {
-    if (outsideOk.current || !outside?.ask || !outside.outside?.length) return false;
+    // Asked when the company says so, and always when an address imitates a domain you know.
+    if (outsideOk.current || !outside?.outside?.length || !(outside.ask || outside.outside.some((o) => o.like))) return false;
     setOutsideAsk({ list: outside.outside, next });
     return true;
   };
@@ -1811,6 +1812,14 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           <label className="compose-line"><span>Cc</span><AddressInput label="Cc" type="text" inputMode="email" value={f.cc} onChange={(v) => setF((x) => ({ ...x, cc: v }))} /></label>
           <label className="compose-line"><span>Bcc</span><AddressInput label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={(v) => setF((x) => ({ ...x, bcc: v }))} /></label>
         </>}
+        {outside?.outside?.some((o) => o.like) && (
+          <p className="compose-lookalike small" role="alert">
+            <span aria-hidden="true">⚠</span>
+            <span>{outside.outside.filter((o) => o.like).map((o) => (
+              <span key={o.email}><strong>{o.email.split('@')[1]}</strong> looks like <strong>{o.like.domain}</strong>{o.like.kind === 'company' ? ` (${outside.company || 'your company'}’s own)` : ' (one you deal with)'}, but it isn’t. </span>
+            ))}Check the address before sending: fraudsters reply from lookalikes to take over a conversation.</span>
+          </p>
+        )}
         {tipsOn && outside?.outside?.length > 0 && (
           <p className="compose-outside small" role="status">
             <span aria-hidden="true">⚠</span>
@@ -1955,13 +1964,14 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
       </Modal>
     )}
     {outsideAsk && (
-      <Modal title={`Send outside ${outside?.company || 'the company'}?`} onClose={() => setOutsideAsk(null)}>
+      <Modal title={outsideAsk.list.some((o) => o.like) ? 'Check the address' : `Send outside ${outside?.company || 'the company'}?`} onClose={() => setOutsideAsk(null)}>
         <div className="stack">
+          {outsideAsk.list.filter((o) => o.like).map((o) => <p key={o.email} className="error">{o.email} is on <strong>{o.email.split('@')[1]}</strong>, which looks like <strong>{o.like.domain}</strong> but isn’t.</p>)}
           <p>This message goes to {outsideAsk.list.length === 1 ? 'someone' : `${outsideAsk.list.length} people`} outside {outside?.company || 'the company'}:</p>
           <ul className="outside-list">{outsideAsk.list.map((o) => <li key={o.email}><strong>{o.email}</strong>{o.new && <span className="outside-new"> (new: you haven't written to them before)</span>}</li>)}</ul>
           <div className="row end">
             <button type="button" className="btn" autoFocus onClick={() => setOutsideAsk(null)}>Go back</button>
-            <button type="button" className="btn primary" onClick={() => { const { next } = outsideAsk; outsideOk.current = true; setOutsideAsk(null); next(); }}>Send</button>
+            <button type="button" className={`btn ${outsideAsk.list.some((o) => o.like) ? 'danger' : 'primary'}`} onClick={() => { const { next } = outsideAsk; outsideOk.current = true; setOutsideAsk(null); next(); }}>{outsideAsk.list.some((o) => o.like) ? 'Send anyway' : 'Send'}</button>
           </div>
         </div>
       </Modal>

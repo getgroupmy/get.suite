@@ -67,7 +67,7 @@ function lookalikeDomain(user, domain, ours) {
 
 export const askOutside = (orgId) => !!q('SELECT ask_outside FROM orgs WHERE id = ?').get(orgId)?.ask_outside;
 
-/** Recipients outside the company: [{ email, new }] (`new`: never written to and not in your contacts), in the order given. */
+/** Recipients outside the company: [{ email, new, like? }] (like: { domain, kind } when its domain imitates one you know) (`new`: never written to and not in your contacts), in the order given. */
 export function outsideRecipients(user, emails) {
   const ours = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(user.org_id).map((d) => d.name.toLowerCase()));
   const out = [];
@@ -76,7 +76,9 @@ export function outsideRecipients(user, emails) {
     if (!domain || !e.includes('@') || ours.has(domain)) continue;
     const known = q('SELECT 1 FROM mail_sent_to WHERE owner_id = ? AND email = ?').get(user.id, e)
       || q(`SELECT 1 FROM contacts WHERE owner_id = ? AND (LOWER(email) = ? OR INSTR(LOWER(COALESCE(more_emails, '')), ?) > 0)`).get(user.id, e, JSON.stringify(e));
-    out.push({ email: e, new: !known });
+    // A new address on a domain made to look like the company's own or one you deal with (acrne.com for acme.com).
+    const like = known || [...ours].some((o) => domain.endsWith(`.${o}`)) ? null : lookalikeDomain(user, domain, [...ours]); // (a subdomain of the company's own is real)
+    out.push({ email: e, new: !known, ...(like && { like }) });
   }
   return out;
 }
