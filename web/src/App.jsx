@@ -205,10 +205,10 @@ function RequiredPassword() {
     <div className="auth-page">
       <form className="auth-card stack" onSubmit={submit}>
         <div className="brand big"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div>
-        <h1>Choose your own password</h1>
-        <p className="muted">{user.password_expired ? `Your password has expired, ${user.name}. Choose a new one to continue.` : `Welcome, ${user.name}. Your password was set by an administrator; choose one only you know to continue.`}</p>
+        <h1>{user.password_leaked ? 'Choose a new password' : 'Choose your own password'}</h1>
+        <p className="muted">{user.password_leaked ? `Your password has turned up in data breaches, ${user.name}, so attackers may try it. Choose a new one (not used anywhere else) to continue.` : user.password_expired ? `Your password has expired, ${user.name}. Choose a new one to continue.` : `Welcome, ${user.name}. Your password was set by an administrator; choose one only you know to continue.`}</p>
         {rules && <p className="small" role="note" style={{ margin: 0 }}>{rules}</p>}
-        <label className="field"><span>Password you were given</span><input type="password" autoComplete="current-password" required value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></label>
+        <label className="field"><span>{user.password_leaked || user.password_expired ? 'Current password' : 'Password you were given'}</span><input type="password" autoComplete="current-password" required value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></label>
         <label className="field"><span>New password</span><input type="password" autoComplete="new-password" required minLength={8} value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} /></label>
         <label className="field"><span>New password again</span><input type="password" autoComplete="new-password" required minLength={8} value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} /></label>
         {error && <p className="error" role="alert">{error}</p>}

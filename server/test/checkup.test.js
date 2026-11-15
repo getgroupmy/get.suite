@@ -37,7 +37,8 @@ test('security checkup: what’s open, worst first, and what changes it', async 
 
   const ids = (list) => list.map((x) => `${x.id}:${x.status}`);
   let c = await checkup(orgId, now, { mail: false });
-  assert.deepEqual(ids(c), ['admin-2fa:warn', 'require-2fa:warn', 'inactive:warn', 'recovery:tip', 'mark-external:tip', 'idle:tip']);
+  assert.deepEqual(ids(c), ['admin-2fa:warn', 'require-2fa:warn', 'inactive:warn', 'recovery:tip', 'mark-external:tip', 'breached:tip', 'idle:tip']);
+  assert.deepEqual(c.find((x) => x.id === 'breached').fix.settings, { password_rules: { min: 8, mix: false, symbol: false, common: false, max_days: 0, breached: true } });
   assert.equal(c.find((x) => x.id === 'recovery').title, '3 people have no recovery email');
   assert.match(c[0].title, /^1 admin signs in with just a password$/);
   assert.match(c[0].detail, /^Ana Admin\./);
@@ -56,7 +57,7 @@ test('security checkup: what’s open, worst first, and what changes it', async 
   assert.ok(!(await checkup(orgId, now, { mail: false })).some((x) => x.id === 'recovery'));
   // Fixed: Ana's two-step on, two steps required, Old suspended, outside mail marked, idle sign-out.
   q('INSERT INTO two_factor (user_id, secret, enabled) VALUES (?, ?, 1)').run(q("SELECT id FROM users WHERE username = 'ana@acme.com'").get().id, 'JBSWY3DPEHPK3PXP');
-  q('UPDATE orgs SET require_2fa = 1, mark_external = 1, session_idle_min = 60 WHERE id = ?').run(orgId);
+  q('UPDATE orgs SET require_2fa = 1, mark_external = 1, session_idle_min = 60, pw_breached = 1 WHERE id = ?').run(orgId);
   q('UPDATE users SET disabled = 1 WHERE id = ?').run(oldId);
   c = await checkup(orgId, now, { mail: false });
   assert.deepEqual(ids(c), ['require-2fa:tip', 'admin-2fa:ok']);

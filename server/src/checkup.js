@@ -1,6 +1,7 @@
 // Admin → Security checkup: a company's open security points at a glance, each with what to do and where.
 // Items: { id, status: 'warn' | 'tip' | 'ok', title, detail, tab (the Admin tab that fixes it), people? }.
 import { q } from './db.js';
+import { rulesOf } from './passwordrules.js';
 import { activeForwarding } from './mail/forwarding.js';
 import { mailEnabled } from './mail/config.js';
 import { notify } from './notifications.js';
@@ -62,6 +63,10 @@ function checkupNow(orgId, at) {
   const stale = people.filter((p) => (p.last_active || p.created_at) < at - INACTIVE_DAYS * 864e5);
   if (stale.length) add({ id: 'inactive', status: 'warn', title: `${plural(stale.length, 'account')} not used for ${INACTIVE_DAYS} days`, detail: `${names(stale)}. Suspend the ones that are no longer needed: unused accounts are a way in nobody notices.`, tab: 'users', people: stale.map((p) => p.name), ids: stale.map((p) => p.id) });
 
+  // Signed in with a password known from data breaches (the company's rule): they're choosing a new one.
+  const leaked = q('SELECT id, name, username FROM users WHERE org_id = ? AND disabled = 0 AND pw_leaked IS NOT NULL ORDER BY name').all(orgId);
+  if (leaked.length) add({ id: 'leaked', status: 'warn', title: `${plural(leaked.length, 'person', 'people')} signed in with a password known from data breaches`, detail: `${names(leaked)}. They’re asked to choose a new one before going on; until they do, anyone with that password could try it on their phone or mail app too. Reset it for them if they don’t sign in soon.`, tab: 'users', people: leaked.map((p) => p.name), ids: leaked.map((p) => p.id) });
+
   // Someone keeps trying their password: a guessing attempt (or a phone with an old password).
   const tries = q(`SELECT target, COUNT(*) AS n, MAX(at) AS last FROM audit_log WHERE org_id = ? AND action = 'sign-in.failed' AND at > ? GROUP BY target HAVING n >= ? ORDER BY n DESC`).all(orgId, at - FAILED_DAYS * 864e5, FAILED_MIN);
   const byName = new Map(people.map((p) => [p.username, p]));
@@ -100,6 +105,7 @@ function checkupNow(orgId, at) {
 
   // Settings worth having.
   if (!org?.mark_external) add({ id: 'mark-external', status: 'tip', title: 'Mail from outside the company isn’t marked', detail: 'Turn on Mark email from outside the company, so a message pretending to come from inside stands out.', tab: 'company', fix: { label: 'Turn it on', settings: { mark_external: true } } });
+  { const pr = rulesOf(orgId); if (!pr.breached) add({ id: 'breached', status: 'tip', title: 'Passwords aren’t checked against data breaches', detail: 'Turn on Not one known from data breaches (Password rules), so passwords attackers already have are refused, and people who sign in with one choose a new one.', tab: 'company', fix: { label: 'Turn it on', settings: { password_rules: { ...pr, breached: true } } } }); }
   if (!org?.session_idle_min) add({ id: 'idle', status: 'tip', title: 'People stay signed in while away', detail: 'Sign people out after some time without activity (Company settings), for shared or unattended computers.', tab: 'company', fix: { label: 'Sign out after 8 hours away', settings: { session_idle_min: 480 } } });
 
   const rank = { warn: 0, tip: 1, ok: 2 };

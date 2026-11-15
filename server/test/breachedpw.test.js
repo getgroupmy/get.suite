@@ -85,3 +85,38 @@ test('with the company rule on, a breached password is refused wherever one is c
   down = false;
   assert.equal(r.status, 201);
 });
+
+test('signing in with a breached password (rule on): asked to choose a new one first; in the activity log and Security checkup; cleared by a new one', async () => {
+  const ana = client(), zed = client();
+  await ana('POST', '/api/auth/login', { username: 'ana@acme.com', password: 'password123' });
+  await ana('PATCH', '/api/orgs/current', { password_rules: { min: 8, breached: false } });
+  let r = await ana('POST', '/api/users', { local: 'zed', domain: 'acme.com', name: 'Zed Old', password: LEAKED }); // chosen before the rule
+  assert.equal(r.status, 201);
+  let items = (await ana('GET', '/api/orgs/current/checkup')).body.items;
+  const tip = items.find((x) => x.id === 'breached');
+  assert.equal(tip.status, 'tip');
+  assert.equal((await ana('PATCH', '/api/orgs/current', tip.fix.settings)).status, 200, 'its fix turns the rule on');
+  assert.equal((await ana('GET', '/api/auth/password-rules')).body.breached, true);
+  r = await zed('POST', '/api/auth/login', { username: 'zed@acme.com', password: LEAKED });
+  assert.equal(r.status, 200);
+  let me = (await zed('GET', '/api/auth/me')).body.user;
+  assert.equal(me.must_change_password, true);
+  assert.equal(me.password_leaked, true);
+  assert.equal((await zed('GET', '/api/files')).status, 403, 'nothing else until it’s changed');
+  const log = (await ana('GET', '/api/audit?action=password.leaked')).body;
+  assert.ok(JSON.stringify(log).includes('zed@acme.com'), JSON.stringify(log).slice(0, 300));
+  items = (await ana('GET', '/api/orgs/current/checkup')).body.items;
+  assert.match(items.find((x) => x.id === 'leaked').title, /1 person signed in with a password known from data breaches/);
+  assert.equal(items.some((x) => x.id === 'breached'), false);
+  // Once more: still one entry in the log.
+  await client()('POST', '/api/auth/login', { username: 'zed@acme.com', password: LEAKED });
+  assert.equal(JSON.stringify((await ana('GET', '/api/audit?action=password.leaked')).body).split('zed@acme.com').length - 1, 1);
+  r = await zed('PATCH', '/api/auth/me', { currentPassword: LEAKED, newPassword: 'quiet-harbour-62' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  me = (await zed('GET', '/api/auth/me')).body.user;
+  assert.equal(me.must_change_password, false); assert.equal(me.password_leaked, false);
+  assert.equal((await ana('GET', '/api/orgs/current/checkup')).body.items.some((x) => x.id === 'leaked'), false);
+  // A password that isn't breached signs in as usual.
+  assert.equal((await client()('POST', '/api/auth/login', { username: 'zed@acme.com', password: 'quiet-harbour-62' })).status, 200);
+  assert.equal((await zed('GET', '/api/auth/me')).body.user.must_change_password, false);
+});

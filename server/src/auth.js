@@ -75,6 +75,9 @@ export function validatePassword(pw, { orgId = null, email = '', name = '' } = {
   if (problem) throw new HttpError(400, problem);
 }
 
+// users.pw_leaked: when their password was found in data breaches at sign-in (cleared when they choose a new one).
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'pw_leaked')) q('ALTER TABLE users ADD COLUMN pw_leaked INTEGER').run();
+
 /**
  * validatePassword, then (when the company asks for it) not a password known from data breaches. If the
  * breach list can't be reached the password is allowed: an outage there mustn't stop people working.
@@ -132,7 +135,7 @@ export const idleOf = (req) => { const v = Number(req.get?.('x-user-idle')); ret
  */
 export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
                         o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.external_share_days, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
                         (COALESCE((SELECT enabled FROM two_factor t WHERE t.user_id = u.id), 0) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -189,6 +192,8 @@ function userOf(row) {
     // …or their password has expired under the company's rules (they choose a new one first, too).
     must_change_password: !!row.must_change_password || isExpired({ max_days: row.pw_max_days }, row.password_set_at),
     password_expired: !row.must_change_password && isExpired({ max_days: row.pw_max_days }, row.password_set_at),
+    // Their password turned up in data breaches when they signed in (the company's rule): a new one first.
+    password_leaked: !!row.pw_leaked,
     start_page: row.start_page === 'home' ? 'home' : 'drive',
     second_tz: row.second_tz || null,
     world_clocks: (() => { try { return JSON.parse(row.world_clocks || '[]'); } catch { return []; } })(),

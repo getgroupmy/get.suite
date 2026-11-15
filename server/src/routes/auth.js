@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { rulesOf, rulesText } from '../passwordrules.js';
+import { rulesOf, rulesText, breachCount } from '../passwordrules.js';
 import { networkAllowed, NETWORK_REFUSED } from '../netrules.js';
 import { q, tx } from '../db.js';
 import { str, bad, HttpError } from '../util.js';
@@ -50,6 +50,21 @@ let resetMailer = async (user, to, link) => {
 };
 export const setResetMailer = (fn) => { resetMailer = fn; };
 
+/**
+ * At sign-in, with the password right: when the company refuses passwords known from data breaches, look
+ * this one up too (passwords chosen before the rule, or that leaked since). Found: they choose a new one
+ * before going on, and it's in the activity log. → true when it was found.
+ */
+async function checkLeakedAtSignIn(req, userId, password) {
+  const u = q('SELECT id, org_id, username, pw_leaked FROM users WHERE id = ?').get(userId);
+  if (!u || !rulesOf(u.org_id).breached) return false;
+  const n = await breachCount(password, { timeout: 2500 });
+  if (!(n > 0)) return false;
+  if (!u.pw_leaked) audit(req, 'password.leaked', { actor: null, org: u.org_id, target: u.username, details: { breaches: n } });
+  q('UPDATE users SET must_change_password = 1, pw_leaked = COALESCE(pw_leaked, ?) WHERE id = ?').run(Date.now(), userId);
+  return true;
+}
+
 export default function authRoutes({ secureCookies }) {
   const r = Router();
   const startSession = (req, res, userId, method = 'password') => {
@@ -97,6 +112,8 @@ export default function authRoutes({ secureCookies }) {
     { const u = q('SELECT id, org_id, is_super FROM users WHERE id = ?').get(row.id); if (!networkAllowed(u, req.ip)) throw new HttpError(403, NETWORK_REFUSED); }
     // Accounts created before email existed get their mailbox password on next sign-in.
     if (!row.mail_hash) setMailPassword(row.id, password);
+    // A password known from data breaches (when the company says so): a new one before going on.
+    await checkLeakedAtSignIn(req, row.id, password);
     // Two-step verification: the password was right; now ask for the code (no session yet).
     if (twoFactor.isEnabled(row.id)) return res.json({ twoFactor: true, ticket: twoFactor.newTicket(row.id) });
     // No app, but passkeys, and the company requires two steps: the passkey is the second step.
@@ -187,7 +204,7 @@ export default function authRoutes({ secureCookies }) {
     const pw = String(req.body?.password || '');
     await validateNewPassword(pw, { orgId: user.org_id, email: user.username, name: user.name });
     tx(() => {
-      q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?').run(hashPassword(pw), Date.now(), user.id);
+      q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ?, pw_leaked = NULL WHERE id = ?').run(hashPassword(pw), Date.now(), user.id);
       q('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(Date.now(), user.id); // every other link stops working too
       q('DELETE FROM sessions WHERE user_id = ?').run(user.id); // signed out everywhere
     });
@@ -207,7 +224,7 @@ export default function authRoutes({ secureCookies }) {
       if (!verifyPassword(String(currentPassword || ''), row.password_hash)) throw bad('Current password is wrong');
       await validateNewPassword(newPassword, { orgId: req.user.org_id, email: req.user.username, name: req.user.name });
       if (req.user.must_change_password && verifyPassword(newPassword, row.password_hash)) throw bad('Choose a new password, not the one you were given');
-      q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?').run(hashPassword(newPassword), Date.now(), req.user.id);
+      q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ?, pw_leaked = NULL WHERE id = ?').run(hashPassword(newPassword), Date.now(), req.user.id);
       setMailPassword(req.user.id, newPassword);
       // Sign out every other session for this user.
       q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));

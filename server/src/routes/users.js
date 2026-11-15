@@ -715,7 +715,7 @@ export default function userRoutes() {
     }
     if (password !== undefined) {
       await validateNewPassword(password, { orgId: u.org_id, email: u.username, name: u.name });
-      q('UPDATE users SET password_hash = ?, must_change_password = ?, password_set_at = ? WHERE id = ?').run(hashPassword(password), req.body.must_change_password && !self ? 1 : 0, Date.now(), u.id);
+      q('UPDATE users SET password_hash = ?, must_change_password = ?, password_set_at = ?, pw_leaked = NULL WHERE id = ?').run(hashPassword(password), req.body.must_change_password && !self ? 1 : 0, Date.now(), u.id);
       setMailPassword(u.id, password);
       // A reset (e.g. after a break-in) also removes the mail-app password, so only the new password works anywhere.
       q('UPDATE users SET mail_app_hash = NULL, mail_app_created = NULL WHERE id = ?').run(u.id);
