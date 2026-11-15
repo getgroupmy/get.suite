@@ -467,6 +467,8 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .address-input input { flex: 1; min-width: 0; }
 .address-input > .muted { white-space: nowrap; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
 .pill.ext { background: var(--warn-bg); color: var(--text); margin-left: 6px; font-weight: 500; }
+.practice-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 12px; max-height: 240px; overflow: auto; }
+.practice-results { margin: 0; padding-left: 18px; }
 .guest-like { color: var(--danger); font-weight: 600; }
 .msg-link-warn { margin: 2px 0 4px; padding: 4px 8px; border-left: 3px solid var(--danger); background: var(--warn-bg); border-radius: 4px; }
 .chat-external { margin: 0 0 6px; padding: 6px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--text); }

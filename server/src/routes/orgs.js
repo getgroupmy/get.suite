@@ -1,3 +1,4 @@
+import { TEMPLATES, sendPractice, practiceFor } from '../phishpractice.js';
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
 import { migrationOf } from '../migrationstatus.js';
 import { cleanMsApp } from '../mail/msimport.js';
@@ -242,6 +243,14 @@ export default function orgRoutes() {
   r.get('/current/checkup', requireAdmin, async (req, res) => res.json({ items: await checkup(req.user.org_id) }));
   // Phishing reports from people in the company (Admin → Phishing).
   r.get('/current/phishing', requireAdmin, (req, res) => res.json(phishingFor(req.user.org_id)));
+  // Practice phishing emails: the rounds so far with each person's result, and sending a new one.
+  r.get('/current/phish-practice', requireAdmin, (req, res) => res.json({ templates: Object.entries(TEMPLATES).map(([id, t]) => ({ id, name: t.name, from: t.from, subject: t.subject })), rounds: practiceFor(req.user.org_id) }));
+  r.post('/current/phish-practice', requireAdmin, async (req, res) => {
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const out = await sendPractice(req.user, { template: req.body?.template, userIds: req.body?.user_ids, base });
+    audit(req, 'phishing.practice', { target: TEMPLATES[req.body?.template]?.name || null, details: { sent: out.sent, failed: out.failed } });
+    res.status(201).json(out);
+  });
   r.post('/current/phishing/handled', requireAdmin, (req, res) => {
     setHandled(req.user.org_id, req.body?.sender, req.user.id, req.body?.handled !== false);
     res.json(phishingFor(req.user.org_id));

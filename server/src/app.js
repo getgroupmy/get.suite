@@ -1,3 +1,4 @@
+import { practiceClicked, practicePage } from './phishpractice.js';
 import { mcpRoutes, innerIp } from './mcp.js';
 import { googleImportRoutes } from './mail/googleimport.js';
 import { msImportRoutes } from './mail/msimport.js';
@@ -122,6 +123,10 @@ export function createApp({
   app.use('/api/public/pub', publicPublishRoutes());
   app.use('/api/public/meet', publicMeetRoutes());
   app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
+  // A practice phishing email's link (Admin → Phishing → Practice emails): noted, then a page saying it was practice.
+  app.get('/practice/:token', (req, res) => {
+    res.set({ 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }).type('html').send(practicePage(practiceClicked(req.params.token)));
+  });
   // AI assistants (Claude, ChatGPT…) over MCP, with an API token.
   app.use('/mcp', mcpRoutes(requireAuth));
   app.use(mcpAuthRoutes()); // how assistants sign in to it (OAuth discovery and registration)

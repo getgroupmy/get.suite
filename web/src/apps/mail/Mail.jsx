@@ -1020,7 +1020,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             try {
               const r = await post(`/mail/messages/${uid}/phishing`, { folder });
               setPhishing(false);
-              done('move', { to: 'junk' }, r.already ? 'You reported this one already: moved to Junk' : 'Reported as phishing: your admins have been told, and it’s in Junk');
+              done('move', { to: 'junk' }, r.practice ? 'Well spotted! That was a practice phishing email from your admins. It’s in Junk' : r.already ? 'You reported this one already: moved to Junk' : 'Reported as phishing: your admins have been told, and it’s in Junk');
             } catch (e) { toast(e.message, 'error'); }
           }} />
       )}

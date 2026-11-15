@@ -9,6 +9,7 @@ import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
 import { audit } from '../audit.js';
 import { recordPhishing } from '../phishing.js';
+import { practiceReported } from '../phishpractice.js';
 import crypto from 'node:crypto';
 import { fillTemplate, mergeHtml, unknownPlaceholders } from '../mail/merge.js';
 import express, { Router } from 'express';
@@ -749,6 +750,8 @@ export default function webmailRoutes() {
     const msg = await withFolder(req.user, folder, (c) => c.fetchOne(String(Number(req.params.uid)), { envelope: true }, { uid: true }));
     if (!msg?.envelope) throw notFound('Message not found');
     const from = msg.envelope.from?.[0]?.address;
+    // A practice email from the company's admins: well spotted (counted for them), not a real report.
+    if (practiceReported(req.user, msg.envelope.messageId)) return res.json({ practice: true });
     const r2 = recordPhishing(req.user, { from, subject: msg.envelope.subject, messageId: msg.envelope.messageId });
     if (!r2.already) audit(req, 'mail.phishing', { target: String(from).toLowerCase(), details: { subject: msg.envelope.subject || null, reports: r2.reports } });
     res.json(r2);

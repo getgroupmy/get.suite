@@ -1,3 +1,4 @@
+import PhishPractice from './PhishPractice.jsx';
 import PhishingAdmin from './PhishingAdmin.jsx';
 import CheckupAdmin from './CheckupAdmin.jsx';
 import MigrationAdmin from './MigrationAdmin.jsx';
@@ -149,7 +150,7 @@ export default function Admin() {
       {tab === 'users' && <Users orgId={orgId} setOrgId={setOrgId} />}
       {tab === 'email' && <EmailAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'checkup' && <CheckupAdmin onGo={(t, filter) => { setActivityKind(filter || ''); setTab(t); }} />}
-      {tab === 'phishing' && <PhishingAdmin />}
+      {tab === 'phishing' && <><PhishingAdmin /><PhishPractice /></>}
       {tab === 'company' && <CompanySettings />}
       {tab === 'dlp' && <DataProtectionAdmin />}
       {tab === 'groups' && <GroupsAdmin />}
