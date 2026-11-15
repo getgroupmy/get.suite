@@ -157,6 +157,25 @@ await step('the message list marks lookalike senders with ⚠ before opening', a
   if (await row('Monthly statement').getByRole('img', { name: /Warning/ }).count()) throw new Error('marked the real one');
   await axe(page, 'list with lookalike marks');
 });
+await step('at phone width: the grouped warnings and the lookalike line in a new message fit, nothing scrolls sideways', async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  try {
+    await open('New bank details');
+    await page.getByRole('region', { name: 'Warnings about this email' }).waitFor();
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    if (wide > 1) throw new Error(`scrolls sideways by ${wide}px`);
+    await page.screenshot({ path: `${SP}/shots/warnings-phone.png` });
+    await axe(page, 'warnings at phone width');
+    await page.goto(`${B}/mail/INBOX`);
+    await page.getByRole('button', { name: 'Compose' }).click();
+    await page.getByLabel('To', { exact: true }).fill('accounts@acrne.com');
+    await page.locator('.compose-lookalike').waitFor();
+    const wide2 = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    if (wide2 > 1) throw new Error(`compose scrolls sideways by ${wide2}px`);
+    await axe(page, 'compose lookalike at phone width');
+    await page.keyboard.press('Escape');
+  } finally { await page.setViewportSize({ width: 1280, height: 900 }); }
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
