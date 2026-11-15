@@ -93,6 +93,14 @@ await step('narrow to one company and stop everything shared with it', async () 
   await page.getByRole('button', { name: 'Stop sharing everything with Globex…' }).click();
   await page.getByRole('dialog', { name: 'Stop sharing everything with Globex?' }).getByRole('button', { name: 'Stop all' }).click();
   await page.getByText('1 share stopped').waitFor();
+  // Undo puts it back; then stop it again for the steps that follow.
+  await page.getByRole('button', { name: 'Undo' }).last().click(); // the newest message's (an earlier one may still show)
+  await page.getByText('1 share put back').waitFor();
+  if ((await api(gil, 'GET', `/files/${ids.plan}`)).status !== 200) throw new Error('not back for gil');
+  await page.getByRole('list', { name: 'Companies' }).getByRole('button', { name: /^Globex/ }).click().catch(() => {});
+  await page.getByRole('button', { name: 'Stop sharing everything with Globex…' }).click();
+  await page.getByRole('dialog', { name: 'Stop sharing everything with Globex?' }).getByRole('button', { name: 'Stop all' }).click();
+  await page.getByText('1 share stopped').first().waitFor();
   await until(async () => (await table.locator('tbody tr').count()) === 1 && (await table.innerText()).includes('Initech'));
   if ((await api(gil, 'GET', `/files/${ids.plan}`)).status !== 404) throw new Error('gil still has the plan');
   // Search narrows the list.

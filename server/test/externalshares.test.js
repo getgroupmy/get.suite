@@ -306,3 +306,24 @@ test('Undo Stop sharing: people (with their access and end), groups and the comp
   const b = (await kim('POST', '/api/files/upload?name=undo-b.txt', 'b', true)).body;
   assert.equal((await kim('POST', '/api/files/unshare', { ids: [b.id] })).body.undo, null);
 });
+
+test('Admin → Shared outside: Undo a Stop puts the shares back; once, by that admin; owners told', async () => {
+  const doc = (await kim('POST', '/api/files/upload?name=undo-outside.txt', 'u', true)).body;
+  const until = Date.now() + 9 * 864e5;
+  await kim('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: id('gil@globex.com'), role: 'editor', expires_at: until }] });
+  const orgId = q('SELECT org_id FROM users WHERE id = ?').get(id('gil@globex.com')).org_id;
+  const r = (await ana('POST', '/api/external-shares/stop-company', { org_id: orgId })).body;
+  assert.ok(r.stopped >= 1 && r.undo);
+  assert.equal((await gil('GET', `/api/files/${doc.id}`)).status, 404);
+  assert.equal((await kim('POST', '/api/external-shares/undo', { undo: r.undo })).status, 403, 'admins only');
+  const back = (await ana('POST', '/api/external-shares/undo', { undo: r.undo })).body;
+  assert.equal(back.restored, r.stopped);
+  const s = q('SELECT direct_role, expires_at FROM shares WHERE file_id = ? AND user_id = ?').get(doc.id, id('gil@globex.com'));
+  assert.deepEqual([s.direct_role, s.expires_at], ['editor', until]);
+  assert.equal((await gil('GET', `/api/files/${doc.id}`)).status, 200);
+  assert.ok(q("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE 'An admin put back sharing of %'").get(id('kim@acme.com')));
+  assert.equal((await ana('POST', '/api/external-shares/undo', { undo: r.undo })).status, 404, 'once');
+  // One share: the same.
+  const one = (await ana('DELETE', `/api/external-shares/${doc.id}/${id('gil@globex.com')}`)).body;
+  assert.equal((await ana('POST', '/api/external-shares/undo', { undo: one.undo })).body.restored, 1);
+});

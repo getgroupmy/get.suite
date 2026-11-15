@@ -2,7 +2,7 @@
 // (working across companies), who shared what with whom, and a way to stop one or all with a company.
 import { Router } from 'express';
 import { q } from '../db.js';
-import { notFound, bad } from '../util.js';
+import { notFound, bad, uid } from '../util.js';
 import { requireAdmin } from '../auth.js';
 import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
@@ -20,10 +20,17 @@ export function externalShares(orgId, at = Date.now()) {
     .map((r) => ({ ...r, trashed: !!r.trashed }));
 }
 
-/** Take shares away (rows from externalShares), telling each owner what went. */
+// Undo for Stop: the share rows as they were, for a few minutes (key → { user, at, rows }).
+const undos = new Map();
+const UNDO_MS = 10 * 60e3;
+
+/** Take shares away (rows from externalShares), telling each owner what went. → an Undo key. */
 function stop(req, rows) {
   const byOwner = new Map();
+  const saved = [];
   for (const r of rows) {
+    const row = q('SELECT * FROM shares WHERE file_id = ? AND user_id = ?').get(r.file_id, r.user_id);
+    if (row) saved.push({ row, owner_id: r.owner_id, file_name: r.file_name });
     q('DELETE FROM shares WHERE file_id = ? AND user_id = ?').run(r.file_id, r.user_id);
     if (!byOwner.has(r.owner_id)) byOwner.set(r.owner_id, []);
     byOwner.get(r.owner_id).push(r);
@@ -35,6 +42,10 @@ function stop(req, rows) {
     bell([owner], { kind: 'share', title: `An admin stopped sharing ${names.length === 1 ? `“${names[0]}”` : `${names.length} of your files`} outside the company`,
       body: `With ${[...new Set(list.map((r) => r.with_email))].slice(0, 5).join(', ')}.`, link: '/drive', actor: req.user.name });
   }
+  const key = uid();
+  undos.set(key, { user: req.user.id, org: req.user.org_id, at: Date.now(), saved });
+  for (const [k, v] of undos) if (Date.now() - v.at > UNDO_MS) undos.delete(k);
+  return key;
 }
 
 export function externalShareRoutes() {
@@ -87,9 +98,9 @@ export function externalShareRoutes() {
   r.delete('/:fileId/:userId', (req, res) => {
     const row = externalShares(req.user.org_id).find((x) => x.file_id === req.params.fileId && x.user_id === req.params.userId);
     if (!row) throw notFound('That share is gone already');
-    stop(req, [row]);
+    const undo = stop(req, [row]);
     audit(req, 'file.share', { target: row.file_name, details: { removed: row.with_email, by_admin: true } });
-    res.json({ stopped: 1 });
+    res.json({ stopped: 1, undo });
   });
   // Everything shared with one company's people: { org_id }.
   r.post('/stop-company', (req, res) => {
@@ -97,9 +108,30 @@ export function externalShareRoutes() {
     if (!orgId) throw bad('Which company?');
     const rows = externalShares(req.user.org_id).filter((x) => x.with_org_id === orgId);
     if (!rows.length) throw notFound('Nothing is shared with that company');
-    stop(req, rows);
+    const undo = stop(req, rows);
     audit(req, 'file.share', { target: rows[0].with_company || 'Another company', details: { removed: rows.length, by_admin: true, company: true } });
-    res.json({ stopped: rows.length });
+    res.json({ stopped: rows.length, undo });
+  });
+  // Undo a Stop (within 10 minutes, by the admin who did it, once): those shares come back as they were,
+  // unless their end came meanwhile; their owners are told.
+  r.post('/undo', (req, res) => {
+    const u = undos.get(String(req.body?.undo || ''));
+    if (!u || u.user !== req.user.id || Date.now() - u.at > UNDO_MS) throw notFound('That can’t be undone any more');
+    undos.delete(String(req.body.undo));
+    let back = 0;
+    const owners = new Map();
+    for (const { row, owner_id, file_name } of u.saved) {
+      if (row.expires_at && row.expires_at <= Date.now()) continue;
+      if (!q('SELECT 1 FROM files WHERE id = ? AND owner_id = ?').get(row.file_id, owner_id) || !q('SELECT 1 FROM users WHERE id = ?').get(row.user_id)) continue;
+      const cols = Object.keys(row);
+      q(`INSERT OR REPLACE INTO shares (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => row[c]));
+      back++;
+      sendTo([row.user_id, owner_id], { type: 'files-changed' });
+      if (owner_id !== req.user.id) owners.set(owner_id, [...(owners.get(owner_id) || []), file_name]);
+    }
+    for (const [owner, names] of owners) bell([owner], { kind: 'share', title: `An admin put back sharing of ${names.length === 1 ? `“${names[0]}”` : `${names.length} of your files`} outside the company`, body: 'It was stopped by mistake.', link: '/drive/sharedbyme', actor: req.user.name });
+    audit(req, 'file.share', { target: `${back} shares outside the company`, details: { restored: true } });
+    res.json({ restored: back });
   });
   return r;
 }

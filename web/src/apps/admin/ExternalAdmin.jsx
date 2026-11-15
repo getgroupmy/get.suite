@@ -19,6 +19,10 @@ export default function ExternalAdmin({ allowExternal, limitDays }) {
   const [enforcing, setEnforcing] = useState(false);
   const load = useCallback(() => get('/external-shares').then(setData).catch((e) => toast(e.message, 'error')), [toast]);
   useEffect(() => { load(); }, [load]);
+  // Undo on the message after a Stop: those shares back as they were (for ten minutes).
+  const undoAction = (key) => (key ? { action: { label: 'Undo', onClick: async () => {
+    try { const u = await post('/external-shares/undo', { undo: key }); toast(`${u.restored} ${u.restored === 1 ? 'share' : 'shares'} put back`); load(); } catch (e) { toast(e.message, 'error'); }
+  } } } : undefined);
   const words = find.trim().toLowerCase();
   const weekAhead = Date.now() + 7 * 864e5;
   const endingSoon = (data?.items || []).filter((x) => x.expires_at && x.expires_at <= weekAhead).length;
@@ -72,7 +76,7 @@ export default function ExternalAdmin({ allowExternal, limitDays }) {
       )}
       {stopping && <ConfirmModal title="Stop this share?" danger confirm="Stop sharing"
         message={`${stopping.with_name || stopping.with_email} (${stopping.with_company || 'another company'}) can no longer open “${stopping.file_name}”. ${stopping.owner_name} is told.`}
-        onConfirm={async () => { try { await del(`/external-shares/${stopping.file_id}/${stopping.user_id}`); toast('Sharing stopped'); load(); } catch (e) { toast(e.message, 'error'); } }}
+        onConfirm={async () => { try { const r = await del(`/external-shares/${stopping.file_id}/${stopping.user_id}`); toast('Sharing stopped', 'info', undoAction(r.undo)); load(); } catch (e) { toast(e.message, 'error'); } }}
         onClose={() => setStopping(null)} />}
       {enforcing && <ConfirmModal title="Apply the limit to existing shares?" confirm="Apply limit"
         message={`Shares with people at other companies that don't end, or end later, will end ${limitDays} days from now. Whoever shared them is told.`}
@@ -80,7 +84,7 @@ export default function ExternalAdmin({ allowExternal, limitDays }) {
         onClose={() => setEnforcing(false)} />}
       {stoppingCompany && <ConfirmModal title={`Stop sharing everything with ${stoppingCompany.name}?`} danger confirm="Stop all"
         message={`${stoppingCompany.items} ${stoppingCompany.items === 1 ? 'share' : 'shares'} with ${stoppingCompany.people} ${stoppingCompany.people === 1 ? 'person' : 'people'} at ${stoppingCompany.name} end at once. Whoever shared them is told. (To stop working with other companies altogether, use Company settings.)`}
-        onConfirm={async () => { try { const r = await post('/external-shares/stop-company', { org_id: stoppingCompany.id }); toast(`${r.stopped} ${r.stopped === 1 ? 'share' : 'shares'} stopped`); setCompany(''); load(); } catch (e) { toast(e.message, 'error'); } }}
+        onConfirm={async () => { try { const r = await post('/external-shares/stop-company', { org_id: stoppingCompany.id }); toast(`${r.stopped} ${r.stopped === 1 ? 'share' : 'shares'} stopped`, 'info', undoAction(r.undo)); setCompany(''); load(); } catch (e) { toast(e.message, 'error'); } }}
         onClose={() => setStoppingCompany(null)} />}
     </div>
   );
