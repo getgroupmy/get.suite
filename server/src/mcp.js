@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import express, { Router } from 'express';
 import { expand } from './calmath.js';
 import { issuerOf } from './mcpauth.js';
+import { freeSlots } from './freeslots.js';
 
 export const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const INNER_KEY = crypto.randomBytes(24).toString('hex'); // marks our own loopback calls (see innerIp)
@@ -28,12 +29,14 @@ export function innerIp(req, res, next) {
 function apiFor(req) {
   const base = `http://127.0.0.1:${req.socket.localPort}/api`;
   const headers = { authorization: req.get('authorization'), 'x-workspace-inner': INNER_KEY, 'x-workspace-ip': req.ip || '', 'content-type': 'application/json' };
-  return async (method, url, body) => {
+  const api = async (method, url, body) => {
     const r = await fetch(base + url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const data = await r.json().catch(() => null);
     if (!r.ok) throw new ToolError(data?.error || `Workspace answered ${r.status}`);
     return data;
   };
+  api.me = { id: req.user.id, name: req.user.name, email: req.user.username };
+  return api;
 }
 
 class ToolError extends Error {}
@@ -262,6 +265,84 @@ export const TOOLS = [
     async run(api, a) {
       const f = await api('POST', '/files/new', { kind: 'doc', name: String(a.name || 'Untitled document').slice(0, 200), content: docFromText(a.text) });
       return { id: `file:${f.id}`, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+    },
+  },
+  {
+    name: 'find_people', title: 'Find colleagues', readOnly: true,
+    description: 'Colleagues in the company directory by name, email, job title or department (all of them without a query), with their status.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+    async run(api, a) {
+      const low = String(a.query || '').toLowerCase().trim();
+      const people = (await api('GET', '/users/directory')).filter((u) => !low || [u.name, u.username, u.job_title, u.department].some((x) => String(x || '').toLowerCase().includes(low)));
+      return { people: people.slice(0, 100).map((u) => ({ name: u.name, email: u.username, job_title: u.job_title || null, department: u.department || null, status: u.status ? [u.status.emoji, u.status.text].filter(Boolean).join(' ') || null : null })) };
+    },
+  },
+  {
+    name: 'find_free_time', title: 'Find a time to meet', readOnly: true,
+    description: 'Times when the person and the colleagues named are all free (from their calendars), within working hours on weekdays. Use create_event to book one.',
+    inputSchema: {
+      type: 'object', required: ['people'],
+      properties: {
+        people: { type: 'array', items: { type: 'string' }, description: 'Colleagues’ email addresses (the person themselves is always included)' },
+        minutes: { type: 'integer', minimum: 15, maximum: 480, default: 30 }, from: { type: 'string', description: 'ISO 8601 (default: now)' }, to: { type: 'string', description: 'ISO 8601 (default: 7 days after from)' },
+        time_zone: { type: 'string', description: 'For working hours, e.g. Europe/London (default UTC)' }, day_start: { type: 'integer', minimum: 0, maximum: 23, default: 9 }, day_end: { type: 'integer', minimum: 1, maximum: 24, default: 17 },
+      },
+    },
+    async run(api, a) {
+      const from = timeOf(a.from, 'from') ?? Date.now();
+      const to = timeOf(a.to, 'to') ?? from + 7 * DAY;
+      if (to <= from || to - from > 31 * DAY) throw new ToolError('Look at most 31 days ahead, with to after from');
+      const dir = await api('GET', '/users/directory');
+      const emails = [...new Set((Array.isArray(a.people) ? a.people : []).map((e) => String(e).toLowerCase().trim()).filter(Boolean))];
+      const missing = emails.filter((e) => !dir.some((u) => u.username.toLowerCase() === e));
+      if (missing.length) throw new ToolError(`Not colleagues here: ${missing.join(', ')} (find_people lists who is)`);
+      const ids = [api.me.id, ...emails.map((e) => dir.find((u) => u.username.toLowerCase() === e).id)].filter((x, i, l) => l.indexOf(x) === i).slice(0, 10);
+      const fb = await api('GET', `/freebusy?users=${ids.join(',')}&from=${from}&to=${to}`);
+      const busy = Object.values(fb).flatMap((p) => (p.busy || []).map((b) => [b.start, b.end]));
+      const slots = freeSlots({ busy, from, to, minutes: Number(a.minutes) || 30, tz: a.time_zone || 'UTC', dayStart: a.day_start ?? 9, dayEnd: a.day_end ?? 17 });
+      return { people: Object.values(fb).map((p) => p.name), times: slots.map((x) => ({ start: iso(x.start), end: iso(x.end) })) };
+    },
+  },
+  {
+    name: 'list_files', title: 'Drive files', readOnly: true,
+    description: 'The files and folders in the person’s Drive (the top level, or a folder by its id from an earlier list_files or search).',
+    inputSchema: { type: 'object', properties: { folder: { type: 'string', description: 'A folder id (file:… or the bare id)' } } },
+    async run(api, a) {
+      const id = a.folder ? String(a.folder).replace(/^file:/, '') : null;
+      const rows = await api('GET', id ? `/files?parent=${encodeURIComponent(id)}` : '/files');
+      return { files: (Array.isArray(rows) ? rows : rows.files || []).slice(0, 200).map((f) => ({ id: `file:${f.id}`, name: f.name, kind: f.kind, size: f.size ?? null, updated_at: iso(f.updated_at), url: fileUrl(f) })) };
+    },
+  },
+  {
+    name: 'list_chat_conversations', title: 'Chat conversations', readOnly: true,
+    description: 'The person’s Chat channels and direct messages, with how many messages are unread.',
+    inputSchema: { type: 'object', properties: {} },
+    async run(api) {
+      const r = await api('GET', '/chat/channels');
+      return { conversations: (r.channels || []).filter((c) => !c.archived_at).slice(0, 200).map((c) => ({ id: c.id, name: c.dm_key ? (c.dm_name || 'Notes to self') : `#${c.name}`, direct: !!c.dm_key, private: !!c.private, unread: c.unread || 0, topic: c.topic || null })) };
+    },
+  },
+  {
+    name: 'send_chat_message', title: 'Post in Chat', readOnly: false,
+    description: 'Post a message in a Chat channel (#name) or a direct message to a colleague (their email address), as the person. Ask them before posting on their behalf.',
+    inputSchema: { type: 'object', required: ['to', 'text'], properties: { to: { type: 'string', description: '#channel-name, or a colleague’s email address' }, text: { type: 'string' } } },
+    async run(api, a) {
+      const to = String(a.to || '').trim(), text = String(a.text || '').trim();
+      if (!text) throw new ToolError('Say what to post');
+      let channelId, where;
+      if (to.includes('@')) {
+        const u = (await api('GET', '/users/directory')).find((x) => x.username.toLowerCase() === to.toLowerCase());
+        if (!u) throw new ToolError(`No colleague with the address ${to}`);
+        channelId = (await api('POST', '/chat/dm', { user_id: u.id })).id;
+        where = u.name;
+      } else {
+        const name = to.replace(/^#/, '').toLowerCase();
+        const c = ((await api('GET', '/chat/channels')).channels || []).find((x) => !x.dm_key && String(x.name).toLowerCase() === name);
+        if (!c) throw new ToolError(`No channel #${name} that the person is in (list_chat_conversations shows them)`);
+        channelId = c.id; where = `#${c.name}`;
+      }
+      const m = await api('POST', `/chat/channels/${channelId}/messages`, { body: text.slice(0, 10000) });
+      return { posted: true, where, id: `chat:${channelId}:${m.id}`, url: link(`/chat/${channelId}?msg=${m.id}`) };
     },
   },
 ];

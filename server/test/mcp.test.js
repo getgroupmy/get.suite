@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -130,6 +130,39 @@ test('without mail on the server, mail tools say so (search still works)', async
   assert.equal(r.isError, true);
   const d = await call(rw, 'draft_email', { to: 'kim@example.com', subject: 'Hi', body: 'Hello' });
   assert.equal(d.isError, true);
+});
+
+test('find people, find a free time with them, list Drive files, list and post in Chat', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'lee', domain: 'acme.com', name: 'Lee Chan', password: 'password123' })).status, 201);
+  const lee = client();
+  await lee('POST', '/api/auth/login', { username: 'lee@acme.com', password: 'password123' });
+  const people = (await call(rw, 'find_people', { query: 'lee' })).structuredContent.people;
+  assert.deepEqual(people.map((p) => p.email), ['lee@acme.com']);
+  // Monday 7 December 2026: Olivia busy 9–10, Lee busy 10–12 (UTC).
+  const d = (h) => Date.UTC(2026, 11, 7, h);
+  await owner('POST', '/api/events', { title: 'Olivia busy', start: d(9), end: d(10) });
+  await lee('POST', '/api/events', { title: 'Lee busy', start: d(10), end: d(12) });
+  const free = (await call(rw, 'find_free_time', { people: ['lee@acme.com'], minutes: 60, from: new Date(d(0)).toISOString(), to: new Date(d(24)).toISOString() })).structuredContent;
+  assert.deepEqual(free.people.sort(), ['Lee Chan', 'Olivia Owner']);
+  assert.equal(free.times[0].start, new Date(d(12)).toISOString(), 'the first hour both are free');
+  assert.equal((await call(rw, 'find_free_time', { people: ['nobody@else.com'] })).isError, true);
+  // Drive.
+  const folder = (await owner('POST', '/api/files/folder', { name: 'Projects' })).body;
+  const top = (await call(rw, 'list_files', {})).structuredContent.files;
+  assert.ok(top.some((f) => f.name === 'Projects' && f.kind === 'folder'), JSON.stringify(top));
+  assert.ok(top.some((f) => f.name === 'Pelican launch plan'));
+  assert.deepEqual((await call(rw, 'list_files', { folder: `file:${folder.id}` })).structuredContent.files, []);
+  // Chat: a channel by name, and a direct message by address.
+  const conv = (await call(rw, 'list_chat_conversations', {})).structuredContent.conversations;
+  assert.ok(conv.some((c) => c.name === '#general'), JSON.stringify(conv));
+  const posted = (await call(rw, 'send_chat_message', { to: '#general', text: 'Standup moved to 10:30' })).structuredContent;
+  assert.equal(posted.where, '#general');
+  const dm = (await call(rw, 'send_chat_message', { to: 'lee@acme.com', text: 'Can you review the plan?' })).structuredContent;
+  assert.equal(dm.where, 'Lee Chan');
+  const leeSees = (await lee('GET', '/api/chat/search?q=review%20the%20plan')).body;
+  assert.equal(leeSees.length, 1);
+  assert.equal((await call(rw, 'send_chat_message', { to: '#nope', text: 'x' })).isError, true);
+  assert.equal((await call(ro, 'send_chat_message', { to: '#general', text: 'x' })).isError, true, 'not with a read-only token');
 });
 
 test('company network rules apply to the assistant’s calls too', async () => {
