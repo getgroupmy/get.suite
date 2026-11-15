@@ -200,6 +200,7 @@ function Aliases({ qs, orgId }) {
 
 function AliasDialog({ alias, domains, orgId, onClose, onSaved }) {
   const [f, setF] = useState({ local: '', domain: domains[0] || '', targets: alias ? alias.targets.join(', ') : '' });
+  useEffect(() => { if (!f.domain && domains[0]) setF((x) => ({ ...x, domain: domains[0] })); }, [domains, f.domain]); // (they may arrive after it opened)
   const [error, setError] = useState('');
   return (
     <Modal title={alias ? `Edit ${alias.address}` : 'Add alias'} onClose={onClose}>
@@ -284,6 +285,8 @@ function SharedMailboxes({ qs, orgId }) {
 
 function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
   const [f, setF] = useState({ local: '', domain: domains[0] || '', name: box?.name || '', auto_subject: box?.auto_subject || 'We got your message', auto_reply: box?.auto_reply || '', signature: box?.signature || '' });
+  // The domains may arrive after the window opened: the first one then, as the list shows it.
+  useEffect(() => { if (!f.domain && domains[0]) setF((x) => ({ ...x, domain: domains[0] })); }, [domains, f.domain]);
   const [autoOn, setAutoOn] = useState(!!box?.auto_reply);
   const [members, setMembers] = useState(new Set((box?.members || []).map((m) => m.id)));
   const [filter, setFilter] = useState('');
