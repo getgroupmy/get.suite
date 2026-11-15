@@ -284,3 +284,21 @@ test('reading a file: its text between markers, and text aimed at assistants war
   assert.match(p.text, /^----- The file follows/);
   assert.equal(p.metadata.warnings, undefined);
 });
+
+test('what an assistant changes is recorded: the activity log, and the token’s recent actions', async () => {
+  await call(rw, 'create_task', { title: 'Book the venue' });
+  await call(rw, 'create_note', { title: 'Ideas', text: 'Picnic' });
+  await call(rw, 'search', { query: 'venue' }); // reading isn't recorded
+  const toks = (await owner('GET', '/api/tokens')).body.tokens;
+  const claude = toks.find((t) => t.name === 'Claude');
+  assert.deepEqual(claude.recent.slice(0, 2).map((r) => r.what), ['Ideas', 'Book the venue'], 'newest first');
+  assert.deepEqual(claude.recent.slice(0, 2).map((r) => r.action), ['Add a note', 'Add a task']);
+  assert.ok(claude.recent.every((r) => r.at > 0));
+  assert.deepEqual(toks.find((t) => t.name === 'ChatGPT').recent, []);
+  const log = (await owner('GET', '/api/audit?action=assistant.action')).body;
+  const rows = log.entries || log.rows || log;
+  const text = JSON.stringify(rows);
+  assert.match(text, /Book the venue/);
+  assert.match(text, /"assistant":"Claude"/);
+  assert.doesNotMatch(text, /venue","details":\{"assistant":"Claude","tool":"search"/);
+});

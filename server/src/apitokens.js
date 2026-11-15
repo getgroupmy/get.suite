@@ -70,7 +70,10 @@ export function apiTokenRoutes() {
   const allowed = (orgId) => !!q('SELECT allow_api_tokens FROM orgs WHERE id = ?').get(orgId)?.allow_api_tokens;
 
   r.get('/', (req, res) => {
-    res.json({ allowed: allowed(req.user.org_id), tokens: q('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id).map(shape) });
+    // Each token's last few changes made through it (an assistant creating an event, posting in Chat…).
+    const recent = (id) => q("SELECT at, target, details FROM audit_log WHERE actor_id = ? AND action = 'assistant.action' AND details LIKE ? ORDER BY at DESC LIMIT 5").all(req.user.id, `%"token":"${id}"%`)
+      .map((r) => { let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* old row */ } return { at: r.at, what: r.target, action: d.title || d.tool || '' }; });
+    res.json({ allowed: allowed(req.user.org_id), tokens: q('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id).map((t) => ({ ...shape(t), recent: recent(t.id) })) });
   });
 
   r.post('/', (req, res) => {

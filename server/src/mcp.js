@@ -5,6 +5,8 @@
 // and read-only tokens apply. Email is never sent from here: draft_email leaves a draft to check and send.
 // search and fetch follow the shape ChatGPT's connectors and deep research expect.
 import { mailWarnings } from './mail/warnings.js';
+import { audit } from './audit.js';
+import { q } from './db.js';
 import { aiInstructions } from './mail/aiinstructions.js';
 
 // An email's content is the sender's words, not the person's: marked so an assistant treats it as
@@ -365,7 +367,7 @@ export const TOOLS = [
 const listed = () => TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: t.readOnly, destructiveHint: false, openWorldHint: false } }));
 
 /** One JSON-RPC message → its answer (or null for a notification). */
-export async function handle(msg, api) {
+export async function handle(msg, api, { onChange = null } = {}) {
   const reply = (result) => ({ jsonrpc: '2.0', id: msg.id, result });
   const fail = (code, message) => ({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
   if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return fail(-32600, 'Invalid request');
@@ -387,6 +389,7 @@ export async function handle(msg, api) {
       if (!tool) return fail(-32602, `No tool called ${msg.params?.name}`);
       try {
         const out = await tool.run(api, msg.params?.arguments || {});
+        if (!tool.readOnly && onChange) { try { onChange(tool, msg.params?.arguments || {}, out); } catch { /* the record mustn't fail the call */ } }
         return reply({ content: [{ type: 'text', text: JSON.stringify(out) }], structuredContent: out, isError: false });
       } catch (e) {
         if (!(e instanceof ToolError)) throw e;
@@ -397,6 +400,14 @@ export async function handle(msg, api) {
     case 'prompts/list': return reply({ prompts: [] });
     default: return fail(-32601, `Method not found: ${msg.method}`);
   }
+}
+
+/** What an assistant changed, in the activity log (and the token's Recent actions in Settings): which assistant, what, on what. */
+function recordChange(req, tool, args) {
+  const id = String(req.apiToken?.id || '');
+  const assistant = (id.startsWith('mcp:') ? q('SELECT name FROM mcp_clients WHERE client_id = ?').get(id.slice(4))?.name : q('SELECT name FROM api_tokens WHERE id = ?').get(id)?.name) || 'An assistant';
+  const what = String(args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
 }
 
 export function mcpRoutes(auth) {
@@ -422,7 +433,7 @@ export function mcpRoutes(auth) {
   r.post('/', bearerOnly, authed, express.json({ limit: '4mb' }), async (req, res) => {
     const api = apiFor(req);
     const one = async (m) => {
-      try { return await handle(m, api); }
+      try { return await handle(m, api, { onChange: (tool, args) => recordChange(req, tool, args) }); }
       catch (e) { return { jsonrpc: '2.0', id: m?.id ?? null, error: { code: -32603, message: String(e.message || e).slice(0, 300) } }; }
     };
     const body = req.body;

@@ -75,6 +75,10 @@ await step('that token works at /mcp: the tools are listed, and a note made by t
   await page.getByRole('heading', { name: 'From Claude' }).waitFor();
   await page.goto(`${B}/settings`);
   await page.getByRole('region', { name: 'API tokens' }).getByText(/last used/).first().waitFor();
+  // What it changed: listed under the token, and in the company's activity log.
+  await page.getByRole('group', { name: /^Recent changes by / }).getByText('Add a note “From Claude”').waitFor();
+  await page.goto(`${B}/admin?tab=activity`);
+  await page.getByText('From Claude').first().waitFor();
 });
 await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
   const crypto = await import('node:crypto');

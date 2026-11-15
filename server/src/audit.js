@@ -28,7 +28,7 @@ export const ACTIONS = {
   'group.create': 'Made a group', 'group.members': 'Changed a group\'s members', 'group.delete': 'Deleted a group', 'group.email': 'Changed a group\'s email address', 'data.export': 'Downloaded their data', 'meet.chat_delete': 'Deleted a kept meeting chat',
   'oidc.app_added': 'Added a sign-in app', 'oidc.app_secret': 'Made a new secret for a sign-in app', 'oidc.app_removed': 'Removed a sign-in app', 'oidc.signin': 'Signed in to another app',
   'passkey.added': 'Added a passkey', 'passkey.removed': 'Removed a passkey', 'recovery.set': 'Set a recovery email', 'recovery.remove': 'Removed their recovery email',
-  'password.reset_requested': 'Asked for a password reset link', 'password.reset': 'Reset their password with an emailed link', 'password.leaked': 'Signed in with a password known from data breaches (asked to choose a new one)',
+  'password.reset_requested': 'Asked for a password reset link', 'password.reset': 'Reset their password with an emailed link', 'assistant.action': 'An AI assistant made a change for them', 'password.leaked': 'Signed in with a password known from data breaches (asked to choose a new one)',
   'api_token.create': 'Made an API token', 'api_token.revoke': 'Revoked an API token',
   'user.hold': 'Put a person on legal hold', 'user.release': 'Took a person off legal hold', 'user.export': 'Downloaded the people list',
   'user.bulk.suspend': 'Suspended people', 'user.bulk.restore': 'Restored suspended people', 'user.bulk.signout': 'Signed people out everywhere', 'user.bulk.department': 'Moved people to a department',

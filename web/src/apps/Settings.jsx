@@ -1248,7 +1248,13 @@ function ApiTokens() {
           <ul className="plain-list" aria-label="Your API tokens">
             {data.tokens.map((t) => (
               <li key={t.id} className="row small">
-                <span className="grow"><strong>{t.name}</strong> <span className="muted">…{t.hint} · {t.scope === 'write' ? 'read and write' : 'read only'} · made {when(t.created_at)} · {t.expired ? 'expired' : t.expires_at ? `expires ${when(t.expires_at)}` : 'never expires'} · {t.last_used_at ? `last used ${when(t.last_used_at)}${t.last_ip ? ` from ${t.last_ip}` : ''}` : 'never used'}</span></span>
+                <span className="grow"><strong>{t.name}</strong> <span className="muted">…{t.hint} · {t.scope === 'write' ? 'read and write' : 'read only'} · made {when(t.created_at)} · {t.expired ? 'expired' : t.expires_at ? `expires ${when(t.expires_at)}` : 'never expires'} · {t.last_used_at ? `last used ${when(t.last_used_at)}${t.last_ip ? ` from ${t.last_ip}` : ''}` : 'never used'}</span>
+                  {t.recent?.length > 0 && (
+                    <span className="token-recent" role="group" aria-label={`Recent changes by ${t.name}`}>
+                      <span className="muted">Recent changes: </span>{t.recent.map((r, i) => <span key={i}>{i > 0 && ' · '}{r.action}{r.what ? ` “${r.what}”` : ''} <span className="muted">({when(r.at)})</span></span>)}
+                    </span>
+                  )}
+                </span>
                 <button type="button" className="btn small" aria-label={`Revoke ${t.name}`} onClick={() => setRevoking(t)}>Revoke</button>
               </li>
             ))}
