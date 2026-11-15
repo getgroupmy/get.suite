@@ -561,7 +561,7 @@ export default function Chat() {
   );
   const dmRow = (c) => (
           <button key={c.id} data-cid={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}{pausedFor(c.dm_user_id) && <span className="dm-status" aria-label="Notifications paused" title={`Notifications paused until ${whenText(pausedFor(c.dm_user_id))}`}> 🔕</span>}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
+            <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="pill ext small" title={`${c.dm_org}, outside your company`} aria-label={`External, at ${c.dm_org}`}>External</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}{pausedFor(c.dm_user_id) && <span className="dm-status" aria-label="Notifications paused" title={`Notifications paused until ${whenText(pausedFor(c.dm_user_id))}`}> 🔕</span>}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
             {callMark(c)}
           </button>
   );
@@ -897,6 +897,11 @@ export default function Chat() {
           )}
           {typing.line}
           {!current.archived_at && <MentionedAway text={text} skip={[user.id, current?.dm_user_id]} />}
+          {current?.dm_key && current.dm_org && (
+            <p className="chat-external small" role="note">
+              <span className="pill ext">External · {current.dm_org}</span> <strong>{current.dm_name}</strong> works at {current.dm_org}, outside {user.org_name || 'your company'}. Be careful with passwords, payment details and confidential files; check unusual requests another way.
+            </p>
+          )}
           {awayDm && !current.archived_at && (
             <p className="chat-late small" role="status">
               <span aria-hidden="true">🌴</span> <strong>{awayDm.name}</strong> is away{awayDm.until ? ` until ${new Date(`${awayDm.until}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}{awayDm.subject && <span className="muted"> (“{awayDm.subject}”)</span>}.
