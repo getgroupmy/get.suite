@@ -147,3 +147,24 @@ export function refusedSummary(messages, domains, since) {
   }
   return out;
 }
+
+/**
+ * The log read and parsed, kept until its files change (their names, sizes and times): Admin → Email asks
+ * for it twice a visit (Turned away, Email log), and a busy server's log takes a moment to go through.
+ * → messages as parseMaillog gives them, or null when there's no log.
+ */
+let cache = { key: null, messages: null };
+export function maillogMessages(dir = process.env.MAIL_STATUS_DIR || '/var/nw-status', now = Date.now()) {
+  let key;
+  try {
+    key = fs.readdirSync(dir).filter((n) => /^maillog(\..+\.gz)?$/.test(n)).sort()
+      .map((n) => { const st = fs.statSync(path.join(dir, n)); return `${n}:${st.size}:${st.mtimeMs}`; }).join('|');
+  } catch { return null; }
+  if (!key.includes('maillog:')) return null;
+  // Parsed again at most once a minute even if unchanged, so "how long ago" stays right around midnight and year ends.
+  if (cache.key === key && now - cache.at < 60e3) return cache.messages;
+  const text = readMaillog(dir);
+  if (text === null) return null;
+  cache = { key, at: now, messages: parseMaillog(text, now) };
+  return cache.messages;
+}

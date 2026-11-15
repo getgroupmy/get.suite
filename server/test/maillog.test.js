@@ -91,3 +91,17 @@ test('refused by the spam filter (milter-reject): every recipient refused, with 
   assert.equal(refusedSummary(msgs, new Set(['acme.com']), now + 1).total, 0);
   assert.equal(refusalKind('554 5.7.1 Service unavailable; Client host [1.2.3.4] blocked using zen.spamhaus.org'), 'spam');
 });
+
+test('maillogMessages: parsed once and kept until the log changes', async () => {
+  const { maillogMessages } = await import('../src/mail/maillog.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'maillog-cache-'));
+  assert.equal(maillogMessages(dir), null, 'no log');
+  const line = (id, to) => `Nov 15 10:00:00 mail postfix/smtp[1]: ${id}: to=<${to}>, relay=mx[1.2.3.4]:25, delay=1, status=sent (250 OK)\n`;
+  fs.writeFileSync(path.join(dir, 'maillog'), line('AAAAAA1', 'a@x.com'));
+  const now = Date.UTC(2026, 10, 15, 12);
+  const first = maillogMessages(dir, now);
+  assert.equal(first.length, 1);
+  assert.equal(maillogMessages(dir, now + 1000), first, 'the same, not parsed again');
+  fs.appendFileSync(path.join(dir, 'maillog'), line('BBBBBB2', 'b@x.com'));
+  assert.equal(maillogMessages(dir, now + 2000).length, 2, 'the log grew: read again');
+});

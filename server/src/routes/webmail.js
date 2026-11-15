@@ -23,7 +23,7 @@ import { sendTo } from '../hub.js';
 import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
 import { keepIfHeld } from '../hold.js';
 import { checkMessage, describeHits } from '../dlp.js';
-import { parseMaillog, readMaillog, deliveryOf } from '../mail/maillog.js';
+import { maillogMessages, deliveryOf } from '../mail/maillog.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor, sendWithRetry } from '../mail/imap.js';
@@ -1123,9 +1123,9 @@ export default function webmailRoutes() {
   // Was a message I sent delivered? From the mail server's log, by its Message-ID (only mail sent from
   // one of my own addresses). { available, recipients: [{ to, reached?, status, response, at, tries }] | null }.
   r.get('/delivery', (req, res) => {
-    const text = readMaillog();
-    if (text === null) return res.json({ available: false, recipients: null });
-    res.json({ available: true, recipients: deliveryOf(parseMaillog(text), String(req.query.message_id || '').slice(0, 300), identities(req.user).map((i) => i.address)) });
+    const all = maillogMessages();
+    if (all === null) return res.json({ available: false, recipients: null });
+    res.json({ available: true, recipients: deliveryOf(all, String(req.query.message_id || '').slice(0, 300), identities(req.user).map((i) => i.address)) });
   });
 
   // A picture from an email, fetched here so its sender doesn't see the reader (imageproxy.js). Signed for this person.
