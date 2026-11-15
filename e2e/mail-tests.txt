@@ -146,3 +146,4 @@ lookalike.mjs
 imageproxy.mjs
 msimport.mjs
 googleimport.mjs
+linkwarn.mjs

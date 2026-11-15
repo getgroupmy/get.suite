@@ -958,6 +958,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       ) : m.outside?.external ? (
         <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
       ) : null}
+      {m.link_warnings?.length > 0 && (
+        <div className="banner danger" role="note"><strong>⚠ Careful: {m.link_warnings.length === 1 ? 'a link' : 'some links'} in this email {m.link_warnings.length === 1 ? 'goes' : 'go'} somewhere other than {m.link_warnings.length === 1 ? 'it says' : 'they say'}.</strong> {m.link_warnings.map((l) => `“${l.shown}” goes to ${l.real}`).join('; ')}. Workspace asks before opening {m.link_warnings.length === 1 ? 'it' : 'them'}.</div>
+      )}
       {blocking && (
         <ConfirmModal title={`Block ${m.from.address}?`} confirm="Block"
           message="Their messages will go straight to Junk, marked read, from now on (on your phone too). This one moves to Junk now. You can undo it in Filters."
@@ -1384,6 +1387,7 @@ function ConfidentialList({ onClose }) {
 function HtmlBody({ html, remote, images, onShowImages }) {
   const ref = useRef();
   const [height, setHeight] = useState(300);
+  const [ask, setAsk] = useState(null);
   // Pictures from the internet come through Workspace (the server rewrote their addresses), so the
   // sender never sees the reader; nothing else from outside may load, whatever the email contains.
   const hasRemote = remote > 0 || /<img[^>]+src=["']?https?:/i.test(html);
@@ -1396,7 +1400,26 @@ function HtmlBody({ html, remote, images, onShowImages }) {
         <div className="banner">Images from the internet are hidden to protect your privacy. <button className="btn small" onClick={onShowImages}>Show images</button> <span className="muted small">They load through Workspace, so the sender can’t see your address or device.</span></div>
       )}
       <iframe ref={ref} className="mail-html" title="Message" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin" srcDoc={doc} style={{ height }}
-        onLoad={() => { try { setHeight(Math.min(20000, ref.current.contentDocument.documentElement.scrollHeight + 16)); } catch { setHeight(800); } }} />
+        onLoad={() => {
+          try {
+            const d = ref.current.contentDocument;
+            setHeight(Math.min(20000, d.documentElement.scrollHeight + 16));
+            // A link whose text shows another address (marked by the server): ask before it opens.
+            d.addEventListener('click', (e) => {
+              const a = e.target.closest?.('a[data-nw-real]');
+              if (!a) return;
+              e.preventDefault();
+              setAsk({ href: a.href, real: a.dataset.nwReal, shown: a.dataset.nwShown });
+            });
+          } catch { setHeight(800); }
+        }} />
+      {ask && (
+        <ConfirmModal title="This link goes somewhere else" confirm="Open anyway" onClose={() => setAsk(null)}
+          onConfirm={() => { window.open(ask.href, '_blank', 'noopener,noreferrer'); }}>
+          <p>The link says <strong>{ask.shown}</strong>, but it really goes to <strong>{ask.real}</strong>.</p>
+          <p className="muted small">That’s a common trick in fake emails. If you weren’t expecting it, don’t open it: go to {ask.shown} yourself instead.</p>
+        </ConfirmModal>
+      )}
     </>
   );
 }

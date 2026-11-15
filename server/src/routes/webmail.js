@@ -1,4 +1,5 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
+import { checkLinks } from '../mail/linkcheck.js';
 import { proxyImages, checkImageSig, imageFor, overLimit } from '../mail/imageproxy.js';
 import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
@@ -1141,12 +1142,19 @@ export default function webmailRoutes() {
       html: p.html || null, text: p.text || '', textAsHtml: p.textAsHtml || '',
       // For showing: the same HTML with pictures from the internet loaded through Workspace (imageproxy.js),
       // and how many there are. Replies and forwards use `html`, as sent.
-      ...(() => { const v = p.html ? proxyImages(p.html, req.user.id) : null; return { view_html: v?.html ?? null, remote_images: v?.count || 0 }; })(),
+      // Links whose text shows one address but lead to another are marked, so opening one asks first (linkcheck.js);
+      // the message says so above it unless it's from a mailing list (whose links go through a click counter).
+      ...(() => {
+        const v = p.html ? proxyImages(p.html, req.user.id) : null;
+        const c = v ? checkLinks(v.html) : null;
+        const list = p.headers.has('list'); // mailparser gathers List-Unsubscribe, List-Id… under 'list'
+        return { view_html: c?.html ?? null, remote_images: v?.count || 0, link_warnings: c?.links.length && !list ? c.links : [] };
+      })(),
       // The new part of a reply, without the quoted history under it (shown folded away), or null.
       trimmed: (() => {
         const h = p.html ? splitHtmlQuote(p.html) : null, t = splitTextQuote(p.text || '');
         if (p.html ? !h.quoted : !t.quoted) return null;
-        return { html: h?.quoted ? h.main : null, view_html: h?.quoted ? proxyImages(h.main, req.user.id).html : null, text: t.quoted ? t.main : null };
+        return { html: h?.quoted ? h.main : null, view_html: h?.quoted ? checkLinks(proxyImages(h.main, req.user.id).html).html : null, text: t.quoted ? t.main : null };
       })(),
       flagged: flags.has('\\Flagged'),
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
