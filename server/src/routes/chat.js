@@ -241,7 +241,7 @@ function dmOpen(c, user) {
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
 // An attachment whose file is no longer there (deleted, or in the trash): gone, so it isn't offered to open or save.
 const withGone = (f) => (f && !q("SELECT 1 FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(f.id)) ? { ...f, gone: true } : f);
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, m.email, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, m.email, u.name AS user_name, u.org_id AS user_org_id, (SELECT o.name FROM orgs o WHERE o.id = u.org_id) AS user_org, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id

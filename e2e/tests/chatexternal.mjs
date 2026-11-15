@@ -44,12 +44,12 @@ const axe = async (p, label) => {
   }
   await p.emulateMedia({ colorScheme: 'light' });
 };
-let dm, colleagueDm;
+let dm, colleagueDm, gina;
 await step('a direct message with someone at another company, and one with a colleague', async () => {
   const r = await api(page, 'POST', '/orgs', { name: 'Globex Shipping', domain: 'globex.com', admin_name: 'Gina Globex', admin_local: 'gina', admin_password: 'password123' });
   if (r.status >= 300) throw new Error(JSON.stringify(r));
   await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
-  const gina = await mk('gina'); await signIn(gina, 'gina@globex.com');
+  gina = await mk('gina'); await signIn(gina, 'gina@globex.com');
   const ginaId = (await api(gina, 'GET', '/auth/me')).body.user.id;
   const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
   dm = (await api(page, 'POST', '/chat/dm', { user_id: ginaId })).body.id;
@@ -66,6 +66,17 @@ await step('the person outside is marked External · their company, in the list 
   await page.goto(`${B}/chat/${colleagueDm}`);
   await page.getByRole('textbox', { name: 'Message' }).waitFor();
   if (await page.getByText(/works at .*, outside/).count()) throw new Error('marked a colleague');
+});
+await step('their messages carry the External tag beside their name; ours don’t', async () => {
+  await api(gina, 'POST', `/chat/channels/${dm}/messages`, { body: 'Hello from Globex' });
+  await api(page, 'POST', `/chat/channels/${dm}/messages`, { body: 'Hi Gina' });
+  await page.goto(`${B}/chat/${dm}`);
+  const theirs = page.locator('.msg', { hasText: 'Hello from Globex' });
+  await theirs.getByText('External · Globex Shipping').waitFor();
+  const ours = page.locator('.msg', { hasText: 'Hi Gina' });
+  await ours.waitFor();
+  if (await ours.getByText(/External/).count()) throw new Error('tagged our own message');
+  await axe(page, 'external tag on messages');
 });
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
