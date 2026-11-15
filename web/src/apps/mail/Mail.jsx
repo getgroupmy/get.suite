@@ -958,6 +958,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       ) : m.outside?.external ? (
         <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
       ) : null}
+      {m.sender_check === 'forged' && (
+        <div className="banner danger" role="note"><strong>⚠ This email may not be from {m.from?.address?.split('@')[1]}.</strong> When it arrived it failed that domain’s own check (DMARC): its owner says mail like this isn’t theirs. Don’t click its links, open its attachments or reply with anything sensitive; report it as phishing if you weren’t expecting it.</div>
+      )}
       {m.reply_elsewhere && (
         <div className="banner danger" role="note"><strong>⚠ Careful: replies to this email go to {m.reply_elsewhere.reply_to}, not to {m.reply_elsewhere.from}.</strong> The sender set a different address for answers, a trick used to take over invoice and payment conversations. Check the address before you reply, and confirm any change of bank details another way.</div>
       )}
@@ -1007,6 +1010,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         <Avatar name={who(m.from)} size={40} email={m.from?.address} />
         <div className="grow">
           <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>} {m.from?.address && <SenderContact from={m.from} />}
+            {m.sender_check === 'unverified' && <span className="sender-unverified small" title="Its domain didn’t vouch for it: no SPF or DKIM check passed for it when it arrived. Mail from mailing lists and some services looks like this too.">? Couldn’t verify it came from {m.from.address.split('@')[1]}</span>}
             {m.unsubscribe && (m.unsubscribe.how === 'link'
               ? <a className="link-btn small unsub" href={m.unsubscribe.url} target="_blank" rel="noopener noreferrer nofollow" title="Opens the list's own page to unsubscribe">Unsubscribe</a>
               : <button type="button" className="link-btn small unsub" onClick={() => setUnsubscribing(true)}>Unsubscribe</button>)}</div>

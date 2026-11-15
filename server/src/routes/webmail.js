@@ -1,5 +1,6 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
 import { checkLinks } from '../mail/linkcheck.js';
+import { senderVerdict } from '../mail/senderauth.js';
 import { proxyImages, checkImageSig, imageFor, overLimit } from '../mail/imageproxy.js';
 import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
@@ -1161,6 +1162,8 @@ export default function webmailRoutes() {
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       // From outside the company (when it marks such mail), or using a colleague's name from outside.
       outside: incomingWarning(req.user, addrList(p.from)[0]),
+      // Whether this server's spam filter could confirm it comes from its From domain (senderauth.js).
+      sender_check: senderVerdict(p.headerLines, addrList(p.from)[0]?.address, q('SELECT name FROM domains WHERE org_id = ?').all(req.user.org_id).map((d) => d.name.toLowerCase())),
       // Replies would go to another site than the email came from (Reply-To), unless it's a mailing list.
       reply_elsewhere: replyToWarning(req.user, addrList(p.from)[0], addrList(p.replyTo), { list: p.headers.has('list') }),
       attachments: await attachmentList(p),

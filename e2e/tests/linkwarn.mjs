@@ -100,6 +100,26 @@ await step('a newsletter (its links pass through a click counter) asks on click 
   await frame().getByRole('link', { name: 'www.mybank.example' }).click();
   await page.getByRole('dialog', { name: 'This link goes somewhere else' }).getByRole('button', { name: 'Cancel' }).click();
 });
+await step('the sender: failing its domain’s DMARC is a red warning; nothing vouching for it, a “?” note; verified, nothing', async () => {
+  const AR = (v) => `Authentication-Results: mail.acme.com; ${v}\r\n`;
+  for (const [subj, ar] of [['Account forged', AR('dkim=none; spf=fail smtp.mailfrom=alerts@mybank.example; dmarc=fail header.from=mybank.example (policy=reject)')],
+    ['Account unverified', AR('dkim=pass header.d=bulkmail.example; spf=pass smtp.mailfrom=bounce@bulkmail.example; dmarc=none')],
+    ['Account verified', AR('dkim=pass header.d=mybank.example; spf=pass smtp.mailfrom=alerts@mybank.example; dmarc=pass header.from=mybank.example')]]) {
+    const st = await putHtml(subj, '<p>Your account statement is ready.</p>', ar);
+    if (st >= 300) throw new Error(`upload ${st}`);
+  }
+  const reader = page.locator('.mail-reader');
+  await openMsg('Account forged');
+  await reader.getByText('This email may not be from mybank.example.').waitFor();
+  await axe(page, 'forged banner');
+  await openMsg('Account unverified');
+  await reader.getByText('? Couldn’t verify it came from mybank.example').waitFor();
+  if (await reader.getByText(/may not be from/).count()) throw new Error('red banner for unverified');
+  await page.screenshot({ path: `${SP}/shots/unverified.png` });
+  await axe(page, 'unverified note');
+  await openMsg('Account verified');
+  if (await reader.getByText(/Couldn’t verify|may not be from/).count()) throw new Error('warned about a verified sender');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
