@@ -39,3 +39,11 @@ test('checkLinks keeps odd HTML as it was', () => {
   assert.deepEqual(checkLinks('<a>no href</a><a href="not a url">x.com</a>'), { html: '<a>no href</a><a href="not a url">x.com</a>', links: [] });
   assert.equal(checkLinks('').html, '');
 });
+
+test('checkLinks with likeOf: links to a site made to look like one you know are marked too (once per site in the list)', () => {
+  const likeOf = (host) => (/acme-login\.com$|^acme\.com\.verify/.test(host) ? { domain: 'acme.com', kind: 'company' } : null);
+  const { html, links } = checkLinks('<a href="https://acme-login.com/signin">Sign in</a> <a href="https://www.acme-login.com/x">again</a> <a href="https://acme.com.verify-account.example/">Verify</a> <a href="https://shop.example/">Shop</a>', { likeOf });
+  assert.deepEqual(links, [{ real: 'acme-login.com', like: 'acme.com' }, { real: 'acme.com.verify-account.example', like: 'acme.com' }]);
+  assert.equal((html.match(/data-nw-like="acme.com"/g) || []).length, 3);
+  assert.match(html, /<a href="https:\/\/shop.example\/">Shop<\/a>/);
+});

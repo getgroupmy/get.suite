@@ -989,8 +989,12 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         {m.reply_elsewhere && (
           <div className="banner danger" role="note"><strong>⚠ Careful: replies to this email go to {m.reply_elsewhere.reply_to}, not to {m.reply_elsewhere.from}.</strong> The sender set a different address for answers, a trick used to take over invoice and payment conversations. Check the address before you reply, and confirm any change of bank details another way.</div>
         )}
-        {m.link_warnings?.length > 0 && (
-          <div className="banner danger" role="note"><strong>⚠ Careful: {m.link_warnings.length === 1 ? 'a link' : 'some links'} in this email {m.link_warnings.length === 1 ? 'goes' : 'go'} somewhere other than {m.link_warnings.length === 1 ? 'it says' : 'they say'}.</strong> {m.link_warnings.map((l) => `“${l.shown}” goes to ${l.real}`).join('; ')}. Workspace asks before opening {m.link_warnings.length === 1 ? 'it' : 'them'}.</div>
+        {m.link_warnings?.some((l) => l.shown) && (() => {
+          const ls = m.link_warnings.filter((l) => l.shown);
+          return <div className="banner danger" role="note"><strong>⚠ Careful: {ls.length === 1 ? 'a link' : 'some links'} in this email {ls.length === 1 ? 'goes' : 'go'} somewhere other than {ls.length === 1 ? 'it says' : 'they say'}.</strong> {ls.map((l) => `“${l.shown}” goes to ${l.real}`).join('; ')}. Workspace asks before opening {ls.length === 1 ? 'it' : 'them'}.</div>;
+        })()}
+        {m.link_warnings?.some((l) => l.like) && (
+          <div className="banner danger" role="note"><strong>⚠ Careful: this email links to {m.link_warnings.filter((l) => l.like).map((l) => `${l.real} (made to look like ${l.like})`).join(', ')}.</strong> Fake sign-in and payment pages use addresses like these. Workspace asks before opening them; go to the real site yourself instead.</div>
         )}
       </WarningGroup>
       {blocking && (
@@ -1463,15 +1467,16 @@ function HtmlBody({ html, remote, images, onShowImages }) {
               const a = e.target.closest?.('a[data-nw-real]');
               if (!a) return;
               e.preventDefault();
-              setAsk({ href: a.href, real: a.dataset.nwReal, shown: a.dataset.nwShown });
+              setAsk({ href: a.href, real: a.dataset.nwReal, shown: a.dataset.nwShown, like: a.dataset.nwLike });
             });
           } catch { setHeight(800); }
         }} />
       {ask && (
-        <ConfirmModal title="This link goes somewhere else" confirm="Open anyway" onClose={() => setAsk(null)}
+        <ConfirmModal title={ask.like ? "This link goes to a lookalike site" : "This link goes somewhere else"} confirm="Open anyway" onClose={() => setAsk(null)}
           onConfirm={() => { window.open(ask.href, '_blank', 'noopener,noreferrer'); }}>
-          <p>The link says <strong>{ask.shown}</strong>, but it really goes to <strong>{ask.real}</strong>.</p>
-          <p className="muted small">That’s a common trick in fake emails. If you weren’t expecting it, don’t open it: go to {ask.shown} yourself instead.</p>
+          {ask.like ? <p>This link goes to <strong>{ask.real}</strong>, which looks like <strong>{ask.like}</strong> but isn’t.</p>
+            : <p>The link says <strong>{ask.shown}</strong>, but it really goes to <strong>{ask.real}</strong>.</p>}
+          <p className="muted small">That’s a common trick in fake emails. If you weren’t expecting it, don’t open it: go to {ask.like || ask.shown} yourself instead.</p>
         </ConfirmModal>
       )}
     </>

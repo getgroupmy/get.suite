@@ -45,7 +45,7 @@ import { tidyRoutes } from '../mail/tidy.js';
 import { attachPrefRoutes } from '../mail/attachprefs.js';
 import { includeRoutes } from '../mail/includes.js';
 import { afterHoursRoutes } from '../mail/afterhours.js';
-import { externalRoutes, askOutside, outsideRecipients, incomingWarning, replyToWarning } from '../mail/external.js';
+import { externalRoutes, askOutside, outsideRecipients, incomingWarning, replyToWarning, linkLookalike } from '../mail/external.js';
 import { mailStorage } from '../mail/storage.js';
 import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
@@ -1157,7 +1157,7 @@ export default function webmailRoutes() {
       // the message says so above it unless it's from a mailing list (whose links go through a click counter).
       ...(() => {
         const v = p.html ? proxyImages(p.html, req.user.id) : null;
-        const c = v ? checkLinks(v.html) : null;
+        const c = v ? checkLinks(v.html, { likeOf: linkLookalike(req.user) }) : null;
         const list = p.headers.has('list'); // mailparser gathers List-Unsubscribe, List-Id… under 'list'
         return { view_html: c?.html ?? null, remote_images: v?.count || 0, link_warnings: c?.links.length && !list ? c.links : [] };
       })(),
@@ -1165,7 +1165,7 @@ export default function webmailRoutes() {
       trimmed: (() => {
         const h = p.html ? splitHtmlQuote(p.html) : null, t = splitTextQuote(p.text || '');
         if (p.html ? !h.quoted : !t.quoted) return null;
-        return { html: h?.quoted ? h.main : null, view_html: h?.quoted ? checkLinks(proxyImages(h.main, req.user.id).html).html : null, text: t.quoted ? t.main : null };
+        return { html: h?.quoted ? h.main : null, view_html: h?.quoted ? checkLinks(proxyImages(h.main, req.user.id).html, { likeOf: linkLookalike(req.user) }).html : null, text: t.quoted ? t.main : null };
       })(),
       flagged: flags.has('\\Flagged'),
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),

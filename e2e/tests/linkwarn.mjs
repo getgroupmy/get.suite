@@ -100,6 +100,21 @@ await step('a newsletter (its links pass through a click counter) asks on click 
   await frame().getByRole('link', { name: 'www.mybank.example' }).click();
   await page.getByRole('dialog', { name: 'This link goes somewhere else' }).getByRole('button', { name: 'Cancel' }).click();
 });
+await step('a link to a site made to look like the company’s (acme-login.com) is flagged and asks before opening', async () => {
+  await page.context().route(/https:\/\/acme-login\.com\//, (r) => r.fulfill({ contentType: 'text/html', body: 'fake' }));
+  const st = await putHtml('Password expiring', '<p>Your account password expires today.</p><p><a href="https://acme-login.com/signin">Keep my password</a></p><p><a href="https://www.mybank.example/terms">Terms</a></p>');
+  if (st >= 300) throw new Error(`upload ${st}`);
+  await openMsg('Password expiring');
+  await page.locator('.mail-reader').getByText('Careful: this email links to acme-login.com (made to look like acme.com).').waitFor();
+  await frame().getByRole('link', { name: 'Keep my password' }).click();
+  const ask = page.getByRole('dialog', { name: 'This link goes to a lookalike site' });
+  await ask.getByText(/goes to acme-login\.com, which looks like acme\.com but isn’t/).waitFor();
+  await axe(page, 'lookalike link dialog');
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  // An ordinary link opens straight away.
+  const [pop] = await Promise.all([page.waitForEvent('popup'), frame().getByRole('link', { name: 'Terms' }).click()]);
+  await pop.close();
+});
 await step('the sender: failing its domain’s DMARC is a red warning; nothing vouching for it, a “?” note; verified, nothing', async () => {
   const AR = (v) => `Authentication-Results: mail.acme.com; ${v}\r\n`;
   for (const [subj, ar] of [['Account forged', AR('dkim=none; spf=fail smtp.mailfrom=alerts@mybank.example; dmarc=fail header.from=mybank.example (policy=reject)')],

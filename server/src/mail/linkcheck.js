@@ -34,20 +34,32 @@ export function shownSite(text) {
  * Mark the links that lead somewhere other than their text says. → { html, links: [{ shown, real }] }
  * (`links`: each pair once, up to 5.)
  */
-export function checkLinks(html) {
+export function checkLinks(html, { likeOf = null } = {}) {
   const links = [];
   const seen = new Set();
+  const likeSeen = new Map(); // host → what it imitates (or null), worked out once per host
   const out = String(html || '').replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi, (all, attrs, inner) => {
     const h = /\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/i.exec(` ${attrs}`);
     if (!h) return all;
-    const shown = shownSite(inner);
-    if (!shown) return all;
     let real;
     try { const u = new URL(decode(h[1] ?? h[2] ?? h[3]).trim()); if (!/^https?:$/.test(u.protocol)) return all; real = u.hostname; } catch { return all; }
-    if (siteOf(real) === siteOf(shown)) return all;
-    const key = `${shown}\n${real}`;
-    if (!seen.has(key) && links.length < 5) { seen.add(key); links.push({ shown, real }); }
-    return `<a data-nw-real="${real.replace(/[^\w.-]/g, '')}" data-nw-shown="${shown.replace(/[^\w.-]/g, '')}"${attrs}>${inner}</a>`;
+    const shown = shownSite(inner);
+    if (shown && siteOf(real) !== siteOf(shown)) {
+      const key = `${shown}\n${real}`;
+      if (!seen.has(key) && links.length < 5) { seen.add(key); links.push({ shown, real }); }
+      return `<a data-nw-real="${real.replace(/[^\w.-]/g, '')}" data-nw-shown="${shown.replace(/[^\w.-]/g, '')}"${attrs}>${inner}</a>`;
+    }
+    // A link to a site made to look like one you know (acme-login.com for acme.com): asked about too.
+    if (likeOf) {
+      if (!likeSeen.has(real)) likeSeen.set(real, likeOf(real));
+      const like = likeSeen.get(real);
+      if (like) {
+        const key = `like\n${siteOf(real)}`;
+        if (!seen.has(key) && links.length < 5) { seen.add(key); links.push({ real, like: like.domain }); }
+        return `<a data-nw-real="${real.replace(/[^\w.-]/g, '')}" data-nw-like="${String(like.domain).replace(/[^\w.-]/g, '')}"${attrs}>${inner}</a>`;
+      }
+    }
+    return all;
   });
   return { html: out, links };
 }

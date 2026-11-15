@@ -55,7 +55,20 @@ export function replyToWarning(user, from, replyTo, { list = false } = {}) {
 }
 
 /** A domain the sender's imitates: one of the company's, or one you've written to or keep contacts at (not one of those itself). */
-function lookalikeDomain(user, domain, ours) {
+/** For links in an email: the domain a link's host imitates (the company's own, or one you deal with), or null. */
+export function linkLookalike(user) {
+  const ours = q('SELECT name FROM domains WHERE org_id = ?').all(user.org_id).map((d) => d.name.toLowerCase());
+  return (host) => {
+    const h = String(host || '').toLowerCase();
+    if (ours.some((o) => h === o || h.endsWith(`.${o}`))) return null; // the company's own
+    // The company's name at the front of someone else's site: acme.com.verify-account.example.
+    const front = ours.find((o) => h.startsWith(`${o}.`));
+    if (front) return { domain: front, kind: 'company' };
+    return lookalikeDomain(user, siteOf(h), ours);
+  };
+}
+
+export function lookalikeDomain(user, domain, ours) {
   const domainOf = (e) => String(e || '').toLowerCase().split('@')[1];
   const known = new Set([
     ...q('SELECT email FROM mail_sent_to WHERE owner_id = ? ORDER BY times DESC LIMIT 500').all(user.id).map((r) => domainOf(r.email)),
