@@ -3097,3 +3097,5 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .checkup-item { flex-wrap: wrap; }
 .checkup-item > .grow { flex: 1 1 200px; min-width: 0; }
 .table-scroll { max-width: 100%; overflow-x: auto; }
+/* Grey text in a highlighted sidebar item (a shared list's "from Olivia"): stronger, to stay readable on the highlight (dark mode too). */
+.subnav-item.active .muted { color: color-mix(in srgb, var(--muted), var(--text) 55%); }

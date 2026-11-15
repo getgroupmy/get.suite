@@ -301,9 +301,15 @@ export default function Tasks() {
           <Icon name="check" /><span className="grow">Completed</span>
         </button>
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
-        {lists.map((l) => (
+        {lists.filter((l) => l.mine).map((l) => (
           <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
             {l.emoji ? <span className="list-emoji" aria-hidden="true">{l.emoji}</span> : <Icon name={l.mine && !l.members.length ? 'check' : 'people'} style={l.color ? { color: l.color } : undefined} />}<span className="grow ellipsis">{l.name}</span>{l.color && <span className="list-dot" style={{ background: l.color }} aria-hidden="true" />}{l.open > 0 && <span className="count">{l.open}</span>}
+          </button>
+        ))}
+        {lists.some((l) => !l.mine) && <div className="subnav-title">Shared with me</div>}
+        {lists.filter((l) => !l.mine).map((l) => (
+          <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
+            {l.emoji ? <span className="list-emoji" aria-hidden="true">{l.emoji}</span> : <Icon name={l.mine && !l.members.length ? 'check' : 'people'} style={l.color ? { color: l.color } : undefined} />}<span className="grow ellipsis">{l.name} <span className="muted small">from {String(l.owner_name || '').split(' ')[0]}</span></span>{l.color && <span className="list-dot" style={{ background: l.color }} aria-hidden="true" />}{l.open > 0 && <span className="count">{l.open}</span>}
           </button>
         ))}
         {(tagList.length > 0 || tagView) && <div className="subnav-title">Tags</div>}

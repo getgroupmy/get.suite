@@ -1291,6 +1291,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 
 ## Tasks
 
+- **Shared with me:** lists colleagues share with you sit under their own **Shared with me** heading in the sidebar, below your own, each with whose it is (*Launch plan from Olivia*).
 - **Lists:** everyone starts with **My tasks**; **+** next to Lists makes more. Type in **Add a task** and press Enter: new tasks go on top. Drag tasks to put them in order.
 - **Colour and emoji:** a list's **⋮ → Colour and emoji…** (for its owner) gives it one of nine colours and an emoji (🚀, 🏠, 🛒… or any you type). They show beside its name in the list on the left and in its heading, with its tasks in My Day, Planned, Important and Assigned to me, and on the Calendar; everyone the list is shared with sees them.
 - **Quick add:** type the details along with the task: a day (*today*, *tomorrow*, *Friday*, *on fri*, *next week*, *in 3 days*, *24 Dec*, *Dec 24*, *24/12*, *2026-12-24*), a time (*3pm*, *at 9:30am*, *15:00*), a repeat (*daily*, *every weekday*, *every week*, *monthly*, *yearly*), **!** for important, and on a shared list **@name** for who it's for. "Send invoice tomorrow 3pm every month !" adds *Send invoice*, due tomorrow at 15:00, repeating monthly, starred. What's understood shows under the box before you press Enter; **Keep as typed** adds the words as they are. A time or repeat without a day means today.
