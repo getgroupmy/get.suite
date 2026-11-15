@@ -63,7 +63,7 @@ await step('pointing at a day shows its count; the table view lists every day', 
   await chart.getByRole('button', { name: 'Show as table' }).click();
   const table = chart.getByRole('table', { name: 'Active people per day' });
   if (await table.locator('tbody tr').count() !== 8) throw new Error('eight days');
-  await table.locator('tbody tr').nth(3).getByText('2').waitFor(); // three days ago
+  await table.locator('tbody tr').nth(3).getByText('2', { exact: true }).waitFor(); // three days ago (exact: its date can have a 2 in it, like 12 Nov)
   await chart.getByRole('button', { name: 'Show chart' }).click();
   await chart.locator('svg').waitFor();
 });

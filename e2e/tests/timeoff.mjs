@@ -139,8 +139,11 @@ await step('a company holiday: added in Team, on everyone\'s calendar, not a wor
   // On Kim's calendar (week of the holiday).
   await kim.goto(`${B}/calendar`);
   await kim.getByRole('radio', { name: 'Week', exact: true }).click();
-  await kim.getByRole('button', { name: 'Next week' }).click();
-  await kim.getByRole('button', { name: 'Next week' }).click();
+  // One or two weeks on, depending on today's weekday (and the week's first day).
+  for (let i = 0; i < 4 && !(await kim.getByText('🏳 Founders Day').count()); i++) {
+    await kim.getByRole('button', { name: 'Next week' }).click();
+    await kim.waitForTimeout(400);
+  }
   await kim.getByText('🏳 Founders Day').waitFor();
   await kim.screenshot({ path: `${SP}/shots/holiday-week.png` });
   // A week of personal time off around it is 4 working days.
