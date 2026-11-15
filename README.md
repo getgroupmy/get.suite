@@ -210,6 +210,7 @@ Put a status, a review stage or a priority right in the text, like *Website: In 
 - Click an equation to change or remove it. People who can only view see it but can't change it.
 - Downloads keep them: a Word download has real Word equations, Markdown has `$…$` (and a Markdown file with `$…$` opens with its equations; prices such as *$5 to $10* stay text), and Search finds the LaTeX.
 - **Special characters:** **Ω** in the toolbar lists dashes and quotes, signs such as © ™ ° ✓, currencies, maths, fractions and powers, arrows, Greek and accented letters. Type a name to find one (*euro*, *em dash*, *right arrow*) and press Enter, or click any number of them; each goes in where the cursor is.
+- **Emoji:** type **:** and a word (*:thu*, *:party*, *:heart*) and matching emoji appear under the cursor: Enter or Tab puts the highlighted one in place of what you typed, the arrows choose another, Escape closes the list. Times (*10:30*) and *Note: x* don't set it off. The **🙂** button in the toolbar opens the same emoji picker as Mail and Chat (search, groups, recently used).
 
 ## Citations and references (Docs)
 

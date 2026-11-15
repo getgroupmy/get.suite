@@ -57,6 +57,8 @@ import { measureLines } from './linenumbers.js';
 import { flushSync } from 'react-dom';
 import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookmark.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
+import { emojiQuery, matchEmoji } from './emojitype.js';
+import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';
 import { FileChip, matchFiles, fileIcon, fileUrl } from './filechip.js';
@@ -227,6 +229,7 @@ function SharedDoc({ file, setFile }) {
   docRef.current = file ? { id: file.id, name: file.name } : null;
   const [drawing, setDrawing] = useState(null); // { at }: the sketch pad is open, to insert there
   const mentionKeyRef = useRef(null); // the @-picker's keys, while it's open
+  const emojiKeyRef = useRef(null); // the :emoji picker's keys, while it's open
   const chipKeyRef = useRef(null); // Enter or Space on a selected dropdown chip opens its choices
   const dateKeyRef = useRef(null); // and on a date chip, its calendar
   // Your writing preferences (autocorrect, replacements), read by the editor as you type.
@@ -262,7 +265,7 @@ function SharedDoc({ file, setFile }) {
       attributes: { role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Document text' },
       // A key pressed right after a click (Enter, Backspace…) acts where the click put the cursor,
       // even if the browser hasn't told the editor about the new selection yet.
-      handleKeyDown: (view, event) => { view.domObserver?.flush?.(); return mentionKeyRef.current?.(event) || chipKeyRef.current?.(event) || dateKeyRef.current?.(event) || false; },
+      handleKeyDown: (view, event) => { view.domObserver?.flush?.(); return mentionKeyRef.current?.(event) || emojiKeyRef.current?.(event) || chipKeyRef.current?.(event) || dateKeyRef.current?.(event) || false; },
       // Links open with Ctrl+click while editing, or a plain click when reading; a link to a place in this document goes there.
       handleClick: (view, pos, event) => {
         const a = event.target?.closest?.('a[href]');
@@ -417,6 +420,38 @@ function SharedDoc({ file, setFile }) {
   chipKeyRef.current = (e) => {
     const sel = editor?.state.selection;
     if ((e.key === 'Enter' || e.key === ' ') && sel?.node?.type.name === 'dropchip') { e.preventDefault(); openChip(sel.from); return true; }
+    return false;
+  };
+  // Emoji by typing ":" and a word: the matches under the cursor; the one picked replaces what was typed.
+  const [emojiPop, setEmojiPop] = useState(null); // { from, query, left, top, list, pick }
+  useEffect(() => {
+    if (!editor || readOnly) return undefined;
+    const check = () => {
+      const { state, view } = editor;
+      const sel = state.selection;
+      if (!sel.empty || !sel.$from.parent.isTextblock || sel.$from.parent.type.name === 'codeBlock') { setEmojiPop(null); return; }
+      const before = sel.$from.parent.textBetween(0, sel.$from.parentOffset, undefined, '\ufffc');
+      const m = emojiQuery(before, sel.from);
+      const list = m ? matchEmoji(m.query) : [];
+      if (!list.length) { setEmojiPop(null); return; }
+      const c = view.coordsAtPos(sel.from);
+      setEmojiPop((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
+    };
+    editor.on('selectionUpdate', check);
+    editor.on('update', check);
+    return () => { editor.off('selectionUpdate', check); editor.off('update', check); };
+  }, [editor, readOnly]);
+  const pickEmoji = (em) => {
+    const m = emojiPop;
+    setEmojiPop(null);
+    if (!m) return;
+    editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from }).insertContent(em.char).run();
+  };
+  emojiKeyRef.current = (e) => {
+    if (!emojiPop) return false;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { setEmojiPop({ ...emojiPop, pick: (emojiPop.pick + (e.key === 'ArrowDown' ? 1 : emojiPop.list.length - 1)) % emojiPop.list.length }); return true; }
+    if (e.key === 'Enter' || e.key === 'Tab') { pickEmoji(emojiPop.list[emojiPop.pick]); return true; }
+    if (e.key === 'Escape') { setEmojiPop(null); return true; }
     return false;
   };
   mentionKeyRef.current = (e) => {
@@ -728,6 +763,15 @@ function SharedDoc({ file, setFile }) {
                 editor.view.focus();
                 editor.chain().setTextSelection(Math.min(size, after + (editor.state.doc.textBetween(after, Math.min(after + 1, size)) === ' ' ? 1 : 0))).focus().run();
               }} />}
+            {emojiPop && !mention && (
+              <ul className="mention-list doc-mention-list" role="listbox" aria-label="Emoji" style={{ position: 'fixed', left: emojiPop.left, top: emojiPop.top }}>
+                {emojiPop.list.map((em, i) => (
+                  <li key={em.char} role="option" aria-selected={i === emojiPop.pick} className={i === emojiPop.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickEmoji(em); }}>
+                    <span aria-hidden="true" style={{ width: 20, textAlign: 'center', fontSize: 18 }}>{em.char}</span> {em.name}
+                  </li>
+                ))}
+              </ul>
+            )}
             {mention && (
               <ul className="mention-list doc-mention-list" role="listbox" aria-label="People, dates and files" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
                 {mention.list.map((p, i) => (p.kind === 'block' ? (
@@ -998,6 +1042,7 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
       ]} />
       <button type="button" className="tb" title="Special characters: dashes, symbols, currencies, arrows, Greek and accented letters" aria-label="Insert special character"
         onMouseDown={(e) => e.preventDefault()} onClick={onSymbols}>Ω</button>
+      <EmojiPicker keepFocus beforePick={() => editor.view.focus()} onPick={(ch) => c().insertContent(ch).run()} />
       <Menu align="left" trigger={(p) => <button type="button" className="tb labelled" title="Dropdown: a coloured choice in the text (status, review, priority…) that anyone editing changes with a click" aria-label="Insert dropdown" onMouseDown={(e) => e.preventDefault()} {...p}>▾ Dropdown</button>} items={[
         ...CHIP_PRESETS.map((p) => ({ label: `${p.name}: ${p.options.map((o) => o.label).join(', ')}`, onClick: () => c().insertDropChip(p.options).run() })),
         '-',
