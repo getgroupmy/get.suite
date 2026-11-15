@@ -775,6 +775,30 @@ function MoveHere() {
   const [from, setFrom] = useState('google');
   const bring = useBringIn();
   const m = MOVE_FROM[from];
+  // Calendars and contacts straight from Google (sign in there), when the company has set that up.
+  const toast = useToast();
+  const [google, setGoogle] = useState(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  useEffect(() => { get('/mail/import/google').then(setGoogle).catch(() => setGoogle(null)); }, []);
+  // Back from Google: what came in, or what went wrong.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const done = sp.get('google_done'), err = sp.get('import_error');
+    if (!done && !err) return;
+    if (err) toast(err, 'error');
+    else {
+      try {
+        const r = JSON.parse(done);
+        const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
+        toast(`From Google: ${[r.calendar && `${n(r.calendar.added, 'event', 'events')}${r.calendar.calendars?.length ? ` (with ${r.calendar.calendars.join(', ')} as calendars of their own)` : ''}`, r.contacts && n(r.contacts.added, 'contact', 'contacts')].filter(Boolean).join(' and ') || 'nothing new'} brought in`);
+      } catch { /* a link someone typed */ }
+    }
+    window.history.replaceState(null, '', '/settings#move-here');
+  }, [toast]);
+  const fromGoogle = async () => {
+    setGoogleBusy(true);
+    try { window.location.assign((await post('/mail/import/google/start', { what: 'data' })).url); } catch (e) { toast(e.message, 'error'); setGoogleBusy(false); }
+  };
   // From a reminder (/settings#move-here): straight to these steps.
   useEffect(() => { if (window.location.hash === '#move-here') setTimeout(() => document.getElementById('move-here')?.scrollIntoView({ block: 'start' }), 300); }, []);
   return (
@@ -788,6 +812,7 @@ function MoveHere() {
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className="btn primary" disabled={bring.restoring} onClick={bring.pick}><Icon name="upload" size={18} /> {bring.label || 'Bring in a .zip…'}</button>
         <button type="button" className="btn" disabled={bring.restoring} onClick={bring.pickFromDrive}>From Drive…</button>
+        {from === 'google' && google?.available && <button type="button" className="btn" disabled={googleBusy} onClick={fromGoogle} title="Sign in at Google and bring your calendars and contacts now, no export needed">{googleBusy ? 'Going to Google…' : 'Calendars and contacts from Google…'}</button>}
         {mail?.enabled && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Copy messages from the account…</Link>}
         {bring.controls(`Your ${m.name} export (.zip)`, `Bring in your ${m.name} export from Drive`)}
       </div>

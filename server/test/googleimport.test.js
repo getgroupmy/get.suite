@@ -72,3 +72,35 @@ test('said no at Google, no mail access ticked, or a bad code: said so, nothing 
   await assert.rejects(finishGoogleSignIn(user, { code: 'bad', state: st(), base: 'https://w' }, { start }), /didn’t complete the sign-in: Bad Request/);
   assert.equal(started.length, 0);
 });
+
+test('calendars and contacts from Google: the main calendar into yours, others as their own; contacts once', async () => {
+  const { bringGoogleData } = await import('../src/mail/googleimport.js');
+  const api = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.headers.authorization !== 'Bearer ya29.data') { res.statusCode = 401; return res.end(JSON.stringify({ error: { message: 'Invalid Credentials' } })); }
+    if (req.url.startsWith('/calendar/v3/users/me/calendarList')) return res.end(JSON.stringify({ items: [{ id: 'ana@gmail.com', summary: 'ana@gmail.com', primary: true }, { id: 'club@group', summary: 'Running club' }] }));
+    if (req.url.startsWith('/calendar/v3/calendars/ana%40gmail.com/events')) return res.end(JSON.stringify({ items: [{ id: 'e1', iCalUID: 'e1@google.com', summary: 'Dentist', start: { dateTime: '2026-12-03T09:00:00Z' }, end: { dateTime: '2026-12-03T10:00:00Z' } }] }));
+    if (req.url.startsWith('/calendar/v3/calendars/club%40group/events')) {
+      if (!req.url.includes('pageToken')) return res.end(JSON.stringify({ items: [{ id: 'e2', summary: 'Long run', start: { date: '2026-12-06' }, end: { date: '2026-12-07' } }], nextPageToken: 'p2' }));
+      return res.end(JSON.stringify({ items: [{ id: 'e3', summary: 'Track night', start: { dateTime: '2026-12-08T18:00:00Z' }, end: { dateTime: '2026-12-08T19:00:00Z' }, recurrence: ['RRULE:FREQ=WEEKLY'] }] }));
+    }
+    if (req.url.startsWith('/v1/people/me/connections')) return res.end(JSON.stringify({ connections: [{ resourceName: 'people/1', names: [{ displayName: 'Grace Hopper' }], emailAddresses: [{ value: 'grace@example.com' }] }, { resourceName: 'people/2', names: [{ displayName: 'Alan Turing' }], emailAddresses: [{ value: 'alan@example.com' }] }] }));
+    res.statusCode = 404; res.end('{}');
+  });
+  await new Promise((r) => api.listen(0, '127.0.0.1', r));
+  process.env.GOOGLE_API_URL = process.env.GOOGLE_PEOPLE_URL = `http://127.0.0.1:${api.address().port}`;
+  try {
+    const user = q("SELECT * FROM users WHERE username = 'ana@acme.com'").get();
+    const r = await bringGoogleData(user, 'ya29.data');
+    assert.deepEqual([r.calendar.added, r.calendar.calendars], [3, ['Running club']]);
+    assert.deepEqual([r.contacts.added, r.contacts.skipped], [2, 0]);
+    const evs = q('SELECT title, calendar_id, rrule FROM events WHERE owner_id = ? ORDER BY title').all(user.id);
+    assert.deepEqual(evs.map((e) => [e.title, !!e.calendar_id, !!e.rrule]), [['Dentist', false, false], ['Long run', true, false], ['Track night', true, true]]);
+    const again = await bringGoogleData(user, 'ya29.data');
+    assert.deepEqual([again.calendar.added, again.contacts.added], [0, 0], 'nothing twice');
+    assert.equal(q("SELECT COUNT(*) AS n FROM user_calendars WHERE owner_id = ? AND name = 'Running club'").get(user.id).n, 1);
+    await assert.rejects(bringGoogleData(user, 'wrong'), /Couldn’t read your Google calendars: Invalid Credentials/);
+    const onlyContacts = await bringGoogleData(user, 'ya29.data', { calendar: false });
+    assert.equal(onlyContacts.calendar, undefined);
+  } finally { api.close(); delete process.env.GOOGLE_API_URL; delete process.env.GOOGLE_PEOPLE_URL; }
+});
