@@ -1170,7 +1170,8 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .reaction { border: 1px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 1px 8px; font: inherit; font-size: 13px; cursor: pointer; }
 .reaction.mine { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
-.msg-edit { display: flex; flex-direction: column; gap: 4px; }
+.msg-edit { display: flex; flex-direction: column; gap: 4px; position: relative; }
+.msg-edit .mention-list { right: auto; min-width: 260px; } /* :emoji while changing a message: under the box */
 .msg-edit textarea { width: 100%; font: inherit; resize: vertical; }
 .edited { font-size: 12px; }
 .msg-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }

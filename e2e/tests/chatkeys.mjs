@@ -87,8 +87,15 @@ await step('↑ in an empty box changes your last message', async () => {
   await edit.waitFor();
   if ((await edit.inputValue()) !== 'meet at noen') throw new Error(await edit.inputValue());
   await edit.fill('meet at noon');
+  // ":" and a word offers emoji here too; Enter picks one (it doesn't save yet).
+  await edit.pressSequentially(' :thu');
+  const list = page.locator('.msg-edit').getByRole('listbox', { name: 'Emoji' });
+  await list.getByRole('option', { name: 'thumbs up' }).waitFor();
+  await page.screenshot({ path: `${SP}/shots/chat-edit-emoji.png` });
   await edit.press('Enter');
-  await page.locator('.msg', { hasText: 'meet at noon' }).getByText('(edited)').waitFor();
+  if ((await edit.inputValue()) !== 'meet at noon 👍') throw new Error(await edit.inputValue());
+  await edit.press('Enter');
+  await page.locator('.msg', { hasText: 'meet at noon 👍' }).getByText('(edited)').waitFor();
 });
 await step('Shift+Esc marks everything read; the shortcuts list has them', async () => {
   await api(kim, 'POST', `/chat/channels/${ch.beta}/messages`, { body: 'b1' });

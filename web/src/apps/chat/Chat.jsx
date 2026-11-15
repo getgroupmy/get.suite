@@ -1132,6 +1132,10 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
   const [reporting, setReporting] = useState(false); // Report as suspicious
+  // ":" and a word while changing it offers emoji, as in the message box.
+  const editBox = useRef(null);
+  const ownEmoji = useCompanyEmoji();
+  const editEmo = useEmojiTyping(editBox, editText ?? '', setEditText, editing ? ownEmoji.map((e) => ({ name: e.name, img: imageUrl(e.name) })) : []);
   const [savingTo, setSavingTo] = useState(null); // { messageId, file }: Save to a folder…
   const [card, setCard] = useState(false); // the author's card
   const toTask = () => addToTasksWithToast(toast, navigate, {
@@ -1161,8 +1165,9 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
       {savingTo && <SaveToFolder messageId={savingTo.messageId} file={savingTo.file} onClose={() => setSavingTo(null)} />}
         {editing ? (
           <form className="msg-edit" onSubmit={(e) => { e.preventDefault(); onSaveEdit(); }}>
-            <textarea autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => setEditText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); } else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit(); } }} />
+            <textarea ref={editBox} autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => { setEditText(e.target.value); editEmo.track(e.target.value, e.target.selectionStart); }}
+              onKeyDown={(e) => { if (editEmo.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); } else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit(); } }} />
+            {editEmo.list}
             <span className="muted small">Enter to save · Esc to cancel</span>
           </form>
         ) : m.deleted_at ? <div className="msg-text msg-deleted muted"><em>This message was deleted.</em></div>
