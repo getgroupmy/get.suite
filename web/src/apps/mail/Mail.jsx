@@ -953,6 +953,8 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       {m.spam && <div className="banner warn">This message was marked as likely spam. Be careful with links and attachments.</div>}
       {m.outside?.lookalike ? (
         <div className="banner danger" role="note"><strong>⚠ Careful: this may be someone pretending to be {m.outside.lookalike}.</strong> It uses the name of someone who works at {m.outside.company || 'your company'}, but it comes from an outside address ({m.outside.address}). Check with them another way before you reply, click anything or send money or passwords.</div>
+      ) : m.outside?.domain_like ? (
+        <div className="banner danger" role="note"><strong>⚠ Careful: {m.outside.address.split('@')[1]} looks like {m.outside.domain_like.domain}, but it isn’t.</strong> {m.outside.domain_like.kind === 'company' ? `${m.outside.domain_like.domain} is ${m.outside.company || 'your company'}’s own domain` : `You deal with ${m.outside.domain_like.domain}`}; this email comes from a different one ({m.outside.address}), made to look the same. Check with the sender another way before you reply, click anything or send money or passwords.</div>
       ) : m.outside?.external ? (
         <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
       ) : null}

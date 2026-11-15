@@ -2155,6 +2155,31 @@ test('risky attachments: marked in the message, and handed over only once confir
   assert.equal((await olivia('POST', '/api/mail/attachments/zip', { folder: F, items, confirm: true })).status, 200);
 });
 
+test('look-alike sender domains: the company’s own (acrne.com for acme.com) and ones you deal with (a contact’s)', async () => {
+  await olivia('POST', '/api/contacts', { name: 'Billing at Initech', email: 'billing@initech.com' });
+  const tag = Date.now();
+  // Put straight into the Inbox (the test mail server rightly refuses senders whose domain doesn't exist).
+  const send = async (from, subject) => {
+    const eml = `From: ${from}\r\nTo: olivia@acme.com\r\nSubject: ${subject}\r\nMessage-ID: <${subject.replace(/\W/g, '')}@x>\r\nDate: ${new Date().toUTCString()}\r\n\r\nPlease update the bank details for our invoices.\r\n`;
+    const r = await olivia('POST', '/api/mail/messages/upload?folder=INBOX', Buffer.from(eml), { raw: true, headers: { 'content-type': 'message/rfc822' } });
+    assert.equal(r.status < 300, true, JSON.stringify(r.body));
+  };
+  await send('"Accounts" <accounts@acrne.com>', `Alpha${tag}`);
+  await send('"Billing" <billing@lnitech.com>', `Bravo${tag}`);
+  await send('"Real" <billing@initech.com>', `Charlie${tag}`);
+  const find = async (subject) => eventually(async () => {
+    for (const f of ['INBOX', 'Junk']) { const x = (await olivia('GET', `/api/mail/messages?folder=${f}&q=${encodeURIComponent(subject)}`)).body.messages?.[0]; if (x) return { f, uid: x.uid }; }
+    return null;
+  }, 30000);
+  const outside = async (subject) => { const { f, uid } = await find(subject); return (await olivia('GET', `/api/mail/messages/${uid}?folder=${f}`)).body.outside; };
+  const a = await outside(`Alpha${tag}`);
+  assert.deepEqual(a.domain_like, { domain: 'acme.com', kind: 'company' });
+  const b = await outside(`Bravo${tag}`);
+  assert.deepEqual(b.domain_like, { domain: 'initech.com', kind: 'known' });
+  const c = await outside(`Charlie${tag}`);
+  assert.ok(!c?.domain_like, 'the real one');
+});
+
 test('DMARC and TLS reports sent to postmaster@ are read and added up for the admin', async () => {
   const zlib = await import('node:zlib');
   const { DMARC, TLS } = await import('./fixtures/reports.js');

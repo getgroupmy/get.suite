@@ -18,14 +18,21 @@ test('mail from outside: marked when the company wants it; a colleague’s name 
   // Off (the default): only a look-alike name is warned about.
   assert.equal(from('Kim', 'kim@acme.com'), null, 'colleagues');
   assert.equal(from('Gina', 'gina@globex.com'), null);
-  assert.deepEqual(from('Ana  Silva', 'ana.silva.ceo@gmail.com'), { company: 'Acme', external: false, lookalike: 'Ana Silva', address: 'ana.silva.ceo@gmail.com' });
+  assert.deepEqual(from('Ana  Silva', 'ana.silva.ceo@gmail.com'), { company: 'Acme', external: false, lookalike: 'Ana Silva', domain_like: null, address: 'ana.silva.ceo@gmail.com' });
   assert.equal(from('"ANA SILVA"', 'x@gmail.com').lookalike, 'Ana Silva', 'case, quotes and spaces don’t matter');
   assert.equal(from('Ana Silva', 'ana@acme.com'), null, 'the real one');
   assert.equal(from('An', 'x@gmail.com'), null, 'too short a name to compare');
 
+  // A domain made to look like the company's own, or like one you deal with, always warned.
+  assert.deepEqual(from('Accounts', 'pay@acrne.com').domain_like, { domain: 'acme.com', kind: 'company' });
+  assert.equal(from('Gina', 'gina@acme-corp.com').domain_like.domain, 'acme.com');
+  q('INSERT INTO mail_sent_to (owner_id, email, name, times, last_at) VALUES (?, ?, ?, 3, ?)').run(userId, 'billing@initech.com', 'Billing', Date.now());
+  assert.deepEqual(from('Billing', 'billing@lnitech.com').domain_like, { domain: 'initech.com', kind: 'known' });
+  assert.equal(from('Billing', 'billing@initech.com'), null, 'the real one');
+
   // On: everything from outside is marked.
   q('UPDATE orgs SET mark_external = 1 WHERE id = ?').run(orgId);
-  assert.deepEqual(from('Gina', 'Gina@Globex.com'), { company: 'Acme', external: true, lookalike: null, address: 'gina@globex.com' });
+  assert.deepEqual(from('Gina', 'Gina@Globex.com'), { company: 'Acme', external: true, lookalike: null, domain_like: null, address: 'gina@globex.com' });
   assert.equal(from('Kim', 'kim@acme.com'), null);
   assert.equal(from(null, null), null);
   // A suspended colleague's name doesn't count.

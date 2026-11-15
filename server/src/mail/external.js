@@ -2,6 +2,7 @@
 // domains, and which of those you've never written to (or kept as a contact), so a message going
 // somewhere new is noticed before it leaves.
 import { q } from '../db.js';
+import { lookalikeOf } from './lookalike.js';
 
 const clean = (e) => String(e || '').trim().toLowerCase();
 
@@ -14,7 +15,8 @@ const nameKey = (s) => String(s || '').normalize('NFKC').replace(/["'“”‘�
 /**
  * A warning for an email someone received: null for mail from the company's own domains; otherwise
  * { company, external (the company marks outside mail), lookalike (the name of a colleague the sender
- * calls themselves, from an outside address), address }, or null when there's nothing to say.
+ * calls themselves, from an outside address), domain_like ({ domain, kind: 'company' | 'known' }: a domain
+ * the sender's imitates, the company's own or one you write to), address }, or null when there's nothing to say.
  */
 export function incomingWarning(user, from) {
   const address = clean(from?.address);
@@ -25,8 +27,20 @@ export function incomingWarning(user, from) {
   const org = q('SELECT name, mark_external FROM orgs WHERE id = ?').get(user.org_id);
   const key = nameKey(from?.name);
   const colleague = key.length >= 3 ? q('SELECT name FROM users WHERE org_id = ? AND disabled = 0').all(user.org_id).find((u) => nameKey(u.name) === key) : null;
-  if (!org?.mark_external && !colleague) return null;
-  return { company: org?.name || '', external: !!org?.mark_external, lookalike: colleague?.name || null, address };
+  const like = lookalikeDomain(user, domain, ours);
+  if (!org?.mark_external && !colleague && !like) return null;
+  return { company: org?.name || '', external: !!org?.mark_external, lookalike: colleague?.name || null, domain_like: like, address };
+}
+
+/** A domain the sender's imitates: one of the company's, or one you've written to or keep contacts at (not one of those itself). */
+function lookalikeDomain(user, domain, ours) {
+  const domainOf = (e) => String(e || '').toLowerCase().split('@')[1];
+  const known = new Set([
+    ...q('SELECT email FROM mail_sent_to WHERE owner_id = ? ORDER BY times DESC LIMIT 500').all(user.id).map((r) => domainOf(r.email)),
+    ...q('SELECT email FROM contacts WHERE owner_id = ? AND email IS NOT NULL LIMIT 2000').all(user.id).map((r) => domainOf(r.email)),
+  ].filter(Boolean));
+  if (known.has(domain)) return null; // someone you deal with already
+  return lookalikeOf(domain, [...ours.map((d) => ({ domain: d, kind: 'company' })), ...[...known].filter((d) => !ours.includes(d)).map((d) => ({ domain: d, kind: 'known' }))]);
 }
 
 export const askOutside = (orgId) => !!q('SELECT ask_outside FROM orgs WHERE id = ?').get(orgId)?.ask_outside;
