@@ -1127,6 +1127,17 @@ function ImportMail({ from = '', onClose, onDone }) {
     return () => clearInterval(t);
   }, [ms?.status]);
   const microsoft = f.host === 'outlook.office365.com' && ms?.available;
+  // Gmail and Google Workspace: off to Google's sign-in page and back (the import then starts by itself).
+  const [google, setGoogle] = useState(null);
+  useEffect(() => { get('/mail/import/google').then(setGoogle).catch(() => setGoogle(null)); }, []);
+  const viaGoogle = f.host === 'imap.gmail.com' && google?.available;
+  // Back from Google with a problem: /mail?import=1&import_error=…
+  useEffect(() => { const e = new URLSearchParams(window.location.search).get('import_error'); if (e) setError(e); }, []);
+  const googleStart = async (e) => {
+    e.preventDefault();
+    setError(''); setBusy(true);
+    try { const r = await post('/mail/import/google/start', { email: msEmail }); window.location.assign(r.url); } catch (err) { setError(err.message); setBusy(false); }
+  };
   const msStart = async (e) => {
     e.preventDefault();
     setError(''); setBusy(true);
@@ -1186,7 +1197,19 @@ function ImportMail({ from = '', onClose, onDone }) {
             </>}
           </form>
         )}
-        {!runningNow && !microsoft && (
+        {!runningNow && viaGoogle && (
+          <form className="stack" onSubmit={googleStart} aria-label="Import from Google">
+            <label className="field"><span>Import from</span>
+              <select aria-label="Import from" value={f.host} onChange={(e) => setF({ ...f, host: e.target.value, port: 993 })}>
+                {IMPORT_FROM.map(([h, n]) => <option key={n} value={h}>{n}</option>)}
+              </select></label>
+            <p className="muted small" style={{ margin: 0 }}>You sign in at Google (on Google’s own page, so your password never comes here) and let Workspace read your mail; then everything in the mailbox is copied, as for any account, with Gmail’s labels as folders.</p>
+            <label className="field"><span>Your Google address (optional)</span><input type="email" autoComplete="off" value={msEmail} onChange={(e) => setMsEmail(e.target.value)} placeholder="you@gmail.com" /></label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <div className="row end"><button className="btn primary" disabled={busy}>{busy ? 'Going to Google…' : 'Sign in with Google'}</button></div>
+          </form>
+        )}
+        {!runningNow && !microsoft && !viaGoogle && (
           <form className="stack" onSubmit={start}>
             <p className="muted small" style={{ margin: 0 }}>Copies all the mail in another account (every folder, with what's read and starred, and the dates) into this mailbox. Junk and Trash are left out. Messages already here are skipped, so you can run it again later. Your password there is used for this import only and never kept. Gmail, Yahoo, iCloud and Zoho need an <em>app password</em> made in that account's security settings. Microsoft 365 work accounts usually don't allow this (Outlook.com ones do): see <strong>Settings → Move here from another service</strong> for other ways.</p>
             <label className="field"><span>Import from</span>

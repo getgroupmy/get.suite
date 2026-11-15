@@ -1,4 +1,5 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
+import { googleAppOf, googleSignInUrl, finishGoogleSignIn } from '../mail/googleimport.js';
 import { msAppOf, msStatusOf, startMsImport, cancelMsImport } from '../mail/msimport.js';
 import { proxyImages, checkImageSig, imageFor, overLimit } from '../mail/imageproxy.js';
 import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
@@ -1295,6 +1296,18 @@ export default function webmailRoutes() {
   r.get('/import/microsoft', (req, res) => res.json({ available: !!msAppOf(req.user.org_id), ...msStatusOf(req.user.id) }));
   r.post('/import/microsoft', async (req, res) => res.status(201).json(await startMsImport(req.user, req.body || {})));
   r.delete('/import/microsoft', (req, res) => { cancelMsImport(req.user.id); res.json({ ok: true }); });
+  // Gmail and Google Workspace: sign in at Google (googleimport.js). The callback is a page Google sends the person back to.
+  const baseOf = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  r.get('/import/google', (req, res) => res.json({ available: !!googleAppOf(req.user.org_id) }));
+  r.post('/import/google/start', (req, res) => res.json({ url: googleSignInUrl(req.user, { email: req.body?.email, base: baseOf(req) }) }));
+  r.get('/import/google/callback', async (req, res) => {
+    try {
+      await finishGoogleSignIn(req.user, { code: req.query.code, state: req.query.state, error: req.query.error, base: baseOf(req) });
+      res.redirect(302, '/mail?import=1&from=imap.gmail.com');
+    } catch (e) {
+      res.redirect(302, `/mail?import=1&from=imap.gmail.com&import_error=${encodeURIComponent(String(e.message || e).slice(0, 300))}`);
+    }
+  });
   r.get('/import', (req, res) => res.json(importOf(req.user.id)));
   r.post('/import-mbox', async (req, res) => res.status(201).json(await startMboxImport(req.user, req.body || {})));
 

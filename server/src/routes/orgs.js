@@ -1,5 +1,6 @@
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
 import { cleanMsApp } from '../mail/msimport.js';
+import { cleanGoogleApp } from '../mail/googleimport.js';
 import { sweepInboxes } from '../mail/sweep.js';
 import { checkup, remind } from '../checkup.js';
 import { SIGNATURE_MODES } from '../mail/companysig.js';
@@ -33,7 +34,8 @@ import '../mail/external.js'; // orgs.ask_outside
 
 const domainsOf = (orgId) => q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => d.name);
 
-function describe(org) {
+function describe(full) {
+  const { g_client_secret: _secret, ...org } = full; // never sent back (googleimport.js)
   return {
     ...org,
     allow_external: !!org.allow_external,
@@ -45,6 +47,7 @@ function describe(org) {
     allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
     allow_api_tokens: !!org.allow_api_tokens,
     ms_client_id: org.ms_client_id || null, ms_tenant: org.ms_tenant || null, // importing mail from Microsoft 365 (msimport.js)
+    g_client_id: org.g_client_id || null, g_has_secret: !!full.g_client_secret, // importing mail from Google (googleimport.js); the secret itself is never sent
     require_2fa: !!org.require_2fa,
     password_rules: rulesOf(org.id),
     view_history: org.view_history === undefined ? true : !!org.view_history,
@@ -88,6 +91,12 @@ function updateOrg(orgId, body, { asSuper, user }) {
     const cur = q('SELECT ms_client_id, ms_tenant FROM orgs WHERE id = ?').get(orgId);
     const m = cleanMsApp({ client_id: body.ms_client_id !== undefined ? body.ms_client_id : cur.ms_client_id, tenant: body.ms_tenant !== undefined ? body.ms_tenant : cur.ms_tenant });
     q('UPDATE orgs SET ms_client_id = ?, ms_tenant = ? WHERE id = ?').run(m.clientId, m.tenant, orgId);
+  }
+  if (body.g_client_id !== undefined || body.g_client_secret !== undefined) {
+    const g = cleanGoogleApp({ client_id: body.g_client_id !== undefined ? body.g_client_id : q('SELECT g_client_id FROM orgs WHERE id = ?').get(orgId).g_client_id, client_secret: body.g_client_secret });
+    q('UPDATE orgs SET g_client_id = ? WHERE id = ?').run(g.clientId, orgId);
+    if (g.secret !== undefined) q('UPDATE orgs SET g_client_secret = ? WHERE id = ?').run(g.secret || null, orgId); // left out: kept
+    if (!g.clientId) q('UPDATE orgs SET g_client_secret = NULL WHERE id = ?').run(orgId);
   }
   if (body.allow_forwarding !== undefined) {
     q('UPDATE orgs SET allow_forwarding = ? WHERE id = ?').run(body.allow_forwarding ? 1 : 0, orgId);
@@ -177,7 +186,7 @@ export default function orgRoutes() {
   });
   r.patch('/current', requireAdmin, (req, res) => {
     updateOrg(req.user.org_id, req.body, { asSuper: req.user.is_super, user: { ...req.user, ip: normalizeIp(req.ip) } });
-    audit(req, 'company.update', { org: req.user.org_id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password/i.test(k))) });
+    audit(req, 'company.update', { org: req.user.org_id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password|secret/i.test(k))) }); // never a password or secret in the log
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
   });
 
@@ -359,7 +368,7 @@ export default function orgRoutes() {
   r.patch('/:id', (req, res) => {
     loadOrg(req.params.id);
     updateOrg(req.params.id, req.body, { asSuper: true, user: req.user });
-    audit(req, 'company.update', { org: req.params.id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password/i.test(k))) });
+    audit(req, 'company.update', { org: req.params.id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password|secret/i.test(k))) }); // never a password or secret in the log
     res.json(describe(loadOrg(req.params.id)));
   });
 

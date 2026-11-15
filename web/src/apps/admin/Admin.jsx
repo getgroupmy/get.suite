@@ -81,6 +81,30 @@ function SlackImport() {
   );
 }
 
+/** Importing mail from Gmail and Google Workspace: the company's OAuth client at Google (googleimport.js on the server). */
+function GoogleImport({ org, save }) {
+  const [id, setId] = useState(org.g_client_id || '');
+  const [secret, setSecret] = useState('');
+  useEffect(() => { setId(org.g_client_id || ''); }, [org.g_client_id]);
+  const redirect = `${window.location.origin}/api/mail/import/google/callback`;
+  return (
+    <form className="card stack" aria-labelledby="gimport-h" onSubmit={(e) => { e.preventDefault(); save({ g_client_id: id.trim(), ...(secret.trim() && { g_client_secret: secret.trim() }) }, id.trim() ? 'People can now import mail from Google' : 'Importing from Google is off'); setSecret(''); }}>
+      <h2 id="gimport-h">Importing mail from Gmail and Google Workspace</h2>
+      <p className="muted small" style={{ margin: 0 }}>With this, Mail → Import mail signs people in at Google (on Google’s own page) instead of asking for an app password, which Google Workspace companies often turn off. Made once in the Google Cloud console:</p>
+      <ol className="small move-steps">
+        <li><strong>APIs &amp; Services → OAuth consent screen</strong>: <em>Internal</em> for a Google Workspace company (or <em>External</em>, adding the people who’ll import as test users).</li>
+        <li><strong>Credentials → Create credentials → OAuth client ID</strong>, type <strong>Web application</strong>, with this <strong>Authorized redirect URI</strong>: <code className="break">{redirect}</code></li>
+        <li>Copy its <strong>Client ID</strong> and <strong>Client secret</strong> here. The secret stays on this server and isn’t shown again.</li>
+      </ol>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field grow"><span>Client ID</span><input value={id} onChange={(e) => setId(e.target.value)} placeholder="1234-abc.apps.googleusercontent.com" spellCheck={false} /></label>
+        <label className="field grow"><span>Client secret{org.g_has_secret ? ' (set: type a new one to replace it)' : ''}</span><input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={org.g_has_secret ? '••••••••' : 'GOCSPX-…'} /></label>
+      </div>
+      <div className="row"><button className="btn primary">Save</button></div>
+    </form>
+  );
+}
+
 /** Importing mail from Microsoft 365: the company's app registered at Microsoft (msimport.js on the server). */
 function MicrosoftImport({ org, save }) {
   const [id, setId] = useState(org.ms_client_id || '');
@@ -685,6 +709,7 @@ function CompanySettings() {
       </div>
       <CompanySignature org={org} save={save} />
       <MicrosoftImport org={org} save={save} />
+      <GoogleImport org={org} save={save} />
       <div className="card stack">
         <h2>Who has seen files</h2>
         <label className="check"><input type="checkbox" checked={org.view_history !== false} onChange={(e) => save({ view_history: e.target.checked }, e.target.checked ? 'Owners and editors can see who has opened their files' : 'Nobody sees who has opened files')} /> Show owners and editors who has opened their files (Drive → Details)</label>

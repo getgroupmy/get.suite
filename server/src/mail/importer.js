@@ -61,7 +61,7 @@ export async function startImport(user, { host, port = 993, username, password, 
   const remote = new ImapFlow({ host, port, secure: port === 993, auth: accessToken ? { user: username, accessToken } : { user: username, pass: String(password) }, logger: false, emitLogs: false, disableAutoIdle: true, tls: { rejectUnauthorized: process.env.MAIL_IMPORT_ALLOW_PRIVATE !== '1' } });
   remote.on('error', () => {});
   try { await remote.connect(); } catch (e) {
-    throw new HttpError(400, e.authenticationFailed ? (accessToken ? 'The mail server didn’t accept the sign-in from Microsoft: check that the company’s app has the IMAP.AccessAsUser.All permission (with admin consent), and that IMAP is on for the mailbox' : 'The other server didn’t accept that user name and password (Gmail and others need an app password)') : `Couldn’t connect to ${host}: ${e.message}`);
+    throw new HttpError(400, e.authenticationFailed || (accessToken && /authentication mechanism/i.test(e.message || '')) ? (accessToken ? 'The mail server didn’t accept the sign-in: check that the company’s app at Microsoft or Google may read mail over IMAP (Microsoft: IMAP.AccessAsUser.All with admin consent), and that IMAP is on for the mailbox' : 'The other server didn’t accept that user name and password (Gmail and others need an app password)') : `Couldn’t connect to ${host}: ${e.message}`);
   }
   const id = newId();
   q('INSERT INTO mail_imports (id, user_id, host, username, status, started_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, user.id, host, username, 'running', now());

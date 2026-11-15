@@ -15142,3 +15142,18 @@ test('booking pages: group sessions — several people at one time, on one event
   assert.equal((await page()).left[start], 3);
   await owner('DELETE', `/api/bookings/${made.body.id}`);
 });
+
+test('importing from Google: the client secret is kept on the server, never sent back or written to the activity log', async () => {
+  const r = await owner('PATCH', '/api/orgs/current', { g_client_id: '1234-abc.apps.googleusercontent.com', g_client_secret: 'GOCSPX-never-shown-1' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.g_has_secret, true);
+  const got = (await owner('GET', '/api/orgs/current')).body;
+  assert.equal(JSON.stringify(got).includes('GOCSPX-never-shown-1'), false);
+  assert.equal(JSON.stringify(r.body).includes('GOCSPX-never-shown-1'), false);
+  const { q } = await import('../src/db.js');
+  assert.equal(q("SELECT COUNT(*) AS n FROM audit_log WHERE details LIKE '%GOCSPX-never-shown-1%'").get().n, 0);
+  // Changing only the client ID keeps the secret; clearing the ID clears both.
+  assert.equal((await owner('PATCH', '/api/orgs/current', { g_client_id: '5678-def.apps.googleusercontent.com' })).body.g_has_secret, true);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { g_client_id: '' })).body.g_has_secret, false);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { g_client_id: 'not-a-client' })).status, 400);
+});
