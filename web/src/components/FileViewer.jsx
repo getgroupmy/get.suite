@@ -2,11 +2,11 @@
 // they are, Word, Excel and PowerPoint as Docs, Sheets and Slides would show them, and a zip's
 // contents, with ← → (or the arrow keys) to the others that can be shown. Used for email
 // attachments and files in Chat. `urls` gives each item's view, download, office and zip address.
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { formatBytes } from '../api.js';
 import { Modal } from './ui.jsx';
 import Icon from './Icon.jsx';
-import OfficePreview from '../apps/OfficePreview.jsx';
+const OfficePreview = lazy(() => import('../apps/OfficePreview.jsx')); // the editors' previews: fetched when an Office file is first shown
 import ZipContents from '../apps/ZipContents.jsx';
 import EmlContents from '../apps/EmlContents.jsx';
 import { previewKind } from './viewkind.js';
@@ -27,7 +27,7 @@ export default function FileViewer({ items, at, urls, onStep, onSave = null, onC
   const src = urls.view(a);
   const body = kind === 'zip' ? <ZipContents url={urls.zip(a)} />
     : kind === 'eml' ? <EmlContents url={urls.eml(a)} />
-    : kind === 'office' ? <OfficePreview url={urls.office(a)} />
+    : kind === 'office' ? <Suspense fallback={<p className="muted">Loading…</p>}><OfficePreview url={urls.office(a)} /></Suspense>
     : kind === 'picture' ? <img src={src} alt={a.filename} className="preview-media" />
     : kind === 'video' ? <video src={src} controls className="preview-media" />
     : kind === 'audio' ? <audio src={src} controls />

@@ -19,8 +19,8 @@ import Login, { ResetPassword } from './apps/Login.jsx';
 const PublishedPage = lazy(() => import('./apps/PublishedPage.jsx'));
 const PublicLink = lazy(() => import('./apps/PublicLink.jsx'));
 import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
-import { SignPage } from './apps/docs/Signatures.jsx';
-const SignRoute = () => <SignPage token={useParams().token} />;
+const SignPage = lazy(() => import('./apps/docs/Signatures.jsx').then((m) => ({ default: m.SignPage })));
+const SignRoute = () => <Suspense fallback={<Loading />}><SignPage token={useParams().token} /></Suspense>;
 import BookingPage, { CancelBooking } from './apps/calendar/BookingPage.jsx';
 import ConfidentialPage from './apps/mail/ConfidentialPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
@@ -78,7 +78,7 @@ export default function App() {
   const reset = window.location.pathname.match(/^\/reset\/([A-Za-z0-9_-]+)\/?$/);
   if (reset) return <ToastProvider><ResetPassword token={reset[1]} /></ToastProvider>;
   const sign = window.location.pathname.match(/^\/sign\/([A-Za-z0-9_-]+)\/?$/);
-  if (sign) return <SignPage token={sign[1]} />;
+  if (sign) return <Suspense fallback={<Loading />}><SignPage token={sign[1]} /></Suspense>;
   return invite ? <InviteAnswer token={invite[1]} /> : <Workspace />;
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { viewOnly } from './drive/Drive.jsx';
+import { viewOnly } from './drive/viewonly.js';
 import { useNavigate } from 'react-router';
 import { get, put, post } from '../api.js';
 import Icon from '../components/Icon.jsx';

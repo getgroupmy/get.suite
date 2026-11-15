@@ -1573,7 +1573,7 @@ To update, replace the files in `docker/workspace/app` with the new version. The
 
 ## Development
 
-**Loading:** each app's code (Mail, Drive, Calendar, Chat, Admin, the editors…) is fetched the first time you open it, so the first screen comes up without downloading all of Workspace (about 40% less to start with; the browser keeps what it has fetched).
+**Loading:** each app's code (Mail, Drive, Calendar, Chat, Admin, the editors…) is fetched the first time you open it, so the first screen comes up without downloading all of Workspace (the Home page loads about 0.5 MB of script instead of 3 MB; the document, presentation and signing editors and the Office preview load only when opened; the browser keeps what it has fetched).
 
 ```bash
 cd server && npm install && npm run dev        # API on :8080 (data in server/data)

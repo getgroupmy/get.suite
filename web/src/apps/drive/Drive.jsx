@@ -38,7 +38,8 @@ function useDriveRoute() {
 }
 
 /** "Viewers can't download, print or copy" is on and you can only view or comment. */
-export const viewOnly = (f) => !!f?.no_download && !['editor', 'owner'].includes(f.role);
+export { viewOnly } from './viewonly.js';
+import { viewOnly } from './viewonly.js';
 
 export function openPath(f) {
   if (f.kind === 'folder') return `/drive/folder/${f.id}`;

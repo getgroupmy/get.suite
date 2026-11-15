@@ -61,7 +61,7 @@ await step('the dialog shows the day again; clearing it removes the end', async 
   await until(async () => (await box.inputValue()) === iso(Date.now() + 7 * 864e5));
   await box.fill('');
   await d.getByRole('button', { name: 'Save' }).click();
-  await page.getByText('Sharing updated').waitFor();
+  await page.getByText('Sharing updated').last().waitFor();
   const s = (await api(page, 'GET', `/files/${doc.id}/shares`)).body[0];
   if (s.expires_at !== null) throw new Error('still ends ' + s.expires_at);
 });
