@@ -1,4 +1,5 @@
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
+import { cleanMsApp } from '../mail/msimport.js';
 import { sweepInboxes } from '../mail/sweep.js';
 import { checkup, remind } from '../checkup.js';
 import { SIGNATURE_MODES } from '../mail/companysig.js';
@@ -43,6 +44,7 @@ function describe(org) {
     meet_guests: org.meet_guests === undefined ? true : !!org.meet_guests,
     allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
     allow_api_tokens: !!org.allow_api_tokens,
+    ms_client_id: org.ms_client_id || null, ms_tenant: org.ms_tenant || null, // importing mail from Microsoft 365 (msimport.js)
     require_2fa: !!org.require_2fa,
     password_rules: rulesOf(org.id),
     view_history: org.view_history === undefined ? true : !!org.view_history,
@@ -82,6 +84,11 @@ function updateOrg(orgId, body, { asSuper, user }) {
   }
   if (body.link_password !== undefined) q('UPDATE orgs SET link_password = ? WHERE id = ?').run(body.link_password ? 1 : 0, orgId);
   if (body.allow_api_tokens !== undefined) q('UPDATE orgs SET allow_api_tokens = ? WHERE id = ?').run(body.allow_api_tokens ? 1 : 0, orgId);
+  if (body.ms_client_id !== undefined || body.ms_tenant !== undefined) {
+    const cur = q('SELECT ms_client_id, ms_tenant FROM orgs WHERE id = ?').get(orgId);
+    const m = cleanMsApp({ client_id: body.ms_client_id !== undefined ? body.ms_client_id : cur.ms_client_id, tenant: body.ms_tenant !== undefined ? body.ms_tenant : cur.ms_tenant });
+    q('UPDATE orgs SET ms_client_id = ?, ms_tenant = ? WHERE id = ?').run(m.clientId, m.tenant, orgId);
+  }
   if (body.allow_forwarding !== undefined) {
     q('UPDATE orgs SET allow_forwarding = ? WHERE id = ?').run(body.allow_forwarding ? 1 : 0, orgId);
     scheduleMailConfig(); // forwarding (and filters' copies) to outside addresses stops, or starts again

@@ -81,6 +81,30 @@ function SlackImport() {
   );
 }
 
+/** Importing mail from Microsoft 365: the company's app registered at Microsoft (msimport.js on the server). */
+function MicrosoftImport({ org, save }) {
+  const [id, setId] = useState(org.ms_client_id || '');
+  const [tenant, setTenant] = useState(org.ms_tenant || '');
+  useEffect(() => { setId(org.ms_client_id || ''); setTenant(org.ms_tenant || ''); }, [org.ms_client_id, org.ms_tenant]);
+  return (
+    <form className="card stack" aria-labelledby="msimport-h" onSubmit={(e) => { e.preventDefault(); save({ ms_client_id: id.trim(), ms_tenant: tenant.trim() }, id.trim() ? 'People can now import mail from Microsoft 365' : 'Importing from Microsoft 365 is off'); }}>
+      <h2 id="msimport-h">Importing mail from Microsoft 365</h2>
+      <p className="muted small" style={{ margin: 0 }}>Microsoft 365 work accounts don’t accept passwords from other mail programs, so Mail → Import mail signs people in at Microsoft instead (with a code, on Microsoft’s own page; their password never comes here). That needs your company’s own app at Microsoft, made once:</p>
+      <ol className="small move-steps">
+        <li>In the Microsoft Entra admin center: <strong>App registrations → New registration</strong>, any name (<em>Workspace import</em>), accounts in your organization only (or any organization).</li>
+        <li>In the app’s <strong>Authentication</strong>, turn on <strong>Allow public client flows</strong>.</li>
+        <li>In <strong>API permissions → Add a permission → APIs my organization uses → Office 365 Exchange Online</strong> (or search “IMAP”): <strong>Delegated → IMAP.AccessAsUser.All</strong>, then <strong>Grant admin consent</strong>.</li>
+        <li>Copy the app’s <strong>Application (client) ID</strong> (and the <strong>Directory (tenant) ID</strong>) here.</li>
+      </ol>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field grow"><span>Application (client) ID</span><input value={id} onChange={(e) => setId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" spellCheck={false} /></label>
+        <label className="field grow"><span>Tenant (optional)</span><input value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="organizations" spellCheck={false} /></label>
+      </div>
+      <div className="row"><button className="btn primary">Save</button></div>
+    </form>
+  );
+}
+
 export default function Admin() {
   const { user } = useAuth();
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
@@ -660,6 +684,7 @@ function CompanySettings() {
         </label>
       </div>
       <CompanySignature org={org} save={save} />
+      <MicrosoftImport org={org} save={save} />
       <div className="card stack">
         <h2>Who has seen files</h2>
         <label className="check"><input type="checkbox" checked={org.view_history !== false} onChange={(e) => save({ view_history: e.target.checked }, e.target.checked ? 'Owners and editors can see who has opened their files' : 'Nobody sees who has opened files')} /> Show owners and editors who has opened their files (Drive → Details)</label>

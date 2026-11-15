@@ -753,7 +753,7 @@ const MOVE_FROM = {
       <><strong>Files:</strong> in OneDrive (or a SharePoint library), select everything and press <strong>Download</strong>: you get a .zip.</>,
       <><strong>Contacts:</strong> Outlook on the web → <strong>People</strong> → <strong>Manage contacts</strong> → <strong>Export contacts</strong> (a .csv). <strong>Calendar:</strong> Outlook on the web → <strong>Settings</strong> → <strong>Calendar</strong> → <strong>Shared calendars</strong> → <strong>Publish a calendar</strong>, open the ICS link and save the .ics (or in Outlook on Windows, <strong>File → Save Calendar</strong>).</>,
       <>Put the .csv and .ics into the OneDrive .zip (or a .zip of their own), and press <strong>Bring in a .zip…</strong> below. The OneDrive folder comes in as one new Drive folder, contacts and the calendar into yours.</>,
-      <><strong>Mail:</strong> Outlook.com accounts can use <strong>Import mail</strong> with an app password. Microsoft 365 work accounts usually don't allow that: add the account to Thunderbird (it signs in to Microsoft 365 by itself) and either drag its folders into this server's account added there too (see <strong>Mail apps</strong> below), or save the folders as .mbox or .eml files (Thunderbird's ImportExportTools NG add-on) and bring them in as a .zip. Outlook's own .pst files can't be read here.</>,
+      <><strong>Mail:</strong> <strong>Import mail</strong> signs in at Microsoft with a code for Microsoft 365 work accounts, once your admin has set that up (Admin → Company settings); Outlook.com accounts can use an app password. Otherwise: add the account to Thunderbird (it signs in to Microsoft 365 by itself) and either drag its folders into this server's account added there too (see <strong>Mail apps</strong> below), or save the folders as .mbox or .eml files (Thunderbird's ImportExportTools NG add-on) and bring them in as a .zip. Outlook's own .pst files can't be read here.</>,
     ],
     notes: 'Word, Excel and PowerPoint files open and edit here as they are; Settings → File format for downloads → Convert uploads makes new uploads Workspace documents.',
   },
@@ -786,7 +786,7 @@ function MoveHere() {
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className="btn primary" disabled={bring.restoring} onClick={bring.pick}><Icon name="upload" size={18} /> {bring.label || 'Bring in a .zip…'}</button>
         <button type="button" className="btn" disabled={bring.restoring} onClick={bring.pickFromDrive}>From Drive…</button>
-        {mail?.enabled && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Import mail from the account…</Link>}
+        {mail?.enabled && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Copy messages from the account…</Link>}
         {bring.controls(`Your ${m.name} export (.zip)`, `Bring in your ${m.name} export from Drive`)}
       </div>
       <p className="muted small" style={{ margin: 0 }}>{m.notes}{m.imap && mail?.enabled ? ` ${m.imap}` : ''}</p>

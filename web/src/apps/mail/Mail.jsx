@@ -1115,6 +1115,24 @@ function ImportMail({ from = '', onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { get('/mail/import').then(setJob).catch(() => setJob(null)); }, []);
   useEffect(() => onLive((m) => { if (m.type === 'mail-import') { setJob(m.import); if (m.import?.status === 'done') onDone(); } }), [onDone]);
+  // Microsoft 365: signing in at Microsoft with a code (when the company has set it up), instead of a password.
+  const [ms, setMs] = useState(null);
+  const [msEmail, setMsEmail] = useState('');
+  useEffect(() => { get('/mail/import/microsoft').then(setMs).catch(() => setMs(null)); }, []);
+  useEffect(() => onLive((m) => { if (m.type === 'ms-import') setMs((x) => ({ ...x, ...m.ms })); }), []);
+  // Still waiting: check now and then too (in case a live update was missed).
+  useEffect(() => {
+    if (ms?.status !== 'waiting') return undefined;
+    const t = setInterval(() => get('/mail/import/microsoft').then(setMs).catch(() => {}), 4000);
+    return () => clearInterval(t);
+  }, [ms?.status]);
+  const microsoft = f.host === 'outlook.office365.com' && ms?.available;
+  const msStart = async (e) => {
+    e.preventDefault();
+    setError(''); setBusy(true);
+    try { setMs({ available: true, ...(await post('/mail/import/microsoft', { email: msEmail })) }); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const msCancel = async () => { await del('/mail/import/microsoft').catch(() => {}); setMs({ available: true, status: 'none' }); };
   const start = async (e) => {
     e.preventDefault();
     setError(''); setBusy(true);
@@ -1145,7 +1163,30 @@ function ImportMail({ from = '', onClose, onDone }) {
             {job.status === 'failed' && <span className="error">The import from {job.username} stopped: {job.error}</span>}
           </div>
         )}
-        {!runningNow && (
+        {!runningNow && microsoft && (
+          <form className="stack" onSubmit={msStart} aria-label="Import from Microsoft 365">
+            <label className="field"><span>Import from</span>
+              <select aria-label="Import from" value={f.host} onChange={(e) => setF({ ...f, host: e.target.value, port: 993 })}>
+                {IMPORT_FROM.map(([h, n]) => <option key={n} value={h}>{n}</option>)}
+              </select></label>
+            <p className="muted small" style={{ margin: 0 }}>You sign in at Microsoft with a code (on Microsoft’s own page, so your password never comes here); then everything in the mailbox is copied, as for any account. Microsoft asks you to let your company’s import app read your mail: say yes.</p>
+            {ms.status === 'waiting' ? (
+              <div className="ms-code stack-tight" role="status">
+                <p style={{ margin: 0 }}>Go to <a href={ms.verification_uri} target="_blank" rel="noopener noreferrer"><strong>{ms.verification_uri.replace(/^https?:\/\//, '')}</strong></a> and enter this code, then sign in as <strong>{ms.email}</strong>:</p>
+                <div className="row" style={{ gap: 8 }}><code className="ms-user-code" aria-label="Your code">{ms.user_code}</code>
+                  <button type="button" className="btn small" onClick={() => navigator.clipboard?.writeText(ms.user_code).catch(() => {})}>Copy code</button></div>
+                <p className="muted small" style={{ margin: 0 }}>Waiting for you to sign in… (the code works for 15 minutes)</p>
+                <div className="row"><button type="button" className="btn small" onClick={msCancel}>Cancel</button></div>
+              </div>
+            ) : <>
+              {['declined', 'expired', 'error'].includes(ms.status) && <p className="error" role="alert">{ms.status === 'declined' ? 'The sign-in at Microsoft was declined.' : ms.status === 'expired' ? 'The code ran out before you signed in: try again.' : `It didn’t work: ${ms.error}`}</p>}
+              <label className="field"><span>Your Microsoft 365 address</span><input required type="email" autoComplete="off" value={msEmail} onChange={(e) => setMsEmail(e.target.value)} placeholder="you@yourcompany.com" /></label>
+              {error && <p className="error">{error}</p>}
+              <div className="row end"><button className="btn primary" disabled={busy}>{busy ? 'Starting…' : 'Sign in with Microsoft'}</button></div>
+            </>}
+          </form>
+        )}
+        {!runningNow && !microsoft && (
           <form className="stack" onSubmit={start}>
             <p className="muted small" style={{ margin: 0 }}>Copies all the mail in another account (every folder, with what's read and starred, and the dates) into this mailbox. Junk and Trash are left out. Messages already here are skipped, so you can run it again later. Your password there is used for this import only and never kept. Gmail, Yahoo, iCloud and Zoho need an <em>app password</em> made in that account's security settings. Microsoft 365 work accounts usually don't allow this (Outlook.com ones do): see <strong>Settings → Move here from another service</strong> for other ways.</p>
             <label className="field"><span>Import from</span>

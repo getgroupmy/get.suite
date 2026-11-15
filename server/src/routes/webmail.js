@@ -1,4 +1,5 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
+import { msAppOf, msStatusOf, startMsImport, cancelMsImport } from '../mail/msimport.js';
 import { proxyImages, checkImageSig, imageFor, overLimit } from '../mail/imageproxy.js';
 import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
@@ -1290,6 +1291,10 @@ export default function webmailRoutes() {
 
   // Importing mail from another account: start one, and how the latest is going.
   r.post('/import', async (req, res) => res.status(201).json(await startImport(req.user, req.body || {})));
+  // Microsoft 365: sign in at Microsoft with a code instead of a password (msimport.js).
+  r.get('/import/microsoft', (req, res) => res.json({ available: !!msAppOf(req.user.org_id), ...msStatusOf(req.user.id) }));
+  r.post('/import/microsoft', async (req, res) => res.status(201).json(await startMsImport(req.user, req.body || {})));
+  r.delete('/import/microsoft', (req, res) => { cancelMsImport(req.user.id); res.json({ ok: true }); });
   r.get('/import', (req, res) => res.json(importOf(req.user.id)));
   r.post('/import-mbox', async (req, res) => res.status(201).json(await startMboxImport(req.user, req.body || {})));
 
