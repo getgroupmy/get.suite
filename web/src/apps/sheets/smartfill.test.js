@@ -69,3 +69,9 @@ test('a heading row is found by itself when it spoils the pattern', () => {
   const p = planSmartFill({ r1: 0, r2: 2, target: 1, cols: [0], value: (c, r) => g[r]?.[c] ?? '' });
   assert.deepEqual(p.fills.map((f) => f.v), ['L. Chan']);
 });
+
+test('the top row of the table, empty in this column, is taken for headings and not filled', () => {
+  const g = [['Name', ''], ['Kim Park', 'PARK'], ['Lee Chan', 'CHAN'], ['Bo Diaz', '']];
+  const p = planSmartFill({ r1: 0, r2: 3, target: 1, cols: [0], value: (c, r) => g[r]?.[c] ?? '' });
+  assert.deepEqual(p.fills.map((f) => [f.r, f.v]), [[3, 'DIAZ']]);
+});

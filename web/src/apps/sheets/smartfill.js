@@ -158,7 +158,8 @@ function planRows({ r1, r2, target, cols, header, value }) {
     const inputs = inputsOf(r);
     if (inputs.every((v) => !v)) continue;
     const out = value(target, r);
-    if (out) examples.push({ r, inputs, output: out }); else todo.push({ r, inputs });
+    if (out) examples.push({ r, inputs, output: out });
+    else if (r > r1) todo.push({ r, inputs }); // the table's top row, empty in this column, is its heading row
   }
   if (!cols.length) return { error: 'Smart fill needs a column of data beside this one to learn from' };
   if (!examples.length) return { error: 'Type what you want in a cell or two of this column first, then use Smart fill' };

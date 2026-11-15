@@ -96,6 +96,35 @@ await step('far from any data', async () => {
   await page.getByRole('menuitem', { name: 'Smart fill…' }).click();
   await page.getByText('Smart fill needs a column of data beside this one to learn from').waitFor();
 });
+const typeIn = async (k, text) => { await cell(k).dblclick(); await page.keyboard.type(text); await page.keyboard.press('Enter'); };
+await step('offered by itself after a second example: Fill fills the rest of the column', async () => {
+  await typeIn('E2', 'PARK');
+  const bar = page.getByRole('region', { name: 'Smart fill suggestion' });
+  if (await bar.count()) throw new Error('offered after one example');
+  await typeIn('E3', 'CHAN');
+  await bar.getByText(/fill 2 more cells in column E like your examples \(LOPEZ, DIAZ\)/).waitFor();
+  await axe(page, 'smart fill offer');
+  await page.screenshot({ path: SP + '/shots/smartfill-offer.png' });
+  await bar.getByRole('button', { name: 'Fill' }).click();
+  await page.getByText('Filled 2 cells in column E').waitFor();
+  if (await bar.count()) throw new Error('bar stayed');
+  await saved();
+  await until(async () => { const c = await now(); return [c.E4, c.E5].join('|') === 'LOPEZ|DIAZ'; });
+});
+await step('No thanks: not offered again for that column; the same text twice is never offered', async () => {
+  await typeIn('F2', 'kim');
+  await typeIn('F3', 'lee');
+  const bar = page.getByRole('region', { name: 'Smart fill suggestion' });
+  await bar.waitFor();
+  await bar.getByRole('button', { name: 'No thanks' }).click();
+  await typeIn('F4', 'ana');
+  await page.waitForTimeout(400);
+  if (await bar.count()) throw new Error('offered again after No thanks');
+  await typeIn('G2', 'Yes');
+  await typeIn('G3', 'Yes');
+  await page.waitForTimeout(400);
+  if (await bar.count()) throw new Error('offered for the same text twice');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

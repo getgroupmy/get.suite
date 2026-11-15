@@ -532,26 +532,36 @@ export default function SheetEditor() {
     toast(`Split into ${out.columns} columns${out.overwritten ? ` (${out.overwritten} cell${out.overwritten === 1 ? '' : 's'} written over)` : ''}`);
     gridRef.current?.focus();
   }
-  /** Smart fill: learn from the examples typed in this column how they're made from the table's other columns. */
-  function smartFill() {
-    if (readOnly) return;
-    let g = sortTarget();
-    const target = sel.c;
+  /** Smart fill's plan for a column at a row: learnt from the examples typed in it, from the table's other columns. */
+  function planSmartFillAt(target, row, ranged = false) {
+    let g = ranged ? range : dataRegion({ c: target, r: row }, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '');
     const has = (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '';
-    // An empty column beside a table: the table is what's learnt from (the nearest filled cell to the left on this row).
-    if (!anchor && g.c1 === g.c2) {
-      let c = sel.c - 1;
-      while (c >= 0 && sel.c - c <= 3 && !has(c, sel.r)) c--;
-      if (c >= 0 && has(c, sel.r)) { const t = dataRegion({ c, r: sel.r }, has); g = { ...t, c2: Math.max(t.c2, sel.c) }; }
+    // A table to the left across an empty column or two (or an empty column beside a table): it's learnt from
+    // too; the nearest filled cell to the left on this row finds it.
+    for (let guard = 0; !ranged && guard < 10; guard++) {
+      let c = Math.min(g.c1, target) - 1;
+      const from = c;
+      while (c >= 0 && from - c < 3 && !has(c, row)) c--;
+      if (c < 0 || !has(c, row)) break;
+      const t = dataRegion({ c, r: row }, has);
+      g = { c1: Math.min(t.c1, g.c1), c2: Math.max(t.c2, g.c2, target), r1: Math.min(t.r1, g.r1), r2: Math.max(t.r2, g.r2) };
     }
     const shown = (c, r) => { const v = evaluate(cellKey(c, r)); return v === null || v === undefined || typeof v === 'object' ? '' : String(v); };
     const cols = [];
     for (let c = g.c1; c <= g.c2; c++) if (c !== target) cols.push(c);
     const plan = planSmartFill({ r1: g.r1, r2: g.r2, target, cols, header: g.r2 > g.r1 && looksLikeHeader(g, evaluate), value: (i, r) => shown(i, r) });
+    return plan.error ? plan : { ...plan, describe: describeFill(plan.pattern, cols.map(colName)) };
+  }
+  /** Smart fill… (right-click): the plan for the cursor's column, shown before it fills. */
+  function smartFill() {
+    if (readOnly) return;
+    const plan = planSmartFillAt(sel.c, sel.r, !!anchor);
     if (plan.error) { toast(plan.error); return; }
-    setDialog({ type: 'smartfill', col: colName(target), plan: { ...plan, describe: describeFill(plan.pattern, cols.map(colName)) }, target });
+    setFillOffer(null);
+    setDialog({ type: 'smartfill', col: colName(sel.c), plan, target: sel.c });
   }
   function runSmartFill({ plan, target }) {
+    setFillOffer(null);
     const cur = dataRef.current, sh = cur.sheets[active];
     const next = { ...(sh.cells || {}) };
     for (const f of plan.fills) { const k = cellKey(target, f.r); if (next[k] === undefined || next[k] === '') next[k] = f.v; }
@@ -728,6 +738,21 @@ export default function SheetEditor() {
 
   const closing = useRef(false); // set while the cell editor closes, so its blur doesn't save a second time
   /** Save what was typed. A value a strict dropdown doesn't allow: kept for fixing (keep) or dropped. */
+  // Smart fill offered by itself: after you type a second example in a column beside data that follows a
+  // pattern taken from the row (not just the same text again), a bar offers to fill the rest of the column.
+  const lastTyped = useRef(null);
+  const [fillOffer, setFillOffer] = useState(null); // { target, col, plan }
+  const fillDeclined = useRef(new Set()); // "sheet:column" said No thanks to, this visit
+  useEffect(() => {
+    const t = lastTyped.current;
+    lastTyped.current = null;
+    if (!t || readOnly || t.sheet !== active || fillDeclined.current.has(`${active}:${t.c}`)) return;
+    const plan = planSmartFillAt(t.c, t.r);
+    if (plan.error || plan.examples < 2 || !plan.pattern.steps.some((x) => x.atom)) { setFillOffer((o) => (o && o.target === t.c ? null : o)); return; }
+    setFillOffer({ target: t.c, col: colName(t.c), plan });
+  }, [cells]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setFillOffer(null); }, [active]);
+
   function commitEdit(dc = 0, dr = 0, keep = false) {
     if (closing.current) return; // the editor is already closing (its blur comes after Enter or Escape)
     const key = cellKey(sel.c, sel.r);
@@ -737,6 +762,7 @@ export default function SheetEditor() {
     writeCells({ [key]: check.value });
     closing.current = true;
     setEditing(null);
+    if (typeof check.value === 'string' && check.value && !check.value.startsWith('=')) lastTyped.current = { c: sel.c, r: sel.r, sheet: active }; else lastTyped.current = null;
     move(dc, dr);
     gridRef.current?.focus();
   }
@@ -1123,6 +1149,14 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {fillOffer && (
+        <div className="banner smartfill-offer" role="region" aria-label="Smart fill suggestion">
+          <span className="grow">✨ <strong>Smart fill:</strong> fill {fillOffer.plan.fills.length} more cell{fillOffer.plan.fills.length === 1 ? '' : 's'} in column {fillOffer.col} like your examples (<em>{fillOffer.plan.fills[0].v}</em>{fillOffer.plan.fills.length > 1 ? `, ${fillOffer.plan.fills[1].v}` : ''}{fillOffer.plan.fills.length > 2 ? '…' : ''})?</span>
+          <button type="button" className="btn small primary" onClick={() => runSmartFill(fillOffer)}>Fill</button>
+          <button type="button" className="btn small" onClick={() => { setDialog({ type: 'smartfill', ...fillOffer }); setFillOffer(null); }}>Preview…</button>
+          <button type="button" className="btn small" onClick={() => { fillDeclined.current.add(`${active}:${fillOffer.target}`); setFillOffer(null); gridRef.current?.focus(); }}>No thanks</button>
+        </div>
+      )}
       {!readOnly && sheetGuard && <div className="banner" role="status">🔒 This sheet is protected{sheetGuard.desc ? ` (${sheetGuard.desc})` : ''}: only some people can change it.</div>}
       {sheet?.pivot && (
         <div className="banner pivot-banner" role="status">
