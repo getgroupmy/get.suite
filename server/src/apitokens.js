@@ -10,6 +10,7 @@ import { q } from './db.js';
 import { uid, now, str, bad, notFound, HttpError } from './util.js';
 import { audit } from './audit.js';
 import { requireAdmin } from './auth.js';
+import { assistantTokenRow } from './mcpauth.js';
 
 q(`CREATE TABLE IF NOT EXISTS api_tokens (
   id TEXT PRIMARY KEY,
@@ -34,7 +35,7 @@ const hashOf = (token) => crypto.createHash('sha256').update(String(token)).dige
 
 /** The bearer token in a request, if it looks like one of ours. */
 export function bearerOf(req) {
-  const m = /^Bearer\s+(nwt_[A-Za-z0-9_-]{20,100})\s*$/.exec(req.get?.('authorization') || req.headers?.authorization || '');
+  const m = /^Bearer\s+(nw[ta]_[A-Za-z0-9_-]{20,100})\s*$/.exec(req.get?.('authorization') || req.headers?.authorization || '');
   return m ? m[1] : null;
 }
 
@@ -44,6 +45,7 @@ export function bearerOf(req) {
  */
 export function tokenRow(token, ip = null) {
   if (!token) return null;
+  if (token.startsWith('nwa_')) return assistantTokenRow(token); // an AI assistant signed in with OAuth (mcpauth.js)
   const row = q(`SELECT t.*, u.disabled, o.allow_api_tokens FROM api_tokens t JOIN users u ON u.id = t.user_id JOIN orgs o ON o.id = u.org_id WHERE t.hash = ?`).get(hashOf(token));
   if (!row || row.disabled || !row.allow_api_tokens || (row.expires_at && row.expires_at < now())) return null;
   if (!row.last_used_at || now() - row.last_used_at > 60e3) q('UPDATE api_tokens SET last_used_at = ?, last_ip = ? WHERE id = ?').run(now(), ip, row.id);
@@ -54,6 +56,8 @@ export function tokenRow(token, ip = null) {
 export function tokenRefusal(row, req) {
   const path = req.originalUrl.split('?')[0];
   if (/^\/api\/(auth|tokens)(\/|$)/.test(path)) return 'API tokens can’t be used for this: sign in instead';
+  // An assistant's token works at /mcp (and for the calls the MCP server makes for it), nowhere else.
+  if (row.mcp && path !== '/mcp' && !req.workspaceInner) return 'This token is for the MCP server (/mcp) only';
   // MCP is all POSTs: there a read-only token can use the tools that only read (each call to the API is checked).
   if (row.scope === 'read' && !['GET', 'HEAD'].includes(req.method) && path !== '/mcp') return 'This token is read-only';
   return null;

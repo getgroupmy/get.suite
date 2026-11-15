@@ -1,4 +1,5 @@
 import { mcpRoutes, innerIp } from './mcp.js';
+import { mcpAuthRoutes } from './mcpauth.js';
 import slideQaRoutes from './routes/slideqa.js';
 import webImportRoutes from './routes/webimport.js';
 import { oidcPublicRoutes, oidcApiRoutes } from './oidc.js';
@@ -121,6 +122,7 @@ export function createApp({
   app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
   // AI assistants (Claude, ChatGPT…) over MCP, with an API token.
   app.use('/mcp', mcpRoutes(requireAuth));
+  app.use(mcpAuthRoutes()); // how assistants sign in to it (OAuth discovery and registration)
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());

@@ -12,6 +12,7 @@ import { q } from './db.js';
 import { uid, now, bad, notFound, HttpError } from './util.js';
 import { audit } from './audit.js';
 import { userFromToken, tokenFromReq, destroySession, clearSessionCookie } from './auth.js';
+import { mcpClientBy, orgAllowsAssistants, mcpScopesOf } from './mcpauth.js';
 
 q(`CREATE TABLE IF NOT EXISTS oidc_clients (
   id TEXT PRIMARY KEY,
@@ -70,6 +71,7 @@ if (!q('PRAGMA table_info(oidc_clients)').all().some((c) => c.name === 'allowed_
 if (!q('PRAGMA table_info(oidc_clients)').all().some((c) => c.name === 'home_url')) q('ALTER TABLE oidc_clients ADD COLUMN home_url TEXT').run();
 /** Whether someone may sign in to an app. */
 export function mayUse(c, user) {
+  if (c?.kind === 'mcp') return !!user && orgAllowsAssistants(user.org_id); // an AI assistant: anyone whose company allows them
   if (!user || user.org_id !== c.org_id) return false;
   const groups = c.allowed_groups ? JSON.parse(c.allowed_groups) : [];
   if (!groups.length) return true;
@@ -137,7 +139,8 @@ export function cleanRedirect(u) {
   return url.toString();
 }
 
-const clientBy = (clientId) => q('SELECT * FROM oidc_clients WHERE client_id = ?').get(String(clientId || ''));
+// A company's app, or an AI assistant that registered itself (mcpauth.js).
+const clientBy = (clientId) => q('SELECT * FROM oidc_clients WHERE client_id = ?').get(String(clientId || '')) || mcpClientBy(clientId);
 const shapeClient = (c) => ({ id: c.id, name: c.name, client_id: c.client_id, redirect_uris: JSON.parse(c.redirect_uris), allowed_groups: c.allowed_groups ? JSON.parse(c.allowed_groups) : [], home_url: c.home_url || null, created_at: c.created_at, last_used_at: c.last_used_at });
 
 /** What an app may learn about someone, by scope. */
@@ -172,7 +175,10 @@ export function oidcPublicRoutes() {
     if (!c || !JSON.parse(c.redirect_uris).includes(redirect)) return res.status(400).type('text').send('This sign-in link isn’t right: the app or its return address isn’t registered in Workspace.');
     const back = (params) => { const u = new URL(redirect); for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v); return res.redirect(302, u.toString()); };
     if (req.query.response_type !== 'code') return back({ error: 'unsupported_response_type', state: req.query.state });
-    if (!String(req.query.scope || '').split(/\s+/).includes('openid')) return back({ error: 'invalid_scope', error_description: 'openid is needed', state: req.query.state });
+    if (c.kind === 'mcp') {
+      // Assistants are public clients: PKCE with S256 is a must.
+      if (!req.query.code_challenge || req.query.code_challenge_method !== 'S256') return back({ error: 'invalid_request', error_description: 'PKCE (S256) is needed', state: req.query.state });
+    } else if (!String(req.query.scope || '').split(/\s+/).includes('openid')) return back({ error: 'invalid_scope', error_description: 'openid is needed', state: req.query.state });
     // The person says yes (or signs in first) on Workspace's own page, which carries on from here.
     const qs = new URLSearchParams(Object.fromEntries(['client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method'].filter((k) => req.query[k]).map((k) => [k, String(req.query[k])])));
     res.redirect(302, `/oauth/consent?${qs}`);
@@ -207,22 +213,23 @@ export function oidcPublicRoutes() {
     const basic = /^Basic\s+(.+)$/i.exec(req.get('authorization') || '');
     if (basic) { const [a, b] = Buffer.from(basic[1], 'base64').toString().split(':'); id = decodeURIComponent(a || ''); secret = decodeURIComponent(b || ''); }
     const c = clientBy(id);
-    if (!c || !secret || sha(secret) !== c.secret_hash) return fail(401, 'invalid_client');
+    if (!c || (c.kind !== 'mcp' && (!secret || sha(secret) !== c.secret_hash))) return fail(401, 'invalid_client'); // assistants have no secret (PKCE instead)
     const issue = (user, scope, nonce) => {
       const scopes = scope.split(' ');
-      const access = crypto.randomBytes(32).toString('base64url');
+      const access = `${c.kind === 'mcp' ? 'nwa_' : ''}${crypto.randomBytes(32).toString('base64url')}`; // an assistant's: recognised at /mcp
       q('INSERT INTO oidc_tokens (token_hash, client_id, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?)').run(sha(access), c.client_id, user.id, scope, Date.now() + TOKEN_TTL);
       q('DELETE FROM oidc_tokens WHERE expires_at < ?').run(Date.now());
       q('DELETE FROM oidc_refresh WHERE expires_at < ?').run(Date.now());
-      q('UPDATE oidc_clients SET last_used_at = ? WHERE id = ?').run(now(), c.id);
+      if (c.kind === 'mcp') q('UPDATE mcp_clients SET last_used_at = ? WHERE client_id = ?').run(now(), c.client_id);
+      else q('UPDATE oidc_clients SET last_used_at = ? WHERE id = ?').run(now(), c.id);
       let refresh = null;
-      if (scopes.includes('offline_access')) {
+      if (scopes.includes('offline_access') || c.kind === 'mcp') { // assistants always stay connected until taken back
         refresh = crypto.randomBytes(32).toString('base64url');
         q('INSERT INTO oidc_refresh (token_hash, client_id, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?)').run(sha(refresh), c.client_id, user.id, scope, Date.now() + REFRESH_TTL);
       }
       const t = Math.floor(Date.now() / 1000);
-      const idToken = signJwt({ iss: issuerOf(req), aud: c.client_id, iat: t, exp: t + TOKEN_TTL / 1000, auth_time: t, ...(nonce && { nonce }), ...claimsFor(user, scopes) });
-      res.json({ access_token: access, token_type: 'Bearer', expires_in: TOKEN_TTL / 1000, id_token: idToken, scope, ...(refresh && { refresh_token: refresh }) });
+      const idToken = c.kind === 'mcp' && !scopes.includes('openid') ? null : signJwt({ iss: issuerOf(req), aud: c.client_id, iat: t, exp: t + TOKEN_TTL / 1000, auth_time: t, ...(nonce && { nonce }), ...claimsFor(user, scopes) });
+      res.json({ access_token: access, token_type: 'Bearer', expires_in: TOKEN_TTL / 1000, ...(idToken && { id_token: idToken }), scope, ...(refresh && { refresh_token: refresh }) });
     };
     if (req.body?.grant_type === 'refresh_token') {
       // Still allowed (the grant not taken back, the person still active in the company): a fresh set.
@@ -238,6 +245,7 @@ export function oidcPublicRoutes() {
     if (row) q('DELETE FROM oidc_codes WHERE code_hash = ?').run(row.code_hash); // used once, whatever happens
     if (!row || row.client_id !== c.client_id || row.expires_at < Date.now()) return fail(400, 'invalid_grant', 'The code is wrong, used or expired');
     if (row.redirect_uri !== String(req.body?.redirect_uri || '')) return fail(400, 'invalid_grant', 'redirect_uri doesn’t match');
+    if (c.kind === 'mcp' && !row.challenge) return fail(400, 'invalid_grant', 'PKCE is needed');
     if (row.challenge) {
       const v = String(req.body?.code_verifier || '');
       const ok = row.challenge_method === 'S256' ? b64url(crypto.createHash('sha256').update(v).digest()) === row.challenge : v === row.challenge;
@@ -268,6 +276,11 @@ export function oidcApiRoutes() {
   const loadRequest = (req, src) => {
     const c = clientBy(src.client_id);
     if (!c || !JSON.parse(c.redirect_uris).includes(String(src.redirect_uri || ''))) throw notFound('This app isn’t registered in Workspace');
+    if (c.kind === 'mcp') {
+      if (!mayUse(c, req.user)) throw new HttpError(403, 'Your company hasn’t turned on AI assistants (API tokens). An admin can, in Admin → Company settings.');
+      if (!src.code_challenge) throw bad('PKCE is needed');
+      return { c, scopes: mcpScopesOf(src.scope) };
+    }
     if (c.org_id !== req.user.org_id) throw new HttpError(403, 'This app is for another company: sign in with an account there');
     if (!mayUse(c, req.user)) throw new HttpError(403, `You aren’t one of the people allowed to use ${c.name}. Ask an administrator if you need it.`);
     return { c, scopes: scopesOf(src.scope) };
@@ -275,12 +288,15 @@ export function oidcApiRoutes() {
   r.get('/request', (req, res) => {
     const { c, scopes } = loadRequest(req, req.query);
     const g = q('SELECT scope FROM oidc_grants WHERE user_id = ? AND client_id = ?').get(req.user.id, c.client_id);
-    res.json({ app: c.name, scopes, granted: !!g && scopes.every((s) => g.scope.split(' ').includes(s)), host: new URL(String(req.query.redirect_uri)).host });
+    res.json({ app: c.name, assistant: c.kind === 'mcp', scopes, granted: !!g && scopes.every((s) => g.scope.split(' ').includes(s)), host: new URL(String(req.query.redirect_uri)).host });
   });
   const redirectWith = (uri, params) => { const u = new URL(uri); for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, String(v)); return u.toString(); };
   r.post('/approve', (req, res) => {
     const b = req.body || {};
-    const { c, scopes } = loadRequest(req, b);
+    const loaded = loadRequest(req, b);
+    const { c } = loaded;
+    // An assistant can be let in to read only, whatever it asked for.
+    const scopes = c.kind === 'mcp' && b.access === 'read' ? loaded.scopes.filter((x) => x !== 'mcp:write') : loaded.scopes;
     const method = b.code_challenge ? (b.code_challenge_method === 'plain' ? 'plain' : 'S256') : null;
     const code = crypto.randomBytes(24).toString('base64url');
     q('INSERT INTO oidc_codes (code_hash, client_id, user_id, redirect_uri, scope, nonce, challenge, challenge_method, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -311,7 +327,9 @@ export function oidcApiRoutes() {
   });
 
   // Apps you've let in (and taking that back).
-  r.get('/grants', (req, res) => res.json(q(`SELECT g.client_id, g.scope, g.granted_at, c.name FROM oidc_grants g JOIN oidc_clients c ON c.client_id = g.client_id WHERE g.user_id = ? ORDER BY c.name`).all(req.user.id)));
+  r.get('/grants', (req, res) => res.json(q(`SELECT g.client_id, g.scope, g.granted_at, c.name, 0 AS assistant, NULL AS last_used_at FROM oidc_grants g JOIN oidc_clients c ON c.client_id = g.client_id WHERE g.user_id = ?
+    UNION ALL SELECT g.client_id, g.scope, g.granted_at, m.name, 1 AS assistant, m.last_used_at FROM oidc_grants g JOIN mcp_clients m ON m.client_id = g.client_id WHERE g.user_id = ?
+    ORDER BY name`).all(req.user.id, req.user.id).map((g) => ({ ...g, assistant: !!g.assistant, access: g.assistant ? (g.scope.split(' ').includes('mcp:write') ? 'write' : 'read') : undefined }))));
   r.delete('/grants/:clientId', (req, res) => {
     q('DELETE FROM oidc_grants WHERE user_id = ? AND client_id = ?').run(req.user.id, req.params.clientId);
     q('DELETE FROM oidc_tokens WHERE user_id = ? AND client_id = ?').run(req.user.id, req.params.clientId);

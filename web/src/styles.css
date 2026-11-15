@@ -3114,3 +3114,7 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .move-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; }
 .mcp-help summary { cursor: pointer; font-weight: 500; }
 .mcp-help .mcp-cmd { display: block; white-space: pre-wrap; word-break: break-all; }
+.consent-access { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 0; }
+.consent-access legend { font-weight: 500; padding: 0 4px; }
+.consent-access label { align-items: flex-start; gap: 8px; }
+.consent-access input { margin-top: 3px; }

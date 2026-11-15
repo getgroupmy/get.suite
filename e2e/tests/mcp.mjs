@@ -75,6 +75,35 @@ await step('that token works at /mcp: the tools are listed, and a note made by t
   await page.goto(`${B}/settings`);
   await page.getByRole('region', { name: 'API tokens' }).getByText(/last used/).first().waitFor();
 });
+await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
+  const crypto = await import('node:crypto');
+  const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }) })).json();
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  let landed = null;
+  const catcher = async (route) => { landed = route.request().url(); await route.fulfill({ status: 200, contentType: 'text/html', body: '<p>back at claude</p>' }); };
+  await page.route('https://claude.ai/**', catcher);
+  await page.goto(`${B}/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: reg.client_id, redirect_uri: 'https://claude.ai/api/mcp/auth_callback', state: 'xyz', code_challenge: challenge, code_challenge_method: 'S256', scope: 'mcp:read mcp:write' })}`);
+  await page.getByRole('heading', { name: 'Connect Claude to Workspace' }).waitFor();
+  await page.getByText('(at claude.ai)').waitFor();
+  await page.screenshot({ path: `${SP}/shots/mcp-consent.png` });
+  await axe(page, 'mcp consent');
+  await page.getByRole('radio', { name: 'Read only' }).check();
+  await page.getByRole('button', { name: 'Allow' }).click();
+  await until(() => landed);
+  const u = new URL(landed);
+  if (u.searchParams.get('state') !== 'xyz' || !u.searchParams.get('code')) throw new Error(landed);
+  await page.unroute('https://claude.ai/**', catcher);
+  const tok = await (await fetch(`${B}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code: u.searchParams.get('code'), redirect_uri: 'https://claude.ai/api/mcp/auth_callback', client_id: reg.client_id, code_verifier: verifier }) })).json();
+  if (tok.scope !== 'mcp:read') throw new Error(JSON.stringify(tok));
+  await page.goto(`${B}/settings`);
+  const apps = page.getByRole('region', { name: 'Apps you sign in to' });
+  await apps.getByText(/AI assistant, read only/).waitFor();
+  await apps.getByRole('button', { name: 'Remove Claude' }).click();
+  await page.getByText('Claude removed').waitFor();
+  const after = await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tok.access_token}` }, body: '{"jsonrpc":"2.0","id":1,"method":"ping"}' });
+  if (after.status !== 401) throw new Error(`still works: ${after.status}`);
+});
 await step('on a phone the command wraps and nothing slides sideways', async () => {
   await page.setViewportSize({ width: 375, height: 760 });
   await page.reload();

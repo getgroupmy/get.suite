@@ -156,7 +156,7 @@ function userFromApiToken(req) {
   if (!t) return null;
   const row = q(`SELECT ${USER_COLUMNS} FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ? AND u.disabled = 0`).get(t.user_id);
   if (!row) return null;
-  req.apiToken = { id: t.id, scope: t.scope };
+  req.apiToken = { id: t.id, scope: t.scope, mcp: !!t.mcp };
   return userOf(row);
 }
 

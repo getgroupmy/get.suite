@@ -7,6 +7,7 @@
 import crypto from 'node:crypto';
 import express, { Router } from 'express';
 import { expand } from './calmath.js';
+import { issuerOf } from './mcpauth.js';
 
 export const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const INNER_KEY = crypto.randomBytes(24).toString('hex'); // marks our own loopback calls (see innerIp)
@@ -18,6 +19,7 @@ export function innerIp(req, res, next) {
   if (key && key === INNER_KEY && /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(req.socket.remoteAddress || '')) {
     const ip = String(req.get('x-workspace-ip') || '').slice(0, 64);
     if (ip) Object.defineProperty(req, 'ip', { value: ip, configurable: true });
+    req.workspaceInner = true;
   }
   next();
 }
@@ -306,13 +308,22 @@ export function mcpRoutes(auth) {
   // Only with a token: a browser's cookie can't be used here (another site could otherwise post as you).
   const bearerOnly = (req, res, next) => {
     if (!/^Bearer\s+\S/i.test(req.get('authorization') || '')) {
-      res.set('WWW-Authenticate', 'Bearer realm="workspace"');
-      return res.status(401).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Sign in with an API token: Authorization: Bearer nwt_…' } });
+      // Where an assistant finds out how to sign in (OAuth: mcpauth.js).
+      res.set('WWW-Authenticate', `Bearer realm="workspace", resource_metadata="${issuerOf(req)}/.well-known/oauth-protected-resource/mcp"`);
+      return res.status(401).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Sign in: connect with OAuth, or send an API token as Authorization: Bearer nwt_…' } });
     }
     delete req.headers.cookie;
     next();
   };
-  r.post('/', bearerOnly, auth, express.json({ limit: '4mb' }), async (req, res) => {
+  // A token that's wrong or expired: 401 with the same pointer, so the assistant signs in again.
+  const authed = (req, res, next) => auth(req, res, (err) => {
+    if (err?.status === 401) {
+      res.set('WWW-Authenticate', `Bearer realm="workspace", error="invalid_token", resource_metadata="${issuerOf(req)}/.well-known/oauth-protected-resource/mcp"`);
+      return res.status(401).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: err.message } });
+    }
+    next(err);
+  });
+  r.post('/', bearerOnly, authed, express.json({ limit: '4mb' }), async (req, res) => {
     const api = apiFor(req);
     const one = async (m) => {
       try { return await handle(m, api); }

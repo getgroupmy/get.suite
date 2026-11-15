@@ -147,3 +147,87 @@ test('company network rules apply to the assistant’s calls too', async () => {
   assert.equal((await rpc(kt, 'tools/list', undefined, 1, { 'x-workspace-inner': 'guess', 'x-workspace-ip': '10.9.9.1' })).status, 403);
   await owner('PATCH', '/api/orgs/current', { allowed_nets: '' });
 });
+
+test('OAuth for assistants (claude.ai, ChatGPT): discovery, registration, consent with PKCE, tokens that work only at /mcp, refresh, disconnect', async () => {
+  const crypto = await import('node:crypto');
+  // 1. /mcp says where to find out how to sign in.
+  const first = await rpc(null, 'initialize', { protocolVersion: '2025-06-18' });
+  assert.equal(first.status, 401);
+  const meta = /resource_metadata="([^"]+)"/.exec(first.headers.get('www-authenticate'))[1];
+  assert.equal(meta, 'https://work.acme.com/.well-known/oauth-protected-resource/mcp');
+  const pr = await (await fetch(`${base}/.well-known/oauth-protected-resource/mcp`)).json();
+  assert.deepEqual([pr.resource, pr.authorization_servers], ['https://work.acme.com/mcp', ['https://work.acme.com']]);
+  const as = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json();
+  assert.equal(as.registration_endpoint, 'https://work.acme.com/oauth/register');
+  assert.deepEqual(as.code_challenge_methods_supported, ['S256']);
+  assert.ok(as.token_endpoint_auth_methods_supported.includes('none'));
+  // 2. It registers itself.
+  const reg = async (body) => { const r = await fetch(`${base}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+  assert.equal((await reg({ client_name: 'Evil', redirect_uris: ['http://evil.example.com/cb'] })).status, 400, 'plain http only on this computer');
+  assert.equal((await reg({ client_name: 'x', redirect_uris: [] })).status, 400);
+  assert.equal((await reg({ client_name: 'Local tool', redirect_uris: ['http://localhost:33418/callback'] })).status, 201, 'Claude Code and other local tools');
+  const r = await reg({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'], grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: 'none' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const clientId = r.body.client_id;
+  assert.match(clientId, /^mcp-/);
+  const redirect = 'https://claude.ai/api/mcp/auth_callback';
+  // 3. The person is sent to sign in, with PKCE.
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  const authz = (extra) => fetch(`${base}/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: redirect, state: 's1', scope: 'mcp:read mcp:write', resource: 'https://work.acme.com/mcp', ...extra })}`, { redirect: 'manual' });
+  const noPkce = await authz({});
+  assert.match(noPkce.headers.get('location'), /^https:\/\/claude\.ai\/api\/mcp\/auth_callback\?error=invalid_request/);
+  const go = await authz({ code_challenge: challenge, code_challenge_method: 'S256' });
+  assert.match(go.headers.get('location'), /^\/oauth\/consent\?/);
+  const params = Object.fromEntries(new URL(go.headers.get('location'), base).searchParams);
+  const info = (await owner('GET', `/api/oauth/request?${new URLSearchParams(params)}`)).body;
+  assert.deepEqual([info.app, info.assistant, info.granted, info.host], ['Claude', true, false, 'claude.ai']);
+  // 4. Allowed to read only.
+  const ok = (await owner('POST', '/api/oauth/approve', { ...params, access: 'read' })).body;
+  const back = new URL(ok.redirect);
+  assert.equal(back.searchParams.get('state'), 's1');
+  const code = back.searchParams.get('code');
+  const token = async (body) => { const x = await fetch(`${base}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body) }); return { status: x.status, body: await x.json() }; };
+  assert.equal((await token({ grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: clientId, code_verifier: 'wrong' })).status, 400, 'the verifier must match (and the code is now used up)');
+  const again = await authz({ code_challenge: challenge, code_challenge_method: 'S256' });
+  const params2 = Object.fromEntries(new URL(again.headers.get('location'), base).searchParams);
+  const code2 = new URL((await owner('POST', '/api/oauth/approve', { ...params2, access: 'read' })).body.redirect).searchParams.get('code');
+  const t = await token({ grant_type: 'authorization_code', code: code2, redirect_uri: redirect, client_id: clientId, code_verifier: verifier });
+  assert.equal(t.status, 200, JSON.stringify(t.body));
+  assert.match(t.body.access_token, /^nwa_/);
+  assert.ok(t.body.refresh_token, 'assistants stay connected');
+  assert.equal(t.body.id_token, undefined);
+  assert.equal(t.body.scope, 'mcp:read');
+  // 5. The token works at /mcp, read only, and nowhere else.
+  const at = t.body.access_token;
+  assert.ok((await call(at, 'search', { query: 'pelican' })).structuredContent.results.length > 0);
+  const write = await call(at, 'create_note', { title: 'x', text: 'y' });
+  assert.equal(write.isError, true);
+  assert.match(write.content[0].text, /read-only/);
+  const direct = await fetch(`${base}/api/files`, { headers: { authorization: `Bearer ${at}` } });
+  assert.equal(direct.status, 403);
+  assert.match((await direct.json()).error, /MCP server/);
+  // 6. Settings lists it; refresh gives a new pair (the old refresh token is spent).
+  const grants = (await owner('GET', '/api/oauth/grants')).body;
+  const g = grants.find((x) => x.client_id === clientId);
+  assert.deepEqual([g.name, g.assistant, g.access], ['Claude', true, 'read']);
+  const fresh = await token({ grant_type: 'refresh_token', refresh_token: t.body.refresh_token, client_id: clientId });
+  assert.equal(fresh.status, 200);
+  assert.equal((await token({ grant_type: 'refresh_token', refresh_token: t.body.refresh_token, client_id: clientId })).status, 400);
+  // 7. Allowing changes, next time.
+  const p3 = Object.fromEntries(new URL((await authz({ code_challenge: challenge, code_challenge_method: 'S256' })).headers.get('location'), base).searchParams);
+  assert.equal((await owner('GET', `/api/oauth/request?${new URLSearchParams(p3)}`)).body.granted, false, 'asks again to give more');
+  const code3 = new URL((await owner('POST', '/api/oauth/approve', { ...p3, access: 'write' })).body.redirect).searchParams.get('code');
+  const rw2 = (await token({ grant_type: 'authorization_code', code: code3, redirect_uri: redirect, client_id: clientId, code_verifier: verifier })).body.access_token;
+  assert.equal((await call(rw2, 'create_note', { title: 'From claude.ai', text: 'hello' })).isError, false);
+  // 8. Disconnecting stops it at once.
+  await owner('DELETE', `/api/oauth/grants/${clientId}`);
+  const gone = await rpc(rw2, 'tools/list');
+  assert.equal(gone.status, 401);
+  assert.match(gone.headers.get('www-authenticate'), /invalid_token/);
+  // 9. A company that has turned API tokens off doesn't let assistants in.
+  await owner('PATCH', '/api/orgs/current', { allow_api_tokens: false });
+  const p4 = Object.fromEntries(new URL((await authz({ code_challenge: challenge, code_challenge_method: 'S256' })).headers.get('location'), base).searchParams);
+  assert.equal((await owner('GET', `/api/oauth/request?${new URLSearchParams(p4)}`)).status, 403);
+  await owner('PATCH', '/api/orgs/current', { allow_api_tokens: true });
+});
