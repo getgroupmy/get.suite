@@ -3,7 +3,7 @@
 import { q } from './db.js';
 import { rulesOf } from './passwordrules.js';
 import { activeForwarding } from './mail/forwarding.js';
-import { mailEnabled } from './mail/config.js';
+import { mailEnabled, blockProgramsMap } from './mail/config.js';
 import { notify } from './notifications.js';
 import { externalShares } from './routes/externalshares.js';
 
@@ -19,6 +19,7 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 export async function checkup(orgId, at = Date.now(), { mail = mailEnabled(), dns = null } = {}) {
   const items = checkupNow(orgId, at);
   if (mail) {
+    blockProgramsMap(); // (makes its column the first time)
     const lookup = dns || (await import('./routes/mailAdmin.js')).senderRecords;
     for (const d of q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((x) => x.name)) {
       let recs;
@@ -31,6 +32,10 @@ export async function checkup(orgId, at = Date.now(), { mail = mailEnabled(), dn
       const policy = /\bp=(\w+)/i.exec(recs.find((r) => r.name === 'DMARC')?.found?.[0] || '')?.[1]?.toLowerCase();
       if (policy === 'none') items.push({ id: `dmarc-${d}`, status: 'tip', title: `${d}: DMARC only reports forged mail`, detail: 'Its policy is p=none, so receivers still deliver mail forged in your name. Once the reports look right, change it to p=quarantine (or p=reject).', tab: 'email' });
       else items.push({ id: `dns-${d}`, status: 'ok', title: `${d}: SPF, DKIM and DMARC are set up`, detail: '', tab: 'email' });
+    }
+    // Programs by email: refused at the door when the company says so.
+    if (!q('SELECT block_programs FROM orgs WHERE id = ?').get(orgId)?.block_programs) {
+      items.push({ id: 'block-programs', status: 'tip', title: 'Email with programs attached is let in', detail: 'Turn on Refuse email with programs or scripts attached (Company settings): .exe, .js, .iso and the like are a common way in, and there’s rarely a good reason to email them.', tab: 'company', fix: { label: 'Turn it on', settings: { block_programs: true } } });
     }
   }
   const rank = { warn: 0, tip: 1, ok: 2 };

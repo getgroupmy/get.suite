@@ -91,6 +91,14 @@ test('security checkup: the domain’s sender records (SPF, DKIM, DMARC), when e
   answers['acme.com'] = answers['acme.org'];
   const c2 = await checkup(orgId, Date.now(), { mail: true, dns: async (d) => answers[d] });
   assert.deepEqual(c2.filter((x) => x.id.startsWith('dns-')).map((x) => x.status), ['ok', 'ok']);
+  // With email: refusing programs is suggested, with a fix, until it's on.
+  const tip = c2.find((x) => x.id === 'block-programs');
+  assert.equal(tip.status, 'tip');
+  assert.deepEqual(tip.fix.settings, { block_programs: true });
+  q('UPDATE orgs SET block_programs = 1 WHERE id = ?').run(orgId);
+  assert.equal((await checkup(orgId, Date.now(), { mail: true, dns: async (d) => answers[d] })).some((x) => x.id === 'block-programs'), false);
+  assert.equal((await checkup(orgId, Date.now(), { mail: false })).some((x) => x.id === 'block-programs'), false, 'not without email');
+  q('UPDATE orgs SET block_programs = 0 WHERE id = ?').run(orgId);
   // A lookup that fails isn't reported as a problem.
   const c3 = await checkup(orgId, Date.now(), { mail: true, dns: async () => { throw new Error('no network'); } });
   assert.equal(c3.filter((x) => x.id.startsWith('dns-')).length, 0);

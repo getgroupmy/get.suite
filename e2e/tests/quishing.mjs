@@ -121,6 +121,15 @@ await step('Admin → Company settings: refuse email with programs attached (on 
   await box.uncheck();
   await page.getByText('Email with programs attached is accepted again (with a warning)').waitFor();
 });
+await step('Security checkup suggests refusing programs, and its button turns it on', async () => {
+  await page.goto(`${B}/admin?tab=checkup`);
+  const item = page.getByRole('listitem').filter({ hasText: 'Email with programs attached is let in' });
+  await item.waitFor({ timeout: 20000 });
+  await item.getByRole('button', { name: 'Turn it on' }).click();
+  await item.waitFor({ state: 'detached' });
+  if (!(await api(page, 'GET', '/orgs/current')).body.block_programs) throw new Error('not on');
+  await api(page, 'PATCH', '/orgs/current', { block_programs: false });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
