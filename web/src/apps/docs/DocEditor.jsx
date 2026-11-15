@@ -57,7 +57,7 @@ import { measureLines } from './linenumbers.js';
 import { flushSync } from 'react-dom';
 import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookmark.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
-import { emojiQuery, matchEmoji } from '../../components/emojitype.js';
+import { useEditorEmoji } from '../../components/useEditorEmoji.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';
@@ -422,38 +422,9 @@ function SharedDoc({ file, setFile }) {
     if ((e.key === 'Enter' || e.key === ' ') && sel?.node?.type.name === 'dropchip') { e.preventDefault(); openChip(sel.from); return true; }
     return false;
   };
-  // Emoji by typing ":" and a word: the matches under the cursor; the one picked replaces what was typed.
-  const [emojiPop, setEmojiPop] = useState(null); // { from, query, left, top, list, pick }
-  useEffect(() => {
-    if (!editor || readOnly) return undefined;
-    const check = () => {
-      const { state, view } = editor;
-      const sel = state.selection;
-      if (!sel.empty || !sel.$from.parent.isTextblock || sel.$from.parent.type.name === 'codeBlock') { setEmojiPop(null); return; }
-      const before = sel.$from.parent.textBetween(0, sel.$from.parentOffset, undefined, '\ufffc');
-      const m = emojiQuery(before, sel.from);
-      const list = m ? matchEmoji(m.query) : [];
-      if (!list.length) { setEmojiPop(null); return; }
-      const c = view.coordsAtPos(sel.from);
-      setEmojiPop((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
-    };
-    editor.on('selectionUpdate', check);
-    editor.on('update', check);
-    return () => { editor.off('selectionUpdate', check); editor.off('update', check); };
-  }, [editor, readOnly]);
-  const pickEmoji = (em) => {
-    const m = emojiPop;
-    setEmojiPop(null);
-    if (!m) return;
-    editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from }).insertContent(em.char).run();
-  };
-  emojiKeyRef.current = (e) => {
-    if (!emojiPop) return false;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { setEmojiPop({ ...emojiPop, pick: (emojiPop.pick + (e.key === 'ArrowDown' ? 1 : emojiPop.list.length - 1)) % emojiPop.list.length }); return true; }
-    if (e.key === 'Enter' || e.key === 'Tab') { pickEmoji(emojiPop.list[emojiPop.pick]); return true; }
-    if (e.key === 'Escape') { setEmojiPop(null); return true; }
-    return false;
-  };
+  // Emoji by typing ":" and a word (shared with Mail compose).
+  const emojiType = useEditorEmoji(editor, { off: readOnly });
+  emojiKeyRef.current = (e) => emojiType.keys.current(e);
   mentionKeyRef.current = (e) => {
     if (!mention) return false;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { setMention({ ...mention, pick: (mention.pick + (e.key === 'ArrowDown' ? 1 : mention.list.length - 1)) % mention.list.length }); return true; }
@@ -763,15 +734,7 @@ function SharedDoc({ file, setFile }) {
                 editor.view.focus();
                 editor.chain().setTextSelection(Math.min(size, after + (editor.state.doc.textBetween(after, Math.min(after + 1, size)) === ' ' ? 1 : 0))).focus().run();
               }} />}
-            {emojiPop && !mention && (
-              <ul className="mention-list doc-mention-list" role="listbox" aria-label="Emoji" style={{ position: 'fixed', left: emojiPop.left, top: emojiPop.top }}>
-                {emojiPop.list.map((em, i) => (
-                  <li key={em.char} role="option" aria-selected={i === emojiPop.pick} className={i === emojiPop.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickEmoji(em); }}>
-                    <span aria-hidden="true" style={{ width: 20, textAlign: 'center', fontSize: 18 }}>{em.char}</span> {em.name}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {!mention && emojiType.list}
             {mention && (
               <ul className="mention-list doc-mention-list" role="listbox" aria-label="People, dates and files" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
                 {mention.list.map((p, i) => (p.kind === 'block' ? (

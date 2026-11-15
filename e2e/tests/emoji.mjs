@@ -104,6 +104,20 @@ await step('emoji arrive in the sent message', async () => {
   await page.frameLocator('iframe.mail-html').getByText('Hello 👍! there🥑').waitFor();
 });
 
+await step('compose: typing ":" and a word offers emoji; Enter puts it in and the message carries on', async () => {
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await body().click();
+  await page.keyboard.type('Thanks :thu');
+  const list = page.getByRole('listbox', { name: 'Emoji' });
+  await list.getByRole('option', { name: 'thumbs up' }).waitFor();
+  await page.screenshot({ path: `${SP}/shots/emoji-compose-typing.png` });
+  await page.keyboard.press('Enter');
+  await page.keyboard.type(' see you at 10:30');
+  if (await list.count()) throw new Error('list stayed, or offered for a time');
+  const t = (await body().innerText()).trim();
+  if (!t.startsWith('Thanks 👍 see you at 10:30')) throw new Error(JSON.stringify(t));
+  await page.getByRole('button', { name: /Discard|Close/ }).first().click().catch(() => {});
+});
 await step('chat: insert where the cursor is', async () => {
   await page.goto(B + '/chat');
   const box = page.getByLabel('Message', { exact: true });

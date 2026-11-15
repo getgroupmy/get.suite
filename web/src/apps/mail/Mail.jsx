@@ -13,6 +13,7 @@ import { api, get, post, put, del, postBlob, onLive, refreshOn, uploadFile, form
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
+import { useEditorEmoji } from '../../components/useEditorEmoji.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast, withDataCheck } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
@@ -2104,6 +2105,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
     return true;
   }
 
+  const emojiKeys = useRef(null); // the :emoji list's keys, while it's open
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https' } }),
@@ -2124,6 +2126,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
     editorProps: {
       attributes: { class: 'tiptap', 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
       handleKeyDown: (view, event) => {
+        if (emojiKeys.current?.(event)) return true;
         if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') { event.preventDefault(); linkOpen.current(); return true; }
         return false;
       },
@@ -2182,6 +2185,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
     ed.commands.setNodeSelection(pos);
     ed.commands.focus();
   }
+  const emojiType = useEditorEmoji(editor); // ":" and a word offers emoji (as in Docs)
+  emojiKeys.current = (e) => emojiType.keys.current(e);
   if (!editor) return null;
   const c = () => editor.chain().focus();
   // Link dialog: for the link the cursor is in (whole link), or for the selected text.
@@ -2297,6 +2302,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       </div>
       {voice && voiceOk && <VoiceTypingBar editor={editor} onClose={() => { setVoice(false); refocus(); }} />}
       <EditorContent editor={editor} />
+      {emojiType.list && createPortal(emojiType.list, document.body)}
       {/* Outside the Compose form, so the editor's buttons never submit (send) the message. */}
       {linking && createPortal(<LinkDialog initial={linking} onApply={applyLink} onRemove={linking.href ? removeLink : null}
         onClose={() => { setLinking(null); editor.commands.focus(); }} />, document.body)}
