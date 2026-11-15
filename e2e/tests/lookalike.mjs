@@ -157,6 +157,22 @@ await step('the message list marks lookalike senders with ⚠ before opening', a
   if (await row('Monthly statement').getByRole('img', { name: /Warning/ }).count()) throw new Error('marked the real one');
   await axe(page, 'list with lookalike marks');
 });
+await step('inviting a guest on a lookalike domain to an event: marked, with a warning', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Create' }).click();
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  await dlg.getByLabel('Title').fill('Payment review');
+  await dlg.getByRole('combobox', { name: 'Guests' }).fill('ceo@acrne.com');
+  await dlg.getByRole('combobox', { name: 'Guests' }).press('Enter');
+  await dlg.getByRole('combobox', { name: 'Guests' }).fill('pat@unrelated-shop.example');
+  await dlg.getByRole('combobox', { name: 'Guests' }).press('Enter');
+  await dlg.getByRole('alert').getByText(/acrne\.com looks like acme\.com, but it isn’t/).waitFor();
+  const chips = dlg.getByRole('list', { name: 'Invited guests' });
+  await chips.locator('li', { hasText: 'ceo@acrne.com' }).getByText('⚠ lookalike').waitFor();
+  if (await chips.locator('li', { hasText: 'pat@unrelated-shop.example' }).getByText('⚠ lookalike').count()) throw new Error('marked an ordinary address');
+  await axe(page, 'event lookalike guest');
+  await page.keyboard.press('Escape');
+});
 await step('at phone width: the grouped warnings and the lookalike line in a new message fit, nothing scrolls sideways', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
   try {

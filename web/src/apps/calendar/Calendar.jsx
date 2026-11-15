@@ -1542,6 +1542,15 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   const [guestInput, setGuestInput] = useState('');
   const [directory, setDirectory] = useState([]);
   const [dirReady, setDirReady] = useState(false); // until it's loaded, nobody is marked as outside ("by email")
+  // Guests on a domain made to look like the company's or one you deal with (as Mail checks recipients): marked, with a warning.
+  const [likes, setLikes] = useState({}); // email → domain it imitates
+  useEffect(() => {
+    if (!guests.length) { setLikes({}); return undefined; }
+    let live = true;
+    const t = setTimeout(() => get(`/mail/external?to=${encodeURIComponent(guests.join(','))}`)
+      .then((r) => { if (live) setLikes(Object.fromEntries((r.outside || []).filter((o) => o.like).map((o) => [o.email, o.like.domain]))); }).catch(() => {}), 400);
+    return () => { live = false; clearTimeout(t); };
+  }, [guests]);
   useEffect(() => { get('/users/directory').then((l) => { setDirectory(l); setDirReady(true); }).catch(() => {}); }, []);
   const [groups, setGroups] = useState([]);
   useEffect(() => { get('/groups').then(setGroups).catch(() => {}); }, []);
@@ -1682,11 +1691,18 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                 const outside = known ? known.external : dirReady && !directory.some((d) => d.username === g);
                 return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || (event.guests || []).find((x) => x.email === g)?.name || g}
                   {outside && <span className="muted small" title="Invited by email: they answer on a web page"> · by email</span>}
+                  {likes[g] && <span className="guest-like small" title={`${g.split('@')[1]} looks like ${likes[g]}, but it isn’t`}> ⚠ lookalike</span>}
                   {known && <span className="muted small"> · {ANSWER_LABELS[known.status]}{known.status !== 'no' && known.join_how ? `, ${JOIN_LABELS[known.join_how]}` : ''}</span>}
                   {known?.answer_note && <span className="small guest-note" title="Their note with the answer"> “{known.answer_note}”</span>}
                   <button type="button" className="icon-btn" aria-label={`Remove ${g}`} onClick={() => setGuests(guests.filter((x) => x !== g))}>×</button></li>;
               })}
             </ul>
+          )}
+          {Object.keys(likes).length > 0 && (
+            <p className="compose-lookalike small" role="alert" style={{ margin: 0 }}>
+              <span aria-hidden="true">⚠</span>
+              <span>{Object.entries(likes).map(([e, d]) => <span key={e}><strong>{e.split('@')[1]}</strong> looks like <strong>{d}</strong>, but it isn’t. </span>)}Check the address: the invitation, and the event’s details, would go to whoever owns it.</span>
+            </p>
           )}
           {!event.rrule && (event.guests || []).filter((g) => g.proposed_start).map((g) => (
             <p key={g.email} className="proposal small" style={{ margin: 0 }}>
