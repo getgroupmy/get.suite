@@ -1582,6 +1582,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .footnote-print { display: none; }
 @media print { .paper .footnotes { border-color: #999; } .footnote-input { display: none; } .footnote-print { display: inline; } .paper .tiptap sup.footnote-ref { color: inherit; } }
 .reader-head .unsub { margin-left: 8px; }
+.reader-head .first-contact { margin-left: 8px; color: var(--muted); cursor: help; }
 .reader-head .sender-unverified { margin-left: 8px; color: var(--danger); white-space: nowrap; cursor: help; }
 /* Contacts: merging duplicates */
 .dup-group { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin: 0; display: grid; gap: 4px; }

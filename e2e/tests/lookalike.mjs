@@ -94,6 +94,23 @@ await step('replies that would go to another site than the email came from are p
   await open('Monthly statement');
   if (await page.locator('.mail-reader').getByText(/replies to this email go to/).count()) throw new Error('warned without a Reply-To');
 });
+await step('“You don’t often get email from …” for an outside address seen for the first time; not once known', async () => {
+  for (const [f, s] of [['"New Supplier" <sales@first-time.example>', 'First contact'], ['"Regular" <news@regular.example>', 'Regular one'], ['"Regular" <news@regular.example>', 'Regular two'],
+    ['"Kim" <kim@acme.com>', 'From a colleague'], ['"Contact" <pat@known-contact.example>', 'From a contact']]) {
+    const st = await put(f, s);
+    if (st >= 300) throw new Error(`upload ${st}`);
+  }
+  await api(page, 'POST', '/contacts', { name: 'Pat Known', email: 'pat@known-contact.example' });
+  const note = () => page.locator('.mail-reader .first-contact');
+  await open('First contact');
+  await note().getByText('You don’t often get email from sales@first-time.example').waitFor();
+  await axe(page, 'first contact note');
+  for (const s of ['Regular two', 'From a colleague', 'From a contact']) {
+    await open(s);
+    await page.waitForTimeout(500);
+    if (await note().count()) throw new Error(`note on: ${s}`);
+  }
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -37,3 +37,12 @@ test('replyToWarning: replies that would go to another site than the email came 
   assert.equal(w('kim@partner.example', ['pat@partner.example', 'sam@client.example']), null, 'someone you deal with (a contact)');
   assert.deepEqual(w('ana@acme.com', ['ana.acme@freemail.example']), { from: 'ana@acme.com', reply_to: 'ana.acme@freemail.example' }, 'a colleague’s name with replies outside');
 });
+
+test('isFirstContact: never for colleagues, people written to or contacts, or when the mailbox can’t be asked', async () => {
+  const { isFirstContact } = await import('../src/mail/firstcontact.js');
+  assert.equal(await isFirstContact(me, 'kim@acme.com'), false, 'a colleague');
+  assert.equal(await isFirstContact(me, 'PAT@partner.example'), false, 'written to');
+  assert.equal(await isFirstContact(me, 'sam@client.example'), false, 'a contact');
+  assert.equal(await isFirstContact(me, 'not an address'), false);
+  assert.equal(await isFirstContact(me, 'new@stranger.example'), false, 'no mail server here: says nothing rather than guess');
+});

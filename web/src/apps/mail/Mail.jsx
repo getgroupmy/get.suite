@@ -1032,6 +1032,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         <Avatar name={who(m.from)} size={40} email={m.from?.address} />
         <div className="grow">
           <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>} {m.from?.address && <SenderContact from={m.from} />}
+            {m.first_contact && <span className="first-contact small" title="You’ve never had email from this address, written to it or kept it as a contact. That’s normal for someone new, and it’s also how impersonation usually starts: check unexpected requests for money, passwords or new bank details another way.">ⓘ You don’t often get email from {m.from.address}</span>}
             {m.sender_check === 'unverified' && <span className="sender-unverified small" title="Its domain didn’t vouch for it: no SPF or DKIM check passed for it when it arrived. Mail from mailing lists and some services looks like this too.">? Couldn’t verify it came from {m.from.address.split('@')[1]}</span>}
             {m.unsubscribe && (m.unsubscribe.how === 'link'
               ? <a className="link-btn small unsub" href={m.unsubscribe.url} target="_blank" rel="noopener noreferrer nofollow" title="Opens the list's own page to unsubscribe">Unsubscribe</a>

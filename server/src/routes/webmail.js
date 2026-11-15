@@ -1,6 +1,7 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
 import { checkLinks } from '../mail/linkcheck.js';
 import { senderVerdict } from '../mail/senderauth.js';
+import { isFirstContact } from '../mail/firstcontact.js';
 import { proxyImages, checkImageSig, imageFor, overLimit } from '../mail/imageproxy.js';
 import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
@@ -1164,6 +1165,8 @@ export default function webmailRoutes() {
       outside: incomingWarning(req.user, addrList(p.from)[0]),
       // From an address that isn't on one of the company's domains (Mail looks for QR codes in its pictures).
       from_outside: (() => { const d = String(addrList(p.from)[0]?.address || '').toLowerCase().split('@')[1]; return !!d && !q('SELECT 1 FROM domains WHERE org_id = ? AND name = ?').get(req.user.org_id, d); })(),
+      // From an outside address this person has never had mail from, written to or kept as a contact (firstcontact.js).
+      first_contact: await isFirstContact(req.user, addrList(p.from)[0]?.address, { folder, uid: req.params.uid }),
       // Whether this server's spam filter could confirm it comes from its From domain (senderauth.js).
       sender_check: senderVerdict(p.headerLines, addrList(p.from)[0]?.address, q('SELECT name FROM domains WHERE org_id = ?').all(req.user.org_id).map((d) => d.name.toLowerCase())),
       // Replies would go to another site than the email came from (Reply-To), unless it's a mailing list.
