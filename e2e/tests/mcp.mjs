@@ -113,6 +113,29 @@ await step('claude.ai-style sign-in: the consent page offers read only or read a
   const after = await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tok.access_token}` }, body: '{"jsonrpc":"2.0","id":1,"method":"ping"}' });
   if (after.status !== 401) throw new Error(`still works: ${after.status}`);
 });
+await step('an assistant signed in with read and add: what it changes is in the activity log under its own name', async () => {
+  const crypto = await import('node:crypto');
+  const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'ChatGPT', redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'] }) })).json();
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  let landed = null;
+  const catcher = async (route) => { landed = route.request().url(); await route.fulfill({ status: 200, contentType: 'text/html', body: 'back' }); };
+  await page.route('https://chatgpt.com/**', catcher);
+  await page.goto(`${B}/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id: reg.client_id, redirect_uri: 'https://chatgpt.com/connector_platform_oauth_redirect', state: 's1', code_challenge: challenge, code_challenge_method: 'S256', scope: 'mcp:read mcp:write' })}`);
+  await page.getByRole('radio', { name: /^Read, and add/ }).check();
+  await page.getByLabel('Your Workspace password').fill('password123');
+  await page.getByRole('button', { name: 'Allow' }).click();
+  await until(() => landed);
+  await page.unroute('https://chatgpt.com/**', catcher);
+  await page.goto(`${B}/settings`);
+  const code = new URL(landed).searchParams.get('code');
+  const tok = await (await fetch(`${B}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: 'https://chatgpt.com/connector_platform_oauth_redirect', client_id: reg.client_id, code_verifier: verifier }) })).json();
+  const r = await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tok.access_token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_task', arguments: { title: 'Renew the domain' } } }) })).json();
+  if (r.result?.isError) throw new Error(JSON.stringify(r));
+  const log = await api(page, 'GET', '/audit?action=assistant.action');
+  if (!/"assistant":"ChatGPT"/.test(JSON.stringify(log.body)) || !/Renew the domain/.test(JSON.stringify(log.body))) throw new Error(JSON.stringify(log.body).slice(0, 400));
+  await page.goto(`${B}/settings`); // back from the stand-in for chatgpt.com
+});
 await step('on a phone the command wraps and nothing slides sideways', async () => {
   await page.setViewportSize({ width: 375, height: 760 });
   await page.reload();
