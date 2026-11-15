@@ -32,11 +32,25 @@ export const TEMPLATES = {
   invoice: { name: 'Overdue invoice', from: 'Accounts Receivable', subject: 'Overdue invoice INV-20931: payment needed today',
     text: (link) => `Dear customer,\n\nOur records show invoice INV-20931 (RM 4,860.00) is 30 days overdue. Please review and pay it today to avoid a late fee:\n\n${link}\n\nAccounts Receivable` },
 };
+/**
+ * An admin's own practice email: { from (the made-up name), subject, text with {link} where the link goes }.
+ * Plain text only; the link is added at the end when {link} is missing.
+ */
+export function customTemplate(c) {
+  const from = String(c?.from || '').replace(/[<>"\r\n]/g, '').trim().slice(0, 60);
+  const subject = String(c?.subject || '').replace(/[\r\n]/g, ' ').trim().slice(0, 200);
+  const body = String(c?.text || '').replace(/\r/g, '').trim().slice(0, 5000);
+  if (!from) throw bad('Give the name it pretends to be from');
+  if (!subject) throw bad('Give it a subject');
+  if (!body) throw bad('Write the email');
+  return { name: `Custom: ${subject.slice(0, 60)}`, from, subject, text: (link) => (body.includes('{link}') ? body.split('{link}').join(link) : `${body}\n\n${link}`) };
+}
+
 const MID = /^<?practice\.([A-Za-z0-9_-]{20,})@workspace>?$/;
 
 /** Send a practice email to these people (in the admin's company). → { id, sent, failed } */
-export async function sendPractice(admin, { template, userIds, base }, { send = null } = {}) {
-  const t = TEMPLATES[template];
+export async function sendPractice(admin, { template, userIds, base, custom = null }, { send = null } = {}) {
+  const t = template === 'custom' ? customTemplate(custom) : TEMPLATES[template];
   if (!t) throw bad('Choose which practice email to send');
   const people = q(`SELECT id, username, name FROM users WHERE org_id = ? AND disabled = 0 AND id IN (SELECT value FROM json_each(?))`).all(admin.org_id, JSON.stringify(userIds || []));
   if (!people.length) throw bad('Choose who gets it');
@@ -79,7 +93,7 @@ export function practiceReported(user, messageId) {
 export function practiceFor(orgId) {
   return q('SELECT p.*, u.name AS sent_by_name FROM phish_practice p LEFT JOIN users u ON u.id = p.sent_by WHERE p.org_id = ? ORDER BY p.created_at DESC LIMIT 50').all(orgId).map((p) => {
     const people = q('SELECT pp.user_id, pp.sent_at, pp.clicked_at, pp.reported_at, pp.error, u.name, u.username FROM phish_practice_people pp JOIN users u ON u.id = pp.user_id WHERE pp.practice_id = ? ORDER BY u.name').all(p.id);
-    return { id: p.id, template: p.template, name: TEMPLATES[p.template]?.name || p.template, subject: p.subject, created_at: p.created_at, sent_by: p.sent_by_name,
+    return { id: p.id, template: p.template, name: TEMPLATES[p.template]?.name || (p.template === 'custom' ? `Custom: ${p.subject.slice(0, 60)}` : p.template), subject: p.subject, created_at: p.created_at, sent_by: p.sent_by_name,
       sent: people.filter((x) => x.sent_at).length, clicked: people.filter((x) => x.clicked_at).length, reported: people.filter((x) => x.reported_at).length,
       people: people.map((x) => ({ id: x.user_id, name: x.name, email: x.username, sent: !!x.sent_at, error: x.error, clicked_at: x.clicked_at, reported_at: x.reported_at })) };
   });

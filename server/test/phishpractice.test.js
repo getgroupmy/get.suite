@@ -47,3 +47,17 @@ test('a failed send is noted; unknown templates and nobody chosen are refused; t
   assert.match(practicePage({ name: '<b>Kim</b>' }), /&lt;b&gt;Kim&lt;\/b&gt;/);
   assert.match(practicePage(null), /This was a practice phishing email/);
 });
+
+test('an admin’s own practice email: name, subject and text with {link}; checked', async () => {
+  const sent = [];
+  const r = await sendPractice(ana, { template: 'custom', userIds: ['k'], base: 'https://ws', custom: { from: 'DHL Express <x>', subject: 'Parcel held at customs', text: 'Pay RM 3.50 to release it: {link}\nThanks' } }, { send: async (m) => sent.push(m) });
+  assert.equal(r.sent, 1);
+  assert.deepEqual(sent[0].from, { name: 'DHL Express x', address: 'ana@acme.com' }, 'no address tricks in the name');
+  assert.match(sent[0].text, /^Pay RM 3\.50 to release it: https:\/\/ws\/practice\/[\w-]+\nThanks$/);
+  assert.equal(practiceFor('o1')[0].name, 'Custom: Parcel held at customs');
+  const s2 = [];
+  await sendPractice(ana, { template: 'custom', userIds: ['k'], base: 'https://ws', custom: { from: 'HR', subject: 'Bonus', text: 'See your bonus' } }, { send: async (m) => s2.push(m) });
+  assert.match(s2[0].text, /^See your bonus\n\nhttps:\/\/ws\/practice\//, 'link added when {link} is missing');
+  await assert.rejects(sendPractice(ana, { template: 'custom', userIds: ['k'], base: 'x', custom: { subject: 'x', text: 'y' } }), /pretends to be from/);
+  await assert.rejects(sendPractice(ana, { template: 'custom', userIds: ['k'], base: 'x', custom: { from: 'x', text: 'y' } }), /subject/);
+});

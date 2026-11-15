@@ -247,8 +247,8 @@ export default function orgRoutes() {
   r.get('/current/phish-practice', requireAdmin, (req, res) => res.json({ templates: Object.entries(TEMPLATES).map(([id, t]) => ({ id, name: t.name, from: t.from, subject: t.subject })), rounds: practiceFor(req.user.org_id) }));
   r.post('/current/phish-practice', requireAdmin, async (req, res) => {
     const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    const out = await sendPractice(req.user, { template: req.body?.template, userIds: req.body?.user_ids, base });
-    audit(req, 'phishing.practice', { target: TEMPLATES[req.body?.template]?.name || null, details: { sent: out.sent, failed: out.failed } });
+    const out = await sendPractice(req.user, { template: req.body?.template, userIds: req.body?.user_ids, base, custom: req.body?.custom });
+    audit(req, 'phishing.practice', { target: TEMPLATES[req.body?.template]?.name || (req.body?.template === 'custom' ? `Custom: ${String(req.body?.custom?.subject || '').slice(0, 60)}` : null), details: { sent: out.sent, failed: out.failed } });
     res.status(201).json(out);
   });
   r.post('/current/phishing/handled', requireAdmin, (req, res) => {

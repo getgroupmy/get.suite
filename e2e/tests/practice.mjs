@@ -117,6 +117,24 @@ await step('Security checkup names who clicked the latest practice email without
   await item.getByRole('button', { name: 'Go to Phishing' }).click();
   await page.getByRole('region', { name: 'Practice emails' }).waitFor();
 });
+await step('write your own practice email: Kim gets it as written, with the link where {link} was', async () => {
+  await page.goto(`${B}/admin?tab=phishing`);
+  const card = page.getByRole('region', { name: 'Practice emails' });
+  await card.getByLabel('Practice email').selectOption('custom');
+  await card.getByLabel('Pretends to be from').fill('DHL Express');
+  await card.getByLabel('Subject').fill('Your parcel is held at customs');
+  await card.getByLabel('Text').fill('A fee of RM 3.50 is due. Pay here: {link}\nDHL');
+  await card.getByRole('checkbox', { name: /Kim Park/ }).check();
+  await axe(page, 'custom practice email');
+  await card.getByRole('button', { name: 'Send to 1 person' }).click();
+  await page.getByText('Practice email sent to 1 person').waitFor();
+  await card.getByRole('table', { name: 'Practice rounds' }).getByText('Custom: Your parcel is held at customs').waitFor();
+  await kim.goto(`${B}/mail/INBOX`);
+  await refreshUntil(kim, kim.locator('.mail-list').getByText('Your parcel is held at customs'));
+  await kim.locator('.mail-list').getByText('Your parcel is held at customs').click();
+  await kim.locator('.mail-reader').getByText('DHL Express', { exact: true }).waitFor();
+  await kim.locator('.mail-reader').getByText(/A fee of RM 3\.50 is due\. Pay here: https?:\/\/\S+\/practice\//).waitFor();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

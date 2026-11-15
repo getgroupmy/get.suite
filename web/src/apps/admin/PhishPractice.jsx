@@ -12,6 +12,7 @@ export default function PhishPractice() {
   const [chosen, setChosen] = useState(new Set());
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null); // the round whose people are shown
+  const [custom, setCustom] = useState({ from: '', subject: '', text: 'Hello,\n\n…\n\n{link}' });
   const load = () => get('/orgs/current/phish-practice').then(setData).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); get('/users/directory').then((d) => setPeople(d.filter((p) => !p.external))).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!data) return null;
@@ -20,7 +21,7 @@ export default function PhishPractice() {
   const send = async () => {
     setBusy(true);
     try {
-      const r = await post('/orgs/current/phish-practice', { template, user_ids: [...chosen] });
+      const r = await post('/orgs/current/phish-practice', { template, user_ids: [...chosen], ...(template === 'custom' && { custom }) });
       toast(`Practice email sent to ${r.sent} ${r.sent === 1 ? 'person' : 'people'}${r.failed ? ` (${r.failed} couldn’t be sent)` : ''}`);
       setChosen(new Set()); load();
     } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
@@ -34,14 +35,23 @@ export default function PhishPractice() {
       <label className="field" style={{ maxWidth: 360 }}><span>Practice email</span>
         <select value={template} onChange={(e) => setTemplate(e.target.value)} aria-label="Practice email">
           {data.templates.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          <option value="custom">Write your own…</option>
         </select></label>
       {t && <p className="small" style={{ margin: 0 }}>From <strong>{t.from}</strong>: “{t.subject}”</p>}
+      {template === 'custom' && (
+        <div className="stack-tight">
+          <label className="field" style={{ maxWidth: 360 }}><span>Pretends to be from</span><input value={custom.from} maxLength={60} placeholder="e.g. DHL Express" onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></label>
+          <label className="field"><span>Subject</span><input value={custom.subject} maxLength={200} placeholder="e.g. Your parcel is held at customs" onChange={(e) => setCustom({ ...custom, subject: e.target.value })} /></label>
+          <label className="field"><span>Text</span><textarea rows={6} value={custom.text} maxLength={5000} onChange={(e) => setCustom({ ...custom, text: e.target.value })} /></label>
+          <p className="muted small" style={{ margin: 0 }}><code>{'{link}'}</code> is where the practice link goes (at the end if it’s left out). Imitate what your company really gets: a supplier, a courier, the payroll system.</p>
+        </div>
+      )}
       <fieldset className="practice-people">
         <legend>Who gets it</legend>
         <label className="check"><input type="checkbox" checked={people.length > 0 && chosen.size === people.length} onChange={(e) => setChosen(e.target.checked ? new Set(people.map((p) => p.id)) : new Set())} /> Everyone ({people.length})</label>
         <div className="practice-list">{people.map((p) => <label key={p.id} className="check"><input type="checkbox" checked={chosen.has(p.id)} onChange={() => toggle(p.id)} /> {p.name} <span className="muted small">{p.username}</span></label>)}</div>
       </fieldset>
-      <div className="row"><button type="button" className="btn primary" disabled={busy || !chosen.size} onClick={send}>{busy ? 'Sending…' : `Send to ${chosen.size || 'no'} ${chosen.size === 1 ? 'person' : 'people'}`}</button></div>
+      <div className="row"><button type="button" className="btn primary" disabled={busy || !chosen.size || (template === 'custom' && !(custom.from.trim() && custom.subject.trim() && custom.text.trim()))} onClick={send}>{busy ? 'Sending…' : `Send to ${chosen.size || 'no'} ${chosen.size === 1 ? 'person' : 'people'}`}</button></div>
       {data.rounds.length > 0 && (
         <table className="files" aria-label="Practice rounds">
           <thead><tr><th scope="col">Sent</th><th scope="col">Email</th><th scope="col">To</th><th scope="col">Clicked</th><th scope="col">Reported</th><th /></tr></thead>
