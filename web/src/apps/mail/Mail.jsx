@@ -1,4 +1,6 @@
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
+import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
+import { mailSentences } from './readmail.js';
 import ShareInChat from './ShareInChat.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -857,6 +859,8 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   const [viewing, setViewing] = useState(null); // the index of the attachment open in the viewer
   const [risky, setRisky] = useState(null); // an attachment that may be harmful, asked about before downloading
   const [original, setOriginal] = useState(false); // Show original (before the early return below: hooks always in the same order)
+  const [readingMail, setReadingMail] = useState(null); // Read aloud is on (a key)
+  useEffect(() => { setReadingMail(null); }, [uid, folder]); // another message: stop
   const [sharing, setSharing] = useState(false); // Share in Chat
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
@@ -908,6 +912,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         <button className="icon-btn" aria-label="Mark unread" title="Mark unread" onClick={() => done('flags', { seen: false })}><Icon name="markunread" /></button>
         <button className="icon-btn" aria-label="Print" title="Print (or save as PDF)" onClick={() => printMessage(m, { images })}><Icon name="print" /></button>
         <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="More for this message" title="More" {...p}><Icon name="more" /></button>} items={[
+          ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => setReadingMail(Date.now()) }] : []),
           { label: 'Show original', icon: 'search', onClick: () => setOriginal(true) },
           { label: 'Download message (.eml)', icon: 'download', onClick: () => { window.location.href = `/api/mail/messages/${uid}/eml?folder=${enc(folder)}${mailboxParam()}`; } },
           ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
@@ -1006,6 +1011,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           }} />
       )}
       <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} />
+      {readingMail && <ReadAloudBar key={`${uid}-${readingMail}`} label="Read aloud" showText sentences={mailSentences({ subject: m.subject, from: m.from, text: m.trimmed?.text ?? m.text })} onClose={() => setReadingMail(null)} />}
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} email={m.from?.address} />
         <div className="grow">

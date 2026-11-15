@@ -1,8 +1,8 @@
-// The Read aloud bar above a document (⋮ → Read aloud, or Ctrl+Alt+R): reads from the cursor on, a sentence
-// at a time, highlighting each; pause, go on, stop, and choose the speed and the voice (kept in this browser).
+// The Read aloud bar (Docs: ⋮ → Read aloud or Ctrl+Alt+R; Mail: a message's ⋮ → Read aloud): reads a list of
+// sentences a sentence at a time, telling its owner which one is being read (Docs highlights it); pause, go
+// on, skip, stop, and choose the speed and the voice (kept in this browser).
 import { useEffect, useRef, useState } from 'react';
-import { readKey, sentencesFrom, SPEEDS } from './readaloud.js';
-import { revealTabAt } from './doctabsext.js';
+import { SPEEDS } from '../apps/docs/readaloud.js';
 
 const PREF = 'nw-read-aloud';
 const loadPref = () => { try { return JSON.parse(localStorage.getItem(PREF) || '{}'); } catch { return {}; } };
@@ -10,13 +10,13 @@ const savePref = (p) => { try { localStorage.setItem(PREF, JSON.stringify(p)); }
 
 export const canReadAloud = () => typeof window !== 'undefined' && 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
 
-export function ReadAloudBar({ editor, onClose }) {
+export function ReadAloudBar({ sentences, onSentence = () => {}, onClose, label = 'Read aloud', showText = false }) {
   const synth = window.speechSynthesis;
   const [pref, setPref] = useState(loadPref);
   const [voices, setVoices] = useState(() => synth.getVoices());
   const [state, setState] = useState('reading'); // reading | paused | done
   const [at, setAt] = useState(0);
-  const list = useRef(sentencesFrom(editor.state.doc, editor.state.selection.empty ? editor.state.selection.from : editor.state.selection.from));
+  const list = useRef(sentences);
   const run = useRef(0); // which reading the callbacks belong to (a new one starts on each speed or voice change)
 
   useEffect(() => {
@@ -25,13 +25,7 @@ export function ReadAloudBar({ editor, onClose }) {
     return () => synth.removeEventListener?.('voiceschanged', f);
   }, [synth]);
 
-  const highlight = (s) => {
-    editor.view.dispatch(editor.state.tr.setMeta(readKey, s ? { from: s.from, to: s.to } : null));
-    if (s) {
-      revealTabAt(editor, s.from);
-      try { editor.view.domAtPos(s.from).node?.parentElement?.scrollIntoView?.({ block: 'nearest' }); } catch { /* not shown */ }
-    }
-  };
+  const highlight = (s) => onSentence(s || null);
   const speakFrom = (i) => {
     const me = ++run.current;
     synth.cancel();
@@ -49,7 +43,7 @@ export function ReadAloudBar({ editor, onClose }) {
   // Start, and stop everything when the bar closes.
   useEffect(() => {
     if (!list.current.length) setState('done'); else speakFrom(0);
-    return () => { run.current++; synth.cancel(); editor.view.dispatch(editor.state.tr.setMeta(readKey, null)); };
+    return () => { run.current++; synth.cancel(); onSentence(null); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const change = (p) => { const next = { ...pref, ...p }; setPref(next); savePref(next); };
@@ -66,7 +60,7 @@ export function ReadAloudBar({ editor, onClose }) {
   const total = list.current.length;
 
   return (
-    <div className="find-bar read-aloud-bar" role="region" aria-label="Read aloud" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); stop(); } }}>
+    <div className="find-bar read-aloud-bar" role="region" aria-label={label} onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); stop(); } }}>
       <span className="small" aria-live="polite">{state === 'done' ? (total ? 'Finished reading' : 'Nothing to read from here') : `Reading aloud: sentence ${at + 1} of ${total}`}</span>
       {state === 'reading' && <button type="button" className="btn small" onClick={pause} autoFocus>⏸ Pause</button>}
       {state === 'paused' && <button type="button" className="btn small primary" onClick={resume} autoFocus>▶ Go on</button>}
@@ -85,6 +79,7 @@ export function ReadAloudBar({ editor, onClose }) {
           </select></label>
       )}
       <button type="button" className="btn small" onClick={stop}>Stop</button>
+      {showText && state !== 'done' && list.current[at] && <q className="reading-text small">{list.current[at].text}</q>}
     </div>
   );
 }

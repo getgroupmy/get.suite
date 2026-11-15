@@ -147,3 +147,4 @@ imageproxy.mjs
 msimport.mjs
 googleimport.mjs
 linkwarn.mjs
+readmail.mjs

@@ -27,8 +27,9 @@ import AltTextDialog from '../../components/AltTextDialog.jsx';
 import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace } from './findReplace.js';
-import { ReadAloud } from './readaloud.js';
-import { ReadAloudBar, canReadAloud } from './ReadAloudBar.jsx';
+import { ReadAloud, readKey, sentencesFrom } from './readaloud.js';
+import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
+import { revealTabAt } from './doctabsext.js';
 import { WordCountDialog, WordCounter, counterOn } from './WordCount.jsx';
 import { Autocorrect } from './autocorrect.js';
 import { sortTransaction } from './sortlines.js';
@@ -496,7 +497,9 @@ function SharedDoc({ file, setFile }) {
   const [active, setActive] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
   const [finding, setFinding] = useState(null); // { replace, n }
-  const [reading, setReading] = useState(null); // Read aloud is on (a key, so starting again restarts it)
+  const [reading, setReading] = useState(null); // Read aloud: { key, list } (the sentences from the cursor when it started)
+  const startReadingRef = useRef(() => {}); // for the keyboard shortcut, which is set up once
+  startReadingRef.current = () => { if (editor) setReading((n) => (n ? null : { key: Date.now(), list: sentencesFrom(editor.state.doc, editor.state.selection.from) })); };
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   const [wordCount, setWordCount] = useState(false);
   const [liveCount, setLiveCount] = useState(counterOn);
@@ -513,7 +516,7 @@ function SharedDoc({ file, setFile }) {
       const k = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyR' && canReadAloud()) { // Read aloud
         e.preventDefault();
-        setReading((n) => (n ? null : Date.now()));
+        startReadingRef.current();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && k === 'c') { // Word count, as in Google Docs
@@ -646,7 +649,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
-          ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => setReading((n) => (n ? null : Date.now())) }] : []),
+          ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => startReadingRef.current() }] : []),
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
@@ -669,7 +672,14 @@ function SharedDoc({ file, setFile }) {
       <style>{printCss(file.page_setup)}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
-      {reading && <ReadAloudBar key={reading} editor={editor} onClose={() => { setReading(null); editor.view.focus(); }} />}
+      {reading && <ReadAloudBar key={reading.key} sentences={reading.list} onClose={() => { setReading(null); editor.view.focus(); }}
+        onSentence={(s) => {
+          // The sentence being read, highlighted and kept in view.
+          editor.view.dispatch(editor.state.tr.setMeta(readKey, s ? { from: s.from, to: s.to } : null));
+          if (!s) return;
+          revealTabAt(editor, s.from);
+          try { editor.view.domAtPos(s.from).node?.parentElement?.scrollIntoView?.({ block: 'nearest' }); } catch { /* not shown */ }
+        }} />}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
         {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setTabsPanel(false)} />}

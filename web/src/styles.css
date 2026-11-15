@@ -1065,6 +1065,8 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .read-aloud-bar > span:first-child { min-width: 14em; }
 .read-aloud-bar label.row { gap: 6px; align-items: center; }
 .read-aloud-bar select { font: inherit; }
+.read-aloud-bar .reading-text { flex: 1 1 100%; color: var(--muted); }
+.mail-reader .read-aloud-bar { margin: 0 0 12px; }
 @media print { .read-aloud-bar { display: none; } .paper .reading-now { background: none; box-shadow: none; color: inherit; } }
 /* the same, when Dark is chosen in Settings */
 :root[data-theme="dark"] .paper .find-match { background: #7a5c0080; }:root[data-theme="dark"] .paper .find-match.current { background: #f9ab00; color: #1f1f1f; }
