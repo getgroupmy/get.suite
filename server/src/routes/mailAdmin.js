@@ -8,7 +8,7 @@ import { validDomain } from '../tenancy.js';
 import { isSharedAddress, membersOf as sharedMembers } from '../mail/shared.js';
 import { mailEnabled, MAIL_HOSTNAME, ensureDkim, DKIM_SELECTOR, scheduleMailConfig } from '../mail/config.js';
 import { readReports } from '../mail/reports.js';
-import { parseMaillog, readMaillog, messagesFor } from '../mail/maillog.js';
+import { parseMaillog, readMaillog, messagesFor, refusedSummary } from '../mail/maillog.js';
 import { checkBlocklists } from '../mail/blocklists.js';
 
 const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -234,6 +234,16 @@ export default function mailAdminRoutes() {
     const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
     const status = ['delivered', 'waiting', 'bounced', 'refused'].includes(req.query.status) ? req.query.status : '';
     res.json({ available: true, messages: messagesFor(parseMaillog(text), domains, { q: String(req.query.q || '').slice(0, 200), status, since: Date.now() - days * 864e5 }) });
+  });
+
+  // Turned away on the way in, the last 7 days: how many, by reason (Admin → Email).
+  r.get('/refused', (req, res) => {
+    if (!mailEnabled()) throw bad('This server has no email');
+    const orgId = targetOrg(req);
+    const text = readMaillog();
+    if (text === null) return res.json({ available: false });
+    const domains = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(orgId).map((d) => d.name));
+    res.json({ available: true, days: 7, ...refusedSummary(parseMaillog(text), domains, Date.now() - 7 * 864e5) });
   });
 
   r.get('/domains/:name/check', async (req, res) => {

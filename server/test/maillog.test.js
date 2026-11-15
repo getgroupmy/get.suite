@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { parseMaillog, readMaillog, messagesFor } from '../src/mail/maillog.js';
+import { parseMaillog, readMaillog, messagesFor, refusedSummary, refusalKind } from '../src/mail/maillog.js';
 
 const LOG = `Nov 10 02:26:30 mail postfix/qmgr[22875]: 418E0949B4: from=<olivia@acme.com>, size=494, nrcpt=1 (queue active)
 Nov 10 02:26:31 mail postfix/postfix-script[22890]: the Postfix mail system is running: PID: 22873
@@ -70,4 +70,24 @@ Nov 10 09:30:03 mail postfix/smtp[4]: AAA111: to=<old@gone.example>, relay=none,
     ['buyer@example.org', undefined, 'delivered', 1], ['old@gone.example', undefined, 'waiting', 2], ['sales@acme.com', 'kim@acme.com', 'delivered', 1]]);
   assert.equal(deliveryOf(ms, 'quote-7@acme.com', ['kim@acme.com']), null, 'only the sender sees it');
   assert.equal(deliveryOf(ms, 'other@acme.com', ['olivia@acme.com']), null);
+});
+
+test('refused by the spam filter (milter-reject): every recipient refused, with its answer; summed up by reason', () => {
+  const now = Date.UTC(2026, 10, 15, 18, 0);
+  const log = [
+    "Nov 15 17:35:42 mail postfix/cleanup[1608]: 853AC94988: milter-reject: END-OF-MESSAGE from localhost[127.0.0.1]: 5.7.1 Programs and scripts aren't accepted by email here: send a link to the file instead; from=<it@helpdesk.example> to=<olivia@acme.com> proto=ESMTP helo=<mx.x>",
+    'Nov 15 17:36:00 mail postfix/cleanup[1608]: 853AC94999: milter-reject: END-OF-MESSAGE from mx[203.0.113.5]: 5.7.1 Spam message rejected; from=<promo@spam.example> to=<kim@acme.com> proto=ESMTP helo=<mx.y>',
+    'Nov 15 17:37:00 mail postfix/smtpd[11]: NOQUEUE: reject: RCPT from mx[203.0.113.6]: 550 5.1.1 <nobody@acme.com>: Recipient address rejected: User unknown in virtual mailbox table; from=<a@b.example> to=<nobody@acme.com> proto=ESMTP helo=<z>',
+    'Nov 15 17:38:00 mail postfix/cleanup[1608]: 853AC95000: milter-reject: END-OF-MESSAGE from mx[203.0.113.5]: 5.7.1 Spam message rejected; from=<promo@spam.example> to=<pat@other.example> proto=ESMTP helo=<mx.y>',
+  ].join('\n');
+  const msgs = parseMaillog(log, now);
+  const prog = msgs.find((m) => m.from === 'it@helpdesk.example');
+  assert.equal(prog.recipients[0].status, 'refused');
+  assert.match(prog.recipients[0].response, /^5\.7\.1 Programs and scripts/);
+  assert.equal(messagesFor(msgs, new Set(['acme.com']), { status: 'refused' }).length, 3, 'in the Email log as Refused');
+  const s = refusedSummary(msgs, new Set(['acme.com']), now - 7 * 864e5);
+  assert.deepEqual({ total: s.total, programs: s.programs, spam: s.spam, unknown: s.unknown, other: s.other }, { total: 3, programs: 1, spam: 1, unknown: 1, other: 0 });
+  assert.equal(s.latest[0].to, 'nobody@acme.com', 'newest first');
+  assert.equal(refusedSummary(msgs, new Set(['acme.com']), now + 1).total, 0);
+  assert.equal(refusalKind('554 5.7.1 Service unavailable; Client host [1.2.3.4] blocked using zen.spamhaus.org'), 'spam');
 });

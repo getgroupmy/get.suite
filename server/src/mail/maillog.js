@@ -43,7 +43,13 @@ export function parseMaillog(text, now = Date.now()) {
     if (!q) continue;
     const [, id, what] = q;
     let x;
-    if ((x = /^client=(\S+)/.exec(what))) msg(id, at).client = x[1];
+    // Refused by the spam filter after the message was handed over (spam, a program attached…): every
+    // recipient of it, with the filter's answer.
+    if ((x = /^milter-reject: \S+ from (\S+): (\d\.\d\.\d .*?|\d{3} .*?); from=<([^>]*)> to=<([^>]*)>/.exec(what))) {
+      const e = msg(id, at);
+      e.client = e.client || x[1]; e.from = e.from || addr(x[3]) || null;
+      for (const to of x[4].split(',').map(addr).filter(Boolean)) e.recipients.push({ to, origTo: null, status: 'refused', response: x[2], relay: null, at, tries: 1 });
+    } else if ((x = /^client=(\S+)/.exec(what))) msg(id, at).client = x[1];
     else if ((x = /^message-id=<?([^>\s]*)>?/.exec(what))) msg(id, at).messageId = x[1] || null;
     else if ((x = /^from=<([^>]*)>, size=(\d+)/.exec(what))) { const e = msg(id, at); e.from = addr(x[1]) || null; e.size = Number(x[2]); }
     else if ((x = /^to=<([^>]*)>,(?: orig_to=<([^>]*)>,)? relay=([^,]+),.*? status=(\w+) \((.*)\)$/.exec(what))) {
@@ -113,4 +119,31 @@ export function deliveryOf(messages, messageId, fromAddresses) {
     if (!had || (r.at || 0) >= (had.at || 0)) byTo.set(key, { to: key, ...(r.origTo && r.origTo !== r.to && { reached: r.to }), status: r.status, response: r.response, at: r.at, tries: r.tries });
   }
   return [...byTo.values()].sort((a, b) => a.to.localeCompare(b.to));
+}
+
+/** Why a refusal happened, from the answer: 'programs', 'spam', 'unknown' (no such address) or 'other'. */
+export function refusalKind(response) {
+  const r = String(response || '');
+  if (/Programs and scripts aren.t accepted/i.test(r)) return 'programs';
+  if (/spam|blocked using|listed at|Rejected by rspamd|reputation/i.test(r)) return 'spam';
+  if (/User unknown|Recipient address rejected|does not exist|no mailbox/i.test(r)) return 'unknown';
+  return 'other';
+}
+
+/**
+ * Mail turned away on its way to the company (Admin → Email): how many recipients' copies were refused
+ * since `since`, by reason, and the latest few. → { total, programs, spam, unknown, other, latest: [{ at, from, to, kind, response }] }
+ */
+export function refusedSummary(messages, domains, since) {
+  const out = { total: 0, programs: 0, spam: 0, unknown: 0, other: 0, latest: [] };
+  for (const m of messages) {
+    if (m.at < since) continue;
+    for (const r of m.recipients) {
+      if (r.status !== 'refused' || !domains.has(String(r.to).split('@')[1])) continue;
+      const kind = refusalKind(r.response);
+      out.total++; out[kind]++;
+      if (out.latest.length < 10) out.latest.push({ at: r.at, from: m.from, to: r.to, kind, response: String(r.response || '').slice(0, 200) });
+    }
+  }
+  return out;
 }

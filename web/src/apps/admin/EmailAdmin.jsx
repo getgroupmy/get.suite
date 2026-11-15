@@ -20,6 +20,7 @@ export default function EmailAdmin({ orgId, orgPicker }) {
       {user.is_super && <Blocklists />}
       <Domains qs={qs} />
       <MailReports qs={qs} />
+      <TurnedAway qs={qs} />
       <EmailLog qs={qs} />
       <Aliases qs={qs} orgId={orgId} />
       <SharedMailboxes qs={qs} orgId={orgId} />
@@ -146,7 +147,7 @@ function Domains({ qs }) {
                 <span className="dns-type" role="cell">{rec.type}</span>
                 <span className="dns-host ellipsis" role="cell" title={rec.host}>{rec.host}</span>
                 <code className="dns-value" role="cell">{rec.value}</code>
-                <button className="icon-btn" aria-label={`Copy ${rec.type} value for ${rec.host}`} onClick={() => copy(rec.value)}><Icon name="doc" size={18} /></button>
+                <span role="cell" className="dns-copy"><button className="icon-btn" aria-label={`Copy ${rec.type} value for ${rec.host}`} onClick={() => copy(rec.value)}><Icon name="doc" size={18} /></button></span>
                 <span className="dns-purpose muted small" role="cell">
                   {rec.purpose}
                   {res && <span className={res.ok ? 'ok' : 'error'}> · {res.ok ? '✓ found' : `✗ ${res.note || (res.found.length ? `found: ${res.found.join(' | ')}` : 'missing')}`}</span>}
@@ -372,6 +373,35 @@ function MailReports({ qs }) {
 }
 
 /** The email log: what happened to mail sent from or to the company's domains, from the mail server's log. */
+/** Mail turned away on its way in, the last 7 days: how many, by reason, and the latest. */
+function TurnedAway({ qs }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { get(`/mail-admin/refused${qs}`).then(setD).catch(() => setD({ available: false })); }, [qs]);
+  if (!d?.available) return null;
+  const REASON = { programs: 'Programs or scripts attached', spam: 'Spam or a blocklisted sender', unknown: 'No such address here', other: 'Other reasons' };
+  const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="card stack" aria-labelledby="refused-h">
+      <h2 id="refused-h" style={{ margin: 0 }}>Turned away in the last 7 days</h2>
+      {!d.total ? <p className="muted" style={{ margin: 0 }}>Nothing was turned away on its way to your domains.</p> : (
+        <>
+          <p style={{ margin: 0 }}><strong>{d.total.toLocaleString()}</strong> {d.total === 1 ? 'message was' : 'messages were'} refused on {d.total === 1 ? 'its' : 'their'} way to your domains, so nobody here received {d.total === 1 ? 'it' : 'them'}:</p>
+          <ul className="refused-reasons" style={{ margin: 0 }}>
+            {Object.entries(REASON).filter(([k]) => d[k]).map(([k, label]) => <li key={k}>{label}: <strong>{d[k].toLocaleString()}</strong></li>)}
+          </ul>
+          <table className="files" aria-label="Latest turned away">
+            <thead><tr><th scope="col">When</th><th scope="col">From</th><th scope="col">To</th><th scope="col">Why</th></tr></thead>
+            <tbody>{d.latest.map((x, i) => (
+              <tr key={i}><td>{when(x.at)}</td><td>{x.from || '—'}</td><td>{x.to}</td><td title={x.response}>{REASON[x.kind]}</td></tr>
+            ))}</tbody>
+          </table>
+        </>
+      )}
+      <p className="muted small" style={{ margin: 0 }}>From the mail server's own log. The Email log below finds any one of them (choose <em>Refused</em>).</p>
+    </div>
+  );
+}
+
 function EmailLog({ qs }) {
   const toast = useToast();
   const [term, setTerm] = useState('');

@@ -130,6 +130,24 @@ await step('Security checkup suggests refusing programs, and its button turns it
   if (!(await api(page, 'GET', '/orgs/current')).body.block_programs) throw new Error('not on');
   await api(page, 'PATCH', '/orgs/current', { block_programs: false });
 });
+await step('a program refused at the door shows in Admin → Email: Turned away, and in the Email log', async () => {
+  const nodemailer = (await import('module')).createRequire(`${ROOT}/server/package.json`)('nodemailer');
+  await api(page, 'PATCH', '/orgs/current', { block_programs: true });
+  await page.waitForTimeout(9000); // the mail container picks up the list within 5 seconds; Rspamd re-reads it
+  const mx = nodemailer.createTransport({ host: '127.0.0.1', port: 25, secure: false, ignoreTLS: true, name: 'mx.sender-test.example' });
+  let refused = false;
+  try {
+    await mx.sendMail({ from: 'it@helpdesk-test.example', to: 'olivia@acme.com', envelope: { from: 'relay@acme.com', to: 'olivia@acme.com' }, subject: 'Tool', text: 'Run it.', attachments: [{ filename: 'tool.exe', content: Buffer.concat([Buffer.from('MZ'), Buffer.alloc(100)]) }] });
+  } catch (e) { refused = /Programs and scripts/.test(String(e.response || e.message)); }
+  if (!refused) throw new Error('not refused');
+  await page.goto(`${B}/admin?tab=email`);
+  const card = page.locator('.card', { has: page.getByRole('heading', { name: 'Turned away in the last 7 days' }) });
+  await card.getByText(/Programs or scripts attached: \d+/).waitFor();
+  await card.getByRole('table', { name: 'Latest turned away' }).getByText('olivia@acme.com').first().waitFor();
+  await page.screenshot({ path: `${SP}/shots/turned-away.png` });
+  await axe(page, 'turned away');
+  await api(page, 'PATCH', '/orgs/current', { block_programs: false });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
