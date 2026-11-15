@@ -22,6 +22,8 @@ import VoiceRecorder from '../../components/VoiceRecorder.jsx';
 
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
+/** Kinds of note to filter by (Filter, beside Search notes). */
+const NOTE_KINDS = [['list', '☑ Lists'], ['picture', '🖼 Pictures'], ['voice', '🎙 Voice'], ['link', '🔗 Links'], ['reminder', '🔔 Reminders']];
 /** Put a picture on a note (PNG, JPEG, GIF or WebP, up to 10 MB). */
 async function addPicture(noteId, file) {
   const res = await fetch(`/api/notes/${noteId}/pictures`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
@@ -103,6 +105,9 @@ export default function Notes() {
   const [where, setWhere] = useState(() => ({ archived: false, label: null, reminders: new URLSearchParams(window.location.search).get('reminders') === '1' }));
   const [picking, setPicking] = useState(null); // a note whose reminder time is being picked
   const [search, setSearch] = useState('');
+  const [kind, setKind] = useState({ type: null, color: null }); // Filter: a kind of note and a card colour
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtering = !!(kind.type || kind.color);
   const [editing, setEditing] = useState(null); // note id
   const [sharing, setSharing] = useState(null);
   const [history, setHistory] = useState(null); // a note whose earlier versions are shown
@@ -117,13 +122,13 @@ export default function Notes() {
   // Only the latest request's answer is shown: an older one (for a label just deleted, say) can arrive last.
   const loadSeq = useRef(0);
   const load = useCallback(() => {
-    const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.shared && { shared: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
+    const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.shared && { shared: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }), ...(kind.type && { type: kind.type }), ...(kind.color && { color: kind.color }) });
     const seq = ++loadSeq.current;
     get(`/notes?${qs}`).then((list) => { if (seq === loadSeq.current) setNotes(list); }).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
     get('/notes/label-colors').then(setLabelColors).catch(() => {});
     get('/notes/view').then((r) => { setView(r.view); setSort(r.sort || 'mine'); }).catch(() => {});
-  }, [where, search, toast]);
+  }, [where, search, kind, toast]);
   useEffect(() => { const t = setTimeout(load, search ? 250 : 0); return () => clearTimeout(t); }, [load, search]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed' || m.type === 'live-connected') load(); }), [load]);
   // A result from the search box in the top bar: open that note.
@@ -241,7 +246,18 @@ export default function Notes() {
           <select className="notes-sort" aria-label="Sort notes" value={sort} onChange={(e) => chooseSort(e.target.value)} title="The order of your notes (dragging them works in Your order)">
             {NOTE_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
-          <button type="button" className="icon-btn notes-view" aria-label={view === 'grid' ? 'List view' : 'Grid view'} title={view === 'grid' ? 'Show notes in one column' : 'Show notes as a grid'} onClick={switchView}>{view === 'grid' ? '☰' : '▦'}</button></div>
+          <button type="button" className="icon-btn notes-view" aria-label={view === 'grid' ? 'List view' : 'Grid view'} title={view === 'grid' ? 'Show notes in one column' : 'Show notes as a grid'} onClick={switchView}>{view === 'grid' ? '☰' : '▦'}</button>
+          {!where.trash && <button type="button" className={`btn small ${filtersOpen || filtering ? 'primary' : ''}`} aria-expanded={filtersOpen || filtering} aria-controls="note-filters" onClick={() => { if (filtering) { setKind({ type: null, color: null }); setFiltersOpen(false); } else setFiltersOpen((o) => !o); }}>{filtering ? '× Clear filter' : 'Filter'}</button>}</div>
+        {!where.trash && (filtersOpen || filtering) && (
+          <div className="note-filters" id="note-filters">
+            <div className="note-filter-row" role="group" aria-label="Kind of note">
+              {NOTE_KINDS.map(([t, label]) => <button key={t} type="button" className={`btn small ${kind.type === t ? 'primary' : ''}`} aria-pressed={kind.type === t} onClick={() => setKind((k) => ({ ...k, type: k.type === t ? null : t }))}>{label}</button>)}
+            </div>
+            <div className="note-filter-row" role="group" aria-label="Colour">
+              {COLORS.map(([c, name]) => { const v = c || 'none'; return <button key={name} type="button" className={`swatch note-swatch ${kind.color === v ? 'on' : ''}`} style={{ background: c || 'var(--surface)' }} aria-pressed={kind.color === v} aria-label={name} title={name} onClick={() => setKind((k) => ({ ...k, color: k.color === v ? null : v }))} />; })}
+            </div>
+          </div>
+        )}
         {!where.archived && !where.reminders && !where.trash && <Composer label={where.label} onMade={load} />}
         {where.trash ? <>
           <div className="row notes-trash-head"><p className="muted small grow" style={{ margin: 0 }}>Notes in the trash are deleted for good after 7 days.</p>
@@ -259,7 +275,7 @@ export default function Notes() {
             ))}</div>
           )}
         </> : notes === null ? null : !notes.length ? (
-          <Empty icon={where.archived ? 'archive' : 'note'} title={search ? 'No matching notes' : where.reminders ? 'No reminders set' : where.shared ? 'Nobody has shared a note with you' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
+          <Empty icon={where.archived ? 'archive' : 'note'} title={search || filtering ? 'No matching notes' : where.reminders ? 'No reminders set' : where.shared ? 'Nobody has shared a note with you' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
         ) : <>
           {picked.size > 0 && (
             <div className="notes-batch" role="toolbar" aria-label="Change the selected notes">

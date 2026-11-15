@@ -15,6 +15,7 @@ import path from 'node:path';
 import { FILES_DIR } from '../db.js';
 import { checkQuota } from '../tenancy.js';
 import { myFirstList, addTasks } from './tasks.js';
+import { noteFits, noteFilterOf } from '../notefilter.js';
 
 q(`CREATE TABLE IF NOT EXISTS notes (
   id TEXT PRIMARY KEY,
@@ -488,7 +489,10 @@ export default function noteRoutes() {
                                                 ORDER BY n.remind_at`).all(req.user.id, req.user.id);
     if (req.query.label) rows = rows.filter((n) => JSON.parse(n.labels).includes(String(req.query.label)));
     if (req.query.shared === '1') rows = rows.filter((n) => n.owner_id !== req.user.id); // Shared with me: others' notes only
-    res.json(rows.map((n) => shape(n, req.user.id)));
+    // Kind and colour (Lists, Pictures, Voice, Links, Reminders; a card colour).
+    const f = noteFilterOf(req.query);
+    if (f.error) throw bad(f.error);
+    res.json(rows.map((n) => shape(n, req.user.id)).filter((n) => noteFits(n, f)));
   });
 
   // Your order of the cards: { ids } as they should now show, first to last (yours and shared ones;

@@ -5310,6 +5310,35 @@ test('forms: quizzes score answers and keep the key secret', async () => {
   assert.equal((await o('POST', `/api/forms/${f.id}/copy`)).body.quiz, true);
 });
 
+test('notes: find by kind (lists, pictures, links, reminders) and by colour', async () => {
+  const a = client();
+  await owner('POST', '/api/users', { local: 'kinda', domain: 'acme.com', name: 'Kind Ann', password: 'password123' });
+  await login(a, 'kinda@acme.com');
+  const list = (await a('POST', '/api/notes', { title: 'Groceries', items: [{ text: 'Milk' }], color: '#e2f6d3' })).body;
+  const link = (await a('POST', '/api/notes', { title: 'Recipe', body: 'From https://example.com/soup', color: '#fff8b8' })).body;
+  const pic = (await a('POST', '/api/notes', { title: 'Whiteboard', body: 'photo' })).body;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  assert.equal((await a('POST', `/api/notes/${pic.id}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } })).status, 201);
+  const rem = (await a('POST', '/api/notes', { title: 'Dentist', body: 'book' })).body;
+  await a('PATCH', `/api/notes/${rem.id}`, { remind_at: Date.now() + 864e5 });
+  const ids = async (qs) => (await a('GET', `/api/notes?${qs}`)).body.map((n) => n.id).sort();
+  assert.deepEqual(await ids('type=list'), [list.id]);
+  assert.deepEqual(await ids('type=link'), [link.id]);
+  assert.deepEqual(await ids('type=picture'), [pic.id]);
+  assert.deepEqual(await ids('type=reminder'), [rem.id]);
+  assert.deepEqual(await ids('type=voice'), []);
+  assert.deepEqual(await ids('color=%23fff8b8'), [link.id]);
+  assert.deepEqual(await ids('color=none'), [pic.id, rem.id].sort());
+  assert.deepEqual(await ids('color=%23e2f6d3&type=list&q=milk'), [list.id], 'with words and a kind');
+  assert.deepEqual(await ids('color=%23e2f6d3&type=link'), []);
+  await a('PATCH', `/api/notes/${list.id}`, { archived: true });
+  assert.deepEqual(await ids('type=list'), [], 'in the view you are in');
+  assert.deepEqual(await ids('type=list&archived=1'), [list.id]);
+  assert.equal((await a('GET', '/api/notes?type=video')).status, 400);
+  assert.equal((await a('GET', '/api/notes?color=red')).status, 400);
+  await a('PATCH', `/api/notes/${rem.id}`, { remind_at: null }); // so other tests' reminder runs don't find it
+});
+
 test('notes: write, check off, pin, label, archive, search and share', async () => {
   const a = client(); const b = client();
   const ids = {};
