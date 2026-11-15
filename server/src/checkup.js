@@ -33,6 +33,15 @@ export async function checkup(orgId, at = Date.now(), { mail = mailEnabled(), dn
       if (policy === 'none') items.push({ id: `dmarc-${d}`, status: 'tip', title: `${d}: DMARC only reports forged mail`, detail: 'Its policy is p=none, so receivers still deliver mail forged in your name. Once the reports look right, change it to p=quarantine (or p=reject).', tab: 'email' });
       else items.push({ id: `dns-${d}`, status: 'ok', title: `${d}: SPF, DKIM and DMARC are set up`, detail: '', tab: 'email' });
     }
+    // Phishing practice: a round in the last six months, and who fell for the latest one.
+    let last = null;
+    try { last = q('SELECT id, created_at FROM phish_practice WHERE org_id = ? ORDER BY created_at DESC LIMIT 1').get(orgId); } catch { /* no table yet */ }
+    if (!last || last.created_at < at - 182 * 864e5) {
+      items.push({ id: 'practice', status: 'tip', title: last ? 'No phishing practice for six months' : 'No phishing practice yet', detail: 'Send a practice phishing email (Admin → Phishing → Practice emails): people learn to spot and report the real thing, and you see who needs a reminder.', tab: 'phishing' });
+    } else {
+      const fell = q('SELECT u.name, u.username FROM phish_practice_people pp JOIN users u ON u.id = pp.user_id WHERE pp.practice_id = ? AND pp.clicked_at IS NOT NULL AND pp.reported_at IS NULL AND u.disabled = 0 ORDER BY u.name').all(last.id);
+      if (fell.length) items.push({ id: 'practice-clicked', status: 'tip', title: `${plural(fell.length, 'person', 'people')} clicked the latest practice phishing email`, detail: `${names(fell)}. They saw the practice page; a word with them, or another round later, helps it stick.`, tab: 'phishing', people: fell.map((p) => p.name) });
+    }
     // Programs by email: refused at the door when the company says so.
     if (!q('SELECT block_programs FROM orgs WHERE id = ?').get(orgId)?.block_programs) {
       items.push({ id: 'block-programs', status: 'tip', title: 'Email with programs attached is let in', detail: 'Turn on Refuse email with programs or scripts attached (Company settings): .exe, .js, .iso and the like are a common way in, and there’s rarely a good reason to email them.', tab: 'company', fix: { label: 'Turn it on', settings: { block_programs: true } } });

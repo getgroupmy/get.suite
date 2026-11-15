@@ -181,3 +181,25 @@ test('many failed sign-ins on an account this week: a warning, opening Activity 
   const other = (await checkup('no-such-org', now, { mail: false })).find((x) => x.id === 'failed-signins');
   assert.equal(other, undefined);
 });
+
+test('phishing practice: suggested when none for six months; who clicked the latest without reporting', async () => {
+  const { sendPractice, practiceClicked, practiceReported } = await import('../src/phishpractice.js');
+  const orgId = q("SELECT org_id FROM users WHERE username = 'ana@acme.com'").get().org_id;
+  const dns = async () => [{ name: 'SPF', ok: true }, { name: 'DKIM', ok: true }, { name: 'DMARC', ok: true, found: ['v=DMARC1; p=reject'] }];
+  const ids = async () => (await checkup(orgId, Date.now(), { mail: true, dns })).map((x) => x.id);
+  assert.ok((await ids()).includes('practice'));
+  const ana = q("SELECT id, org_id, username FROM users WHERE username = 'ana@acme.com'").get();
+  const people = q("SELECT id, name FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name LIMIT 2").all(orgId);
+  assert.equal(people.length, 2);
+  const sent = [];
+  await sendPractice(ana, { template: 'invoice', userIds: people.map((p) => p.id), base: 'https://x' }, { send: async (m) => sent.push(m) });
+  const tok = (m) => /\/practice\/([\w-]+)/.exec(m.text)[1];
+  assert.ok(!(await ids()).includes('practice'), 'a round now');
+  practiceClicked(tok(sent[0]));
+  practiceClicked(tok(sent[1])); practiceReported({ id: people[1].id }, `<practice.${tok(sent[1])}@workspace>`);
+  const item = (await checkup(orgId, Date.now(), { mail: true, dns })).find((x) => x.id === 'practice-clicked');
+  assert.equal(item.title, '1 person clicked the latest practice phishing email');
+  assert.deepEqual(item.people, [people[0].name], 'not someone who reported it after clicking');
+  assert.ok((await checkup(orgId, Date.now() + 200 * 864e5, { mail: true, dns })).some((x) => x.id === 'practice'), 'six months on: suggested again');
+  assert.ok(!(await checkup(orgId, Date.now(), { mail: false })).some((x) => /^practice/.test(x.id)), 'not without email');
+});

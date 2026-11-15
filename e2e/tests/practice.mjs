@@ -110,6 +110,13 @@ await step('the admin sees who reported it and who clicked', async () => {
   await list.locator('li', { hasText: 'Lee Chen' }).getByText(/clicked the link/).waitFor();
   await page.screenshot({ path: `${SP}/shots/practice.png` });
 });
+await step('Security checkup names who clicked the latest practice email without reporting it', async () => {
+  await page.goto(`${B}/admin?tab=checkup`);
+  const item = page.getByRole('listitem').filter({ hasText: '1 person clicked the latest practice phishing email' });
+  await item.getByText(/^Lee Chen\./).waitFor({ timeout: 20000 });
+  await item.getByRole('button', { name: 'Go to Phishing' }).click();
+  await page.getByRole('region', { name: 'Practice emails' }).waitFor();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);
