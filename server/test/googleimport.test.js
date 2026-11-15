@@ -84,6 +84,13 @@ test('calendars and contacts from Google: the main calendar into yours, others a
       if (!req.url.includes('pageToken')) return res.end(JSON.stringify({ items: [{ id: 'e2', summary: 'Long run', start: { date: '2026-12-06' }, end: { date: '2026-12-07' } }], nextPageToken: 'p2' }));
       return res.end(JSON.stringify({ items: [{ id: 'e3', summary: 'Track night', start: { dateTime: '2026-12-08T18:00:00Z' }, end: { dateTime: '2026-12-08T19:00:00Z' }, recurrence: ['RRULE:FREQ=WEEKLY'] }] }));
     }
+    if (req.url.startsWith('/drive/v3/files?')) {
+      const q2 = new URL(req.url, 'http://x').searchParams.get('q');
+      if (q2.startsWith("'root'")) return res.end(JSON.stringify({ files: [{ id: 'fold', name: 'Plans', mimeType: 'application/vnd.google-apps.folder' }, { id: 'doc', name: 'Roadmap', mimeType: 'application/vnd.google-apps.document' }, { id: 'form', name: 'Survey', mimeType: 'application/vnd.google-apps.form' }] }));
+      if (q2.startsWith("'fold'")) return res.end(JSON.stringify({ files: [{ id: 'pdf', name: 'Budget.pdf', mimeType: 'application/pdf', size: '9' }] }));
+    }
+    if (req.url.startsWith('/drive/v3/files/doc/export')) { res.setHeader('content-type', 'application/octet-stream'); return res.end(`docx of roadmap ${new URL(req.url, 'http://x').searchParams.get('mimeType').includes('wordprocessingml')}`); }
+    if (req.url.startsWith('/drive/v3/files/pdf?alt=media')) { res.setHeader('content-type', 'application/pdf'); return res.end('%PDF-1.7'); }
     if (req.url.startsWith('/v1/people/me/connections')) return res.end(JSON.stringify({ connections: [{ resourceName: 'people/1', names: [{ displayName: 'Grace Hopper' }], emailAddresses: [{ value: 'grace@example.com' }] }, { resourceName: 'people/2', names: [{ displayName: 'Alan Turing' }], emailAddresses: [{ value: 'alan@example.com' }] }] }));
     res.statusCode = 404; res.end('{}');
   });
@@ -102,5 +109,15 @@ test('calendars and contacts from Google: the main calendar into yours, others a
     await assert.rejects(bringGoogleData(user, 'wrong'), /Couldn’t read your Google calendars: Invalid Credentials/);
     const onlyContacts = await bringGoogleData(user, 'ya29.data', { calendar: false });
     assert.equal(onlyContacts.calendar, undefined);
+    // Drive: folders kept, Google Docs as Word files, other Google kinds (Forms) left out.
+    const steps = [];
+    const d = await bringGoogleData(user, 'ya29.data', { calendar: false, contacts: false, drive: true }, (st) => steps.push(st));
+    assert.deepEqual(steps, ['drive']);
+    assert.equal(d.drive.files, 2);
+    const { FILES_DIR } = await import('../src/db.js');
+    const doc = q("SELECT storage FROM files WHERE owner_id = ? AND name = 'Roadmap.docx'").get(user.id);
+    assert.equal(fs.readFileSync(path.join(FILES_DIR, doc.storage), 'utf8'), 'docx of roadmap true');
+    assert.equal(q("SELECT p.name FROM files f JOIN files p ON p.id = f.parent_id WHERE f.owner_id = ? AND f.name = 'Budget.pdf'").get(user.id).name, 'Plans');
+    assert.equal(q("SELECT COUNT(*) AS n FROM files WHERE owner_id = ? AND name LIKE 'Survey%'").get(user.id).n, 0);
   } finally { api.close(); delete process.env.GOOGLE_API_URL; delete process.env.GOOGLE_PEOPLE_URL; }
 });

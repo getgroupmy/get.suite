@@ -12,7 +12,8 @@ import { audit } from '../audit.js';
 import { q } from '../db.js';
 import { bad } from '../util.js';
 import { startImport } from './importer.js';
-import { googleCalendars, googleContacts, calendarIcs, personToVcard } from '../migrate/googleapi.js';
+import { googleCalendars, googleContacts, googleDriveItems, calendarIcs, personToVcard } from '../migrate/googleapi.js';
+import { intoDrive } from '../routes/takeout.js';
 import { importCalendar } from '../calimport.js';
 import { addCalendar } from '../mycalendars.js';
 import { importContacts } from '../routes/contacts.js';
@@ -26,7 +27,7 @@ const TOKEN = () => process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.c
 const IMAP_HOST = () => process.env.GOOGLE_IMAP_HOST || 'imap.gmail.com';
 export const GOOGLE_SCOPE = 'openid email https://mail.google.com/';
 /** For bringing calendars and contacts (Settings → Move here): read-only, nothing else. */
-export const GOOGLE_DATA_SCOPE = 'openid email https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly';
+export const GOOGLE_DATA_SCOPE = 'openid email https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/drive.readonly';
 const STATE_TTL = 10 * 60e3;
 
 /** The company's Google client, or null: { clientId, secret }. */
@@ -86,8 +87,16 @@ export async function finishGoogleSignIn(user, { code, state, error, base }, { s
   if (s.what === 'data') {
     // Calendars and contacts (whichever of the two the person allowed): brought in now. → { what: 'data', result }
     const scope = String(t.scope || GOOGLE_DATA_SCOPE);
-    if (!/calendar\.readonly|contacts\.readonly/.test(scope)) throw bad('Google didn’t give access to your calendar or contacts (tick their boxes when asked)');
-    return { what: 'data', result: await (bringData || bringGoogleData)(user, t.access_token, { calendar: /calendar\.readonly/.test(scope), contacts: /contacts\.readonly/.test(scope) }) };
+    if (!/calendar\.readonly|contacts\.readonly|drive\.readonly/.test(scope)) throw bad('Google didn’t give access to your calendar, contacts or Drive (tick their boxes when asked)');
+    // A whole Drive can take a while: in the background, its progress on the Settings page (googleJobOf).
+    const what = { calendar: /calendar\.readonly/.test(scope), contacts: /contacts\.readonly/.test(scope), drive: /drive\.readonly/.test(scope) };
+    const job = { status: 'importing', step: null, started_at: Date.now() };
+    jobs.set(user.id, job);
+    const tell = () => sendTo([user.id], { type: 'google-import', job: googleJobOf(user.id) });
+    (bringData || bringGoogleData)(user, t.access_token, what, (step) => { job.step = step; tell(); })
+      .then((result) => { Object.assign(job, { status: 'done', result, finished_at: Date.now() }); audit(null, 'takeout.restore', { actor: user, details: { from: 'Google', ...result } }); tell(); })
+      .catch((e) => { Object.assign(job, { status: 'error', error: String(e.message || e).slice(0, 300), finished_at: Date.now() }); tell(); });
+    return { what: 'data', started: true };
   }
   if (!String(t.scope || GOOGLE_SCOPE).includes('https://mail.google.com/')) throw bad('Google didn’t give access to the mail (tick the box for Gmail when asked)');
   const email = emailOf(t.id_token);
@@ -100,9 +109,10 @@ const CAL_COLORS = ['#039be5', '#7986cb', '#33b679', '#8e24aa', '#e67c73', '#f6b
  * Bring the person's Google calendars (the main one into theirs, each other as a calendar of its own, the
  * same one again next time) and contacts (people already here are skipped). → { calendar, contacts }
  */
-export async function bringGoogleData(user, token, { calendar = true, contacts = true } = {}) {
+export async function bringGoogleData(user, token, { calendar = true, contacts = true, drive = false } = {}, onStep = () => {}) {
   const out = {};
   if (calendar) {
+    onStep('calendar');
     const cals = await googleCalendars(token).catch((e) => { throw bad(`Couldn’t read your Google calendars: ${e.message}`); });
     const res = { added: 0, skipped: 0, calendars: [] };
     for (const [i, c] of cals.entries()) {
@@ -120,19 +130,31 @@ export async function bringGoogleData(user, token, { calendar = true, contacts =
     sendTo([user.id], { type: 'events-changed' });
   }
   if (contacts) {
+    onStep('contacts');
     const people = await googleContacts(token).catch((e) => { throw bad(`Couldn’t read your Google contacts: ${e.message}`); });
     const cards = people.map(personToVcard).filter(Boolean);
     out.contacts = cards.length ? importContacts(user, cards.join('\r\n')) : { added: 0, skipped: 0 };
     sendTo([user.id], { type: 'contacts-changed' });
   }
+  if (drive) {
+    onStep('drive');
+    const items = await googleDriveItems(token).catch((e) => { throw bad(`Couldn’t read your Google Drive: ${e.message}`); });
+    if (items.some((x) => !x.dir)) {
+      Object.assign(out, await intoDrive(user, { drive: items.map((x) => ({ e: { stream: x.stream }, path: x.path, dir: x.dir })), mail: [], rootName: `From Google ${new Date().toISOString().slice(0, 10)}` }));
+    }
+  }
   return out;
 }
+
+/** Background imports from Google (calendars, contacts, Drive), the latest per person. */
+const jobs = new Map();
+export const googleJobOf = (userId) => jobs.get(userId) || null;
 
 /** Under /api/mail/import/google (signed in), mounted ahead of Mail: calendars and contacts work without mail set up. */
 export function googleImportRoutes() {
   const r = Router();
   const baseOf = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  r.get('/', (req, res) => res.json({ available: !!googleAppOf(req.user.org_id) }));
+  r.get('/', (req, res) => res.json({ available: !!googleAppOf(req.user.org_id), job: googleJobOf(req.user.id) }));
   r.post('/start', (req, res) => res.json({ url: googleSignInUrl(req.user, { email: req.body?.email, base: baseOf(req), what: req.body?.what === 'data' ? 'data' : 'mail' }) }));
   // Google sends the person back here (a page, not a call).
   r.get('/callback', async (req, res) => {
@@ -140,10 +162,7 @@ export function googleImportRoutes() {
     const back = st?.what === 'data' ? '/settings' : '/mail?import=1&from=imap.gmail.com';
     try {
       const done = await finishGoogleSignIn(req.user, { code: req.query.code, state: req.query.state, error: req.query.error, base: baseOf(req) });
-      if (done?.what === 'data') {
-        audit(req, 'takeout.restore', { details: { from: 'Google', ...done.result } });
-        return res.redirect(302, `/settings?google_done=${encodeURIComponent(JSON.stringify(done.result))}#move-here`);
-      }
+      if (done?.what === 'data') return res.redirect(302, '/settings?google=started#move-here'); // carries on in the background
       res.redirect(302, back);
     } catch (e) {
       res.redirect(302, `${back}${back.includes('?') ? '&' : '?'}import_error=${encodeURIComponent(String(e.message || e).slice(0, 300))}${st?.what === 'data' ? '#move-here' : ''}`);

@@ -56,21 +56,23 @@ const g = http.createServer((req, res) => {
     const back = new URL(asked.auth.redirect_uri); back.searchParams.set('code', 'c1'); back.searchParams.set('state', asked.auth.state);
     res.writeHead(302, { location: back.toString() }); return res.end();
   }
-  if (u.pathname === '/token') return json({ access_token: 'ya29.data', scope: 'openid email https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly', id_token: `x.${Buffer.from(JSON.stringify({ email: 'ana@gmail.com' })).toString('base64url')}.y` });
+  if (u.pathname === '/token') return json({ access_token: 'ya29.data', scope: 'openid email https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/drive.readonly', id_token: `x.${Buffer.from(JSON.stringify({ email: 'ana@gmail.com' })).toString('base64url')}.y` });
   if (u.pathname === '/calendar/v3/users/me/calendarList') return json({ items: [{ id: 'ana@gmail.com', summary: 'ana@gmail.com', primary: true }, { id: 'club', summary: 'Running club' }] });
   if (u.pathname === '/calendar/v3/calendars/ana%40gmail.com/events' || u.pathname === '/calendar/v3/calendars/ana@gmail.com/events') return json({ items: [{ id: 'e1', summary: 'Dentist', start: { dateTime: '2026-12-03T09:00:00Z' }, end: { dateTime: '2026-12-03T10:00:00Z' } }] });
   if (u.pathname === '/calendar/v3/calendars/club/events') return json({ items: [{ id: 'e2', summary: 'Long run', start: { date: '2026-12-06' }, end: { date: '2026-12-07' } }] });
+  if (u.pathname === '/drive/v3/files') return json(u.searchParams.get('q').startsWith("'root'") ? { files: [{ id: 'doc', name: 'Roadmap', mimeType: 'application/vnd.google-apps.document' }] } : { files: [] });
+  if (u.pathname === '/drive/v3/files/doc/export') { res.end('docx bytes'); return; }
   if (u.pathname === '/v1/people/me/connections') return json({ connections: [{ resourceName: 'people/1', names: [{ displayName: 'Grace Hopper' }], emailAddresses: [{ value: 'grace@example.com' }] }] });
   res.statusCode = 404; res.end('{}');
 });
 await new Promise((r) => g.listen(8190, '127.0.0.1', r));
-await step('Settings → Move here → Google: calendars and contacts straight from Google, no export', async () => {
+await step('Settings → Move here → Google: calendars, contacts and Drive straight from Google, no export', async () => {
   await api(page, 'PATCH', '/orgs/current', { g_client_id: '1234-abc.apps.googleusercontent.com', g_client_secret: 'GOCSPX-test-secret-1' });
   await page.goto(`${B}/settings`);
   const card = page.getByRole('region', { name: 'Move here from another service' });
-  await card.getByRole('button', { name: 'Calendars and contacts from Google…' }).click();
-  await page.getByText(/From Google: 2 events \(with Running club as calendars of their own\) and 1 contact brought in/).waitFor({ timeout: 20000 });
-  if (!asked.auth.scope.includes('calendar.readonly') || asked.auth.scope.includes('mail.google.com')) throw new Error(asked.auth.scope);
+  await card.getByRole('button', { name: 'Calendars, contacts and Drive from Google…' }).click();
+  await card.getByRole('status', { name: 'From Google' }).getByText(/From Google: 2 events \(with Running club as calendars of their own\), 1 contact, 1 file into “From Google \d{4}-\d\d-\d\d” in Drive brought in\./).waitFor({ timeout: 20000 });
+  if (!asked.auth.scope.includes('drive.readonly') || asked.auth.scope.includes('mail.google.com')) throw new Error(asked.auth.scope);
   if (!/\/settings#move-here$/.test(page.url())) throw new Error(page.url());
   await page.screenshot({ path: `${SP}/shots/googledata.png` });
   await page.goto(`${B}/contacts`);
@@ -81,13 +83,13 @@ await step('Settings → Move here → Google: calendars and contacts straight f
 await step('the Moving here page shows it', async () => {
   await page.goto(`${B}/admin`);
   await page.getByRole('tab', { name: 'Moving here' }).or(page.getByRole('button', { name: 'Moving here' })).first().click();
-  await page.getByRole('table', { name: 'People' }).getByText('From Google: 2 events, 1 contact').waitFor();
+  await page.getByRole('table', { name: 'People' }).getByText('From Google: 1 file, 2 events, 1 contact').waitFor();
 });
 await step('without the company’s Google client there’s no button', async () => {
   await api(page, 'PATCH', '/orgs/current', { g_client_id: '' });
   await page.goto(`${B}/settings`);
   await page.getByRole('region', { name: 'Move here from another service' }).getByRole('button', { name: 'Bring in a .zip…' }).waitFor();
-  if (await page.getByRole('button', { name: 'Calendars and contacts from Google…' }).count()) throw new Error('button still there');
+  if (await page.getByRole('button', { name: 'Calendars, contacts and Drive from Google…' }).count()) throw new Error('button still there');
 });
 g.close();
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }

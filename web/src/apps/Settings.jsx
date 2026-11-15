@@ -780,21 +780,20 @@ function MoveHere() {
   const [google, setGoogle] = useState(null);
   const [googleBusy, setGoogleBusy] = useState(false);
   useEffect(() => { get('/mail/import/google').then(setGoogle).catch(() => setGoogle(null)); }, []);
-  // Back from Google: what came in, or what went wrong.
+  // Back from Google: the import runs in the background (its progress below), or what went wrong.
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    const done = sp.get('google_done'), err = sp.get('import_error');
-    if (!done && !err) return;
+    const err = sp.get('import_error');
+    if (!sp.get('google') && !err) return;
     if (err) toast(err, 'error');
-    else {
-      try {
-        const r = JSON.parse(done);
-        const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
-        toast(`From Google: ${[r.calendar && `${n(r.calendar.added, 'event', 'events')}${r.calendar.calendars?.length ? ` (with ${r.calendar.calendars.join(', ')} as calendars of their own)` : ''}`, r.contacts && n(r.contacts.added, 'contact', 'contacts')].filter(Boolean).join(' and ') || 'nothing new'} brought in`);
-      } catch { /* a link someone typed */ }
-    }
     window.history.replaceState(null, '', '/settings#move-here');
   }, [toast]);
+  useEffect(() => onLive((m) => { if (m.type === 'google-import') setGoogle((g) => ({ ...g, job: m.job })); }), []);
+  useEffect(() => {
+    if (google?.job?.status !== 'importing') return undefined;
+    const t = setInterval(() => get('/mail/import/google').then(setGoogle).catch(() => {}), 3000);
+    return () => clearInterval(t);
+  }, [google?.job?.status]);
   // Calendars, contacts and OneDrive straight from Microsoft (sign in there with a code).
   const [msData, setMsData] = useState(null); // { available, status, user_code, verification_uri, what, step, result, error }
   useEffect(() => { get('/mail/import/microsoft').then(setMsData).catch(() => setMsData(null)); }, []);
@@ -827,10 +826,20 @@ function MoveHere() {
         <button type="button" className="btn primary" disabled={bring.restoring} onClick={bring.pick}><Icon name="upload" size={18} /> {bring.label || 'Bring in a .zip…'}</button>
         <button type="button" className="btn" disabled={bring.restoring} onClick={bring.pickFromDrive}>From Drive…</button>
         {from === 'microsoft' && msData?.available && !(msShown && ['waiting', 'signed-in', 'importing'].includes(msData.status)) && <button type="button" className="btn" onClick={fromMicrosoft} title="Sign in at Microsoft with a code and bring your calendars, contacts and OneDrive now, no export needed">Calendars, contacts and OneDrive from Microsoft…</button>}
-        {from === 'google' && google?.available && <button type="button" className="btn" disabled={googleBusy} onClick={fromGoogle} title="Sign in at Google and bring your calendars and contacts now, no export needed">{googleBusy ? 'Going to Google…' : 'Calendars and contacts from Google…'}</button>}
+        {from === 'google' && google?.available && <button type="button" className="btn" disabled={googleBusy} onClick={fromGoogle} title="Sign in at Google and bring your calendars, contacts and Drive now, no export needed">{googleBusy ? 'Going to Google…' : 'Calendars, contacts and Drive from Google…'}</button>}
         {mail?.enabled && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Copy messages from the account…</Link>}
         {bring.controls(`Your ${m.name} export (.zip)`, `Bring in your ${m.name} export from Drive`)}
       </div>
+      {from === 'google' && google?.job && (
+        <div className="ms-code stack-tight" role="status" aria-label="From Google">
+          {google.job.status === 'importing' && <p style={{ margin: 0 }}>Bringing in your {({ calendar: 'calendars', contacts: 'contacts', drive: 'Drive files' })[google.job.step] || 'things'} from Google… (this carries on if you leave this page)</p>}
+          {google.job.status === 'done' && google.job.result && <p style={{ margin: 0 }}><strong>From Google:</strong> {[
+            google.job.result.calendar && `${plural(google.job.result.calendar.added, 'event', 'events')}${google.job.result.calendar.calendars?.length ? ` (with ${google.job.result.calendar.calendars.join(', ')} as calendars of their own)` : ''}`,
+            google.job.result.contacts && plural(google.job.result.contacts.added, 'contact', 'contacts'),
+            google.job.result.drive && `${plural(google.job.result.drive.files, 'file', 'files')} into “${google.job.result.drive.folder}” in Drive`].filter(Boolean).join(', ') || 'nothing new'} brought in.</p>}
+          {google.job.status === 'error' && <p className="error" style={{ margin: 0 }}>It didn’t work: {google.job.error}</p>}
+        </div>
+      )}
       {from === 'microsoft' && msShown && (
         <div className="ms-code stack-tight" role="status" aria-label="From Microsoft">
           {msData.status === 'waiting' && <>

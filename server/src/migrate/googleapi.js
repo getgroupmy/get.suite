@@ -90,3 +90,64 @@ export async function googleContacts(token, { max = 10000 } = {}) {
   } while (page && out.length < max);
   return out;
 }
+
+// Google's own documents, saved as Office files (they open and edit here); other Google kinds (Forms, Sites,
+// shortcuts, maps) have no file to bring and are left out.
+const EXPORTS = {
+  'application/vnd.google-apps.document': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'docx'],
+  'application/vnd.google-apps.spreadsheet': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'],
+  'application/vnd.google-apps.presentation': ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'pptx'],
+  'application/vnd.google-apps.drawing': ['image/png', 'png'],
+};
+const FOLDER = 'application/vnd.google-apps.folder';
+
+/** A stream that reads an address when asked (one file at a time, never all in memory). */
+function lazyStream(url, token, name) {
+  return async () => {
+    const r = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (!r.ok) throw new Error(`Couldn’t download ${name} (${r.status})`);
+    return r.body;
+  };
+}
+
+/** Your Google Drive (files you own, in My Drive), folder by folder: [{ path, dir, size, stream() }]. Up to `max` items. */
+export async function googleDriveItems(token, { max = 20000 } = {}) {
+  const { Readable } = await import('node:stream');
+  const out = [];
+  const list = async (parent) => {
+    const items = [];
+    let page = null;
+    do {
+      const qs = new URLSearchParams({ q: `'${parent}' in parents and trashed = false and 'me' in owners`, fields: 'nextPageToken, files(id, name, mimeType, size)', pageSize: '1000', ...(page && { pageToken: page }) });
+      const r = await getJson(`${API()}/drive/v3/files?${qs}`, token);
+      items.push(...(r.files || []));
+      page = r.nextPageToken;
+    } while (page);
+    return items;
+  };
+  const walk = async (parent, prefix) => {
+    for (const f of await list(parent)) {
+      if (out.length >= max) return;
+      const base = String(f.name || 'untitled').replace(/[\\/]/g, '_');
+      if (f.mimeType === FOLDER) { const path = prefix ? `${prefix}/${base}` : base; out.push({ path, dir: true }); await walk(f.id, path); continue; }
+      let url, name = base;
+      if (EXPORTS[f.mimeType]) {
+        const [mime, ext] = EXPORTS[f.mimeType];
+        url = `${API()}/drive/v3/files/${encodeURIComponent(f.id)}/export?mimeType=${encodeURIComponent(mime)}`;
+        if (!name.toLowerCase().endsWith(`.${ext}`)) name = `${name}.${ext}`;
+      } else if (String(f.mimeType).startsWith('application/vnd.google-apps.')) continue;
+      else url = `${API()}/drive/v3/files/${encodeURIComponent(f.id)}?alt=media`;
+      const get = lazyStream(url, token, name);
+      out.push({
+        path: prefix ? `${prefix}/${name}` : name, dir: false, size: Number(f.size) || 0,
+        stream: () => {
+          const s = new Readable({ read() {} });
+          get().then(async (body) => { for await (const c of body) s.push(Buffer.from(c)); s.push(null); }).catch((e) => s.destroy(e));
+          return s;
+        },
+      });
+    }
+  };
+  await walk('root', '');
+  return out;
+}
