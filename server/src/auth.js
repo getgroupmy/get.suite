@@ -1,7 +1,7 @@
 import './passkeys.js'; // its table, for the two-step check below
 import { cleanCalPrefs } from './calprefs.js';
 import crypto from 'node:crypto';
-import { rulesOf, passwordProblem, isExpired } from './passwordrules.js';
+import { rulesOf, passwordProblem, isExpired, breachCount } from './passwordrules.js';
 import { q } from './db.js';
 import { uid, now, parseCookies, HttpError } from './util.js';
 import { dovecotHash } from './mail/crypt.js';
@@ -73,6 +73,17 @@ export function verifyPassword(password, stored) {
 export function validatePassword(pw, { orgId = null, email = '', name = '' } = {}) {
   const problem = passwordProblem(pw, rulesOf(orgId), { email, name });
   if (problem) throw new HttpError(400, problem);
+}
+
+/**
+ * validatePassword, then (when the company asks for it) not a password known from data breaches. If the
+ * breach list can't be reached the password is allowed: an outage there mustn't stop people working.
+ */
+export async function validateNewPassword(pw, opts = {}) {
+  validatePassword(pw, opts);
+  if (!rulesOf(opts.orgId).breached) return;
+  const n = await breachCount(pw);
+  if (n > 0) throw new HttpError(400, `That password has turned up in ${n === 1 ? 'a data breach' : `data breaches ${n.toLocaleString('en')} times`}, so attackers try it first. Choose another`);
 }
 
 // How each session signed in (Settings → Signed-in devices): password, code (password and an app's code),

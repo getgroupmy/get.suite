@@ -7704,7 +7704,7 @@ test('company password rules: kept by admins, applied to new passwords, and expi
   assert.equal((await kay('PATCH', '/api/orgs/current', { password_rules: { min: 8, max_days: 45 } })).status, 400);
   const r = await kay('PATCH', '/api/orgs/current', { password_rules: { min: 10, mix: true, symbol: false, common: true, max_days: 90 } });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.body.password_rules, { min: 10, mix: true, symbol: false, common: true, max_days: 90 });
+  assert.deepEqual(r.body.password_rules, { min: 10, mix: true, symbol: false, common: true, max_days: 90, breached: false });
   assert.equal((await kay('POST', '/api/users', { local: 'pwr', domain: 'keepco.com', name: 'Pat Rule', password: 'password123' })).status, 400);
   const made = await kay('POST', '/api/users', { local: 'pwr', domain: 'keepco.com', name: 'Pat Rule', password: 'blue-kettle-49' });
   assert.equal(made.status, 201);

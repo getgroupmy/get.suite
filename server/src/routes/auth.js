@@ -5,7 +5,7 @@ import { q, tx } from '../db.js';
 import { str, bad, HttpError } from '../util.js';
 import {
   verifyPassword, createSession, destroySession, setSessionCookie, clearSessionCookie, tokenFromReq,
-  requireAuth, validatePassword, hashPassword, userFromToken, idleOf, sessionId, describeDevice,
+  requireAuth, validateNewPassword, hashPassword, userFromToken, idleOf, sessionId, describeDevice,
 } from '../auth.js';
 import * as guard from '../security/guard.js';
 import { securityActivity } from '../securityactivity.js';
@@ -179,13 +179,13 @@ export default function authRoutes({ secureCookies }) {
     if (!row || row.used_at || row.expires_at < Date.now()) throw new HttpError(410, 'This link has expired or been used. Ask for a new one from the sign-in page.');
     res.json({ username: row.username });
   });
-  r.post('/reset/:token', (req, res) => {
+  r.post('/reset/:token', async (req, res) => {
     const row = q('SELECT * FROM password_resets WHERE token_hash = ?').get(resetHash(req.params.token));
     if (!row || row.used_at || row.expires_at < Date.now()) throw new HttpError(410, 'This link has expired or been used. Ask for a new one from the sign-in page.');
     const user = q('SELECT id, username, name, org_id, disabled FROM users WHERE id = ?').get(row.user_id);
     if (!user || user.disabled) throw new HttpError(410, 'This account is turned off');
     const pw = String(req.body?.password || '');
-    validatePassword(pw, { orgId: user.org_id, email: user.username, name: user.name });
+    await validateNewPassword(pw, { orgId: user.org_id, email: user.username, name: user.name });
     tx(() => {
       q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?').run(hashPassword(pw), Date.now(), user.id);
       q('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(Date.now(), user.id); // every other link stops working too
@@ -199,13 +199,13 @@ export default function authRoutes({ secureCookies }) {
   // The company's password rules, to show where a new password is chosen.
   r.get('/password-rules', requireAuth, (req, res) => { const rules = rulesOf(req.user.org_id); res.json({ ...rules, text: rulesText(rules) }); });
 
-  r.patch('/me', requireAuth, (req, res) => {
+  r.patch('/me', requireAuth, async (req, res) => {
     const { name, currentPassword, newPassword } = req.body;
     if (name !== undefined) q('UPDATE users SET name = ? WHERE id = ?').run(str(name, { required: true, name: 'Name', max: 100 }), req.user.id);
     if (newPassword !== undefined) {
       const row = q('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
       if (!verifyPassword(String(currentPassword || ''), row.password_hash)) throw bad('Current password is wrong');
-      validatePassword(newPassword, { orgId: req.user.org_id, email: req.user.username, name: req.user.name });
+      await validateNewPassword(newPassword, { orgId: req.user.org_id, email: req.user.username, name: req.user.name });
       if (req.user.must_change_password && verifyPassword(newPassword, row.password_hash)) throw bad('Choose a new password, not the one you were given');
       q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?').run(hashPassword(newPassword), Date.now(), req.user.id);
       setMailPassword(req.user.id, newPassword);

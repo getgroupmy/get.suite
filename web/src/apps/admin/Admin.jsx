@@ -607,7 +607,7 @@ function ResetPassword({ user, onClose }) {
 // ---------------- the admin's own company ----------------
 /** The company's password rules: length, letters and numbers, a symbol, nothing easy to guess, expiry. */
 function PasswordRules({ org, save }) {
-  const r = org.password_rules || { min: 8, mix: false, symbol: false, common: false, max_days: 0 };
+  const r = org.password_rules || { min: 8, mix: false, symbol: false, common: false, max_days: 0, breached: false };
   const set = (c, msg) => save({ password_rules: { ...r, ...c } }, msg || 'Password rules saved');
   return (
     <div className="card stack" aria-labelledby="pwr-h">
@@ -619,6 +619,8 @@ function PasswordRules({ org, save }) {
       <label className="check"><input type="checkbox" checked={r.mix} onChange={(e) => set({ mix: e.target.checked })} /> Letters and numbers</label>
       <label className="check"><input type="checkbox" checked={r.symbol} onChange={(e) => set({ symbol: e.target.checked })} /> A symbol (like ! # or -)</label>
       <label className="check"><input type="checkbox" checked={r.common} onChange={(e) => set({ common: e.target.checked })} /> Nothing easy to guess (well-known passwords, or the person's own name or address)</label>
+      <label className="check"><input type="checkbox" checked={!!r.breached} onChange={(e) => set({ breached: e.target.checked })} /> Not one known from data breaches</label>
+      <p className="muted small" style={{ margin: '-6px 0 0 26px' }}>Checked against Have I Been Pwned’s list of passwords from past breaches, which attackers try first. Only the first 5 characters of a scrambled form (hash) of the password are sent, never the password itself; if the list can’t be reached, the password is allowed.</p>
       <label className="field" style={{ maxWidth: 260 }}><span>Passwords expire</span>
         <select aria-label="Passwords expire" value={r.max_days} onChange={(e) => { const d = Number(e.target.value); set({ max_days: d }, d ? `Passwords now expire after ${d} days` : 'Passwords no longer expire'); }}>
           {[[0, 'Never'], [30, 'After 30 days'], [60, 'After 60 days'], [90, 'After 90 days'], [180, 'After 180 days'], [365, 'After a year']].map(([d, n]) => <option key={d} value={d}>{n}</option>)}

@@ -16,7 +16,7 @@ import { orgMemberIds } from '../tenancy.js';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
 import { setHold, keepIfHeld } from '../hold.js';
-import { requireAdmin, validatePassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq, driveView, homeLayout, HOME_CARDS } from '../auth.js';
+import { requireAdmin, validateNewPassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq, driveView, homeLayout, HOME_CARDS } from '../auth.js';
 import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
 import { uid } from '../util.js';
 import { planImport, readablePassword, usersCsv } from '../userimport.js';
@@ -539,11 +539,11 @@ export default function userRoutes() {
     res.send(usersCsv(rows));
   });
 
-  r.post('/', (req, res) => {
+  r.post('/', async (req, res) => {
     const orgId = targetOrg(req);
     const username = validAddress(req.body.local, req.body.domain, orgId);
     const name = str(req.body.name, { required: true, name: 'Name', max: 100 });
-    validatePassword(req.body.password, { orgId, email: username, name });
+    await validateNewPassword(req.body.password, { orgId, email: username, name });
     const id = newUserRow({ orgId, username, name, password: req.body.password, is_admin: !!req.body.is_admin });
     if (req.body.must_change_password) q('UPDATE users SET must_change_password = 1 WHERE id = ?').run(id);
     audit(req, 'user.create', { org: orgId, target: username, details: { admin: !!req.body.is_admin, must_change_password: !!req.body.must_change_password } });
@@ -691,7 +691,7 @@ export default function userRoutes() {
     res.json({ done: done.length, skipped });
   });
 
-  r.patch('/:id', (req, res) => {
+  r.patch('/:id', async (req, res) => {
     const u = loadManagedUser(req);
     const self = u.id === req.user.id;
     const { name, is_admin, disabled, password, mail_quota_mb, reset_two_factor, drive_quota_mb } = req.body;
@@ -714,7 +714,7 @@ export default function userRoutes() {
       syncCompanyGroupAliases(u.org_id); // group email addresses reach active people only
     }
     if (password !== undefined) {
-      validatePassword(password, { orgId: u.org_id, email: u.username, name: u.name });
+      await validateNewPassword(password, { orgId: u.org_id, email: u.username, name: u.name });
       q('UPDATE users SET password_hash = ?, must_change_password = ?, password_set_at = ? WHERE id = ?').run(hashPassword(password), req.body.must_change_password && !self ? 1 : 0, Date.now(), u.id);
       setMailPassword(u.id, password);
       // A reset (e.g. after a break-in) also removes the mail-app password, so only the new password works anywhere.

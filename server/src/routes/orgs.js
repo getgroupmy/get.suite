@@ -124,14 +124,14 @@ function updateOrg(orgId, body, { asSuper, user }) {
     if (nets.length && !user.is_super && user.org_id === orgId && !inNets(user.ip, nets)) throw bad(`Your own address now (${user.ip}) isn't in the list: add it, or you'd be signed out at once`);
     q('UPDATE orgs SET allowed_nets = ? WHERE id = ?').run(nets.length ? nets.join('\n') : null, orgId);
   }
-  // Password rules: { min, mix, symbol, common, max_days }; they apply to passwords chosen from now on
+  // Password rules: { min, mix, symbol, common, max_days, breached }; they apply to passwords chosen from now on
   // (and an expiry, to everyone's current one).
   if (body.password_rules !== undefined) {
     const pr = body.password_rules || {};
     const min = Number(pr.min ?? 8), days = Number(pr.max_days ?? 0);
     if (!Number.isInteger(min) || min < 8 || min > 64) throw bad('The minimum length must be from 8 to 64 characters');
     if (!EXPIRY_CHOICES.includes(days)) throw bad(`Passwords can expire after ${EXPIRY_CHOICES.filter(Boolean).join(', ')} days, or never`);
-    q('UPDATE orgs SET pw_min = ?, pw_mix = ?, pw_symbol = ?, pw_common = ?, pw_max_days = ? WHERE id = ?').run(min, pr.mix ? 1 : 0, pr.symbol ? 1 : 0, pr.common ? 1 : 0, days, orgId);
+    q('UPDATE orgs SET pw_min = ?, pw_mix = ?, pw_symbol = ?, pw_common = ?, pw_max_days = ?, pw_breached = ? WHERE id = ?').run(min, pr.mix ? 1 : 0, pr.symbol ? 1 : 0, pr.common ? 1 : 0, days, pr.breached ? 1 : 0, orgId);
   }
   for (const key of ['mail_trash_days', 'mail_junk_days']) {
     if (body[key] === undefined) continue;
