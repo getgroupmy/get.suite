@@ -132,6 +132,18 @@ await step('writing to a lookalike address: a red warning, and Send asks first',
   if (await warn.count()) throw new Error('warned about an ordinary address');
   await page.keyboard.press('Escape');
 });
+await step('an email from outside about changed bank details: confirm by phone; the same from a colleague: nothing', async () => {
+  await open('New bank details'); // from the lookalike lnitech.com, "Please change the bank details we pay into."
+  const w = page.locator('.mail-reader').getByText('This email says bank or payment details have changed.');
+  await w.waitFor();
+  await page.locator('.mail-reader').getByText(/other things about this email are unusual too/).waitFor();
+  await page.locator('.mail-reader').getByText(/confirm it by phone on a number you already have/).waitFor();
+  await axe(page, 'payment warning');
+  const st = await put('"Kim" <kim@acme.com>', 'Supplier update');
+  if (st >= 300) throw new Error(`upload ${st}`);
+  await open('Supplier update');
+  if (await w.count()) throw new Error('warned about a colleague');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

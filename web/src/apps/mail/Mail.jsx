@@ -979,6 +979,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       {qr && (
         <div className="banner danger" role="note"><strong>⚠ This email has a QR code in it{qr === 'pdf' ? ' (in an attached PDF)' : ''}.</strong> Scanning one takes your phone straight to a web address that nobody here has checked, a common way to steal passwords. Don’t scan it unless you were expecting it; go to the company’s website yourself instead.</div>
       )}
+      {m.payment_risk && (
+        <div className="banner danger" role="note"><strong>⚠ {m.payment_risk === 'giftcards' ? 'This email asks you to buy gift cards.' : m.payment_risk === 'transfer' ? 'This email asks for an urgent money transfer.' : 'This email says bank or payment details have changed.'}</strong> That’s how most payment fraud works{m.first_contact || m.reply_elsewhere || m.outside?.domain_like ? ', and other things about this email are unusual too' : ''}. Before paying, confirm it by phone on a number you already have (not one in this email).</div>
+      )}
       {m.sender_check === 'forged' && (
         <div className="banner danger" role="note"><strong>⚠ This email may not be from {m.from?.address?.split('@')[1]}.</strong> When it arrived it failed that domain’s own check (DMARC): its owner says mail like this isn’t theirs. Don’t click its links, open its attachments or reply with anything sensitive; report it as phishing if you weren’t expecting it.</div>
       )}
