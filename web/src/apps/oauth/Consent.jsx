@@ -12,10 +12,13 @@ export default function Consent() {
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [access, setAccess] = useState('read'); // an AI assistant (read only unless the person chooses more): read only, or read and make changes
+  const [access, setAccess] = useState('read');
+  const [password, setPassword] = useState('');
+  const [pwError, setPwError] = useState(''); // connecting an assistant gives lasting access: confirmed with your password // an AI assistant (read only unless the person chooses more): read only, or read and make changes
   const go = async (path) => {
     setBusy(true);
-    try { const r = await post(path, { ...params, ...(info?.assistant && { access }) }); window.location.assign(r.redirect); } catch (e) { setError(e.message); setBusy(false); }
+    try { const r = await post(path, { ...params, ...(info?.assistant && { access, password }) }); window.location.assign(r.redirect); }
+    catch (e) { if (info?.assistant && /password/i.test(e.message)) setPwError(e.message); else setError(e.message); setBusy(false); } // a mistyped password: try again here
   };
   useEffect(() => {
     get(`/oauth/request?${new URLSearchParams(params)}`).then((r) => { setInfo(r); if (r.granted) go('/oauth/approve'); }).catch((e) => setError(e.message));
@@ -35,6 +38,8 @@ export default function Consent() {
               <label className="row"><input type="radio" name="access" checked={access === 'read'} onChange={() => setAccess('read')} /> <span>Read only</span></label>
               <label className="row"><input type="radio" name="access" checked={access === 'write'} onChange={() => setAccess('write')} /> <span>Read, and add events, tasks, notes, documents and email drafts (it never sends email)</span></label>
             </fieldset>
+            <label className="field"><span>Your Workspace password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+            {pwError && <p className="error" role="alert">{pwError}</p>}
             <div className="row end">
               <button type="button" className="btn" disabled={busy} onClick={() => go('/oauth/deny')}>Cancel</button>
               <button type="button" className="btn primary" disabled={busy} onClick={() => go('/oauth/approve')}>Allow</button>

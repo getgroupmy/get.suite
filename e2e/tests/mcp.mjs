@@ -52,6 +52,7 @@ await step('Settings → API tokens shows how to use Workspace from an assistant
   await card.getByRole('button', { name: 'New token' }).click();
   await card.getByLabel('What it\'s for').fill('Claude');
   await card.getByLabel('Access').selectOption('write');
+  await card.getByLabel('Your password').fill('password123');
   await card.getByRole('button', { name: 'Make token' }).click();
   token = (await card.getByLabel('New API token').innerText()).trim();
   await card.getByText('Use Workspace from an AI assistant (Claude, ChatGPT…)').click();
@@ -89,6 +90,10 @@ await step('claude.ai-style sign-in: the consent page offers read only or read a
   await page.screenshot({ path: `${SP}/shots/mcp-consent.png` });
   await axe(page, 'mcp consent');
   await page.getByRole('radio', { name: 'Read only' }).check();
+  await page.getByLabel('Your Workspace password').fill('wrong-password');
+  await page.getByRole('button', { name: 'Allow' }).click();
+  await page.getByRole('alert').getByText('Your password is not right').waitFor();
+  await page.getByLabel('Your Workspace password').fill('password123');
   await page.getByRole('button', { name: 'Allow' }).click();
   await until(() => landed);
   const u = new URL(landed);

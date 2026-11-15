@@ -60,6 +60,7 @@ await step('Kim makes a read-and-write token, sees it once, and a script uses it
   await sec.getByLabel("What it's for").fill('Scanner uploads');
   await sec.getByLabel('Access').selectOption('write');
   await sec.getByLabel('Expires').selectOption('30');
+  await sec.getByLabel('Your password').fill('password123');
   await sec.getByRole('button', { name: 'Make token' }).click();
   token = (await sec.getByLabel('New API token').innerText()).trim();
   if (!/^nwt_/.test(token)) throw new Error(token);
@@ -85,7 +86,7 @@ await step('the admin sees it in the company list and revokes it; the script is 
   if ((await bearer(token, 'GET', '/files')).status !== 401) throw new Error('still works');
 });
 await step('Kim revokes their own token after confirming', async () => {
-  const t2 = (await api(kim, 'POST', '/tokens', { name: 'Report', scope: 'read', days: 90 })).body.token;
+  const t2 = (await api(kim, 'POST', '/tokens', { password: 'password123', name: 'Report', scope: 'read', days: 90 })).body.token;
   if ((await bearer(t2, 'GET', '/files')).status !== 200) throw new Error('read');
   if ((await bearer(t2, 'POST', '/files/folder', { name: 'x' })).status !== 403) throw new Error('read-only');
   await kim.goto(`${B}/settings`);

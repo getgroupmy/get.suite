@@ -1195,6 +1195,8 @@ function ApiTokens() {
               <label className="field"><span>Access</span><select value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })}><option value="read">Read only</option><option value="write">Read and write</option></select></label>
               <label className="field"><span>Expires</span><select value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })}><option value="30">In 30 days</option><option value="90">In 90 days</option><option value="365">In a year</option><option value="0">Never</option></select></label>
             </div>
+            <label className="field"><span>Your password</span><input type="password" required autoComplete="current-password" value={form.password || ''} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+            <p className="muted small" style={{ margin: 0 }}>Asked for because a token keeps working after you sign out.</p>
             <div className="row"><button className="btn primary">Make token</button><button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button></div>
           </form>
         ) : <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => { setMade(null); setForm({ name: '', scope: 'read', days: '90' }); }}>New token</button>)}

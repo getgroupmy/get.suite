@@ -229,6 +229,12 @@ export function requireAuth(req, res, next) {
   next();
 }
 
+/** For things that give lasting access (an API token, an AI assistant): the person types their password again, so a borrowed or stolen session alone isn't enough. */
+export function checkOwnPassword(user, password) {
+  const row = q('SELECT password_hash FROM users WHERE id = ?').get(user.id);
+  if (!row || !verifyPassword(String(password || ''), row.password_hash)) throw new HttpError(400, 'Your password is not right');
+}
+
 export function requireAdmin(req, res, next) {
   if (!req.user?.is_admin) return next(new HttpError(403, 'Admins only'));
   next();

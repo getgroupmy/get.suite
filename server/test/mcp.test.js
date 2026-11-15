@@ -41,8 +41,8 @@ test('set up: a company, API tokens on, a read-write and a read-only token', asy
   owner = client();
   assert.equal((await owner('POST', '/api/auth/setup', { org_name: 'Acme', domain: 'acme.com', name: 'Olivia Owner', local: 'olivia', password: 'password123' })).status, 200);
   await owner('PATCH', '/api/orgs/current', { allow_api_tokens: true });
-  rw = (await owner('POST', '/api/tokens', { name: 'Claude', scope: 'write', days: 30 })).body.token;
-  ro = (await owner('POST', '/api/tokens', { name: 'ChatGPT', scope: 'read', days: 30 })).body.token;
+  rw = (await owner('POST', '/api/tokens', { password: 'password123', name: 'Claude', scope: 'write', days: 30 })).body.token;
+  ro = (await owner('POST', '/api/tokens', { password: 'password123', name: 'ChatGPT', scope: 'read', days: 30 })).body.token;
   assert.ok(rw && ro);
 });
 
@@ -169,7 +169,7 @@ test('company network rules apply to the assistant’s calls too', async () => {
   assert.equal((await owner('POST', '/api/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).status, 201);
   const kim = client();
   assert.equal((await kim('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' })).status, 200);
-  const kt = (await kim('POST', '/api/tokens', { name: 'Claude', scope: 'write', days: 30 })).body.token;
+  const kt = (await kim('POST', '/api/tokens', { password: 'password123', name: 'Claude', scope: 'write', days: 30 })).body.token;
   await owner('PATCH', '/api/orgs/current', { allowed_nets: '10.9.9.0/24' });
   assert.equal((await rpc(kt, 'tools/call', { name: 'search', arguments: { query: 'x' } })).status, 403, 'refused: this test runs from 127.0.0.1, outside 10.9.9.0/24');
   await owner('PATCH', '/api/orgs/current', { allowed_nets: '127.0.0.1/32' });
@@ -216,7 +216,10 @@ test('OAuth for assistants (claude.ai, ChatGPT): discovery, registration, consen
   const info = (await owner('GET', `/api/oauth/request?${new URLSearchParams(params)}`)).body;
   assert.deepEqual([info.app, info.assistant, info.granted, info.host], ['Claude', true, false, 'claude.ai']);
   // 4. Allowed to read only.
-  const ok = (await owner('POST', '/api/oauth/approve', { ...params, access: 'read' })).body;
+  const noPw = await owner('POST', '/api/oauth/approve', { ...params, access: 'read' });
+  assert.equal(noPw.status, 400, 'connecting an assistant asks for your password');
+  assert.match(noPw.body.error, /password/);
+  const ok = (await owner('POST', '/api/oauth/approve', { ...params, access: 'read', password: 'password123' })).body;
   const back = new URL(ok.redirect);
   assert.equal(back.searchParams.get('state'), 's1');
   const code = back.searchParams.get('code');
@@ -250,7 +253,7 @@ test('OAuth for assistants (claude.ai, ChatGPT): discovery, registration, consen
   // 7. Allowing changes, next time.
   const p3 = Object.fromEntries(new URL((await authz({ code_challenge: challenge, code_challenge_method: 'S256' })).headers.get('location'), base).searchParams);
   assert.equal((await owner('GET', `/api/oauth/request?${new URLSearchParams(p3)}`)).body.granted, false, 'asks again to give more');
-  const code3 = new URL((await owner('POST', '/api/oauth/approve', { ...p3, access: 'write' })).body.redirect).searchParams.get('code');
+  const code3 = new URL((await owner('POST', '/api/oauth/approve', { ...p3, access: 'write', password: 'password123' })).body.redirect).searchParams.get('code');
   const rw2 = (await token({ grant_type: 'authorization_code', code: code3, redirect_uri: redirect, client_id: clientId, code_verifier: verifier })).body.access_token;
   assert.equal((await call(rw2, 'create_note', { title: 'From claude.ai', text: 'hello' })).isError, false);
   // 8. Disconnecting stops it at once.

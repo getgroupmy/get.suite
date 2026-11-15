@@ -1462,12 +1462,12 @@ test('API tokens: off until the company allows them; read-only or write; expire;
     .then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
 
   assert.equal((await a('GET', '/api/tokens')).body.allowed, false);
-  assert.equal((await a('POST', '/api/tokens', { name: 'Backup', scope: 'read' })).status, 403, 'off by default');
+  assert.equal((await a('POST', '/api/tokens', { password: 'password123', name: 'Backup', scope: 'read' })).status, 403, 'off by default');
   assert.equal((await a('PATCH', '/api/orgs/current', { allow_api_tokens: true })).status, 403, 'admins turn it on');
   await owner('PATCH', '/api/orgs/current', { allow_api_tokens: true });
   assert.equal((await owner('GET', '/api/orgs/current')).body.allow_api_tokens, true);
 
-  const made = await a('POST', '/api/tokens', { name: 'Backup', scope: 'read', days: 30 });
+  const made = await a('POST', '/api/tokens', { password: 'password123', name: 'Backup', scope: 'read', days: 30 });
   assert.equal(made.status, 201);
   const ro = made.body.token;
   assert.match(ro, /^nwt_[A-Za-z0-9_-]{40}$/);
@@ -1476,8 +1476,10 @@ test('API tokens: off until the company allows them; read-only or write; expire;
   assert.deepEqual(listed.map((x) => [x.name, x.scope]), [['Backup', 'read']]);
   assert.ok(!JSON.stringify(listed).includes(ro), 'the token itself is shown only once');
   assert.ok(Math.abs(listed[0].expires_at - (Date.now() + 30 * 864e5)) < 60e3);
-  assert.equal((await a('POST', '/api/tokens', { name: 'x', days: 7 })).status, 400);
-  assert.equal((await a('POST', '/api/tokens', { name: 'x', scope: 'admin' })).status, 400);
+  assert.equal((await a('POST', '/api/tokens', { password: 'password123', name: 'x', days: 7 })).status, 400);
+  assert.equal((await a('POST', '/api/tokens', { name: 'No password', scope: 'read', days: 30 })).status, 400, 'your password is asked for: a token outlasts the session');
+  assert.equal((await a('POST', '/api/tokens', { password: 'wrong-password', name: 'x', scope: 'read', days: 30 })).status, 400);
+  assert.equal((await a('POST', '/api/tokens', { password: 'password123', name: 'x', scope: 'admin' })).status, 400);
 
   // Read-only: GETs as that person, nothing else.
   const me = await bearer(ro, 'GET', '/api/files');
@@ -1488,7 +1490,7 @@ test('API tokens: off until the company allows them; read-only or write; expire;
   assert.ok((await a('GET', '/api/tokens')).body.tokens[0].last_used_at, 'when it was last used');
 
   // Write: makes things as that person, without the browser's header; a session cookie still needs it.
-  const rw = (await a('POST', '/api/tokens', { name: 'Uploader', scope: 'write', days: 0 })).body;
+  const rw = (await a('POST', '/api/tokens', { password: 'password123', name: 'Uploader', scope: 'write', days: 0 })).body;
   assert.equal(rw.expires_at, null);
   const folder = await bearer(rw.token, 'POST', '/api/files/folder', { name: 'From the scanner' });
   assert.equal(folder.status, 201);

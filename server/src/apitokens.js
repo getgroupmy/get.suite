@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { q } from './db.js';
 import { uid, now, str, bad, notFound, HttpError } from './util.js';
 import { audit } from './audit.js';
-import { requireAdmin } from './auth.js';
+import { requireAdmin, checkOwnPassword } from './auth.js';
 import { assistantTokenRow } from './mcpauth.js';
 
 q(`CREATE TABLE IF NOT EXISTS api_tokens (
@@ -80,6 +80,7 @@ export function apiTokenRoutes() {
     if (!SCOPES.includes(scope)) throw bad('Access must be read or write');
     const days = Number(req.body?.days ?? 90);
     if (!EXPIRY_DAYS.includes(days)) throw bad('Expiry must be 30, 90 or 365 days, or never (0)');
+    checkOwnPassword(req.user, req.body?.password); // a token lasts beyond this session
     if (q('SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = ?').get(req.user.id).n >= MAX_TOKENS) throw bad(`You can have ${MAX_TOKENS} tokens at most: revoke one first`);
     const token = PREFIX + crypto.randomBytes(30).toString('base64url');
     const id = uid();

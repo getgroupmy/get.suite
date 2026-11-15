@@ -2085,7 +2085,7 @@ test('moving from Gmail: Takeout’s all-mail .mbox is split by its labels (Inbo
 
 test('MCP: an assistant lists and reads mail, and writes a draft that waits in Drafts (never sent)', async () => {
   await olivia('PATCH', '/api/orgs/current', { allow_api_tokens: true });
-  const made = await olivia('POST', '/api/tokens', { name: 'Claude', scope: 'write', days: 30 });
+  const made = await olivia('POST', '/api/tokens', { password: 'password123', name: 'Claude', scope: 'write', days: 30 });
   assert.equal(made.status, 201, JSON.stringify(made.body));
   const call = async (name, args) => {
     const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });

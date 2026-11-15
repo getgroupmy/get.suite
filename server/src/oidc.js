@@ -11,7 +11,7 @@ import express, { Router } from 'express';
 import { q } from './db.js';
 import { uid, now, bad, notFound, HttpError } from './util.js';
 import { audit } from './audit.js';
-import { userFromToken, tokenFromReq, destroySession, clearSessionCookie } from './auth.js';
+import { userFromToken, tokenFromReq, destroySession, clearSessionCookie, checkOwnPassword } from './auth.js';
 import { mcpClientBy, orgAllowsAssistants, mcpScopesOf } from './mcpauth.js';
 
 q(`CREATE TABLE IF NOT EXISTS oidc_clients (
@@ -297,6 +297,11 @@ export function oidcApiRoutes() {
     const { c } = loaded;
     // An assistant can be let in to read only, whatever it asked for.
     const scopes = c.kind === 'mcp' && b.access === 'read' ? loaded.scopes.filter((x) => x !== 'mcp:write') : loaded.scopes;
+    // A new assistant (or more than it had) gets lasting access: the person confirms with their password.
+    if (c.kind === 'mcp') {
+      const had = q('SELECT scope FROM oidc_grants WHERE user_id = ? AND client_id = ?').get(req.user.id, c.client_id);
+      if (!had || !scopes.every((x) => had.scope.split(' ').includes(x))) checkOwnPassword(req.user, b.password);
+    }
     const method = b.code_challenge ? (b.code_challenge_method === 'plain' ? 'plain' : 'S256') : null;
     const code = crypto.randomBytes(24).toString('base64url');
     q('INSERT INTO oidc_codes (code_hash, client_id, user_id, redirect_uri, scope, nonce, challenge, challenge_method, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
