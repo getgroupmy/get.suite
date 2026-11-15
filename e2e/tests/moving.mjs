@@ -73,6 +73,23 @@ await step('Admin → Moving here shows who has brought what over, and who hasn�
   await page.screenshot({ path: `${SP}/shots/moving.png` });
   await axe(page, 'moving here');
 });
+await step('remind those who haven’t started: they get a notification that opens the steps', async () => {
+  await page.getByRole('button', { name: /^Remind those who haven’t started/ }).click();
+  const d = page.getByRole('dialog', { name: 'Remind those who haven’t started' });
+  await d.getByLabel('A note from you (optional)').fill('Please bring your mail over by Friday');
+  await d.getByRole('button', { name: 'Send reminder' }).click();
+  await page.getByText(/^Reminded \d+ (person|people)$/).waitFor();
+  const lee = await (await browser.newContext()).newPage();
+  await lee.goto(B);
+  await lee.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'lee@acme.com', password: 'password123' }) }));
+  await lee.goto(`${B}/home`);
+  await lee.getByRole('button', { name: /^Notifications, \d+ new/ }).click();
+  await lee.getByRole('dialog', { name: 'Notifications' }).getByText('Bring your mail and files over to Workspace').click();
+  await lee.waitForURL(/\/settings#move-here$/);
+  await lee.getByRole('region', { name: 'Move here from another service' }).waitFor();
+  await until(() => lee.getByRole('region', { name: 'Move here from another service' }).evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight; }));
+  await lee.context().close();
+});
 await step('on a phone the table scrolls inside itself, nothing slides sideways', async () => {
   await page.setViewportSize({ width: 375, height: 760 });
   await page.reload();

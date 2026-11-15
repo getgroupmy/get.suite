@@ -1,8 +1,8 @@
 // Admin → Moving here: who has brought their mail and files over from the old service, who is part-way,
 // and whose import stopped (server: migrationstatus.js).
 import { useEffect, useState } from 'react';
-import { get } from '../../api.js';
-import { Empty } from '../../components/ui.jsx';
+import { get, post } from '../../api.js';
+import { Empty, Modal, useToast } from '../../components/ui.jsx';
 
 const when = (t) => (t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
 const SHOW = [['all', 'Everyone'], ['nothing', 'Not started'], ['failed', 'Import stopped'], ['running', 'Importing now'], ['done', 'Mail imported']];
@@ -10,6 +10,8 @@ const SHOW = [['all', 'Everyone'], ['nothing', 'Not started'], ['failed', 'Impor
 export default function MigrationAdmin() {
   const [data, setData] = useState(null);
   const [show, setShow] = useState('all');
+  const [reminding, setReminding] = useState(null); // the note being written, or null
+  const toast = useToast();
   useEffect(() => {
     let live = true;
     const load = () => get('/orgs/current/migration').then((d) => live && setData(d)).catch(() => live && setData({ people: [], counts: {} }));
@@ -32,6 +34,7 @@ export default function MigrationAdmin() {
           <span role="listitem"><strong>{c.data}</strong> brought in an export</span>
           <span role="listitem"><strong>{c.nothing}</strong> not started</span>
         </div>
+        {c.nothing > 0 && <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => setReminding('')}>Remind those who haven’t started ({c.nothing})</button>}
         <label className="field" style={{ maxWidth: 260 }}><span>Show</span>
           <select value={show} onChange={(e) => setShow(e.target.value)}>{SHOW.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       </section>
@@ -53,6 +56,17 @@ export default function MigrationAdmin() {
             </tbody>
           </table>
         </div>
+      )}
+      {reminding !== null && (
+        <Modal title="Remind those who haven’t started" onClose={() => setReminding(null)} footer={<>
+          <button type="button" className="btn" onClick={() => setReminding(null)}>Cancel</button>
+          <button type="button" className="btn primary" onClick={async () => {
+            try { const r = await post('/orgs/current/migration/remind', { message: reminding }); toast(`Reminded ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'}`); setReminding(null); } catch (e) { toast(e.message, 'error'); }
+          }}>Send reminder</button>
+        </>}>
+          <p className="small" style={{ marginTop: 0 }}>The {c.nothing} {c.nothing === 1 ? 'person' : 'people'} who haven’t imported mail or brought in an export get a notification (on their phones too, if they’ve turned that on) linking to the steps in Settings.</p>
+          <label className="field"><span>A note from you (optional)</span><textarea rows={3} maxLength={300} value={reminding} onChange={(e) => setReminding(e.target.value)} placeholder="e.g. Please bring your mail over by Friday: the old accounts close next week." /></label>
+        </Modal>
       )}
     </div>
   );

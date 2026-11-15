@@ -264,6 +264,17 @@ export default function orgRoutes() {
   });
   // Admin → Moving here: each person's latest mail import and export brought in (migrationstatus.js).
   r.get('/current/migration', requireAdmin, (req, res) => res.json(migrationOf(req.user.org_id)));
+  // A reminder to those who haven't brought anything over yet (or the people picked): a notification with the steps.
+  r.post('/current/migration/remind', requireAdmin, (req, res) => {
+    const { people } = migrationOf(req.user.org_id);
+    const picked = Array.isArray(req.body?.ids) ? new Set(req.body.ids.map(String)) : null;
+    const to = people.filter((p) => (picked ? picked.has(p.id) : !p.mail && !p.data) && p.id !== req.user.id).map((p) => p.id);
+    if (!to.length) throw bad('There’s nobody to remind');
+    const note = String(req.body?.message || '').trim().slice(0, 300);
+    bell(to, { kind: 'company', title: 'Bring your mail and files over to Workspace', body: note || 'Your email, files, calendar and contacts from the service you used before: the steps are in Settings → Move here from another service.', link: '/settings#move-here', actor: req.user.name });
+    audit(req, 'migration.remind', { target: `${to.length} ${to.length === 1 ? 'person' : 'people'}` });
+    res.json({ reminded: to.length });
+  });
   r.get('/current/storage', requireAdmin, (req, res) => {
     const orgId = req.query.org_id && req.user.is_super ? String(req.query.org_id) : req.user.org_id;
     const org = q('SELECT * FROM orgs WHERE id = ?').get(orgId);

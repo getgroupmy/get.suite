@@ -775,8 +775,10 @@ function MoveHere() {
   const [from, setFrom] = useState('google');
   const bring = useBringIn();
   const m = MOVE_FROM[from];
+  // From a reminder (/settings#move-here): straight to these steps.
+  useEffect(() => { if (window.location.hash === '#move-here') setTimeout(() => document.getElementById('move-here')?.scrollIntoView({ block: 'start' }), 300); }, []);
   return (
-    <section className="card stack" aria-labelledby="movehere-h">
+    <section className="card stack" id="move-here" aria-labelledby="movehere-h">
       <h2 id="movehere-h">Move here from another service</h2>
       <p className="muted small" style={{ margin: 0 }}>Bring your email, files, calendar, contacts, notes and tasks from the service you used before. Nothing there is changed or deleted; what's already here is skipped, so you can do it again later to catch up.</p>
       <div className="row move-from" role="group" aria-label="Moving from">

@@ -15188,3 +15188,19 @@ test('Admin → Moving here: each person’s latest mail import and the export t
   assert.ok(r.body.counts.mail_failed >= 1 && r.body.counts.data >= 2);
   assert.equal((await m1('GET', '/api/orgs/current/migration')).status, 403, 'admins only');
 });
+
+test('Admin → Moving here: remind those who haven’t started (a notification with the steps)', async () => {
+  const c = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'remindme', domain: 'acme.com', name: 'Remind Me', password: 'password123' })).status, 201);
+  await login(c, 'remindme@acme.com');
+  const r = await owner('POST', '/api/orgs/current/migration/remind', { message: 'Please move your mail over by Friday' });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.reminded >= 1);
+  const bell = (await c('GET', '/api/notifications')).body.items.find((n) => n.kind === 'company');
+  assert.equal(bell.title, 'Bring your mail and files over to Workspace');
+  assert.equal(bell.body, 'Please move your mail over by Friday');
+  assert.equal(bell.link, '/settings#move-here');
+  assert.equal((await owner('GET', '/api/notifications')).body.items.some((n) => n.kind === 'company'), false, 'not the admin who sent it');
+  assert.equal((await c('POST', '/api/orgs/current/migration/remind', {})).status, 403);
+  assert.equal((await owner('POST', '/api/orgs/current/migration/remind', { ids: ['nobody'] })).status, 400);
+});
