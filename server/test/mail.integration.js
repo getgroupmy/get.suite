@@ -2188,7 +2188,8 @@ test('a company that refuses programs by email: mail with one attached (or disgu
   const mx = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'mx.sender-test.example' });
   const send = (subject, attachments) => mx.sendMail({ from: 'it@helpdesk-test.example', to: 'olivia@acme.com', envelope: { from: 'relay@acme.com', to: 'olivia@acme.com' }, subject, text: 'See attached.', attachments });
   const MZ = Buffer.concat([Buffer.from('MZ'), Buffer.alloc(200)]);
-  for (const [subject, attachments] of [['Update tool', [{ filename: 'update.exe', content: MZ }]], ['Invoice', [{ filename: 'invoice.pdf.exe', content: MZ }]], ['Script', [{ filename: 'run.js', content: 'WScript.Echo(1)' }]]]) {
+  for (const [subject, attachments] of [['Update tool', [{ filename: 'update.exe', content: MZ }]], ['Invoice', [{ filename: 'invoice.pdf.exe', content: MZ }]], ['Script', [{ filename: 'run.js', content: 'WScript.Echo(1)' }]],
+    ['Zipped', [{ filename: 'docs.zip', content: await (async () => { const z = new (await import('jszip')).default(); z.file('setup.exe', MZ); return z.generateAsync({ type: 'nodebuffer' }); })() }]]]) {
     await assert.rejects(send(subject, attachments), (e) => { assert.match(String(e.response || e.message), /^5\d\d .*Programs and scripts aren.t accepted by email here/); return true; }, subject);
   }
   const ok = await send('Report', [{ filename: 'report.pdf', content: Buffer.from('%PDF-1.4\n%%EOF') }]);
