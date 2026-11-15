@@ -1124,6 +1124,8 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .slide-notes textarea { width: 100%; resize: vertical; font: inherit; font-size: 14px; }
 .slide-notes.read p { margin: 0; white-space: pre-wrap; }
 .presenter-notes { position: absolute; left: 0; right: 0; bottom: 56px; max-height: 30vh; overflow: auto; padding: 14px 24px; background: rgba(0,0,0,.8); color: #fff; font-size: 20px; line-height: 1.4; white-space: pre-wrap; }
+.presenter-captions { position: absolute; left: 50%; transform: translateX(-50%); bottom: 64px; max-width: min(90vw, 1100px); text-align: center; pointer-events: none; }
+.presenter-captions > span { display: inline-block; padding: 8px 16px; border-radius: 6px; background: rgba(0,0,0,.82); color: #fff; font-size: clamp(18px, 2.4vw, 30px); line-height: 1.35; pointer-events: auto; }
 .presenter-view { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: #1f1f1f; color: #f1f3f4; }
 .presenter-view.ended { align-items: center; justify-content: center; }
 .presenter-view .muted { color: #9aa0a6; }

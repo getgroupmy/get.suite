@@ -1,6 +1,7 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import Captions, { canCaption } from './Captions.jsx';
 import { SlideFind } from './SlideFind.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
@@ -1058,6 +1059,7 @@ function Presenter({ deck, theme, deckId, start, onClose: done, rehearse = false
     return () => clearTimeout(t);
   }, [at, wait, paused, deck]);
   const [laser, setLaser] = useState(null); // null: off; { x, y } where it points (L turns it on and off)
+  const [cc, setCc] = useState(false); // live captions of what the presenter says (C)
   const ref = useRef();
   const last = deck.slides.length - 1;
   // The presenter window (if open) follows this one, and can move it.
@@ -1105,6 +1107,7 @@ function Presenter({ deck, theme, deckId, start, onClose: done, rehearse = false
     else if (e.key === 'n' || e.key === 'N') setNotes((v) => !v); // notes on this screen, for a single display
     else if (e.key === 'l' || e.key === 'L') setLaser((v) => (v ? null : { x: -100, y: -100 })); // a laser pointer that follows the mouse
     else if (e.key === 'p' || e.key === 'P') setPaused((v) => !v); // stop (and restart) slides moving on by themselves
+    else if ((e.key === 'c' || e.key === 'C') && canCaption()) setCc((v) => !v); // captions on and off
   };
   return (
     <div ref={ref} className={`presenter ${laser ? 'lasering' : ''}`} tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={(e) => {
@@ -1127,9 +1130,11 @@ function Presenter({ deck, theme, deckId, start, onClose: done, rehearse = false
         {wait > 0 && <button type="button" aria-label={paused ? 'Resume moving on by itself' : 'Pause moving on by itself'} aria-pressed={paused} title={`${paused ? 'Paused' : `Moves on after ${wait} s`} (P)`} onClick={() => setPaused((v) => !v)}>{paused ? '▶' : '⏸'}</button>}
         {deck.loop && <span className="muted small" title="Starts again after the last slide">⟳</span>}
         <button type="button" aria-label={laser ? 'Turn off the laser pointer' : 'Laser pointer'} aria-pressed={!!laser} title="Laser pointer (L)" onClick={() => setLaser((v) => (v ? null : { x: -100, y: -100 }))}>●</button>
+        {canCaption() && <button type="button" aria-label={cc ? 'Turn off captions' : 'Captions'} aria-pressed={cc} title="Captions: what you say, along the bottom of the slide (C)" onClick={() => setCc((v) => !v)}>CC</button>}
         <button type="button" aria-label={qa ? 'Hide audience questions' : 'Audience questions'} aria-pressed={!!qa} title="Audience Q&A: people at your company ask and upvote questions at a link" onClick={toggleQa}>❓</button>
         <button type="button" aria-label="End presentation" onClick={() => onClose(i)}>✕</button>
       </div>
+      {cc && <Captions />}
       {qa && <QaPanel code={qa} onHide={() => setQa(null)} onEnded={() => setTimeout(() => setQa(null), 1500)} />}
       {rehearse && (() => {
         const total = timed.current.reduce((n, x) => n + x.ms, 0) + (Date.now() - since.current);
