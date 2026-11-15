@@ -2112,6 +2112,49 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.equal((await inbox(bob, `Re: ${subject}`)).length, 0, 'nothing sent to Bob');
 });
 
+test('risky attachments: marked in the message, and handed over only once confirmed', async () => {
+  const JSZip = (await import('jszip')).default;
+  const z = new JSZip(); z.file('Invoice.pdf.exe', 'MZ...'); z.file('readme.txt', 'hi');
+  const subject = `Risky ${Date.now()}`;
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.example.org' });
+  await t.sendMail({ from: 'billing@globex.com', to: 'olivia@acme.com', subject, text: 'Please pay.', attachments: [
+    { filename: 'photo.jpg', content: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]) },
+    { filename: 'scan.pdf', content: Buffer.concat([Buffer.from('MZ'), Buffer.alloc(64)]) },
+    { filename: 'Q3.xlsm', content: Buffer.from('PK fake') },
+    { filename: 'invoices.zip', content: await z.generateAsync({ type: 'nodebuffer' }) },
+  ] });
+  // The spam filter may well file it in Junk (programs in attachments count against it): either is fine here.
+  let F = 'INBOX';
+  const m = await eventually(async () => {
+    for (const f of ['INBOX', 'Junk']) { const x = (await olivia('GET', `/api/mail/messages?folder=${f}&q=${encodeURIComponent(subject)}`)).body.messages?.[0]; if (x) { F = f; return x; } }
+    return null;
+  }, 30000);
+  const full = (await olivia('GET', `/api/mail/messages/${m.uid}?folder=${F}`)).body;
+  const by = Object.fromEntries(full.attachments.map((a) => [a.filename, a]));
+  assert.equal(by['photo.jpg'].risk, null);
+  assert.equal(by['scan.pdf'].risk.level, 'danger', 'a program with a .pdf name');
+  assert.equal(by['Q3.xlsm'].risk.level, 'warning');
+  assert.equal(by['invoices.zip'].risk.level, 'danger');
+  assert.match(by['invoices.zip'].risk.reasons[0], /Invoice\.pdf\.exe/);
+  const dl = async (url) => (await olivia('GET', url)).status;
+  assert.equal(await dl(`/api/mail/messages/${m.uid}/attachments/${by['photo.jpg'].index}?folder=${F}`), 200);
+  assert.equal(await dl(`/api/mail/messages/${m.uid}/attachments/${by['scan.pdf'].index}?folder=${F}`), 409);
+  assert.equal(await dl(`/api/mail/messages/${m.uid}/attachments/${by['scan.pdf'].index}?folder=${F}&view`), 409, 'opening it too');
+  assert.equal(await dl(`/api/mail/messages/${m.uid}/attachments/${by['scan.pdf'].index}?folder=${F}&confirm=1`), 200);
+  assert.equal(await dl(`/api/mail/messages/${m.uid}/attachments.zip?folder=${F}`), 409);
+  assert.equal(await dl(`/api/mail/messages/${m.uid}/attachments.zip?folder=${F}&confirm=1`), 200);
+  // Mail → Attachments: marked by name in the list; the parts and the .zip of picked ones are held back too.
+  const list = (await olivia('GET', `/api/mail/attachments?folder=${F}&q=${encodeURIComponent(subject)}`)).body.items;
+  const part = (n) => list.find((a) => a.filename === n);
+  assert.equal(part('Q3.xlsm').risk.level, 'warning');
+  assert.equal(part('photo.jpg').risk, null);
+  assert.equal((await olivia('GET', `/api/mail/messages/${m.uid}/parts/${part('scan.pdf').part}?folder=${F}`)).status, 409, 'found out from what it is');
+  assert.equal((await olivia('GET', `/api/mail/messages/${m.uid}/parts/${part('photo.jpg').part}?folder=${F}`)).status, 200);
+  const items = [{ uid: m.uid, part: part('photo.jpg').part }, { uid: m.uid, part: part('Q3.xlsm').part }];
+  assert.equal((await olivia('POST', '/api/mail/attachments/zip', { folder: F, items })).status, 409);
+  assert.equal((await olivia('POST', '/api/mail/attachments/zip', { folder: F, items, confirm: true })).status, 200);
+});
+
 test('DMARC and TLS reports sent to postmaster@ are read and added up for the admin', async () => {
   const zlib = await import('node:zlib');
   const { DMARC, TLS } = await import('./fixtures/reports.js');

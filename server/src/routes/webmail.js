@@ -1,4 +1,5 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
+import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
 import { audit } from '../audit.js';
 import { recordPhishing } from '../phishing.js';
@@ -1133,7 +1134,7 @@ export default function webmailRoutes() {
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       // From outside the company (when it marks such mail), or using a colleague's name from outside.
       outside: incomingWarning(req.user, addrList(p.from)[0]),
-      attachments: attachmentList(p),
+      attachments: await attachmentList(p),
       invite: inviteFor(req.user, p),
       // The sender asked for a read receipt (and it hasn't been answered yet): offered, never sent by itself.
       receipt: (() => {
@@ -1406,6 +1407,7 @@ export default function webmailRoutes() {
     const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
     const a = parsed.attachments.filter((x) => !x.related)[Number(req.params.index)];
     if (!a) throw notFound('Attachment not found');
+    if (!(await riskOk(req, res, [a]))) return;
     // ?view shows the safe kinds (pictures, PDF, text, audio, video) in the browser; anything else downloads.
     const shown = req.query.view !== undefined && previewMime(a.filename);
     if (shown) { res.set(previewHeaders(shown, a.filename)); res.end(a.content); return; }
@@ -1421,6 +1423,7 @@ export default function webmailRoutes() {
     const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
     const list = parsed.attachments.filter((x) => !x.related);
     if (!list.length) throw notFound('This message has no attachments');
+    if (!(await riskOk(req, res, list))) return;
     const buf = await attachmentsZip(list);
     const name = `${safeName(parsed.subject, 'Attachments')} (attachments).zip`;
     res.setHeader('Content-Type', 'application/zip');
@@ -1522,7 +1525,7 @@ export default function webmailRoutes() {
           for (const a of partsOf(m.bodyStructure)) {
             if (kind && a.kind !== kind) continue;
             if (words && !`${a.filename} ${from?.name || ''} ${from?.address || ''} ${env.subject || ''}`.toLowerCase().includes(words)) continue;
-            items.push({ ...a, uid: m.uid, seq: m.seq, subject: env.subject || '', from, date: (env.date || m.internalDate)?.valueOf?.() ?? null });
+            items.push({ ...a, uid: m.uid, seq: m.seq, subject: env.subject || '', from, date: (env.date || m.internalDate)?.valueOf?.() ?? null, risk: nameRisk(a.filename) }); // by name (the file itself isn't fetched for the list)
           }
           end = m.seq - 1;
           if (items.length >= WANT) break;
@@ -1551,6 +1554,8 @@ export default function webmailRoutes() {
   };
   r.get('/messages/:uid/parts/:part', async (req, res) => {
     const a = await partOf(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), String(req.params.part));
+    if (req.query.check !== undefined) return res.json({ risk: await attachmentRisk(a) }); // asked before downloading (Mail → Attachments)
+    if (!(await riskOk(req, res, [a]))) return;
     const shown = req.query.view !== undefined && previewMime(a.filename);
     if (shown) { res.set(previewHeaders(shown, a.filename)); res.end(a.content); return; }
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -1572,6 +1577,7 @@ export default function webmailRoutes() {
       if (total > 100 * 1024 * 1024) throw bad('Those come to more than 100 MB: pick fewer');
       list.push(a);
     }
+    await riskGate(list, confirmedIn(req));
     const buf = await attachmentsZip(list);
     const name = `Attachments (${list.length} ${list.length === 1 ? 'file' : 'files'}).zip`;
     res.setHeader('Content-Type', 'application/zip');
@@ -2318,16 +2324,46 @@ export function emailCard(p) {
     subject: String(p.subject || '').slice(0, 300),
     date: p.date?.valueOf() ?? null,
     text: main.length > 1500 ? `${main.slice(0, 1500).replace(/\s+\S*$/, '')}…` : main,
-    attachments: attachmentList(p).slice(0, 20).map((a) => a.filename),
+    attachments: p.attachments.filter((a) => !a.related).slice(0, 20).map((a, i) => a.filename || `attachment-${i + 1}`),
     // To find it in someone's own mailbox (Open in Mail) and to answer it (Reply by email).
     message_id: p.messageId ? String(p.messageId).slice(0, 998) : null,
   };
 }
 
-function attachmentList(p) {
-  return p.attachments.filter((a) => !a.related)
-    .map((a, i) => ({ index: i, filename: a.filename || `attachment-${i + 1}`, contentType: a.contentType, size: a.size }));
+async function attachmentList(p) {
+  return Promise.all(p.attachments.filter((a) => !a.related)
+    .map(async (a, i) => ({ index: i, filename: a.filename || `attachment-${i + 1}`, contentType: a.contentType, size: a.size, risk: await attachmentRisk(a) })));
 }
+
+/**
+ * Risky attachments (programs, macros, disguised names: attachrisk.js) are only handed over once the
+ * person has said they understand (?confirm=1, or confirm: true). Until then: 409 with why.
+ */
+async function riskGate(list, confirmed, req = null) {
+  if (confirmed) return;
+  for (const a of list) {
+    const r = await attachmentRisk(a);
+    if (!r) continue;
+    const err = new HttpError(409, `${a.filename || 'This attachment'} may be harmful: ${r.reasons.join('; ')}. Confirm to download it anyway.`);
+    // Opened straight in the browser (a link, a new tab): a page saying so, not a JSON error.
+    if (req && req.method === 'GET' && !req.get('x-requested-with') && req.accepts(['json', 'html']) === 'html') err.page = r;
+    throw err;
+  }
+}
+/** The 409 page for a risky attachment opened straight in the browser. */
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function riskPage(res, name, risk) {
+  res.status(409).type('html').set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>This attachment may be harmful</title>
+<body style="font:16px system-ui,sans-serif;max-width:560px;margin:10vh auto;padding:0 16px;line-height:1.5"><h1 style="font-size:22px">This attachment may be harmful</h1>
+<p><strong>${esc(name || 'This attachment')}</strong></p><ul>${risk.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
+<p>It wasn't downloaded. To download it anyway, open the email in Workspace Mail and choose it there: you'll be asked to confirm.</p></body>`);
+}
+/** riskGate for routes that send the file: the page for browsers, or the 409 error. → whether to go on. */
+async function riskOk(req, res, list) {
+  try { await riskGate(list, confirmedIn(req), req); return true; }
+  catch (e) { if (e.page) { riskPage(res, list.find((a) => a.filename)?.filename, e.page); return false; } throw e; }
+}
+const confirmedIn = (req) => req.query.confirm === '1' || req.body?.confirm === true;
 
 /** The signature for one of your addresses: your own, or the company's (company: 'default' | 'always'). */
 function signatureOf(userId, address, user = null) {
@@ -2370,7 +2406,7 @@ async function withFileNames(client, uids, files) {
 /** The first few attachments, for chips under a message in the list (and how many there are). */
 function filesOf(node) {
   const all = partsOf(node);
-  return all.length ? { files: all.slice(0, 3).map(({ part, filename, kind }) => ({ part, filename, kind })), fileCount: all.length } : {};
+  return all.length ? { files: all.slice(0, 3).map(({ part, filename, kind }) => ({ part, filename, kind, risk: nameRisk(filename) })), fileCount: all.length } : {};
 }
 
 function hasAttachment(node) {

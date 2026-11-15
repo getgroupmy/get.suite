@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { get, post, formatBytes, mailboxParam, currentSharedMailbox } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { previewKind } from '../../components/viewkind.js';
+import RiskDialog, { confirmed } from './RiskDialog.jsx';
 
 const KINDS = [['', 'All files'], ['pdf', 'PDFs'], ['image', 'Pictures'], ['document', 'Documents'], ['spreadsheet', 'Spreadsheets'], ['presentation', 'Presentations'], ['archive', 'Archives'], ['other', 'Other']];
 export const FILE_ICON = { pdf: '📕', image: '🖼', document: '📄', spreadsheet: '📊', presentation: '📽', archive: '🗜', other: '📎' };
@@ -43,14 +44,29 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
       toast(`Saved ${r.file.name} to Drive`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
     } catch (e) { toast(e.message, 'error'); }
   };
+  // Downloads go through here: a risky one (by its name, or found out by the server from what it is) asks first.
+  const [risky, setRisky] = useState(null);
+  const download = async (a) => {
+    if (a.risk) { setRisky({ name: a.filename, ...a.risk, href: confirmed(fileUrl(a)), download: a.filename }); return; }
+    // What it really is (a program can have a harmless-looking name): the server looks inside first.
+    const check = await get(`/mail/messages/${a.uid}/parts/${a.part}?folder=${enc(folder)}&check=1`).catch(() => null);
+    if (check?.risk) { setRisky({ name: a.filename, ...check.risk, href: confirmed(fileUrl(a)), download: a.filename }); return; }
+    const link = document.createElement('a');
+    link.href = fileUrl(a); link.download = a.filename;
+    document.body.appendChild(link); link.click(); link.remove();
+  };
   const keyOf = (a) => `${a.uid}-${a.part}`;
   const toggle = (a) => setPicked((p) => { const n = new Set(p); if (n.has(keyOf(a))) n.delete(keyOf(a)); else n.add(keyOf(a)); return n; });
-  const zipPicked = async () => {
+  const [zipAsk, setZipAsk] = useState(null); // risky ones among those picked for a .zip, asked about first
+  const zipPicked = async (sureZip = false) => {
     const chosen = items.filter((a) => picked.has(keyOf(a)));
+    const bad = chosen.filter((a) => a.risk);
+    if (bad.length && !sureZip) { setZipAsk(bad); return; }
     setBusy(true);
     try {
       const box = currentSharedMailbox();
-      const r = await fetch('/api/mail/attachments/zip', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json', ...(box && { 'x-mailbox': box }) }, body: JSON.stringify({ folder, items: chosen.map((a) => ({ uid: a.uid, part: a.part })) }) });
+      const r = await fetch('/api/mail/attachments/zip', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json', ...(box && { 'x-mailbox': box }) }, body: JSON.stringify({ folder, items: chosen.map((a) => ({ uid: a.uid, part: a.part })), ...(sureZip && { confirm: true }) }) });
+      if (r.status === 409) { setZipAsk([{ filename: 'One of them', risk: { level: 'danger', reasons: [(await r.json().catch(() => null))?.error || 'may be harmful'] } }]); return; }
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || 'Could not make the .zip');
       const href = URL.createObjectURL(await r.blob());
       const link = document.createElement('a');
@@ -91,8 +107,9 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
                 <strong className="ellipsis" style={{ display: 'block' }}>{a.filename}</strong>
                 <span className="muted small">{formatBytes(a.size)} · {a.from?.name || a.from?.address || 'Unknown sender'} · {day(a.date)} · {a.subject || '(No subject)'}</span>
               </span>
-              {(a.kind === 'pdf' || a.kind === 'image') && previewKind(a.filename) && <a className="btn small" href={fileUrl(a, true)} target="_blank" rel="noopener noreferrer" aria-label={`Open ${a.filename}`}>Open</a>}
-              <a className="btn small" href={fileUrl(a)} download={a.filename} aria-label={`Download ${a.filename}`}>Download</a>
+              {a.risk && <span className="risk-mark" role="img" aria-label={a.risk.level === 'danger' ? 'May be harmful' : 'Be careful'} title={a.risk.reasons.join('\n')}>⚠</span>}
+              {!a.risk && (a.kind === 'pdf' || a.kind === 'image') && previewKind(a.filename) && <a className="btn small" href={fileUrl(a, true)} target="_blank" rel="noopener noreferrer" aria-label={`Open ${a.filename}`}>Open</a>}
+              <a className="btn small" href={fileUrl(a)} download={a.filename} aria-label={`Download ${a.filename}`} onClick={(e) => { e.preventDefault(); download(a); }}>Download</a>
               <button type="button" className="btn small" aria-label={`Save ${a.filename} to Drive`} onClick={() => save(a)}>Save to Drive</button>
               <button type="button" className="btn small" aria-label={`Go to the email with ${a.filename}`} onClick={() => onOpen(folder, a.uid)}>Email</button>
             </li>
@@ -104,10 +121,20 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
           <span className="grow small">{picked.size} picked</span>
           <button type="button" className="btn small" onClick={() => setPicked(new Set())}>Clear</button>
           <button type="button" className="btn small" disabled={busy || picked.size > 50} onClick={savePicked}>Save to Drive</button>
-          <button type="button" className="btn small primary" disabled={busy || picked.size > 50} onClick={zipPicked}>{picked.size > 50 ? 'Up to 50 at a time' : 'Download as .zip'}</button>
+          <button type="button" className="btn small primary" disabled={busy || picked.size > 50} onClick={() => zipPicked()}>{picked.size > 50 ? 'Up to 50 at a time' : 'Download as .zip'}</button>
         </div>
       )}
       {items !== null && next && <div className="row" style={{ justifyContent: 'center', marginTop: 8 }}><button type="button" className="btn" disabled={busy} onClick={more}>{busy ? 'Looking…' : 'Look further'}</button></div>}
+      {risky && <RiskDialog risky={risky} onClose={() => setRisky(null)} />}
+      {zipAsk && (
+        <Modal title="Some of these may be harmful" onClose={() => setZipAsk(null)} footer={<>
+          <button type="button" className="btn" onClick={() => setZipAsk(null)}>Don’t download</button>
+          <button type="button" className="btn danger" onClick={() => { setZipAsk(null); zipPicked(true); }}>Download anyway</button>
+        </>}>
+          <ul className="risk-reasons">{zipAsk.flatMap((a) => a.risk.reasons.map((r) => <li key={`${a.filename}${r}`}>{a.filename}: {r}</li>))}</ul>
+          <p className="muted small">Senders can be faked. If you weren’t expecting these, check with the sender another way before opening them.</p>
+        </Modal>
+      )}
     </Modal>
   );
 }

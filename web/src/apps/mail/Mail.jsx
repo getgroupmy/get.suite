@@ -1,3 +1,4 @@
+import RiskDialog, { confirmed } from './RiskDialog.jsx';
 import ShareInChat from './ShareInChat.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -634,9 +635,10 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                     {m.files.map((f) => {
                       const view = f.kind === 'pdf' || f.kind === 'image';
                       return (
-                        <a key={f.part} className="file-chip" href={`/api/mail/messages/${m.uid}/parts/${f.part}?folder=${enc(folder)}${view ? '&view' : ''}${mailboxParam()}`}
-                          {...(view ? { target: '_blank', rel: 'noopener noreferrer' } : { download: f.filename })} aria-label={view ? `Open ${f.filename}` : `Download ${f.filename}`} title={view ? `Open ${f.filename}` : `Download ${f.filename}`}>
-                          <span aria-hidden="true">{FILE_ICON[f.kind] || '📎'}</span><span className="ellipsis">{f.filename}</span>
+                        <a key={f.part} className={`file-chip ${f.risk ? 'risky' : ''}`} href={`/api/mail/messages/${m.uid}/parts/${f.part}?folder=${enc(folder)}${view ? '&view' : ''}${mailboxParam()}`}
+                          {...(view ? { target: '_blank', rel: 'noopener noreferrer' } : { download: f.filename })} aria-label={f.risk ? `${f.filename}: may be harmful, open the email` : view ? `Open ${f.filename}` : `Download ${f.filename}`} title={f.risk ? f.risk.reasons.join('\n') : view ? `Open ${f.filename}` : `Download ${f.filename}`}
+                          onClick={f.risk ? (e) => { e.preventDefault(); go(folder, m.uid); } : undefined}>
+                          <span aria-hidden="true">{f.risk ? '⚠' : FILE_ICON[f.kind] || '📎'}</span><span className="ellipsis">{f.filename}</span>
                         </a>
                       );
                     })}
@@ -853,6 +855,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder, uid]);
   const [viewing, setViewing] = useState(null); // the index of the attachment open in the viewer
+  const [risky, setRisky] = useState(null); // an attachment that may be harmful, asked about before downloading
   const [original, setOriginal] = useState(false); // Show original (before the early return below: hooks always in the same order)
   const [sharing, setSharing] = useState(false); // Share in Chat
   if (!m) return <p className="muted mail-note">Loading…</p>;
@@ -1026,12 +1029,20 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       {m.attachments.length > 0 && (
         <ul className="att-list">
           {m.attachments.map((a) => (
-            <li key={a.index}><a className="att" href={attUrl(a)} title={previewKind(a.filename) ? 'Open (Shift+click to download)' : 'Download'}
-              onClick={(e) => { if (previewKind(a.filename) && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setViewing(m.attachments.indexOf(a)); } }}>
-              <Icon name="attach" size={18} /><span className="ellipsis">{a.filename}</span><span className="muted small">{formatBytes(a.size)}</span>
+            <li key={a.index}><a className={`att ${a.risk ? `risky ${a.risk.level}` : ''}`} href={attUrl(a)} title={a.risk ? a.risk.reasons.join('\n') : previewKind(a.filename) ? 'Open (Shift+click to download)' : 'Download'}
+              onClick={(e) => {
+                if (a.risk) { e.preventDefault(); setRisky({ name: a.filename, ...a.risk, href: confirmed(attUrl(a)) }); return; }
+                if (previewKind(a.filename) && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setViewing(m.attachments.indexOf(a)); }
+              }}>
+              {a.risk ? <span className="risk-mark" role="img" aria-label={a.risk.level === 'danger' ? 'May be harmful' : 'Be careful'}>⚠</span> : <Icon name="attach" size={18} />}<span className="ellipsis">{a.filename}</span><span className="muted small">{formatBytes(a.size)}</span>
             </a><button type="button" className="icon-btn" aria-label={`Save ${a.filename} to Drive`} title="Save to Drive" onClick={() => saveToDrive([a.index])}><Icon name="folder" size={16} /></button></li>
           ))}
-          {m.attachments.length > 1 && <li><a className="btn small" href={`/api/mail/messages/${uid}/attachments.zip?folder=${enc(folder)}${mailboxParam()}`} download>Download all (.zip)</a></li>}
+          {m.attachments.length > 1 && <li><a className="btn small" href={`/api/mail/messages/${uid}/attachments.zip?folder=${enc(folder)}${mailboxParam()}`} download onClick={(e) => {
+            const bad = m.attachments.filter((x) => x.risk);
+            if (!bad.length) return;
+            e.preventDefault();
+            setRisky({ name: `All ${m.attachments.length} attachments (.zip)`, level: bad.some((x) => x.risk.level === 'danger') ? 'danger' : 'warning', reasons: bad.flatMap((x) => x.risk.reasons.map((r) => `${x.filename}: ${r}`)), href: confirmed(`/api/mail/messages/${uid}/attachments.zip?folder=${enc(folder)}${mailboxParam()}`), download: true });
+          }}>Download all (.zip)</a></li>}
           {m.attachments.length > 1 && <li><button type="button" className="btn small" onClick={() => saveToDrive(null)}>Save all to Drive</button></li>}
         </ul>
       )}
@@ -1039,6 +1050,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         urls={{ view: (x) => attUrl(x, true), download: (x) => attUrl(x), office: (x) => `/mail/messages/${uid}/attachments/${x.index}/preview?folder=${enc(folder)}`, zip: (x) => `/mail/messages/${uid}/attachments/${x.index}/zip?folder=${enc(folder)}`, eml: (x) => `/mail/messages/${uid}/attachments/${x.index}/eml?folder=${enc(folder)}` }}
         onStep={(dir) => setViewing(stepPreview(m.attachments, viewing, dir))} onSave={(x) => saveToDrive([x.index])} onClose={() => setViewing(null)} />}
       {original && <OriginalDialog uid={uid} folder={folder} onClose={() => setOriginal(false)} />}
+      {risky && <RiskDialog risky={risky} onClose={() => setRisky(null)} />}
       <div className="row wrap reader-reply">
         <button className="btn" onClick={async () => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
         {others.length > 0 && <button className="btn" onClick={async () => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}

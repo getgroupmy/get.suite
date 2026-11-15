@@ -95,11 +95,16 @@ await step('the viewer downloads and saves to Drive; it closes with Escape', asy
   await page.getByRole('link', { name: /Site visit|photo\.png/ }).first().waitFor();
 });
 await step('kinds that could run script, or that the browser can’t show, still download', async () => {
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('.mail-reader').getByRole('link', { name: /bundle\.rar/ }).click()]);
+  // An archive that can't be looked into asks first (Attachments that may be harmful), then downloads.
+  await page.locator('.mail-reader').getByRole('link', { name: /bundle\.rar/ }).click();
+  const ask = page.getByRole('dialog', { name: 'Be careful with this attachment' });
+  await ask.getByLabel('I understand the risk and want to download it').check();
+  const [dl] = await Promise.all([page.waitForEvent('download'), ask.getByRole('link', { name: 'Download anyway' }).click()]);
   if (dl.suggestedFilename() !== 'bundle.rar') throw new Error(dl.suggestedFilename());
+  await ask.waitFor({ state: 'detached' });
   if (await dlg().count()) throw new Error('no viewer for a rar');
   const href = await page.getByRole('link', { name: /logo\.svg/ }).getAttribute('href');
-  const h = await page.evaluate(async (u) => { const r = await fetch(u + '&view'); return [r.headers.get('content-type'), r.headers.get('content-disposition')]; }, href);
+  const h = await page.evaluate(async (u) => { const r = await fetch(u + '&view&confirm=1'); return [r.headers.get('content-type'), r.headers.get('content-disposition')]; }, href); // an .svg asks first; once confirmed it still only downloads
   if (h[0] !== 'application/octet-stream' || !h[1].startsWith('attachment')) throw new Error('svg ' + h);
   const t = await page.evaluate(async (u) => { const r = await fetch(u.replace(/attachments\/\d+/, 'attachments/2') + '&view'); return [r.headers.get('content-type'), r.headers.get('content-security-policy'), r.headers.get('x-content-type-options')]; }, href);
   if (t[0] !== 'text/plain; charset=utf-8' || !/sandbox/.test(t[1]) || t[2] !== 'nosniff') throw new Error('txt ' + t);
