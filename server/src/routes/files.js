@@ -66,7 +66,8 @@ const NO_TAKING = 'The owner has turned off downloading, printing and copying fo
 // Locked: nobody can change the content until whoever locked it (or the owner) unlocks it.
 for (const c of ['locked_by TEXT', 'locked_at INTEGER']) if (!q('PRAGMA table_info(files)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE files ADD COLUMN ${c}`).run();
 const COLS = `f.id, f.is_drive, f.no_download, f.locked_by, f.locked_at, (SELECT name FROM users WHERE id = f.locked_by) AS locked_by_name, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
-              f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
+              f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name,
+              u.org_id AS owner_org_id, (SELECT o.name FROM orgs o WHERE o.id = u.org_id) AS owner_org`; // the owner's company: marked External when it isn't yours
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
 const REACHABLE = `(u.org_id = ? OR (SELECT MIN(allow_external) FROM orgs WHERE id IN (u.org_id, ?)) = 1)`;

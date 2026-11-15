@@ -126,6 +126,9 @@ test('cross-company collaboration by exact email address', async () => {
   assert.equal(s.status, 200, JSON.stringify(s.body));
   assert.equal((await bob('GET', `/api/files/${sharedFolder.id}/shares`)).body[0].external, true);
   assert.deepEqual((await gina('GET', '/api/files?view=shared')).body.map((f) => f.name), ['Joint project']);
+  const sh = (await gina('GET', '/api/files?view=shared')).body[0];
+  assert.deepEqual([sh.owner_name, sh.owner_org], ['Bob B', 'Acme'], 'the owner\'s company, for the External tag');
+  assert.equal(sh.owner_org_id === globexId, false);
   assert.equal((await gina('GET', `/api/files/${sharedFile.id}/raw`)).body, 'joint spec');
 
   dmId = (await gina('POST', '/api/chat/dm', { user_id: bobId })).body.id;

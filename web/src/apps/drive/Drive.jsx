@@ -99,6 +99,12 @@ export function goesIn(at, now = Date.now()) {
 const TITLES = { drives: 'Shared drives', shared: 'Shared with me', sharedbyme: 'Shared by me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures', activity: 'Activity', links: 'Shared by link' };
 const DRAG_TYPE = 'application/x-workspace-files';
 
+/** “External · their company” beside the owner of a file from someone at another company. */
+function OwnerOrg({ f, user }) {
+  if (!f.owner_org_id || !user || f.owner_org_id === user.org_id) return null;
+  return <span className="pill ext" title={`${f.owner_name} works at ${f.owner_org || 'another company'}, outside yours: be careful with links and files that ask you to sign in or pay`}>External · {f.owner_org || 'another company'}</span>;
+}
+
 export default function Drive() {
   const route = useDriveRoute();
   const navigate = useNavigate();
@@ -647,7 +653,7 @@ export default function Drive() {
             <button className="btn small" onClick={() => setChecked(new Set())}>Clear</button>
           </div>
         )}
-        {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : folder.role === 'commenter' ? 'view and comment' : 'edit'}</p>}
+        {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name}<OwnerOrg f={folder} user={user} /> · you can {folder.role === 'viewer' ? 'view' : folder.role === 'commenter' ? 'view and comment' : 'edit'}</p>}
 
         {owners.length > 1 && (
           <div className="row wrap shared-from" role="group" aria-label="From" style={{ gap: 6, margin: '0 0 8px' }}>
@@ -702,7 +708,7 @@ export default function Drive() {
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
                   <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{route.view === 'shared' && f.shared_at && <span className="muted small shared-by"> · {f.shared_by_name ? `${f.shared_by_name} shared it ` : 'Shared '}{formatDate(f.shared_at)}</span>}{route.view === 'shared' && f.share_ends && <span className="muted small share-ends"> · until {formatDate(f.share_ends)}</span>}{f.shared_with?.length > 0 && <span className="muted small shared-with"> · with {f.shared_with.slice(0, 3).join(', ')}{f.shared_with.length > 3 ? ` and ${f.shared_with.length - 3} more` : ''}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
-                  <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
+                  <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}<OwnerOrg f={f} user={user} /></td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>
                   <td className="actions">
@@ -1362,6 +1368,7 @@ function LabelsDialog({ file, all, onClose, onSaved }) {
 
 function DetailsDialog({ file, onClose, onChanged }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [f, setF] = useState(file);
   const [desc, setDesc] = useState(file.description || '');
   const [shares, setShares] = useState(null);
@@ -1377,7 +1384,7 @@ function DetailsDialog({ file, onClose, onChanged }) {
         <dl className="details-list">
           <dt>Type</dt><dd>{kind}</dd>
           {f.kind !== 'folder' ? <><dt>Size</dt><dd>{formatBytes(f.size)}</dd></> : <><dt>Size</dt><dd><FolderSize id={f.id} /></dd></>}
-          <dt>Owner</dt><dd>{f.owner_name}{f.role === 'owner' ? ' (you)' : ''}</dd>
+          <dt>Owner</dt><dd>{f.owner_name}{f.role === 'owner' ? ' (you)' : ''}<OwnerOrg f={f} user={user} /></dd>
           <dt>Modified</dt><dd>{when(f.updated_at)}{f.updated_by_name ? ` by ${f.updated_by_name}` : ''}</dd>
           <dt>Created</dt><dd>{when(f.created_at)}</dd>
           {f.kind === 'doc' && <><dt>Length</dt><dd><DocLength fileId={f.id} /></dd></>}

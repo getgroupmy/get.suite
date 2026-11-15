@@ -126,6 +126,20 @@ await step('a comment on a shared document by someone at another company: Extern
   if (await panel.locator('.comment-meta', { hasText: 'Olivia Owner' }).getByText(/External/).count()) throw new Error('tagged our own comment');
   await axe(page, 'external comment');
 });
+await step('Drive: a file from someone at another company says External · their company by the owner, in the list and its details', async () => {
+  await gina.goto(`${B}/drive/shared`);
+  const row = gina.getByRole('row', { name: /Joint plan/ });
+  await row.getByText('External · Acme Trading').waitFor();
+  await axe(gina, 'drive shared external');
+  await gina.screenshot({ path: `${SP}/shots/drive-external.png` });
+  await row.getByRole('button', { name: 'Actions for Joint plan' }).click();
+  await gina.getByRole('menuitem', { name: /Details/ }).click();
+  await gina.getByRole('dialog', { name: 'Details' }).getByText('External · Acme Trading').waitFor();
+  await gina.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.getByRole('row', { name: /Joint plan/ }).waitFor();
+  if (await page.getByText(/External · /).count()) throw new Error('tagged our own file');
+}, gina);
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);
