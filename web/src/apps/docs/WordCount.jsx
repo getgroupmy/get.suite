@@ -1,6 +1,7 @@
 // The Word count window (⋮ menu or Ctrl+Shift+C), and the small counter shown while typing.
 import { useEffect, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
+import { longKey, rememberLong, LONG, VERY_LONG } from './longsentences.js';
 import { countText, textOfDoc, counterText, readingTime, speakingTime, countSentences, readability, goalProgress } from './wordcount.js';
 
 const KEY = 'nw-doc-wordcount';
@@ -53,6 +54,7 @@ export function WordCountDialog({ editor, live, onLive, onClose, goal = null, on
           ))}
         </tbody>
       </table>
+      <LongSentencesToggle editor={editor} />
       <label className="check" style={{ marginTop: 12 }}>
         <input type="checkbox" checked={live} onChange={(e) => { remember(e.target.checked); onLive(e.target.checked); }} /> Display word count while typing
       </label>
@@ -65,6 +67,26 @@ export function WordCountDialog({ editor, live, onLive, onClose, goal = null, on
         </form>
       )}
     </Modal>
+  );
+}
+
+/** "Highlight long sentences" (25+ words, 35+ more strongly), with how many there are. */
+function LongSentencesToggle({ editor }) {
+  const [, refresh] = useState(0);
+  useEffect(() => { const f = () => refresh((n) => n + 1); editor.on('transaction', f); return () => editor.off('transaction', f); }, [editor]);
+  const st = longKey.getState(editor.state) || { on: false, list: [] };
+  const set = (on) => { rememberLong(on); editor.view.dispatch(editor.state.tr.setMeta(longKey, { on })); };
+  const very = st.list.filter((s) => s.very).length;
+  return (
+    <div className="long-sentences-toggle" style={{ marginTop: 12 }}>
+      <label className="check">
+        <input type="checkbox" checked={st.on} onChange={(e) => set(e.target.checked)} /> Highlight long sentences ({LONG} words or more; {VERY_LONG} or more more strongly) and words typed twice
+      </label>
+      {st.on && <p className="small" style={{ margin: '4px 0 0 26px' }} aria-live="polite">
+        {st.list.length ? `${st.list.length} long sentence${st.list.length === 1 ? '' : 's'}${very ? `, ${very} very long` : ''}: try splitting ${st.list.length === 1 ? 'it' : 'them'}.` : 'No long sentences.'}
+        {st.twice?.length ? ` ${st.twice.length} word${st.twice.length === 1 ? '' : 's'} typed twice.` : ''}
+      </p>}
+    </div>
   );
 }
 

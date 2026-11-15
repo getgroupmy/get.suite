@@ -1059,6 +1059,10 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .paper .find-match { background: #fde29380; border-radius: 2px; }
 .paper .find-match.current { background: #f9ab00; color: #1f1f1f; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .paper .find-match { background: #7a5c0080; }:root:not([data-theme="light"]) .paper .find-match.current { background: #f9ab00; color: #1f1f1f; } }
+.paper .long-sentence { background: #fff3c4; color: #3d2e00; border-radius: 2px; }
+.paper .long-sentence.very { background: #ffd8b0; color: #3d1d00; }
+@media print { .paper .long-sentence { background: none; color: inherit; } .paper .repeated-word { text-decoration: none; } }
+.paper .repeated-word { text-decoration: underline wavy #c5221f; text-decoration-skip-ink: none; text-underline-offset: 3px; }
 .paper .reading-now { background: #c2e7ff; color: #041e49; border-radius: 2px; box-shadow: 0 0 0 2px #c2e7ff; }
 .find-bar.read-aloud-bar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
 .read-aloud-bar .btn { flex: none; }

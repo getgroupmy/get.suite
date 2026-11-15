@@ -28,6 +28,7 @@ import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace } from './findReplace.js';
 import { ReadAloud, readKey, sentencesFrom } from './readaloud.js';
+import { LongSentences } from './longsentences.js';
 import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
 import { revealTabAt } from './doctabsext.js';
 import { VoiceTypingBar, canVoiceType } from './VoiceTypingBar.jsx';
@@ -249,6 +250,7 @@ function SharedDoc({ file, setFile }) {
       DocImage.configure({ docId: file.id }),
       FindReplace,
       ReadAloud,
+      LongSentences,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
