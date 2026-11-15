@@ -22,3 +22,9 @@ test('matching emoji: by name or search words; words joined by _ or -; at most e
   assert.ok(matchEmoji('heart').length <= 8);
   assert.deepEqual(matchEmoji('zzqx'), []);
 });
+
+test('company emoji (Chat) come first, as :name:', () => {
+  const l = matchEmoji('ship', 8, [{ name: 'ship-it', img: '/x' }, { name: 'party-parrot', img: '/y' }]);
+  assert.deepEqual(l[0], { char: ':ship-it:', name: 'ship-it', img: '/x' });
+  assert.ok(!l.some((e) => e.name === 'party-parrot'));
+});

@@ -24,6 +24,7 @@ import { localToday } from '../tasks/taskmath.js';
 import { newEventMinutes, DEFAULT_CAL_PREFS } from '../calendar/calprefs.js';
 import { parseSlash } from './slash.js';
 import { useSlash } from './useSlash.jsx';
+import { useEmojiTyping } from '../../components/emojityping.jsx';
 import SaveToFolder from './SaveToFolder.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -124,6 +125,8 @@ export default function Chat() {
   const [unread, setUnread] = useState({});
   const [mentioned, setMentioned] = useState({}); // conversations where someone @mentioned you since you read them
   const mention = useMentions(box, text, setTextKept, { groups: true });
+  const ownEmoji = useCompanyEmoji();
+  const emo = useEmojiTyping(box, text, setTextKept, ownEmoji.map((e) => ({ name: e.name, img: imageUrl(e.name) })));
   const typing = useTyping(channelId, null, user.id);
   const [forwarding, setForwarding] = useState(null); // the message being forwarded
   const [threadId, setThreadId] = useState(null); // the message whose thread is open beside the conversation
@@ -928,10 +931,10 @@ export default function Chat() {
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
             {slashes.list}
-            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); keepDraft(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
+            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); keepDraft(e.target.value); mention.track(e.target.value, e.target.selectionStart); emo.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => {
-                if (mention.keyDown(e)) return;
+                if (mention.keyDown(e) || emo.keyDown(e)) return;
                 if (slashes.keyDown(e)) return;
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e);
                 else if (e.key === 'ArrowUp' && !text && !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && !current?.archived_at) {
@@ -940,7 +943,7 @@ export default function Chat() {
                   if (m) { e.preventDefault(); setEditingId(m.id); setEditText(m.body); }
                 }
               }} />
-            {mention.list}
+            {mention.list}{emo.list}
             <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Schedule message" title="Send later" disabled={(!text.trim() && !files.length) || uploading > 0} {...p}><Icon name="clock" /></button>}
               items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => scheduleAt(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPickingTime(true) }]} />
             <button className="icon-btn send" aria-label="Send" disabled={(!text.trim() && !files.length) || uploading > 0}><Icon name="send" /></button>
@@ -1020,6 +1023,8 @@ function Thread({ id, channelId, channel, user, onClose }) {
   const end = useRef();
   const box = useRef();
   const mention = useMentions(box, text, setText, { groups: true });
+  const ownEmoji = useCompanyEmoji();
+  const emo = useEmojiTyping(box, text, setText, ownEmoji.map((e) => ({ name: e.name, img: imageUrl(e.name) })));
   const slashes = useSlash(text, setText, box);
   const navigate = useNavigate();
   const typing = useTyping(channelId, id, user.id);
@@ -1105,9 +1110,9 @@ function Thread({ id, channelId, channel, user, onClose }) {
       <form className="composer" onSubmit={send}>
         <ChatEmojiPicker up className="icon-btn" onPick={(ch) => setText((v) => v + ch)} />
         {slashes.list}
-        <textarea ref={box} rows={1} value={text} placeholder="Reply… (/ for commands)" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
-          onKeyDown={(e) => { if (mention.keyDown(e) || slashes.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
-        {mention.list}
+        <textarea ref={box} rows={1} value={text} placeholder="Reply… (/ for commands)" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); emo.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
+          onKeyDown={(e) => { if (mention.keyDown(e) || emo.keyDown(e) || slashes.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+        {mention.list}{emo.list}
         <button className="icon-btn send" aria-label="Send reply" disabled={!text.trim()}><Icon name="send" /></button>
       </form>
     </aside>

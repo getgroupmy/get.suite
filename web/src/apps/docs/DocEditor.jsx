@@ -57,7 +57,7 @@ import { measureLines } from './linenumbers.js';
 import { flushSync } from 'react-dom';
 import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookmark.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
-import { emojiQuery, matchEmoji } from './emojitype.js';
+import { emojiQuery, matchEmoji } from '../../components/emojitype.js';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';

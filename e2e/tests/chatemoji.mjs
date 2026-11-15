@@ -78,6 +78,25 @@ await step('Kim reacts with it', async () => {
   await msg(page, 'We go live today').getByRole('button', { name: ':ship-it: 1: Kim Park' }).locator('img.custom-emoji').waitFor();
   await kim.screenshot({ path: `${SP}/shots/chatemoji.png` });
 });
+await step('typing ":" and a word in the message box offers emoji, the company’s own first', async () => {
+  const box = page.getByLabel('Message', { exact: true });
+  const list = page.getByRole('listbox', { name: 'Emoji' });
+  await box.fill('');
+  await box.pressSequentially('Shipped :shi');
+  await list.getByRole('option').first().getByText(':ship-it:').waitFor();
+  await box.press('Enter');
+  if ((await box.inputValue()) !== 'Shipped :ship-it:') throw new Error(await box.inputValue());
+  await box.pressSequentially(' nice :thu');
+  await list.getByRole('option', { name: 'thumbs up' }).waitFor();
+  await page.screenshot({ path: `${SP}/shots/chat-emoji-typing.png` });
+  await box.press('Tab');
+  if ((await box.inputValue()) !== 'Shipped :ship-it: nice 👍') throw new Error(await box.inputValue());
+  if (await list.count()) throw new Error('list stayed');
+  await box.pressSequentially(' at 10:30');
+  if (await list.count()) throw new Error('offered for a time');
+  await box.press('Enter');
+  await msg(kim, 'nice 👍 at 10:30').locator('img.custom-emoji[alt=":ship-it:"]').waitFor();
+});
 await step('Only whoever added it, or an admin, removes it', async () => {
   await kim.locator('.composer, form').getByRole('button', { name: 'Insert emoji' }).first().click();
   await kim.getByRole('dialog', { name: 'Emoji' }).getByRole('tab', { name: 'Company' }).click();
