@@ -20,7 +20,7 @@ import { q, tx } from '../db.js';
 import { str, int, bad, notFound, HttpError } from '../util.js';
 import { requireAdmin, requireSuper } from '../auth.js';
 import { createOrg, addDomain, orgStorageUsed, blobsOwnedBy, removeBlobs } from '../tenancy.js';
-import { scheduleMailConfig } from '../mail/config.js';
+import { scheduleMailConfig, blockProgramsMap } from '../mail/config.js';
 import { companyMail } from '../mail/storage.js';
 import { collectHealth } from '../health.js';
 import { roleFor, audienceFor, subtreeIds } from '../access.js';
@@ -57,6 +57,7 @@ function describe(full) {
     ask_outside: !!org.ask_outside,
     mark_external: !!org.mark_external,
     voice_typing: !org.voice_off,
+    block_programs: !!org.block_programs,
     // People who still have to set up two-step verification (when it's required).
     without_2fa: q(`SELECT COUNT(*) AS n FROM users u WHERE u.org_id = ? AND u.disabled = 0
                     AND NOT EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1)
@@ -106,6 +107,11 @@ function updateOrg(orgId, body, { asSuper, user }) {
   }
   if (body.ask_outside !== undefined) q('UPDATE orgs SET ask_outside = ? WHERE id = ?').run(body.ask_outside ? 1 : 0, orgId);
   if (body.mark_external !== undefined) q('UPDATE orgs SET mark_external = ? WHERE id = ?').run(body.mark_external ? 1 : 0, orgId);
+  if (body.block_programs !== undefined) {
+    blockProgramsMap(); // makes the column, the first time
+    q('UPDATE orgs SET block_programs = ? WHERE id = ?').run(body.block_programs ? 1 : 0, orgId);
+    scheduleMailConfig(); // the mail server's list of companies refusing programs
+  }
   if (body.voice_typing !== undefined) q('UPDATE orgs SET voice_off = ? WHERE id = ?').run(body.voice_typing ? 0 : 1, orgId);
   if (body.push_private !== undefined) q('UPDATE orgs SET push_private = ? WHERE id = ?').run(body.push_private ? 1 : 0, orgId);
   if (body.require_2fa !== undefined) {

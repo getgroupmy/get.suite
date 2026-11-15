@@ -115,6 +115,18 @@ export function knownSendersMap() {
   return `# Senders the company deals with (written to, or kept as contacts): written by Workspace\n${[...seen].sort().join('\n')}${seen.size ? '\n' : ''}`;
 }
 
+/**
+ * The domains of companies that refuse email carrying programs (Admin → Company settings): one per line,
+ * for Rspamd (multimap.conf BLOCK_PROGRAMS_RCPT, force_actions.conf), which then rejects mail to them with
+ * a program or script attached (or inside an attached archive).
+ */
+export function blockProgramsMap() {
+  if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'block_programs')) q('ALTER TABLE orgs ADD COLUMN block_programs INTEGER NOT NULL DEFAULT 0').run();
+  let rows = [];
+  try { rows = q('SELECT d.name FROM domains d JOIN orgs o ON o.id = d.org_id WHERE o.block_programs = 1 ORDER BY d.name').all(); } catch { /* no column yet */ }
+  return `# Domains whose companies refuse email with programs attached: written by Workspace\n${rows.map((r) => r.name.toLowerCase()).join('\n')}${rows.length ? '\n' : ''}`;
+}
+
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'plus_folders')) q('ALTER TABLE users ADD COLUMN plus_folders INTEGER NOT NULL DEFAULT 0').run(); // you+name@ into the folder "name"
@@ -204,6 +216,7 @@ export function buildMailConfig() {
     if (k?.dkim_private) files[`dkim/${d.name}.${DKIM_SELECTOR}.key`] = k.dkim_private;
   }
   files['rspamd/known_senders.map'] = knownSendersMap();
+  files['rspamd/block_programs.map'] = blockProgramsMap();
   return files;
 }
 

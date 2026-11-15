@@ -57,7 +57,7 @@ sync_config() {
   mkdir -p "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim" "$tmp/sieve" "$tmp/rspamd"
   [[ -d $SRC ]] && cp -r "$SRC/." "$tmp/" 2>/dev/null || true
   # Every table must exist even before the app has written anything.
-  for f in postfix/domains postfix/mailboxes postfix/aliases postfix/senders dovecot/passwd dovecot/masters rspamd/known_senders.map; do
+  for f in postfix/domains postfix/mailboxes postfix/aliases postfix/senders dovecot/passwd dovecot/masters rspamd/known_senders.map rspamd/block_programs.map; do
     touch "$tmp/$f"
   done
   chown -R root:root "$tmp"

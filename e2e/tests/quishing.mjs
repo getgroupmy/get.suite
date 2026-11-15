@@ -111,6 +111,16 @@ await step('a QR code in an attached PDF: a warning that says so; a PDF without 
   await page.waitForTimeout(3000);
   if (await banner().count() || await page.locator('.mail-reader').getByText(/has a QR code/).count()) throw new Error('warned about a PDF without a code');
 });
+await step('Admin → Company settings: refuse email with programs attached (on and off)', async () => {
+  await page.goto(`${B}/admin?tab=company`);
+  const box = page.getByRole('checkbox', { name: 'Refuse email with programs or scripts attached' });
+  await box.check();
+  await page.getByText('Email with programs attached is now refused').waitFor();
+  await axe(page, 'company settings');
+  if (!(await api(page, 'GET', '/orgs/current')).body.block_programs) throw new Error('not saved');
+  await box.uncheck();
+  await page.getByText('Email with programs attached is accepted again (with a warning)').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

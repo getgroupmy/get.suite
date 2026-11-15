@@ -632,6 +632,7 @@ function PasswordRules({ org, save }) {
 
 function CompanySettings() {
   const toast = useToast();
+  const mailOn = !!useMailStatus()?.enabled;
   const { setUser, user } = useAuth();
   const [org, setOrg] = useState(null);
   const [name, setName] = useState('');
@@ -766,6 +767,16 @@ function CompanySettings() {
         </label>
         <p className="muted small" style={{ margin: 0 }}>Emails from addresses that aren't on your company's domains show a note above them: <em>From outside {org.name}: be careful with links, attachments and requests for money or passwords</em>. Whether this is on or not, an email from outside that uses the name of someone who works here (a common trick) always gets a stronger warning.</p>
       </div>
+      {mailOn && (
+      <div className="card stack" aria-labelledby="blockprog-h">
+        <h2 id="blockprog-h">Programs sent by email</h2>
+        <label className="check">
+          <input type="checkbox" checked={!!org.block_programs} onChange={(e) => save({ block_programs: e.target.checked }, e.target.checked ? 'Email with programs attached is now refused' : 'Email with programs attached is accepted again (with a warning)')} />
+          Refuse email with programs or scripts attached
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>Email to {org.name} with a program or script attached (.exe, .js, .vbs, .scr, .iso, .msi…), one inside an attached .zip, or one in disguise (<em>invoice.pdf.exe</em>) is turned away while it’s being delivered: the sender gets it back with <em>Programs and scripts aren’t accepted by email here: send a link to the file instead</em>, and nobody here receives it. That includes mail between colleagues. Without this, such attachments arrive with a warning and need a confirmation to download.</p>
+      </div>
+      )}
       <div className="card stack" aria-labelledby="voice-h">
         <h2 id="voice-h">Voice typing</h2>
         <label className="check">

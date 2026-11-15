@@ -23,3 +23,13 @@ test('known senders: addresses written to and contacts, not the company’s own,
   assert.deepEqual(lines, ['billing@initech.com', 'grace@example.org']);
   assert.equal(buildMailConfig()['rspamd/known_senders.map'], knownSendersMap(), 'written with the rest of the mail setup');
 });
+
+test('blockProgramsMap: the domains of companies that refuse programs by email', async () => {
+  const { blockProgramsMap } = await import('../src/mail/config.js');
+  const { q } = await import('../src/db.js');
+  blockProgramsMap(); // the column
+  q("INSERT INTO orgs (id, name, created_at, block_programs) VALUES ('bp1', 'Strict', 0, 1), ('bp2', 'Relaxed', 0, 0)").run();
+  q("INSERT INTO domains (name, org_id, created_at) VALUES ('strict.example', 'bp1', 0), ('strict-two.example', 'bp1', 0), ('relaxed.example', 'bp2', 0)").run();
+  const lines = blockProgramsMap().split('\n').filter((l) => l && !l.startsWith('#'));
+  assert.deepEqual(lines, ['strict-two.example', 'strict.example']);
+});

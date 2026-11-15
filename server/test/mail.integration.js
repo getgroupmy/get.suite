@@ -2180,6 +2180,26 @@ test('look-alike sender domains: the company’s own (acrne.com for acme.com) an
   assert.ok(!c?.domain_like, 'the real one');
 });
 
+test('a company that refuses programs by email: mail with one attached (or disguised, or zipped) is turned away; other mail arrives', async () => {
+  const file = path.join(process.env.MAIL_CONFIG_DIR, 'rspamd', 'block_programs.map');
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { block_programs: true })).status, 200);
+  await eventually(() => { try { return fs.readFileSync(file, 'utf8').split('\n').includes('acme.com'); } catch { return false; } }, 10000);
+  await new Promise((r) => setTimeout(r, 7000)); // the mail container copies the files every 5 seconds; Rspamd re-reads the map
+  const mx = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'mx.sender-test.example' });
+  const send = (subject, attachments) => mx.sendMail({ from: 'it@helpdesk-test.example', to: 'olivia@acme.com', envelope: { from: 'relay@acme.com', to: 'olivia@acme.com' }, subject, text: 'See attached.', attachments });
+  const MZ = Buffer.concat([Buffer.from('MZ'), Buffer.alloc(200)]);
+  for (const [subject, attachments] of [['Update tool', [{ filename: 'update.exe', content: MZ }]], ['Invoice', [{ filename: 'invoice.pdf.exe', content: MZ }]], ['Script', [{ filename: 'run.js', content: 'WScript.Echo(1)' }]]]) {
+    await assert.rejects(send(subject, attachments), (e) => { assert.match(String(e.response || e.message), /^5\d\d .*Programs and scripts aren.t accepted by email here/); return true; }, subject);
+  }
+  const ok = await send('Report', [{ filename: 'report.pdf', content: Buffer.from('%PDF-1.4\n%%EOF') }]);
+  assert.match(ok.response, /^250 /);
+  // Off again: such mail is accepted (with a warning in Mail).
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { block_programs: false })).status, 200);
+  await eventually(() => !fs.readFileSync(file, 'utf8').split('\n').includes('acme.com'), 10000);
+  await new Promise((r) => setTimeout(r, 7000));
+  assert.match((await send('Update tool again', [{ filename: 'update.exe', content: MZ }])).response, /^250 /);
+});
+
 test('spam filter: people anyone here writes to become known senders (rspamd/known_senders.map)', async () => {
   const addr = `partner${Date.now()}@initech.example`;
   const r = await olivia('POST', '/api/mail/send', { to: addr, subject: 'Hello partner', text: 'Nice to meet you.' });
