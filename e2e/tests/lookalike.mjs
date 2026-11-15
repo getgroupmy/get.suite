@@ -138,6 +138,11 @@ await step('an email from outside about changed bank details: confirm by phone; 
   await w.waitFor();
   await page.locator('.mail-reader').getByText(/other things about this email are unusual too/).waitFor();
   await page.locator('.mail-reader').getByText(/confirm it by phone on a number you already have/).waitFor();
+  // Two serious warnings (a lookalike domain and the bank details): gathered in one box that counts them.
+  const group = page.getByRole('region', { name: 'Warnings about this email' });
+  await group.getByText('⚠ 2 reasons to be careful with this email').waitFor();
+  if (await group.locator('.banner').count() !== 2) throw new Error('both inside the box');
+  await page.screenshot({ path: `${SP}/shots/warning-group.png` });
   await axe(page, 'payment warning');
   const st = await put('"Kim" <kim@acme.com>', 'Supplier update');
   if (st >= 300) throw new Error(`upload ${st}`);

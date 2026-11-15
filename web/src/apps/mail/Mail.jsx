@@ -4,7 +4,7 @@ import { mailSentences } from './readmail.js';
 import { pictureHasQr, picturesOf, pdfHasQr, pdfsOf } from './qrscan.js';
 import { VoiceTypingBar, canVoiceType } from '../docs/VoiceTypingBar.jsx';
 import ShareInChat from './ShareInChat.jsx';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Children, cloneElement, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
@@ -969,28 +969,30 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         </div>
       )}
       {m.spam && <div className="banner warn">This message was marked as likely spam. Be careful with links and attachments.</div>}
-      {m.outside?.lookalike ? (
-        <div className="banner danger" role="note"><strong>⚠ Careful: this may be someone pretending to be {m.outside.lookalike}.</strong> It uses the name of someone who works at {m.outside.company || 'your company'}, but it comes from an outside address ({m.outside.address}). Check with them another way before you reply, click anything or send money or passwords.</div>
-      ) : m.outside?.domain_like ? (
-        <div className="banner danger" role="note"><strong>⚠ Careful: {m.outside.address.split('@')[1]} looks like {m.outside.domain_like.domain}, but it isn’t.</strong> {m.outside.domain_like.kind === 'company' ? `${m.outside.domain_like.domain} is ${m.outside.company || 'your company'}’s own domain` : `You deal with ${m.outside.domain_like.domain}`}; this email comes from a different one ({m.outside.address}), made to look the same. Check with the sender another way before you reply, click anything or send money or passwords.</div>
-      ) : m.outside?.external ? (
-        <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
-      ) : null}
-      {qr && (
-        <div className="banner danger" role="note"><strong>⚠ This email has a QR code in it{qr === 'pdf' ? ' (in an attached PDF)' : ''}.</strong> Scanning one takes your phone straight to a web address that nobody here has checked, a common way to steal passwords. Don’t scan it unless you were expecting it; go to the company’s website yourself instead.</div>
-      )}
-      {m.payment_risk && (
-        <div className="banner danger" role="note"><strong>⚠ {m.payment_risk === 'giftcards' ? 'This email asks you to buy gift cards.' : m.payment_risk === 'transfer' ? 'This email asks for an urgent money transfer.' : 'This email says bank or payment details have changed.'}</strong> That’s how most payment fraud works{m.first_contact || m.reply_elsewhere || m.outside?.domain_like ? ', and other things about this email are unusual too' : ''}. Before paying, confirm it by phone on a number you already have (not one in this email).</div>
-      )}
-      {m.sender_check === 'forged' && (
-        <div className="banner danger" role="note"><strong>⚠ This email may not be from {m.from?.address?.split('@')[1]}.</strong> When it arrived it failed that domain’s own check (DMARC): its owner says mail like this isn’t theirs. Don’t click its links, open its attachments or reply with anything sensitive; report it as phishing if you weren’t expecting it.</div>
-      )}
-      {m.reply_elsewhere && (
-        <div className="banner danger" role="note"><strong>⚠ Careful: replies to this email go to {m.reply_elsewhere.reply_to}, not to {m.reply_elsewhere.from}.</strong> The sender set a different address for answers, a trick used to take over invoice and payment conversations. Check the address before you reply, and confirm any change of bank details another way.</div>
-      )}
-      {m.link_warnings?.length > 0 && (
-        <div className="banner danger" role="note"><strong>⚠ Careful: {m.link_warnings.length === 1 ? 'a link' : 'some links'} in this email {m.link_warnings.length === 1 ? 'goes' : 'go'} somewhere other than {m.link_warnings.length === 1 ? 'it says' : 'they say'}.</strong> {m.link_warnings.map((l) => `“${l.shown}” goes to ${l.real}`).join('; ')}. Workspace asks before opening {m.link_warnings.length === 1 ? 'it' : 'them'}.</div>
-      )}
+      <WarningGroup>
+        {m.outside?.lookalike ? (
+          <div className="banner danger" role="note"><strong>⚠ Careful: this may be someone pretending to be {m.outside.lookalike}.</strong> It uses the name of someone who works at {m.outside.company || 'your company'}, but it comes from an outside address ({m.outside.address}). Check with them another way before you reply, click anything or send money or passwords.</div>
+        ) : m.outside?.domain_like ? (
+          <div className="banner danger" role="note"><strong>⚠ Careful: {m.outside.address.split('@')[1]} looks like {m.outside.domain_like.domain}, but it isn’t.</strong> {m.outside.domain_like.kind === 'company' ? `${m.outside.domain_like.domain} is ${m.outside.company || 'your company'}’s own domain` : `You deal with ${m.outside.domain_like.domain}`}; this email comes from a different one ({m.outside.address}), made to look the same. Check with the sender another way before you reply, click anything or send money or passwords.</div>
+        ) : m.outside?.external ? (
+          <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
+        ) : null}
+        {qr && (
+          <div className="banner danger" role="note"><strong>⚠ This email has a QR code in it{qr === 'pdf' ? ' (in an attached PDF)' : ''}.</strong> Scanning one takes your phone straight to a web address that nobody here has checked, a common way to steal passwords. Don’t scan it unless you were expecting it; go to the company’s website yourself instead.</div>
+        )}
+        {m.payment_risk && (
+          <div className="banner danger" role="note"><strong>⚠ {m.payment_risk === 'giftcards' ? 'This email asks you to buy gift cards.' : m.payment_risk === 'transfer' ? 'This email asks for an urgent money transfer.' : 'This email says bank or payment details have changed.'}</strong> That’s how most payment fraud works{m.first_contact || m.reply_elsewhere || m.outside?.domain_like ? ', and other things about this email are unusual too' : ''}. Before paying, confirm it by phone on a number you already have (not one in this email).</div>
+        )}
+        {m.sender_check === 'forged' && (
+          <div className="banner danger" role="note"><strong>⚠ This email may not be from {m.from?.address?.split('@')[1]}.</strong> When it arrived it failed that domain’s own check (DMARC): its owner says mail like this isn’t theirs. Don’t click its links, open its attachments or reply with anything sensitive; report it as phishing if you weren’t expecting it.</div>
+        )}
+        {m.reply_elsewhere && (
+          <div className="banner danger" role="note"><strong>⚠ Careful: replies to this email go to {m.reply_elsewhere.reply_to}, not to {m.reply_elsewhere.from}.</strong> The sender set a different address for answers, a trick used to take over invoice and payment conversations. Check the address before you reply, and confirm any change of bank details another way.</div>
+        )}
+        {m.link_warnings?.length > 0 && (
+          <div className="banner danger" role="note"><strong>⚠ Careful: {m.link_warnings.length === 1 ? 'a link' : 'some links'} in this email {m.link_warnings.length === 1 ? 'goes' : 'go'} somewhere other than {m.link_warnings.length === 1 ? 'it says' : 'they say'}.</strong> {m.link_warnings.map((l) => `“${l.shown}” goes to ${l.real}`).join('; ')}. Workspace asks before opening {m.link_warnings.length === 1 ? 'it' : 'them'}.</div>
+        )}
+      </WarningGroup>
       {blocking && (
         <ConfirmModal title={`Block ${m.from.address}?`} confirm="Block"
           message="Their messages will go straight to Junk, marked read, from now on (on your phone too). This one moves to Junk now. You can undo it in Filters."
@@ -1417,6 +1419,25 @@ function ConfidentialList({ onClose }) {
 }
 
 /** HTML mail in a locked-down iframe: no scripts, no same-origin access, remote images blocked until asked. */
+/**
+ * The warnings above an email: when two or more are serious (red), they're gathered in one box that says
+ * how many, so a fraud attempt that trips several reads as one strong warning rather than a pile of them.
+ */
+function WarningGroup({ children }) {
+  const items = Children.toArray(children).filter(Boolean);
+  const danger = items.filter((c) => String(c.props?.className || '').includes('danger'));
+  if (danger.length < 2) return <>{items}</>;
+  return (
+    <>
+      {items.filter((c) => !danger.includes(c))}
+      <section className="warning-group" aria-label="Warnings about this email">
+        <p className="warning-group-head"><strong>⚠ {danger.length} reasons to be careful with this email</strong></p>
+        {danger.map((c) => cloneElement(c, { className: 'banner danger in-group' }))}
+      </section>
+    </>
+  );
+}
+
 function HtmlBody({ html, remote, images, onShowImages }) {
   const ref = useRef();
   const [height, setHeight] = useState(300);
