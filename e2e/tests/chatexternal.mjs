@@ -88,6 +88,30 @@ await step('a link from outside to a lookalike of the company’s site is warned
   await page.screenshot({ path: `${SP}/shots/chat-lookalike.png` });
   await axe(page, 'chat lookalike link');
 });
+await step('Report as suspicious on a message from outside (not on ours): it reaches Admin → Phishing, with no email set up', async () => {
+  await page.goto(`${B}/chat/${dm}`);
+  const ours = page.locator('.msg', { hasText: 'Hi Gina' });
+  await ours.hover();
+  if (await ours.getByRole('button', { name: 'Report as suspicious' }).count()) throw new Error('offered on our own message');
+  const theirs = page.locator('.msg', { hasText: 'Please reset it at' });
+  await theirs.hover();
+  await theirs.getByRole('button', { name: 'Report as suspicious' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Report this message as suspicious?' });
+  await dlg.getByText(/admins are told about Gina Globex/).waitFor();
+  await axe(page, 'report dialog');
+  await dlg.getByRole('button', { name: 'Report' }).click();
+  await page.getByText('Reported: your admins have been told').waitFor();
+  await page.goto(`${B}/admin?tab=phishing`);
+  const row = page.getByRole('row', { name: /gina@globex\.com/ });
+  await row.getByText(/Chat: Please reset it at/).waitFor();
+  if (await row.getByRole('button', { name: /Block sender|Remove from inboxes/ }).count()) throw new Error('email actions without email');
+  await page.getByRole('button', { name: 'Warn everyone about gina@globex.com' }).click();
+  const text = await page.getByRole('dialog').getByRole('textbox').inputValue();
+  if (!/chat messages from gina@globex\.com/.test(text)) throw new Error(text);
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: `${SP}/shots/chat-reported.png` });
+  await axe(page, 'phishing tab without email');
+});
 await step('a comment on a shared document by someone at another company: External · their company beside their name', async () => {
   const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Joint plan', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shipping schedule draft' }] }] } })).body;
   const sh = await api(page, 'PUT', `/files/${doc.id}/shares`, { shares: [{ user_id: ginaId, role: 'editor' }] });

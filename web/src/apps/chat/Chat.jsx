@@ -1126,6 +1126,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   const toast = useToast();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
+  const [reporting, setReporting] = useState(false); // Report as suspicious
   const [savingTo, setSavingTo] = useState(null); // { messageId, file }: Save to a folder…
   const [card, setCard] = useState(false); // the author's card
   const toTask = () => addToTasksWithToast(toast, navigate, {
@@ -1203,6 +1204,11 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </button>
         )}
       </div>
+      {reporting && (
+        <ConfirmModal title="Report this message as suspicious?" confirm="Report" onClose={() => setReporting(false)}
+          message={`Your company's admins are told about ${m.user_name || m.bot || 'the sender'} (in Admin → Phishing) so they can warn everyone or take it up with their company. Don't click its links or open its files meanwhile.`}
+          onConfirm={async () => { const r = await post(`/chat/messages/${m.id}/report`, {}); toast(r.already ? 'You reported this one already' : 'Reported: your admins have been told'); }} />
+      )}
       {!m.deleted_at && <div className="msg-actions">
         {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => onReact(e)}>{e}</button>)}
         <ChatEmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
@@ -1212,6 +1218,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onSave && <button type="button" className={`icon-btn ${saved ? 'on' : ''}`} aria-pressed={!!saved} aria-label={saved ? 'Remove from Saved' : 'Save for later'} title={saved ? 'Saved (click to remove)' : 'Save for later'} onClick={() => onSave(!saved)}>🔖</button>}
         {onMarkUnread && m.user_id !== user.id && <button type="button" className="icon-btn" aria-label="Mark unread from here" title="Mark unread from here" onClick={onMarkUnread}><Icon name="markunread" size={16} /></button>}
         {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
+        {m.user_id !== user.id && (m.bot || (m.user_org_id && m.user_org_id !== user.org_id)) && <button type="button" className="icon-btn" aria-label="Report as suspicious" title="Report as suspicious (to your admins)" onClick={() => setReporting(true)}><Icon name="report" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Copy link to message" title="Copy link to message" onClick={copyLink}><Icon name="link" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
         {m.files?.some((f) => !f.gone) && m.user_id !== user.id && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}

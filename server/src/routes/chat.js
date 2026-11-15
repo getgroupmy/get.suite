@@ -1,4 +1,5 @@
 import { linkLookalike } from '../mail/external.js';
+import { recordPhishing } from '../phishing.js';
 import { pushTo } from '../push.js';
 import { offFor } from '../notifications.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
@@ -1229,6 +1230,19 @@ export default function chatRoutes() {
 
   // Forward a message you can see to another conversation you can write in, with a note of your own if you like.
   // Its files go with it (everyone there can open them from the message), and a contact or email card. Forwarding a forward passes on the original.
+  // Report a message from outside the company (another company's person, or an app) as suspicious: it joins
+  // the email phishing reports for the company's admins (Admin → Phishing), by the sender's address.
+  r.post('/messages/:id/report', (req, res) => {
+    const m = q('SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, u.username, u.org_id FROM messages m LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(req.params.id);
+    if (!m) throw notFound('Message not found');
+    loadChannel(m.channel_id, req.user);
+    if (m.user_id && m.org_id === req.user.org_id) throw bad('Only messages from outside the company can be reported here: talk to an admin about a colleague');
+    const from = m.username || `${String(m.bot || 'app').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'app'}@chat-app.invalid`;
+    const r2 = recordPhishing(req.user, { from, subject: `Chat: ${String(m.body || '').replace(/\s+/g, ' ').slice(0, 120)}`, messageId: `chat:${m.id}` });
+    if (!r2.already) audit(req, 'chat.reported', { target: from, details: { message: String(m.body || '').slice(0, 120) || null, reports: r2.reports } });
+    res.json(r2);
+  });
+
   r.post('/messages/:id/forward', (req, res) => {
     const src = q('SELECT m.*, u.name AS author FROM messages m LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(req.params.id);
     if (!src) throw notFound('Message not found');

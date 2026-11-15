@@ -96,7 +96,7 @@ export default function ActivityAdmin({ orgId, orgPicker, initialKind = '' }) {
                   <td className="muted nowrap">{when(e.at)}</td>
                   <td>{e.actor_name || <span className="muted">Someone not signed in</span>}</td>
                   <td>
-                    <span className={['sign-in.failed', 'mail.phishing', 'dlp.blocked'].includes(e.action) ? 'pill warn' : undefined}>{e.label}</span>
+                    <span className={['sign-in.failed', 'mail.phishing', 'chat.reported', 'dlp.blocked'].includes(e.action) ? 'pill warn' : undefined}>{e.label}</span>
                     {e.target && <> <strong>{e.target}</strong></>}
                   </td>
                   <td className="hide-sm muted small">{detailText(e.details)}</td>

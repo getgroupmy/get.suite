@@ -1,11 +1,11 @@
-// Admin → Phishing: emails people in the company reported as phishing (Mail → Report phishing), by
-// sender: how many reports, who, the subjects. Dealt with one? Mark it handled (a new report brings it back).
+// Admin → Phishing: emails people in the company reported as phishing (Mail → Report phishing), and chat
+// messages from outside reported as suspicious (Chat → Report as suspicious), by sender: how many reports, who, the subjects. Dealt with one? Mark it handled (a new report brings it back).
 import { useEffect, useState } from 'react';
 import { get, post, del } from '../../api.js';
 import { ConfirmModal, Empty, PromptModal, useToast } from '../../components/ui.jsx';
 import { warningText } from './phishingtext.js';
 
-export default function PhishingAdmin() {
+export default function PhishingAdmin({ mail = true }) {
   const toast = useToast();
   const [list, setList] = useState(null);
   useEffect(() => { get('/orgs/current/phishing').then(setList).catch((e) => toast(e.message, 'error')); }, [toast]);
@@ -14,7 +14,8 @@ export default function PhishingAdmin() {
   const [typed, setTyped] = useState('');
   const [warning, setWarning] = useState(null); // the report being announced to everyone
   const [sweeping, setSweeping] = useState(null); // { value } while confirming, { value, busy } while it runs
-  useEffect(() => { get('/orgs/current/blocked').then(setBlocked).catch(() => {}); }, []);
+  useEffect(() => { if (mail) get('/orgs/current/blocked').then(setBlocked).catch(() => {}); }, [mail]);
+  const mailSender = (g) => mail && !g.domain.endsWith('.invalid'); // a chat app has no email to block or remove
   const block = async (value) => {
     try { const r = await post('/orgs/current/blocked', { value }); setBlocked(r.blocked); setList(r.reports); setTyped(''); toast(`${value} is blocked for everyone: their mail goes to Junk`); } catch (e) { toast(e.message, 'error'); }
   };
@@ -31,8 +32,8 @@ export default function PhishingAdmin() {
   return (
     <section className="card stack" aria-labelledby="phish-h">
       <h2 id="phish-h">Phishing reports</h2>
-      <p className="muted small" style={{ margin: 0 }}>Emails people here reported with <strong>Report phishing</strong> in Mail, by sender. You're told of each in the bell. Warn everyone (an announcement, say) and ask the sender's company or your provider to act on it; then mark it handled. A new report of the same sender brings it back.</p>
-      {!list.length ? <Empty icon="shield" title="No reports">Nobody has reported a phishing email.</Empty>
+      <p className="muted small" style={{ margin: 0 }}>Emails people here reported with <strong>Report phishing</strong> in Mail, and chat messages from outside the company reported with <strong>Report as suspicious</strong>, by sender. You're told of each in the bell. Warn everyone (an announcement, say) and ask the sender's company or your provider to act on it; then mark it handled. A new report of the same sender brings it back.</p>
+      {!list.length ? <Empty icon="shield" title="No reports">Nobody has reported a phishing email or a suspicious chat message.</Empty>
         : <>
           <p className="small" role="status">{open ? `${open} sender${open === 1 ? '' : 's'} to look at` : 'All handled'}</p>
           <table className="files">
@@ -44,11 +45,11 @@ export default function PhishingAdmin() {
                   <td title={g.people.join(', ')}>{g.reports}<div className="small muted">{g.people.slice(0, 3).join(', ')}{g.people.length > 3 ? ` and ${g.people.length - 3} more` : ''}</div></td>
                   <td className="hide-sm small">{g.subjects.map((x) => <div key={x}>“{x}”</div>)}</td>
                   <td className="hide-sm small">{when(g.last_at)}{g.handled_at && <div className="muted">Handled by {g.handled_by || 'an admin'}</div>}</td>
-                  <td className="actions">{isBlocked(g) ? <span className="pill">Blocked</span> : <>
+                  <td className="actions">{!mailSender(g) ? null : isBlocked(g) ? <span className="pill">Blocked</span> : <>
                     <button type="button" className="btn small" aria-label={`Block sender ${g.sender}`} onClick={() => setAsking(g.sender)}>Block sender</button>
                     <button type="button" className="btn small" aria-label={`Block domain ${g.domain}`} onClick={() => setAsking(g.domain)}>Block domain</button></>}
                     <button type="button" className="btn small" aria-label={`Warn everyone about ${g.sender}`} onClick={() => setWarning(g)}>Warn everyone</button>
-                    <button type="button" className="btn small" aria-label={`Remove from inboxes: ${g.sender}`} onClick={() => setSweeping({ value: g.sender })}>Remove from inboxes</button>
+                    {mailSender(g) && <button type="button" className="btn small" aria-label={`Remove from inboxes: ${g.sender}`} onClick={() => setSweeping({ value: g.sender })}>Remove from inboxes</button>}
                     {g.handled_at
                     ? <button type="button" className="btn small" aria-label={`Not handled: ${g.sender}`} onClick={() => mark(g, false)}>Not handled</button>
                     : <button type="button" className="btn small" aria-label={`Mark handled: ${g.sender}`} onClick={() => mark(g, true)}>Mark handled</button>}</td>
@@ -57,6 +58,7 @@ export default function PhishingAdmin() {
             </tbody>
           </table>
         </>}
+      {mail && <>
       <h3 id="blocked-h">Blocked for everyone</h3>
       <p className="muted small" style={{ margin: 0 }}>Mail from these goes straight to Junk, marked read, for everyone in the company (on phones too): no filters, forwarding or vacation replies run for it. A domain covers its subdomains.</p>
       {blocked.length > 0 && (
@@ -71,6 +73,7 @@ export default function PhishingAdmin() {
         <input className="grow" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="name@example.com or example.com" aria-label="Address or domain to block" maxLength={200} />
         <button className="btn" disabled={!typed.trim()}>Block</button>
       </form>
+      </>}
       {warning && <PromptModal title="Warn everyone" label="Announcement (at the top of Workspace for everyone, for a week)" confirm="Announce"
         initial={warningText(warning)} onClose={() => setWarning(null)}
         onSubmit={async (text) => { await post('/announcements', { text, tone: 'warn', until: Date.now() + 7 * 864e5 }); toast('Everyone sees the warning now (Admin → Announcements to change or end it)'); }} />}

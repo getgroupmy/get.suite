@@ -32,7 +32,7 @@ export const ACTIONS = {
   'api_token.create': 'Made an API token', 'api_token.revoke': 'Revoked an API token',
   'user.hold': 'Put a person on legal hold', 'user.release': 'Took a person off legal hold', 'user.export': 'Downloaded the people list',
   'user.bulk.suspend': 'Suspended people', 'user.bulk.restore': 'Restored suspended people', 'user.bulk.signout': 'Signed people out everywhere', 'user.bulk.department': 'Moved people to a department',
-  'mail.phishing': 'Reported a phishing email', 'mail.blocked': 'Blocked a sender for everyone', 'mail.unblocked': 'Unblocked a sender', 'mail.swept': 'Removed a sender\'s mail from everyone\'s Inbox',
+  'mail.phishing': 'Reported a phishing email', 'chat.reported': 'Reported a suspicious chat message', 'mail.blocked': 'Blocked a sender for everyone', 'mail.unblocked': 'Unblocked a sender', 'mail.swept': 'Removed a sender\'s mail from everyone\'s Inbox',
   'mail.delegate': 'Let someone read and send their mail', 'mail.undelegate': 'Stopped someone reading their mail', 'mail.merge': 'Sent a mail merge',
   'shared_mailbox.create': 'Made a shared mailbox', 'shared_mailbox.update': 'Changed a shared mailbox', 'shared_mailbox.delete': 'Deleted a shared mailbox',
   'dlp.blocked': 'Was stopped from sharing sensitive data', 'dlp.sent_anyway': 'Sent sensitive data after a warning', 'dlp.rule_add': 'Added a data protection rule', 'dlp.rule_change': 'Changed a data protection rule', 'dlp.rule_delete': 'Deleted a data protection rule',

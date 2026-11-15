@@ -137,7 +137,7 @@ export default function Admin() {
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
   const [activityKind, setActivityKind] = useState(''); // Activity opened filtered (from the security checkup)
   const mail = useMailStatus();
-  const tabs = [['users', 'Users'], ['checkup', 'Security checkup'], ...(mail?.enabled ? [['email', 'Email'], ['phishing', 'Phishing']] : []), ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['moving', 'Moving here'], ['drives', 'Shared drives'], ['links', 'Share links'], ['outside', 'Shared outside'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
+  const tabs = [['users', 'Users'], ['checkup', 'Security checkup'], ...(mail?.enabled ? [['email', 'Email']] : []), ['phishing', 'Phishing'], ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['moving', 'Moving here'], ['drives', 'Shared drives'], ['links', 'Share links'], ['outside', 'Shared outside'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
 
   return (
     <div className="page">
@@ -150,7 +150,7 @@ export default function Admin() {
       {tab === 'users' && <Users orgId={orgId} setOrgId={setOrgId} />}
       {tab === 'email' && <EmailAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'checkup' && <CheckupAdmin onGo={(t, filter) => { setActivityKind(filter || ''); setTab(t); }} />}
-      {tab === 'phishing' && <><PhishingAdmin /><PhishPractice /></>}
+      {tab === 'phishing' && <><PhishingAdmin mail={!!mail?.enabled} />{mail?.enabled && <PhishPractice />}</>}
       {tab === 'company' && <CompanySettings />}
       {tab === 'dlp' && <DataProtectionAdmin />}
       {tab === 'groups' && <GroupsAdmin />}

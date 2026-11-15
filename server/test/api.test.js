@@ -131,6 +131,25 @@ test('cross-company collaboration by exact email address', async () => {
   dmId = (await gina('POST', '/api/chat/dm', { user_id: bobId })).body.id;
   assert.equal((await gina('POST', `/api/chat/channels/${dmId}/messages`, { body: 'hello from Globex' })).status, 201);
   assert.equal((await bob('GET', `/api/chat/channels/${dmId}/messages`)).body[0].body, 'hello from Globex');
+
+  // Report as suspicious: a message from another company goes to Acme's Admin → Phishing, once per person.
+  const msgs = (await bob('GET', `/api/chat/channels/${dmId}/messages`)).body;
+  const rep = await bob('POST', `/api/chat/messages/${msgs[0].id}/report`, {});
+  assert.equal(rep.status, 200, JSON.stringify(rep.body));
+  assert.equal(rep.body.reports, 1);
+  assert.equal((await bob('POST', `/api/chat/messages/${msgs[0].id}/report`, {})).body.already, true);
+  const ph = (await owner('GET', '/api/orgs/current/phishing')).body.find((g) => g.sender === 'gina@globex.com');
+  assert.ok(ph && ph.subjects[0] === 'Chat: hello from Globex', JSON.stringify(ph));
+  assert.ok(!(await gina('GET', '/api/orgs/current/phishing')).body.some((g) => g.sender === 'gina@globex.com'), 'not in Globex\'s list');
+  const acts = (await owner('GET', '/api/audit?action=chat.reported')).body;
+  assert.ok(JSON.stringify(acts).includes('Reported a suspicious chat message'));
+  assert.match(JSON.stringify((await owner('GET', '/api/notifications')).body), /Bob B reported a suspicious chat message from gina@globex\.com/, 'the admin is told in the bell');
+  // Not your own messages, nor a colleague's, nor from a conversation you're not in.
+  assert.equal((await gina('POST', `/api/chat/messages/${msgs[0].id}/report`, {})).status, 400);
+  const mine = (await bob('POST', `/api/chat/channels/${dmId}/messages`, { body: 'hi Gina' })).body;
+  assert.equal((await bob('POST', `/api/chat/messages/${mine.id}/report`, {})).status, 400);
+  assert.equal((await owner('POST', `/api/chat/messages/${msgs[0].id}/report`, {})).status, 404);
+  assert.equal((await bob('POST', '/api/chat/messages/nope/report', {})).status, 404);
 });
 
 test('turning off external collaboration revokes access immediately', async () => {

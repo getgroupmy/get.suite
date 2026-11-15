@@ -11,3 +11,10 @@ test('the warning for everyone: sender and first subject, within 300 characters'
   assert.match(long, /use Report phishing in Mail\.$/, 'the advice stays: the subject goes first');
   assert.doesNotMatch(long, /yyy/);
 });
+
+test('a sender reported only in Chat: chat messages, and Report as suspicious', () => {
+  const t = warningText({ sender: 'gina@globex.com', subjects: ['Chat: send the gift cards'] });
+  assert.match(t, /^⚠ Scam: chat messages from gina@globex\.com \(“Chat: send the gift cards”\)/);
+  assert.match(t, /Report as suspicious in Chat/);
+  assert.match(warningText({ sender: 'x@y.com', subjects: ['Chat: hi', 'Invoice'] }), /^⚠ Phishing: emails from/, 'an email too: as before');
+});
