@@ -111,6 +111,12 @@ await step('a link to a site made to look like the company’s (acme-login.com) 
   await ask.getByText(/goes to acme-login\.com, which looks like acme\.com but isn’t/).waitFor();
   await axe(page, 'lookalike link dialog');
   await ask.getByRole('button', { name: 'Cancel' }).click();
+  // Pretending to be a mailing list doesn't hide it.
+  const st2 = await putHtml('Password expiring list', '<p>Your account password expires today.</p><p><a href="https://acme-login.com/signin">Keep my password</a></p>', 'List-Unsubscribe: <https://acme-login.com/unsub>\r\n');
+  if (st2 >= 300) throw new Error(`upload ${st2}`);
+  await openMsg('Password expiring list', 'Updates');
+  await page.locator('.mail-reader').getByText('Careful: this email links to acme-login.com (made to look like acme.com).').waitFor();
+  await openMsg('Password expiring');
   // An ordinary link opens straight away.
   const [pop] = await Promise.all([page.waitForEvent('popup'), frame().getByRole('link', { name: 'Terms' }).click()]);
   await pop.close();

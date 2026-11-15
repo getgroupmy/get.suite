@@ -1159,7 +1159,7 @@ export default function webmailRoutes() {
         const v = p.html ? proxyImages(p.html, req.user.id) : null;
         const c = v ? checkLinks(v.html, { likeOf: linkLookalike(req.user) }) : null;
         const list = p.headers.has('list'); // mailparser gathers List-Unsubscribe, List-Id… under 'list'
-        return { view_html: c?.html ?? null, remote_images: v?.count || 0, link_warnings: c?.links.length && !list ? c.links : [] };
+        return { view_html: c?.html ?? null, remote_images: v?.count || 0, link_warnings: (c?.links || []).filter((l) => l.like || !list) };
       })(),
       // The new part of a reply, without the quoted history under it (shown folded away), or null.
       trimmed: (() => {
