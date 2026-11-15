@@ -168,6 +168,7 @@ import { quietUntil } from '../workhours.js';
 import { cleanKeywords, keywordIn } from '../chatkeywords.js';
 import { cleanBookmark, bookmarksOf, MAX_BOOKMARKS } from '../chatbookmarks.js';
 import { conversationFiles, fileMentions } from '../chatfiles.js';
+import { parseChatQuery, anything } from '../chatquery.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -1058,20 +1059,48 @@ export default function chatRoutes() {
   // Search: messages with all these words, in the conversations you can see (thread replies too),
   // newest first. Each says where it is: the conversation, and the thread it's in.
   r.get('/search', (req, res) => {
-    const words = String(req.query.q || '').toLowerCase().match(/[\p{L}\p{N}@._-]+/gu)?.slice(0, 8) || [];
-    if (!words.length) return res.json([]);
+    const p = parseChatQuery(req.query.q, { tzo: req.query.tzo });
+    if (p.error) return res.status(400).json({ error: p.error });
+    if (!anything(p)) return res.json([]);
     const me = req.user.id;
+    const esc = (w) => w.replace(/[%_!]/g, (x) => `!${x}`);
     // The message, and an email shared in it (its subject, sender and text).
     const text = "LOWER(m.body || COALESCE(' ' || json_extract(m.email, '$.subject') || ' ' || COALESCE(json_extract(m.email, '$.from.name'), '') || ' ' || COALESCE(json_extract(m.email, '$.from.address'), '') || ' ' || COALESCE(json_extract(m.email, '$.text'), ''), ''))";
-    const like = words.map(() => `${text} LIKE ? ESCAPE '!'`);
-    const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.body, m.created_at, json_extract(m.email, '$.subject') AS email_subject, u.name AS user_name, c.name AS channel_name, c.dm_key, c.private,
+    const where = ['m.deleted_at IS NULL'], args = [];
+    for (const w of [...p.words, ...p.phrases]) { where.push(`${text} LIKE ? ESCAPE '!'`); args.push(`%${esc(w)}%`); }
+    for (const w of p.without) { where.push(`${text} NOT LIKE ? ESCAPE '!'`); args.push(`%${esc(w)}%`); }
+    // A person, by "me", their username or the start of any word of their name.
+    const person = (col, v) => {
+      if (v === 'me') { args.push(me); return `${col} = ?`; }
+      args.push(req.user.org_id, `${esc(v)}%`, `${esc(v)}%`, `% ${esc(v)}%`);
+      return `${col} IN (SELECT id FROM users WHERE org_id = ? AND (LOWER(username) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!'))`;
+    };
+    if (p.from.length) where.push(`(${p.from.map((v) => person('m.user_id', v)).join(' OR ')})`);
+    if (p.in.length) {
+      where.push(`(${p.in.map((v) => {
+        const name = v.replace(/^#/, '');
+        args.push(`${esc(name)}%`);
+        const ch = "(c.dm_key IS NULL AND LOWER(c.name) LIKE ? ESCAPE '!')";
+        if (v.startsWith('#')) return ch;
+        args.push(me);
+        return `${ch} OR (c.dm_key IS NOT NULL AND EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id != ? AND ${person('cm.user_id', name)}))`;
+      }).join(' OR ')})`);
+    }
+    if (p.has.includes('file')) where.push("m.files IS NOT NULL AND m.files NOT IN ('', '[]')");
+    if (p.has.includes('image')) where.push(`m.files LIKE '%"mime":"image/%'`);
+    if (p.has.includes('link')) where.push("(m.body LIKE '%http://%' OR m.body LIKE '%https://%')");
+    if (p.thread) where.push('m.parent_id IS NOT NULL');
+    if (p.after != null) { where.push('m.created_at >= ?'); args.push(p.after); }
+    if (p.before != null) { where.push('m.created_at < ?'); args.push(p.before); }
+    const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.body, m.created_at, m.files, json_extract(m.email, '$.subject') AS email_subject, u.name AS user_name, c.name AS channel_name, c.dm_key, c.private,
                       (SELECT un.name FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name
                     FROM messages m JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
-                    WHERE ${like.join(' AND ')}
+                    WHERE ${where.join(' AND ')}
                       AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?) OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))
                     ORDER BY m.created_at DESC LIMIT 50`)
-      .all(me, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`), req.user.org_id, me);
-    res.json(rows.map((r) => ({ ...r, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private, dm_key: undefined, dm_name: undefined })));
+      .all(me, ...args, req.user.org_id, me);
+    const names = (f) => { try { return (JSON.parse(f || '[]') || []).map((x) => x.name).filter(Boolean); } catch { return []; } };
+    res.json(rows.map((r) => ({ ...r, files: undefined, file_names: names(r.files), where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private, dm_key: undefined, dm_name: undefined })));
   });
 
   // A direct message with a colleague whose working day is over: their local time and when it starts again.

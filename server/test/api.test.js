@@ -2280,6 +2280,55 @@ test('free/busy: colleagues’ busy times without details; not other companies',
   assert.equal((await owner('GET', `/api/freebusy?users=${aid}&from=0&to=${100 * 864e5}`)).status, 400);
 });
 
+test('chat search filters: from:, in:, has:, is:thread, dates, phrases and left-out words', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['filta', 'Filter Ann'], ['filtb', 'Quentin Berry']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'filta@acme.com'); const bid = (await login(b, 'filtb@acme.com')).id;
+  const ch = (await a('POST', '/api/chat/channels', { name: 'zebra-launch' })).body.id;
+  const other = (await a('POST', '/api/chat/channels', { name: 'zebra-misc' })).body.id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const say = async (who, c, body, extra = {}) => (await who('POST', `/api/chat/channels/${c}/messages`, { body, ...extra })).body;
+  const root = await say(a, ch, 'zebra stripes are ready');
+  await say(b, ch, 'zebra stripes need work', { parent_id: root.id });
+  await say(b, other, 'zebra spare parts at https://example.com/parts');
+  await say(b, dm, 'zebra quick question');
+  const folder = (await a('POST', '/api/chat/files-folder')).body.id;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await a('POST', `/api/files/upload?name=zebra.png&parent=${folder}`, png, { raw: true })).body;
+  const txt = (await a('POST', `/api/files/upload?name=notes.txt&parent=${folder}`, Buffer.from('hi'), { raw: true })).body;
+  await say(a, ch, 'zebra picture', { files: [pic.id] });
+  await say(a, other, 'zebra notes', { files: [txt.id] });
+  const find = async (q, who = a) => {
+    const r = await who('GET', `/api/chat/search?q=${encodeURIComponent(q)}&tzo=0`);
+    return r.status === 200 ? r.body.map((m) => m.body).sort() : r.body;
+  };
+  assert.deepEqual(await find('zebra from:quentin'), ['zebra quick question', 'zebra spare parts at https://example.com/parts', 'zebra stripes need work'], 'by the start of a name');
+  assert.deepEqual(await find('zebra from:filtb'), await find('zebra from:quentin'), 'or the username');
+  assert.deepEqual(await find('zebra from:berry'), await find('zebra from:quentin'), 'or any word of the name');
+  assert.deepEqual(await find('zebra from:me', b), await find('zebra from:quentin'), 'from:me');
+  assert.deepEqual(await find('zebra in:#zebra-launch'), ['zebra picture', 'zebra stripes are ready', 'zebra stripes need work']);
+  assert.deepEqual(await find('in:quentin'), ['zebra quick question'], 'a direct message, by the other person; a filter alone is a search');
+  assert.deepEqual(await find('zebra in:#zebra-launch in:#zebra-misc'), (await find('zebra')).filter((x) => x !== 'zebra quick question'), 'either channel');
+  assert.deepEqual(await find('zebra has:file'), ['zebra notes', 'zebra picture']);
+  assert.deepEqual(await find('zebra has:image'), ['zebra picture']);
+  assert.deepEqual(await find('zebra has:link'), ['zebra spare parts at https://example.com/parts']);
+  assert.deepEqual(await find('zebra is:thread'), ['zebra stripes need work']);
+  assert.deepEqual(await find('"stripes are"'), ['zebra stripes are ready'], 'an exact phrase');
+  assert.deepEqual(await find('zebra stripes -need'), ['zebra stripes are ready'], 'a word left out');
+  const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  assert.equal((await find(`zebra before:${day(1)}`)).length, 6);
+  assert.deepEqual(await find(`zebra after:${day(1)}`), []);
+  assert.equal((await find(`zebra on:${day(0)}`)).length, 6);
+  const hits = (await a('GET', '/api/chat/search?q=zebra%20has:image')).body;
+  assert.deepEqual(hits[0].file_names, ['zebra.png'], 'with the names of its files');
+  assert.equal(hits[0].files, undefined);
+  assert.match((await find('zebra has:spaceship')).error, /has: can be/);
+  assert.match((await find('zebra after:yesterday')).error, /2026-11-01/);
+  assert.match((await find(`zebra after:${day(1)} before:${day(0)}`)).error, /Nothing can be/);
+  assert.deepEqual(await find('from:'), { error: 'Add something after from:' });
+  assert.equal((await client()('GET', '/api/chat/search?q=zebra')).status, 401);
+});
+
 test('chat search: all the words, in conversations you can see (threads too); jump to a message', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['seeka', 'Seek Ann'], ['seekb', 'Seek Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

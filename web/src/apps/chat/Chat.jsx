@@ -39,6 +39,7 @@ import { newFromId, newCount, belowText } from './unread.js';
 import { nextConversation, lastEditable } from './keys.js';
 import { jumpChoices, jumpItems } from './switcher.js';
 import { mergeLatest, sameMessages } from './mergelatest.js';
+import { QUICK, hasFilter, toggleFilter, markWords, inFilter } from './searchfilters.js';
 
 /**
  * "Kim is typing…": tells the others while you type here (at most every 2.5 seconds; clearing the
@@ -253,9 +254,17 @@ export default function Chat() {
     }).catch((e) => { if (live) toast(e.message, 'error'); });
     return () => { live = false; };
   }, [channelId, jumpTo, jumpThread, toast, user.id]);
+  // Latest search wins (a filter clicked while the last one is still coming).
+  const searchSeq = useRef(0);
+  const searchBox = useRef();
   const runSearch = async (q) => {
+    if (searchBox.current && searchBox.current.value !== q) searchBox.current.value = q;
     if (!q.trim()) { setSearch(null); return; }
-    try { setSearch({ q, results: await get(`/chat/search?q=${encodeURIComponent(q)}`) }); } catch (e) { toast(e.message, 'error'); }
+    const n = ++searchSeq.current;
+    try {
+      const results = await get(`/chat/search?q=${encodeURIComponent(q)}&tzo=${new Date().getTimezoneOffset()}`);
+      if (n === searchSeq.current) setSearch({ q, results });
+    } catch (e) { if (n === searchSeq.current) setSearch({ q, results: [], error: e.message }); }
   };
   const openResult = (r) => {
     setSearch(null);
@@ -571,6 +580,7 @@ export default function Chat() {
     if (sectionId === '__new__') { setSectionEdit({ add: c.id }); return; }
     try { await put(`/chat/channels/${c.id}/section`, { section_id: sectionId || null }); await loadChannels(); } catch (e) { toast(e.message, 'error'); }
   };
+  const searchHere = inFilter(current, current?.dm_name); // the conversation open behind the results
   const title = current ? (current.dm_key ? (current.dm_name || 'Notes to self') + (current.dm_org ? ` (${current.dm_org})` : '') : `# ${current.name}`) : '';
 
   return (
@@ -578,7 +588,7 @@ export default function Chat() {
       <aside className="subnav">
         <form className="chat-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
           <Icon name="search" size={18} />
-          <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
+          <input ref={searchBox} name="q" type="search" placeholder="Search messages" aria-label="Search messages" title="Words, “exact phrases”, -left-out words, from:kim in:#general has:file has:link is:thread after:2026-11-01" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
         <button type="button" className={`subnav-item ${savedOpen === true ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
         <button type="button" className={`subnav-item ${savedOpen === 'reminders' ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen('reminders'); }}><span className="hash" aria-hidden="true">⏰</span><span className="grow">Reminders</span>{reminderList.length > 0 && <span className="count">{reminderList.length}</span>}</button>
@@ -759,13 +769,19 @@ export default function Chat() {
         ) : search ? (
           <div className="chat-results">
             <div className="chat-head"><h1 className="grow">Results for “{search.q}”</h1><button type="button" className="icon-btn" aria-label="Close search" onClick={() => setSearch(null)}><Icon name="close" /></button></div>
-            {!search.results.length ? <Empty icon="search" title="No messages found" /> : (
+            <div className="chat-search-filters" role="group" aria-label="Narrow the search">
+              {[...(searchHere ? [[searchHere, 'In this conversation']] : []), ...QUICK].map(([f, label]) => (
+                <button key={f} type="button" className={`btn small ${hasFilter(search.q, f) ? 'primary' : ''}`} aria-pressed={hasFilter(search.q, f)} onClick={() => runSearch(toggleFilter(search.q, f))}>{label}</button>
+              ))}
+            </div>
+            {search.error ? <p className="error" role="alert">{search.error}</p> : !search.results.length ? <Empty icon="search" title="No messages found">Try fewer words, or take a filter off.</Empty> : (
               <ul aria-label="Search results">
                 {search.results.map((r) => (
                   <li key={r.id}>
                     <button type="button" className="chat-result" onClick={() => openResult(r)}>
                       <span className="muted small">{r.private ? '🔒 ' : ''}{r.where}{r.parent_id ? ' · in a thread' : ''} · {new Date(r.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
-                      <span><strong>{r.user_name || 'Someone'}</strong> <Highlighted text={r.body} words={search.q} />{r.email_subject != null && <span className="muted"> ✉ <Highlighted text={r.email_subject || '(no subject)'} words={search.q} /></span>}</span>
+                      <span><strong>{r.user_name || 'Someone'}</strong> <Highlighted text={r.body} words={markWords(search.q)} />{r.email_subject != null && <span className="muted"> ✉ <Highlighted text={r.email_subject || '(no subject)'} words={markWords(search.q)} /></span>}</span>
+                      {r.file_names?.length > 0 && <span className="muted small">📎 {r.file_names.join(', ')}</span>}
                     </button>
                   </li>
                 ))}
