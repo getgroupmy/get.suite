@@ -54,7 +54,8 @@ export function tokenRow(token, ip = null) {
 export function tokenRefusal(row, req) {
   const path = req.originalUrl.split('?')[0];
   if (/^\/api\/(auth|tokens)(\/|$)/.test(path)) return 'API tokens can’t be used for this: sign in instead';
-  if (row.scope === 'read' && !['GET', 'HEAD'].includes(req.method)) return 'This token is read-only';
+  // MCP is all POSTs: there a read-only token can use the tools that only read (each call to the API is checked).
+  if (row.scope === 'read' && !['GET', 'HEAD'].includes(req.method) && path !== '/mcp') return 'This token is read-only';
   return null;
 }
 

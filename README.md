@@ -1207,6 +1207,17 @@ Your own scripts and tools can use the same API as the web app, as you: a nightl
 - **Using it:** send it as `Authorization: Bearer nwt_…`, for example `curl -H "Authorization: Bearer nwt_…" https://your-server/api/files`. Requests with a token don't need the browser's `X-Requested-With` header. A read-only token can only read (GET). A token can't sign in, change the account (anything under `/api/auth`) or make more tokens. It stops working when it's revoked or expires, when its owner is suspended, or when the company turns tokens off; the company's network rules still apply.
 - **Keeping track:** the list shows each token's access, when it was made, when it expires, and when and from where it was last used. **Revoke** stops it at once. Admins see every token in the company under Company settings and can revoke any of them. Making and revoking tokens are in the activity log.
 
+## AI assistants (MCP)
+
+Workspace is an **MCP server** (Model Context Protocol) at `https://your-server/mcp`, so an AI assistant such as Claude or ChatGPT can work with it as you, with your access.
+
+- **Signing it in:** make an API token (Settings → **API tokens**; an admin turns tokens on first) and give it to the assistant as the header `Authorization: Bearer nwt_…`. **Use Workspace from an AI assistant** under the tokens has the address and, for **Claude Code**, the command: `claude mcp add --transport http workspace https://your-server/mcp --header "Authorization: Bearer nwt_…"`. Any MCP client that connects over HTTP with a header works the same way. A **read-only** token lets it read and search but not change anything; **Revoke** stops it at once, and the token list shows when and from where it was last used.
+- **What it can do:**
+  - `search` (files by name and contents, email in Inbox and Sent, chat, tasks, notes, events, contacts) and `fetch` (one of them in full: a file's text, including Word, Excel and PowerPoint files; an email with its headers; a chat message with those around it; a task, note, event or contact). They're the shape ChatGPT's connectors and deep research use.
+  - `list_events` (repeating events once per time), `list_tasks`, `list_mail` (with Mail's search words: `from:`, `has:attachment`, `is:unread`…).
+  - With a read-and-write token: `create_event` (guests are invited), `create_task`, `complete_task`, `create_note` (a checklist from items), `create_document` (a Workspace document from text; `#` lines become headings) and `draft_email`, which **never sends**: the email waits in Drafts for you to check and send.
+- **Rules still apply:** every tool goes through Workspace's own API as you, so sharing, company limits and **Networks** (Admin) apply as they do in the browser, checked against the assistant's address. A browser's sign-in cookie isn't accepted at `/mcp`, only a token.
+
 ## Mail apps (phones, Outlook)
 
 Settings → **Mail apps** shows what to enter in a phone or Outlook: the server name, ports (IMAP 993, SMTP 465 or 587) and user name (your email address).

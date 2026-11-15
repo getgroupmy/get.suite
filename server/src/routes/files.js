@@ -15,7 +15,7 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
-import { contentMatches, indexSoon, docText } from '../search.js';
+import { contentMatches, indexSoon, docText, textOf } from '../search.js';
 import { countText, readingMinutes } from '../wordcount.js';
 import { readSetup, withHeadingNumbers } from '../pagesetup.js';
 import { suggestedFor } from '../suggested.js';
@@ -1337,6 +1337,15 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json({ folder: publicFile(loadFile(done.id, req.user)), files: done.files, folders: done.folders });
   });
 
+  // A file's words as plain text (documents, spreadsheets, presentations, Word, Excel, PowerPoint, text files):
+  // for assistants reading it over MCP. Up to 200,000 characters.
+  r.get('/:id/text', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind === 'folder') throw bad('A folder has no text');
+    const full = q('SELECT * FROM files WHERE id = ?').get(f.id);
+    const text = String(await textOf(full) || '');
+    res.json({ file: publicFile(f), text: text.slice(0, 200000), truncated: text.length > 200000 });
+  });
   r.get('/:id/content', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (!EDITABLE.includes(f.kind)) throw bad('No editable content');

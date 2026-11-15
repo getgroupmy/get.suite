@@ -2083,6 +2083,35 @@ test('moving from Gmail: Takeout’s all-mail .mbox is split by its labels (Inbo
   assert.deepEqual(archived.map((m) => [m.subject, m.flagged]), [[`${tag} 4`, true]], 'starred kept');
 });
 
+test('MCP: an assistant lists and reads mail, and writes a draft that waits in Drafts (never sent)', async () => {
+  await olivia('PATCH', '/api/orgs/current', { allow_api_tokens: true });
+  const made = await olivia('POST', '/api/tokens', { name: 'Claude', scope: 'write', days: 30 });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const call = async (name, args) => {
+    const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+    const j = await r.json();
+    assert.equal(j.result?.isError, false, JSON.stringify(j));
+    return j.result.structuredContent;
+  };
+  const subject = `Mcp ${Date.now()}`;
+  assert.equal((await bob('POST', '/api/mail/send', { to: 'olivia@acme.com', subject, text: 'The pelican numbers are in.' })).status, 200);
+  await eventually(async () => (await inbox(olivia, subject))[0], 30000);
+  const listed = await call('list_mail', { query: subject });
+  assert.equal(listed.messages.length, 1);
+  assert.equal(listed.messages[0].unread, true);
+  const read = await call('fetch', { id: listed.messages[0].id });
+  assert.match(read.text, /^From: .*bob@acme\.com/m);
+  assert.match(read.text, /The pelican numbers are in\./);
+  const found = await call('search', { query: subject });
+  assert.ok(found.results.some((r) => r.id === listed.messages[0].id), JSON.stringify(found));
+  const draft = await call('draft_email', { to: 'bob@acme.com', subject: `Re: ${subject}`, body: 'Thanks, looks good.' });
+  assert.match(draft.note, /not sent/);
+  const drafts = await eventually(async () => (await olivia('GET', `/api/mail/messages?folder=Drafts&q=${encodeURIComponent(subject)}`)).body.messages?.find((m) => m.subject === `Re: ${subject}`), 15000);
+  assert.ok(drafts, 'in Drafts');
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal((await inbox(bob, `Re: ${subject}`)).length, 0, 'nothing sent to Bob');
+});
+
 test('DMARC and TLS reports sent to postmaster@ are read and added up for the admin', async () => {
   const zlib = await import('node:zlib');
   const { DMARC, TLS } = await import('./fixtures/reports.js');

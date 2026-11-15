@@ -3112,3 +3112,5 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .move-from { flex-wrap: wrap; gap: 6px; }
 .move-from .btn { white-space: normal; }
 .move-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; }
+.mcp-help summary { cursor: pointer; font-weight: 500; }
+.mcp-help .mcp-cmd { display: block; white-space: pre-wrap; word-break: break-all; }

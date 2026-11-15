@@ -1,3 +1,4 @@
+import { mcpRoutes, innerIp } from './mcp.js';
 import slideQaRoutes from './routes/slideqa.js';
 import webImportRoutes from './routes/webimport.js';
 import { oidcPublicRoutes, oidcApiRoutes } from './oidc.js';
@@ -62,6 +63,7 @@ export function createApp({
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', trustProxy);
+  app.use(innerIp); // our own MCP calls to the API keep the caller's address
 
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -117,6 +119,8 @@ export function createApp({
   app.use('/api/public/pub', publicPublishRoutes());
   app.use('/api/public/meet', publicMeetRoutes());
   app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
+  // AI assistants (Claude, ChatGPT…) over MCP, with an API token.
+  app.use('/mcp', mcpRoutes(requireAuth));
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());

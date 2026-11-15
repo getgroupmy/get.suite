@@ -1,0 +1,92 @@
+import { chromium } from 'playwright';
+const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
+const SP = process.argv[2];
+const B = process.env.BASE || 'http://localhost:8080';
+const browser = await chromium.launch();
+let errors = [];
+let failed = 0;
+const mk = async (who) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errors.push(`${who}: ${e.message}`));
+  p.on('console', (m) => m.type() === 'error' && !/40[0-4]|503|Content Security|sandboxed/.test(m.text()) && errors.push(`${who}: ${m.text()}`));
+  return p;
+};
+const page = await mk('olivia');
+const step = async (name, fn, p = page) => {
+  try { await fn(); console.log('PASS', name); }
+  catch (e) { failed++; console.log('FAIL', name, e.message.split('\n')[0], (String(e.stack).match(/e2e[\w-]*\.mjs:\d+/g) || []).slice(0, 2).join(' ')); await p.screenshot({ path: `${SP}/shots/fail-${name.replace(/\W+/g, '_')}.png` }); }
+};
+const api = (p, method, url, body) => p.evaluate(async ([m, u, b]) => {
+  const r = await fetch('/api' + u, { method: m, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+  return { status: r.status, body: await r.json().catch(() => null) };
+}, [method, url, body]);
+const signIn = async (p, email) => { await p.goto(B); await p.evaluate(async (e) => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: e, password: 'password123' }) }), email); };
+const until = async (fn, ms = 8000) => { const end = Date.now() + ms; let v; for (;;) { v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 150)); } };
+await step('setup', async () => {
+  await page.goto(B);
+  await page.getByLabel('Your company name').fill('Acme Trading');
+  await page.getByLabel('Company domain').fill('acme.com');
+  await page.getByLabel('Your full name').fill('Olivia Owner');
+  await page.getByLabel('Address before @').fill('olivia');
+  await page.getByLabel('Password', { exact: true }).fill('password123');
+  await page.getByLabel('Confirm password').fill('password123');
+  await page.getByRole('button', { name: 'Create workspace' }).click();
+  await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
+});
+const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
+const axe = async (p, label) => {
+  for (const scheme of ['light', 'dark']) {
+    await p.emulateMedia({ colorScheme: scheme });
+    await p.addScriptTag({ content: AXE });
+    const r = await p.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id}: ${x.nodes[0]?.html.slice(0, 120)}`));
+    if (r.length) throw new Error(`${label} ${scheme}: ${r.join(' | ')}`);
+  }
+  await p.emulateMedia({ colorScheme: 'light' });
+};
+let token;
+await step('Settings → API tokens shows how to use Workspace from an assistant, with this server’s address', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  await page.goto(`${B}/settings`);
+  const card = page.getByRole('region', { name: 'API tokens' });
+  await card.getByRole('button', { name: 'New token' }).click();
+  await card.getByLabel('What it\'s for').fill('Claude');
+  await card.getByLabel('Access').selectOption('write');
+  await card.getByRole('button', { name: 'Make token' }).click();
+  token = (await card.getByLabel('New API token').innerText()).trim();
+  await card.getByText('Use Workspace from an AI assistant (Claude, ChatGPT…)').click();
+  await card.getByText(`${B}/mcp`, { exact: true }).waitFor();
+  const cmd = await card.getByLabel('Command for Claude Code').innerText();
+  if (!cmd.includes(`claude mcp add --transport http workspace ${B}/mcp`)) throw new Error(cmd);
+  await card.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SP}/shots/mcp-help.png` });
+  await axe(page, 'mcp help');
+});
+await step('that token works at /mcp: the tools are listed, and a note made by the assistant shows in Notes', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
+  if (init.result?.serverInfo?.name !== 'workspace') throw new Error(JSON.stringify(init));
+  const tools = (await rpc('tools/list')).result.tools.map((t) => t.name);
+  if (!tools.includes('search') || !tools.includes('draft_email')) throw new Error(tools.join());
+  const made = await rpc('tools/call', { name: 'create_note', arguments: { title: 'From Claude', items: ['Check the numbers'] } });
+  if (made.result?.isError) throw new Error(JSON.stringify(made));
+  await page.goto(`${B}/notes`);
+  await page.getByRole('heading', { name: 'From Claude' }).waitFor();
+  await page.goto(`${B}/settings`);
+  await page.getByRole('region', { name: 'API tokens' }).getByText(/last used/).first().waitFor();
+});
+await step('on a phone the command wraps and nothing slides sideways', async () => {
+  await page.setViewportSize({ width: 375, height: 760 });
+  await page.reload();
+  const card = page.getByRole('region', { name: 'API tokens' });
+  await card.getByText('Use Workspace from an AI assistant (Claude, ChatGPT…)').click();
+  await card.getByLabel('Command for Claude Code').waitFor();
+  if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) throw new Error('wider than the phone');
+  if (await card.evaluate((el) => el.scrollWidth > el.clientWidth + 1)) throw new Error('card overflows');
+  await card.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SP}/shots/mcp-help-phone.png` });
+});
+if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
+console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
+await browser.close();
+process.exit(failed ? 1 : 0);

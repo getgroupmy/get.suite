@@ -1199,6 +1199,13 @@ function ApiTokens() {
           </form>
         ) : <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => { setMade(null); setForm({ name: '', scope: 'read', days: '90' }); }}>New token</button>)}
         {!data.allowed && <p className="muted small">Your company has turned API tokens off, so these don't work now.</p>}
+        <details className="mcp-help">
+          <summary>Use Workspace from an AI assistant (Claude, ChatGPT…)</summary>
+          <p className="small">Workspace is an <strong>MCP server</strong> at <code>{window.location.origin}/mcp</code>. Give the assistant a token: it can then search and read your files, email, chat, tasks, notes, events and contacts, and (with a read-and-write token) add events, tasks, notes and documents and write email <em>drafts</em>, which wait in Drafts for you to send. It works as you, with your access; revoking the token stops it.</p>
+          <p className="small" style={{ marginBottom: 4 }}><strong>Claude Code:</strong></p>
+          <code className="secret-key mcp-cmd" aria-label="Command for Claude Code">{`claude mcp add --transport http workspace ${window.location.origin}/mcp --header "Authorization: Bearer nwt_…"`}</code>
+          <p className="small">Other assistants and tools that connect to MCP servers over HTTP with a header work the same way: the address above, and the header <code>Authorization: Bearer</code> followed by your token.</p>
+        </details>
       </>}
       {revoking && <ConfirmModal title={`Revoke “${revoking.name}”?`} message="Scripts using it stop working at once." confirm="Revoke"
         onClose={() => setRevoking(null)} onConfirm={async () => { const t = revoking; setRevoking(null); await revoke(t); }} />}
