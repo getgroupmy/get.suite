@@ -1,6 +1,7 @@
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
 import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
 import { mailSentences } from './readmail.js';
+import { pictureHasQr, picturesOf } from './qrscan.js';
 import { VoiceTypingBar, canVoiceType } from '../docs/VoiceTypingBar.jsx';
 import ShareInChat from './ShareInChat.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -861,6 +862,16 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   const [risky, setRisky] = useState(null); // an attachment that may be harmful, asked about before downloading
   const [original, setOriginal] = useState(false); // Show original (before the early return below: hooks always in the same order)
   const [readingMail, setReadingMail] = useState(null); // Read aloud is on (a key)
+  // A QR code in a picture of an email from outside the company: a warning (looked for in the browser).
+  const [qr, setQr] = useState(false);
+  useEffect(() => {
+    setQr(false);
+    if (!m?.from_outside) return undefined;
+    let stop = false;
+    const pics = picturesOf(m.html, m.attachments, (a) => `/api/mail/messages/${uid}/attachments/${a.index}?folder=${encodeURIComponent(folder)}&view${mailboxParam()}`);
+    (async () => { for (const src of pics) { if (stop) return; if (await pictureHasQr(src)) { if (!stop) setQr(true); return; } } })();
+    return () => { stop = true; };
+  }, [m, uid, folder]);
   useEffect(() => { setReadingMail(null); }, [uid, folder]); // another message: stop
   const [sharing, setSharing] = useState(false); // Share in Chat
   if (!m) return <p className="muted mail-note">Loading…</p>;
@@ -964,6 +975,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       ) : m.outside?.external ? (
         <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
       ) : null}
+      {qr && (
+        <div className="banner danger" role="note"><strong>⚠ This email has a QR code in it.</strong> Scanning one takes your phone straight to a web address that nobody here has checked, a common way to steal passwords. Don’t scan it unless you were expecting it; go to the company’s website yourself instead.</div>
+      )}
       {m.sender_check === 'forged' && (
         <div className="banner danger" role="note"><strong>⚠ This email may not be from {m.from?.address?.split('@')[1]}.</strong> When it arrived it failed that domain’s own check (DMARC): its owner says mail like this isn’t theirs. Don’t click its links, open its attachments or reply with anything sensitive; report it as phishing if you weren’t expecting it.</div>
       )}

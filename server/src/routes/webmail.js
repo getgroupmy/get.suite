@@ -1162,6 +1162,8 @@ export default function webmailRoutes() {
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       // From outside the company (when it marks such mail), or using a colleague's name from outside.
       outside: incomingWarning(req.user, addrList(p.from)[0]),
+      // From an address that isn't on one of the company's domains (Mail looks for QR codes in its pictures).
+      from_outside: (() => { const d = String(addrList(p.from)[0]?.address || '').toLowerCase().split('@')[1]; return !!d && !q('SELECT 1 FROM domains WHERE org_id = ? AND name = ?').get(req.user.org_id, d); })(),
       // Whether this server's spam filter could confirm it comes from its From domain (senderauth.js).
       sender_check: senderVerdict(p.headerLines, addrList(p.from)[0]?.address, q('SELECT name FROM domains WHERE org_id = ?').all(req.user.org_id).map((d) => d.name.toLowerCase())),
       // Replies would go to another site than the email came from (Reply-To), unless it's a mailing list.
