@@ -171,7 +171,7 @@ test('Stop sharing several at once: people, groups and the whole company; only y
   const link = (await kim('POST', '/api/links', { file_id: a.id })).body;
   assert.equal((await ana('POST', '/api/files/unshare', { ids: [a.id] })).status, 404, 'not hers');
   const r = await kim('POST', '/api/files/unshare', { ids: [a.id, b.id, c.id] });
-  assert.deepEqual(r.body, { files: 2, people: 1 });
+  assert.deepEqual([r.body.files, r.body.people, typeof r.body.undo], [2, 1, 'string']);
   assert.equal((await ana('GET', `/api/files/${a.id}`)).status, 404);
   assert.equal((await ana('GET', `/api/files/${b.id}`)).status, 404, 'company and group access gone too');
   assert.equal(q('SELECT COUNT(*) AS n FROM group_shares WHERE file_id = ?').get(b.id).n, 0);
@@ -282,4 +282,27 @@ test('ask for longer: the owner says yes (30 more days, or within the outside li
   await kim('POST', `/api/files/access-requests/${n.id}`, { approve: false });
   assert.equal(end('ana@acme.com'), before);
   assert.ok(q("SELECT 1 FROM notifications WHERE user_id = ? AND title = 'Kim Park didn’t give you longer with “keep.txt”'").get(id('ana@acme.com')));
+});
+
+test('Undo Stop sharing: people (with their access and end), groups and the company come back; once, by you', async () => {
+  const a = (await kim('POST', '/api/files/upload?name=undo-a.txt', 'a', true)).body;
+  const end = Date.now() + 20 * 864e5;
+  await kim('PUT', `/api/files/${a.id}/shares`, { shares: [{ user_id: id('ana@acme.com'), role: 'editor', expires_at: end }] });
+  const group = (await ana('GET', '/api/groups')).body.find((g) => g.name === 'Design');
+  await kim('PUT', `/api/files/${a.id}/groups`, { groups: [{ group_id: group.id, role: 'viewer' }] });
+  await kim('PUT', `/api/files/${a.id}/company`, { role: 'viewer' });
+  const r = (await kim('POST', '/api/files/unshare', { ids: [a.id] })).body;
+  assert.ok(r.undo);
+  assert.equal((await ana('GET', `/api/files/${a.id}`)).status, 404);
+  assert.equal((await ana('POST', '/api/files/unshare/undo', { undo: r.undo })).status, 404, 'not hers to undo');
+  assert.deepEqual((await kim('POST', '/api/files/unshare/undo', { undo: r.undo })).body, { files: 1 });
+  const s = q('SELECT direct_role, expires_at FROM shares WHERE file_id = ? AND user_id = ?').get(a.id, id('ana@acme.com'));
+  assert.deepEqual([s.direct_role, s.expires_at], ['editor', end]);
+  assert.equal(q('SELECT role FROM group_shares WHERE file_id = ?').get(a.id).role, 'viewer');
+  assert.equal(q('SELECT org_role FROM files WHERE id = ?').get(a.id).org_role, 'viewer');
+  assert.equal((await ana('GET', `/api/files/${a.id}`)).status, 200);
+  assert.equal((await kim('POST', '/api/files/unshare/undo', { undo: r.undo })).status, 404, 'once');
+  // Nothing was shared: nothing to undo.
+  const b = (await kim('POST', '/api/files/upload?name=undo-b.txt', 'b', true)).body;
+  assert.equal((await kim('POST', '/api/files/unshare', { ids: [b.id] })).body.undo, null);
 });

@@ -81,6 +81,14 @@ await step('select and Stop sharing: gone from Shared by me, and Kim can no long
   await d.getByRole('button', { name: 'Stop sharing' }).click();
   await page.getByText('Stopped sharing 1 item').waitFor();
   await page.getByText("You haven't shared anything yet").waitFor();
+  // Undo puts it back as it was (the whole company could see it); then stop it again for the rest.
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.getByText('Sharing back as it was on 1 item').waitFor();
+  await page.locator('.files tbody tr', { hasText: 'Handbook.txt' }).getByText('· with Everyone at Acme Trading').waitFor();
+  await page.getByRole('checkbox', { name: 'Select all' }).check();
+  await page.getByRole('toolbar', { name: 'Selected files' }).getByRole('button', { name: 'Stop sharing' }).click();
+  await page.getByRole('dialog', { name: 'Stop sharing “Handbook.txt”?' }).getByRole('button', { name: 'Stop sharing' }).click();
+  await page.getByText("You haven't shared anything yet").waitFor();
   // Not offered for something that isn't yours.
   const kim = await mk('kim-x');
   await signIn(kim, 'kim@acme.com');

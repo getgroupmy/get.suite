@@ -780,7 +780,8 @@ export default function Drive() {
           onConfirm={async () => {
             try {
               const r = await post('/files/unshare', { ids: dialog.files.map((f) => f.id) });
-              toast(r.files ? `Stopped sharing ${r.files === 1 ? '1 item' : `${r.files} items`}${r.people ? ` with ${r.people} ${r.people === 1 ? 'person' : 'people'}` : ''}` : 'None of them was shared');
+              toast(r.files ? `Stopped sharing ${r.files === 1 ? '1 item' : `${r.files} items`}${r.people ? ` with ${r.people} ${r.people === 1 ? 'person' : 'people'}` : ''}` : 'None of them was shared', 'info',
+                r.undo ? { action: { label: 'Undo', onClick: async () => { try { const u = await post('/files/unshare/undo', { undo: r.undo }); toast(`Sharing back as it was on ${u.files === 1 ? '1 item' : `${u.files} items`}`); load(); } catch (e) { toast(e.message, 'error'); } } } } : undefined);
               setChecked(new Set()); load();
             } catch (e) { toast(e.message, 'error'); }
           }} />

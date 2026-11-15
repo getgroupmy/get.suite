@@ -210,6 +210,10 @@ function publicFile(f, role) {
   return { ...rest, ...(f.kind === 'doc' && { page_setup: setupOf({ page_setup: setup }) }), role: role ?? f.role };
 }
 
+// Undo for Stop sharing: what each file's sharing was, kept here for a few minutes (key → { user, at, snapshot }).
+const unshareUndo = new Map();
+const UNDO_MS = 10 * 60e3;
+
 function notify(fileId, payload) {
   sendTo(audienceFor(fileId), payload);
 }
@@ -2032,6 +2036,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!ids.length) throw bad('Pick something first');
     let files = 0;
     const people = new Set();
+    const snapshot = []; // what it was, for Undo
     for (const id of ids) {
       const f = q('SELECT id, name, owner_id, parent_id, org_role FROM files WHERE id = ?').get(id);
       if (!f || f.owner_id !== req.user.id) throw notFound('Only your own files and folders can be unshared this way');
@@ -2042,6 +2047,9 @@ export default function fileRoutes({ maxUploadBytes }) {
       const had = q('SELECT user_id FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => x.user_id);
       const groups = q('SELECT COUNT(*) AS n FROM group_shares WHERE file_id = ?').get(f.id).n;
       if (!had.length && !groups && !f.org_role) continue;
+      snapshot.push({ file_id: f.id, org_role: f.org_role,
+        shares: q('SELECT user_id, direct_role, expires_at, shared_at, shared_by FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id),
+        groups: q('SELECT group_id, role FROM group_shares WHERE file_id = ?').all(f.id) });
       tx(() => {
         q('UPDATE shares SET direct_role = NULL, expires_at = NULL WHERE file_id = ?').run(f.id);
         q('DELETE FROM group_shares WHERE file_id = ?').run(f.id);
@@ -2053,7 +2061,37 @@ export default function fileRoutes({ maxUploadBytes }) {
       sendTo(new Set([...before, req.user.id]), { type: 'files-changed', parent_id: f.parent_id });
       audit(req, 'file.share', { target: f.name, details: { stopped: true, people: had.length, groups, company: !!f.org_role } });
     }
-    res.json({ files, people: people.size });
+    const undo = snapshot.length ? uid() : null;
+    if (undo) { unshareUndo.set(undo, { user: req.user.id, at: Date.now(), snapshot }); for (const [k, v] of unshareUndo) if (Date.now() - v.at > UNDO_MS) unshareUndo.delete(k); }
+    res.json({ files, people: people.size, undo });
+  });
+  // Undo it (within 10 minutes, by whoever did it, once): the sharing as it was.
+  r.post('/unshare/undo', (req, res) => {
+    const u = unshareUndo.get(String(req.body?.undo || ''));
+    if (!u || u.user !== req.user.id || Date.now() - u.at > UNDO_MS) throw notFound('That can’t be undone any more');
+    unshareUndo.delete(String(req.body.undo));
+    let files = 0;
+    for (const it of u.snapshot) {
+      const f = q('SELECT id, name, owner_id, parent_id FROM files WHERE id = ?').get(it.file_id);
+      if (!f || f.owner_id !== req.user.id) continue; // gone, or given away since
+      const before = audienceFor(f.id);
+      tx(() => {
+        for (const sh of it.shares) {
+          if (!q('SELECT 1 FROM users WHERE id = ?').get(sh.user_id) || !canReach(req.user, sh.user_id)) continue;
+          if (sh.expires_at && sh.expires_at <= Date.now()) continue; // its time ran out meanwhile
+          q(`INSERT INTO shares (file_id, user_id, role, direct_role, expires_at, shared_at, shared_by) VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role, expires_at = excluded.expires_at, shared_at = COALESCE(shares.shared_at, excluded.shared_at)`)
+            .run(f.id, sh.user_id, sh.direct_role, sh.direct_role, sh.expires_at || null, sh.shared_at, sh.shared_by);
+        }
+        for (const g of it.groups) if (q('SELECT 1 FROM groups WHERE id = ?').get(g.group_id)) q('INSERT OR REPLACE INTO group_shares (file_id, group_id, role) VALUES (?, ?, ?)').run(f.id, g.group_id, g.role);
+        if (it.org_role) q('UPDATE files SET org_role = ? WHERE id = ?').run(it.org_role, f.id);
+        syncShares(f.id);
+      });
+      files++;
+      sendTo(new Set([...before, ...audienceFor(f.id), req.user.id]), { type: 'files-changed', parent_id: f.parent_id });
+      audit(req, 'file.share', { target: f.name, details: { restored: true } });
+    }
+    res.json({ files });
   });
 
   // Remove from Shared with me: take yourself off something shared with you directly. What you can
