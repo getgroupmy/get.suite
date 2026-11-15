@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useState } from 'react';
 import OAuthConsent from './apps/oauth/Consent.jsx';
 import OAuthSignOut from './apps/oauth/SignOut.jsx';
 import { setBadgePart } from './appbadge.js';
@@ -16,39 +16,39 @@ import BrandMark from './components/BrandMark.jsx';
 import { applyAccent } from './theme.js';
 import { Avatar, Menu, ToastProvider, useToast, DataCheckHost } from './components/ui.jsx';
 import Login, { ResetPassword } from './apps/Login.jsx';
-import PublishedPage from './apps/PublishedPage.jsx';
-import PublicLink from './apps/PublicLink.jsx';
+const PublishedPage = lazy(() => import('./apps/PublishedPage.jsx'));
+const PublicLink = lazy(() => import('./apps/PublicLink.jsx'));
 import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
 import { SignPage } from './apps/docs/Signatures.jsx';
 const SignRoute = () => <SignPage token={useParams().token} />;
 import BookingPage, { CancelBooking } from './apps/calendar/BookingPage.jsx';
 import ConfidentialPage from './apps/mail/ConfidentialPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
-import Drive from './apps/drive/Drive.jsx';
-import DocEditor from './apps/docs/DocEditor.jsx';
+const Drive = lazy(() => import('./apps/drive/Drive.jsx'));
+const DocEditor = lazy(() => import('./apps/docs/DocEditor.jsx'));
 import RequestAccess from './apps/RequestAccess.jsx';
-import SheetEditor from './apps/sheets/SheetEditor.jsx';
-import SlidesEditor from './apps/slides/SlidesEditor.jsx';
-import PresenterView from './apps/slides/PresenterView.jsx';
+const SheetEditor = lazy(() => import('./apps/sheets/SheetEditor.jsx'));
+const SlidesEditor = lazy(() => import('./apps/slides/SlidesEditor.jsx'));
+const PresenterView = lazy(() => import('./apps/slides/PresenterView.jsx'));
 import { QaPage } from './apps/slides/SlideQa.jsx';
 import { ShortcutsHelp } from './components/Shortcuts.jsx';
 import { StatusDialog, useMyStatus } from './components/StatusDialog.jsx';
 import { statusLine } from './components/status.js';
 import { usePause, pauseUntil, pauseChoices, isQuietHours } from './pause.js';
 import { whenText } from './components/schedule.jsx';
-import Calendar from './apps/calendar/Calendar.jsx';
-import Contacts from './apps/contacts/Contacts.jsx';
-import Tasks from './apps/tasks/Tasks.jsx';
-import Forms from './apps/forms/Forms.jsx';
-import Notes from './apps/notes/Notes.jsx';
-import Home from './apps/home/Home.jsx';
-import Meet from './apps/meet/Meet.jsx';
-import MeetRoom from './apps/meet/MeetRoom.jsx';
+const Calendar = lazy(() => import('./apps/calendar/Calendar.jsx'));
+const Contacts = lazy(() => import('./apps/contacts/Contacts.jsx'));
+const Tasks = lazy(() => import('./apps/tasks/Tasks.jsx'));
+const Forms = lazy(() => import('./apps/forms/Forms.jsx'));
+const Notes = lazy(() => import('./apps/notes/Notes.jsx'));
+const Home = lazy(() => import('./apps/home/Home.jsx'));
+const Meet = lazy(() => import('./apps/meet/Meet.jsx'));
+const MeetRoom = lazy(() => import('./apps/meet/MeetRoom.jsx'));
 import FormRespond from './apps/forms/FormRespond.jsx';
-import Chat from './apps/chat/Chat.jsx';
-import Admin from './apps/admin/Admin.jsx';
-import Mail from './apps/mail/Mail.jsx';
-import Settings from './apps/Settings.jsx';
+const Chat = lazy(() => import('./apps/chat/Chat.jsx'));
+const Admin = lazy(() => import('./apps/admin/Admin.jsx'));
+const Mail = lazy(() => import('./apps/mail/Mail.jsx'));
+const Settings = lazy(() => import('./apps/Settings.jsx'));
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -56,7 +56,7 @@ export const useAuth = () => useContext(AuthCtx);
 export default function App() {
   // Share links work without an account, signed in or not.
   const link = window.location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)\/?$/);
-  if (link) return <PublicLink token={link[1]} />;
+  if (link) return <Suspense fallback={<Loading />}><PublicLink token={link[1]} /></Suspense>;
   // Answering a calendar invitation from outside (no account).
   const invite = window.location.pathname.match(/^\/i\/([A-Za-z0-9_-]+)\/?$/);
   // Booking time from a booking link (no account needed).
@@ -73,7 +73,7 @@ export default function App() {
   // Signing a document from a private link (no account needed).
   // A published document, spreadsheet or presentation (no account needed).
   const pub = window.location.pathname.match(/^\/pub\/([A-Za-z0-9_-]+)\/?$/);
-  if (pub) return <PublishedPage token={pub[1]} />;
+  if (pub) return <Suspense fallback={<Loading />}><PublishedPage token={pub[1]} /></Suspense>;
   // Choosing a new password from a "Forgot password?" email (no account session needed).
   const reset = window.location.pathname.match(/^\/reset\/([A-Za-z0-9_-]+)\/?$/);
   if (reset) return <ToastProvider><ResetPassword token={reset[1]} /></ToastProvider>;
@@ -143,11 +143,12 @@ function Workspace() {
     <AuthCtx.Provider value={auth}>
       <ToastProvider>
         {!state.user ? (guestMeet && !state.needsSetup
-          ? <BrowserRouter><Routes><Route path="/meet/:code" element={<MeetRoom guest onSignIn={() => setGuestSignIn(true)} />} /></Routes></BrowserRouter>
+          ? <BrowserRouter><Suspense fallback={<Loading />}><Routes><Route path="/meet/:code" element={<MeetRoom guest onSignIn={() => setGuestSignIn(true)} />} /></Routes></Suspense></BrowserRouter>
           : <Login needsSetup={state.needsSetup} canReset={!!state.can_reset} />) : state.user.needs_two_factor ? <RequiredTwoStep /> : state.user.must_change_password ? <RequiredPassword /> : (
           <BrowserRouter>
             <ShortcutsHelp />
             <DataCheckHost />
+            <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/docs/:id" element={<DocEditor />} />
               <Route path="/access/:id" element={<RequestAccess />} />
@@ -160,6 +161,7 @@ function Workspace() {
               <Route path="/oauth/signout" element={<OAuthSignOut />} />
               <Route path="*" element={<Shell />} />
             </Routes>
+            </Suspense>
           </BrowserRouter>
         )}
       </ToastProvider>
@@ -306,6 +308,7 @@ function Shell() {
       </nav>
       <main className="content">
         <Announcements />
+        <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/" element={<Navigate to={user.start_page === 'home' ? '/home' : '/drive'} replace />} />
           <Route path="/drive/*" element={<Drive />} />
@@ -323,6 +326,7 @@ function Shell() {
           {user.is_admin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<Navigate to="/drive" replace />} />
         </Routes>
+        </Suspense>
       </main>
     </div>
   );
@@ -339,4 +343,9 @@ function useChatUnread() {
     return () => { off(); clearTimeout(t); };
   }, []);
   return n;
+}
+
+/** While an app's code arrives (each app loads the first time it's opened). */
+function Loading() {
+  return <p className="muted page-loading" role="status" style={{ padding: 24 }}>Loading…</p>;
 }

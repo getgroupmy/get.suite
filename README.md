@@ -1573,6 +1573,8 @@ To update, replace the files in `docker/workspace/app` with the new version. The
 
 ## Development
 
+**Loading:** each app's code (Mail, Drive, Calendar, Chat, Admin, the editors…) is fetched the first time you open it, so the first screen comes up without downloading all of Workspace (about 40% less to start with; the browser keeps what it has fetched).
+
 ```bash
 cd server && npm install && npm run dev        # API on :8080 (data in server/data)
 cd web && npm install && npm run dev           # UI on :5173, proxies /api and /ws to :8080

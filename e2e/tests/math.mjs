@@ -81,7 +81,9 @@ await step('Ω puts in special characters, found by name', async () => {
   const dlg = page.getByRole('dialog', { name: 'Special characters' });
   await dlg.getByLabel('Search characters').fill('euro');
   await dlg.getByLabel('Search characters').press('Enter');
-  await dlg.getByLabel('Search characters').fill('');
+  // The € goes into the document first (it takes the focus for a moment); then search again.
+  await page.locator('.ProseMirror', { hasText: 'Cost €' }).waitFor();
+  await until(async () => { await dlg.getByLabel('Search characters').fill(''); return (await dlg.getByRole('button', { name: 'em dash' }).count()) > 0; });
   await dlg.getByRole('button', { name: 'em dash' }).click();
   await dlg.getByRole('button', { name: 'Done' }).click();
   await page.locator('.ProseMirror', { hasText: 'Cost €—' }).waitFor();
