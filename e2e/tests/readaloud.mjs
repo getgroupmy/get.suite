@@ -22,6 +22,15 @@ const FAKE = () => {
   Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
   window.__finish = () => { const u = current; current = null; u?.onend?.({}); };
   window.__paused = () => paused;
+  // And speech recognition: window.__hear(text, final) as if it was said; window.__rec the one listening.
+  window.SpeechRecognition = function () { window.__rec = this; this.started = 0; this.stopped = false; this.lang = ''; };
+  window.SpeechRecognition.prototype.start = function () { this.started++; this.stopped = false; setTimeout(() => this.onstart?.(), 0); };
+  window.SpeechRecognition.prototype.stop = function () { this.stopped = true; };
+  window.__hear = (text, final = true) => {
+    const r = window.__rec; const res = [{ transcript: text }]; res.isFinal = final;
+    r.onresult?.({ resultIndex: 0, results: [res] });
+  };
+  window.__pause = () => window.__rec.onend?.(); // the browser stops after a silence
 };
 const mk = async (who) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -123,6 +132,43 @@ await step('the speed is remembered; Ctrl+Alt+R starts and stops it from the cur
   await bar().waitFor({ state: 'detached' });
   if (await page.locator('.paper .reading-now').count()) throw new Error('highlight left behind');
   if (await page.locator('.paper .tiptap').innerText().then((t) => !t.includes('Quarterly briefing'))) throw new Error('document changed');
+});
+await step('⋮ → Voice typing types what’s said at the cursor, with spoken punctuation; it keeps listening after a pause', async () => {
+  await page.locator('.paper .tiptap').getByText('Next review is in March.').click();
+  await page.keyboard.press('End');
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Voice typing' }).click();
+  const vb = page.getByRole('region', { name: 'Voice typing' });
+  await vb.getByText('Listening: speak, and it’s typed where the cursor is').waitFor();
+  await page.evaluate(() => window.__hear('bring the', false));
+  await vb.getByLabel('Still hearing').getByText('bring the').waitFor();
+  await page.evaluate(() => window.__hear('bring the figures comma please full stop new paragraph thanks everyone'));
+  await page.locator('.paper .tiptap').getByText('Next review is in March. Bring the figures, please.').waitFor();
+  await page.locator('.paper .tiptap p', { hasText: /^Thanks everyone$/ }).waitFor();
+  await page.screenshot({ path: `${SP}/shots/voicetyping.png` });
+  await axe(page, 'voice typing');
+  const starts = await page.evaluate(() => window.__rec.started);
+  await page.evaluate(() => window.__pause());
+  await until(() => page.evaluate((n) => window.__rec.started === n + 1, starts));
+  await vb.getByLabel('Language').selectOption('en-US');
+  await until(() => page.evaluate(() => window.__rec.lang === 'en-US'));
+  await page.keyboard.press('Control+Alt+v');
+  await vb.waitFor({ state: 'detached' });
+  await page.keyboard.press('Control+Alt+v');
+  await vb.waitFor();
+  await until(() => page.evaluate(() => window.__rec.lang === 'en-US')); // the language is remembered
+  await vb.getByRole('button', { name: 'Stop' }).click();
+  await vb.waitFor({ state: 'detached' });
+  await page.getByText('All changes saved').waitFor();
+});
+await step('a refused microphone says so', async () => {
+  await page.keyboard.press('Control+Alt+v');
+  const vb = page.getByRole('region', { name: 'Voice typing' });
+  await vb.getByText('Listening: speak').waitFor();
+  await page.evaluate(() => window.__rec.onerror({ error: 'not-allowed' }));
+  await vb.getByText(/The microphone isn’t allowed for this page/).waitFor();
+  await vb.getByRole('button', { name: 'Stop' }).click();
+  await vb.waitFor({ state: 'detached' });
 });
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();

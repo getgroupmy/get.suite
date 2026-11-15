@@ -30,6 +30,7 @@ import { FindReplace } from './findReplace.js';
 import { ReadAloud, readKey, sentencesFrom } from './readaloud.js';
 import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
 import { revealTabAt } from './doctabsext.js';
+import { VoiceTypingBar, canVoiceType } from './VoiceTypingBar.jsx';
 import { WordCountDialog, WordCounter, counterOn } from './WordCount.jsx';
 import { Autocorrect } from './autocorrect.js';
 import { sortTransaction } from './sortlines.js';
@@ -499,6 +500,7 @@ function SharedDoc({ file, setFile }) {
   const [finding, setFinding] = useState(null); // { replace, n }
   const [reading, setReading] = useState(null); // Read aloud: { key, list } (the sentences from the cursor when it started)
   const startReadingRef = useRef(() => {}); // for the keyboard shortcut, which is set up once
+  const [voiceTyping, setVoiceTyping] = useState(false);
   startReadingRef.current = () => { if (editor) setReading((n) => (n ? null : { key: Date.now(), list: sentencesFrom(editor.state.doc, editor.state.selection.from) })); };
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   const [wordCount, setWordCount] = useState(false);
@@ -514,6 +516,11 @@ function SharedDoc({ file, setFile }) {
   useEffect(() => {
     const onKey = (e) => {
       const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyV' && canVoiceType() && !readOnlyRef.current) { // Voice typing (Ctrl+Shift+S is strikethrough here)
+        e.preventDefault();
+        setVoiceTyping((v) => !v);
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyR' && canReadAloud()) { // Read aloud
         e.preventDefault();
         startReadingRef.current();
@@ -650,6 +657,7 @@ function SharedDoc({ file, setFile }) {
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
           ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => startReadingRef.current() }] : []),
+          ...(!readOnly && canVoiceType() ? [{ label: voiceTyping ? 'Stop voice typing' : 'Voice typing', icon: 'audio', onClick: () => setVoiceTyping((v) => !v) }] : []),
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
@@ -672,6 +680,7 @@ function SharedDoc({ file, setFile }) {
       <style>{printCss(file.page_setup)}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {voiceTyping && !readOnly && <VoiceTypingBar editor={editor} onClose={() => { setVoiceTyping(false); editor.view.focus(); }} />}
       {reading && <ReadAloudBar key={reading.key} sentences={reading.list} onClose={() => { setReading(null); editor.view.focus(); }}
         onSentence={(s) => {
           // The sentence being read, highlighted and kept in view.
