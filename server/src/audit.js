@@ -42,7 +42,7 @@ export const ACTIONS = {
   'pdf.combine': 'Combined PDFs', 'pdf.extract': 'Took pages out of a PDF', 'pdf.sign': 'Signed a PDF', 'pdf.organize': 'Reordered a PDF\'s pages',
   'calendar.editor': 'Let someone edit their calendar', 'calendar.added_shared': 'Added an event to someone\'s shared calendar', 'calendar.changed_shared': 'Changed an event in someone\'s shared calendar', 'calendar.deleted_shared': 'Deleted an event from someone\'s shared calendar',
   'calendar.added_for': 'Added an event for someone (as their delegate)', 'calendar.changed_for': 'Changed an event for someone (as their delegate)', 'calendar.deleted_for': 'Deleted an event for someone (as their delegate)', 'event.copy_week': 'Copied a week of events',
-  'chat.import': 'Imported chat history', 'takeout.restore': 'Restored data from an export',
+  'chat.import': 'Imported chat history', 'takeout.restore': 'Restored data from an export', 'migration.remind': 'Reminded people to bring their things over',
   'backup.create': 'Took a database snapshot', 'backup.download': 'Downloaded a database snapshot', 'backup.restore': 'Put a database snapshot back', 'files.clean': 'Removed unused uploaded files', 'mail-queue.delete': 'Deleted a message waiting to go out', 'drive.create': 'Made a shared drive', 'drive.join': 'Added themselves to a shared drive (admin)',
 };
 
