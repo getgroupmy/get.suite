@@ -135,6 +135,12 @@ test('cross-company collaboration by exact email address', async () => {
   assert.equal((await gina('POST', `/api/chat/channels/${dmId}/messages`, { body: 'hello from Globex' })).status, 201);
   assert.equal((await bob('GET', `/api/chat/channels/${dmId}/messages`)).body[0].body, 'hello from Globex');
 
+  // An invitation from someone at another company carries their company (for the External tag).
+  const t0 = Date.now() + 864e5;
+  const inv = await gina('POST', '/api/events', { title: 'Globex kickoff', start: t0, end: t0 + 36e5, guests: ['bob@acme.com'] });
+  assert.equal(inv.status, 201, JSON.stringify(inv.body));
+  const got = (await bob('GET', `/api/events?from=${t0 - 864e5}&to=${t0 + 864e5}`)).body.find((e) => e.title === 'Globex kickoff');
+  assert.deepEqual([got.organizer.org_id, got.organizer.org], [globexId, 'Globex']);
   // Report as suspicious: a message from another company goes to Acme's Admin → Phishing, once per person.
   const msgs = (await bob('GET', `/api/chat/channels/${dmId}/messages`)).body;
   const rep = await bob('POST', `/api/chat/messages/${msgs[0].id}/report`, {});
@@ -593,7 +599,7 @@ test('calendar invitations: guests see the event, answer it, and only the organi
   assert.equal(seen.length, 1);
   assert.equal(seen[0].role, 'guest');
   assert.equal(seen[0].my_status, 'needs');
-  assert.deepEqual(seen[0].organizer, { name: 'meet person', email: 'meet@acme.com' });
+  assert.deepEqual({ ...seen[0].organizer, org_id: undefined }, { name: 'meet person', email: 'meet@acme.com', org_id: undefined, org: 'Acme' });
   assert.equal((await guest('PATCH', `/api/events/${ev.body.id}`, { title: 'Mine now' })).status, 404, 'guests cannot edit');
   assert.equal((await guest('DELETE', `/api/events/${ev.body.id}`)).status, 404);
   assert.equal((await guest('POST', `/api/events/${ev.body.id}/rsvp`, { status: 'perhaps' })).status, 400);

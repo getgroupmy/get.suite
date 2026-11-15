@@ -140,6 +140,20 @@ await step('Drive: a file from someone at another company says External · their
   await page.getByRole('row', { name: /Joint plan/ }).waitFor();
   if (await page.getByText(/External · /).count()) throw new Error('tagged our own file');
 }, gina);
+await step('Calendar: an invitation from someone at another company says External · their company, with a note', async () => {
+  const t0 = new Date(); t0.setHours(11, 0, 0, 0); // today: always in this week's view
+  const inv = await api(gina, 'POST', '/events', { title: 'Globex kickoff', start: t0.getTime(), end: t0.getTime() + 36e5, guests: ['olivia@acme.com'] });
+  if (inv.status >= 300) throw new Error(JSON.stringify(inv));
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radio', { name: 'Week' }).click();
+  await page.locator('.tg-event', { hasText: 'Globex kickoff' }).click();
+  const d = page.getByRole('dialog', { name: 'Globex kickoff' });
+  await d.getByText('External · Globex Shipping').waitFor();
+  await d.getByRole('note').getByText(/Gina Globex works at Globex Shipping, outside yours/).waitFor();
+  await axe(page, 'external invitation');
+  await page.screenshot({ path: `${SP}/shots/cal-external.png` });
+  await page.keyboard.press('Escape');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

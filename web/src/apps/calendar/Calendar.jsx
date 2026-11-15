@@ -1081,6 +1081,8 @@ function ChatWithGuests({ event, className }) {
 
 function InvitationDialog({ event, onClose, onAnswered }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const outside = event.organizer?.org_id && event.organizer.org_id !== user.org_id; // from someone at another company
   const [reminders, setReminders] = useState(event.reminders || []);
   const saveReminders = async (list) => {
     setReminders(list);
@@ -1107,7 +1109,8 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <RunningLate event={event} />
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
         <Attachments list={event.attachments} />
-        <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
+        <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span>{outside && <span className="pill ext">External · {event.organizer.org || 'another company'}</span>}</p>
+        {outside && <p className="muted small" role="note" style={{ margin: 0 }}>{event.organizer.name} works at {event.organizer.org || 'another company'}, outside yours. Be careful with links and files in the invitation that ask you to sign in or pay.</p>}
         <GuestList guests={event.guests} />
         <div><EmailGuests event={event} className="btn small" guestView /></div>
         <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /></p>

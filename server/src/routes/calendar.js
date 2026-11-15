@@ -618,7 +618,7 @@ export default function calendarRoutes() {
     const to = int(req.query.to ?? 8.64e15, 'to');
     // Repeating events count from their first date; the browser expands them in local time.
     // Your own events and the ones you're invited to.
-    const rows = q(`SELECT e.*, g.status AS my_status, g.answer_note AS my_note, g.join_how AS my_join, o.name AS organizer_name, o.username AS organizer_email
+    const rows = q(`SELECT e.*, g.status AS my_status, g.answer_note AS my_note, g.join_how AS my_join, o.name AS organizer_name, o.username AS organizer_email, o.org_id AS organizer_org_id, (SELECT og.name FROM orgs og WHERE og.id = o.org_id) AS organizer_org
                     FROM events e JOIN users o ON o.id = e.owner_id
                     LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
                     WHERE (e.owner_id = ? OR g.user_id IS NOT NULL) AND e.start < ?
@@ -627,12 +627,12 @@ export default function calendarRoutes() {
     const reminders = remindersFor(req.user.id, rows.map((row) => row.id));
     res.json([...rows.map((row) => {
       const mine = row.owner_id === req.user.id;
-      const { my_status, my_note, my_join, organizer_name, organizer_email, ...ev } = row;
+      const { my_status, my_note, my_join, organizer_name, organizer_email, organizer_org_id, organizer_org, ...ev } = row;
       const out = outEvent(ev);
       return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
         ...(row.meet_code && { meet_live: namesIn(row.meet_code) }), // who's in its video meeting now
         ...(mine && row.task_id && { task: taskOfBlock(row.task_id, req.user.id) }),
-        ...(mine ? {} : { my_status, my_note: my_note || null, my_join: my_join || null, organizer: { name: organizer_name, email: organizer_email } }) };
+        ...(mine ? {} : { my_status, my_note: my_note || null, my_join: my_join || null, organizer: { name: organizer_name, email: organizer_email, org_id: organizer_org_id, org: organizer_org } }) };
     }), ...sharedEvents(req.user.id, from, to), ...(req.query.feeds === '0' ? [] : feedEvents(req.user.id, from, to))]);
   });
 
