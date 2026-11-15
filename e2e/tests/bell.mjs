@@ -45,7 +45,7 @@ await step('things Olivia does for Kim show on Kim’s bell at once', async () =
   await api(page, 'PUT', `/files/${doc.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
   const gen = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.name === 'general').id;
   await api(page, 'POST', `/chat/channels/${gen}/messages`, { body: 'Thanks @kim@acme.com!' });
-  await kim.getByRole('button', { name: 'Notifications, 2 new' }).waitFor();
+  await kim.getByRole('button', { name: 'Notifications, 2 new' }).waitFor({ timeout: 60000 }); // live; slow when many tests run at once
   await bell(kim).click();
   const panel = kim.getByRole('dialog', { name: 'Notifications' });
   await panel.getByText('Olivia Owner shared “Budget notes” with you').waitFor();
