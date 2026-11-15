@@ -958,6 +958,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       ) : m.outside?.external ? (
         <div className="banner outside" role="note">From outside {m.outside.company || 'the company'} ({m.outside.address}): be careful with links, attachments and requests for money or passwords.</div>
       ) : null}
+      {m.reply_elsewhere && (
+        <div className="banner danger" role="note"><strong>⚠ Careful: replies to this email go to {m.reply_elsewhere.reply_to}, not to {m.reply_elsewhere.from}.</strong> The sender set a different address for answers, a trick used to take over invoice and payment conversations. Check the address before you reply, and confirm any change of bank details another way.</div>
+      )}
       {m.link_warnings?.length > 0 && (
         <div className="banner danger" role="note"><strong>⚠ Careful: {m.link_warnings.length === 1 ? 'a link' : 'some links'} in this email {m.link_warnings.length === 1 ? 'goes' : 'go'} somewhere other than {m.link_warnings.length === 1 ? 'it says' : 'they say'}.</strong> {m.link_warnings.map((l) => `“${l.shown}” goes to ${l.real}`).join('; ')}. Workspace asks before opening {m.link_warnings.length === 1 ? 'it' : 'them'}.</div>
       )}

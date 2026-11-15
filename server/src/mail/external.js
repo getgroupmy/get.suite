@@ -1,6 +1,7 @@
 // "Outside the company" in Compose: which of a message's recipients aren't on one of the company's own
 // domains, and which of those you've never written to (or kept as a contact), so a message going
 // somewhere new is noticed before it leaves.
+import { siteOf } from './linkcheck.js';
 import { q } from '../db.js';
 import { lookalikeOf } from './lookalike.js';
 
@@ -30,6 +31,27 @@ export function incomingWarning(user, from) {
   const like = lookalikeDomain(user, domain, ours);
   if (!org?.mark_external && !colleague && !like) return null;
   return { company: org?.name || '', external: !!org?.mark_external, lookalike: colleague?.name || null, domain_like: like, address };
+}
+
+/**
+ * Replies to this email would go to a different site than it came from (its Reply-To), a trick in invoice
+ * fraud: the From looks right, the answer goes to the fraudster. → { from, reply_to } or null. Not for
+ * mailing lists (which often answer elsewhere), a Reply-To on the company's own domains, or an address
+ * you already write to or keep in Contacts.
+ */
+export function replyToWarning(user, from, replyTo, { list = false } = {}) {
+  const sender = clean(from?.address);
+  const fromSite = siteOf(sender.split('@')[1] || '');
+  if (list || !fromSite) return null;
+  const ours = q('SELECT name FROM domains WHERE org_id = ?').all(user.org_id).map((d) => d.name.toLowerCase());
+  for (const r of replyTo || []) {
+    const a = clean(r?.address);
+    const d = a.split('@')[1];
+    if (!d || siteOf(d) === fromSite || ours.includes(d)) continue;
+    if (q('SELECT 1 FROM mail_sent_to WHERE owner_id = ? AND email = ?').get(user.id, a) || q('SELECT 1 FROM contacts WHERE owner_id = ? AND lower(email) = ?').get(user.id, a)) continue;
+    return { from: sender, reply_to: a };
+  }
+  return null;
 }
 
 /** A domain the sender's imitates: one of the company's, or one you've written to or keep contacts at (not one of those itself). */

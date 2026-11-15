@@ -80,6 +80,20 @@ await step('one like a domain you deal with (a contact’s) warns too; the real 
   await open('Monthly statement');
   if (await page.locator('.mail-reader').getByText(/looks like/).count()) throw new Error('warned about the real one');
 });
+await step('replies that would go to another site than the email came from are pointed out', async () => {
+  const st = await page.evaluate(async () => (await fetch('/api/mail/messages/upload?folder=INBOX', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'message/rfc822' },
+    body: `From: "Initech billing" <billing@initech.com>\r\nReply-To: billing.initech@freemail.example\r\nTo: olivia@acme.com\r\nSubject: Updated remittance\r\nMessage-ID: <remit1@x>\r\nDate: ${new Date().toUTCString()}\r\n\r\nPlease change the bank details we pay into.\r\n` })).status);
+  if (st >= 300) throw new Error(`upload ${st}`);
+  await open('Updated remittance');
+  const note = page.locator('.mail-reader').getByText('Careful: replies to this email go to billing.initech@freemail.example, not to billing@initech.com.');
+  await note.waitFor();
+  await axe(page, 'reply-to banner');
+  await page.locator('.mail-reader').getByRole('button', { name: 'Reply', exact: true }).click();
+  await page.getByLabel('To', { exact: true }).waitFor();
+  await until(() => page.locator('.compose').evaluate((f) => (f.innerText + [...f.querySelectorAll('input')].map((i) => i.value).join(' ')).includes('billing.initech@freemail.example')));
+  await open('Monthly statement');
+  if (await page.locator('.mail-reader').getByText(/replies to this email go to/).count()) throw new Error('warned without a Reply-To');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
