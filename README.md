@@ -71,7 +71,7 @@ Phones/Outlook ── IMAP 993 / SMTP 465·587 ──▶ (same container)
   - Uploaded HTML and SVG files are never rendered inline on the app's origin.
   - Every file access checks permissions up the folder chain.
   - HTML emails are shown in a sandboxed frame with no scripts and no access to the app.
-  - Remote images in emails are blocked until the reader clicks "Show images", which stops tracking pixels.
+  - Remote images in emails are blocked until the reader clicks "Show images", which stops tracking pixels. When shown, they're loaded **through Workspace** (`/api/mail/image`, with addresses signed for that person, so it isn't an open proxy): the sender's server sees Workspace, never the reader's address, browser or location. The server fetches only pictures (up to 10 MB, 10 seconds, 3 redirects) from public addresses (never this machine or the local network, checked after DNS too), keeps them in memory for 30 minutes, and limits how many one person can load at once. The message frame may load pictures only from there, so nothing an email contains can reach out on its own; links in the email are unchanged, and replies and forwards quote the email as it was sent.
   - Email attachments always download rather than open in the browser.
   - Users can only send from their own address or an alias they belong to; this is enforced by the mail server itself.
 

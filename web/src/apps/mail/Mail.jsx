@@ -1,6 +1,6 @@
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
 import ShareInChat from './ShareInChat.jsx';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
@@ -1021,7 +1021,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       )}
       {(() => {
         const fold = m.trimmed && !wholeQuote;
-        const body = m.html ? <HtmlBody html={fold && m.trimmed.html !== null ? m.trimmed.html : m.html} images={images} onShowImages={() => setImages(true)} />
+        const body = m.html ? <HtmlBody html={fold && m.trimmed.html !== null ? (m.trimmed.view_html ?? m.trimmed.html) : (m.view_html ?? m.html)} remote={m.remote_images} images={images} onShowImages={() => setImages(true)} />
           : <pre className="mail-text">{fold && m.trimmed.text !== null ? m.trimmed.text : m.text}</pre>;
         return <>{body}{m.trimmed && (
           <button type="button" className="quote-toggle" aria-expanded={wholeQuote} aria-label={wholeQuote ? 'Hide quoted text' : 'Show quoted text'}
@@ -1316,17 +1316,19 @@ function ConfidentialList({ onClose }) {
 }
 
 /** HTML mail in a locked-down iframe: no scripts, no same-origin access, remote images blocked until asked. */
-function HtmlBody({ html, images, onShowImages }) {
+function HtmlBody({ html, remote, images, onShowImages }) {
   const ref = useRef();
   const [height, setHeight] = useState(300);
-  const hasRemote = useMemo(() => /<img[^>]+src=["']?https?:/i.test(html) || /url\(\s*["']?https?:/i.test(html), [html]);
-  const csp = `default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data: cid:${images ? ' https: http:' : ''}`;
+  // Pictures from the internet come through Workspace (the server rewrote their addresses), so the
+  // sender never sees the reader; nothing else from outside may load, whatever the email contains.
+  const hasRemote = remote > 0 || /<img[^>]+src=["']?https?:/i.test(html);
+  const csp = `default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data: cid:${images ? ` ${window.location.origin}/api/mail/image` : ''}`;
   const doc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
 <base target="_blank"><style>body{margin:0;font:14px/1.5 system-ui,sans-serif;color:#1f1f1f;background:#fff;overflow-wrap:anywhere}img{max-width:100%;height:auto}</style></head><body>${html}</body></html>`;
   return (
     <>
       {hasRemote && !images && (
-        <div className="banner">Images from the internet are hidden to protect your privacy. <button className="btn small" onClick={onShowImages}>Show images</button></div>
+        <div className="banner">Images from the internet are hidden to protect your privacy. <button className="btn small" onClick={onShowImages}>Show images</button> <span className="muted small">They load through Workspace, so the sender can’t see your address or device.</span></div>
       )}
       <iframe ref={ref} className="mail-html" title="Message" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin" srcDoc={doc} style={{ height }}
         onLoad={() => { try { setHeight(Math.min(20000, ref.current.contentDocument.documentElement.scrollHeight + 16)); } catch { setHeight(800); } }} />

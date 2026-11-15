@@ -1,4 +1,5 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
+import { proxyImages, checkImageSig, imageFor, overLimit } from '../mail/imageproxy.js';
 import { attachmentRisk, nameRisk } from '../mail/attachrisk.js';
 import { notify as notifyBell } from '../notifications.js';
 import { audit } from '../audit.js';
@@ -1111,6 +1112,21 @@ export default function webmailRoutes() {
     res.json({ available: true, recipients: deliveryOf(parseMaillog(text), String(req.query.message_id || '').slice(0, 300), identities(req.user).map((i) => i.address)) });
   });
 
+  // A picture from an email, fetched here so its sender doesn't see the reader (imageproxy.js). Signed for this person.
+  r.get('/image', async (req, res) => {
+    const url = String(req.query.u || '');
+    if (!checkImageSig(req.user.id, url, req.query.s)) throw new HttpError(403, 'Not a picture from one of your emails');
+    if (overLimit(req.user.id)) throw new HttpError(429, 'Too many pictures at once: try again in a few minutes');
+    let img;
+    try { img = await imageFor(url); } catch (e) { throw new HttpError(e.status || 502, e.message || 'Couldn’t load the picture'); }
+    res.set({
+      'Content-Type': img.type, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox", // an SVG opened on its own can't run anything
+      'Content-Disposition': 'inline; filename="picture"',
+    });
+    res.end(img.body);
+  });
+
   r.get('/messages/:uid', async (req, res) => {
     const folder = String(req.query.folder || 'INBOX');
     // ?peek=1: read it without marking it read (printing several, say).
@@ -1123,11 +1139,14 @@ export default function webmailRoutes() {
       sentBy: (() => { const sn = addrList(p.headers?.get('sender'))[0]; const fr = addrList(p.from)[0]; return sn && sn.address && sn.address !== fr?.address ? sn : null; })(),
       messageId: p.messageId || null, references: [].concat(p.references || []),
       html: p.html || null, text: p.text || '', textAsHtml: p.textAsHtml || '',
+      // For showing: the same HTML with pictures from the internet loaded through Workspace (imageproxy.js),
+      // and how many there are. Replies and forwards use `html`, as sent.
+      ...(() => { const v = p.html ? proxyImages(p.html, req.user.id) : null; return { view_html: v?.html ?? null, remote_images: v?.count || 0 }; })(),
       // The new part of a reply, without the quoted history under it (shown folded away), or null.
       trimmed: (() => {
         const h = p.html ? splitHtmlQuote(p.html) : null, t = splitTextQuote(p.text || '');
         if (p.html ? !h.quoted : !t.quoted) return null;
-        return { html: h?.quoted ? h.main : null, text: t.quoted ? t.main : null };
+        return { html: h?.quoted ? h.main : null, view_html: h?.quoted ? proxyImages(h.main, req.user.id).html : null, text: t.quoted ? t.main : null };
       })(),
       flagged: flags.has('\\Flagged'),
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
