@@ -22,6 +22,15 @@ const FAKE = () => {
   Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
   window.__finish = () => { const u = current; current = null; u?.onend?.({}); };
   window.__paused = () => paused;
+  // And speech recognition: window.__hear(text, final) as if it was said; window.__rec the one listening.
+  window.SpeechRecognition = function () { window.__rec = this; this.started = 0; this.stopped = false; this.lang = ''; };
+  window.SpeechRecognition.prototype.start = function () { this.started++; this.stopped = false; setTimeout(() => this.onstart?.(), 0); };
+  window.SpeechRecognition.prototype.stop = function () { this.stopped = true; };
+  window.__hear = (text, final = true) => {
+    const r = window.__rec; const res = [{ transcript: text }]; res.isFinal = final;
+    r.onresult?.({ resultIndex: 0, results: [res] });
+  };
+  window.__pause = () => window.__rec.onend?.(); // the browser stops after a silence
 };
 const mk = async (who) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -104,6 +113,32 @@ await step('opening another message stops the reading', async () => {
   await page.locator('.msg-subject', { hasText: 'Other news' }).first().click();
   await page.locator('.mail-reader').getByText('Nothing much.').waitFor();
   await bar().waitFor({ state: 'detached' });
+});
+await step('🎤 in a new message types what’s said; an admin can turn voice typing off for everyone', async () => {
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('Subject').fill('Dictated');
+  await page.getByRole('textbox', { name: 'Message' }).click();
+  await page.getByRole('button', { name: 'Voice typing: type by speaking' }).click();
+  const vb = page.getByRole('region', { name: 'Voice typing' });
+  await vb.getByText('Listening: speak').waitFor();
+  await page.evaluate(() => window.__hear('see you at ten full stop'));
+  await page.getByRole('textbox', { name: 'Message' }).getByText('See you at ten.').waitFor();
+  await axe(page, 'voice typing in compose');
+  await vb.getByRole('button', { name: 'Stop' }).click();
+  await vb.waitFor({ state: 'detached' });
+  await page.keyboard.press('Escape');
+  await api(page, 'PATCH', '/orgs/current', { voice_typing: false });
+  await page.goto(`${B}/admin?tab=company`);
+  const box = page.getByRole('checkbox', { name: 'Allow voice typing in Docs and Mail' });
+  if (await box.isChecked()) throw new Error('should be off');
+  await box.check();
+  await page.getByText('Voice typing is on').waitFor();
+  await box.uncheck();
+  await page.getByText('Voice typing is off for everyone').waitFor();
+  await page.goto(`${B}/mail/INBOX`);
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('Subject').waitFor();
+  if (await page.getByRole('button', { name: 'Voice typing: type by speaking' }).count()) throw new Error('still offered');
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

@@ -170,6 +170,19 @@ await step('a refused microphone says so', async () => {
   await vb.getByRole('button', { name: 'Stop' }).click();
   await vb.waitFor({ state: 'detached' });
 });
+await step('with voice typing turned off for the company, Docs doesn’t offer it (Read aloud stays)', async () => {
+  await api(page, 'PATCH', '/orgs/current', { voice_typing: false });
+  await page.goto(`${B}/docs/${docId}`);
+  await page.getByText('Questions go to her.').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Read aloud' }).waitFor();
+  if (await page.getByRole('menuitem', { name: 'Voice typing' }).count()) throw new Error('still offered');
+  await page.keyboard.press('Escape');
+  await page.locator('.paper .tiptap').getByText('Questions go to her.').click();
+  await page.keyboard.press('Control+Alt+v');
+  await page.waitForTimeout(400);
+  if (await page.getByRole('region', { name: 'Voice typing' }).count()) throw new Error('the shortcut still works');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

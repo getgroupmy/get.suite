@@ -501,6 +501,8 @@ function SharedDoc({ file, setFile }) {
   const [reading, setReading] = useState(null); // Read aloud: { key, list } (the sentences from the cursor when it started)
   const startReadingRef = useRef(() => {}); // for the keyboard shortcut, which is set up once
   const [voiceTyping, setVoiceTyping] = useState(false);
+  const voiceAllowedRef = useRef(true);
+  voiceAllowedRef.current = user?.voice_typing !== false; // the company may turn it off
   startReadingRef.current = () => { if (editor) setReading((n) => (n ? null : { key: Date.now(), list: sentencesFrom(editor.state.doc, editor.state.selection.from) })); };
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
   const [wordCount, setWordCount] = useState(false);
@@ -516,7 +518,7 @@ function SharedDoc({ file, setFile }) {
   useEffect(() => {
     const onKey = (e) => {
       const k = e.key.toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyV' && canVoiceType() && !readOnlyRef.current) { // Voice typing (Ctrl+Shift+S is strikethrough here)
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.code === 'KeyV' && canVoiceType() && voiceAllowedRef.current && !readOnlyRef.current) { // Voice typing (Ctrl+Shift+S is strikethrough here)
         e.preventDefault();
         setVoiceTyping((v) => !v);
         return;
@@ -657,7 +659,7 @@ function SharedDoc({ file, setFile }) {
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
           ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => startReadingRef.current() }] : []),
-          ...(!readOnly && canVoiceType() ? [{ label: voiceTyping ? 'Stop voice typing' : 'Voice typing', icon: 'audio', onClick: () => setVoiceTyping((v) => !v) }] : []),
+          ...(!readOnly && canVoiceType() && user?.voice_typing !== false ? [{ label: voiceTyping ? 'Stop voice typing' : 'Voice typing', icon: 'audio', onClick: () => setVoiceTyping((v) => !v) }] : []),
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },

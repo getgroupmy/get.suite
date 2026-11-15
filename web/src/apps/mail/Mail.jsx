@@ -1,6 +1,7 @@
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
 import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
 import { mailSentences } from './readmail.js';
+import { VoiceTypingBar, canVoiceType } from '../docs/VoiceTypingBar.jsx';
 import ShareInChat from './ShareInChat.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -2013,6 +2014,9 @@ function VacationDialog({ onClose, onSaved }) {
 
 /** Rich-text message body: bold, italic, underline, strike, lists, quotes, links. */
 function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message', placeholder = 'Write your message…' }) {
+  const { user: me } = useAuth();
+  const voiceOk = canVoiceType() && me?.voice_typing !== false; // the company may turn it off
+  const [voice, setVoice] = useState(false);
   const [, force] = useState(0);
   const toast = useToast();
   const fileInput = useRef();
@@ -2198,6 +2202,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         <B label="🔗" title={editor.isActive('link') ? 'Edit link (Ctrl+K)' : 'Insert link (Ctrl+K)'} active={editor.isActive('link')} onClick={() => linkOpen.current()} />
         <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />
         <EmojiPicker keepFocus beforePick={refocus} onPick={(ch) => c().insertContent(ch).run()} />
+        {voiceOk && <B label="🎤" title={voice ? 'Stop voice typing' : 'Voice typing: type by speaking'} active={voice} onClick={() => setVoice((v) => !v)} />}
         <TablePicker refocus={refocus} disabled={editor.isActive('table')} onPick={(rows, cols, withHeaderRow) => c().insertTable({ rows, cols, withHeaderRow }).run()} />
         <MenuButton refocus={refocus} end label="More formatting" icon={<span aria-hidden="true">⋮</span>} items={[
           { label: 'Strikethrough', icon: <s>S</s>, checked: editor.isActive('strike'), onSelect: () => c().toggleStrike().run() },
@@ -2232,6 +2237,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label="Picture file"
           onChange={(e) => { insertImages(e.target.files); e.target.value = ''; }} />
       </div>
+      {voice && voiceOk && <VoiceTypingBar editor={editor} onClose={() => { setVoice(false); refocus(); }} />}
       <EditorContent editor={editor} />
       {/* Outside the Compose form, so the editor's buttons never submit (send) the message. */}
       {linking && createPortal(<LinkDialog initial={linking} onApply={applyLink} onRemove={linking.href ? removeLink : null}

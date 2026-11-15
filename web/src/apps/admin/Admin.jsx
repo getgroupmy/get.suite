@@ -766,6 +766,14 @@ function CompanySettings() {
         </label>
         <p className="muted small" style={{ margin: 0 }}>Emails from addresses that aren't on your company's domains show a note above them: <em>From outside {org.name}: be careful with links, attachments and requests for money or passwords</em>. Whether this is on or not, an email from outside that uses the name of someone who works here (a common trick) always gets a stronger warning.</p>
       </div>
+      <div className="card stack" aria-labelledby="voice-h">
+        <h2 id="voice-h">Voice typing</h2>
+        <label className="check">
+          <input type="checkbox" checked={org.voice_typing !== false} onChange={(e) => save({ voice_typing: e.target.checked }, e.target.checked ? 'Voice typing is on' : 'Voice typing is off for everyone')} />
+          Allow voice typing in Docs and Mail
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>The browser recognises the speech: Chrome and Edge send the sound to Google’s or Microsoft’s speech service to do it (Safari works on the device). Turn this off if what people dictate mustn’t leave the company. Read aloud is made on the device and stays available.</p>
+      </div>
       <div className="card stack" aria-labelledby="sess-h">
         <h2 id="sess-h">Sign-in sessions</h2>
         <label className="field" style={{ maxWidth: 320 }}><span>Sign out after no activity for</span>

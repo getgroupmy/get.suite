@@ -75,6 +75,8 @@ export function validatePassword(pw, { orgId = null, email = '', name = '' } = {
   if (problem) throw new HttpError(400, problem);
 }
 
+// orgs.voice_off: 1 when the company turned voice typing off (Admin → Company settings).
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'voice_off')) q('ALTER TABLE orgs ADD COLUMN voice_off INTEGER NOT NULL DEFAULT 0').run();
 // users.pw_leaked: when their password was found in data breaches at sign-in (cleared when they choose a new one).
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'pw_leaked')) q('ALTER TABLE users ADD COLUMN pw_leaked INTEGER').run();
 
@@ -135,7 +137,7 @@ export const idleOf = (req) => { const v = Number(req.get?.('x-user-idle')); ret
  */
 export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days, o.voice_off,
                         o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.external_share_days, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
                         (COALESCE((SELECT enabled FROM two_factor t WHERE t.user_id = u.id), 0) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -161,7 +163,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
   return userOf(row);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days, o.voice_off,
   o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.external_share_days, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (COALESCE((SELECT enabled FROM two_factor t WHERE t.user_id = u.id), 0) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)) AS tf_enabled`;
 
 /** The person an API token acts for (see apitokens.js), as requireAuth gives it, with req.apiToken set. */
@@ -194,6 +196,8 @@ function userOf(row) {
     password_expired: !row.must_change_password && isExpired({ max_days: row.pw_max_days }, row.password_set_at),
     // Their password turned up in data breaches when they signed in (the company's rule): a new one first.
     password_leaked: !!row.pw_leaked,
+    // The company lets people use voice typing (the browser sends the sound to its maker's speech service).
+    voice_typing: !row.voice_off,
     start_page: row.start_page === 'home' ? 'home' : 'drive',
     second_tz: row.second_tz || null,
     world_clocks: (() => { try { return JSON.parse(row.world_clocks || '[]'); } catch { return []; } })(),
