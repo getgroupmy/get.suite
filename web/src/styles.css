@@ -3109,3 +3109,6 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .table-scroll { max-width: 100%; overflow-x: auto; }
 /* Grey text in a highlighted sidebar item (a shared list's "from Olivia"): stronger, to stay readable on the highlight (dark mode too). */
 .subnav-item.active .muted { color: color-mix(in srgb, var(--muted), var(--text) 55%); }
+.move-from { flex-wrap: wrap; gap: 6px; }
+.move-from .btn { white-space: normal; }
+.move-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; }

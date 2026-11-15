@@ -111,7 +111,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [folderDialog, setFolderDialog] = useState(null);
   const [signatures, setSignatures] = useState([]);
   const [signatureOpen, setSignatureOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  // /mail?import=1 (&from=imap.gmail.com) opens Import mail (from Settings → Move here from another service).
+  const [importOpen, setImportOpen] = useState(() => (new URLSearchParams(window.location.search).get('import') === '1' ? (new URLSearchParams(window.location.search).get('from') || '') : false));
   const [confOpen, setConfOpen] = useState(false); // your confidential messages
   const [subsOpen, setSubsOpen] = useState(false); // newsletters and lists in the Inbox
   const [storageOpen, setStorageOpen] = useState(false); // how much room mail takes
@@ -703,7 +704,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
       {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
       {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
         onSubmit={async (name) => { const r = await post('/mail/folders', { name }); toast(`Folder ${r.path} created`); loadFolders(); }} />}
-      {importOpen && <ImportMail onClose={() => setImportOpen(false)} onDone={refresh} />}
+      {importOpen !== false && <ImportMail from={typeof importOpen === 'string' ? importOpen : ''} onClose={() => setImportOpen(false)} onDone={refresh} />}
       {signatureOpen && <SignatureDialog signatures={signatures} onClose={() => setSignatureOpen(false)} onSaved={(list) => setSignatures(list)} />}
       {folderDialog?.type === 'rename' && (
         <PromptModal title={`Rename “${folderDialog.folder.name}”`} label="New name (use / for subfolders)" initial={folderDialog.folder.path} confirm="Rename"
@@ -1090,12 +1091,12 @@ function Conversation({ folder, uid, date, onOpen }) {
   );
 }
 
-const IMPORT_FROM = [['', 'Another mail server'], ['imap.gmail.com', 'Gmail'], ['outlook.office365.com', 'Outlook.com / Microsoft 365'], ['imap.mail.yahoo.com', 'Yahoo Mail'], ['imap.mail.me.com', 'iCloud Mail']];
+const IMPORT_FROM = [['', 'Another mail server'], ['imap.gmail.com', 'Gmail'], ['outlook.office365.com', 'Outlook.com / Microsoft 365'], ['imap.zoho.com', 'Zoho Mail (personal)'], ['imappro.zoho.com', 'Zoho Mail (business)'], ['imap.mail.yahoo.com', 'Yahoo Mail'], ['imap.mail.me.com', 'iCloud Mail']];
 
 /** Copy the mail of another account (all its folders) into this mailbox, with progress. */
-function ImportMail({ onClose, onDone }) {
+function ImportMail({ from = '', onClose, onDone }) {
   const [job, setJob] = useState(undefined);
-  const [f, setF] = useState({ host: '', port: 993, username: '', password: '' });
+  const [f, setF] = useState({ host: IMPORT_FROM.some(([h]) => h === from) ? from : '', port: 993, username: '', password: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { get('/mail/import').then(setJob).catch(() => setJob(null)); }, []);
@@ -1132,7 +1133,7 @@ function ImportMail({ onClose, onDone }) {
         )}
         {!runningNow && (
           <form className="stack" onSubmit={start}>
-            <p className="muted small" style={{ margin: 0 }}>Copies all the mail in another account (every folder, with what's read and starred, and the dates) into this mailbox. Junk and Trash are left out. Messages already here are skipped, so you can run it again later. Your password there is used for this import only and never kept. Gmail, Yahoo and iCloud need an <em>app password</em> made in that account's security settings.</p>
+            <p className="muted small" style={{ margin: 0 }}>Copies all the mail in another account (every folder, with what's read and starred, and the dates) into this mailbox. Junk and Trash are left out. Messages already here are skipped, so you can run it again later. Your password there is used for this import only and never kept. Gmail, Yahoo, iCloud and Zoho need an <em>app password</em> made in that account's security settings. Microsoft 365 work accounts usually don't allow this (Outlook.com ones do): see <strong>Settings → Move here from another service</strong> for other ways.</p>
             <label className="field"><span>Import from</span>
               <select aria-label="Import from" value={IMPORT_FROM.some(([h]) => h === f.host) ? f.host : ''} onChange={(e) => setF({ ...f, host: e.target.value, port: 993 })}>
                 {IMPORT_FROM.map(([h, n]) => <option key={n} value={h}>{n}</option>)}

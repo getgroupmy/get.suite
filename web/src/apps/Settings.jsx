@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useEffect, useRef, useState } from 'react';
 import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
@@ -83,6 +84,7 @@ export default function Settings() {
       <MorningSummary />
       <ChatEmail />
       <ApiTokens />
+      <MoveHere />
       <YourData />
     </div>
   );
@@ -731,8 +733,69 @@ function WorkLocation() {
   );
 }
 
-/** Download your data: one .zip with everything you own, in formats other programs open. */
-function YourData() {
+/** The steps for each service people move here from (Settings → Move here from another service). */
+const MOVE_FROM = {
+  google: {
+    name: 'Google Workspace or Gmail',
+    mail: 'imap.gmail.com',
+    steps: [
+      <>Signed in to the account you're leaving, open <strong>takeout.google.com</strong>, press <strong>Deselect all</strong>, then tick <strong>Calendar</strong>, <strong>Contacts</strong>, <strong>Drive</strong>, <strong>Keep</strong>, <strong>Mail</strong> and <strong>Tasks</strong>.</>,
+      <>Choose <strong>Export once</strong>, file type <strong>.zip</strong>, and create the export. Google emails you a link when it's ready (minutes for a small account, a day or more for a big one); download the .zip (or each part, if it's split).</>,
+      <>Press <strong>Bring in a .zip…</strong> below and pick it (a big one goes to your Drive first; or upload it to Drive yourself and use <strong>From Drive…</strong>). Bring each part of a split export in the same way.</>,
+    ],
+    notes: 'Your Gmail labels become folders (mail in the Inbox goes to your Inbox, sent mail to Sent, the rest to Archive); spam and trash are left out, and read and starred are kept. Each Google calendar comes in (other than your main one, as a calendar of its own), contacts once each even if they were in several groups, Keep notes with their pictures, each Tasks list as a new list, and Drive in one new folder (Google Docs, Sheets and Slides arrive as Word, Excel and PowerPoint files, which open here). Other Google products in the export (YouTube, Chrome…) are left out.',
+    imap: 'Or copy the mail straight from the account instead (it needs an app password: Google Account → Security → 2-Step Verification → App passwords).',
+  },
+  microsoft: {
+    name: 'Microsoft 365 or Outlook.com',
+    mail: 'outlook.office365.com',
+    steps: [
+      <><strong>Files:</strong> in OneDrive (or a SharePoint library), select everything and press <strong>Download</strong>: you get a .zip.</>,
+      <><strong>Contacts:</strong> Outlook on the web → <strong>People</strong> → <strong>Manage contacts</strong> → <strong>Export contacts</strong> (a .csv). <strong>Calendar:</strong> Outlook on the web → <strong>Settings</strong> → <strong>Calendar</strong> → <strong>Shared calendars</strong> → <strong>Publish a calendar</strong>, open the ICS link and save the .ics (or in Outlook on Windows, <strong>File → Save Calendar</strong>).</>,
+      <>Put the .csv and .ics into the OneDrive .zip (or a .zip of their own), and press <strong>Bring in a .zip…</strong> below. The OneDrive folder comes in as one new Drive folder, contacts and the calendar into yours.</>,
+      <><strong>Mail:</strong> Outlook.com accounts can use <strong>Import mail</strong> with an app password. Microsoft 365 work accounts usually don't allow that: add the account to Thunderbird (it signs in to Microsoft 365 by itself) and either drag its folders into this server's account added there too (see <strong>Mail apps</strong> below), or save the folders as .mbox or .eml files (Thunderbird's ImportExportTools NG add-on) and bring them in as a .zip. Outlook's own .pst files can't be read here.</>,
+    ],
+    notes: 'Word, Excel and PowerPoint files open and edit here as they are; Settings → File format for downloads → Convert uploads makes new uploads Workspace documents.',
+  },
+  zoho: {
+    name: 'Zoho Workplace or Zoho Mail',
+    mail: 'imappro.zoho.com',
+    steps: [
+      <><strong>Mail:</strong> Zoho Mail → <strong>Settings</strong> → <strong>Import/Export</strong> → <strong>Export</strong>: pick a folder (or all of them) and download the .zip of .eml files. Or use <strong>Import mail</strong> below with an app-specific password (Zoho Accounts → Security → App passwords).</>,
+      <><strong>Contacts:</strong> Zoho Contacts → <strong>Settings</strong> → <strong>Export</strong> (vCard or CSV). <strong>Calendar:</strong> Zoho Calendar → <strong>Settings</strong> → <strong>Import/Export</strong> → <strong>Export</strong> (.ics). <strong>Files:</strong> in WorkDrive, select the folders and <strong>Download</strong> (a .zip).</>,
+      <>Press <strong>Bring in a .zip…</strong> below for each .zip (or put the files together in one .zip first). Each mail folder's .eml files come into a folder of that name; Inbox, Sent and Drafts into yours.</>,
+    ],
+    notes: 'Writer, Sheet and Show files come from WorkDrive as Word, Excel and PowerPoint files, which open here.',
+  },
+};
+
+/** Moving here from Google, Microsoft or Zoho: how to export from there, and bringing the .zip in. */
+function MoveHere() {
+  const mail = useMailStatus();
+  const [from, setFrom] = useState('google');
+  const bring = useBringIn();
+  const m = MOVE_FROM[from];
+  return (
+    <section className="card stack" aria-labelledby="movehere-h">
+      <h2 id="movehere-h">Move here from another service</h2>
+      <p className="muted small" style={{ margin: 0 }}>Bring your email, files, calendar, contacts, notes and tasks from the service you used before. Nothing there is changed or deleted; what's already here is skipped, so you can do it again later to catch up.</p>
+      <div className="row move-from" role="group" aria-label="Moving from">
+        {Object.entries(MOVE_FROM).map(([k, v]) => <button key={k} type="button" className={`btn small ${from === k ? 'primary' : ''}`} aria-pressed={from === k} onClick={() => setFrom(k)}>{v.name}</button>)}
+      </div>
+      <ol className="move-steps" aria-label={`Steps for ${m.name}`}>{m.steps.map((x, i) => <li key={i}>{x}</li>)}</ol>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button type="button" className="btn primary" disabled={bring.restoring} onClick={bring.pick}><Icon name="upload" size={18} /> {bring.label || 'Bring in a .zip…'}</button>
+        <button type="button" className="btn" disabled={bring.restoring} onClick={bring.pickFromDrive}>From Drive…</button>
+        {mail?.enabled && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Import mail from the account…</Link>}
+        {bring.controls(`Your ${m.name} export (.zip)`, `Bring in your ${m.name} export from Drive`)}
+      </div>
+      <p className="muted small" style={{ margin: 0 }}>{m.notes}{m.imap && mail?.enabled ? ` ${m.imap}` : ''}</p>
+    </section>
+  );
+}
+
+/** Bringing a .zip in (Download your data, or an export from Google, Microsoft or Zoho): from this computer or from Drive. */
+function useBringIn(onDone = () => {}) {
   const toast = useToast();
   const restoreRef = useRef(null);
   const [restoring, setRestoring] = useState(false);
@@ -783,12 +846,25 @@ function YourData() {
         r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
         r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'),
         r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures')].filter(Boolean);
-      toast(`Brought in ${parts.join(', ') || 'nothing new'}`);
+      toast(`${r.from ? `From ${r.from}: brought` : 'Brought'} in ${parts.join(', ') || 'nothing new'}`);
+      if (r.left_out?.length) toast(`Left out (not part of Workspace): ${r.left_out.join(', ')}`);
+      if (r.pst) toast('Outlook data files (.pst) can’t be read here: bring that mail in with Mail → Import mail instead', 'error');
       for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error');
-      get('/takeout/summary').then(setSum).catch(() => {});
+      onDone(r);
     } catch (err) { toast(err.message, 'error'); } finally { setRestoring(false); setProgress(null); setStep(null); }
   };
+  const label = restoring ? (progress != null ? `Uploading… ${Math.round(progress * 100)}%` : step?.step ? `Bringing it in: ${STEPS[step.step] || step.step}${step.total ? ` (${step.done} of ${step.total})` : ''}…` : 'Bringing it in…') : null;
+  const controls = (title, pickTitle) => <>
+    <input ref={restoreRef} type="file" accept=".zip,application/zip" hidden aria-label={title} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) restore(f); }} />
+    {pickingZip && <DrivePicker title={pickTitle} accept={(x) => x.kind === 'file' && /\.zip$/i.test(x.name)} empty="No .zip files found. Upload one to Drive first." onClose={() => setPickingZip(false)} onPick={(x) => { setPickingZip(false); restore(null, x.id); }} />}
+  </>;
+  return { restoring, label, pick: () => restoreRef.current?.click(), pickFromDrive: () => setPickingZip(true), controls };
+}
+
+/** Download your data: one .zip with everything you own, in formats other programs open. */
+function YourData() {
   const [sum, setSum] = useState(null);
+  const bring = useBringIn(() => get('/takeout/summary').then(setSum).catch(() => {}));
   useEffect(() => { get('/takeout/summary').then(setSum).catch(() => {}); }, []);
   const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
   return (
@@ -798,15 +874,11 @@ function YourData() {
       {sum && <p className="small" style={{ margin: 0 }}>{n(sum.files, 'file', 'files')} ({formatBytes(sum.bytes)} of uploads) · {n(sum.events, 'event', 'events')} · {n(sum.contacts, 'contact', 'contacts')} · {n(sum.tasks, 'task', 'tasks')} · {n(sum.notes, 'note', 'notes')}{sum.comments != null && <> · {n(sum.comments, 'comment', 'comments')}</>}{sum.conversations != null && <> · {n(sum.conversations, 'conversation', 'conversations')}</>}{sum.forms != null && <> · {n(sum.forms, 'form', 'forms')}</>}{sum.mail != null && <> · {n(sum.mail, 'email', 'emails')}</>}</p>}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <a className="btn" href="/api/takeout" download><Icon name="download" size={18} /> Download your data (.zip)</a>
-        <button type="button" className="btn" disabled={restoring} title="A .zip from Download your data (here or on another Workspace server): its calendar, contacts, task lists and notes are added to yours" onClick={() => restoreRef.current?.click()}>
-          <Icon name="upload" size={18} /> {restoring ? (progress != null ? `Uploading… ${Math.round(progress * 100)}%` : step?.step ? `Bringing it in: ${STEPS[step.step] || step.step}${step.total ? ` (${step.done} of ${step.total})` : ''}…` : 'Bringing it in…') : 'Bring in your data…'}</button>
-        <button type="button" className="btn" disabled={restoring} title="A Download your data .zip you've put in Drive (for one too big to send from here)" onClick={() => setPickingZip(true)}>Bring in from Drive…</button>
-        <input ref={restoreRef} type="file" accept=".zip,application/zip" hidden aria-label="Your data to bring in" onChange={(e) => {
-          const f = e.target.files[0]; e.target.value = '';
-          if (f) restore(f);
-        }} />
+        <button type="button" className="btn" disabled={bring.restoring} title="A .zip from Download your data (here or on another Workspace server), or an export from Google, Microsoft or Zoho" onClick={bring.pick}>
+          <Icon name="upload" size={18} /> {bring.label || 'Bring in your data…'}</button>
+        <button type="button" className="btn" disabled={bring.restoring} title="A .zip you've put in Drive (for one too big to send from here)" onClick={bring.pickFromDrive}>Bring in from Drive…</button>
+        {bring.controls('Your data to bring in', 'Bring in a .zip from Drive')}
       </div>
-      {pickingZip && <DrivePicker title="Bring in a Download your data .zip" accept={(x) => x.kind === 'file' && /\.zip$/i.test(x.name)} empty="No .zip files found. Upload one to Drive first." onClose={() => setPickingZip(false)} onPick={(x) => { setPickingZip(false); restore(null, x.id); }} />}
       <p className="muted small" style={{ margin: 0 }}><strong>Bring in your data…</strong> takes such a .zip back (from here or another Workspace server): its Drive, calendar, contacts, task lists and notes, and your mail filters, email templates, signature and event templates, are added to yours; events, contacts and settings you already have are skipped. Its Drive comes in as one new folder (“From your data” and the date) with its folders and files as they were. Its email goes back into your mailbox (in the background; Mail shows how it's going), each folder where it was, and the .mbox files are kept in that Drive folder too.</p>
     </section>
   );

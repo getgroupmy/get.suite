@@ -15,6 +15,7 @@ import { uid as newId, now, bad, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { ownConnection } from './imap.js';
 import { isPrivateAddress } from './unsubscribe.js';
+import { gmailTarget } from '../migrate/plan.js';
 
 q(`CREATE TABLE IF NOT EXISTS mail_imports (
   id TEXT PRIMARY KEY,
@@ -126,6 +127,11 @@ async function run(user, id, remote) {
 // download): its messages go into a folder named after the file (Inbox, Sent, Drafts and Archive go
 // into those), with their dates, read and starred as the file says. Messages already in that folder
 // (the same Message-ID) are skipped, so it can be run again.
+/** One header's value from a message's head (unfolded). */
+export function headerOf(source, name) {
+  const head = source.subarray(0, 64 * 1024).toString('latin1').split(/\r?\n\r?\n/)[0].replace(/\r?\n[ \t]+/g, ' ');
+  return new RegExp(`^${name}:[ \\t]*(.*)$`, 'im').exec(head)?.[1]?.trim() || '';
+}
 const SPECIAL_NAMES = { inbox: 'INBOX', sent: '\\Sent', 'sent mail': '\\Sent', 'sent items': '\\Sent', drafts: '\\Drafts', archive: '\\Archive' };
 
 /** The folder an .mbox file goes into, from its name ("Acme.mbox" → "Acme"; "Inbox.mbox" → the Inbox). */
@@ -148,7 +154,7 @@ export async function startMboxImport(user, { file_id: fileId, files: many }) {
     const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(x?.id || ''));
     if (!f || !atLeast(roleFor(f.id, user.id) || '', 'viewer')) throw new HttpError(404, 'File not found');
     if (!/\.mbox$/i.test(f.name) && !/mbox/i.test(f.mime || '')) throw bad('Choose an .mbox file (Gmail’s Takeout, Thunderbird or Apple Mail give one)');
-    return { file: path.join(FILES_DIR, f.storage), name: f.name, folder: typeof x.folder === 'string' ? x.folder : null };
+    return { file: path.join(FILES_DIR, f.storage), name: f.name, folder: typeof x.folder === 'string' ? x.folder : null, gmail: x.gmail === true };
   });
   if (!found.length) throw bad('Choose an .mbox file');
   const id = newId();
@@ -172,23 +178,47 @@ async function runMbox(user, id, files) {
     update({ total });
     local = await ownConnection(user);
     let copied = 0, skipped = 0;
-    for (const { file, name, folder } of files) {
+    // Each folder once: made if need be, with the Message-IDs already in it (to skip doubles).
+    const seen = new Map();
+    const open = async (target) => {
+      if (seen.has(target)) return seen.get(target);
       const ours = await local.list();
       const delim = ours.find((x) => x.delimiter)?.delimiter || '/';
-      // "Projects/Acme" → a folder inside a folder (in the mail server's own way of writing it); Inbox, Sent… as their own.
-      const parts = folder ? folder.split('/').map((p) => p.replace(/[\r\n\t]/g, ' ').trim().slice(0, 80)).filter(Boolean) : [];
-      const target = parts.length > 1 ? parts.join(delim) : folderForMbox(parts.length ? `${parts[0]}.mbox` : name, ours);
       for (let i = 1; i <= target.split(delim).length; i++) {
         const p = target.split(delim).slice(0, i).join(delim);
         if (p !== 'INBOX' && !ours.some((x) => x.path === p)) await local.mailboxCreate(p).catch(() => {});
       }
-      update({ folder: target });
       const have = new Set();
       const lock = await local.getMailboxLock(target);
       try {
         if (local.mailbox.exists) for await (const m of local.fetch('1:*', { envelope: true })) if (m.envelope?.messageId) have.add(m.envelope.messageId);
       } finally { lock.release(); }
+      seen.set(target, have);
+      return have;
+    };
+    for (const { file, name, folder, gmail } of files) {
+      const ours = await local.list();
+      const delim = ours.find((x) => x.delimiter)?.delimiter || '/';
+      const special = (use, fallback) => ours.find((b) => b.specialUse === use)?.path || fallback;
+      // "Projects/Acme" → a folder inside a folder (in the mail server's own way of writing it); Inbox, Sent… as their own.
+      const pathOf = (f) => {
+        const parts = f ? f.split('/').map((p) => p.replace(/[\r\n\t]/g, ' ').trim().slice(0, 80)).filter(Boolean) : [];
+        return parts.length > 1 ? parts.join(delim) : folderForMbox(parts.length ? `${parts[0]}.mbox` : name, ours);
+      };
+      // Gmail's all-mail file: each message to the folder its labels say (Inbox, Sent, a label's folder, else Archive).
+      const targetOf = gmail
+        ? (source) => {
+          const g = gmailTarget(headerOf(source, 'X-Gmail-Labels'));
+          if (g.skip) return null;
+          return { INBOX: 'INBOX', '\\Sent': special('\\Sent', 'Sent'), '\\Drafts': special('\\Drafts', 'Drafts'), '\\Archive': special('\\Archive', 'Archive') }[g.folder] || pathOf(g.folder);
+        }
+        : (() => { const t = pathOf(folder); return () => t; })();
+      if (!gmail) update({ folder: targetOf() });
       for await (const m of readMbox(fs.createReadStream(file, { highWaterMark: 256 * 1024 }))) {
+        const target = targetOf(m.source);
+        if (!target) { skipped++; continue; } // Gmail's spam and trash
+        if (gmail) update({ folder: target });
+        const have = await open(target);
         const messageId = /^Message-ID:[ \t]*(<[^>\r\n]+>)/im.exec(m.source.subarray(0, 64 * 1024).toString('latin1').split(/\r\n\r\n/)[0])?.[1];
         if (messageId && have.has(messageId)) { skipped++; continue; }
         try { await local.append(target, m.source, flagsOf(m.source), m.date || undefined); }

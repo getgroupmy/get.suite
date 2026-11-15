@@ -128,7 +128,7 @@ await step('Settings → Bring in from Drive…: a .zip already in Drive goes in
   if (!up.ok()) throw new Error(`upload ${up.status()}`);
   await page.goto(`${B}/settings`);
   await page.getByRole('button', { name: 'Bring in from Drive…' }).click();
-  await page.getByRole('dialog', { name: 'Bring in a Download your data .zip' }).getByText('My old data.zip').click();
+  await page.getByRole('dialog', { name: 'Bring in a .zip from Drive' }).getByText('My old data.zip').click();
   await page.locator('.toast', { hasText: /^Brought in .*into “From your data/ }).first().waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }

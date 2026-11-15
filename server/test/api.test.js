@@ -13884,9 +13884,83 @@ test('takeout: bring a Download your data .zip back in: calendar, contacts, task
   assert.deepEqual([again.calendar.added, again.contacts.added], [0, 0], 'events and contacts aren’t doubled');
   assert.equal((await b('POST', '/api/takeout/restore', Buffer.from('not a zip'), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
   const JSZip = (await import('jszip')).default;
-  const other = new JSZip(); other.file('README.txt', 'something else');
-  assert.equal((await b('POST', '/api/takeout/restore', await other.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
+  const other = new JSZip(); other.file('__MACOSX/x', 'x'); other.file('.DS_Store', 'x');
+  assert.equal((await b('POST', '/api/takeout/restore', await other.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400, 'nothing in it to bring in');
   assert.ok(q("SELECT 1 FROM audit_log WHERE action = 'takeout.restore' AND actor_id = ?").get(bid), 'recorded in the activity log');
+});
+
+test('moving from Google: a Takeout .zip brings calendars, contacts, Drive, Keep and Tasks; other products are left out', async () => {
+  const { q } = await import('../src/db.js');
+  const g = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fromg', domain: 'acme.com', name: 'From Google', password: 'password123' })).status, 201);
+  const gid = (await login(g, 'fromg@acme.com')).id;
+  const JSZip = (await import('jszip')).default;
+  const z = new JSZip();
+  const ev = (uid, title, day) => `BEGIN:VEVENT\r\nUID:${uid}\r\nSUMMARY:${title}\r\nDTSTART:202612${day}T090000Z\r\nDTEND:202612${day}T100000Z\r\nEND:VEVENT\r\n`;
+  z.file('Takeout/archive_browser.html', '<html></html>');
+  z.file('Takeout/Calendar/fromg@gmail.com.ics', `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${ev('g1@google.com', 'Board meeting', '03')}END:VCALENDAR\r\n`);
+  z.file('Takeout/Calendar/Football.ics', `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${ev('g2@google.com', 'Match', '05')}${ev('g3@google.com', 'Training', '06')}END:VCALENDAR\r\n`);
+  z.file('Takeout/Contacts/All Contacts/All Contacts.vcf', 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Grace Hopper\r\nEMAIL:grace@example.com\r\nEND:VCARD\r\nBEGIN:VCARD\r\nVERSION:3.0\r\nFN:Alan Turing\r\nEMAIL:alan@example.com\r\nEND:VCARD\r\n');
+  z.file('Takeout/Contacts/Family/Family.vcf', 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Grace Hopper\r\nEMAIL:grace@example.com\r\nEND:VCARD\r\n');
+  z.file('Takeout/Drive/Plans/Budget.csv', 'Region,Q1\nNorth,10\n');
+  z.file('Takeout/Drive/readme.txt', 'hello');
+  z.file('Takeout/Keep/Shopping.json', JSON.stringify({ title: 'Shopping', textContent: '', listContent: [{ text: 'Milk', isChecked: false }], isPinned: false, isArchived: false, isTrashed: false, color: 'DEFAULT', userEditedTimestampUsec: 1700000000000000, createdTimestampUsec: 1700000000000000 }));
+  z.file('Takeout/Tasks/Tasks.json', JSON.stringify({ kind: 'tasks#taskLists', items: [{ kind: 'tasks#tasks', title: 'Home', items: [{ kind: 'tasks#task', id: 't1', title: 'Fix the gate', status: 'needsAction' }] }] }));
+  z.file('Takeout/YouTube and YouTube Music/history/watch-history.html', '<html></html>');
+  const r = await g('POST', '/api/takeout/restore?tz=UTC', await z.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.from, 'Google');
+  assert.deepEqual([r.body.calendar.added, r.body.calendar.calendars], [3, ['Football']], 'Football as a calendar of its own');
+  const evs = q('SELECT title, calendar_id FROM events WHERE owner_id = ? ORDER BY title').all(gid);
+  assert.deepEqual(evs.map((e) => [e.title, !!e.calendar_id]), [['Board meeting', false], ['Match', true], ['Training', true]]);
+  assert.equal(r.body.contacts.added, 2, 'All Contacts only: nobody twice');
+  assert.equal(r.body.tasks.tasks, 1);
+  assert.ok(r.body.notes, JSON.stringify(r.body));
+  assert.ok((await g('GET', '/api/notes')).body.some((n) => n.title === 'Shopping'));
+  assert.equal(r.body.drive.files, 2);
+  assert.match(r.body.drive.folder, /^From Google \d{4}-\d\d-\d\d$/);
+  const inFolder = (await g('GET', `/api/files?parent=${r.body.drive.folder_id}`)).body;
+  assert.deepEqual((inFolder.files || inFolder).map((f) => f.name).sort(), ['Plans', 'readme.txt']);
+  assert.deepEqual(r.body.left_out, ['YouTube and YouTube Music']);
+  // Again: nothing doubled (but a second Drive folder, as for Workspace's own).
+  const again = (await g('POST', '/api/takeout/restore?tz=UTC', await z.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).body;
+  assert.deepEqual([again.calendar.added, again.contacts.added], [0, 0]);
+  assert.equal(q('SELECT COUNT(*) AS n FROM user_calendars WHERE owner_id = ? AND name = ?').get(gid, 'Football').n, 1, 'the same calendar again');
+  // Only other Google products: nothing to bring in.
+  const yt = new JSZip(); yt.file('Takeout/YouTube and YouTube Music/a.html', 'x');
+  const none = await g('POST', '/api/takeout/restore', await yt.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(none.status, 400);
+  assert.match(none.body.error, /YouTube/);
+});
+
+test('moving from Microsoft or Zoho: OneDrive files, an Outlook contacts CSV, a calendar, and .eml mail kept for Mail', async () => {
+  const { q, FILES_DIR } = await import('../src/db.js');
+  const m = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fromm', domain: 'acme.com', name: 'From Microsoft', password: 'password123' })).status, 201);
+  const mid = (await login(m, 'fromm@acme.com')).id;
+  const JSZip = (await import('jszip')).default;
+  const z = new JSZip();
+  z.file('OneDrive_1_15-11-2026/Reports/Q3.txt', 'numbers');
+  z.file('OneDrive_1_15-11-2026/contacts.csv', 'First Name,Last Name,E-mail Address\r\nKatherine,Johnson,kj@example.com\r\n');
+  z.file('OneDrive_1_15-11-2026/sales.csv', 'Region,Q1\r\nNorth,10\r\n');
+  z.file('OneDrive_1_15-11-2026/Calendar.ics', 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:ms1\r\nSUMMARY:Review\r\nDTSTART:20261210T090000Z\r\nDTEND:20261210T100000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n');
+  z.file('OneDrive_1_15-11-2026/Mail/Clients/1.eml', 'From: a@example.com\r\nSubject: Hello\r\nMessage-ID: <1@example.com>\r\n\r\nHi\r\n');
+  z.file('OneDrive_1_15-11-2026/Mail/Clients/2.eml', 'From: b@example.com\r\nSubject: Again\r\nMessage-ID: <2@example.com>\r\n\r\nFrom the start\r\n');
+  z.file('OneDrive_1_15-11-2026/backup.pst', 'x');
+  const r = await m('POST', '/api/takeout/restore?tz=UTC', await z.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.from, 'Microsoft');
+  assert.equal(r.body.contacts.added, 1);
+  assert.equal(q('SELECT name FROM contacts WHERE owner_id = ?').get(mid).name, 'Katherine Johnson');
+  assert.equal(r.body.calendar.added, 1);
+  assert.equal(r.body.drive.files, 2, 'Q3.txt and the spreadsheet that isn’t contacts');
+  assert.equal(r.body.mail.folders, 1, 'one .mbox for the Clients folder');
+  assert.equal(r.body.pst, 1);
+  // The .eml files became one .mbox, each message once, with ">From" kept safe.
+  const mbox = q("SELECT storage FROM files WHERE owner_id = ? AND name = 'Clients.mbox'").get(mid);
+  const text = fs.readFileSync(path.join(FILES_DIR, mbox.storage), 'utf8');
+  assert.equal((text.match(/^From /gm) || []).length, 2);
+  assert.match(text, /^>From the start/m);
 });
 
 test('takeout: bringing data back in also brings mail filters, email templates and event templates (each once)', async () => {

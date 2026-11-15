@@ -2056,6 +2056,33 @@ test('import an .mbox file from Drive: into a folder named after it, with dates,
   assert.deepEqual([again.copied, again.skipped], [0, 2]);
 });
 
+test('moving from Gmail: Takeout’s all-mail .mbox is split by its labels (Inbox, Sent, a label’s folder, Archive); spam and trash left out', async () => {
+  const { mboxEntry } = await import('../src/mail/mbox.js');
+  const JSZip = (await import('jszip')).default;
+  const tag = `Gm${Date.now()}`;
+  const msg = (n, labels, extra = '') => mboxEntry(`X-GM-THRID: 1\r\nX-Gmail-Labels: ${labels}\r\nFrom: Old <old@example.org>\r\nTo: olivia@acme.com\r\nSubject: ${tag} ${n}\r\nMessage-ID: <${tag}-${n}@example.org>\r\n${extra}\r\nBody ${n}\r\n`, { from: 'old@example.org', date: new Date(Date.UTC(2019, 1, n)) });
+  const z = new JSZip();
+  z.file('Takeout/Mail/All mail Including Spam and Trash.mbox', Buffer.concat([
+    msg(1, 'Inbox,Opened,Important'), msg(2, 'Sent,Opened'), msg(3, `Opened,Clients${tag}`), msg(4, 'Archived,Starred,Opened'),
+    msg(5, 'Spam,Unread'), msg(6, 'Trash,Opened'), msg(7, 'Inbox,Unread'),
+  ]));
+  const r = await olivia('POST', '/api/takeout/restore?tz=UTC', await z.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.from, r.body.mail.started], ['Google', true], JSON.stringify(r.body));
+  const done = await eventually(async () => { const j = (await olivia('GET', '/api/mail/import')).body; return j?.status !== 'running' && j; }, 60000);
+  assert.deepEqual([done.status, done.copied, done.skipped], ['done', 5, 2], JSON.stringify(done));
+  const find = async (folder) => (await olivia('GET', `/api/mail/messages?folder=${encodeURIComponent(folder)}`)).body.messages.filter((m) => m.subject.startsWith(tag));
+  const folders = (await olivia('GET', '/api/mail/folders')).body;
+  const pathOf = (use) => (folders.folders || folders).find((f) => f.specialUse === use || f.special_use === use)?.path;
+  const inbox = await find('INBOX');
+  assert.deepEqual(inbox.map((m) => m.subject).sort(), [`${tag} 1`, `${tag} 7`]);
+  assert.equal(inbox.find((m) => m.subject === `${tag} 7`).seen, false, 'still unread');
+  assert.deepEqual((await find(pathOf('\\Sent') || 'Sent')).map((m) => m.subject), [`${tag} 2`]);
+  assert.deepEqual((await find(`Clients${tag}`)).map((m) => m.subject), [`${tag} 3`], 'a label becomes a folder');
+  const archived = await find(pathOf('\\Archive') || 'Archive');
+  assert.deepEqual(archived.map((m) => [m.subject, m.flagged]), [[`${tag} 4`, true]], 'starred kept');
+});
+
 test('DMARC and TLS reports sent to postmaster@ are read and added up for the admin', async () => {
   const zlib = await import('node:zlib');
   const { DMARC, TLS } = await import('./fixtures/reports.js');
