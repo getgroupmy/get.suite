@@ -3,7 +3,6 @@
 import { wallClock, fromWallClock } from './calmath.js';
 import { zoneOrUtc } from './ics.js';
 
-const DAY = 864e5;
 
 /** Busy times overlapping, joined: [[start, end]] sorted. */
 export function mergeBusy(list) {
