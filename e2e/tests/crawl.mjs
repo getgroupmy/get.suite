@@ -45,6 +45,11 @@ await step('something to open', async () => {
   for (const kind of ['doc', 'sheet', 'slides']) ids[kind] = (await api(page, 'POST', '/files/new', { kind, name: `Crawl ${kind}` })).body.id;
   ids.form = (await api(page, 'POST', '/forms', { title: 'Crawl form' })).body.id;
   ids.folder = (await api(page, 'POST', '/files/folder', { name: 'Crawl folder' })).body.id;
+  // With email on: a new account's mailbox is ready a few seconds after it's made (until then Mail says so).
+  if ((await api(page, 'GET', '/mail/status')).body.enabled) {
+    const end = Date.now() + 30000;
+    while ((await api(page, 'GET', '/mail/folders')).status !== 200) { if (Date.now() > end) throw new Error('mailbox never ready'); await page.waitForTimeout(500); }
+  }
 });
 const ADMIN = ['activity', 'announcements', 'apps', 'checkup', 'company', 'dir', 'drives', 'email', 'links', 'mail', 'money', 'phishing', 'reports', 'responses', 'security', 'settings', 'storage', 'system', 'touch', 'users'];
 const pages = () => ['/home', '/drive', '/drive/shared', '/drive/sharedbyme', '/drive/recent', '/drive/starred', '/drive/trash', '/drive/drives', '/drive/approvals', '/drive/signatures', '/drive/links', '/drive/activity', `/drive/folder/${ids.folder}`,
@@ -57,6 +62,25 @@ await step('every screen opens cleanly', async () => {
     await page.goto(`${B}${path}`);
     await page.waitForTimeout(1800);
     if (bad.length > before || errors.length > errs) found.push(`${path}: ${[...bad.slice(before), ...errors.slice(errs)].join(' | ')}`);
+  }
+  if (found.length) throw new Error(`\n  ${found.join('\n  ')}`);
+});
+await step('every screen opens cleanly for someone who isn’t an admin too', async () => {
+  await api(page, 'POST', '/users', { local: 'mia', domain: 'acme.com', name: 'Mia Member', password: 'password123' });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const mia = await ctx.newPage();
+  const seen = [], errs = [];
+  mia.on('pageerror', (e) => errs.push(e.message));
+  mia.on('console', (m) => m.type() === 'error' && !/40[0-4]|503|Content Security|sandboxed/.test(m.text()) && errs.push(m.text()));
+  mia.on('response', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/') && (r.status() >= 500 || r.status() === 403 || (r.status() >= 400 && ![401, 404].includes(r.status())))) seen.push(`${r.status()} ${r.request().method()} ${u.pathname}`); });
+  await mia.goto(B);
+  await mia.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'mia@acme.com', password: 'password123' }) }));
+  const found = [];
+  for (const path of ['/home', '/drive', '/drive/shared', '/drive/drives', '/drive/approvals', '/drive/signatures', '/drive/links', '/drive/activity', '/mail', '/calendar', '/contacts', '/tasks', '/notes', '/chat', '/meet', '/forms', '/settings', '/admin']) {
+    const a = seen.length, b = errs.length;
+    await mia.goto(`${B}${path}`);
+    await mia.waitForTimeout(1800);
+    if (seen.length > a || errs.length > b) found.push(`${path}: ${[...seen.slice(a), ...errs.slice(b)].join(' | ')}`);
   }
   if (found.length) throw new Error(`\n  ${found.join('\n  ')}`);
 });
