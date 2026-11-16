@@ -119,6 +119,24 @@ test('a mail-app password, for someone who may not know their password: a fresh 
   assert.equal((await signIn('kim@acme.com', { email: 'kim@acme.com' }, 'https://evil.example.com')).location, '/');
 });
 
+test('accounts made on first sign-in (when the company says so): named from the provider; only on its domains; off by default', async () => {
+  assert.match(decodeURIComponent((await signIn('lee@acme.com', { email: 'lee@acme.com', name: 'Lee Chan' })).location), /has no Workspace account here/, 'off by default');
+  assert.equal((await owner('PATCH', '/api/orgs/current', { sso_create: true })).status, 200);
+  assert.equal((await owner('GET', '/api/orgs/current')).body.sso_create, true);
+  const r = await signIn('lee@acme.com', { email: 'Lee@acme.com', given_name: 'Lee', family_name: 'Chan' });
+  assert.equal(r.location, '/');
+  const me = await (await fetch(`${base}/api/auth/me`, { headers: { cookie: r.cookie } })).json();
+  assert.deepEqual([me.user.username, me.user.name], ['lee@acme.com', 'Lee Chan']);
+  assert.ok((await owner('GET', '/api/users/directory')).body.some((u) => u.username === 'lee@acme.com'), 'in the directory');
+  assert.match(JSON.stringify((await owner('GET', '/api/audit?action=user.create')).body), /lee@acme\.com[\s\S]*Microsoft/);
+  // Signing in again uses the same account.
+  assert.equal((await signIn('lee@acme.com', { email: 'lee@acme.com' })).location, '/');
+  assert.equal((await owner('GET', '/api/users')).body.filter((u) => u.username === 'lee@acme.com').length, 1);
+  // Another company's domain (a provider that knows more people than this company): not made here.
+  assert.match(decodeURIComponent((await signIn('lee@acme.com', { email: 'pat@globex.com' })).location), /couldn’t be made here \(globex\.com is not a domain of this company\)/);
+  await owner('PATCH', '/api/orgs/current', { sso_create: false });
+});
+
 test('refused, saying why: a used state, no such account, a disabled one, an ID token for another sign-in', async () => {
   const r = await signIn('kim@acme.com', { email: 'kim@acme.com' });
   const again = await fetch(`${base}/api/auth/sso/callback?code=x&state=${r.to.searchParams.get('state')}`, { redirect: 'manual' });

@@ -53,7 +53,7 @@ function describe(full) {
     meet_guests: org.meet_guests === undefined ? true : !!org.meet_guests,
     allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
     allow_api_tokens: !!org.allow_api_tokens,
-    sso_issuer: org.sso_issuer || null, sso_client_id: org.sso_client_id || null, sso_label: org.sso_label || null, sso_has_secret: !!full.sso_secret, sso_required: !!org.sso_required, // single sign-on (sso.js)
+    sso_issuer: org.sso_issuer || null, sso_client_id: org.sso_client_id || null, sso_label: org.sso_label || null, sso_has_secret: !!full.sso_secret, sso_required: !!org.sso_required, sso_create: !!org.sso_create, // single sign-on (sso.js)
     assistant_off: (() => { try { return JSON.parse(org.assistant_off || '[]'); } catch { return []; } })(), // assistant tools turned off
     ms_client_id: org.ms_client_id || null, ms_tenant: org.ms_tenant || null, // importing mail from Microsoft 365 (msimport.js)
     g_client_id: org.g_client_id || null, g_has_secret: !!full.g_client_secret, // importing mail from Google (googleimport.js); the secret itself is never sent
@@ -108,6 +108,7 @@ function updateOrg(orgId, body, { asSuper, user }) {
     scheduleMailConfig(); // the mail server's passwords follow (mail apps: mail-app passwords only)
   }
   if (body.sso_issuer !== undefined || body.sso_client_id !== undefined || body.sso_secret !== undefined) scheduleMailConfig(); // whether single sign-on counts as set up
+  if (body.sso_create !== undefined) q('UPDATE orgs SET sso_create = ? WHERE id = ?').run(body.sso_create ? 1 : 0, orgId); // accounts made on first sign-in
   if (body.sso_label !== undefined) q('UPDATE orgs SET sso_label = ? WHERE id = ?').run(String(body.sso_label || '').trim().slice(0, 40) || null, orgId);
   if (body.assistant_off !== undefined) {
     if (!Array.isArray(body.assistant_off)) throw bad('assistant_off is a list of tool names');

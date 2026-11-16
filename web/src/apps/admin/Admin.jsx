@@ -1187,6 +1187,12 @@ function SsoSettings({ org }) {
   const [has, setHas] = useState(!!org.sso_has_secret);
   const [on, setOn] = useState(!!(org.sso_issuer && org.sso_client_id && org.sso_has_secret));
   const [required, setRequired] = useState(!!org.sso_required);
+  const [create, setCreate] = useState(!!org.sso_create);
+  const makeAccounts = async (want) => {
+    setCreate(want);
+    try { await patch('/orgs/current', { sso_create: want }); toast(want ? 'New people get an account the first time they sign in' : 'Only people with an account here can sign in'); }
+    catch (err) { setCreate(!want); toast(err.message, 'error'); }
+  };
   const require = async (want) => {
     setRequired(want);
     try { await patch('/orgs/current', { sso_required: want }); toast(want ? 'Everyone but admins now signs in with single sign-on' : 'People can sign in with their passwords again'); }
@@ -1209,13 +1215,14 @@ function SsoSettings({ org }) {
   return (
     <form className="stack-tight sso-settings" onSubmit={save} aria-labelledby="sso-h">
       <strong id="sso-h">Single sign-on {on ? <span className="pill">On</span> : <span className="muted small">(off)</span>}</strong>
-      <p className="muted small" style={{ margin: 0 }}>Let people sign in with your company's identity provider (Microsoft Entra ID, Google, Okta, Keycloak… anything that speaks OpenID Connect) as well as their password: the sign-in page offers it once someone types an address on your domains. Register Workspace there as a web app with this sign-in (redirect) address, then fill in what it gives you. Their accounts here must already exist, with the same email address; two-step verification set up here still applies.</p>
+      <p className="muted small" style={{ margin: 0 }}>Let people sign in with your company's identity provider (Microsoft Entra ID, Google, Okta, Keycloak… anything that speaks OpenID Connect) as well as their password: the sign-in page offers it once someone types an address on your domains. Register Workspace there as a web app with this sign-in (redirect) address, then fill in what it gives you. Their accounts here must already exist, with the same email address (or be made on first sign-in, below); two-step verification set up here still applies.</p>
       <label className="field"><span>Sign-in (redirect) address to give the provider</span><input readOnly value={callback} onFocus={(e) => e.target.select()} /></label>
       <label className="field"><span>Name on the sign-in page</span><input value={v.sso_label} maxLength={40} placeholder="Microsoft" onChange={(e) => setV({ ...v, sso_label: e.target.value })} /></label>
       <label className="field"><span>Issuer address</span><input value={v.sso_issuer} placeholder="https://login.microsoftonline.com/<tenant id>/v2.0" onChange={(e) => setV({ ...v, sso_issuer: e.target.value })} /></label>
       <label className="field"><span>Client ID</span><input value={v.sso_client_id} onChange={(e) => setV({ ...v, sso_client_id: e.target.value })} /></label>
       <label className="field"><span>Client secret {has && <span className="muted small">(saved: type a new one to change it)</span>}</span><input type="password" value={v.sso_secret} autoComplete="new-password" onChange={(e) => setV({ ...v, sso_secret: e.target.value })} /></label>
       <div className="row"><button className="btn primary small">Save</button>{on && <button type="button" className="btn small" onClick={off}>Turn off</button>}</div>
+      {on && <label className="check"><input type="checkbox" checked={create} onChange={(e) => makeAccounts(e.target.checked)} /> Create accounts on first sign-in: someone your provider knows, with an address on one of your domains that isn't taken, gets a Workspace account (named as the provider names them) the first time they sign in. Removing them here still works as usual.</label>}
       {on && <label className="check"><input type="checkbox" checked={required} onChange={(e) => require(e.target.checked)} /> Require it: everyone but admins signs in this way only (passwords and passkeys don't work for them). Admins keep their password, in case the provider is down. Mail, calendar and contacts apps on phones and computers then need a mail-app password (Settings), as the account password no longer opens them.</label>}
     </form>
   );

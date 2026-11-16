@@ -146,6 +146,22 @@ await step('required: Kim’s password is refused, pointing to Microsoft; the pa
   const admin = await api(p, 'POST', '/auth/login', { username: 'olivia@acme.com', password: 'password123' });
   if (admin.status !== 200) throw new Error(JSON.stringify(admin));
 }, kim);
+await step('accounts made on first sign-in: a newcomer the provider knows gets in and is in the directory', async () => {
+  await page.goto(`${B}/admin?tab=company`);
+  await page.locator('form.sso-settings').getByRole('checkbox', { name: /Create accounts on first sign-in/ }).check();
+  await page.getByText('New people get an account the first time they sign in').waitFor();
+  const p = await mk('dana');
+  await p.goto(B);
+  await p.getByLabel('Email address').fill('dana@acme.com');
+  await p.getByRole('link', { name: 'Sign in with Microsoft' }).click();
+  await p.waitForURL((u) => !/login|sso/.test(u.pathname) && !/sso_error/.test(u.search));
+  const me = await api(p, 'GET', '/auth/me');
+  if (me.body?.user?.username !== 'dana@acme.com') throw new Error(JSON.stringify(me));
+  const dir = await api(page, 'GET', '/users/directory');
+  if (!dir.body.some((u) => u.username === 'dana@acme.com')) throw new Error('not in the directory');
+  await page.reload();
+  if (!(await page.locator('form.sso-settings').getByRole('checkbox', { name: /Create accounts on first sign-in/ }).isChecked())) throw new Error('setting not kept');
+}, kim);
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 idp.close();
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));

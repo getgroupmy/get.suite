@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { q } from './db.js';
 import { bad } from './util.js';
 
-for (const col of ['sso_issuer TEXT', 'sso_client_id TEXT', 'sso_secret TEXT', 'sso_label TEXT', 'sso_required INTEGER NOT NULL DEFAULT 0']) {
+for (const col of ['sso_issuer TEXT', 'sso_client_id TEXT', 'sso_secret TEXT', 'sso_label TEXT', 'sso_required INTEGER NOT NULL DEFAULT 0', 'sso_create INTEGER NOT NULL DEFAULT 0']) {
   if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === col.split(' ')[0])) q(`ALTER TABLE orgs ADD COLUMN ${col}`).run();
 }
 q(`CREATE TABLE IF NOT EXISTS sso_states (
@@ -125,3 +125,9 @@ export function ssoRequiredFor(userId) {
   return ssoOf(u.org_id)?.label || null;
 }
 export const ssoRequiredMessage = (label) => `Your company signs in with ${label}: use “Sign in with ${label}”.`;
+
+/** A new person's name from the provider: name, else given and family names, else the address before @. */
+export function nameOf(claims, email) {
+  const n = String(claims.name || [claims.given_name, claims.family_name].filter(Boolean).join(' ') || '').replace(/\s+/g, ' ').trim();
+  return (n || email.split('@')[0]).slice(0, 100);
+}

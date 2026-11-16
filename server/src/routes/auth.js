@@ -6,7 +6,10 @@ import { str, bad, HttpError } from '../util.js';
 import {
   verifyPassword, createSession, destroySession, setSessionCookie, clearSessionCookie, tokenFromReq,
   requireAuth, validateNewPassword, hashPassword, userFromToken, idleOf, sessionId, describeDevice,
+  newUserRow,
 } from '../auth.js';
+import { validAddress, orgMemberIds } from '../tenancy.js';
+import { sendTo } from '../hub.js';
 import * as guard from '../security/guard.js';
 import { securityActivity } from '../securityactivity.js';
 import { createOrg } from '../tenancy.js';
@@ -19,7 +22,7 @@ import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
 import { newDeviceSignIn, passkeyChanged, accountChanged } from '../alerts.js';
 import { smtpFor } from '../mail/imap.js';
-import { ssoOf, orgForEmail, discover, newAttempt, takeAttempt, verifyIdToken, emailOf, ssoRequiredFor, ssoRequiredMessage } from '../sso.js';
+import { ssoOf, orgForEmail, discover, newAttempt, takeAttempt, verifyIdToken, emailOf, ssoRequiredFor, ssoRequiredMessage, nameOf } from '../sso.js';
 import { baseUrl } from './calendar.js';
 
 // "Forgot password?": a link (valid for an hour, once) sent to the personal recovery address someone
@@ -175,7 +178,22 @@ export default function authRoutes({ secureCookies }) {
       return fail(`Signing in with ${sso.label} didn’t work: ${e.message}`);
     }
     const email = emailOf(claims);
-    const row = email && q('SELECT id, username, disabled FROM users WHERE username = ? AND org_id = ?').get(email, a.org_id);
+    let row = email && q('SELECT id, username, disabled FROM users WHERE username = ? AND org_id = ?').get(email, a.org_id);
+    // New to Workspace, and the company creates accounts on first sign-in: on one of its domains, an address
+    // nobody (or no alias or shared mailbox) has yet. A random password they never need (they sign in this way).
+    if (!row && email && q('SELECT sso_create FROM orgs WHERE id = ?').get(a.org_id)?.sso_create) {
+      try {
+        const [local, domain] = email.split('@');
+        const username = validAddress(local, domain, a.org_id);
+        const id = newUserRow({ orgId: a.org_id, username, name: nameOf(claims, username), password: crypto.randomBytes(24).toString('base64url') });
+        audit(req, 'user.create', { actor: null, org: a.org_id, target: username, details: { sso: sso.label } });
+        sendTo(orgMemberIds(a.org_id), { type: 'directory-changed' });
+        row = { id, username, disabled: 0 };
+      } catch (e) {
+        audit(req, 'sign-in.failed', { actor: null, org: a.org_id, target: email, details: { reason: 'sso', error: `not created: ${e.message}` } });
+        return fail(`An account for ${email} couldn’t be made here (${e.message}). Ask your admin.`);
+      }
+    }
     if (!row || row.disabled) {
       audit(req, 'sign-in.failed', { actor: null, org: a.org_id, target: email || null, details: { reason: 'sso', error: row ? 'disabled' : 'no such account' } });
       return fail(email ? `${email} has no Workspace account here. Ask your admin.` : `${sso.label} didn’t say which email address you have`);
