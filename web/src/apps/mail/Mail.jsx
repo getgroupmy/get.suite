@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { unreachable, outboxAdd, outboxList, outboxRemove } from '../offlinedocs.js';
 import { api, get, post, put, del, postBlob, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
@@ -471,6 +472,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         )}
         <input ref={emlInput} type="file" accept=".eml,.zip,message/rfc822,application/zip" multiple hidden aria-label="Emails to upload" onChange={(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) uploadEml(fs, emlFolder.current); }} />
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
+        <Outbox />
         {!shared && searches.length > 0 && <>
           <div className="subnav-title">Searches</div>
           {searches.map((sv) => (
@@ -1806,7 +1808,16 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           : false;
         toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}${archived ? ' and archived' : ''}`);
         onSent();
-      } catch (err) { if (!dlpStop(err) && !outsideStop(err)) { toast(err.message, 'error'); reopen(); } }
+      } catch (err) {
+        // No connection: it waits on this device and goes by itself when the connection is back.
+        if (unreachable(err)) {
+          await outboxAdd({ body, mailbox, user: user?.id, subject: body.subject || '', to: [body.to, body.cc].filter(Boolean).join(', ') });
+          toast('You’re offline: the email is in Waiting to send, and goes when the connection is back', 'info', { duration: 8000 });
+          onSent();
+          return;
+        }
+        if (!dlpStop(err) && !outsideStop(err)) { toast(err.message, 'error'); reopen(); }
+      }
     };
     pendingSend.current = go;
     setWaiting(true);
@@ -3373,4 +3384,36 @@ function SharedReport({ name, onClose }) {
       </div>
     </Modal>
   );
+}
+
+/** Waiting to send: email sent without a connection, kept on this device until it can go (App.jsx sends it). */
+function Outbox() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const load = () => outboxList(user?.id).then(setItems);
+    load();
+    window.addEventListener('nw:outbox', load);
+    return () => window.removeEventListener('nw:outbox', load);
+  }, [user?.id]);
+  if (!items.length) return null;
+  return <>
+    <button type="button" className="subnav-item outbox-item" onClick={() => setOpen(true)}><Icon name="clock" /><span className="grow">Waiting to send</span><span className="count">{items.length}</span></button>
+    {open && (
+      <Modal title="Waiting to send" onClose={() => setOpen(false)} footer={<button type="button" className="btn primary" onClick={() => setOpen(false)}>Done</button>}>
+        <p className="muted small" style={{ marginTop: 0 }}>Sent while offline: these go by themselves when the connection is back. They're kept on this device only.</p>
+        <ul className="plain-list outbox-list" aria-label="Emails waiting to send">
+          {items.map((m) => (
+            <li key={m.id} className="row" style={{ gap: 8, padding: '6px 0' }}>
+              <span className="grow"><strong>{m.subject || '(no subject)'}</strong> <span className="muted small">to {m.to}</span>
+                {m.error && <><br /><span className="error small">Not sent: {m.error}</span></>}</span>
+              <button type="button" className="btn small" onClick={async () => { await outboxRemove(m.id); toast('Deleted: it won’t be sent'); }}>Delete</button>
+            </li>
+          ))}
+        </ul>
+      </Modal>
+    )}
+  </>;
 }

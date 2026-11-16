@@ -195,13 +195,23 @@ function Workspace() {
   );
 }
 
-/** Changes made offline to files not open now: sent once there's a connection (at start, and when the network is back). */
+const lastUserId = () => { try { return JSON.parse(localStorage.getItem(LAST_USER) || 'null')?.id || null; } catch { return null; } };
+/** Changes made offline to files not open now, and email sent offline: sent once there's a connection (at start, and when the network is back). */
 function SendUnsent() {
   const toast = useToast();
   useEffect(() => {
     const run = async () => {
       if (!navigator.onLine) return;
       const [{ sendUnsent }, { WebsocketProvider }] = await Promise.all([import('./apps/KeptCopy.jsx'), import('y-websocket')]);
+      // Email sent while offline goes first (it's waited longest), then what was changed in files.
+      const { outboxList, outboxRemove, outboxNote } = await import('./apps/offlinedocs.js');
+      let mails = 0;
+      for (const m of await outboxList(lastUserId())) {
+        if (m.error) continue; // refused before: left for the person to see (and delete)
+        try { await post('/mail/send', m.body, { mailbox: m.mailbox || null }); await outboxRemove(m.id); mails++; }
+        catch (e) { if (unreachable(e)) break; await outboxNote(m.id, m, e.message); window.dispatchEvent(new Event('nw:outbox')); toast(`“${m.subject || '(no subject)'}” couldn’t be sent: ${e.message}`, 'error'); }
+      }
+      if (mails) toast(`Sent ${mails} email${mails === 1 ? '' : 's'} written while offline`);
       const r = await sendUnsent(WebsocketProvider);
       if (r.sent) toast(`Sent what you changed offline in ${r.sent} file${r.sent === 1 ? '' : 's'}`);
       for (const f of r.copies) toast(`A file was changed elsewhere while you were offline: your changes are in “${f.name}”`, 'info', { duration: 10000 });

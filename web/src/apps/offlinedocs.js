@@ -6,9 +6,9 @@ const DB = 'nw-offline', STORE = 'docs', KEEP = 30;
 function open() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('no IndexedDB'));
-    const r = indexedDB.open(DB, 2);
-    // docs: kept files; api: the last answers to a few lists (calendar, tasks, contacts, notes), read when offline.
-    r.onupgradeneeded = () => { for (const s of [STORE, 'api']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
+    const r = indexedDB.open(DB, 3);
+    // docs: kept files; api: the last answers to a few lists, read when offline; outbox: email sent while offline.
+    r.onupgradeneeded = () => { for (const s of [STORE, 'api', 'outbox']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
@@ -72,3 +72,17 @@ export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/task
   /^\/mail\/(status|folders|labels)(\?|$)/, /^\/mail\/messages\?folder=/, /^\/mail\/messages\/\d+\?folder=/, /^\/mail\/folder-state\?folder=/];
 export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, at: Date.now() }, url), 'api').catch(() => {});
 export const keptAnswer = (url) => run('readonly', (s) => s.get(url), 'api').then((x) => x || null).catch(() => null);
+
+// Email sent without a connection: kept here, and sent by itself when the connection is back (App.jsx SendUnsent).
+// { body (as for /mail/send), mailbox (shared mailbox id or null), user, at, error? }
+export const outboxAdd = (item) => run('readwrite', (s) => s.put({ ...item, at: Date.now() }, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`), 'outbox')
+  .then(() => window.dispatchEvent(new Event('nw:outbox')));
+export async function outboxList(user) {
+  try {
+    const out = [];
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (!user || cur.value.user === user) out.push({ id: cur.key, ...cur.value }); cur.continue(); } }; return c; }, 'outbox');
+    return out.sort((a, b) => a.at - b.at);
+  } catch { return []; }
+}
+export const outboxRemove = (id) => run('readwrite', (s) => s.delete(id), 'outbox').then(() => window.dispatchEvent(new Event('nw:outbox'))).catch(() => {});
+export const outboxNote = (id, item, error) => run('readwrite', (s) => s.put({ ...item, error }, id), 'outbox').catch(() => {});

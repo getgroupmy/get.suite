@@ -71,6 +71,28 @@ await step('mail read while connected can be read again offline: the inbox, an o
   await ctx.setOffline(false);
   await page.getByText(/Showing what was last saved/).waitFor({ state: 'detached', timeout: 20000 });
 });
+await step('an email sent offline waits on the device, then goes by itself when the connection is back', async () => {
+  await ctx.setOffline(true);
+  await page.reload();
+  await page.locator('.mail-list').getByText('Ferry times').first().waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('To', { exact: true }).fill('olivia@acme.com');
+  await page.getByLabel('Subject').fill('Written on the ferry');
+  await page.getByRole('textbox', { name: 'Message' }).click();
+  await page.keyboard.type('No signal out here.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText(/You’re offline: the email is in Waiting to send/).waitFor({ timeout: 20000 });
+  const out = page.getByRole('button', { name: /Waiting to send/ });
+  await out.getByText('1').waitFor();
+  await out.click();
+  await page.getByRole('list', { name: 'Emails waiting to send' }).getByText('Written on the ferry').waitFor();
+  await page.screenshot({ path: `${SP}/shots/outbox.png` });
+  await page.getByRole('button', { name: 'Done' }).click();
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 email written while offline').waitFor({ timeout: 30000 });
+  await out.waitFor({ state: 'detached' });
+  await until(async () => (await api(page, 'GET', '/mail/messages?folder=INBOX')).body?.messages?.some((m) => m.subject === 'Written on the ferry'), 30000);
+});
 const real = errors.filter((e) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket/.test(e));
 if (real.length) { failed++; console.log('FAIL page errors', real.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
