@@ -5,10 +5,10 @@ import Captions, { canCaption } from './Captions.jsx';
 import { SlideFind } from './SlideFind.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
-import { get, patch, post, uploadFile } from '../../api.js';
+import { get, post, uploadFile } from '../../api.js';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { useKeptCopy, RebuiltNote, openFileDetails } from '../KeptCopy.jsx';
+import { useKeptCopy, renameFile, RebuiltNote, openFileDetails } from '../KeptCopy.jsx';
 import { jsonFromDeckDoc, applyDeckJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
 import { useToast, Menu, ConfirmModal, Avatar, Modal } from '../../components/ui.jsx';
@@ -326,7 +326,7 @@ export default function SlidesEditor() {
     <div className="editor-page slides-page">
       <EditorHeader
         icon="slides" file={file} status={fromDevice && status === 'connecting' ? 'offline' : status}
-        onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
+        onRename={async (name) => setFile(await renameFile(file, name))} // (offline too: given when the connection is back)
         onShare={() => setDialog('share')}
         extra={people.length > 0 && (
           <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>

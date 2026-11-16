@@ -389,19 +389,23 @@ await step('Drive: a new document made offline is written in here, kept after re
   const id = new URL(page.url()).pathname.split('/').pop();
   await editor().click();
   await page.keyboard.type('Notes from the island');
+  await page.getByLabel('File name').fill('Island notes'); // renamed offline too
+  await page.getByLabel('File name').press('Enter');
   await page.waitForTimeout(1500); // kept on the device
   await page.reload();
   await editor().getByText('Notes from the island').waitFor({ timeout: 20000 }); // from this device
+  if ((await page.getByLabel('File name').inputValue()) !== 'Island notes') throw new Error('the name went back');
   await page.goto(`${B}/drive`).catch(() => {});
-  await page.getByText('Untitled document').first().waitFor({ timeout: 20000 }); // listed with the files kept here
+  await page.getByText('Island notes').first().waitFor({ timeout: 20000 }); // listed with the files kept here
   await ctx.setOffline(false);
-  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
   await page.getByText(/Sent what you changed offline in 1 file/).waitFor({ timeout: 30000 });
   await until(async () => {
     const r = await api(page, 'GET', `/files/${id}/content`);
     return r.status === 200 && JSON.stringify(r.body.content).includes('Notes from the island');
   }, 15000);
-  const doc = (await api(page, 'GET', `/files/${id}/content`)).body.content;
+  const { file, content: doc } = (await api(page, 'GET', `/files/${id}/content`)).body;
+  if (file.name !== 'Island notes') throw new Error(`named ${file.name}`);
   const blocks = doc.content[0]?.type === 'docTab' ? doc.content[0].content : doc.content;
   if (blocks.length !== 1 || blocks[0]?.content?.[0]?.text !== 'Notes from the island') throw new Error(JSON.stringify(doc)); // no empty line with it
 });

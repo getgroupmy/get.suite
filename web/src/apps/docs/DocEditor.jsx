@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keptDoc, unreachable } from '../offlinedocs.js';
-import { useKeptCopy, RebuiltNote } from '../KeptCopy.jsx';
+import { useKeptCopy, renameFile, RebuiltNote } from '../KeptCopy.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -642,7 +642,7 @@ function SharedDoc({ file, setFile }) {
     <div className="editor-page doc-page">
       <EditorHeader
         icon="doc" file={file} status={fromDevice && status === 'connecting' ? 'offline' : status}
-        onRename={async (name) => setFile(await patch(`/files/${file.id}`, { name }))}
+        onRename={async (name) => setFile(await renameFile(file, name))} // (offline too: given when the connection is back)
         onShare={() => setSharing(true)}
         extra={<>
           <button type="button" className={`btn small ${tabsShown ? 'primary' : ''}`} aria-pressed={tabsShown} onClick={() => setTabsPanel(!tabsShown)} title="Tabs">

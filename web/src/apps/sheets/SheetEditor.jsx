@@ -5,7 +5,7 @@ import { get, patch, put } from '../../api.js';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { useKeptCopy, RebuiltNote, openFileDetails } from '../KeptCopy.jsx';
+import { useKeptCopy, renameFile, RebuiltNote, openFileDetails } from '../KeptCopy.jsx';
 import { jsonFromSheetDoc, applySheetJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
 import { useToast, PromptModal, ConfirmModal, Menu, Avatar, ContextMenu, Modal } from '../../components/ui.jsx';
@@ -1190,7 +1190,7 @@ export default function SheetEditor() {
     <div className="editor-page sheet-page">
       <EditorHeader
         icon="sheet" file={file} status={fromDevice && status === 'connecting' ? 'offline' : status}
-        onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
+        onRename={async (name) => setFile(await renameFile(file, name))} // (offline too: given when the connection is back)
         onShare={() => setDialog({ type: 'share' })}
         extra={<>
           {readOnly && canComment && <button type="button" className="btn small" onClick={startComment}>Comment on {anchor ? 'this cell' : selKey}</button>}

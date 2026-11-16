@@ -4,8 +4,8 @@
 // changes become an "(offline copy)" file instead of being mixed in.
 import { useEffect, useRef, useState } from 'react';
 import * as Y from 'yjs';
-import { post } from '../api.js';
-import { keptDoc, keepDoc, forgetDoc, toBase64 } from './offlinedocs.js';
+import { post, patch } from '../api.js';
+import { keptDoc, keepDoc, forgetDoc, toBase64, unreachable, changeAdd, patchKeptItem } from './offlinedocs.js';
 
 /**
  * `provider` must be made with connect: false: this connects it once the kept copy is in. Returns { fromDevice, rebuilt }:
@@ -156,4 +156,22 @@ export function sendUnsent(WebsocketProvider) {
     return out;
   })().finally(() => { sending = null; });
   return sending;
+}
+
+/**
+ * Renaming a document, spreadsheet or presentation. Without a connection the new name is kept on the device (with the
+ * file's copy and in Drive's kept lists) and given to the file when the connection is back. Resolves with the file.
+ */
+export async function renameFile(file, name) {
+  try { return await patch(`/files/${file.id}`, { name }); } catch (e) {
+    if (!unreachable(e)) throw e;
+    let user = null;
+    try { user = JSON.parse(localStorage.getItem('nw-last-user') || 'null')?.id || null; } catch { /* no storage */ }
+    await changeAdd({ method: 'PATCH', url: `/files/${file.id}`, body: { name }, user, label: name });
+    const kept = await keptDoc(file.id);
+    if (kept) await keepDoc(file.id, { ...kept, file: { ...kept.file, name } });
+    await patchKeptItem(file.id, { name, offline: true });
+    window.dispatchEvent(new Event('nw:changes'));
+    return { ...file, name };
+  }
 }
