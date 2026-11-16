@@ -83,6 +83,29 @@ await step('throwing a recording away adds nothing', async () => {
   await page.waitForTimeout(800);
   if ((await api(page, 'GET', '/notes')).body.find((x) => x.id === note.id).recordings.length) throw new Error('kept');
 });
+await step('what was said while recording is written on the note too', async () => {
+  // Speech recognition stand-in: window.__hear(text) as if it was said.
+  await page.evaluate(() => {
+    window.SpeechRecognition = function () { window.__rec = this; };
+    window.SpeechRecognition.prototype.start = function () { this.started = true; };
+    window.SpeechRecognition.prototype.stop = function () { this.stopped = true; };
+    window.__hear = (text) => { const res = [{ transcript: text }]; res.isFinal = true; window.__rec.onresult?.({ resultIndex: 0, results: [res] }); };
+  });
+  const editor = page.getByRole('dialog', { name: 'Standup thoughts' });
+  if (!(await editor.count())) await page.locator('.note-card').getByText('Standup thoughts').click();
+  await editor.getByRole('button', { name: 'Record a voice recording' }).click();
+  await editor.getByRole('status', { name: 'Recording' }).waitFor();
+  await until(() => page.evaluate(() => !!window.__rec?.started));
+  await page.evaluate(() => { window.__hear('remember to book the venue'); window.__hear('and order lunch'); });
+  await page.waitForTimeout(1200);
+  await editor.getByRole('button', { name: 'Stop recording' }).click();
+  await page.getByText('Recording added, with what was said').waitFor();
+  if (!(await page.evaluate(() => window.__rec.stopped))) throw new Error('kept listening');
+  await editor.getByRole('textbox', { name: 'Note' }).waitFor();
+  const text = await editor.getByRole('textbox', { name: 'Note' }).inputValue();
+  if (!text.endsWith('remember to book the venue and order lunch')) throw new Error(JSON.stringify(text));
+  await until(async () => (await api(page, 'GET', '/notes')).body.find((x) => x.id === note.id).body.includes('book the venue and order lunch'), 8000);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -574,7 +574,11 @@ function NoteEditor({ note, onClose }) {
         {f.items ? <ChecklistEdit items={f.items} onChange={(items) => edit({ items })} />
           : <textarea aria-label="Note" rows={8} value={f.body} onChange={(e) => edit({ body: e.target.value })} />}
         <div className="row"><PictureButton noteId={note.id} />
-          {(note.recordings?.length || 0) < 5 && <VoiceRecorder what="a voice recording" name="Recording" maxSecs={10 * 60} onDone={(file, ms) => addRecording(note.id, file, ms).then(() => toast('Recording added')).catch((e) => toast(e.message, 'error'))} />}
+          {(note.recordings?.length || 0) < 5 && <VoiceRecorder what="a voice recording" name="Recording" maxSecs={10 * 60} transcribe onDone={(file, ms, words) => {
+            // What was said goes on the note too (a new item on a checklist), so it can be read and searched.
+            if (words) { dirty.current = true; setF((cur) => (cur.items ? { ...cur, items: [...cur.items, newItem(words)] } : { ...cur, body: cur.body ? `${cur.body}\n\n${words}` : words })); }
+            addRecording(note.id, file, ms).then(() => toast(words ? 'Recording added, with what was said' : 'Recording added')).catch((e) => toast(e.message, 'error'));
+          }} />}
           <button type="button" className="link-btn small" onClick={() => edit(f.items ? { items: null, body: f.items.map((i) => i.text).filter(Boolean).join('\n') } : { items: (f.body ? f.body.split('\n') : ['']).map((t) => newItem(t)), body: '' })}>
           {f.items ? 'Change to plain text' : 'Change to a checklist'}</button></div>
       </div>
