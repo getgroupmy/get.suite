@@ -27,6 +27,7 @@ import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../acces
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
+import { appendRows } from '../sheetrows.js';
 import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
@@ -1378,6 +1379,27 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (CO_EDITED.includes(f.kind)) resetRoom(f.id); // anyone co-editing reloads this version
     notify(f.id, { type: 'content-changed', id: f.id, version, by: req.user.id, by_name: req.user.name });
     res.json({ version });
+  });
+
+  // Add rows to the bottom of a spreadsheet's table: { sheet?, rows: [[…], …] } (sheetrows.js). What's being
+  // typed in it is saved first, protected ranges still hold, open editors reload, and it's a new version.
+  r.post('/:id/rows', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'sheet') throw bad('Rows can only be added to a spreadsheet');
+    notLocked(f);
+    if (CO_EDITED.includes(f.kind)) saveNow(f.id);
+    const cur = q('SELECT content, version, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
+    const out = appendRows(JSON.parse(cur.content), { sheet: req.body?.sheet ? String(req.body.sheet) : null, rows: req.body?.rows });
+    const json = JSON.stringify(out.content);
+    protectionsKept(f, json, req.user);
+    if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
+    const done = q('UPDATE files SET content = ?, size = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND version = ?')
+      .run(json, Buffer.byteLength(json), now(), req.user.id, f.id, cur.version);
+    if (!done.changes) throw new HttpError(409, 'Someone else changed it just now: try again');
+    recordActivity(f.id, req.user.id, 'edit');
+    if (CO_EDITED.includes(f.kind)) resetRoom(f.id);
+    notify(f.id, { type: 'content-changed', id: f.id, version: cur.version + 1, by: req.user.id, by_name: req.user.name });
+    res.json({ sheet: out.sheet, range: out.range, added: out.added, version: cur.version + 1 });
   });
 
   // Lock or unlock: { locked }. Editors can lock; whoever locked it, or the owner, can unlock.

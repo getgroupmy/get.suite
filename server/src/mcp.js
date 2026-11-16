@@ -285,6 +285,24 @@ export const TOOLS = [
     },
   },
   {
+    name: 'add_sheet_rows', title: 'Add rows to a spreadsheet', readOnly: false,
+    description: 'Add rows to the bottom of a Workspace spreadsheet’s table (after its last used row, lined up with the columns above): e.g. expenses to a budget. Read the spreadsheet with fetch first to see its columns. Cells are text, numbers, true/false or null; text starting with = is a formula.',
+    inputSchema: {
+      type: 'object', required: ['file', 'rows'],
+      properties: {
+        file: { type: 'string', description: 'The spreadsheet’s id (file:…, from search or list_files)' },
+        sheet: { type: 'string', description: 'Which sheet (tab) by name; the first when left out' },
+        rows: { type: 'array', maxItems: 500, items: { type: 'array', maxItems: 50, items: { type: ['string', 'number', 'boolean', 'null'] } } },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const r = await api('POST', `/files/${encodeURIComponent(id)}/rows`, { sheet: a.sheet || null, rows: a.rows });
+      const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+      return { added: r.added, sheet: r.sheet, range: r.range, name: f.name, url: fileUrl({ ...f, kind: 'sheet' }) };
+    },
+  },
+  {
     name: 'find_people', title: 'Find colleagues', readOnly: true,
     description: 'Colleagues in the company directory by name, email, job title or department (all of them without a query), with their status.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
@@ -406,7 +424,7 @@ export async function handle(msg, api, { onChange = null } = {}) {
 function recordChange(req, tool, args) {
   const id = String(req.apiToken?.id || '');
   const assistant = (id.startsWith('mcp:') ? q('SELECT name FROM mcp_clients WHERE client_id = ?').get(id.slice(4))?.name : q('SELECT name FROM api_tokens WHERE id = ?').get(id)?.name) || 'An assistant';
-  const what = String(args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const what = String(args.title || args.subject || args.name || args.text || args.body || args.id || (tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}` : '') || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
 }
 

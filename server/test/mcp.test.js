@@ -56,11 +56,31 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
   assert.equal((await rpc(rw, 'tools/call', { name: 'nope', arguments: {} })).body.error.code, -32602);
+});
+
+test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Budget', content: { sheets: [{ name: 'Sheet1', cells: {} }, { name: 'Expenses', cells: { B1: 'Item', C1: 'Cost', B2: 'Taxi', C2: '12' } }] } })).body;
+  const r = await call(rw, 'add_sheet_rows', { file: `file:${sheet.id}`, sheet: 'expenses', rows: [['Lunch', 18.5], ['Hotel', 240]] });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.added, r.structuredContent.sheet, r.structuredContent.range, r.structuredContent.name], [2, 'Expenses', 'B3:C4', 'Budget']);
+  assert.match(r.structuredContent.url, /\/sheets\//);
+  const cells = (await owner('GET', `/api/files/${sheet.id}/content`)).body.content.sheets[1].cells;
+  assert.deepEqual([cells.B3, cells.C3, cells.B4, cells.C4, cells.B2], ['Lunch', '18.5', 'Hotel', '240', 'Taxi']);
+  // Read with fetch: the new rows are there.
+  assert.match((await call(rw, 'fetch', { id: `file:${sheet.id}` })).structuredContent.text, /Hotel/);
+  // A read-only token, a sheet that isn't there, a document: refused, saying why.
+  assert.equal((await call(ro, 'add_sheet_rows', { file: `file:${sheet.id}`, rows: [['x']] })).isError, true);
+  assert.match((await call(rw, 'add_sheet_rows', { file: `file:${sheet.id}`, sheet: 'Nope', rows: [['x']] })).content[0].text, /No sheet called “Nope”/);
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Not a sheet' })).body;
+  assert.match((await call(rw, 'add_sheet_rows', { file: `file:${doc.id}`, rows: [['x']] })).content[0].text, /only be added to a spreadsheet/);
+  // In the activity log as the assistant's.
+  const log = (await owner('GET', '/api/audit?action=assistant.action')).body;
+  assert.match(JSON.stringify(log), /2 rows to file:/);
 });
 
 test('only with a valid token; a browser cookie isn’t enough', async () => {
