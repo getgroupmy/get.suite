@@ -3199,3 +3199,4 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 }
 .tool-tag { margin-left: 6px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); font-size: 11px; line-height: 16px; white-space: nowrap; }
 .assistant-tools .check { flex-wrap: wrap; }
+.chat-search:focus-within, .notes-search:focus-within, .mail-search:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; } /* their own input shows no ring */
