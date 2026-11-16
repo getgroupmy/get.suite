@@ -216,7 +216,7 @@ function SendUnsent() {
       const { changeList, changeRemove } = await import('./apps/offlinedocs.js');
       let changed = 0;
       for (const c of await changeList(lastUserId())) {
-        try { await api(c.method, c.url, c.body); await changeRemove(c.id); changed++; }
+        try { await api(c.method, c.url, c.body, c.url.startsWith('/mail/') ? { mailbox: c.mailbox || null } : {}); await changeRemove(c.id); changed++; } // mail: in the mailbox it was made in
         catch (e) {
           if (unreachable(e)) break;
           if (c.method === 'DELETE' && e.status === 404) { await changeRemove(c.id); changed++; continue; } // already gone: deleted all the same

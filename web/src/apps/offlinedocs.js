@@ -109,6 +109,29 @@ export async function patchKeptItem(taskId, changes) {
 }
 export const patchKeptTask = patchKeptItem;
 
+/**
+ * Mail triaged offline (read, starred, archived, moved, deleted): the kept message lists of that folder (and the
+ * messages opened) show it. `change` is merged into the messages, or `null` takes them out of the folder's lists.
+ */
+export async function patchKeptMail({ user, mailbox, folder, uids, change }) {
+  const pre = `${user}:${mailbox || ''}:/mail/messages`;
+  const inList = `${pre}?folder=${encodeURIComponent(folder)}&`;
+  const opened = new Set(uids.map((u) => `${pre}/${u}?folder=${encodeURIComponent(folder)}`));
+  const want = new Set(uids.map(Number));
+  try {
+    const hits = [];
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { const k = String(cur.key); if ((k.startsWith(inList) && Array.isArray(cur.value?.data?.messages)) || opened.has(k)) hits.push([k, cur.value]); cur.continue(); } }; return c; }, 'api');
+    if (!hits.length) return;
+    await run('readwrite', (s) => {
+      for (const [k, v] of hits) {
+        if (opened.has(k)) { if (change) s.put({ ...v, data: { ...v.data, ...change } }, k); else s.delete(k); continue; }
+        const messages = change ? v.data.messages.map((m) => (want.has(Number(m.uid)) ? { ...m, ...change } : m)) : v.data.messages.filter((m) => !want.has(Number(m.uid)));
+        s.put({ ...v, data: { ...v.data, messages, ...(typeof v.data.total === 'number' && !change && { total: Math.max(0, v.data.total - (v.data.messages.length - messages.length)) }) } }, k);
+      }
+    }, 'api');
+  } catch { /* the kept lists show it as it was */ }
+}
+
 /** Something deleted offline: taken out of every kept list it's in. */
 export async function removeKeptItem(id) {
   try {

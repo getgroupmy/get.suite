@@ -93,6 +93,31 @@ await step('an email sent offline waits on the device, then goes by itself when 
   await out.waitFor({ state: 'detached' });
   await until(async () => (await api(page, 'GET', '/mail/messages?folder=INBOX')).body?.messages?.some((m) => m.subject === 'Written on the ferry'), 30000);
 });
+await step('mail read, archived offline: shown so here (even after reloading) and made on the server when back', async () => {
+  for (const subject of ['Harbour notice', 'Old newsletter']) await until(async () => (await api(page, 'POST', '/mail/send', { to: 'olivia@acme.com', subject, text: `About ${subject}` })).status === 200, 30000);
+  const list = page.locator('.mail-list');
+  for (let i = 0; i < 20 && !((await list.getByText('Harbour notice').count()) && (await list.getByText('Old newsletter').count())); i++) { await page.getByRole('button', { name: 'Refresh' }).click(); await page.waitForTimeout(700); }
+  await page.waitForTimeout(1000);
+  await ctx.setOffline(true);
+  await page.getByLabel('Select Harbour notice').check();
+  await page.getByRole('button', { name: 'Mark read' }).click();
+  await page.getByText('Done on this device: made when the connection is back').waitFor({ timeout: 15000 });
+  await page.getByLabel('Select Old newsletter').check();
+  await page.locator('button.btn.small', { hasText: /^Archive$/ }).click(); // the bar over the selected messages
+  await page.getByText('Archived on this device: made when the connection is back').waitFor({ timeout: 15000 });
+  await list.getByText('Old newsletter').waitFor({ state: 'detached' });
+  await page.reload();
+  await list.getByText('Harbour notice').first().waitFor({ timeout: 20000 });
+  if (await list.getByText('Old newsletter').count()) throw new Error('archived message back after reloading');
+  await ctx.setOffline(false);
+  await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
+  const inbox = (await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages;
+  if (inbox.some((m) => m.subject === 'Old newsletter')) throw new Error('still in the inbox');
+  if (!inbox.find((m) => m.subject === 'Harbour notice')?.seen) throw new Error('not read on the server');
+  const folders = (await api(page, 'GET', '/mail/folders')).body;
+  const archive = (Array.isArray(folders) ? folders : folders.folders).find((f) => f.specialUse === '\\Archive');
+  if (!(await api(page, 'GET', `/mail/messages?folder=${encodeURIComponent(archive.path)}`)).body.messages.some((m) => m.subject === 'Old newsletter')) throw new Error('not in the archive');
+});
 const real = errors.filter((e) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket/.test(e));
 if (real.length) { failed++; console.log('FAIL page errors', real.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { unreachable, outboxAdd, outboxList, outboxRemove } from '../offlinedocs.js';
+import { unreachable, outboxAdd, outboxList, outboxRemove, changeAdd, patchKeptMail } from '../offlinedocs.js';
 import { api, get, post, put, del, postBlob, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
@@ -56,6 +56,13 @@ const list = (arr) => (arr || []).map((a) => (a.name ? `${a.name} <${a.address}>
 
 // Your mail, or a shared mailbox you're a member of (support@…): the choice is kept for this tab, and
 // Mail starts afresh on it (folders, messages and sending all go to that mailbox).
+/** Mail changes that can be made offline, and how each shows in the kept lists meanwhile (null: gone from the folder). */
+const OFFLINE_ACTS = {
+  flags: (b) => ({ ...(b.seen !== undefined && { seen: b.seen }), ...(b.flagged !== undefined && { flagged: b.flagged }) }),
+  move: () => null,
+  delete: () => null,
+};
+
 export default function MailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -399,7 +406,20 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
       } } : null;
       if (msg) toast(msg, 'info', undo ? { action: undo } : {});
       setChecked(new Set()); refresh(); return true;
-    } catch (e) { toast(e.message, 'error'); return false; }
+    } catch (e) {
+      // No connection: reading, starring, archiving, moving and deleting are kept here and made when it's back;
+      // the lists kept on this device show it meanwhile (also after reloading).
+      const offline = OFFLINE_ACTS[path];
+      if (unreachable(e) && offline && body.uids?.length) {
+        const mailbox = currentSharedMailbox() || null;
+        await changeAdd({ method: 'POST', url: `/mail/messages/${path}`, body: { folder, ...body }, user: user.id, mailbox, label: body.uids.length === 1 ? 'a message' : `${body.uids.length} messages` });
+        await patchKeptMail({ user: user.id, mailbox, folder, uids: body.uids, change: offline(body) });
+        window.dispatchEvent(new Event('nw:changes'));
+        toast(`${msg || 'Done'} on this device: made when the connection is back`);
+        setChecked(new Set()); refresh(); return true;
+      }
+      toast(e.message, 'error'); return false;
+    }
   }
 
   const [show, setShow] = useState('all'); // in a shared mailbox: all, given to me, not done
