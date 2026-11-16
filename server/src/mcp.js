@@ -63,14 +63,8 @@ function timeOf(v, name) {
 const iso = (t) => (t ? new Date(t).toISOString() : null);
 const words = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 /** Plain text → a Workspace document (a paragraph per line; "# " lines as headings). */
-export function docFromText(text) {
-  const content = String(text || '').split(/\r?\n/).map((line) => {
-    const h = /^(#{1,3})\s+(.*)$/.exec(line);
-    const inner = (h ? h[2] : line) ? [{ type: 'text', text: h ? h[2] : line }] : undefined;
-    return h ? { type: 'heading', attrs: { level: h[1].length }, ...(inner && { content: inner }) } : { type: 'paragraph', ...(inner && { content: inner }) };
-  });
-  return { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] };
-}
+export { docFromText } from './doctext.js';
+import { docFromText } from './doctext.js';
 
 const FILE_PATH = { doc: (f) => `/docs/${f.id}`, sheet: (f) => `/sheets/${f.id}`, slides: (f) => `/slides/${f.id}`, folder: (f) => `/drive/folder/${f.id}` };
 const fileUrl = (f) => link((FILE_PATH[f.kind] || ((x) => `/drive?file=${x.id}`))(f));
@@ -285,6 +279,20 @@ export const TOOLS = [
     },
   },
   {
+    name: 'append_to_document', title: 'Add to a document', readOnly: false,
+    description: 'Add text to the end of an existing Workspace document (e.g. today’s minutes to a running log). Lines become paragraphs; lines starting with #, ## or ### become headings. In a document with tabs, it goes at the end of the tab named (else the last tab).',
+    inputSchema: {
+      type: 'object', required: ['file', 'text'],
+      properties: { file: { type: 'string', description: 'The document’s id (file:…, from search or list_files)' }, text: { type: 'string' }, tab: { type: 'string', description: 'In a document with tabs: which tab, by title' } },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const r = await api('POST', `/files/${encodeURIComponent(id)}/append`, { text: a.text, tab: a.tab || null });
+      const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+      return { added_paragraphs: r.added, tab: r.tab, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+    },
+  },
+  {
     name: 'add_sheet_rows', title: 'Add rows to a spreadsheet', readOnly: false,
     description: 'Add rows to the bottom of a Workspace spreadsheet’s table (after its last used row, lined up with the columns above): e.g. expenses to a budget. Read the spreadsheet with fetch first to see its columns. Cells are text, numbers, true/false or null; text starting with = is a formula.',
     inputSchema: {
@@ -424,7 +432,7 @@ export async function handle(msg, api, { onChange = null } = {}) {
 function recordChange(req, tool, args) {
   const id = String(req.apiToken?.id || '');
   const assistant = (id.startsWith('mcp:') ? q('SELECT name FROM mcp_clients WHERE client_id = ?').get(id.slice(4))?.name : q('SELECT name FROM api_tokens WHERE id = ?').get(id)?.name) || 'An assistant';
-  const what = String(args.title || args.subject || args.name || args.text || args.body || args.id || (tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}` : '') || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const what = String(args.title || args.subject || args.name || args.text || args.body || args.id || (tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}` : tool.name === 'append_to_document' ? `text added to ${args.file}` : '') || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
 }
 

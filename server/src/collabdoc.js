@@ -34,6 +34,40 @@ export function docFromJson(json, field = 'default') {
   return doc;
 }
 
+/**
+ * Where blocks added to the end of a document go: the document itself, or, in one made of tabs, the tab
+ * titled `tab` (any capitals) or else the last. `titles` are the tabs' titles in order ([] for none).
+ * Returns { index } (-1: the document itself) or throws with the tabs it has.
+ */
+export function appendTarget(titles, tab) {
+  if (!titles.length) return { index: -1 };
+  if (!tab) return { index: titles.length - 1 };
+  const i = titles.findIndex((t) => t.toLowerCase() === String(tab).toLowerCase());
+  if (i < 0) { const e = new Error(`No tab called “${tab}”: it has ${titles.map((t) => `“${t}”`).join(', ')}`); e.status = 400; throw e; }
+  return { index: i };
+}
+const tabTitle = (attrs, i) => String(attrs?.title || '') || `Tab ${i + 1}`;
+
+/** Add blocks (TipTap JSON nodes) to the end of a live document (or of one of its tabs). Returns the tab's title or null. */
+export function appendToYDoc(doc, nodes, tab = null, field = 'default') {
+  const frag = doc.getXmlFragment(field);
+  const tabs = frag.toArray().filter((x) => x instanceof Y.XmlElement && x.nodeName === 'docTab');
+  const { index } = appendTarget(tabs.map((t, i) => tabTitle(t.getAttributes(), i)), tab);
+  doc.transact(() => fill(index < 0 ? frag : tabs[index], nodes));
+  return index < 0 ? null : tabTitle(tabs[index].getAttributes(), index);
+}
+
+/** The same for a stored document: { json, tab }. */
+export function appendToJson(json, nodes, tab = null) {
+  const content = [...(json?.content || [])];
+  const tabs = content.map((n, i) => [n, i]).filter(([n]) => n.type === 'docTab');
+  const { index } = appendTarget(tabs.map(([n], i) => tabTitle(n.attrs, i)), tab);
+  if (index < 0) return { json: { ...json, type: 'doc', content: [...content, ...nodes] }, tab: null };
+  const [node, at] = tabs[index];
+  content[at] = { ...node, content: [...(node.content || []), ...nodes] };
+  return { json: { ...json, content }, tab: tabTitle(node.attrs, index) };
+}
+
 /** The JSON document held in a Yjs document. */
 export function jsonFromDoc(doc, field = 'default') {
   const serialize = (item) => {

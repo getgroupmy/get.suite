@@ -14,7 +14,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applySheetJson } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applySheetJson, appendToYDoc, appendToJson } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 import { brokenProtections, mayEdit } from './sheetprotect.js';
@@ -166,6 +166,27 @@ export function changeSheet(fileId, fn, by = null) {
   indexSoon();
   const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
   sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
+}
+/**
+ * Add blocks to the end of a document (or one of its tabs) from the server (an assistant adding notes).
+ * Open in someone's browser, they appear live; otherwise it's saved straight away. Returns the tab's title or null.
+ */
+export function appendToDocument(fileId, nodes, tab = null, by = null) {
+  const room = rooms.get(fileId);
+  if (room) {
+    const title = appendToYDoc(room.doc, nodes, tab, FIELD); // sent to everyone in the room by its update handler
+    room.lastEditor = by || room.lastEditor;
+    return title;
+  }
+  const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc' AND trashed = 0").get(fileId);
+  const out = appendToJson(JSON.parse(f.content || '{}'), nodes, tab);
+  const json = JSON.stringify(out.json);
+  q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ?, updated_by = COALESCE(?, updated_by) WHERE id = ?')
+    .run(json, Buffer.byteLength(json), Date.now(), by, fileId);
+  indexSoon();
+  const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
+  sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
+  return out.tab;
 }
 /** Write one file's open editing session to the database now (if anything changed). */
 export function saveNow(fileId) { const room = rooms.get(fileId); if (room) save(room); }

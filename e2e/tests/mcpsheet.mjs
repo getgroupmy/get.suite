@@ -74,6 +74,20 @@ await step('the spreadsheet is open while an assistant adds rows: they appear li
   await cell('C2').getByText('paid').waitFor();
   await page.screenshot({ path: `${SP}/shots/assistant-rows.png` });
 });
+await step('a document open while an assistant adds to it: the text appears live at the end, no reload', async () => {
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Team log', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Monday: started' }] }] } })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  const body = page.locator('.ProseMirror');
+  await body.getByText('Monday: started').waitFor();
+  await page.evaluate(() => { window.__stayed = true; });
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 2', scope: 'write', days: 30 })).body.token;
+  const r = await mcp(token, 'append_to_document', { file: `file:${doc.id}`, text: '## Tuesday\nShipped the beta' });
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await body.getByRole('heading', { name: 'Tuesday' }).waitFor({ timeout: 15000 });
+  await body.getByText('Shipped the beta').waitFor();
+  if (!(await page.evaluate(() => window.__stayed))) throw new Error('the page reloaded');
+  await page.screenshot({ path: `${SP}/shots/assistant-append.png` });
+});
 await step('Activity: the assistant’s change is listed as its own', async () => {
   const log = JSON.stringify((await api(page, 'GET', '/audit?action=assistant.action')).body);
   if (!/Claude/.test(log) || !/2 rows to file:/.test(log)) throw new Error(log.slice(0, 300));

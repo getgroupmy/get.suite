@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -81,6 +81,25 @@ test('add rows to a spreadsheet: after its table, lined up; a read-only token ca
   // In the activity log as the assistant's.
   const log = (await owner('GET', '/api/audit?action=assistant.action')).body;
   assert.match(JSON.stringify(log), /2 rows to file:/);
+});
+
+test('add to a document: at its end, or the end of a tab; a spreadsheet refused', async () => {
+  const doc = (await call(rw, 'create_document', { name: 'Team log', text: '# Log\nMonday: started' })).structuredContent;
+  const r = await call(rw, 'append_to_document', { file: doc.id, text: '## Tuesday\nShipped the beta' });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.added_paragraphs, r.structuredContent.tab, r.structuredContent.name], [2, null, 'Team log']);
+  const text = (await call(rw, 'fetch', { id: doc.id })).structuredContent.text;
+  assert.match(text, /Monday: started[\s\S]*Tuesday[\s\S]*Shipped the beta/);
+  const tabbed = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Weekly', content: { type: 'doc', content: [
+    { type: 'docTab', attrs: { id: 'a', title: 'Week 1' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'w1' }] }] },
+    { type: 'docTab', attrs: { id: 'b', title: 'Week 2' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'w2' }] }] }] } })).body;
+  assert.equal((await call(rw, 'append_to_document', { file: `file:${tabbed.id}`, text: 'late note', tab: 'week 1' })).structuredContent.tab, 'Week 1');
+  const tabs = (await owner('GET', `/api/files/${tabbed.id}/content`)).body.content.content;
+  assert.deepEqual(tabs[0].content.map((n) => n.content?.[0]?.text), ['w1', 'late note']);
+  assert.match((await call(rw, 'append_to_document', { file: `file:${tabbed.id}`, text: 'x', tab: 'Week 9' })).content[0].text, /No tab called “Week 9”/);
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'S' })).body;
+  assert.match((await call(rw, 'append_to_document', { file: `file:${sheet.id}`, text: 'x' })).content[0].text, /only be added to a document/);
+  assert.equal((await call(ro, 'append_to_document', { file: doc.id, text: 'x' })).isError, true, 'not with a read-only token');
 });
 
 test('only with a valid token; a browser cookie isn’t enough', async () => {

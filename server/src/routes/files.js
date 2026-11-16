@@ -26,7 +26,8 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow, changeSheet } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow, changeSheet, appendToDocument } from '../collab.js';
+import { docFromText } from '../doctext.js';
 import { appendRows } from '../sheetrows.js';
 import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.js';
@@ -1400,6 +1401,24 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!out) throw bad('That spreadsheet couldn’t be changed');
     recordActivity(f.id, req.user.id, 'edit');
     res.json({ sheet: out.sheet, range: out.range, added: out.added });
+  });
+
+  // Add text to the end of a document: { text, tab? } (lines; # headings), into the tab named in a document
+  // of tabs (else the last). Open in someone's browser, it appears live; otherwise saved straight away.
+  r.post('/:id/append', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'doc') throw bad('Text can only be added to a document');
+    notLocked(f);
+    const text = String(req.body?.text ?? '');
+    if (!text.trim()) throw bad('Give the text to add');
+    if (text.length > 200000) throw bad('That’s too much text to add at once');
+    saveNow(f.id);
+    const cur = q('SELECT updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
+    if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
+    const nodes = docFromText(text).content;
+    const tab = appendToDocument(f.id, nodes, req.body?.tab ? String(req.body.tab) : null, req.user.id);
+    recordActivity(f.id, req.user.id, 'edit');
+    res.json({ added: nodes.length, tab });
   });
 
   // Lock or unlock: { locked }. Editors can lock; whoever locked it, or the owner, can unlock.
