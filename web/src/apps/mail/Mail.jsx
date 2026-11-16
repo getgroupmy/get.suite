@@ -61,6 +61,8 @@ const OFFLINE_ACTS = {
   flags: (b) => ({ ...(b.seen !== undefined && { seen: b.seen }), ...(b.flagged !== undefined && { flagged: b.flagged }) }),
   move: () => null,
   delete: () => null,
+  snooze: () => null, // out of the folder until then
+  labels: (b) => (m) => ({ labels: [...new Set([...(m.labels || []), ...(b.add || [])])].filter((l) => !(b.remove || []).includes(l)) }),
 };
 
 export default function MailPage() {

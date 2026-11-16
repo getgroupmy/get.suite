@@ -129,8 +129,9 @@ export async function patchKeptMail({ user, mailbox, folder, uids, change }) {
     if (!hits.length) return;
     await run('readwrite', (s) => {
       for (const [k, v] of hits) {
-        if (opened.has(k)) { if (change) s.put({ ...v, data: { ...v.data, ...change } }, k); else s.delete(k); continue; }
-        const messages = change ? v.data.messages.map((m) => (want.has(Number(m.uid)) ? { ...m, ...change } : m)) : v.data.messages.filter((m) => !want.has(Number(m.uid)));
+        const of = (m) => (typeof change === 'function' ? change(m) : change); // a function: the change for that message (labels add to its own)
+        if (opened.has(k)) { if (change) s.put({ ...v, data: { ...v.data, ...of(v.data) } }, k); else s.delete(k); continue; }
+        const messages = change ? v.data.messages.map((m) => (want.has(Number(m.uid)) ? { ...m, ...of(m) } : m)) : v.data.messages.filter((m) => !want.has(Number(m.uid)));
         s.put({ ...v, data: { ...v.data, messages, ...(typeof v.data.total === 'number' && !change && { total: Math.max(0, v.data.total - (v.data.messages.length - messages.length)) }) } }, k);
       }
     }, 'api');

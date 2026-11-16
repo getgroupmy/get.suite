@@ -118,6 +118,25 @@ await step('mail read, archived offline: shown so here (even after reloading) an
   const archive = (Array.isArray(folders) ? folders : folders.folders).find((f) => f.specialUse === '\\Archive');
   if (!(await api(page, 'GET', `/mail/messages?folder=${encodeURIComponent(archive.path)}`)).body.messages.some((m) => m.subject === 'Old newsletter')) throw new Error('not in the archive');
 });
+await step('mail labelled offline shows the label here (even after reloading) and on the server when back', async () => {
+  const label = (await api(page, 'POST', '/mail/labels', { name: 'Travel', color: '#188038' })).body;
+  await page.reload(); // the labels are kept for offline too
+  const list = page.locator('.mail-list');
+  await list.getByText('Harbour notice').first().waitFor({ timeout: 20000 });
+  await page.waitForTimeout(1000);
+  await page.context().setOffline(true);
+  await page.getByLabel('Select Harbour notice').check();
+  await page.locator('button.btn.small', { hasText: /^Label$/ }).click();
+  await page.getByRole('menuitem', { name: 'Travel' }).click();
+  await page.getByText('Labelled Travel on this device: made when the connection is back').waitFor({ timeout: 15000 });
+  const row = page.locator('.mail-list li, .mail-list [role="row"], .mail-list a').filter({ hasText: 'Harbour notice' }).first();
+  await row.getByText('Travel').waitFor();
+  await page.reload();
+  await row.getByText('Travel').waitFor({ timeout: 20000 }); // still labelled after reloading offline
+  await page.context().setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await until(async () => (await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages.find((m) => m.subject === 'Harbour notice')?.labels?.includes(label.id), 10000);
+});
 const real = errors.filter((e) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket/.test(e));
 if (real.length) { failed++; console.log('FAIL page errors', real.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

@@ -6,6 +6,7 @@ const WHAT = [
   [/^\/events$/, 'POST', 'Add an event'], [/^\/events\/[^/]+$/, 'PATCH', 'Change an event'],
   [/^\/chat\/channels\/[^/]+\/messages$/, 'POST', 'Send a chat message'],
   [/^\/mail\/messages\/move$/, 'POST', 'Move mail'], [/^\/mail\/messages\/delete$/, 'POST', 'Delete mail'],
+  [/^\/mail\/messages\/snooze$/, 'POST', 'Snooze mail'], [/^\/mail\/messages\/labels$/, 'POST', 'Label mail'],
 ];
 export function changeText(c) {
   let what = WHAT.find(([re, m]) => m === c.method && re.test(c.url))?.[2];
