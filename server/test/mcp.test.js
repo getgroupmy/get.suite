@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'draft_email', 'create_note', 'create_contact', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'draft_email', 'create_note', 'create_contact', 'create_document', 'append_to_document', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -236,6 +236,29 @@ test('change a task: due date and time, notes, important; due date taken off; ba
   assert.match((await call(rw, 'update_task', { id: t.id, due: 'Friday' })).content[0].text, /due is a date like/);
   assert.match((await call(rw, 'update_task', { id: t.id })).content[0].text, /Say what to change/);
   assert.equal((await call(rw, 'update_task', { id: 'task:nope', title: 'x' })).isError, true);
+});
+
+test('share a file with a colleague: as viewer, then editor; others kept; only colleagues; only what the person manages', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'sam', domain: 'acme.com', name: 'Sam Share', password: 'password123' })).status, 201);
+  assert.equal((await owner('POST', '/api/users', { local: 'tia', domain: 'acme.com', name: 'Tia Kept', password: 'password123' })).status, 201);
+  const sam = client();
+  await sam('POST', '/api/auth/login', { username: 'sam@acme.com', password: 'password123' });
+  const doc = (await call(rw, 'create_document', { name: 'Q2 budget notes', text: 'Numbers' })).structuredContent;
+  const fid = doc.id.replace('file:', '');
+  const tia = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'tia@acme.com');
+  await owner('PUT', `/api/files/${fid}/shares`, { shares: [{ user_id: tia.id, role: 'commenter' }] });
+  const r = await call(rw, 'share_file', { file: doc.id, with: 'Sam@acme.com', role: 'viewer' });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.with, r.structuredContent.role], ['Sam Share', 'viewer']);
+  assert.equal((await sam('GET', `/api/files/${fid}`)).status, 200, 'Sam can open it');
+  const up = (await call(rw, 'share_file', { file: doc.id, with: 'sam@acme.com', role: 'editor' })).structuredContent;
+  assert.deepEqual([up.role, up.was], ['editor', 'viewer']);
+  const shares = (await owner('GET', `/api/files/${fid}/shares`)).body.map((x) => [x.username, x.role]).sort();
+  assert.deepEqual(shares, [['sam@acme.com', 'editor'], ['tia@acme.com', 'commenter']], 'Tia’s share kept');
+  assert.match((await call(rw, 'share_file', { file: doc.id, with: 'someone@elsewhere.com', role: 'viewer' })).content[0].text, /isn’t a colleague/);
+  assert.match((await call(rw, 'share_file', { file: doc.id, with: 'sam@acme.com', role: 'owner' })).content[0].text, /role is viewer, commenter or editor/);
+  const samsOwn = (await sam('POST', '/api/files/new', { kind: 'doc', name: 'Sam’s own' })).body;
+  assert.equal((await call(rw, 'share_file', { file: `file:${samsOwn.id}`, with: 'tia@acme.com', role: 'viewer' })).isError, true, 'not the person’s to share');
 });
 
 test('only with a valid token; a browser cookie isn’t enough', async () => {

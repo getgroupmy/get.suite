@@ -451,6 +451,27 @@ export const TOOLS = [
     },
   },
   {
+    name: 'share_file', title: 'Share a file with a colleague', readOnly: false,
+    description: 'Share a Drive file or folder the person owns (or manages) with a colleague in their company, by email address: as viewer, commenter or editor. They’re told, as when sharing in Drive. Only colleagues: sharing outside the company is left to Workspace itself. Ask the person before sharing on their behalf.',
+    inputSchema: {
+      type: 'object', required: ['file', 'with', 'role'],
+      properties: { file: { type: 'string', description: 'file:… from search or list_files' }, with: { type: 'string', description: 'A colleague’s email address' }, role: { type: 'string', enum: ['viewer', 'commenter', 'editor'] } },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      if (!['viewer', 'commenter', 'editor'].includes(a.role)) throw new ToolError('role is viewer, commenter or editor');
+      const who = (await api('GET', '/users/directory')).find((u) => u.username.toLowerCase() === String(a.with || '').trim().toLowerCase());
+      if (!who) throw new ToolError(`${a.with} isn’t a colleague in the person’s company: assistants can only share with colleagues`);
+      const current = await api('GET', `/files/${encodeURIComponent(id)}/shares`);
+      const was = current.find((x) => x.user_id === who.id);
+      const shares = [...current.filter((x) => x.user_id !== who.id).map((x) => ({ user_id: x.user_id, role: x.role, ...(x.expires_at && { expires_at: x.expires_at }) })),
+        { user_id: who.id, role: a.role, ...(was?.expires_at && { expires_at: was.expires_at }) }];
+      await api('PUT', `/files/${encodeURIComponent(id)}/shares`, { shares });
+      const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+      return { file: f.name, with: who.name, role: a.role, ...(was && { was: was.role }), url: fileUrl(f) };
+    },
+  },
+  {
     name: 'add_sheet_rows', title: 'Add rows to a spreadsheet', readOnly: false,
     description: 'Add rows to the bottom of a Workspace spreadsheet’s table (after its last used row, lined up with the columns above): e.g. expenses to a budget. Read the spreadsheet with fetch first to see its columns. Cells are text, numbers, true/false or null; text starting with = is a formula.',
     inputSchema: {
@@ -656,6 +677,7 @@ function recordChange(req, tool, args) {
     : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}`
     : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}`
     : tool.name === 'update_email' && Array.isArray(args.ids) ? `${args.ids.length} email${args.ids.length === 1 ? '' : 's'}${args.move_to ? ` to ${args.move_to}` : ''}${args.read !== undefined ? (args.read ? ' read' : ' unread') : ''}${args.starred !== undefined ? (args.starred ? ' starred' : ' unstarred') : ''}`
+    : tool.name === 'share_file' ? `${args.file} shared with ${args.with} (${args.role})`
     : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
