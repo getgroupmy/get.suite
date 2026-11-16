@@ -66,6 +66,7 @@ const words = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 export { docFromText } from './doctext.js';
 import { docFromText } from './doctext.js';
 import { appendRows } from './sheetrows.js';
+import { deckFromOutline } from './decktext.js';
 const colLetter = (n) => { let s = ''; for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 import { assistantOff } from './routes/orgs.js';
 
@@ -471,6 +472,25 @@ export const TOOLS = [
       }
       const f = await api('POST', '/files/new', { kind: 'sheet', name: String(a.name || 'Untitled spreadsheet').slice(0, 200), content: made.content, parent_id: folderId(a.folder) });
       return { id: `file:${f.id}`, name: f.name, sheet: sheetName, range: made.range, url: fileUrl({ ...f, kind: 'sheet' }) };
+    },
+  },
+  {
+    name: 'create_presentation', title: 'Make a presentation', readOnly: false,
+    description: 'Make a new Workspace presentation (Slides) in the person’s Drive from an outline: each slide a title with its points (shown as bullets), or with no points a title slide (big and centred, with an optional subtitle). Notes are the speaker notes for that slide. Keep each slide to a few short points.',
+    inputSchema: {
+      type: 'object', required: ['name', 'slides'],
+      properties: {
+        name: { type: 'string' },
+        slides: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', properties: { title: { type: 'string' }, subtitle: { type: 'string' }, points: { type: 'array', maxItems: 20, items: { type: 'string' } }, notes: { type: 'string' } } } },
+        theme: { type: 'string', enum: ['light', 'dark'], description: 'Light (default) or dark' },
+        folder: FOLDER_ARG,
+      },
+    },
+    async run(api, a) {
+      let deck;
+      try { deck = deckFromOutline(a.slides, { theme: a.theme === 'dark' ? 'dark' : 'light' }); } catch (e) { throw new ToolError(e.message); }
+      const f = await api('POST', '/files/new', { kind: 'slides', name: String(a.name || 'Untitled presentation').slice(0, 200), content: deck, parent_id: folderId(a.folder) });
+      return { id: `file:${f.id}`, name: f.name, slides: deck.slides.length, url: fileUrl({ ...f, kind: 'slides' }) };
     },
   },
   {

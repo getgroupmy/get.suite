@@ -110,6 +110,20 @@ await step('an assistant organizes Drive: a new folder, a file moved into it and
   await page.locator('table.files').getByText('Travel budget').waitFor();
   await page.screenshot({ path: `${SP}/shots/assistant-folder.png` });
 });
+await step('an assistant makes a presentation: it opens in Slides, a slide per heading, the bullets and the speaker notes there', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 5', scope: 'write', days: 30 })).body.token;
+  const r = await mcp(token, 'create_presentation', { name: 'Launch plan', slides: [
+    { title: 'Launch plan', subtitle: 'November 2026' },
+    { title: 'Goals', points: ['Ship the beta', 'Ten pilot customers'], notes: 'Mention the waiting list' },
+  ] });
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await page.goto(new URL(r.structuredContent.url, B).href);
+  await page.locator('.slide-stage').getByText('November 2026').waitFor();
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  await page.locator('.slide-stage').getByText('Ten pilot customers').waitFor();
+  if ((await page.getByLabel('Speaker notes').inputValue()) !== 'Mention the waiting list') throw new Error('notes missing');
+  await page.screenshot({ path: `${SP}/shots/assistant-deck.png` });
+});
 await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');
