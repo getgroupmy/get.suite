@@ -247,8 +247,8 @@ export function uniqueName(parentId, ownerId, name) {
   return `${base} (${Date.now()})${ext}`;
 }
 
-export function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storage = null, content = null, activity = null }) {
-  const id = uid();
+export function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storage = null, content = null, activity = null, id: given = null }) {
+  const id = given || uid();
   const t = now();
   q(`INSERT INTO files (id, owner_id, parent_id, name, kind, mime, size, storage, content, created_at, updated_at, updated_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -842,10 +842,17 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/new', (req, res) => {
     const kind = req.body.kind;
     if (!EMPTY[kind]) throw bad('kind must be doc, sheet or slides');
+    // A document made offline comes with the id the app gave it: sending it again returns the one made the first time.
+    const want = typeof req.body.id === 'string' && /^[A-Za-z0-9_-]{16,40}$/.test(req.body.id) ? req.body.id : null;
+    if (want) {
+      const had = q('SELECT id, owner_id FROM files WHERE id = ?').get(want);
+      if (had) { if (had.owner_id !== req.user.id) throw bad('That id is taken'); return res.json(publicFile(loadFile(want, req.user))); }
+    }
     const parentId = resolveParent(req.body.parent_id, req.user);
     const name = cleanName(req.body.name || { doc: 'Untitled document', sheet: 'Untitled spreadsheet', slides: 'Untitled presentation' }[kind]);
-    const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : EMPTY[kind]();
-    const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content) });
+    // blank: nothing in it at all (its first words come from the copy written offline, so no empty line goes before them).
+    const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : req.body.blank && kind === 'doc' ? JSON.stringify({ type: 'doc', content: [] }) : EMPTY[kind]();
+    const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content), ...(want && { id: want }) });
     notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });

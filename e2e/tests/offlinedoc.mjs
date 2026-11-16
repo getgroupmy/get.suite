@@ -378,6 +378,33 @@ await step('a change sent while the server is restarting (503) stays on the devi
   await until(async () => ((await api(page, 'GET', '/notes')).body || []).some((n) => n.title === 'Packing list' && n.body === 'Boots, rain jacket and a torch'), 10000);
   if ((await queued()) !== 0) throw new Error('still queued');
 });
+await step('Drive: a new document made offline is written in here, kept after reloading, and made in Drive with its words when back', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'New' }).waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByRole('menuitem', { name: 'Document' }).click();
+  await page.waitForURL(/\/docs\/off/);
+  const id = new URL(page.url()).pathname.split('/').pop();
+  await editor().click();
+  await page.keyboard.type('Notes from the island');
+  await page.waitForTimeout(1500); // kept on the device
+  await page.reload();
+  await editor().getByText('Notes from the island').waitFor({ timeout: 20000 }); // from this device
+  await page.goto(`${B}/drive`).catch(() => {});
+  await page.getByText('Untitled document').first().waitFor({ timeout: 20000 }); // listed with the files kept here
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await page.getByText(/Sent what you changed offline in 1 file/).waitFor({ timeout: 30000 });
+  await until(async () => {
+    const r = await api(page, 'GET', `/files/${id}/content`);
+    return r.status === 200 && JSON.stringify(r.body.content).includes('Notes from the island');
+  }, 15000);
+  const doc = (await api(page, 'GET', `/files/${id}/content`)).body.content;
+  const blocks = doc.content[0]?.type === 'docTab' ? doc.content[0].content : doc.content;
+  if (blocks.length !== 1 || blocks[0]?.content?.[0]?.text !== 'Notes from the island') throw new Error(JSON.stringify(doc)); // no empty line with it
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });

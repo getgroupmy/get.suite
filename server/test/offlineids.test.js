@@ -96,3 +96,21 @@ test('a change sent after the session ended is answered 401 (the app keeps it fo
     assert.equal((await stranger(m, u, b)).status, 401, `${m} ${u}`);
   }
 });
+
+test('a document made offline: sent with its id it is made once (blank, so the offline words are all it holds)', async () => {
+  const olivia = client(), mia = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const id = 'offDocument0123456789abc';
+  const a = await olivia('POST', '/api/files/new', { kind: 'doc', id, blank: true });
+  assert.equal(a.status, 201);
+  assert.equal(a.body.id, id);
+  assert.equal(a.body.name, 'Untitled document');
+  const again = await olivia('POST', '/api/files/new', { kind: 'doc', id, blank: true });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.id, id);
+  assert.deepEqual((await olivia('GET', `/api/files/${id}/content`)).body.content, { type: 'doc', content: [] }, 'nothing in it');
+  assert.equal((await mia('POST', '/api/files/new', { kind: 'doc', id })).status, 400);
+  const plain = await olivia('POST', '/api/files/new', { kind: 'doc' });
+  assert.notEqual(plain.body.id, id);
+});

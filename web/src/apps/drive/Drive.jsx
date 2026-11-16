@@ -1,4 +1,4 @@
-import { keptList, unreachable } from '../offlinedocs.js';
+import { keptList, unreachable, offlineId, changeAdd, keepDoc } from '../offlinedocs.js';
 import { findClashes, clashQuestion, findFolderClashes } from './uploadclash.js';
 import { driveKey, stepIndex } from './drivekeys.js';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
@@ -427,10 +427,23 @@ export default function Drive() {
   }
 
   async function create(kind) {
+    const id = offlineId(); // so one made offline is made once, with this id, when the connection is back
     try {
-      const f = await post('/files/new', { kind, parent_id: parentId });
+      const f = await post('/files/new', { kind, parent_id: parentId, id });
       navigate(openPath(f));
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      // No connection: a new document starts on this device (blank), is made in Drive when it's back, and what's
+      // written in it meanwhile goes in then. (Spreadsheets and presentations need the connection to start.)
+      if (unreachable(e) && kind === 'doc') {
+        const name = 'Untitled document', at = new Date().toISOString();
+        await changeAdd({ method: 'POST', url: '/files/new', body: { kind, parent_id: parentId || null, id, blank: true }, user: user.id, label: name });
+        await keepDoc(id, { gen: null, fresh: true, state: new Uint8Array([0, 0]), dirty: true, file: { id, name, kind, owner_id: user.id, owner_name: user.name, parent_id: parentId || null, role: 'owner', page_setup: null, created_at: at, updated_at: at } });
+        window.dispatchEvent(new Event('nw:changes'));
+        navigate(`/docs/${id}`);
+        return;
+      }
+      toast(e.message, 'error');
+    }
   }
 
   // Links to what's selected, a line each ("Name: link"), for an email or a chat.

@@ -13,7 +13,7 @@ import { keptDoc, keepDoc, forgetDoc, toBase64 } from './offlinedocs.js';
  * file turned out to have been changed elsewhere (copy: the offline copy file, if there were unsent changes).
  */
 export function useKeptCopy(file, ydoc, provider) {
-  const genRef = useRef(null), dirtyRef = useRef(false), copyingRef = useRef(false), keptRef = useRef(null);
+  const genRef = useRef(null), freshRef = useRef(false), dirtyRef = useRef(false), copyingRef = useRef(false), keptRef = useRef(null);
   const [rebuilt, setRebuilt] = useState(null);
   const [fromDevice, setFromDevice] = useState(!!file?.offline);
   const fileRef = useRef(file); // the latest details (renamed, say), kept with the copy
@@ -26,7 +26,8 @@ export function useKeptCopy(file, ydoc, provider) {
     let kept = null, applied = false, fallback = null; // the copy kept on this device, and whether it's in the document
     const file = fileRef.current;
     const meta = () => { const { offline, ...m } = fileRef.current; return m; }; // eslint-disable-line no-unused-vars
-    const save = () => { timer = null; if (genRef.current) keepDoc(fileId, { gen: genRef.current, state: Y.encodeStateAsUpdate(ydoc), dirty: dirtyRef.current, file: meta() }); };
+    // (A document made offline has no generation until the server makes it: kept all the same.)
+    const save = () => { timer = null; if (genRef.current || freshRef.current) keepDoc(fileId, { gen: genRef.current, ...(!genRef.current && { fresh: true }), state: Y.encodeStateAsUpdate(ydoc), dirty: dirtyRef.current, file: meta() }); };
     const keep = () => { clearTimeout(timer); timer = setTimeout(save, 800); };
     const onUpdate = (u, origin) => {
       // Not sent yet: written while not connected, or while the browser says it's offline (a dropped connection can
@@ -75,6 +76,7 @@ export function useKeptCopy(file, ydoc, provider) {
     keptDoc(file.id).then((k) => {
       if (!live) return;
       kept = k;
+      freshRef.current = !!k?.fresh && !k?.gen;
       if (k?.gen) provider.params = { gen: k.gen };
       if (k?.state) { if (!navigator.onLine) putKept(); else fallback = setTimeout(putKept, 1500); }
       provider.connect();
