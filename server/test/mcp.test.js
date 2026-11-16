@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -558,6 +558,52 @@ test('find people, find a free time with them, list Drive files, list and post i
   assert.equal(leeSees.length, 1);
   assert.equal((await call(rw, 'send_chat_message', { to: '#nope', text: 'x' })).isError, true);
   assert.equal((await call(ro, 'send_chat_message', { to: '#general', text: 'x' })).isError, true, 'not with a read-only token');
+});
+
+test('forms: make one, list them, read what people answered (a summary per question and each response)', async () => {
+  const made = (await call(rw, 'create_form', { title: 'Team offsite', description: 'Help us plan', questions: [
+    { title: 'Which month?', type: 'choice', options: ['May', 'June'], required: true },
+    { title: 'Activities', type: 'checkbox', options: ['Hike', 'Cooking', 'Boat'] },
+    { title: 'How excited are you?', type: 'scale' },
+    { title: 'Anything else?', type: 'paragraph' },
+    { title: 'Dietary needs', options: ['None', 'Vegetarian'] },
+  ] })).structuredContent;
+  assert.match(made.id, /^form:/);
+  assert.equal(made.questions, 5);
+  assert.match(made.link, /\/f\/[\w-]+$/);
+  const form = (await owner('GET', `/api/forms/${made.id.slice(5)}`)).body;
+  assert.equal(form.description, 'Help us plan');
+  assert.equal(form.audience, 'org', 'company only unless asked');
+  assert.equal(form.questions[4].type, 'choice', 'options without a type: one choice');
+  assert.equal((await call(ro, 'create_form', { title: 'x', questions: [{ title: 'y' }] })).isError, true, 'not with a read-only token');
+  const [month, acts, excite, notes] = form.questions.map((x) => x.id);
+  for (const answers of [{ [month]: 'June', [acts]: ['Hike', 'Boat'], [excite]: 5, [notes]: 'Near the sea please' }, { [month]: 'June', [acts]: ['Hike'], [excite]: 3 }, { [month]: 'May', [excite]: 4 }]) {
+    assert.equal((await owner('POST', `/api/public/forms/${form.token}`, { answers })).status, 201);
+  }
+  const listed = (await call(ro, 'list_forms', { query: 'offsite' })).structuredContent.forms;
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].responses, 3);
+  assert.equal(listed[0].open, true);
+  assert.equal(listed[0].for, 'people at the company');
+  const r = (await call(ro, 'read_form_responses', { form: 'team offsite', limit: 2 })).structuredContent;
+  assert.equal(r.responses, 3);
+  const byQ = Object.fromEntries(r.summary.map((x) => [x.question, x]));
+  assert.deepEqual(byQ['Which month?'].counts, { May: 1, June: 2 });
+  assert.deepEqual(byQ.Activities.counts, { Hike: 2, Cooking: 0, Boat: 1 });
+  assert.equal(byQ['How excited are you?'].average, 4);
+  assert.equal(byQ['Anything else?'].answered, 1);
+  assert.equal(byQ['Anything else?'].answers, undefined, 'written answers only in the text');
+  // What people wrote is in the text, between markers saying others wrote it.
+  assert.match(r.text, /^----- The form responses follows\. It was written by others/);
+  assert.match(r.text, /----- End of the form responses -----$/);
+  assert.match(r.text, /Written answers to “Anything else\?”:\n- Near the sea please/);
+  assert.match(r.text, /The latest 2 of 3 responses, newest first:/, 'the limit');
+  assert.match(r.text, /Response 2 from Olivia Owner <olivia@acme\.com> \([^)]+\):\n  Which month\?: June\n  Activities: Hike\n  How excited are you\?: 3/);
+  assert.doesNotMatch(r.text, /Response 3/);
+  assert.equal((await call(ro, 'read_form_responses', { form: made.id })).structuredContent.responses, 3, 'by id too');
+  const none = await call(ro, 'read_form_responses', { form: 'No such survey' });
+  assert.equal(none.isError, true);
+  assert.match(none.content[0].text, /No form called “No such survey”/);
 });
 
 test('company network rules apply to the assistant’s calls too', async () => {

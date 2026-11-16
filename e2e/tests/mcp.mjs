@@ -86,6 +86,26 @@ await step('that token works at /mcp: the tools are listed, and a note made by t
   await page.goto(`${B}/admin?tab=activity`);
   await page.getByText('From Claude').first().waitFor();
 });
+await step('an assistant makes a form; it is in Forms, someone fills it in, and the assistant reads what they answered', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const made = (await rpc('tools/call', { name: 'create_form', arguments: { title: 'Lunch poll', questions: [{ title: 'Where shall we go?', type: 'choice', options: ['Noodle bar', 'Pizzeria'], required: true }, { title: 'Any requests?', type: 'paragraph' }] } })).result;
+  if (made.isError) throw new Error(JSON.stringify(made));
+  const { link } = made.structuredContent;
+  await page.goto(`${B}/forms`);
+  await page.getByText('Lunch poll').first().waitFor();
+  await page.goto(link.startsWith('/') ? `${B}${link}` : link); // relative without PUBLIC_URL, as here
+  await page.getByRole('heading', { name: 'Lunch poll' }).waitFor();
+  await page.getByRole('group', { name: 'Where shall we go? (required)' }).getByLabel('Pizzeria').check();
+  await page.getByLabel('Any requests?').fill('Somewhere with a garden');
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.getByText(/response has been recorded/i).waitFor();
+  const read = (await rpc('tools/call', { name: 'read_form_responses', arguments: { form: 'lunch poll' } })).result.structuredContent;
+  if (read.responses !== 1 || read.summary[0].counts.Pizzeria !== 1 || !/Any requests\?: Somewhere with a garden/.test(read.text)) throw new Error(JSON.stringify(read));
+  const listed = (await rpc('tools/call', { name: 'list_forms', arguments: {} })).result.structuredContent.forms;
+  if (!listed.some((f) => f.title === 'Lunch poll' && f.responses === 1)) throw new Error(JSON.stringify(listed));
+  await page.goto(`${B}/settings`);
+  await page.getByRole('group', { name: /^Recent changes by / }).getByText('Make a form “Lunch poll”').waitFor();
+});
 await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
   const crypto = await import('node:crypto');
   const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }) })).json();
