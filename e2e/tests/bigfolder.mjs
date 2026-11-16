@@ -73,6 +73,39 @@ await step('the folder’s list and the app’s scripts come gzipped', async () 
   const full = (await api(page, 'GET', `/files?parent=${folder.id}`)).body;
   console.log(`  list of 450: ${JSON.stringify(full).length} bytes of JSON, ${list.size} sent`);
 });
+const seed = (url, n, make) => page.evaluate(async ([u, n2, src]) => { const mk = eval(src); for (let i = 0; i < n2; i += 50) await Promise.all(Array.from({ length: Math.min(50, n2 - i) }, (_, k) => fetch('/api' + u, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify(mk(i + k)) }))); }, [url, n, make.toString()]);
+await step('Notes: 350 notes show 150 at first, more on scrolling; searching still finds one not on the page yet', async () => {
+  await seed('/notes', 350, (i) => ({ title: `Idea ${String(i).padStart(3, '0')}`, body: 'text' }));
+  await page.goto(`${B}/notes`);
+  await page.locator('article.note-card').nth(10).waitFor();
+  const n = await page.locator('article.note-card').count();
+  if (n !== 150) throw new Error(`${n} notes on the page`);
+  await page.getByRole('button', { name: 'Show 150 more of 200' }).waitFor();
+  await page.locator('.more-files').scrollIntoViewIfNeeded();
+  await until(async () => (await page.locator('article.note-card').count()) >= 300);
+  await page.reload();
+  await page.locator('article.note-card').nth(10).waitFor();
+  const onPage = new Set((await page.locator('article.note-card').allInnerTexts()).map((t) => (t.match(/Idea \d{3}/) || [])[0]));
+  const missing = Array.from({ length: 350 }, (_, i) => `Idea ${String(i).padStart(3, '0')}`).find((t) => !onPage.has(t));
+  if (!missing) throw new Error('all on the page');
+  await page.getByLabel('Search notes').fill(missing);
+  await until(async () => (await page.locator('article.note-card', { hasText: missing }).count()) === 1);
+});
+await step('Contacts: 450 contacts fill the table 200 rows at a time; the filter searches all of them', async () => {
+  await seed('/contacts', 450, (i) => ({ name: `Person ${String(i).padStart(3, '0')}`, email: `p${i}@example.com` }));
+  await page.goto(`${B}/contacts`);
+  await page.locator('tbody tr[data-contact]').nth(10).waitFor();
+  const n = await page.locator('tbody tr[data-contact]').count();
+  if (n !== 200) throw new Error(`${n} rows`);
+  if (!(await page.locator('.more-files').innerText()).includes('more of 250')) throw new Error(await page.locator('.more-files').innerText());
+  // More come in as the end nears the screen, or with the button (whichever is first: both are fine).
+  await page.locator('.more-files button').click({ timeout: 5000 }).catch(() => {});
+  await until(async () => (await page.locator('tbody tr[data-contact]').count()) >= 400);
+  await page.reload();
+  await page.locator('tbody tr[data-contact]').nth(10).waitFor();
+  await page.getByPlaceholder('Filter', { exact: true }).fill('Person 44');
+  await until(async () => (await page.locator('tbody tr[data-contact]', { hasText: 'Person 449' }).count()) === 1);
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

@@ -19,6 +19,7 @@ import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from 
 import { quickTimes, reminderText } from './remind.js';
 import DrawPad from '../../components/DrawPad.jsx';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
+import { useBatches } from '../../components/useBatches.jsx';
 
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
@@ -178,6 +179,8 @@ export default function Notes() {
 
   const pinned = sortNotes((notes || []).filter((n) => n.pinned), sort);
   const others = sortNotes((notes || []).filter((n) => !n.pinned), sort);
+  // Up to 2,000 notes: the others go on the page 150 at a time (all at once took two seconds).
+  const batch = useBatches(others, 150, `${JSON.stringify(where)}|${search}|${sort}`);
   const current = notes?.find((n) => n.id === editing);
   // Your own order: drag a card onto another (within Pinned or Others), or ⋮ → Move earlier / later.
   // Not while searching or looking at a label or reminders, where only some cards show.
@@ -310,7 +313,7 @@ export default function Notes() {
           {newLabel && <PromptModal title="New label" label="Label" confirm="Add" onClose={() => setNewLabel(false)}
             onSubmit={async (name) => { setNewLabel(false); await many({ change: { label: name } }, (r) => `${nNotes(r.notes.length)} labelled ${name.trim()}`); }} />}
           {pinned.length > 0 && <><h2 className="notes-heading">Pinned</h2><div className={`notes-grid ${view === 'list' ? 'list' : ''}`} aria-label="Pinned notes">{pinned.map(card)}</div></>}
-          {others.length > 0 && <>{pinned.length > 0 && <h2 className="notes-heading">Others</h2>}<div className={`notes-grid ${view === 'list' ? 'list' : ''}`} aria-label={where.archived ? 'Archived notes' : 'Notes'}>{others.map(card)}</div></>}
+          {others.length > 0 && <>{pinned.length > 0 && <h2 className="notes-heading">Others</h2>}<div className={`notes-grid ${view === 'list' ? 'list' : ''}`} aria-label={where.archived ? 'Archived notes' : 'Notes'}>{batch.shown.map(card)}</div>{batch.more}</>}
         </>}
       </section>
       {current && <NoteEditor key={current.id} note={current} onClose={() => { setEditing(null); load(); }} />}

@@ -21,6 +21,7 @@ import QRCode from 'qrcode';
 import { sinceText } from '../home/dates.js';
 import { sortContacts, CONTACT_SORTS } from './sortcontacts.js';
 import { withFreeTime } from '../../components/scheduleWith.js';
+import { useBatches } from '../../components/useBatches.jsx';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 const TYPE_LABELS = { work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' };
@@ -141,6 +142,8 @@ export default function Contacts() {
   const chooseSort = async (next) => { setSort(next); try { await put('/contacts/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
   const filtered = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match).filter(whereOk);
   const list = tab === 'mine' ? sortContacts(filtered, sort) : filtered;
+  // Thousands of contacts: the table is filled 200 rows at a time (Select all still takes everyone listed).
+  const batch = useBatches(list, 200, `${tab}|${filter}|${sort}|${whereFilter || ''}`);
   const own = tab === 'mine' || tab === 'company'; // address-book rows, not NAS users
   // Several of your contacts at once: email them, add them to a group, star them, or delete them.
   const [picked, setPicked] = useState(() => new Set());
@@ -219,7 +222,7 @@ export default function Contacts() {
       )}
       {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'touch' ? <KeepInTouch filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'frequent' ? <Frequent filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
         : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
-        <table className="files">
+        <><table className="files">
           {selecting && picked.size > 0 && (
             <caption className="contact-batch-cap"><div className="contact-batch" role="toolbar" aria-label="Change the selected contacts">
               <strong className="small" aria-live="polite">{picked.size} selected</strong>
@@ -244,7 +247,7 @@ export default function Contacts() {
           )}
           <thead><tr>{selecting && <th className="pick-col"><input type="checkbox" aria-label="Select all shown" checked={allShown} onChange={() => setPicked(allShown ? new Set() : new Set(list.map((c) => c.id)))} /></th>}<th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">Company</th><th aria-label="Actions" /></tr></thead>
           <tbody>
-            {list.map((c) => (
+            {batch.shown.map((c) => (
               <tr key={c.id} data-contact={c.id} tabIndex={-1} aria-label={c.name} className={picked.has(c.id) ? 'picked' : ''}>
                 {selecting && <td className="pick-col"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={() => pickOne(c.id)} /></td>}
                 <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location"> · {placeText(whereToday[c.id])} {dayName(whereDay)}</span>}</span></td>
@@ -273,6 +276,7 @@ export default function Contacts() {
             ))}
           </tbody>
         </table>
+        {batch.more}</>
       )}
       {card && <PersonCard userId={card} onClose={() => setCard(null)} />}
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}

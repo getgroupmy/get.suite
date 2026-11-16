@@ -590,6 +590,8 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 - **Trash:** a deleted contact (one, several at once, or deleted on your phone) goes to the **Trash** tab for 30 days, with its photo and every detail, and **Undo** in the message after deleting puts it straight back. In Trash, **Restore** puts a contact back as it was (in its groups, and on your phone at its next sync), the bin icon deletes it for good, and **Empty trash** deletes them all. After 30 days they're gone by themselves. A company contact someone else deleted is in their trash, and in its owner's.
 - **Undo changes:** **Undo changes** at the top of Contacts puts your contacts back as they were at an earlier time: **10 minutes ago**, **1 hour ago**, **yesterday**, **1 week ago**, or a date and time of your own in the last 30 days (after an import or a merge that went wrong, or a phone that changed them). It says first how many contacts that touches. Changed contacts go back as they were, ones added since then go to the **Trash** (so nothing is lost), and ones deleted since then come back (with their photo, while the trash still has it). Changes made anywhere count, phones included; an undo can itself be undone the same way.
 - **Merge duplicates:** **Merge duplicates** finds contacts that are the same person: the same email address, the same phone number (spaces and the country code don't matter) or the same name. Pick the one to keep in each group and **Merge**. The kept contact fills in what it's missing from the others, their other email addresses and phone numbers are added to it, anything else that differs (an address, a company) goes into its notes, and the others are deleted (from your phone too, on its next sync).
+- **Many contacts:** a list of thousands opens at once: the table shows 200 rows and more as you scroll (or with **Show 200 more**); the filter, sorting and **Select all** cover everyone listed.
+
 ## Calendar and contacts on your phone
 
 Your Workspace calendar and contacts sync with the phone's own Calendar and Contacts apps, both ways, using the standard CalDAV and CardDAV. Settings → *Calendar and contacts on your phone* shows the details for each person.
@@ -1472,6 +1474,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Trash:** deleting your note moves it to **Trash** (with **Undo**), where it stays for 7 days: **Restore** puts it back as it was, **Delete forever** (or **Empty trash**) removes it for good. While it's there, people it's shared with don't see it and its reminder doesn't go off.
 - **Shared with me** (on the left) shows only the notes colleagues shared with you, not your own.
 - **Share** (the person icon) gives colleagues in your company the note: they see it among their notes and can change it, and everyone sees changes as they're made. Only the owner can delete it or change who has it; the others can take it off their own list.
+- **Many notes:** with hundreds of notes the page opens at once: the first 150 are shown (pinned ones always) and more come in as you scroll down, or with **Show 150 more**; searching covers all of them.
 
 ## Meet
 
