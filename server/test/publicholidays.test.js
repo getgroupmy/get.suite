@@ -45,11 +45,36 @@ test('other countries: Easter-based days and their own rules', () => {
   assert.ok(dates('AU', 2026).includes('2026-04-25 Anzac Day'), 'not moved');
   assert.equal(publicHolidays('XX', 2026), null);
   assert.equal(publicHolidays('GB', 'soon'), null);
-  assert.equal(COUNTRIES.length, 8);
+  assert.equal(COUNTRIES.length, 18);
   for (const { code } of COUNTRIES) {
     const list = publicHolidays(code, 2026);
     assert.ok(list.length >= 7, code);
     assert.equal(new Set(list.map((h) => h.date)).size, list.length, `${code}: one per day`);
     assert.deepEqual(list.map((h) => h.date), [...list.map((h) => h.date)].sort(), `${code}: in order`);
   }
+});
+
+test('more of Europe, and South Africa', () => {
+  assert.ok(dates('ES', 2026).includes('2026-04-03 Viernes Santo'));
+  assert.ok(dates('ES', 2026).includes('2026-10-12 Fiesta Nacional de España'));
+  assert.ok(dates('IT', 2026).includes("2026-10-04 San Francesco d'Assisi"), 'a national holiday again from 2026');
+  assert.ok(!dates('IT', 2025).some((d) => /Francesco/.test(d)));
+  assert.ok(dates('IT', 2026).includes('2026-04-05 Pasqua'));
+  assert.ok(dates('BE', 2026).includes('2026-07-21 National Day'));
+  assert.ok(dates('AT', 2026).includes('2026-06-04 Fronleichnam'), 'Corpus Christi: 60 days after Easter');
+  assert.ok(dates('AT', 2026).includes('2026-10-26 Nationalfeiertag'));
+  assert.ok(dates('PT', 2026).includes('2026-12-01 Restauração da Independência'));
+  assert.ok(!dates('PT', 2014).some((d) => /Corpo de Deus|Restauração/.test(d)), 'suspended 2013–2015');
+  assert.ok(dates('PL', 2025).includes('2025-12-24 Wigilia Bożego Narodzenia'), 'from 2025');
+  assert.ok(!dates('PL', 2024).some((d) => /Wigilia/.test(d)));
+  assert.ok(dates('DK', 2023).includes('2023-05-05 Store bededag'));
+  assert.ok(!dates('DK', 2024).some((d) => /bededag/.test(d)), 'abolished from 2024');
+  assert.ok(dates('NO', 2026).includes('2026-05-17 Grunnlovsdag'));
+  assert.ok(dates('SE', 2026).includes('2026-06-20 Midsommardagen'), 'the Saturday from 20 June');
+  assert.ok(dates('SE', 2025).includes('2025-06-21 Midsommardagen'));
+  assert.ok(dates('SE', 2025).includes('2025-11-01 Alla helgons dag'));
+  // South Africa: a Sunday holiday gives the Monday off, but not twice over.
+  assert.ok(dates('ZA', 2026).includes("2026-08-10 National Women's Day (observed)"));
+  assert.ok(dates('ZA', 2026).includes("2026-08-09 National Women's Day"));
+  assert.ok(!dates('ZA', 2022).some((d) => /Christmas Day \(observed\)/.test(d)), 'Christmas on a Sunday: the 26th is already off');
 });

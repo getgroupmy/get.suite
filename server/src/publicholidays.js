@@ -23,6 +23,8 @@ export function nth(y, m, weekday, n) {
   return plus(last, -((last.getUTCDay() - weekday + 7) % 7));
 }
 const MON = 1, THU = 4, SAT = 6, SUN = 0;
+/** The Saturday from a date to six days after it (Sweden's Midsummer Day and All Saints' Day). */
+const saturdayFrom = (d) => plus(d, (SAT - d.getUTCDay() + 7) % 7);
 /** US federal "observed": Saturday → Friday before, Sunday → Monday after. */
 const observedUS = (d) => (d.getUTCDay() === SAT ? plus(d, -1) : d.getUTCDay() === SUN ? plus(d, 1) : d);
 /** A weekend day → the next weekday not already taken (UK, Australia: substitute days). */
@@ -82,6 +84,64 @@ const RULES = {
   AU: { name: 'Australia (national)', days: (y) => { const e = easter(y); return [...list([
     [day(y, 1, 1), "New Year's Day"], [day(y, 1, 26), 'Australia Day'], [day(y, 12, 25), 'Christmas Day'], [day(y, 12, 26), 'Boxing Day'],
   ], { substitute: true }), ...list([[plus(e, -2), 'Good Friday'], [plus(e, 1), 'Easter Monday'], [day(y, 4, 25), 'Anzac Day']])].sort((a, b) => a.date.localeCompare(b.date)); } },
+  ES: { name: 'Spain (national)', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), 'Año Nuevo'], [day(y, 1, 6), 'Epifanía del Señor'], [plus(e, -2), 'Viernes Santo'], [day(y, 5, 1), 'Fiesta del Trabajo'],
+    [day(y, 8, 15), 'Asunción de la Virgen'], [day(y, 10, 12), 'Fiesta Nacional de España'], [day(y, 11, 1), 'Todos los Santos'],
+    [day(y, 12, 6), 'Día de la Constitución'], [day(y, 12, 8), 'Inmaculada Concepción'], [day(y, 12, 25), 'Natividad del Señor'],
+  ]); } },
+  IT: { name: 'Italy', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), 'Capodanno'], [day(y, 1, 6), 'Epifania'], [e, 'Pasqua'], [plus(e, 1), "Lunedì dell'Angelo"], [day(y, 4, 25), 'Festa della Liberazione'],
+    [day(y, 5, 1), 'Festa del Lavoro'], [day(y, 6, 2), 'Festa della Repubblica'], [day(y, 8, 15), 'Ferragosto'],
+    ...(y >= 2026 ? [[day(y, 10, 4), "San Francesco d'Assisi"]] : []), [day(y, 11, 1), 'Ognissanti'],
+    [day(y, 12, 8), 'Immacolata Concezione'], [day(y, 12, 25), 'Natale'], [day(y, 12, 26), 'Santo Stefano'],
+  ]); } },
+  BE: { name: 'Belgium', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), "New Year's Day"], [plus(e, 1), 'Easter Monday'], [day(y, 5, 1), 'Labour Day'], [plus(e, 39), 'Ascension Day'], [plus(e, 50), 'Whit Monday'],
+    [day(y, 7, 21), 'National Day'], [day(y, 8, 15), 'Assumption'], [day(y, 11, 1), "All Saints' Day"], [day(y, 11, 11), 'Armistice Day'], [day(y, 12, 25), 'Christmas Day'],
+  ]); } },
+  AT: { name: 'Austria', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), 'Neujahr'], [day(y, 1, 6), 'Heilige Drei Könige'], [plus(e, 1), 'Ostermontag'], [day(y, 5, 1), 'Staatsfeiertag'], [plus(e, 39), 'Christi Himmelfahrt'],
+    [plus(e, 50), 'Pfingstmontag'], [plus(e, 60), 'Fronleichnam'], [day(y, 8, 15), 'Mariä Himmelfahrt'], [day(y, 10, 26), 'Nationalfeiertag'],
+    [day(y, 11, 1), 'Allerheiligen'], [day(y, 12, 8), 'Mariä Empfängnis'], [day(y, 12, 25), 'Christtag'], [day(y, 12, 26), 'Stefanitag'],
+  ]); } },
+  PT: { name: 'Portugal', days: (y) => { const e = easter(y); const paused = y >= 2013 && y <= 2015; // four holidays were suspended for those years
+    return list([
+      [day(y, 1, 1), 'Ano Novo'], [plus(e, -2), 'Sexta-feira Santa'], [e, 'Páscoa'], [day(y, 4, 25), 'Dia da Liberdade'], [day(y, 5, 1), 'Dia do Trabalhador'],
+      ...(paused ? [] : [[plus(e, 60), 'Corpo de Deus']]), [day(y, 6, 10), 'Dia de Portugal'], [day(y, 8, 15), 'Assunção de Nossa Senhora'],
+      ...(paused ? [] : [[day(y, 10, 5), 'Implantação da República'], [day(y, 11, 1), 'Dia de Todos-os-Santos'], [day(y, 12, 1), 'Restauração da Independência']]),
+      [day(y, 12, 8), 'Imaculada Conceição'], [day(y, 12, 25), 'Natal'],
+    ]); } },
+  PL: { name: 'Poland', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), 'Nowy Rok'], ...(y >= 2011 ? [[day(y, 1, 6), 'Święto Trzech Króli']] : []), [e, 'Wielkanoc'], [plus(e, 1), 'Poniedziałek Wielkanocny'],
+    [day(y, 5, 1), 'Święto Pracy'], [day(y, 5, 3), 'Święto Konstytucji 3 Maja'], [plus(e, 49), 'Zielone Świątki'], [plus(e, 60), 'Boże Ciało'],
+    [day(y, 8, 15), 'Wniebowzięcie Najświętszej Maryi Panny'], [day(y, 11, 1), 'Wszystkich Świętych'], [day(y, 11, 11), 'Narodowe Święto Niepodległości'],
+    ...(y >= 2025 ? [[day(y, 12, 24), 'Wigilia Bożego Narodzenia']] : []), [day(y, 12, 25), 'Boże Narodzenie'], [day(y, 12, 26), 'Drugi dzień Bożego Narodzenia'],
+  ]); } },
+  DK: { name: 'Denmark', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), 'Nytårsdag'], [plus(e, -3), 'Skærtorsdag'], [plus(e, -2), 'Langfredag'], [e, 'Påskedag'], [plus(e, 1), '2. påskedag'],
+    ...(y < 2024 ? [[plus(e, 26), 'Store bededag']] : []), [plus(e, 39), 'Kristi himmelfartsdag'], [plus(e, 49), 'Pinsedag'], [plus(e, 50), '2. pinsedag'],
+    [day(y, 12, 25), 'Juledag'], [day(y, 12, 26), '2. juledag'],
+  ]); } },
+  NO: { name: 'Norway', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), 'Første nyttårsdag'], [plus(e, -3), 'Skjærtorsdag'], [plus(e, -2), 'Langfredag'], [e, 'Første påskedag'], [plus(e, 1), 'Andre påskedag'],
+    [day(y, 5, 1), 'Arbeidernes dag'], [day(y, 5, 17), 'Grunnlovsdag'], [plus(e, 39), 'Kristi himmelfartsdag'], [plus(e, 49), 'Første pinsedag'],
+    [plus(e, 50), 'Andre pinsedag'], [day(y, 12, 25), 'Første juledag'], [day(y, 12, 26), 'Andre juledag'],
+  ]); } },
+  SE: { name: 'Sweden', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), 'Nyårsdagen'], [day(y, 1, 6), 'Trettondedag jul'], [plus(e, -2), 'Långfredagen'], [e, 'Påskdagen'], [plus(e, 1), 'Annandag påsk'],
+    [day(y, 5, 1), 'Första maj'], [plus(e, 39), 'Kristi himmelsfärdsdag'], [plus(e, 49), 'Pingstdagen'], ...(y >= 2005 ? [[day(y, 6, 6), 'Sveriges nationaldag']] : []),
+    [saturdayFrom(day(y, 6, 20)), 'Midsommardagen'], [saturdayFrom(day(y, 10, 31)), 'Alla helgons dag'], [day(y, 12, 25), 'Juldagen'], [day(y, 12, 26), 'Annandag jul'],
+  ]); } },
+  ZA: { name: 'South Africa', days: (y) => { const e = easter(y); return list([
+    [day(y, 1, 1), "New Year's Day"], [day(y, 3, 21), 'Human Rights Day'], [plus(e, -2), 'Good Friday'], [plus(e, 1), 'Family Day'], [day(y, 4, 27), 'Freedom Day'],
+    [day(y, 5, 1), "Workers' Day"], [day(y, 6, 16), 'Youth Day'], [day(y, 8, 9), "National Women's Day"], [day(y, 9, 24), 'Heritage Day'],
+    [day(y, 12, 16), 'Day of Reconciliation'], [day(y, 12, 25), 'Christmas Day'], [day(y, 12, 26), 'Day of Goodwill'],
+  ].flatMap(([d, name], i, all) => {
+    // A holiday on a Sunday gives the Monday off, unless that Monday is a holiday already.
+    if (d.getUTCDay() !== SUN) return [[d, name]];
+    const mon = plus(d, 1);
+    return [[d, name], ...(all.some(([x]) => iso(x) === iso(mon)) ? [] : [[mon, `${name} (observed)`]])];
+  })); } },
 };
 
 /** The countries there are rules for: [{ code, name }]. */

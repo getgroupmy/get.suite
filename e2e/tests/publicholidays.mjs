@@ -73,7 +73,27 @@ await step('Add public holidays…: a country\'s holidays for a year, those alre
   await hol.getByRole('button', { name: 'Add public holidays…' }).click();
   await m.getByLabel('Year').selectOption(String(next));
   await m.getByRole('button', { name: 'Nothing to add' }).waitFor();
+  await m.getByLabel('Country').locator('option[value="GB"]').waitFor({ state: 'attached' }); // the list of countries has loaded
   if (!(await m.getByLabel('Country').inputValue() === 'GB')) throw new Error('country remembered');
+});
+await step('newer countries: Sweden in the add dialog, Italy on the calendar', async () => {
+  const m = page.getByRole('dialog', { name: 'Add public holidays' });
+  await m.getByLabel('Country').selectOption('SE');
+  await m.getByLabel('Year').selectOption(String(next));
+  const list = m.getByRole('list', { name: `Public holidays in ${next}` });
+  await list.getByText(/Midsommardagen/).waitFor();
+  await list.getByText(/Sveriges nationaldag/).waitFor();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/calendar`);
+  const pick = page.getByLabel('Show public holidays in');
+  await pick.locator('option', { hasText: 'Sweden' }).waitFor({ state: 'attached' });
+  for (const c of ['Spain (national)', 'Italy', 'Poland', 'South Africa']) if (!(await pick.locator('option', { hasText: c }).count())) throw new Error(`${c} missing`);
+  await pick.selectOption('IT');
+  // 2 June is Festa della Repubblica every year: June of next year, in month view.
+  await page.getByRole('radio', { name: 'Month' }).click();
+  for (let i = 0; i < 24 && !(await page.locator('.cal-head h1').innerText()).includes(`June ${next}`); i++) await page.getByRole('button', { name: 'Next month' }).click();
+  await page.getByText('Festa della Repubblica').first().waitFor({ timeout: 8000 });
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
