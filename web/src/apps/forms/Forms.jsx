@@ -679,6 +679,7 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
           catch (err) { setForm((f) => ({ ...f, email_me: !on })); toast(err.message, 'error'); }
         }} /> Email me each response, with the answers (just for you)</label>}
       <ChatChannel form={form} setting={setting} />
+      <TaskList form={form} setting={setting} />
       {form.role === 'owner' && <Webhook form={form} allowLinks={allowLinks} />}
       <fieldset className="stack-tight">
         <legend>Quiz</legend>
@@ -705,6 +706,32 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
           }}>Get a new link</button></div>
         <p className="muted small" style={{ margin: 0 }}>A new link stops the old one working, if it went somewhere it shouldn't.</p>
       </div>
+    </div>
+  );
+}
+
+/** Settings → Add each response as a task: a list the person can add to, and which answer titles the task. */
+function TaskList({ form, setting }) {
+  const [lists, setLists] = useState(null);
+  useEffect(() => { get('/tasks/lists').then((r) => setLists(Array.isArray(r) ? r : r.lists || [])).catch(() => setLists([])); }, []);
+  if (!lists) return null;
+  const known = !form.task_list || lists.some((l) => l.id === form.task_list);
+  const titled = form.questions.filter((qu) => ['short', 'paragraph', 'choice', 'dropdown'].includes(qu.type));
+  return (
+    <div className="row wrap form-task-list" style={{ gap: 12 }}>
+      <label className="field"><span>Add each response as a task</span>
+        <select value={form.task_list || ''} onChange={(e) => setting({ task_list: e.target.value || null })}>
+          <option value="">Don’t add tasks</option>
+          {!known && <option value={form.task_list}>A list someone else chose</option>}
+          {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select></label>
+      {form.task_list && (
+        <label className="field"><span>Task title from</span>
+          <select value={form.task_title || ''} onChange={(e) => setting({ task_title: e.target.value || null })}>
+            <option value="">“Response to {form.title}”</option>
+            {titled.map((qu) => <option key={qu.id} value={qu.id}>The answer to “{qu.title || 'Untitled question'}”</option>)}
+          </select></label>
+      )}
     </div>
   );
 }

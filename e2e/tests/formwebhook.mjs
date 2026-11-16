@@ -103,6 +103,25 @@ await step('Post each response in a Chat channel: the answers arrive in #leads, 
   await page.goto(`${B}/forms/${form.id}`);
   await page.getByRole('tab', { name: 'Settings' }).click();
 });
+await step('Add each response as a task: it lands on the IT list, titled by the answer', async () => {
+  await api(page, 'POST', '/tasks/lists', { name: 'IT requests' });
+  await page.reload();
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  const pick = page.getByLabel('Add each response as a task');
+  await pick.locator('option', { hasText: 'IT requests' }).waitFor({ state: 'attached' });
+  await pick.selectOption({ label: 'IT requests' });
+  await page.getByLabel('Task title from').selectOption({ label: 'The answer to “Your name”' });
+  await until(async () => (await api(page, 'GET', `/forms/${form.id}`)).body.task_title);
+  await page.goto(`${B}/f/${form.token}`);
+  await page.getByLabel('Your name').fill('Robin Hood');
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.getByText(/response has been recorded/i).waitFor();
+  await page.goto(`${B}/tasks`);
+  await page.getByText('IT requests').first().click();
+  await page.getByText('Robin Hood', { exact: true }).first().waitFor();
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('tab', { name: 'Settings' }).click();
+});
 await step('turning it off', async () => {
   const box = page.getByRole('group', { name: 'Send responses to a web address' });
   await box.getByRole('button', { name: 'Turn off' }).click();

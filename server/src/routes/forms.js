@@ -25,6 +25,7 @@ import { FILES_DIR } from '../db.js';
 import { mimeFor } from '../util.js';
 import { audit } from '../audit.js';
 import { channelChoice, postAsBot } from './chat.js';
+import { taskListChoice, addTaskFor } from './tasks.js';
 import { hookOf, setHook, removeHook, newSecret, deliver, deliverNow, hookPayload } from '../formhooks.js';
 import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 
@@ -144,7 +145,7 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
 )`).run();
 // allow_edit: people can change their response afterwards, with the private link they get on sending it.
 // collect_email: "anyone with the link" forms ask for an email address; send_copy: people get their answers by email.
-for (const [col, type] of [['chat_channel', 'TEXT'], ['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT'], ['email_domains', 'TEXT']]) {
+for (const [col, type] of [['task_list', 'TEXT'], ['task_title', 'TEXT'], ['chat_channel', 'TEXT'], ['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT'], ['email_domains', 'TEXT']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -749,6 +750,9 @@ export default function formRoutes() {
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
       // Post each response in a Chat channel: one the person changing it can write in.
       chat_channel: 'chat_channel' in b ? (b.chat_channel ? channelChoice(b.chat_channel, req.user).id : null) : f.chat_channel || null,
+      // Add each response as a task: on a list the person changing it can add to, titled by one question's answer.
+      task_list: 'task_list' in b ? (b.task_list ? taskListChoice(b.task_list, req.user).id : null) : f.task_list || null,
+      task_title: 'task_title' in b ? (b.task_title ? String(b.task_title).slice(0, 40) : null) : f.task_title || null,
     };
     if (next.close_at !== null && (!Number.isFinite(next.close_at) || next.close_at < 0)) throw bad('close_at must be a time');
     if (next.open_at !== null && (!Number.isFinite(next.open_at) || next.open_at < 0)) throw bad('open_at must be a time');
@@ -764,6 +768,7 @@ export default function formRoutes() {
         next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, next.auto_remind ? 1 : 0,
         next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, next.show_results ? 1 : 0, next.email_domains, now(), f.id); // a new closing date: the automatic reminder can go again
     if (next.chat_channel !== (f.chat_channel || null)) q('UPDATE forms SET chat_channel = ? WHERE id = ?').run(next.chat_channel, f.id);
+    if (next.task_list !== (f.task_list || null) || next.task_title !== (f.task_title || null)) q('UPDATE forms SET task_list = ?, task_title = ? WHERE id = ?').run(next.task_list, next.task_title, f.id);
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -1235,6 +1240,19 @@ export function publicFormRoutes() {
     sendTo(team, { type: 'form-response', form_id: form.id });
     try { addToLinkedSheet(form, id); } catch (e) { console.error('[forms] linked sheet:', e.message); }
     deliver(form.id, 'response.created', hookPayload(form, q('SELECT * FROM form_responses WHERE id = ?').get(id)));
+    if (form.task_list) {
+      try {
+        const from = form.audience === 'org' && user ? user.name : email || null;
+        const titled = form.task_title && form.questions.find((qu) => qu.id === form.task_title);
+        const answer = titled ? answers[titled.id] : null;
+        const head = answer != null && answer !== '' ? (Array.isArray(answer) ? answer.join(', ') : String(answer)) : null;
+        addTaskFor(form.task_list, {
+          title: head ? head.replace(/\s+/g, ' ').slice(0, 200) : `Response to “${form.title}”${from ? ` from ${from}` : ''}`,
+          notes: `${from ? `From ${from}\n` : ''}${answersText(form.questions, answers)}`,
+          url: `${baseUrlOf(req)}/forms/${form.id}?tab=responses`, label: `${form.title} (responses)`.slice(0, 100), by: form.owner_id,
+        });
+      } catch (e) { console.error('[forms] task:', e.message); }
+    }
     if (form.chat_channel) {
       try {
         const text = answersText(form.questions, answers);

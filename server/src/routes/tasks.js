@@ -102,6 +102,26 @@ function loadList(id, user, { own = false } = {}) {
   throw notFound('List not found');
 }
 
+/** A list someone may choose for tasks to go to (a form's responses): their own, or one shared with them. */
+export function taskListChoice(listId, user) {
+  const list = loadList(String(listId), user);
+  return { id: list.id, name: list.name };
+}
+/**
+ * A task added by something on someone's behalf (a form's response): on top of the list, with notes and a link;
+ * `by` is who it counts as added by. Null if the list is gone or full.
+ */
+export function addTaskFor(listId, { title, notes = '', url = null, label = null, by }) {
+  const list = q('SELECT * FROM task_lists WHERE id = ?').get(listId);
+  if (!list || q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n >= MAX_TASKS) return null;
+  const edge = q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(list.id).p;
+  const id = uid(), t = now();
+  q('INSERT INTO tasks (id, list_id, title, notes, position, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, list.id, String(title).slice(0, 500) || 'Untitled', String(notes).slice(0, 10000), edge === null ? 0 : edge - 1, url, label, by, t, t);
+  changed(list);
+  return id;
+}
+
 // Sections: headings that split a list into parts ("This week", "Later"); tasks sit under one or none.
 q(`CREATE TABLE IF NOT EXISTS task_sections (
   id TEXT PRIMARY KEY,
