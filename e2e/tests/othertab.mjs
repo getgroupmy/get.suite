@@ -34,6 +34,8 @@ await step('setup', async () => {
 });
 // Made in another tab (or on another device), shown at once in an open app: for each app, without a reload.
 let other;
+// Exact text, except calendar events: the Month view shows the time and title together (“10:00 AM Event from the phone”).
+const byText = (t) => page.getByText(t, { exact: !/^Event from the phone$/.test(t) });
 const fresh = async (path) => { await page.goto(`${B}${path}`); await page.waitForTimeout(1500); await page.evaluate(() => { window.__stayed = true; }); };
 const stayed = async () => { if (!(await page.evaluate(() => window.__stayed))) throw new Error('the page reloaded'); };
 await step('a second tab', async () => { other = await page.context().newPage(); await other.goto(B); });
@@ -51,12 +53,12 @@ for (const [label, path, make, text] of process.env.ONLY ? CASES.filter((c) => c
     await fresh(path);
     const r = await make();
     if (r.status >= 300) throw new Error(`could not make it: ${JSON.stringify(r.body).slice(0, 200)}`);
-    await page.getByText(text, { exact: true }).first().waitFor({ timeout: 8000 });
+    await byText(text).first().waitFor({ timeout: 8000 });
     await stayed();
   });
 }
 // Changed or deleted in the other tab: renamed things show their new name, deleted ones go.
-const gone = async (text) => { const end = Date.now() + 8000; while (await page.getByText(text, { exact: true }).count()) { if (Date.now() > end) throw new Error(`“${text}” still shown`); await page.waitForTimeout(200); } };
+const gone = async (text) => { const end = Date.now() + 8000; while (await byText(text).count()) { if (Date.now() > end) throw new Error(`“${text}” still shown`); await page.waitForTimeout(200); } };
 const find = async (url, pick) => { const b = (await api(other, 'GET', url)).body; return (Array.isArray(b) ? b : b.files || b.lists || b.channels || b.items || []).find(pick); };
 const CHANGES = [
   ['Notes: renamed', '/notes', async () => { const n = await find('/notes', (x) => x.title === 'Note from the phone'); return api(other, 'PATCH', `/notes/${n.id}`, { title: 'Note renamed' }); }, 'Note renamed', 'Note from the phone'],
@@ -73,7 +75,7 @@ const CHANGES = [
 for (const [label, path, change, now, before] of process.env.ONLY ? CHANGES.filter((c) => c[0] === process.env.ONLY) : CHANGES) {
   await step(`${label} in another tab, shown here at once`, async () => {
     await fresh(path);
-    if (before && path !== '/drive') await page.getByText(before, { exact: true }).first().waitFor({ timeout: 8000 });
+    if (before && path !== '/drive') await byText(before).first().waitFor({ timeout: 8000 });
     const r = await change();
     if (r.status >= 300) throw new Error(`could not change it: ${JSON.stringify(r.body).slice(0, 200)}`);
     if (now) await page.getByText(now, { exact: true }).first().waitFor({ timeout: 8000 });
