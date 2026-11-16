@@ -27,9 +27,20 @@ export default function Bell() {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
   const box = useRef();
-  const load = useCallback(() => get('/notifications').then(setData).catch(() => {}), []);
+  // A list asked for before a live notification arrived would drop it: each load is numbered, only the latest
+  // one asked for is shown, and one asked for before live news came is asked for again.
+  const issued = useRef(0), newsAfter = useRef(0);
+  const load = useCallback(() => {
+    const n = ++issued.current;
+    return get('/notifications').then((d) => {
+      if (n !== issued.current) return; // a newer one is on its way
+      if (n <= newsAfter.current) { load(); return; } // live news arrived while this was on its way
+      setData(d);
+    }).catch(() => {});
+  }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => onLive((m) => {
+    if (m.type === 'notification') newsAfter.current = issued.current;
     if (m.type === 'notification') setData((d) => ({ items: [m.notification, ...d.items.filter((x) => x.id !== m.notification.id && x.id !== m.replaces)].slice(0, 100), unread: d.unread + (m.replaces && d.items.some((x) => x.id === m.replaces && !x.read) ? 0 : 1) })); // replaces: a grouped one counting more now
     else if (m.type === 'notifications-read' || m.type === 'live-connected') load();
   }), [load]);

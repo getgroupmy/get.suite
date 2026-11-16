@@ -167,8 +167,15 @@ await step('an assistant cancels a meeting: the guest’s bell says so and it le
   await gus.getByRole('button', { name: /^Notifications/ }).waitFor();
   const r = await mcp(token, 'cancel_event', { id: ev.id });
   if (r.isError || r.structuredContent.guests_told !== 1) throw new Error(JSON.stringify(r));
-  await gus.getByRole('button', { name: /^Notifications, \d+ new/ }).click({ timeout: 30000 });
-  await gus.getByRole('dialog', { name: 'Notifications' }).getByText('Olivia Owner cancelled “Supplier call”').waitFor();
+  const told = async () => JSON.stringify((await api(gus, 'GET', '/notifications')).body).includes('Olivia Owner cancelled “Supplier call”');
+  for (let i = 0; i < 40 && !(await told()); i++) await gus.waitForTimeout(250);
+  if (!(await told())) throw new Error('the server has no notice for the guest');
+  await gus.getByRole('button', { name: /^Notifications/ }).click();
+  const panel = gus.getByRole('dialog', { name: 'Notifications' });
+  await panel.getByText('Olivia Owner cancelled “Supplier call”').waitFor({ timeout: 10000 }).catch(async (e) => {
+    await gus.screenshot({ path: `${SP}/shots/fail-guest-bell.png` });
+    throw new Error(`bell shows: ${(await panel.innerText().catch(() => '(no panel)')).slice(0, 300)}`);
+  });
   const left = (await api(gus, 'GET', `/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
   if (left.some((e) => e.title === 'Supplier call')) throw new Error('still on their calendar');
 });

@@ -69,6 +69,12 @@ await step('that token works at /mcp: the tools are listed, and a note made by t
   if (init.result?.serverInfo?.name !== 'workspace') throw new Error(JSON.stringify(init));
   const tools = (await rpc('tools/list')).result.tools.map((t) => t.name);
   if (!tools.includes('search') || !tools.includes('draft_email')) throw new Error(tools.join());
+  // The ready-made requests the server offers are the ones Settings names.
+  const prompts = (await rpc('prompts/list')).result.prompts.map((p) => p.title);
+  const named = await page.locator('.mcp-prompts em').allInnerTexts();
+  for (const t of prompts) if (!named.includes(t)) throw new Error(`Settings doesn’t name “${t}”: ${named.join(', ')}`);
+  const got = (await rpc('prompts/get', { name: 'plan_my_day', arguments: {} })).result;
+  if (!/list_events/.test(got?.messages?.[0]?.content?.text || '')) throw new Error(JSON.stringify(got));
   const made = await rpc('tools/call', { name: 'create_note', arguments: { title: 'From Claude', items: ['Check the numbers'] } });
   if (made.result?.isError) throw new Error(JSON.stringify(made));
   await page.goto(`${B}/notes`);

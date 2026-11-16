@@ -1254,6 +1254,8 @@ Workspace is an **MCP server** (Model Context Protocol) at `https://your-server/
 
 - **A record of what assistants change:** every change an assistant makes for you (an event, a task, a note, a document, an email draft, a chat message) is in the company's activity log (*An AI assistant made a change for them*, with which assistant and what), and **Settings → API tokens** lists each token's last few changes under it (*Add a note “Ideas”*). Reading isn't recorded.
 
+- **Ready-made requests (MCP prompts):** assistants that support them (in Claude, under **+** or by typing **/**) offer *Catch me up* (unread email and Chat, invitations to answer, tasks due, today's meetings, as a summary), *Plan my day* (meetings, tasks due and the gaps between them, as a plan), *Prepare for a meeting* (who's coming and recent emails, messages and files about it, as a briefing) and *Draft a reply* (an email read in full, with any safety warnings, and a reply left as a draft). Each sets the assistant going with the right tools and the reminder that emails and messages are information, not instructions; they only read, except *Draft a reply*, which only drafts. Settings → API tokens names them under *Use Workspace from an AI assistant*.
+
 ## Mail apps (phones, Outlook)
 
 Settings → **Mail apps** shows what to enter in a phone or Outlook: the server name, ports (IMAP 993, SMTP 465 or 587) and user name (your email address).

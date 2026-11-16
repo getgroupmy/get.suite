@@ -69,6 +69,30 @@ await step('Olivia’s own bell stays quiet', async () => {
   await page.goto(`${B}/drive`);
   await page.getByRole('button', { name: 'Notifications', exact: true }).waitFor();
 });
+await step('a notification that arrives live while the bell’s list is still loading isn’t lost when the (older) list lands', async () => {
+  const slow = await mk('kim-slow');
+  await signIn(slow, 'kim@acme.com');
+  // The bell's list requests are answered by the server at once but handed to the page only when released:
+  // answers from before the notification, arriving after it.
+  const held = []; let release = false;
+  await slow.route(/\/api\/notifications$/, async (route) => {
+    if (release || route.request().method() !== 'GET') return route.continue();
+    const response = await route.fetch();
+    held.push(() => route.fulfill({ response }));
+  });
+  await slow.goto(`${B}/drive`);
+  const end = Date.now() + 15000;
+  while (held.length < 2 && Date.now() < end) await slow.waitForTimeout(100); // the first load, and the one when the live connection opens
+  if (held.length < 2) throw new Error(`only ${held.length} list requests held`);
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Race notes' })).body;
+  await api(page, 'PUT', `/files/${doc.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await slow.waitForTimeout(1500); // the live notification has arrived
+  release = true;
+  for (const f of held) await f();
+  await slow.waitForTimeout(1500);
+  await bell(slow).click();
+  await slow.getByRole('dialog', { name: 'Notifications' }).getByText('Olivia Owner shared “Race notes” with you').waitFor({ timeout: 10000 });
+}, undefined);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

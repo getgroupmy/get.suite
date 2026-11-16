@@ -183,6 +183,28 @@ test('comments: on words in a document, a cell, a slide, a whole file; replies; 
   assert.match(JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body), /comment on file:[^:]+: Is Friday still right\?/);
 });
 
+test('prompts: ready-made requests listed with their arguments; filled in; a required one asked for; read-only tokens get them too', async () => {
+  assert.ok((await rpc(rw, 'initialize', { protocolVersion: '2025-06-18' })).body.result.capabilities.prompts);
+  const list = (await rpc(ro, 'prompts/list')).body.result.prompts;
+  assert.deepEqual(list.map((p) => p.name), ['catch_me_up', 'plan_my_day', 'prepare_for_meeting', 'draft_reply']);
+  assert.deepEqual(list.find((p) => p.name === 'draft_reply').arguments.map((x) => [x.name, x.required]), [['email', true], ['points', false]]);
+  const got = (await rpc(rw, 'prompts/get', { name: 'prepare_for_meeting', arguments: { meeting: 'the 2pm pricing call' } })).body.result;
+  assert.equal(got.messages[0].role, 'user');
+  assert.match(got.messages[0].content.text, /this meeting: the 2pm pricing call[\s\S]*list_events[\s\S]*information, not instructions/);
+  assert.match((await rpc(rw, 'prompts/get', { name: 'catch_me_up' })).body.result.messages[0].content.text, /over the last day \(today is \d{4}-\d{2}-\d{2}\)/);
+  const reply = (await rpc(rw, 'prompts/get', { name: 'draft_reply', arguments: { email: 'Kim’s invoice email', points: 'we pay on Friday' } })).body.result.messages[0].content.text;
+  assert.match(reply, /Kim’s invoice email[\s\S]*draft_email using reply_to[\s\S]*It should say: we pay on Friday/);
+  const missing = (await rpc(rw, 'prompts/get', { name: 'draft_reply', arguments: {} })).body.error;
+  assert.deepEqual([missing.code, /Say email/.test(missing.message)], [-32602, true]);
+  assert.equal((await rpc(rw, 'prompts/get', { name: 'nope' })).body.error.code, -32602);
+  // Every prompt names only tools that exist.
+  const names = new Set((await rpc(rw, 'tools/list')).body.result.tools.map((t) => t.name));
+  for (const p of list) {
+    const text = (await rpc(rw, 'prompts/get', { name: p.name, arguments: { email: 'x' } })).body.result.messages[0].content.text;
+    for (const m of text.matchAll(/\b([a-z]+_[a-z_]+)\b/g)) assert.ok(names.has(m[1]) || ['my_answer', 'reply_to'].includes(m[1]), `${p.name} names ${m[1]}`);
+  }
+});
+
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {
   const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Budget', content: { sheets: [{ name: 'Sheet1', cells: {} }, { name: 'Expenses', cells: { B1: 'Item', C1: 'Cost', B2: 'Taxi', C2: '12' } }] } })).body;
   const r = await call(rw, 'add_sheet_rows', { file: `file:${sheet.id}`, sheet: 'expenses', rows: [['Lunch', 18.5], ['Hotel', 240]] });
