@@ -207,6 +207,31 @@ await step('Notes: a note changed offline keeps the change here (even after relo
   await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   await until(async () => ((await api(page, 'GET', '/notes')).body || []).some((n) => n.title === 'Packing list' && n.body === 'Boots and a rain jacket'), 10000);
 });
+await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
+  const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
+  await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });
+  await page.goto(`${B}/chat/${ch}`);
+  await page.getByText('Meet at the harbour at 8').waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.reload();
+  await page.getByText('Meet at the harbour at 8').waitFor({ timeout: 20000 });
+  const box = page.getByRole('textbox', { name: 'Message', exact: true });
+  await box.click();
+  await page.keyboard.type('On my way, no signal');
+  await page.keyboard.press('Enter');
+  const mine = page.locator('.msg', { hasText: 'On my way, no signal' }).or(page.getByText('On my way, no signal'));
+  await mine.first().waitFor();
+  await page.getByText('Sends when the connection is back').first().waitFor();
+  await page.reload();
+  await page.getByText('On my way, no signal').first().waitFor({ timeout: 20000 }); // still there after reloading offline
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await page.getByText('Sends when the connection is back').waitFor({ state: 'detached', timeout: 15000 });
+  const r = await api(page, 'GET', `/chat/channels/${ch}/messages`);
+  const list = Array.isArray(r.body) ? r.body : r.body.messages;
+  if ((list.filter((m) => m.body === 'On my way, no signal').length) !== 1) throw new Error(JSON.stringify(list.map((m) => m.body)));
+});
 await step('Settings → This device: what is kept here, a warning about what is not sent yet, and removing it all', async () => {
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;
   await page.goto(`${B}/settings`);

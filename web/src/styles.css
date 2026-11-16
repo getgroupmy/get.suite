@@ -3206,3 +3206,5 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .grid .grid-gap-c { padding: 0; border-right: 0; background: none; }
 .shared-report-btn { margin: 0 12px 4px; align-self: flex-start; }
 body:has(.offline-bar) .toasts { bottom: 96px; } /* toasts above the offline bar, not under it */
+/* While the offline bar shows, the app ends above it: nothing (Chat's message box, a form's buttons) sits under it. */
+body:has(.offline-bar) .shell, body:has(.offline-bar) .editor-page { height: calc(100% - 76px); }

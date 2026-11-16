@@ -69,6 +69,7 @@ export async function keptList() {
 // without a connection (api.js). Cleared on signing out with the rest.
 export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/tasks)?(\?|$)/, /^\/tasks\/(today|assigned|upcoming|myday|completed|important|planned|tags)(\?|$)/, /^\/contacts(\?|$)/, /^\/contacts\/groups$/, /^\/notes(\?|$)/, /^\/users\/directory$/, /^\/time-off(\?|$)/,
   // Mail: whether it's set up, the folders, the messages listed and those opened (the shared mailbox open is part of the key).
+  /^\/chat\/channels(\?|$)/, /^\/chat\/channels\/[\w-]+\/messages$/,
   /^\/mail\/(status|folders|labels)(\?|$)/, /^\/mail\/messages\?folder=/, /^\/mail\/messages\/\d+\?folder=/, /^\/mail\/folder-state\?folder=/];
 export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, at: Date.now() }, url), 'api').catch(() => {});
 export const keptAnswer = (url) => run('readonly', (s) => s.get(url), 'api').then((x) => x || null).catch(() => null);
@@ -117,3 +118,12 @@ export async function keepChange({ method, url, body, user, label, id }) {
 
 /** How many lists' last answers are kept (Settings → This device). */
 export const apiCount = () => run('readonly', (s) => s.count(), 'api').then((n) => n || 0).catch(() => 0);
+
+/** Something added offline (a chat message waiting to be sent): added to the end of the kept list whose address ends so. */
+export async function appendKept(urlEnd, item) {
+  try {
+    const hits = [];
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (String(cur.key).endsWith(urlEnd) && Array.isArray(cur.value?.data)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
+    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: [...v.data, item] }, k); }, 'api');
+  } catch { /* the kept list just doesn't show it */ }
+}

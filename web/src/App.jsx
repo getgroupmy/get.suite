@@ -212,7 +212,7 @@ function SendUnsent() {
         catch (e) { if (unreachable(e)) break; await outboxNote(m.id, m, e.message); window.dispatchEvent(new Event('nw:outbox')); toast(`“${m.subject || '(no subject)'}” couldn’t be sent: ${e.message}`, 'error'); }
       }
       if (mails) toast(`Sent ${mails} email${mails === 1 ? '' : 's'} written while offline`);
-      // Changes made offline (Tasks, Notes), in the order they were made (one deleted meanwhile: that change is dropped).
+      // Changes made offline (Tasks, Notes, Chat messages), in the order they were made (one deleted meanwhile: that change is dropped).
       const { changeList, changeRemove } = await import('./apps/offlinedocs.js');
       let changed = 0;
       for (const c of await changeList(lastUserId())) {

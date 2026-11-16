@@ -1,3 +1,4 @@
+import { unreachable, keepChange, appendKept } from '../offlinedocs.js';
 import { seenBy } from './seenby.js';
 import { moved } from '../../components/moved.js';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
@@ -386,6 +387,13 @@ export default function Chat() {
   const loadSaved = useCallback(() => get('/chat/saved').then(setSaved).catch(() => {}), []);
   useEffect(() => { loadSaved(); }, [loadSaved]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-saved') loadSaved(); }), [loadSaved]);
+  // Messages written offline have gone: the conversation as the server has it (their "waiting" copies go).
+  useEffect(() => {
+    if (!channelId) return undefined;
+    const again = () => get(`/chat/channels/${channelId}/messages`).then((list) => setMessages(list)).catch(() => {});
+    window.addEventListener('nw:changes-sent', again);
+    return () => window.removeEventListener('nw:changes-sent', again);
+  }, [channelId]);
   useEffect(() => { if (channelId && picked()) setSavedOpen(false); }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps -- picking a conversation leaves the list
   const savedIds = new Set(saved.map((x) => x.message_id));
   // Threads you're in, across conversations (latest reply first), kept up to date as replies come and you read.
@@ -478,7 +486,17 @@ export default function Chat() {
       const msg = await post(`/chat/channels/${channelId}/messages`, { body, files: sending.map((f) => f.id) });
       setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
       checkLinkAccess(channelId, body, toast, user.org_name);
-    } catch (err) { toast(err.message, 'error'); setText(body); keepDraft(body); setFiles(sending); }
+    } catch (err) {
+      // No connection: the message waits on this device and is sent when it's back (shown meanwhile as waiting).
+      if (unreachable(err)) {
+        const pending = { id: `pending-${Date.now()}`, pending: true, channel_id: channelId, user_id: user.id, user_name: user.name, body, files: [], created_at: Date.now() };
+        await keepChange({ method: 'POST', url: `/chat/channels/${channelId}/messages`, body: { body, files: sending.map((f) => f.id) }, user: user.id, label: 'a message in Chat' });
+        await appendKept(`/chat/channels/${channelId}/messages`, pending);
+        setMessages((list) => [...list, pending]);
+        return;
+      }
+      toast(err.message, 'error'); setText(body); keepDraft(body); setFiles(sending);
+    }
   }
 
   const [editingId, setEditingId] = useState(null);
@@ -874,7 +892,7 @@ export default function Chat() {
             {messages.map((m, i) => {
               const prev = messages[i - 1];
               const lastMine = (current.dm_key || readers) && m.user_id === user.id && !messages.slice(i + 1).some((x) => x.user_id === user.id);
-              const grouped = prev && prev.user_id === m.user_id && (prev.bot || null) === (m.bot || null) && m.created_at - prev.created_at < 5 * 60e3;
+              const grouped = prev && !m.pending && prev.user_id === m.user_id && (prev.bot || null) === (m.bot || null) && m.created_at - prev.created_at < 5 * 60e3;
               const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
               return (
                 <div key={m.id}>
@@ -1158,7 +1176,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
       {grouped ? <span className="msg-gutter" /> : m.user_id ? <button type="button" className="avatar-btn" aria-label={`About ${m.user_name}`} onClick={() => setCard(true)}><Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} /></button> : m.bot ? <span className="msg-bot-avatar" aria-hidden="true">🤖</span> : <Avatar name="Deleted user" size={36} />}
       {card && <PersonCard userId={m.user_id} onClose={() => setCard(false)} />}
       <div className="msg-body">
-        {!grouped && <div className="msg-meta">{m.user_id ? <><button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button>{m.user_org_id && user?.org_id && m.user_org_id !== user.org_id && <span className="pill ext small" title={`${m.user_org}, outside your company`}>External · {m.user_org}</span>}</> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
+        {!grouped && <div className="msg-meta">{m.user_id ? <><button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button>{m.user_org_id && user?.org_id && m.user_org_id !== user.org_id && <span className="pill ext small" title={`${m.user_org}, outside your company`}>External · {m.user_org}</span>}</> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>{m.pending && <span className="pill small msg-pending" title="Written offline">Sends when the connection is back</span>}</div>}
         {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
         {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
         {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}
