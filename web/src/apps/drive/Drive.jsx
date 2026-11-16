@@ -1278,7 +1278,7 @@ function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = 
 
 /** 💬 2 on a file with comment threads that are new for you since you last looked at its comments. */
 const NewComments = ({ f }) => (f.new_comments > 0 ? (
-  <span className="comment-mark" title={`${f.new_comments} comment thread${f.new_comments === 1 ? '' : 's'} new for you`} aria-label={`${f.new_comments} new comment${f.new_comments === 1 ? '' : 's'}`}>
+  <span className="new-comments-pill" title={`${f.new_comments} comment thread${f.new_comments === 1 ? '' : 's'} new for you`} aria-label={`${f.new_comments} new comment${f.new_comments === 1 ? '' : 's'}`}>
     <Icon name="chat" size={13} /> {f.new_comments}
   </span>) : null);
 

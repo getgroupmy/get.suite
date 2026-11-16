@@ -649,6 +649,7 @@ export const TOOLS = [
         const text = (await api('GET', `/files/${encodeURIComponent(id)}/text`)).text || '';
         if (!text.replace(/\s+/g, ' ').includes(quote.replace(/\s+/g, ' '))) throw new ToolError(`“${quote.slice(0, 80)}” isn’t in the document: quote its exact words`);
         body.anchor = { quote };
+        body.mark_quote = true;
       } else if (f.kind === 'sheet') {
         if (!a.cell) throw new ToolError('Give cell: the cell the comment is about, like B4');
         const sheets = (await api('GET', `/files/${encodeURIComponent(id)}/content`)).content?.sheets || [];
@@ -663,7 +664,7 @@ export const TOOLS = [
       } else if (f.kind === 'folder') throw new ToolError('Folders don’t have comments: comment on a file in it');
       else body.anchor = {};
       const r = await api('POST', `/comments/${encodeURIComponent(id)}`, body);
-      return { id: r.comment?.thread_id || r.comment?.id, comment: r.comment?.id, file: f.name, ...(r.notified?.length && { notified: r.notified }), ...(r.noAccess?.length && { not_notified_cannot_open: r.noAccess }), url: fileUrl(f) };
+      return { id: r.comment?.thread_id || r.comment?.id, comment: r.comment?.id, file: f.name, ...(r.marked === false && { note: 'The words are in the document but span more than one paragraph, so they aren’t highlighted' }), ...(r.notified?.length && { notified: r.notified }), ...(r.noAccess?.length && { not_notified_cannot_open: r.noAccess }), url: fileUrl(f) };
     },
   },
   {

@@ -14,7 +14,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applySheetJson, appendToYDoc, appendToJson } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, markQuoteInJson } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 import { brokenProtections, mayEdit } from './sheetprotect.js';
@@ -187,6 +187,20 @@ export function appendToDocument(fileId, nodes, tab = null, by = null) {
   const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
   sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
   return out.tab;
+}
+/** Mark the words a comment is about (the first place they appear) in a document, live for anyone editing it. */
+export function markCommentInDocument(fileId, quote, commentId) {
+  const room = rooms.get(fileId);
+  if (room) return markQuoteInYDoc(room.doc, quote, commentId, FIELD);
+  const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc' AND trashed = 0").get(fileId);
+  if (!f) return false;
+  const out = markQuoteInJson(JSON.parse(f.content || '{}'), quote, commentId);
+  if (!out.found) return false;
+  const json = JSON.stringify(out.json);
+  q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1 WHERE id = ?').run(json, Buffer.byteLength(json), fileId);
+  const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
+  sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version });
+  return true;
 }
 /** Write one file's open editing session to the database now (if anything changed). */
 export function saveNow(fileId) { const room = rooms.get(fileId); if (room) save(room); }

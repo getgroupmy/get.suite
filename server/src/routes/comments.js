@@ -12,6 +12,7 @@ import { canReach } from '../tenancy.js';
 import { sendTo } from '../hub.js';
 import { sendDirect } from './chat.js';
 import { ftsQuery } from '../search.js';
+import { markCommentInDocument } from '../collab.js';
 
 q(`CREATE TABLE IF NOT EXISTS file_comments (
   id TEXT PRIMARY KEY,
@@ -283,11 +284,13 @@ export default function commentRoutes() {
     }
     q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, f.id, threadId, req.user.id, body, anchor ? JSON.stringify(anchor) : null, now());
+    // Asked to (an assistant, which can't select the words in the editor): mark them in the document as Docs does.
+    const marked = !threadId && f.kind === 'doc' && anchor?.quote && req.body.mark_quote ? markCommentInDocument(f.id, anchor.quote, id) : undefined;
     if (assignee) assign(req.user, f, id, body, assignee);
     const mentions = mention(req.user, f, body, threadId || id);
     tellFollowers(req.user, f, body, threadId || id, !!threadId, [...[...body.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()), ...(assignee ? [assignee.username] : [])]);
     changed(f.id);
-    res.status(201).json({ comment: listOf(f.id).find((c) => c.id === id), ...mentions });
+    res.status(201).json({ comment: listOf(f.id).find((c) => c.id === id), ...mentions, ...(marked !== undefined && { marked }) });
   });
 
   r.patch('/:fileId/:id', (req, res) => {

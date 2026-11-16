@@ -90,6 +90,56 @@ export function jsonFromDoc(doc, field = 'default') {
   return { type: 'doc', content: doc.getXmlFragment(field).toArray().flatMap(serialize) };
 }
 
+/**
+ * Mark the first place `quote` appears (within one paragraph) with a comment mark, the way a comment made in
+ * Docs marks its words, in a live document. Returns whether it was found.
+ */
+export function markQuoteInYDoc(doc, quote, commentId, field = 'default') {
+  let done = false;
+  const walk = (node) => {
+    for (const child of node.toArray()) {
+      if (done) return;
+      if (child instanceof Y.XmlText) {
+        const plain = child.toDelta().map((d) => (typeof d.insert === 'string' ? d.insert : '￼')).join('');
+        const at = plain.indexOf(quote);
+        if (at >= 0) { doc.transact(() => child.format(at, quote.length, { comment: { id: commentId } })); done = true; }
+      } else if (child instanceof Y.XmlElement) walk(child);
+    }
+  };
+  walk(doc.getXmlFragment(field));
+  return done;
+}
+
+/** The same for a stored document: { json, found }. Text nodes are split where the mark starts and ends. */
+export function markQuoteInJson(json, quote, commentId) {
+  let found = false;
+  const visit = (node) => {
+    if (found || !Array.isArray(node.content)) return node;
+    const kids = node.content;
+    if (kids.some((k) => k.type === 'text')) {
+      // Runs of text nodes (with anything else between them counting as one character, as in the editor).
+      const plain = kids.map((k) => (k.type === 'text' ? k.text || '' : '￼')).join('');
+      const at = plain.indexOf(quote);
+      if (at >= 0) {
+        found = true;
+        const end = at + quote.length, out = [];
+        let pos = 0;
+        for (const k of kids) {
+          const len = k.type === 'text' ? (k.text || '').length : 1;
+          const s = pos, e = pos + len; pos = e;
+          if (k.type !== 'text' || e <= at || s >= end) { out.push(k); continue; }
+          const cut = (a, b, mark) => { if (b > a) out.push({ ...k, text: k.text.slice(a - s, b - s), ...(mark ? { marks: [...(k.marks || []).filter((m) => m.type !== 'comment'), { type: 'comment', attrs: { id: commentId } }] } : {}) }); };
+          cut(s, Math.max(s, at), false); cut(Math.max(s, at), Math.min(e, end), true); cut(Math.min(e, end), e, false);
+        }
+        return { ...node, content: out };
+      }
+    }
+    return { ...node, content: kids.map(visit) };
+  };
+  const out = visit(json || { type: 'doc', content: [] });
+  return { json: out, found };
+}
+
 // ---- spreadsheets: a list of sheets, each with cells, column widths, formats and charts as maps, so two
 // people changing different cells at once both keep their change (the same cell: the later wins).
 const SHEET_MAPS = ['cells', 'colWidths', 'rowHeights', 'formats', 'charts', 'notes', 'slicers', 'views']; // charts: id → { type, range, title, x, y, w, h }; notes: cell → text; rowHeights: row number → pixels; views: id → filter view

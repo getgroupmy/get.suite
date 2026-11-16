@@ -63,7 +63,7 @@ await step('a11y: Home with Comments for you', async () => {
 });
 await step('a11y: Drive with new-comment badges', async () => {
   await kim.goto(`${B}/drive/shared`);
-  await kim.locator('.comment-mark').first().waitFor();
+  await kim.locator('.new-comments-pill').first().waitFor();
   await scan('Drive badges', kim);
 });
 await step('a11y: Copy to window', async () => {

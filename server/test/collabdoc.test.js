@@ -180,3 +180,26 @@ test('spreadsheets: a pivot\'s settings are kept whole (several values, grouping
   applySheetJson(doc, { sheets: [{ name: 'Data', cells: {} }, { name: 'Pivot table 1', cells: {}, pivot: { ...pivot, show: 'value' } }] });
   assert.equal(jsonFromSheetDoc(doc).sheets[1].pivot.show, 'value');
 });
+
+test('a comment’s words marked: across formatting runs, only the first place, live (Yjs) and stored alike; not across paragraphs', async () => {
+  const { markQuoteInJson, markQuoteInYDoc, docFromJson, jsonFromDoc } = await import('../src/collabdoc.js');
+  const json = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Ship it ' }, { type: 'text', text: 'on Fri', marks: [{ type: 'bold' }] }, { type: 'text', text: 'day, on Friday.' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Second' }] },
+  ] };
+  const out = markQuoteInJson(json, 'on Friday', 'c1');
+  assert.equal(out.found, true);
+  assert.deepEqual(out.json.content[0].content, [
+    { type: 'text', text: 'Ship it ' },
+    { type: 'text', text: 'on Fri', marks: [{ type: 'bold' }, { type: 'comment', attrs: { id: 'c1' } }] },
+    { type: 'text', text: 'day', marks: [{ type: 'comment', attrs: { id: 'c1' } }] },
+    { type: 'text', text: ', on Friday.' },
+  ]);
+  assert.equal(markQuoteInJson(json, 'Friday.\nSecond', 'c2').found, false);
+  // Live: the same marks end up in the shared document.
+  const doc = docFromJson(json);
+  assert.equal(markQuoteInYDoc(doc, 'on Friday', 'c1'), true);
+  const back = jsonFromDoc(doc).content[0].content;
+  assert.deepEqual(back.filter((n) => n.marks?.some((m) => m.type === 'comment')).map((n) => n.text).join(''), 'on Friday');
+  assert.equal(markQuoteInYDoc(doc, 'nowhere', 'c3'), false);
+});

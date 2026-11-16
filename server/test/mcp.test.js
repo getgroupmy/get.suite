@@ -155,6 +155,10 @@ test('comments: on words in a document, a cell, a slide, a whole file; replies; 
   const doc = (await call(rw, 'create_document', { name: 'Review me', text: 'The launch is on Friday.\nBudget is fine.' })).structuredContent;
   const c = await call(rw, 'comment_on_file', { file: doc.id, quote: 'on Friday', text: 'Is Friday still right?' });
   assert.ok(!c.isError, JSON.stringify(c));
+  // The words are marked in the document as Docs marks a comment's words.
+  const marked = JSON.stringify((await owner('GET', `/api/files/${doc.id.replace('file:', '')}/content`)).body.content);
+  assert.match(marked, new RegExp(`"text":"on Friday","marks":\\[\\{"type":"comment","attrs":\\{"id":"${c.structuredContent.comment}"\\}\\}\\]`));
+  assert.match(marked, /"text":"The launch is "/);
   assert.match((await call(rw, 'comment_on_file', { file: doc.id, quote: 'on Monday', text: 'x' })).content[0].text, /isn’t in the document/);
   assert.match((await call(rw, 'comment_on_file', { file: doc.id, text: 'x' })).content[0].text, /Give quote/);
   const reply = await call(rw, 'comment_on_file', { file: doc.id, reply_to: c.structuredContent.id, text: 'Checking with ops' });

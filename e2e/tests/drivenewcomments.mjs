@@ -46,7 +46,7 @@ await step('Drive marks files with new comments for you; it goes once you’ve l
   await kim.goto(`${B}/drive/shared`);
   const row = (name) => kim.locator('.files tbody tr', { hasText: name });
   await row('Marked doc').getByLabel('2 new comments').waitFor();
-  if (await row('Quiet doc').locator('.comment-mark').count()) throw new Error('quiet marked');
+  if (await row('Quiet doc').locator('.new-comments-pill').count()) throw new Error('quiet marked');
   await kim.screenshot({ path: `${SP}/shots/drive-new-comments.png` });
   // She opens its comments, then comes back.
   await kim.goto(`${B}/docs/${doc.id}?comment=thread-dn-1`);
@@ -55,7 +55,7 @@ await step('Drive marks files with new comments for you; it goes once you’ve l
   await kim.goto(`${B}/drive/shared`);
   await row('Quiet doc').waitFor();
   await row('Marked doc').waitFor();
-  await until(async () => (await row('Marked doc').locator('.comment-mark').count()) === 0);
+  await until(async () => (await row('Marked doc').locator('.new-comments-pill').count()) === 0);
   // Olivia replies while Kim is looking at Drive.
   await api(page, 'POST', `/comments/${doc.id}`, { body: 'One more', thread_id: 'thread-dn-2' });
   await row('Marked doc').getByLabel('1 new comment').waitFor({ timeout: 10000 });
