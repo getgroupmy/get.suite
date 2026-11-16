@@ -9,7 +9,7 @@ import { Avatar, ConfirmModal, PromptModal, useToast } from '../components/ui.js
 import DrivePicker from '../components/DrivePicker.jsx';
 import Icon from '../components/Icon.jsx';
 import { allZones, zoneName, cityOf } from '../components/zones.js';
-import { getTheme, setTheme } from '../theme.js';
+import { getTheme, setTheme, getA11y, setA11y } from '../theme.js';
 import { useMailStatus } from '../mailStatus.js';
 import { creationOptions, credentialJson, passkeysSupported, passkeyError } from '../passkey.js';
 
@@ -196,6 +196,23 @@ export function TwoStep({ onEnabled }) {
  * Mail apps (phones, Outlook): the settings to enter, and an optional mail-app password that
  * replaces the account password for them.
  */
+/** Easier to read: text size, more contrast, less motion (per device, like the theme). */
+function Readability() {
+  const [size, setSize] = useState(() => getA11y('textSize'));
+  const [contrast, setContrast] = useState(() => getA11y('contrast') === 'more');
+  const [motion, setMotion] = useState(() => getA11y('motion') === 'reduce');
+  return (
+    <div className="stack-tight">
+      <label className="field"><span>Text size</span>
+        <select value={size} onChange={(e) => setSize(setA11y('textSize', e.target.value))}>
+          <option value="normal">Normal</option><option value="larger">Larger</option><option value="largest">Largest</option>
+        </select></label>
+      <label className="check"><input type="checkbox" checked={contrast} onChange={(e) => { setA11y('contrast', e.target.checked ? 'more' : 'normal'); setContrast(e.target.checked); }} /> More contrast: darker text and borders, links in text underlined, a stronger outline on what has the keyboard</label>
+      <label className="check"><input type="checkbox" checked={motion} onChange={(e) => { setA11y('motion', e.target.checked ? 'reduce' : 'normal'); setMotion(e.target.checked); }} /> Reduce motion: no animations or sliding (also when your computer asks for it)</label>
+    </div>
+  );
+}
+
 function Appearance() {
   const [theme, set] = useState(getTheme);
   const pick = (t) => { setTheme(t); set(t); };
@@ -210,6 +227,7 @@ function Appearance() {
           </button>
         ))}
       </div>
+      <Readability />
       <p className="muted small" style={{ margin: 0 }}>Kept on this device, so a phone and a computer can differ.</p>
       <StartPage />
     </section>

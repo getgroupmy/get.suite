@@ -1573,6 +1573,8 @@ In **Admin → Company settings → Branding**, a company's admins can upload a 
 
 Workspace follows your computer's or phone's light or dark setting. To choose for yourself, go to **Settings → Appearance** and pick **Light** or **Dark** (or **System** to follow the device again). The choice is kept on that device and applies from the moment a page opens.
 
+The same place makes Workspace easier to read, also per device: **Text size** (**Larger** or **Largest** makes everything grow together, so pages keep their layout), **More contrast** (darker text and greyed text, stronger borders, links in text underlined and a stronger outline on whatever has the keyboard, in light and dark), and **Reduce motion** (no animations, sliding or smooth scrolling; Workspace also does this by itself when your computer or phone asks for less motion).
+
 ## Keyboard shortcuts
 
 Press **Ctrl+/** (**⌘/** on a Mac), or **?** outside a text field, for the list of keyboard shortcuts, with the ones for the app you're in first.

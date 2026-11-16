@@ -34,3 +34,23 @@ export function onAccent(hex) {
   const lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   return 1.05 / (lum + 0.05) >= 4.5 ? '#fff' : '#1f1f1f';
 }
+
+// Accessibility, per device (Settings → Appearance): text size, more contrast, less motion. Each is a data-
+// attribute on <html> that styles.css follows (public/theme-init.js puts them on before the page draws).
+export const A11Y = {
+  textSize: { key: 'nw.textSize', values: ['normal', 'larger', 'largest'], attr: 'textSize' },
+  contrast: { key: 'nw.contrast', values: ['normal', 'more'], attr: 'contrast' },
+  motion: { key: 'nw.motion', values: ['normal', 'reduce'], attr: 'motion' },
+};
+export function getA11y(name) {
+  const a = A11Y[name];
+  try { const v = localStorage.getItem(a.key); return a.values.includes(v) ? v : 'normal'; } catch { return 'normal'; }
+}
+export function setA11y(name, v) {
+  const a = A11Y[name];
+  const value = a.values.includes(v) ? v : 'normal';
+  const el = document.documentElement;
+  if (value === 'normal') delete el.dataset[a.attr]; else el.dataset[a.attr] = value;
+  try { if (value === 'normal') localStorage.removeItem(a.key); else localStorage.setItem(a.key, value); } catch { /* for this visit only */ }
+  return value;
+}
