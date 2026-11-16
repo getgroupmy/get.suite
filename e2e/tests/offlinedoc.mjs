@@ -101,6 +101,35 @@ await step('changed elsewhere while offline: the offline words become an offline
   await editor().getByText('Rewritten elsewhere.').waitFor();
   if (await editor().getByText(/Train words/).count()) throw new Error('old copy merged after reload');
 });
+await step('Sheets: a cell typed offline is there after reloading offline, and reaches the server when back online', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Budget', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Rent', B1: '900' } }] } })).body;
+  const cell = (k) => page.locator(`[data-k="${k}"]`);
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await cell('A1').getByText('Rent').waitFor();
+  await page.waitForTimeout(1500); // kept on the device a moment after it syncs
+  await ctx.setOffline(true);
+  await cell('A2').click();
+  await page.keyboard.type('Food');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await cell('A2').getByText('Food').waitFor({ timeout: 20000 });
+  await page.getByText(/You're offline \(opened from this device\)/).waitFor();
+  await ctx.setOffline(false);
+  await until(async () => (await api(page, 'GET', `/files/${sh.id}/content`)).body?.content?.sheets?.[0]?.cells?.A2 === 'Food', 30000);
+});
+await step('Slides: a presentation opened before opens without a connection', async () => {
+  const deck = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Pitch', content: { theme: 'light', slides: [{ id: 's1', items: [{ id: 't', type: 'text', x: 5, y: 5, w: 60, h: 12, text: 'Our pitch' }] }] } })).body;
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByText('Our pitch').first().waitFor();
+  await page.waitForTimeout(1500);
+  await ctx.setOffline(true);
+  await page.reload();
+  await page.getByText('Our pitch').first().waitFor({ timeout: 20000 });
+  await page.getByText(/You're offline \(opened from this device\)/).waitFor();
+  await ctx.setOffline(false);
+  await page.getByText(/You're offline/).first().waitFor({ state: 'detached', timeout: 20000 });
+});
 await step('signing out clears what was kept on this device', async () => {
   const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline', 1); r.onupgradeneeded = () => r.result.createObjectStore('docs'); r.onsuccess = () => { const c = r.result.transaction('docs').objectStore('docs').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
   await until(async () => (await count()) > 0, 10000); // the document open now is kept (a moment after it syncs)

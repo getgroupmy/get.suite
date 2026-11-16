@@ -8,6 +8,7 @@ import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { get, patch, post, uploadFile } from '../../api.js';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
+import { useKeptCopy, RebuiltNote, openFileDetails } from '../KeptCopy.jsx';
 import { jsonFromDeckDoc, applyDeckJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
 import { useToast, Menu, ConfirmModal, Avatar, Modal } from '../../components/ui.jsx';
@@ -82,13 +83,13 @@ export default function SlidesEditor() {
   // The presentation is shared live (Yjs): slides and boxes merge one by one.
   useEffect(() => {
     let alive = true;
-    get(`/files/${id}?open`).then((f) => {
+    openFileDetails(get, id).then((f) => { // without a connection, the copy kept on this device
       if (!alive) return;
       setFile(f);
       document.title = `${f.name} · Slides`;
       const ydoc = new Y.Doc();
       const url = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/collab`;
-      const provider = new WebsocketProvider(url, f.id, ydoc, { maxBackoffTime: 5000 });
+      const provider = new WebsocketProvider(url, f.id, ydoc, { maxBackoffTime: 5000, connect: false }); // connected once the kept copy is in (KeptCopy.jsx)
       provider.awareness.setLocalStateField('user', { id: user.id, name: user.name, color: colorFor(user.id) });
       const show = () => { const next = jsonFromDeckDoc(ydoc); deckRef.current = next; setDeck(next); };
       ydoc.on('update', show);
@@ -98,11 +99,13 @@ export default function SlidesEditor() {
       provider.awareness.on('change', () => setOthers([...provider.awareness.getStates().entries()]
         .filter(([cid, st]) => cid !== ydoc.clientID && st.user).map(([cid, st]) => ({ cid, ...st.user, sel: st.sel }))));
       setLink({ ydoc, provider });
-    }).catch((e) => { if (e.status === 404) { navigate(`/access/${id}`, { replace: true }); return; } toast(e.message, 'error'); navigate('/drive'); });
+    }).catch((e) => { if (e.status === 404) { navigate(`/access/${id}`, { replace: true }); return; } toast(e.message, 'error'); navigate(e.offline ? '/' : '/drive'); });
     return () => { alive = false; document.title = 'Workspace'; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => () => { provider?.destroy(); ydoc?.destroy(); }, [provider, ydoc]);
+  // Kept on this device: opens without a connection, and changes made offline survive closing the tab.
+  const { fromDevice, rebuilt } = useKeptCopy(file, ydoc, provider);
   const history = useUndo(ydoc, (d) => [d.getMap('deck'), d.getArray('order'), d.getMap('slides')]);
 
   const commit = useCallback((next) => {
@@ -322,7 +325,7 @@ export default function SlidesEditor() {
   return (
     <div className="editor-page slides-page">
       <EditorHeader
-        icon="slides" file={file} status={status}
+        icon="slides" file={file} status={fromDevice && status === 'connecting' ? 'offline' : status}
         onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
         onShare={() => setDialog('share')}
         extra={people.length > 0 && (
@@ -347,7 +350,7 @@ export default function SlidesEditor() {
             { label: `Theme and logo…${deck.theme === 'custom' || deck.master ? ' ✓' : ''}`, icon: 'edit', onClick: () => setDialog({ type: 'theme' }) }] : []),
         ]}
       />
-      {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
+      {rebuilt ? <RebuiltNote rebuilt={rebuilt} path="slides" /> : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep editing: your changes are kept on this device and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {!readOnly && (
         <div className={`slides-toolbar foldable ${toolsOpen ? 'open' : ''}`} role="toolbar" aria-label="Slide tools">

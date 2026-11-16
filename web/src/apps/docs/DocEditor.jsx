@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { keptDoc, keepDoc, forgetDoc, unreachable, toBase64 } from '../offlinedocs.js';
+import { keptDoc, unreachable } from '../offlinedocs.js';
+import { useKeptCopy, RebuiltNote } from '../KeptCopy.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -220,56 +221,8 @@ function SharedDoc({ file, setFile }) {
   }, [file.id]);
   useEffect(() => () => { provider.destroy(); ydoc.destroy(); }, [provider, ydoc]);
 
-  // Kept on this device (offlinedocs.js): opens without a connection, and changes made offline survive closing the tab.
-  // `dirty`: changes the server hasn't had yet. When the document was rebuilt meanwhile (a version restored, an edit
-  // from outside), the server turns the old copy away (4001) and those changes become an offline copy instead.
-  const genRef = useRef(null), dirtyRef = useRef(false), copyingRef = useRef(false);
-  const [rebuilt, setRebuilt] = useState(null); // { copy: file | null }
-  const [fromDevice, setFromDevice] = useState(!!file.offline);
-  useEffect(() => {
-    let live = true, timer = null;
-    const { offline, ...meta } = file; // eslint-disable-line no-unused-vars
-    const keep = () => { clearTimeout(timer); timer = setTimeout(() => { if (genRef.current) keepDoc(file.id, { gen: genRef.current, state: Y.encodeStateAsUpdate(ydoc), dirty: dirtyRef.current, file: meta }); }, 800); };
-    const onUpdate = (u, origin) => {
-      // Not sent yet: written while not connected, or while the browser says it's offline (a dropped connection can
-      // look open for a while before it times out).
-      if (origin !== provider && origin !== 'kept' && (!navigator.onLine || !(provider.wsconnected && provider.synced))) dirtyRef.current = true;
-      keep();
-    };
-    const onSync = (synced) => {
-      if (!synced || !provider.wsconnected) return;
-      genRef.current = ydoc.getMap('meta').get('gen') || genRef.current;
-      provider.params = genRef.current ? { gen: genRef.current } : {};
-      dirtyRef.current = false; // on syncing, what was made here has gone to the server
-      setFromDevice(false);
-      keep();
-    };
-    const onClose = async (e) => {
-      if (e?.code !== 4001 || copyingRef.current) return; // once (a second close can arrive while the copy is made)
-      copyingRef.current = true;
-      provider.disconnect();
-      // Nothing written here that the server hasn't had (a version was restored, say): just open the latest.
-      if (!dirtyRef.current) { await forgetDoc(file.id); window.location.reload(); return; }
-      let copy = null;
-      if (dirtyRef.current) { try { copy = await post(`/files/${file.id}/offline-copy`, { state: toBase64(Y.encodeStateAsUpdate(ydoc)) }); } catch { copyingRef.current = false; return; /* kept on the device for another try */ } }
-      await forgetDoc(file.id);
-      if (live) setRebuilt({ copy });
-    };
-    ydoc.on('update', onUpdate);
-    provider.on('sync', onSync);
-    provider.on('connection-close', onClose);
-    keptDoc(file.id).then((kept) => {
-      if (!live) return;
-      if (kept?.state) {
-        Y.applyUpdate(ydoc, kept.state, 'kept');
-        genRef.current = kept.gen;
-        dirtyRef.current = !!kept.dirty;
-        provider.params = kept.gen ? { gen: kept.gen } : {};
-      }
-      provider.connect();
-    });
-    return () => { live = false; clearTimeout(timer); ydoc.off('update', onUpdate); provider.off('sync', onSync); provider.off('connection-close', onClose); };
-  }, [provider, ydoc, file]);
+  // Kept on this device: opens without a connection, and changes made offline survive closing the tab (KeptCopy.jsx).
+  const { fromDevice, rebuilt } = useKeptCopy(file, ydoc, provider);
 
   useEffect(() => {
     const onStatus = ({ status: s }) => setStatus(s === 'connected' ? (provider.synced ? 'saved' : 'connecting') : s === 'disconnected' ? 'offline' : 'connecting');
@@ -750,10 +703,7 @@ function SharedDoc({ file, setFile }) {
         onPick={(f) => { setLinkingFile(false); linkFile(f); }} />}
       <style>{highlight}</style>
       <style>{printCss(file.page_setup)}</style>
-      {rebuilt ? (
-        <div className="banner warn" role="alert">This document was changed elsewhere while you were offline, so your offline changes couldn’t be added to it.
-          {rebuilt.copy ? <> They’re saved in <a href={`/docs/${rebuilt.copy.id}`}>{rebuilt.copy.name}</a>.</> : ''} <button type="button" className="link-btn" onClick={() => window.location.reload()}>Open the latest version</button></div>
-      ) : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep typing: your changes are kept on this device and sync when the connection is back.</div>}
+      {rebuilt ? <RebuiltNote rebuilt={rebuilt} path="docs" /> : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep typing: your changes are kept on this device and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {voiceTyping && !readOnly && <VoiceTypingBar editor={editor} onClose={() => { setVoiceTyping(false); editor.view.focus(); }} />}
       {reading && <ReadAloudBar key={reading.key} sentences={reading.list} onClose={() => { setReading(null); editor.view.focus(); }}

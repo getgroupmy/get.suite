@@ -5,6 +5,7 @@ import { get, patch, put } from '../../api.js';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
+import { useKeptCopy, RebuiltNote, openFileDetails } from '../KeptCopy.jsx';
 import { jsonFromSheetDoc, applySheetJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
 import { useToast, PromptModal, ConfirmModal, Menu, Avatar, ContextMenu, Modal } from '../../components/ui.jsx';
@@ -130,13 +131,13 @@ export default function SheetEditor() {
   const [{ ydoc, provider }, setLink] = useState({});
   useEffect(() => {
     let alive = true;
-    get(`/files/${id}?open`).then((f) => {
+    openFileDetails(get, id).then((f) => { // without a connection, the copy kept on this device
       if (!alive) return;
       setFile(f);
       document.title = `${f.name} · Sheets`;
       const ydoc = new Y.Doc();
       const url = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/collab`;
-      const provider = new WebsocketProvider(url, f.id, ydoc, { maxBackoffTime: 5000 });
+      const provider = new WebsocketProvider(url, f.id, ydoc, { maxBackoffTime: 5000, connect: false }); // connected once the kept copy is in (KeptCopy.jsx)
       provider.awareness.setLocalStateField('user', { id: user.id, name: user.name, color: colorFor(user.id) });
       const show = () => { const next = jsonFromSheetDoc(ydoc); dataRef.current = next; setData(next); };
       ydoc.on('update', show);
@@ -146,11 +147,13 @@ export default function SheetEditor() {
       provider.awareness.on('change', () => setOthers([...provider.awareness.getStates().entries()]
         .filter(([cid, st]) => cid !== ydoc.clientID && st.user).map(([cid, st]) => ({ cid, ...st.user, sel: st.sel }))));
       setLink({ ydoc, provider });
-    }).catch((e) => { if (e.status === 404) { navigate(`/access/${id}`, { replace: true }); return; } toast(e.message, 'error'); navigate('/drive'); });
+    }).catch((e) => { if (e.status === 404) { navigate(`/access/${id}`, { replace: true }); return; } toast(e.message, 'error'); navigate(e.offline ? '/' : '/drive'); });
     return () => { alive = false; document.title = 'Workspace'; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => () => { provider?.destroy(); ydoc?.destroy(); }, [provider, ydoc]);
+  // Kept on this device: opens without a connection, and changes made offline survive closing the tab.
+  const { fromDevice, rebuilt } = useKeptCopy(file, ydoc, provider);
   const history = useUndo(ydoc, (d) => d.getArray('sheets'));
 
   // Tell the others which cell is selected.
@@ -1186,7 +1189,7 @@ export default function SheetEditor() {
   return (
     <div className="editor-page sheet-page">
       <EditorHeader
-        icon="sheet" file={file} status={status}
+        icon="sheet" file={file} status={fromDevice && status === 'connecting' ? 'offline' : status}
         onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
         onShare={() => setDialog({ type: 'share' })}
         extra={<>
@@ -1218,7 +1221,7 @@ export default function SheetEditor() {
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
         ]}
       />
-      {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
+      {rebuilt ? <RebuiltNote rebuilt={rebuilt} path="sheets" /> : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep editing: your changes are kept on this device and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {fillOffer && (
         <div className="banner smartfill-offer" role="region" aria-label="Smart fill suggestion">
