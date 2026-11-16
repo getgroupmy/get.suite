@@ -124,6 +124,19 @@ await step('an assistant makes a presentation: it opens in Slides, a slide per h
   if ((await page.getByLabel('Speaker notes').inputValue()) !== 'Mention the waiting list') throw new Error('notes missing');
   await page.screenshot({ path: `${SP}/shots/assistant-deck.png` });
 });
+await step('an assistant sets the person’s status: colleagues see it in the Directory; cleared, it goes', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 6', scope: 'write', days: 30 })).body.token;
+  const r = await mcp(token, 'set_status', { emoji: '🎧', text: 'Focusing', until: new Date(Date.now() + 3600e3).toISOString() });
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: /Directory/ }).click().catch(async () => { await page.getByRole('button', { name: /Directory/ }).click(); });
+  await page.locator('tr', { hasText: '🎧 Focusing' }).first().waitFor();
+  await mcp(token, 'set_status', { clear: true });
+  await page.reload();
+  await page.getByRole('tab', { name: /Directory/ }).click().catch(async () => { await page.getByRole('button', { name: /Directory/ }).click(); });
+  await page.locator('table tr').nth(1).waitFor();
+  if (await page.getByText('🎧 Focusing').count()) throw new Error('not cleared');
+});
 await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');

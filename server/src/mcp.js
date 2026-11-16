@@ -365,6 +365,25 @@ export const TOOLS = [
     },
   },
   {
+    name: 'set_status', title: 'Set the person’s status', readOnly: false,
+    description: 'Set the status colleagues see next to the person’s name (in Chat, the directory, Mail): an emoji and/or a few words, like 🎧 Focusing or 🤒 Off sick, cleared automatically at a time if given. clear: true removes it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        emoji: { type: 'string', description: 'One emoji' }, text: { type: 'string', description: 'Up to 100 characters' },
+        until: { type: 'string', description: 'When to clear it (ISO 8601, e.g. 2026-11-20T17:00:00Z); it stays until changed otherwise' },
+        clear: { type: 'boolean', description: 'Remove the status' },
+      },
+    },
+    async run(api, a) {
+      if (a.clear) { await api('DELETE', '/users/me/status'); return { status: null }; }
+      if (!String(a.emoji || '').trim() && !String(a.text || '').trim()) throw new ToolError('Give an emoji, some text, or clear: true');
+      const until = timeOf(a.until, 'until');
+      const r = await api('PUT', '/users/me/status', { emoji: a.emoji || null, text: a.text || null, until });
+      return { status: { emoji: r.status?.emoji || null, text: r.status?.text || null, until: iso(r.status?.until) } };
+    },
+  },
+  {
     name: 'set_out_of_office', title: 'Set the out-of-office reply', readOnly: false,
     description: 'Turn the person’s out-of-office (vacation) auto-reply in Mail on, change it, or turn it off. While it’s on, people who email them get the message once a day. With first_day/last_day it only replies on those days (and can be marked as Out of office in their calendar with calendar: true). Ask the person for the wording if they haven’t given it.',
     inputSchema: {
@@ -810,6 +829,7 @@ function recordChange(req, tool, args) {
     : tool.name === 'update_email' && Array.isArray(args.ids) ? `${args.ids.length} email${args.ids.length === 1 ? '' : 's'}${args.move_to ? ` to ${args.move_to}` : ''}${args.read !== undefined ? (args.read ? ' read' : ' unread') : ''}${args.starred !== undefined ? (args.starred ? ' starred' : ' unstarred') : ''}`
     : tool.name === 'move_file' ? `${args.file}${args.folder !== undefined ? ` moved to ${args.folder}` : ''}${args.name !== undefined ? ` renamed “${args.name}”` : ''}`
     : tool.name === 'set_out_of_office' ? (args.on ? `out-of-office on${args.first_day ? ` from ${args.first_day}` : ''}${args.last_day ? ` to ${args.last_day}` : ''}` : 'out-of-office off')
+    : tool.name === 'set_status' ? (args.clear ? 'status cleared' : `status ${[args.emoji, args.text].filter(Boolean).join(' ')}`)
     : tool.name === 'share_file' ? `${args.file} shared with ${args.with} (${args.role})`
     : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);

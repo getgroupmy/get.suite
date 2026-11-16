@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -133,6 +133,22 @@ test('make a presentation from an outline: a title slide, slides of bullet point
 test('out-of-office reply: needs Email set up on the server (the full test is in mail.integration.js); read-only tokens can’t', async () => {
   assert.match((await call(rw, 'set_out_of_office', { on: false })).content[0].text, /Email isn’t set up on this Workspace server/);
   assert.equal((await call(ro, 'set_out_of_office', { on: false })).isError, true);
+});
+
+test('status: set with an emoji and words, cleared at a time; shown to colleagues; cleared; refusals explained', async () => {
+  const until = new Date(Date.now() + 3600e3).toISOString();
+  const r = await call(rw, 'set_status', { emoji: '🎧', text: 'Focusing', until });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual(r.structuredContent.status, { emoji: '🎧', text: 'Focusing', until: new Date(Date.parse(until)).toISOString() });
+  const me = (await owner('GET', '/api/users/directory')).body.find((u) => u.status?.text === 'Focusing');
+  assert.equal(me?.status.emoji, '🎧');
+  assert.match((await call(rw, 'find_people', { query: me.username })).structuredContent.people[0].status, /🎧 Focusing/);
+  assert.equal((await call(rw, 'set_status', { clear: true })).structuredContent.status, null);
+  assert.equal((await owner('GET', '/api/users/me/status')).body.status, null);
+  assert.match((await call(rw, 'set_status', {})).content[0].text, /Give an emoji, some text/);
+  assert.match((await call(rw, 'set_status', { text: 'x', until: '2001-01-01T00:00:00Z' })).content[0].text, /in the future/);
+  assert.equal((await call(ro, 'set_status', { text: 'x' })).isError, true);
+  assert.match(JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body), /status 🎧 Focusing/);
 });
 
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {
