@@ -207,6 +207,27 @@ await step('Notes: a note changed offline keeps the change here (even after relo
   await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   await until(async () => ((await api(page, 'GET', '/notes')).body || []).some((n) => n.title === 'Packing list' && n.body === 'Boots and a rain jacket'), 10000);
 });
+await step('Settings → This device: what is kept here, a warning about what is not sent yet, and removing it all', async () => {
+  const me = (await api(page, 'GET', '/auth/me')).body.user.id;
+  await page.goto(`${B}/settings`);
+  const sec = page.getByRole('region', { name: 'This device' }).or(page.locator('section[aria-labelledby="device-h"]'));
+  const kept = sec.getByRole('list', { name: 'Kept on this device' });
+  await kept.getByText(/\d+ files? \(the last you opened\)/).waitFor();
+  await kept.getByText(/\d+ lists? last seen/).waitFor();
+  // A change made offline and not sent yet (as Tasks keeps it).
+  await page.evaluate((user) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction('changes', 'readwrite'); t.objectStore('changes').put({ method: 'PATCH', url: '/tasks/tasks/x', body: {}, user, label: 'x', at: Date.now() }, `${Date.now()}-t`); t.oncomplete = () => { r.result.close(); res(); }; }; }), me);
+  await page.reload();
+  await kept.getByText('1 change waiting to be made').waitFor();
+  await sec.getByRole('button', { name: 'Remove everything kept here' }).click();
+  const d = page.getByRole('dialog', { name: 'Remove everything kept on this device?' });
+  await d.getByText(/Not sent yet, and lost if you remove it: 1 change/).waitFor();
+  await d.getByRole('button', { name: 'Remove' }).click();
+  await page.getByText('Nothing is kept on this device now').waitFor();
+  await kept.getByText('0 files (the last you opened)').waitFor();
+  if (await kept.getByText(/change waiting/).count()) throw new Error('the change is still listed');
+  await page.goto(`${B}/docs/${doc.id}`); // something kept again for the steps below
+  await editor().waitFor();
+});
 await step('signing out clears what was kept on this device', async () => {
   const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { if (!r.result.objectStoreNames.contains('docs')) { r.result.close(); res(0); return; } const c = r.result.transaction('docs').objectStore('docs').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
   await until(async () => (await count()) > 0, 10000); // the document open now is kept (a moment after it syncs)

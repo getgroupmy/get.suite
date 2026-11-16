@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
 import { api, get, patch, post, put, del, putBlob, postBlob, uploadFile, formatBytes, onLive } from '../api.js';
@@ -79,6 +79,7 @@ export default function Settings() {
       <FileFormat />
       <Profile />
       <ViewHistory />
+      <ThisDevice />
       <ReadReceipts />
       <QuietHours />
       <MorningSummary />
@@ -434,6 +435,47 @@ function ViewHistory() {
         try { await put('/users/me/view-history', { show: next }); toast(next ? 'Owners and editors can see when you open their files' : 'Your openings are hidden, and the ones kept so far are forgotten'); } catch (err) { setShow(!next); toast(err.message, 'error'); }
       }} /> Show the owners and editors of files when I've opened them</label>
       <p className="muted small" style={{ margin: 0 }}>They see it in Drive → Details → Who has seen it. Turning this off also forgets the openings kept so far.</p>
+    </section>
+  );
+}
+
+/** What's kept in this browser for working offline (files, lists, email waiting to send, changes not sent yet), and clearing it. */
+function ThisDevice() {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [k, setK] = useState(null);
+  const [asking, setAsking] = useState(false);
+  const load = useCallback(async () => {
+    const { keptList, apiCount, outboxList, changeList } = await import('./offlinedocs.js');
+    const [files, lists, mails, changes, est] = await Promise.all([keptList(), apiCount(), outboxList(user.id), changeList(user.id), navigator.storage?.estimate?.().catch(() => null)]);
+    setK({ files: files.length, unsentFiles: files.filter((f) => f.dirty).length, lists, mails: mails.length, changes: changes.length, used: est?.usage ?? null });
+  }, [user.id]);
+  useEffect(() => { load(); }, [load]);
+  if (!k) return null;
+  const unsent = k.unsentFiles + k.mails + k.changes;
+  const clear = async () => {
+    setAsking(false);
+    const { forgetAll } = await import('./offlinedocs.js');
+    await forgetAll();
+    toast('Nothing is kept on this device now');
+    load();
+  };
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  return (
+    <section className="card stack" aria-labelledby="device-h">
+      <h2 id="device-h">This device</h2>
+      <p className="muted small" style={{ margin: 0 }}>Kept in this browser so Workspace works without a connection. Signing out clears it.</p>
+      <ul className="plain-list small device-kept" aria-label="Kept on this device">
+        <li>{plural(k.files, 'file', 'files')} (the last you opened){k.unsentFiles ? `, ${k.unsentFiles} with changes not sent yet` : ''}</li>
+        <li>{plural(k.lists, 'list', 'lists')} last seen (mail, calendar, tasks, contacts, notes)</li>
+        {k.mails > 0 && <li>{plural(k.mails, 'email', 'emails')} waiting to send</li>}
+        {k.changes > 0 && <li>{plural(k.changes, 'change', 'changes')} waiting to be made</li>}
+        {k.used != null && <li className="muted">About {formatBytes(k.used)} used</li>}
+      </ul>
+      <div><button type="button" className="btn" disabled={!k.files && !k.lists && !k.mails && !k.changes} onClick={() => setAsking(true)}>Remove everything kept here</button></div>
+      {asking && <ConfirmModal title="Remove everything kept on this device?" confirm="Remove" danger
+        message={unsent ? `Not sent yet, and lost if you remove it: ${[k.unsentFiles && plural(k.unsentFiles, 'file with changes', 'files with changes'), k.mails && plural(k.mails, 'email', 'emails'), k.changes && plural(k.changes, 'change', 'changes')].filter(Boolean).join(', ')}. Connect first to send them.` : 'Files and lists open again from the server when you’re connected; they won’t open here without a connection until you open them again.'}
+        onConfirm={clear} onClose={() => setAsking(false)} />}
     </section>
   );
 }

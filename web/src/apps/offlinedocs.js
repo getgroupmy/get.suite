@@ -114,3 +114,6 @@ export async function keepChange({ method, url, body, user, label, id }) {
   if (id) await patchKeptItem(id, body);
   window.dispatchEvent(new Event('nw:changes'));
 }
+
+/** How many lists' last answers are kept (Settings → This device). */
+export const apiCount = () => run('readonly', (s) => s.count(), 'api').then((n) => n || 0).catch(() => 0);
