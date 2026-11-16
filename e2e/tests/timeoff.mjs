@@ -58,6 +58,7 @@ await step('Kim (reporting to Olivia) asks for three days off', async () => {
   await kim.getByText('Asked for time off').waitFor();
   await dlg.getByRole('region', { name: 'Your time off' }).getByText('Waiting for an answer').waitFor();
   await dlg.getByText('(3 working days)').waitFor();
+  await dlg.getByRole('region', { name: 'Your time off' }).getByText('Your note: “Moving house”').waitFor(); // their own note, as they wrote it
 });
 await step('Olivia sees it waiting (badge, bell) and approves with an answer', async () => {
   await page.goto(`${B}/calendar`);

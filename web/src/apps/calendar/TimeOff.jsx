@@ -95,7 +95,8 @@ export default function TimeOff({ onClose, onChanged }) {
               {data.mine.map((r) => (
                 <li key={r.id} className="row wrap" style={{ gap: 8 }}>
                   <span className="grow">{r.kind_label}: {span(r)} <span className="muted small">({daysText(r.days)})</span>
-                    <br /><span className={`small timeoff-${r.status}`}>{STATUS[r.status]}{r.decided_by_name && r.status !== 'cancelled' ? ` by ${r.decided_by_name}` : ''}{r.answer ? `: “${r.answer}”` : ''}</span></span>
+                    <br /><span className={`small timeoff-${r.status}`}>{STATUS[r.status]}{r.decided_by_name && r.status !== 'cancelled' ? ` by ${r.decided_by_name}` : ''}{r.answer ? `: “${r.answer}”` : ''}</span>
+                    {r.note && <><br /><span className="small muted">Your note: “{r.note}”</span></>}</span>
                   {['pending', 'approved'].includes(r.status) && r.end_date >= localToday() && <button type="button" className="btn small" aria-label={`Cancel time off ${span(r)}`} onClick={() => cancel(r)}>Cancel</button>}
                 </li>
               ))}
