@@ -67,6 +67,25 @@ await step('a recording can be thrown away instead', async () => {
   await page.waitForTimeout(800);
   if (await page.getByRole('list', { name: 'Files to send' }).count()) throw new Error('kept');
 });
+await step('what was said goes in the message box, to check and send with the recording', async () => {
+  await page.evaluate(() => {
+    window.SpeechRecognition = function () { window.__rec = this; };
+    window.SpeechRecognition.prototype.start = function () { this.started = true; };
+    window.SpeechRecognition.prototype.stop = function () { this.stopped = true; };
+    window.__hear = (text) => { const res = [{ transcript: text }]; res.isFinal = true; window.__rec.onresult?.({ resultIndex: 0, results: [res] }); };
+  });
+  const box = page.getByLabel('Message', { exact: true });
+  await box.fill('Quick one:');
+  await page.getByRole('button', { name: 'Record a voice message' }).click();
+  await page.waitForFunction(() => !!window.__rec?.started);
+  await page.evaluate(() => window.__hear('the client moved the meeting to Thursday'));
+  await page.waitForTimeout(1200);
+  await page.getByRole('button', { name: 'Stop recording' }).click();
+  await page.getByRole('list', { name: 'Files to send' }).getByLabel(/Recording: Voice message/).waitFor();
+  await until(async () => (await box.inputValue()) === 'Quick one: the client moved the meeting to Thursday');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await kim.locator('.msg', { hasText: 'the client moved the meeting to Thursday' }).getByLabel('Voice message from Olivia Owner').waitFor();
+}, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -926,7 +926,8 @@ export default function Chat() {
           ) : <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
             <ChatEmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
-            <VoiceRecorder onDone={(file) => attach([file])} />
+            {/* What was said goes in the message box with it, to check before sending: read as well as played. */}
+            <VoiceRecorder transcribe onDone={(file, ms, words) => { attach([file]); if (words) { setTextKept((v) => (v.trim() ? `${v.trimEnd()} ${words}` : words)); box.current?.focus(); } }} />
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
