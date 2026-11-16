@@ -907,7 +907,13 @@ export default function taskRoutes() {
     // New tasks go on top, unless asked to go at the end.
     const edge = q(`SELECT ${req.body.at === 'end' ? 'MAX' : 'MIN'}(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL`).get(list.id).p;
     const position = edge === null ? 0 : req.body.at === 'end' ? edge + 1 : edge - 1;
-    const id = uid(), t = now();
+    // A task made offline comes with the id the browser gave it: sent twice (a retry), it's made once.
+    const want = typeof req.body.id === 'string' && /^[A-Za-z0-9_-]{16,40}$/.test(req.body.id) ? req.body.id : null;
+    if (want) {
+      const had = q(`${TASK} WHERE t.id = ?`).get(want);
+      if (had) { if (had.list_id !== list.id || had.created_by !== req.user.id) throw bad('That id is taken'); return res.json(shape(had)); }
+    }
+    const id = want || uid(), t = now();
     const due = dueOf(req.body.due), repeat = repeatOf(req.body.repeat);
     const dueTime = due ? dueTimeOf(req.body.due_time) : null;
     if (repeat && !due) throw bad('A repeating task needs a due date');

@@ -1,4 +1,4 @@
-import { unreachable, keepChange } from '../offlinedocs.js';
+import { unreachable, keepChange, changeAdd, appendKept, offlineId } from '../offlinedocs.js';
 // Notes: quick notes and checklists on coloured cards. "Take a note…" at the top, pinned ones first,
 // labels and the archive on the left, and sharing with colleagues (they see changes as they happen).
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -133,6 +133,7 @@ export default function Notes() {
   }, [where, search, kind, toast]);
   useEffect(() => { const t = setTimeout(load, search ? 250 : 0); return () => clearTimeout(t); }, [load, search]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed' || m.type === 'live-connected') load(); }), [load]);
+  useEffect(() => { window.addEventListener('nw:changes-sent', load); return () => window.removeEventListener('nw:changes-sent', load); }, [load]);
   // A result from the search box in the top bar: open that note.
   const location = useLocation();
   const navigate = useNavigate();
@@ -356,6 +357,7 @@ export default function Notes() {
 /** "Take a note…": opens into a title and text (or a checklist) when clicked. */
 function Composer({ label, onMade }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ title: '', body: '', items: null, color: '' });
   const box = useRef();
@@ -363,8 +365,21 @@ function Composer({ label, onMade }) {
   const save = async () => {
     const items = f.items?.filter((i) => i.text.trim());
     if (!f.title.trim() && !f.body.trim() && !items?.length) { reset(); return; }
-    try { await post('/notes', { title: f.title, body: f.items ? '' : f.body, ...(f.items && { items }), color: f.color || null, labels: label ? [label] : [] }); reset(); onMade(); }
-    catch (e) { toast(e.message, 'error'); }
+    const body = { id: offlineId(), title: f.title, body: f.items ? '' : f.body, ...(f.items && { items }), color: f.color || null, labels: label ? [label] : [] };
+    try { await post('/notes', body); reset(); onMade(); }
+    catch (e) {
+      // No connection: the note is made when it's back (with this id, so a repeat makes nothing twice); shown first meanwhile.
+      if (unreachable(e)) {
+        const note = { ...body, items: body.items || null, pinned: false, archived: false, trashed_at: null, remind_at: null, pictures: [], recordings: [], mine: true, owner: user && { id: user.id, name: user.name, username: user.username }, shared: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString(), offline: true };
+        await changeAdd({ method: 'POST', url: '/notes', body, user: user?.id, label: f.title || 'a note' });
+        await appendKept('/notes?', note, { first: true });
+        window.dispatchEvent(new Event('nw:changes'));
+        reset(); onMade(note);
+        toast('Note saved on this device, made when the connection is back');
+        return;
+      }
+      toast(e.message, 'error');
+    }
   };
   useEffect(() => {
     if (!open) return undefined;

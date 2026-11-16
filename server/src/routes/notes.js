@@ -596,7 +596,13 @@ export default function noteRoutes() {
     const body = str(b.body ?? '', { max: 20000 }) || '';
     if (!title.trim() && !body.trim() && !(items || []).some((i) => i.text.trim())) throw bad('The note is empty');
     if (b.color && !COLORS.includes(b.color)) throw bad('Unknown colour');
-    const id = uid(), t = now();
+    // A note made offline comes with the id the browser gave it: sent twice (a retry), it's made once.
+    const want = typeof b.id === 'string' && /^[A-Za-z0-9_-]{16,40}$/.test(b.id) ? b.id : null;
+    if (want) {
+      const had = q('SELECT * FROM notes WHERE id = ?').get(want);
+      if (had) { if (had.owner_id !== req.user.id) throw bad('That id is taken'); return res.json(shape(had, req.user.id)); }
+    }
+    const id = want || uid(), t = now();
     const top = topFor(req.user.id);
     q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, title, body, items ? JSON.stringify(items) : null, b.color || null, b.pinned ? 1 : 0, JSON.stringify(cleanLabels(b.labels || [])), top, t, t, req.user.id);

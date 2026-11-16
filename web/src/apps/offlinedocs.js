@@ -116,14 +116,17 @@ export async function keepChange({ method, url, body, user, label, id }) {
   window.dispatchEvent(new Event('nw:changes'));
 }
 
+/** An id for something made offline: the server makes it with this id when the connection is back (a repeat send makes nothing twice). */
+export const offlineId = () => `off${(crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 32)}`;
+
 /** How many lists' last answers are kept (Settings → This device). */
 export const apiCount = () => run('readonly', (s) => s.count(), 'api').then((n) => n || 0).catch(() => 0);
 
 /** Something added offline (a chat message waiting to be sent): added to the end of the kept list whose address ends so. */
-export async function appendKept(urlEnd, item) {
+export async function appendKept(urlEnd, item, { first = false } = {}) {
   try {
     const hits = [];
     await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (String(cur.key).endsWith(urlEnd) && Array.isArray(cur.value?.data)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
-    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: [...v.data, item] }, k); }, 'api');
+    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: first ? [item, ...v.data] : [...v.data, item] }, k); }, 'api');
   } catch { /* the kept list just doesn't show it */ }
 }

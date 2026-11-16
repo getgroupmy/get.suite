@@ -207,6 +207,37 @@ await step('Notes: a note changed offline keeps the change here (even after relo
   await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   await until(async () => ((await api(page, 'GET', '/notes')).body || []).some((n) => n.title === 'Packing list' && n.body === 'Boots and a rain jacket'), 10000);
 });
+await step('a task and a note made offline show here (even after reloading) and are made once on the server when back', async () => {
+  await page.goto(`${B}/tasks`);
+  await page.getByText('Trip').first().click();
+  await page.getByLabel('Add a task').waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByLabel('Add a task').fill('Buy sun cream');
+  await page.keyboard.press('Enter');
+  await page.getByText(/“Buy sun cream” added on this device/).waitFor({ timeout: 15000 });
+  await page.getByLabel('Done: Buy sun cream').waitFor();
+  await page.reload();
+  await page.getByText('Trip').first().click().catch(() => {});
+  await page.getByLabel('Done: Buy sun cream').waitFor({ timeout: 20000 }); // still there after reloading offline
+  await page.goto(`${B}/notes`).catch(() => {});
+  await page.getByRole('button', { name: 'Take a note…' }).click({ timeout: 20000 });
+  await page.getByLabel('Title').fill('Ferry times');
+  await page.getByLabel('Take a note').fill('08:15 and 17:40');
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.getByText('Note saved on this device').waitFor({ timeout: 15000 });
+  await page.getByRole('article', { name: 'Ferry times' }).waitFor();
+  await page.reload();
+  await page.getByRole('article', { name: 'Ferry times' }).waitFor({ timeout: 20000 });
+  await ctx.setOffline(false);
+  await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
+  await until(async () => ((await api(page, 'GET', '/notes')).body || []).filter((n) => n.title === 'Ferry times' && n.body === '08:15 and 17:40').length === 1, 10000);
+  const lists = (await api(page, 'GET', '/tasks/lists')).body;
+  const trip = (Array.isArray(lists) ? lists : lists.lists).find((l) => l.name === 'Trip');
+  const made = ((await api(page, 'GET', `/tasks/lists/${trip.id}/tasks`)).body || []).filter((t) => t.title === 'Buy sun cream');
+  if (made.length !== 1) throw new Error(`${made.length} tasks`);
+  await page.getByRole('article', { name: 'Ferry times' }).waitFor(); // the list reloaded from the server keeps it
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });

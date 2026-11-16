@@ -1,4 +1,4 @@
-import { unreachable, changeAdd, patchKeptTask } from '../offlinedocs.js';
+import { unreachable, changeAdd, patchKeptTask, appendKept, offlineId } from '../offlinedocs.js';
 // Tasks: your to-do lists and the ones colleagues share with you. Add a task with Enter, tick it
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
 import { createPortal } from 'react-dom';
@@ -227,8 +227,22 @@ export default function Tasks() {
     if (!text || !list) return;
     const body = quick?.found.length ? { title: quick.title, due: quick.due, due_time: quick.due_time, repeat: quick.repeat, important: quick.important, ...(quick.priority && { priority: quick.priority }), assignee_id: quick.assignee_id, tags: quick.tags } : { title: text };
     setTitle(''); setAsTyped(false);
-    try { await post(`/tasks/lists/${list.id}/tasks`, body); loadTasks(); loadLists(); }
-    catch (err) { toast(err.message, 'error'); setTitle(text); }
+    const id = offlineId();
+    try { await post(`/tasks/lists/${list.id}/tasks`, { ...body, id }); loadTasks(); loadLists(); }
+    catch (err) {
+      // No connection: the task is made when it's back (with this id, so a repeat makes nothing twice); shown meanwhile.
+      if (unreachable(err)) {
+        const url = `/tasks/lists/${list.id}/tasks`;
+        const task = { id, list_id: list.id, title: body.title, notes: '', due: body.due || null, due_time: body.due_time || null, important: !!body.important, priority: body.priority || null, done: false, started: false, steps: [], attachments: [], blocked_by: [], tags: body.tags || [], section_id: null, assignee_id: body.assignee_id || null, created_by: user?.id, created_at: new Date().toISOString(), offline: true };
+        await changeAdd({ method: 'POST', url, body: { ...body, id }, user: user?.id, label: body.title });
+        await appendKept(url, task);
+        window.dispatchEvent(new Event('nw:changes'));
+        setTasks((all) => (all ? [...all, task] : [task]));
+        toast(`“${body.title}” added on this device, sent when the connection is back`);
+        return;
+      }
+      toast(err.message, 'error'); setTitle(text);
+    }
   }
   function drop(index, intoSection = dropSec) {
     const t = open.find((x) => x.id === dragging);
