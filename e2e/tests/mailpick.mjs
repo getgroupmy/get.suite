@@ -61,7 +61,7 @@ await step('V on an open message: type to find the folder, Enter moves it there'
   await page.screenshot({ path: `${SP}/shots/movepicker.png` });
   // The picker passes the accessibility checks (options are the rows themselves, no buttons inside), and with nothing found.
   const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
-  const axe = async () => { await page.addScriptTag({ content: AXE }); const r = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes[0]?.html.slice(0, 120)}`)); if (r.length) throw new Error(r.join(' | ')); };
+  const axe = async () => { await page.evaluate(AXE); const r = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes[0]?.html.slice(0, 120)}`)); if (r.length) throw new Error(r.join(' | ')); };
   await axe();
   await d.getByLabel('Find').fill('zzz');
   await d.getByText('Nothing matches “zzz”').waitFor();

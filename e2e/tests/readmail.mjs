@@ -75,7 +75,7 @@ const AXE = (await import('node:fs')).readFileSync(new URL('../node_modules/axe-
 const axe = async (p, label) => {
   for (const scheme of ['light', 'dark']) {
     await p.emulateMedia({ colorScheme: scheme });
-    await p.addScriptTag({ content: AXE });
+    await p.evaluate(AXE);
     const r = await p.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id}: ${x.nodes[0]?.html.slice(0, 120)}`));
     if (r.length) throw new Error(`${label} ${scheme}: ${r.join(' | ')}`);
   }

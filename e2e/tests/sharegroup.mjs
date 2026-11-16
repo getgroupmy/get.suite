@@ -65,7 +65,7 @@ await step('three files shared with her: one entry counting them, opening Shared
   const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
   for (const scheme of ['light', 'dark']) {
     await kim.emulateMedia({ colorScheme: scheme });
-    await kim.addScriptTag({ content: AXE });
+    await kim.evaluate(AXE);
     const r = await kim.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id}: ${x.nodes[0]?.html.slice(0, 120)}`));
     if (r.length) throw new Error(`${scheme}: ${r.join(' | ')}`);
   }

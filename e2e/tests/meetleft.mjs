@@ -65,7 +65,7 @@ await step('after leaving: how long, Who joined (2), Meeting chat (1); both open
   await max.getByRole('dialog', { name: 'Chat from Retro' }).getByText('Went well').waitFor();
   await max.getByRole('dialog', { name: 'Chat from Retro' }).getByRole('button', { name: 'Done' }).click();
   const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
-  await max.addScriptTag({ content: AXE });
+  await max.evaluate(AXE);
   const res = await max.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes[0]?.html.slice(0, 150)}`));
   if (res.length) throw new Error(res.join(' | '));

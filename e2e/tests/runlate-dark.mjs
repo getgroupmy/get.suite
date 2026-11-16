@@ -76,7 +76,7 @@ await step('a daily event: late today is shown on today’s, not on tomorrow’s
   await max.getByRole('menuitem', { name: '5 minutes late', exact: true }).click();
   await g.getByText('⏱ Max Meet: 5 min late').waitFor();
   const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
-  await max.addScriptTag({ content: AXE });
+  await max.evaluate(AXE);
   const res = await max.evaluate(async () => (await window.axe.run(document.querySelector('[role="dialog"]'), { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes[0]?.html.slice(0, 150)}`));
   if (res.length) throw new Error(res.join(' | '));

@@ -48,7 +48,7 @@ for (const [name, path] of Object.entries(PAGES())) {
     await page.goto(B + path);
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(1200);
-    await page.addScriptTag({ content: AXE });
+    await page.evaluate(AXE);
     const res = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations
       .filter((v) => v.impact === 'serious' || v.impact === 'critical')
       .map((v) => ({ id: v.id, impact: v.impact, help: v.help, n: v.nodes.length, where: v.nodes.slice(0, 3).map((x) => x.target.join(' ')).join(' | '), html: v.nodes[0]?.html.slice(0, 160) })));

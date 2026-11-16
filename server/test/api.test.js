@@ -8648,7 +8648,7 @@ test('embedding: public forms and published pages may be framed by other sites; 
   try {
   for (const p of ['/pub/abcDEF123', '/f/someToken', '/f/someToken/']) {
     const r = await fetch(`${site}${p}`);
-    assert.equal(r.headers.get('content-security-policy'), 'frame-ancestors *', p);
+    assert.match(r.headers.get('content-security-policy'), /(^|; )frame-ancestors \*(;|$)/, p); // with the rest of the page's policy
     assert.equal(r.headers.get('x-frame-options'), null, p);
   }
   for (const p of ['/drive', '/pub/a/b', '/f/x/edit', '/api/public/pub/abc']) {

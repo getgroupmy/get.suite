@@ -64,7 +64,7 @@ const smtp = nodemailer.createTransport({ host: "127.0.0.1", port: 25, secure: f
 const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
 const results = {};
 const audit = async (name) => {
-  await page.addScriptTag({ content: AXE });
+  await page.evaluate(AXE);
   results[name] = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations
     .map((v) => ({ id: v.id, impact: v.impact, n: v.nodes.length, help: v.help, eg: v.nodes.slice(0, 2).map((x) => `${x.target.join(' ')} :: ${x.failureSummary?.slice(0, 160)}`) })));
 };

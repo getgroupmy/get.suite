@@ -41,7 +41,7 @@ await step('setup', async () => {
 const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
 const scan = async (label) => {
   await page.waitForTimeout(300);
-  await page.addScriptTag({ content: AXE });
+  await page.evaluate(AXE);
   const res = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}(${v.nodes.length}): ${v.nodes[0]?.target.join(' ')} ${v.nodes[0]?.html.slice(0, 160)}`));
   if (res.length) throw new Error(`${label}: ${res.join(' | ')}`);

@@ -86,7 +86,7 @@ await step('the sender sees the note and what it takes; the picker is limited; w
   const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
   for (const scheme of ['light', 'dark']) {
     await v.emulateMedia({ colorScheme: scheme });
-    await v.addScriptTag({ content: AXE });
+    await v.evaluate(AXE);
     const r = await v.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id}: ${x.nodes[0]?.html.slice(0, 100)}`));
     if (r.length) throw new Error(`${scheme}: ${r.join(' | ')}`);
   }

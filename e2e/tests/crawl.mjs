@@ -41,6 +41,8 @@ page.on('response', (r) => {
   if (r.status() >= 500 || (r.status() >= 400 && ![401, 404].includes(r.status()))) bad.push(`${r.status()} ${r.request().method()} ${u.pathname}${u.search}`);
 });
 let ids = {};
+// What the page's Content-Security-Policy blocks (the harness's console filter ignores those messages).
+await page.context().addInitScript(() => { window.__csp = []; document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`)); });
 await step('something to open', async () => {
   for (const kind of ['doc', 'sheet', 'slides']) ids[kind] = (await api(page, 'POST', '/files/new', { kind, name: `Crawl ${kind}` })).body.id;
   ids.form = (await api(page, 'POST', '/forms', { title: 'Crawl form' })).body.id;
@@ -61,7 +63,8 @@ await step('every screen opens cleanly', async () => {
     const before = bad.length, errs = errors.length;
     await page.goto(`${B}${path}`);
     await page.waitForTimeout(1800);
-    if (bad.length > before || errors.length > errs) found.push(`${path}: ${[...bad.slice(before), ...errors.slice(errs)].join(' | ')}`);
+    const csp = await page.evaluate(() => window.__csp || []).catch(() => []);
+    if (bad.length > before || errors.length > errs || csp.length) found.push(`${path}: ${[...bad.slice(before), ...errors.slice(errs), ...csp.map((c) => `CSP blocked: ${c}`)].join(' | ')}`);
   }
   if (found.length) throw new Error(`\n  ${found.join('\n  ')}`);
 });
@@ -83,6 +86,24 @@ await step('every screen opens cleanly for someone who isn’t an admin too', as
     if (seen.length > a || errs.length > b) found.push(`${path}: ${[...seen.slice(a), ...errs.slice(b)].join(' | ')}`);
   }
   if (found.length) throw new Error(`\n  ${found.join('\n  ')}`);
+});
+await step('the app page has a Content-Security-Policy that stops injected script', async () => {
+  const r = await page.request.get(`${B}/drive`);
+  const csp = r.headers()['content-security-policy'] || '';
+  if (!/script-src 'self'(;|$)/.test(csp) || /unsafe-inline[^;]*;?\s*$/.test(csp.match(/script-src[^;]*/)?.[0] || '')) throw new Error(csp);
+  // An injected handler and a javascript: link don't run.
+  await page.goto(`${B}/home`);
+  const ran = await page.evaluate(async () => {
+    window.__ran = 0;
+    const d = document.createElement('div');
+    d.innerHTML = '<img src="/no-such-picture.png" onerror="window.__ran++"><a id="jsl" href="javascript:window.__ran++">x</a>';
+    document.body.appendChild(d);
+    document.getElementById('jsl').click();
+    await new Promise((ok) => setTimeout(ok, 300));
+    d.remove();
+    return window.__ran;
+  });
+  if (ran) throw new Error(`injected script ran ${ran} time(s)`);
 });
 await step('without email on the server, Mail says so plainly (not “Server error”)', async () => {
   if ((await api(page, 'GET', '/mail/status')).body.enabled) { console.log('SKIP (email is set up in this run)'); return; }

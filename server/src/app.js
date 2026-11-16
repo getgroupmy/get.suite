@@ -179,6 +179,19 @@ export function createApp({
   // these: public/sw.js): nothing is read or kept here, Drive just opens.
   app.post('/share-target', (req, res) => res.redirect(303, '/drive'));
 
+  // What browsers report the app page's Content-Security-Policy blocked: into the server log, to spot something the
+  // policy stops that it shouldn't (or an attempt it rightly stopped). Small and rate-limited per address.
+  const cspSeen = new Map();
+  app.post('/csp-report', express.json({ type: () => true, limit: '8kb' }), (req, res) => {
+    const r = req.body?.['csp-report'] || req.body || {};
+    const n = (cspSeen.get(req.ip) || 0) + 1;
+    cspSeen.set(req.ip, n);
+    if (cspSeen.size > 1000) cspSeen.clear();
+    if (n <= 20) console.warn('[csp] blocked', String(r['violated-directive'] || r['effective-directive'] || '').slice(0, 60), String(r['blocked-uri'] || '').slice(0, 200), 'on', String(r['document-uri'] || '').replace(/[?#].*$/, '').slice(0, 200));
+    res.status(204).end();
+  });
+  setInterval(() => cspSeen.clear(), 3600e3).unref();
+
   // Web app (built React bundle) with SPA fallback.
   if (publicDir && fs.existsSync(publicDir)) {
     publicDir = path.resolve(publicDir);
@@ -191,7 +204,18 @@ export function createApp({
       if (/[\\/](sw\.js|manifest\.webmanifest)$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); // the installed app picks up new versions at once
     } }));
     const index = path.join(publicDir, 'index.html');
-    app.use((req, res, next) => (req.method === 'GET' ? res.sendFile(index, { headers: { 'Cache-Control': 'no-cache' } }) : next()));
+    // The app's own page: only its own scripts run (no inline script, event handlers or javascript: links, wherever
+    // they might slip in), plus what the app needs: inline styles, pictures from anywhere (emails' pictures, once
+    // allowed), media and previews from blob: and data:, and its live connection.
+    const csp = (req) => {
+      const host = String(req.get('host') || '').replace(/[^\w.:[\]-]/g, '');
+      return [
+        "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", 'img-src * data: blob:', "media-src 'self' data: blob:",
+        "font-src 'self' data:", `connect-src 'self'${host ? ` ws://${host} wss://${host}` : ''}`, "frame-src 'self' blob: data:", "worker-src 'self' blob:",
+        "object-src 'none'", "base-uri 'self'", "form-action 'self'", `frame-ancestors ${EMBEDDABLE.test(req.path) ? '*' : "'self'"}`, 'report-uri /csp-report',
+      ].join('; ');
+    };
+    app.use((req, res, next) => (req.method === 'GET' ? res.sendFile(index, { headers: { 'Cache-Control': 'no-cache', 'Content-Security-Policy': csp(req) } }) : next()));
   }
 
   app.use((err, req, res, next) => {
