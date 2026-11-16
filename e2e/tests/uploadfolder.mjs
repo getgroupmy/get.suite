@@ -49,8 +49,10 @@ await step('Upload folder: the folder arrives with its folders and files', async
   await until(async () => (await api(page, 'GET', `/files?parent=${photos.id}`)).body.map((f) => f.name).sort().join() === 'beach.txt,hills.txt', 15000);
   await page.screenshot({ path: `${SP}/shots/upload-folder.png` });
 });
-await step('the same folder again goes into the same folders (files get new names, folders aren’t doubled)', async () => {
+await step('the same folder again, merged: into the same folders (files get new names, folders aren’t doubled)', async () => {
   await page.getByLabel('Folder to upload').setInputFiles(`${ROOT}/e2e/fixtures/Trip`);
+  // Asked first (Merge, Keep both or Cancel): merge, as it always did.
+  await page.getByRole('dialog', { name: 'A folder named “Trip” is already here' }).getByRole('button', { name: 'Merge' }).click();
   const trip = (await api(page, 'GET', '/files')).body.filter((f) => f.name === 'Trip');
   if (trip.length !== 1) throw new Error('one Trip');
   await until(async () => (await api(page, 'GET', `/files?parent=${trip[0].id}`)).body.length === 4, 15000);
