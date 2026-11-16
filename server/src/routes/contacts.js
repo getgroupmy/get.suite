@@ -487,8 +487,14 @@ export default function contactRoutes() {
   });
 
   r.post('/', (req, res) => {
+    // An id chosen by the app (a contact added offline): sending it again returns the contact made the first time.
+    const want = typeof req.body?.id === 'string' && /^[A-Za-z0-9_-]{16,40}$/.test(req.body.id) ? req.body.id : null;
+    if (want) {
+      const had = q('SELECT * FROM contacts WHERE id = ?').get(want);
+      if (had) { if (had.owner_id !== req.user.id) throw bad('That id is taken'); return res.json(withMore(had)); }
+    }
     const c = read(req.body, false);
-    const id = uid();
+    const id = want || uid();
     q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at, shared, more_emails, more_phones) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?, ?, ?, ?)`)
       .run(id, req.user.id, ...COLS.map((k) => c[k] ?? null), now(), req.body.shared ? 1 : 0, c.more_emails ?? null, c.more_phones ?? null);
     if (c.dates !== undefined || c.custom_fields !== undefined) q('UPDATE contacts SET dates = ?, custom_fields = ? WHERE id = ?').run(c.dates ?? null, c.custom_fields ?? null, id);

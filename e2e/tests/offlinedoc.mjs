@@ -260,6 +260,26 @@ await step('Calendar: an event made offline shows here (even after reloading) an
   await until(async () => ((await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 864e5}`)).body || []).filter((e) => e.title === 'Ferry to the island').length === 1, 10000);
   await page.getByText('Ferry to the island').first().waitFor(); // reloaded from the server
 });
+await step('Contacts: someone added offline is in the list (even after reloading) and added once when back', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByText('Harbour Office').first().waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByRole('button', { name: 'New contact' }).click();
+  const dlg = page.getByRole('dialog', { name: 'New contact' });
+  await dlg.getByLabel('Name', { exact: true }).fill('Island Taxi');
+  await dlg.getByLabel('Phone', { exact: true }).fill('+44 1234 567890');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Island Taxi saved on this device').waitFor({ timeout: 15000 });
+  await dlg.waitFor({ state: 'detached' });
+  await page.getByText('Island Taxi').first().waitFor();
+  await page.reload();
+  await page.getByText('Island Taxi').first().waitFor({ timeout: 20000 }); // still there after reloading offline
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await until(async () => ((await api(page, 'GET', '/contacts')).body || []).filter((c) => c.name === 'Island Taxi' && c.phone === '+44 1234 567890').length === 1, 10000);
+  await page.getByText('Island Taxi').first().waitFor(); // reloaded from the server
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });

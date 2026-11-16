@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { unreachable, changeAdd, appendKept, offlineId } from '../offlinedocs.js';
 import { contactKey } from './contactkeys.js';
 import { stepTask } from '../tasks/taskkeys.js';
 import WithPerson from '../../components/WithPerson.jsx';
@@ -123,6 +124,7 @@ export default function Contacts() {
   useEffect(() => { load(); get('/users/directory').then(setDirectory); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onLive((m) => { if (refreshOn(m, 'directory-changed')) get('/users/directory').then(setDirectory).catch(() => {}); }), []);
   const loadRef = useRef(load); loadRef.current = load;
+  useEffect(() => { const again = () => loadRef.current(); window.addEventListener('nw:changes-sent', again); return () => window.removeEventListener('nw:changes-sent', again); }, []); // added offline, now made
   useEffect(() => onLive((m) => { if (refreshOn(m, 'contacts-changed')) loadRef.current(); }), []); // made or changed in another tab, on another device, or (shared ones) by a colleague
   const [chart, setChart] = useState(false); // Directory as an org chart
   const [card, setCard] = useState(null); // a colleague's card (their id)
@@ -539,6 +541,7 @@ function KeepInTouch({ filter }) {
 
 function ContactDialog({ contact, orgName, onClose, onSaved }) {
   const { user } = useAuth();
+  const toast = useToast();
   const [f, setF] = useState({ name: '', email: '', phone: '', company: '', notes: '', ...contact });
   const [error, setError] = useState('');
   // The photo: unchanged (null), a new one picked ({ blob, url }), or taken away ('remove').
@@ -563,12 +566,25 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
       more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()),
       dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()) };
     const mine = !contact.id || contact.owner_id === user.id;
+    if (!contact.id) body.id = offlineId(); // so one added offline is made once when the connection is back
     try {
       const saved = contact.id ? await patch(`/contacts/${contact.id}`, { ...body, ...(mine && { touch_days: f.touch_days || null }) }) : await post('/contacts', body);
       if (!contact.id && f.touch_days) await patch(`/contacts/${saved.id}`, { touch_days: f.touch_days });
       await savePhoto(saved.id || contact.id); onSaved();
     }
-    catch (err) { setError(err.message); }
+    catch (err) {
+      // No connection, adding someone: kept here and made when it's back; in the list meanwhile (also after reloading).
+      if (!contact.id && unreachable(err)) {
+        await changeAdd({ method: 'POST', url: '/contacts', body, user: user.id, label: f.name });
+        if (f.touch_days) await changeAdd({ method: 'PATCH', url: `/contacts/${body.id}`, body: { touch_days: f.touch_days }, user: user.id, label: f.name });
+        await appendKept('/contacts', { ...body, owner_id: user.id, created_at: new Date().toISOString(), offline: true });
+        window.dispatchEvent(new Event('nw:changes'));
+        toast(`${f.name} saved on this device, added when the connection is back${pic && pic !== 'remove' ? ' (add the photo then)' : ''}`);
+        onSaved();
+        return;
+      }
+      setError(err.message);
+    }
   }
   return (
     <Modal title={contact.id ? 'Edit contact' : 'New contact'} onClose={onClose}>

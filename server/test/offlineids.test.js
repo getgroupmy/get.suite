@@ -73,3 +73,19 @@ test('an event sent with its own id is made once; someone else cannot take the i
   const odd = await olivia('POST', '/api/events', { id: 'x', title: 'Odd', start, end });
   assert.notEqual(odd.body.id, 'x');
 });
+
+test('a contact sent with its own id is made once; someone else cannot take the id', async () => {
+  const olivia = client(), mia = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const id = 'offContact0123456789abcd';
+  const a = await olivia('POST', '/api/contacts', { id, name: 'Harbour Master', email: 'hm@harbour.example' });
+  assert.equal(a.status, 201);
+  assert.equal(a.body.id, id);
+  const again = await olivia('POST', '/api/contacts', { id, name: 'Harbour Master', email: 'hm@harbour.example' });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.name, 'Harbour Master');
+  assert.equal((await olivia('GET', '/api/contacts')).body.filter((c) => c.name === 'Harbour Master').length, 1);
+  assert.equal((await mia('POST', '/api/contacts', { id, name: 'Mine' })).status, 400);
+  assert.equal((await mia('GET', '/api/contacts')).body.filter((c) => c.name === 'Mine').length, 0);
+});
