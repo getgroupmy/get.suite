@@ -70,6 +70,16 @@ await step('more contrast: darker text, underlined links, in light and dark; pas
   if (!(await page.getByRole('checkbox', { name: /More contrast/ }).isChecked())) throw new Error('not kept');
   await page.getByRole('checkbox', { name: /More contrast/ }).uncheck();
 });
+await step('a computer asking for more contrast gets it without choosing it here', async () => {
+  const muted = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--muted').trim());
+  await page.emulateMedia({ contrast: 'no-preference' });
+  const normal = await muted();
+  await page.emulateMedia({ contrast: 'more' });
+  const more = await muted();
+  if (normal === more || more !== '#3c4043') throw new Error(`${normal} → ${more}`);
+  await axe(page, 'device contrast');
+  await page.emulateMedia({ contrast: 'no-preference' });
+});
 await step('reduce motion: animations and transitions stop', async () => {
   await page.getByRole('checkbox', { name: /Reduce motion/ }).check();
   if (await html('motion') !== 'reduce') throw new Error('not applied');

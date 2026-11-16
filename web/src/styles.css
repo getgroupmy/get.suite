@@ -3181,6 +3181,13 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 :root[data-contrast="more"][data-theme="dark"] { --text: #fff; --muted: #d2d5da; --border: #8a9099; --accent-text: #a8c7fa; }
 @media (prefers-color-scheme: dark) { :root[data-contrast="more"]:not([data-theme="light"]) { --text: #fff; --muted: #d2d5da; --border: #8a9099; --accent-text: #a8c7fa; } }
 :root[data-contrast="more"] :is(p, li, td, dd, blockquote, .msg-text, .tiptap, .muted) a:not(.btn) { text-decoration: underline; }
+/* The computer or phone asking for more contrast (its accessibility setting) gets the same, without choosing it here. */
+@media (prefers-contrast: more) {
+  :root { --text: #000; --muted: #3c4043; --border: #8a9099; --accent-text: #0842a0; }
+  :root[data-theme="dark"] { --text: #fff; --muted: #d2d5da; --border: #8a9099; --accent-text: #a8c7fa; }
+  :root :is(p, li, td, dd, blockquote, .msg-text, .tiptap, .muted) a:not(.btn) { text-decoration: underline; }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --text: #fff; --muted: #d2d5da; --border: #8a9099; --accent-text: #a8c7fa; } }
 :root[data-contrast="more"] :focus-visible { outline: 3px solid var(--accent-text) !important; outline-offset: 2px; }
 /* Less motion: no animations or slides, chosen here or by the computer. */
 :root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after {

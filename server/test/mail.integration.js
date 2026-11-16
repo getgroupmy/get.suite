@@ -2122,9 +2122,21 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   const d = (await olivia('GET', `/api/mail/messages/${theirs.uid}?folder=Drafts`)).body;
   assert.ok(d.references.includes(original.messageId), `in the conversation: ${JSON.stringify(d.references)} / ${original.messageId}`);
   assert.match(d.text, /Replying in the thread\.[\s\S]*wrote:\n> The pelican numbers are in\./);
+  // Tidy: read and starred, then archived (it leaves the Inbox, arrives in Archive, still starred).
+  const tidy = await call('update_email', { ids: [listed.messages[0].id], read: true, starred: true });
+  assert.deepEqual([tidy.changed, tidy.read, tidy.starred], [1, true, true]);
+  const after = (await call('list_mail', { query: subject })).messages[0];
+  assert.deepEqual([after.unread, after.starred], [false, true]);
+  const archived = await call('update_email', { ids: [listed.messages[0].id], move_to: 'archive' });
+  assert.deepEqual([archived.moved, archived.moved_to], [1, 'archive']);
+  await eventually(async () => (await inbox(olivia, subject)).length === 0, 15000);
+  const inArchive = await eventually(async () => (await call('list_mail', { folder: 'Archive', query: subject })).messages.find((m) => m.starred), 15000);
+  assert.ok(inArchive, 'in Archive, still starred');
   // A bad id is explained.
   const bad = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'draft_email', arguments: { reply_to: 'nonsense', body: 'x' } } }) });
   assert.match(JSON.stringify(await bad.json()), /reply_to is an email’s id/);
+  const bad2 = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'update_email', arguments: { ids: ['mail:INBOX:1'] } } }) });
+  assert.match(JSON.stringify(await bad2.json()), /Say what to do: read, starred or move_to/);
 });
 
 test('risky attachments: marked in the message, and handed over only once confirmed', async () => {

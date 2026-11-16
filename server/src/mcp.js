@@ -328,6 +328,37 @@ export const TOOLS = [
     },
   },
   {
+    name: 'update_email', title: 'Tidy email', readOnly: false,
+    description: 'Mark emails read or unread, star or unstar them, or move them: to archive, inbox, junk, trash, or a folder by name. Give their ids (mail:…) from list_mail or search. Nothing is deleted for good (trash can be emptied later in Mail). Moved emails get new ids.',
+    inputSchema: {
+      type: 'object', required: ['ids'],
+      properties: {
+        ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 200 }, read: { type: 'boolean' }, starred: { type: 'boolean' },
+        move_to: { type: 'string', description: 'archive, inbox, junk, trash, or a folder’s name' },
+      },
+    },
+    async run(api, a) {
+      const ids = Array.isArray(a.ids) ? a.ids.map(String) : [];
+      if (!ids.length) throw new ToolError('Give the emails’ ids (mail:…)');
+      if (a.read === undefined && a.starred === undefined && !a.move_to) throw new ToolError('Say what to do: read, starred or move_to');
+      const byFolder = new Map();
+      for (const id of ids) {
+        const m = /^mail:(.+):(\d+)$/.exec(id);
+        if (!m) throw new ToolError(`${id} isn’t an email’s id (like mail:INBOX:42)`);
+        byFolder.set(m[1], [...(byFolder.get(m[1]) || []), Number(m[2])]);
+      }
+      const special = { archive: 'archive', inbox: 'inbox', junk: 'junk', spam: 'junk', trash: 'trash', bin: 'trash' }[String(a.move_to || '').toLowerCase()];
+      let moved = 0;
+      for (const [folder, uids] of byFolder) {
+        if (a.read !== undefined || a.starred !== undefined) {
+          await api('POST', '/mail/messages/flags', { folder, uids, ...(a.read !== undefined && { seen: !!a.read }), ...(a.starred !== undefined && { flagged: !!a.starred }) });
+        }
+        if (a.move_to) { await api('POST', '/mail/messages/move', { folder, uids, to: special || String(a.move_to) }); moved += uids.length; }
+      }
+      return { changed: ids.length, ...(a.read !== undefined && { read: !!a.read }), ...(a.starred !== undefined && { starred: !!a.starred }), ...(a.move_to && { moved_to: special || String(a.move_to), moved, note: 'Moved emails have new ids: list_mail in that folder finds them.' }) };
+    },
+  },
+  {
     name: 'draft_email', title: 'Write an email draft', readOnly: false,
     description: 'Write an email and leave it in the person’s Drafts folder for them to check and send in Workspace. It is not sent. To reply to an email, give its id (mail:…) as reply_to: the draft goes to its sender (everyone on it with reply_all), with "Re:" and the original quoted, in the same conversation.',
     inputSchema: {
@@ -624,6 +655,7 @@ function recordChange(req, tool, args) {
   const special = tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}`
     : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}`
     : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}`
+    : tool.name === 'update_email' && Array.isArray(args.ids) ? `${args.ids.length} email${args.ids.length === 1 ? '' : 's'}${args.move_to ? ` to ${args.move_to}` : ''}${args.read !== undefined ? (args.read ? ' read' : ' unread') : ''}${args.starred !== undefined ? (args.starred ? ' starred' : ' unstarred') : ''}`
     : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
