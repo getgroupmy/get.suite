@@ -1,3 +1,4 @@
+import { findClashes, clashQuestion } from './uploadclash.js';
 import { driveKey, stepIndex } from './drivekeys.js';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router';
@@ -136,6 +137,7 @@ export default function Drive() {
     navigate('/mail?compose_doc=1');
   };
   const [files, setFiles] = useState(null);
+  const [clash, setClash] = useState(null); // uploads whose names are already here: { items, clashes }
   const [fromOwner, setFromOwner] = useState(null); // Shared with me: only what this person shared
   const [crumbs, setCrumbs] = useState([]);
   // Sort and list/grid, kept for you on the server (the same on every computer).
@@ -332,7 +334,17 @@ export default function Drive() {
       return { id: Math.random(), name: [...(dir || []), file.name].join('/'), progress: 0, file, dir: dir || [] };
     });
     if (!items.length) return;
+    // A name already here: ask first (replace with a new version, keep both, or skip those).
+    const clashes = route.view === 'mine' ? findClashes(items, files || []) : new Map();
+    if (clashes.size) { setClash({ items, clashes }); return; }
+    runUploads(items);
+  }
+  /** Upload them; `clash` = { clashes, choice: 'replace' | 'both' | 'skip' } for names already here. */
+  async function runUploads(items0, clash = null) {
+    const items = clash?.choice === 'skip' ? items0.filter((it) => !clash.clashes.has(it.id)) : items0;
+    if (!items.length) return;
     setUploads((u) => [...u, ...items]);
+    let replaced = 0;
     const folders = new Map(); // "a/b" → folder id
     let converted = 0;
     for (const it of items) {
@@ -343,6 +355,13 @@ export default function Drive() {
           if (!folders.has(key)) folders.set(key, (await post('/files/folder-path', { parent_id: parentId, path: it.dir })).id);
           into = folders.get(key);
         }
+        const same = clash?.choice === 'replace' && clash.clashes.get(it.id);
+        if (same?.canReplace) {
+          await uploadVersion(it.file, same.id, (p) => setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: p } : x))));
+          replaced++;
+          setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: 1, done: true } : x)));
+          continue;
+        }
         const rec = await uploadFile(it.file, into, (p) => setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: p } : x))), { convert: true });
         if (rec?.converted_from) converted++;
         if (rec?.convert_error) toast(`${it.file.name} was uploaded as it is: ${rec.convert_error}`, 'info');
@@ -351,6 +370,7 @@ export default function Drive() {
         setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, error: e.message } : x)));
       }
     }
+    if (replaced) toast(`${replaced === 1 ? '1 file' : `${replaced} files`} replaced with a new version (the old ${replaced === 1 ? 'one is' : 'ones are'} in version history)`);
     if (converted) toast(`${converted === 1 ? '1 file' : `${converted} files`} converted to ${converted === 1 ? 'a document, spreadsheet or presentation' : 'documents, spreadsheets and presentations'} (the original${converted === 1 ? ' is' : 's are'} in the trash)`);
     load();
   }
@@ -819,6 +839,23 @@ export default function Drive() {
           if (route.view === 'label' && route.label === dialog.label) navigate('/drive', { replace: true }); else load();
         }} />}
       {dialog?.type === 'labels' && <LabelsDialog file={dialog.file} all={myLabels.map((l) => l.name)} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); loadLabels(); }} />}
+      {clash && (() => {
+        const list = [...clash.clashes.values()];
+        const some = list.some((f) => f.canReplace), all = list.every((f) => f.canReplace);
+        const go = (choice) => { const c = clash; setClash(null); runUploads(c.items, { clashes: c.clashes, choice }); };
+        return (
+          <Modal title={clashQuestion(clash.clashes)} onClose={() => setClash(null)}
+            footer={<><button type="button" className="btn" onClick={() => go('skip')}>{clash.items.length > list.length ? 'Skip these' : 'Cancel'}</button>
+              <button type="button" className="btn" onClick={() => go('both')}>Keep both</button>
+              {some && <button type="button" className="btn primary" autoFocus onClick={() => go('replace')}>Replace</button>}</>}>
+            <div className="stack">
+              <p style={{ margin: 0 }}>{some ? <><strong>Replace</strong> uploads {list.length === 1 ? 'it' : 'them'} as a new version: links, sharing and comments stay, and the old one is kept in version history. </> : null}<strong>Keep both</strong> adds {list.length === 1 ? 'it' : 'them'} with a number after the name.</p>
+              {list.length > 1 && <ul className="plain-list small">{list.map((f) => <li key={f.id}>{f.name}{!f.canReplace && <span className="muted"> · can’t be replaced (kept as a copy)</span>}</li>)}</ul>}
+              {list.length === 1 && !all && <p className="muted small" style={{ margin: 0 }}>You can’t change {list[0].locked_at ? 'it (it’s locked)' : 'that file'}, so it can only be kept as a copy.</p>}
+            </div>
+          </Modal>
+        );
+      })()}
       {dialog?.type === 'details' && <DetailsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
