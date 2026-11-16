@@ -2225,6 +2225,30 @@ test('look-alike sender domains: the company’s own (acrne.com for acme.com) an
   assert.ok(!c?.domain_like, 'the real one');
 });
 
+test('an AI assistant sets the out-of-office reply: on with dates (and in the calendar), changed, off; wording kept', async () => {
+  await olivia('PATCH', '/api/orgs/current', { allow_api_tokens: true });
+  const token = (await olivia('POST', '/api/tokens', { password: 'password123', name: 'Claude', scope: 'write', days: 30 })).body.token;
+  const rw = token;
+  const call = async (_t, name, args) => {
+    const res = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+    return (await res.json()).result;
+  };
+  assert.match((await call(rw, 'set_out_of_office', { on: true })).content[0].text, /Give the message/);
+  assert.match((await call(rw, 'set_out_of_office', { on: true, message: 'Away', first_day: 'next week' })).content[0].text, /first_day must be a date/);
+  const r = await call(rw, 'set_out_of_office', { on: true, message: 'I’m away, back on the 2nd.', first_day: '2030-12-21', last_day: '2031-01-01', calendar: true, time_zone: 'Europe/London' });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.on, r.structuredContent.replying_now, r.structuredContent.starts_later, r.structuredContent.subject, r.structuredContent.in_calendar], [true, false, true, 'Out of office', true]);
+  const v = (await olivia('GET', '/api/mail/vacation')).body;
+  assert.deepEqual([v.enabled, v.body, v.start_date, v.end_date], [true, 'I’m away, back on the 2nd.', '2030-12-21', '2031-01-01']);
+  // Changing only the last day keeps the wording.
+  const c = (await call(rw, 'set_out_of_office', { on: true, last_day: '2031-01-03' })).structuredContent;
+  assert.deepEqual([c.message, c.last_day], ['I’m away, back on the 2nd.', '2031-01-03']);
+  // Off: no longer replying, the wording kept for next time, the calendar entry gone.
+  const off = (await call(rw, 'set_out_of_office', { on: false })).structuredContent;
+  assert.deepEqual([off.on, off.message, off.in_calendar], [false, 'I’m away, back on the 2nd.', false]);
+  assert.match(JSON.stringify((await olivia('GET', '/api/audit?action=assistant.action')).body), /out-of-office on from 2030-12-21 to 2031-01-01/);
+});
+
 test('an AI assistant reading an email through MCP is given Mail’s safety warnings first', async () => {
   await olivia('PATCH', '/api/orgs/current', { allow_api_tokens: true });
   const made = await olivia('POST', '/api/tokens', { password: 'password123', name: 'Claude', scope: 'read', days: 30 });

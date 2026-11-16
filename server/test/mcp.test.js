@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -128,6 +128,11 @@ test('make a presentation from an outline: a title slide, slides of bullet point
   assert.match((await call(rw, 'create_presentation', { name: 'x', slides: [] })).content[0].text, /Give the slides/);
   assert.match((await call(rw, 'create_presentation', { name: 'x', slides: [{ title: 'ok' }, {}] })).content[0].text, /Slide 2 is empty/);
   assert.equal((await call(ro, 'create_presentation', { name: 'x', slides: [{ title: 'x' }] })).isError, true);
+});
+
+test('out-of-office reply: needs Email set up on the server (the full test is in mail.integration.js); read-only tokens can’t', async () => {
+  assert.match((await call(rw, 'set_out_of_office', { on: false })).content[0].text, /Email isn’t set up on this Workspace server/);
+  assert.equal((await call(ro, 'set_out_of_office', { on: false })).isError, true);
 });
 
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {

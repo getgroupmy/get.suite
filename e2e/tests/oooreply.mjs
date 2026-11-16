@@ -57,6 +57,22 @@ await step('out of office with the email auto-reply turned on, from Calendar', a
   await page.goto(`${B}/mail`);
   await page.getByText(/Vacation reply is on|auto-reply/i).first().waitFor();
 });
+await step('an AI assistant turns the auto-reply off and on again (MCP); Mail shows it', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude', scope: 'write', days: 30 })).body.token;
+  const mcp = async (name, args) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json()).result;
+  const off = await mcp('set_out_of_office', { on: false });
+  if (off.isError || off.structuredContent.on) throw new Error(JSON.stringify(off));
+  await page.goto(`${B}/mail`);
+  await page.getByText('Vacation reply', { exact: true }).waitFor();
+  await page.waitForTimeout(500);
+  if (await page.getByText(/Your vacation reply is on/).count()) throw new Error('still shown as on');
+  const on = await mcp('set_out_of_office', { on: true, message: 'Away at the trade fair this week.' });
+  if (on.isError || !on.structuredContent.replying_now) throw new Error(JSON.stringify(on));
+  await page.reload();
+  await page.getByText(/Your vacation reply is on/).waitFor();
+  if ((await api(page, 'GET', '/mail/vacation')).body.body !== 'Away at the trade fair this week.') throw new Error('wording not saved');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

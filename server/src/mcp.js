@@ -67,6 +67,7 @@ export { docFromText } from './doctext.js';
 import { docFromText } from './doctext.js';
 import { appendRows } from './sheetrows.js';
 import { deckFromOutline } from './decktext.js';
+import { mailEnabled } from './mail/config.js';
 const colLetter = (n) => { let s = ''; for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 import { assistantOff } from './routes/orgs.js';
 
@@ -361,6 +362,45 @@ export const TOOLS = [
         if (a.move_to) { await api('POST', '/mail/messages/move', { folder, uids, to: special || String(a.move_to) }); moved += uids.length; }
       }
       return { changed: ids.length, ...(a.read !== undefined && { read: !!a.read }), ...(a.starred !== undefined && { starred: !!a.starred }), ...(a.move_to && { moved_to: special || String(a.move_to), moved, note: 'Moved emails have new ids: list_mail in that folder finds them.' }) };
+    },
+  },
+  {
+    name: 'set_out_of_office', title: 'Set the out-of-office reply', readOnly: false,
+    description: 'Turn the person’s out-of-office (vacation) auto-reply in Mail on, change it, or turn it off. While it’s on, people who email them get the message once a day. With first_day/last_day it only replies on those days (and can be marked as Out of office in their calendar with calendar: true). Ask the person for the wording if they haven’t given it.',
+    inputSchema: {
+      type: 'object', required: ['on'],
+      properties: {
+        on: { type: 'boolean' },
+        message: { type: 'string', description: 'What people get back (needed to turn it on, unless one is already set)' },
+        subject: { type: 'string', description: 'Default “Out of office”' },
+        first_day: { type: 'string', description: 'YYYY-MM-DD' }, last_day: { type: 'string', description: 'YYYY-MM-DD' },
+        calendar: { type: 'boolean', description: 'Also mark those days Out of office in their calendar (needs last_day)' },
+        time_zone: { type: 'string', description: 'IANA time zone for the calendar entry, e.g. Europe/London' },
+      },
+    },
+    async run(api, a) {
+      if (!mailEnabled()) throw new ToolError('Email isn’t set up on this Workspace server, so there’s no out-of-office reply to set');
+      const cur = await api('GET', '/mail/vacation');
+      const day = (v, name) => {
+        if (v === undefined) return undefined;
+        if (v === null || v === '') return null;
+        const d = String(v).slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new ToolError(`${name} must be a date like 2026-12-21`);
+        return d;
+      };
+      const first = day(a.first_day, 'first_day'), last = day(a.last_day, 'last_day');
+      const body = {
+        enabled: !!a.on,
+        subject: a.subject !== undefined ? String(a.subject) : cur.subject,
+        body: a.message !== undefined ? String(a.message) : cur.body,
+        start_date: first !== undefined ? first : cur.start_date,
+        end_date: last !== undefined ? last : cur.end_date,
+        ...(a.calendar !== undefined && { calendar: !!a.calendar }),
+        ...(a.time_zone && { tz: String(a.time_zone) }),
+      };
+      if (body.enabled && !String(body.body || '').trim()) throw new ToolError('Give the message people should get back (message)');
+      const v = await api('PUT', '/mail/vacation', body);
+      return { on: v.enabled, replying_now: v.active, starts_later: v.scheduled, subject: v.subject, message: v.body, first_day: v.start_date, last_day: v.end_date, in_calendar: v.calendar };
     },
   },
   {
@@ -769,6 +809,7 @@ function recordChange(req, tool, args) {
     : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}`
     : tool.name === 'update_email' && Array.isArray(args.ids) ? `${args.ids.length} email${args.ids.length === 1 ? '' : 's'}${args.move_to ? ` to ${args.move_to}` : ''}${args.read !== undefined ? (args.read ? ' read' : ' unread') : ''}${args.starred !== undefined ? (args.starred ? ' starred' : ' unstarred') : ''}`
     : tool.name === 'move_file' ? `${args.file}${args.folder !== undefined ? ` moved to ${args.folder}` : ''}${args.name !== undefined ? ` renamed “${args.name}”` : ''}`
+    : tool.name === 'set_out_of_office' ? (args.on ? `out-of-office on${args.first_day ? ` from ${args.first_day}` : ''}${args.last_day ? ` to ${args.last_day}` : ''}` : 'out-of-office off')
     : tool.name === 'share_file' ? `${args.file} shared with ${args.with} (${args.role})`
     : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
