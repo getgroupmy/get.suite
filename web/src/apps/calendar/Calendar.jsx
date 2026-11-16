@@ -357,7 +357,13 @@ function Calendar({ acting = null, managed = [], onPick }) {
       const rule = shiftWeekdays(ev.rrule, dayDelta, start);
       await applyEdit(ev, { start, end, ...(rule !== ev.rrule && { rrule: rule }) }, which);
       toast(start === ev.start ? `Now ends at ${fmtTime(end)}` : `Moved to ${new Date(start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}${ev.all_day ? '' : `, ${fmtTime(start)}`}`);
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) {
+      // No connection: a one-off event of your own moves here at once and on the server when it's back.
+      if (unreachable(e) && !ev.rrule && ev.owner_id === me?.id) {
+        await keepChange({ method: 'PATCH', url: `/events/${ev.id}`, body: { start, end }, user: me.id, label: ev.title || 'an event', id: ev.id });
+        toast(`“${ev.title || 'Event'}” moved on this device, saved when the connection is back`);
+      } else toast(e.message, 'error');
+    }
     load();
   }
   const drag = useEventDrag((ev, start, end) => (ev.rrule ? setPendingMove({ ev, start, end }) : commitMove(ev, start, end)));

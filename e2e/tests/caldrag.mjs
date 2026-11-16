@@ -161,5 +161,24 @@ await step('month view: drag a chip to another day, keeping its time', async () 
   await page.screenshot({ path: `${SP}/shots/caldrag-month.png` });
 });
 
+await step('offline: dragging an event moves it here at once and on the server when the connection is back', async () => {
+  await api(page, 'POST', '/events', { title: 'Ferry check', start: at(0, 8), end: at(0, 9), color: '#1a73e8' });
+  await toWeek();
+  const before = (await find('Ferry check'))[0];
+  await box('Ferry check').waitFor();
+  await page.waitForTimeout(800);
+  await page.context().setOffline(true);
+  await drag(box('Ferry check'), 0, 48); // an hour later
+  await page.getByText(/“Ferry check” moved on this device/).waitFor({ timeout: 15000 });
+  await page.locator('.ev-offline', { hasText: 'Ferry check' }).first().waitFor(); // drawn as not sent yet
+  await page.context().setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  const after = (await find('Ferry check'))[0];
+  if (after.start - before.start !== 3600e3 || after.end - before.end !== 3600e3) throw new Error(`${hm(before.start)} → ${hm(after.start)}`);
+  await page.locator('.ev-offline').first().waitFor({ state: 'detached', timeout: 10000 });
+  // The browser's own complaints about the lost connection aren't errors of the page.
+  for (let i = errors.length - 1; i >= 0; i--) if (/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket/.test(errors[i])) errors.splice(i, 1);
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
