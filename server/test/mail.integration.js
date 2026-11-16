@@ -2110,6 +2110,21 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.ok(drafts, 'in Drafts');
   await new Promise((r) => setTimeout(r, 1500));
   assert.equal((await inbox(bob, `Re: ${subject}`)).length, 0, 'nothing sent to Bob');
+  // A reply: to the sender, Re: subject, the original quoted, in the same conversation; still only a draft.
+  const reply = await call('draft_email', { reply_to: listed.messages[0].id, body: 'Replying in the thread.' });
+  assert.deepEqual([reply.to, reply.subject], [`${reply.to.includes('<') ? reply.to : 'bob@acme.com'}`, `Re: ${subject}`]);
+  assert.match(reply.to, /bob@acme\.com/);
+  const original = (await olivia('GET', `/api/mail/messages/${listed.messages[0].id.split(':').pop()}?folder=INBOX`)).body;
+  const theirs = await eventually(async () => {
+    const list = (await olivia('GET', `/api/mail/messages?folder=Drafts&q=${encodeURIComponent('Replying in the thread')}`)).body.messages || [];
+    return list[0];
+  }, 15000);
+  const d = (await olivia('GET', `/api/mail/messages/${theirs.uid}?folder=Drafts`)).body;
+  assert.ok(d.references.includes(original.messageId), `in the conversation: ${JSON.stringify(d.references)} / ${original.messageId}`);
+  assert.match(d.text, /Replying in the thread\.[\s\S]*wrote:\n> The pelican numbers are in\./);
+  // A bad id is explained.
+  const bad = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'draft_email', arguments: { reply_to: 'nonsense', body: 'x' } } }) });
+  assert.match(JSON.stringify(await bad.json()), /reply_to is an email’s id/);
 });
 
 test('risky attachments: marked in the message, and handed over only once confirmed', async () => {

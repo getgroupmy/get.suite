@@ -169,6 +169,8 @@ test('without mail on the server, mail tools say so (search still works)', async
   assert.equal(r.isError, true);
   const d = await call(rw, 'draft_email', { to: 'kim@example.com', subject: 'Hi', body: 'Hello' });
   assert.equal(d.isError, true);
+  const none = await call(rw, 'draft_email', { body: 'Hello' });
+  assert.match(none.content[0].text, /Give who it’s to \(to\), or the email it replies to \(reply_to\)/);
 });
 
 test('find people, find a free time with them, list Drive files, list and post in Chat', async () => {

@@ -252,11 +252,41 @@ export const TOOLS = [
   },
   {
     name: 'draft_email', title: 'Write an email draft', readOnly: false,
-    description: 'Write an email and leave it in the person’s Drafts folder for them to check and send in Workspace. It is not sent.',
-    inputSchema: { type: 'object', required: ['to', 'subject', 'body'], properties: { to: { type: 'string', description: 'Addresses, separated by commas' }, cc: { type: 'string' }, subject: { type: 'string' }, body: { type: 'string', description: 'The message, as plain text' } } },
+    description: 'Write an email and leave it in the person’s Drafts folder for them to check and send in Workspace. It is not sent. To reply to an email, give its id (mail:…) as reply_to: the draft goes to its sender (everyone on it with reply_all), with "Re:" and the original quoted, in the same conversation.',
+    inputSchema: {
+      type: 'object', required: ['body'],
+      properties: {
+        to: { type: 'string', description: 'Addresses, separated by commas (for a reply: who it went to, unless given)' }, cc: { type: 'string' },
+        subject: { type: 'string', description: 'For a reply: "Re: " and the original subject, unless given' }, body: { type: 'string', description: 'The message, as plain text' },
+        reply_to: { type: 'string', description: 'The id (mail:…) of the email being replied to' }, reply_all: { type: 'boolean', description: 'With reply_to: reply to everyone on it, not only the sender' },
+      },
+    },
     async run(api, a) {
-      const r = await api('POST', '/mail/drafts', { to: String(a.to || ''), cc: String(a.cc || ''), subject: String(a.subject || ''), text: String(a.body || '') });
-      return { saved: true, folder: r.folder || 'Drafts', note: 'Saved in Drafts, not sent: open it in Workspace Mail to check and send.', url: link('/mail/Drafts') };
+      let draft = { to: String(a.to || ''), cc: String(a.cc || ''), subject: String(a.subject || ''), text: String(a.body || '') };
+      if (a.reply_to) {
+        const m0 = /^mail:(.+):(\d+)$/.exec(String(a.reply_to));
+        if (!m0) throw new ToolError('reply_to is an email’s id, like mail:INBOX:42 (from list_mail or search)');
+        const [, folder, uid] = m0;
+        const m = await api('GET', `/mail/messages/${uid}?folder=${encodeURIComponent(folder)}`);
+        const mine = new Set(((await api('GET', '/mail/status')).identities || []).map((i) => String(i.address).toLowerCase()));
+        const fmt = (p) => (p.name ? `${p.name} <${p.address}>` : p.address);
+        const sender = (m.replyTo?.length ? m.replyTo : [m.from]).filter(Boolean);
+        const seen = new Set(sender.map((p) => p.address.toLowerCase()));
+        const others = a.reply_all ? [...(m.to || []), ...(m.cc || [])].filter((p) => p?.address && !mine.has(p.address.toLowerCase()) && !seen.has(p.address.toLowerCase()) && seen.add(p.address.toLowerCase())) : [];
+        const subject = m.subject || '';
+        const quoted = String(m.text || '').split(/\r?\n/).slice(0, 400).map((l) => `> ${l}`).join('\n');
+        draft = {
+          to: draft.to || sender.map(fmt).join(', '),
+          cc: draft.cc || others.map(fmt).join(', '),
+          subject: draft.subject || (/^re:/i.test(subject) ? subject : `Re: ${subject}`),
+          text: `${draft.text}\n\nOn ${new Date(m.date).toUTCString()}, ${m.from ? fmt(m.from) : 'someone'} wrote:\n${quoted}`,
+          inReplyTo: m.messageId || undefined, references: [...(m.references || []), m.messageId].filter(Boolean),
+          replyTo: { folder, uid: Number(uid) },
+        };
+      } else if (!draft.to) throw new ToolError('Give who it’s to (to), or the email it replies to (reply_to)');
+      if (!draft.subject && !a.reply_to) throw new ToolError('Give the subject');
+      const r = await api('POST', '/mail/drafts', draft);
+      return { saved: true, folder: r.folder || 'Drafts', to: draft.to, ...(draft.cc && { cc: draft.cc }), subject: draft.subject, note: 'Saved in Drafts, not sent: open it in Workspace Mail to check and send.', url: link('/mail/Drafts') };
     },
   },
   {
