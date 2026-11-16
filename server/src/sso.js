@@ -14,6 +14,7 @@ for (const col of ['sso_issuer TEXT', 'sso_client_id TEXT', 'sso_secret TEXT', '
 q(`CREATE TABLE IF NOT EXISTS sso_states (
   state TEXT PRIMARY KEY, org_id TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, created_at INTEGER NOT NULL
 )`).run();
+if (!q('PRAGMA table_info(sso_states)').all().some((c) => c.name === 'next_path')) q('ALTER TABLE sso_states ADD COLUMN next_path TEXT').run(); // a page here to come back to
 
 const STATE_MS = 10 * 60e3;
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
@@ -63,10 +64,10 @@ export async function discover(issuer, fetcher = fetch) {
 }
 
 /** A new sign-in: the state, nonce and PKCE pair kept for when the provider sends the person back. */
-export function newAttempt(orgId, at = Date.now()) {
+export function newAttempt(orgId, at = Date.now(), next = null) {
   q('DELETE FROM sso_states WHERE created_at < ?').run(at - STATE_MS);
   const state = b64url(crypto.randomBytes(24)), nonce = b64url(crypto.randomBytes(24)), verifier = b64url(crypto.randomBytes(48));
-  q('INSERT INTO sso_states (state, org_id, nonce, verifier, created_at) VALUES (?, ?, ?, ?, ?)').run(state, orgId, nonce, verifier, at);
+  q('INSERT INTO sso_states (state, org_id, nonce, verifier, created_at, next_path) VALUES (?, ?, ?, ?, ?, ?)').run(state, orgId, nonce, verifier, at, next);
   return { state, nonce, verifier, challenge: b64url(crypto.createHash('sha256').update(verifier).digest()) };
 }
 

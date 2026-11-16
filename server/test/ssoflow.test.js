@@ -61,8 +61,8 @@ function client() {
 const owner = client();
 
 /** Start signing in as `email`; the provider "says yes" with these claims (nonce filled in unless given). */
-async function signIn(email, claims) {
-  const start = await fetch(`${base}/api/auth/sso/start?email=${encodeURIComponent(email)}`, { redirect: 'manual' });
+async function signIn(email, claims, next = '') {
+  const start = await fetch(`${base}/api/auth/sso/start?email=${encodeURIComponent(email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`, { redirect: 'manual' });
   const to = new URL(start.headers.get('location'), base);
   if (!to.href.startsWith(issuer)) return { to };
   const code = crypto.randomBytes(12).toString('hex');
@@ -98,6 +98,25 @@ test('the provider is asked properly, and its yes signs Kim in', async () => {
   if (devices.ok) assert.ok(JSON.stringify(await devices.json()).includes('"sso"'), 'the device list says how');
   const log = (await owner('GET', '/api/audit?action=sign-in')).body;
   assert.match(JSON.stringify(log), /kim@acme\.com[\s\S]*Microsoft/);
+});
+
+test('a mail-app password, for someone who may not know their password: a fresh single sign-on is enough; back where they were', async () => {
+  const r = await signIn('kim@acme.com', { email: 'kim@acme.com' }, '/settings#mailapp');
+  assert.equal(r.location, '/settings#mailapp', 'back to the page asked for');
+  const post = (cookie, body) => fetch(`${base}/api/auth/mail-app`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json', cookie }, body: JSON.stringify(body) });
+  const made = await post(r.cookie, {});
+  assert.equal(made.status, 200);
+  assert.match((await made.json()).password, /^[a-z]{4}(-[a-z]{4}){3}$/);
+  // Signed in with the password instead: the password, or confirm with the provider first.
+  const pw = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) });
+  const pwCookie = pw.headers.get('set-cookie').split(';')[0];
+  const refused = await post(pwCookie, {});
+  assert.equal(refused.status, 403);
+  assert.match((await refused.json()).error, /Type your password, or confirm with Microsoft first/);
+  assert.equal((await post(pwCookie, { password: 'password123' })).status, 200);
+  // Only pages here to come back to.
+  assert.equal((await signIn('kim@acme.com', { email: 'kim@acme.com' }, '//evil.example.com')).location, '/');
+  assert.equal((await signIn('kim@acme.com', { email: 'kim@acme.com' }, 'https://evil.example.com')).location, '/');
 });
 
 test('refused, saying why: a used state, no such account, a disabled one, an ID token for another sign-in', async () => {

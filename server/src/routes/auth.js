@@ -146,7 +146,8 @@ export default function authRoutes({ secureCookies }) {
     if (!sso) return res.redirect(`/login?sso_error=${encodeURIComponent('Your company doesn’t sign in that way: use your password')}`);
     let d;
     try { d = await discover(sso.issuer); } catch (e) { return res.redirect(`/login?sso_error=${encodeURIComponent(`${sso.label} can’t be reached right now (${e.message}). Try again, or use your password.`)}`); }
-    const a = newAttempt(orgId);
+    const next = /^\/(?![/\\])[\w\-./?=&%#]*$/.test(String(req.query.next || '')) ? String(req.query.next) : null; // only a page here
+    const a = newAttempt(orgId, Date.now(), next);
     const u = new URL(d.authorization_endpoint);
     for (const [k, v] of Object.entries({ response_type: 'code', client_id: sso.clientId, redirect_uri: `${baseUrl(req)}/api/auth/sso/callback`, scope: 'openid email profile',
       state: a.state, nonce: a.nonce, code_challenge: a.challenge, code_challenge_method: 'S256', ...(email.includes('@') && { login_hint: email }) })) u.searchParams.set(k, v);
@@ -189,7 +190,7 @@ export default function authRoutes({ secureCookies }) {
     }
     const u = startSession(req, res, row.id, 'sso');
     audit(req, 'sign-in', { actor: u, target: u.username, details: { sso: sso.label } });
-    res.redirect('/');
+    res.redirect(a.next_path || '/');
   });
 
   // Second step: a code from the authenticator app, or a recovery code.
@@ -448,9 +449,21 @@ export default function authRoutes({ secureCookies }) {
     return { enabled: mailEnabled(), hostname: MAIL_HOSTNAME, twoFactor: twoFactor.isEnabled(userId), appPassword: row?.mail_app_created ? { created: row.mail_app_created } : null };
   };
   r.get('/mail-app', requireAuth, (req, res) => res.json(mailApp(req.user.id)));
+  // A mail-app password asks for the account password, or (for someone who signs in with the company's
+  // identity provider and may not know it) a sign-in through it in the last 15 minutes.
+  const SSO_FRESH_MS = 15 * 60e3;
+  const needPasswordOrSso = (req) => {
+    if (!req.body?.password) {
+      const s2 = q('SELECT method, created_at FROM sessions WHERE token = ?').get(tokenFromReq(req));
+      if (s2 && String(s2.method || '').startsWith('sso') && Date.now() - s2.created_at < SSO_FRESH_MS) return;
+      const sso = ssoOf(req.user.org_id);
+      if (sso) throw new HttpError(403, `Type your password, or confirm with ${sso.label} first`);
+    }
+    needPassword(req);
+  };
   r.post('/mail-app', requireAuth, (req, res) => {
     // Also for calendar and contacts sync (CalDAV/CardDAV), so it works with email turned off too.
-    needPassword(req);
+    needPasswordOrSso(req);
     // 16 letters in 4 groups: easy to type on a phone, ~75 bits of randomness.
     const letters = 'abcdefghijkmnopqrstuvwxyz';
     const pw = Array.from(crypto.randomBytes(16), (b) => letters[b % letters.length]).join('').match(/.{4}/g).join('-');
@@ -459,7 +472,7 @@ export default function authRoutes({ secureCookies }) {
     res.json({ password: pw, ...mailApp(req.user.id) });
   });
   r.delete('/mail-app', requireAuth, (req, res) => {
-    needPassword(req);
+    needPasswordOrSso(req);
     setMailAppPassword(req.user.id, null);
     audit(req, 'mail-app.remove', { target: req.user.username });
     res.json(mailApp(req.user.id));

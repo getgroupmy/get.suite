@@ -106,6 +106,19 @@ await step('Kim types her address: “Sign in with Microsoft”; the provider sa
   if (me.body.user.username !== 'kim@acme.com') throw new Error(JSON.stringify(me.body));
   await kim.screenshot({ path: `${SP}/shots/sso-in.png` });
 }, kim);
+await step('a mail-app password without knowing her password: confirm with Microsoft, back to Settings, made', async () => {
+  await kim.goto(`${B}/settings`);
+  const sec = kim.locator('section', { has: kim.getByRole('heading', { name: /on your phone/ }) });
+  await sec.getByRole('button', { name: 'Create mail-app password' }).click();
+  await sec.getByText('(or leave it empty if you just confirmed with Microsoft)').waitFor();
+  await sec.getByRole('link', { name: 'Confirm with Microsoft' }).click();
+  await kim.waitForURL(/\/settings$/, { timeout: 15000 });
+  const sec2 = kim.locator('section', { has: kim.getByRole('heading', { name: /on your phone/ }) });
+  await sec2.getByRole('button', { name: 'Create mail-app password' }).last().click();
+  await sec2.getByLabel('Mail-app password').waitFor();
+  if (!/^[a-z]{4}(-[a-z]{4}){3}$/.test((await sec2.getByLabel('Mail-app password').innerText()).trim())) throw new Error('not shown');
+  await axe(kim, 'mail-app password via sso');
+}, kim);
 await step('an address with no account here: back on the sign-in page, saying why', async () => {
   const p = await mk('nobody');
   await p.goto(B);

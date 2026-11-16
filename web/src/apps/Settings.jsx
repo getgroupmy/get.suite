@@ -1028,6 +1028,14 @@ function MailApps() {
   const [made, setMade] = useState('');
   const [error, setError] = useState('');
   useEffect(() => { get('/auth/mail-app').then(setSt).catch(() => {}); }, []);
+  // Someone who signs in with the company's identity provider may not know their password: they can confirm
+  // with it instead (coming back here, ready to make the mail-app password).
+  const [sso, setSso] = useState(null);
+  useEffect(() => { get(`/auth/sso/check?email=${encodeURIComponent(user.username)}`).then((r) => setSso(r.sso)).catch(() => {}); }, [user.username]);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('mailapp') === 'create') { setStep('create'); window.history.replaceState(null, '', window.location.pathname); document.getElementById('mailapps-h')?.scrollIntoView(); }
+  }, []);
   if (!st) return null;
   const reset = () => { setStep(null); setPassword(''); setError(''); };
   const run = (fn) => async (e) => { e.preventDefault(); setError(''); try { await fn(); } catch (err) { setError(err.message); } };
@@ -1061,8 +1069,9 @@ function MailApps() {
           <p>{step === 'create'
             ? (st.appPassword ? 'A new mail-app password replaces the current one; mail apps using the old one will ask for the new one.' : 'Mail apps will then need the mail-app password; your account password stops working in them.')
             : 'Mail apps will use your account password again.'}</p>
-          <label className="field"><span>Your account password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus /></label>
+          <label className="field"><span>Your account password{sso && <span className="muted small"> (or leave it empty if you just confirmed with {sso})</span>}</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required={!sso} autoFocus /></label>
           {error && <p className="error" role="alert">{error}</p>}
+          {sso && <p className="small" style={{ margin: 0 }}>Don't know your password? <a href={`/api/auth/sso/start?email=${encodeURIComponent(user.username)}&next=${encodeURIComponent('/settings?mailapp=create')}`}>Confirm with {sso}</a>, then come back here within 15 minutes.</p>}
           <div className="row end"><button type="button" className="btn" onClick={reset}>Cancel</button>
             <button className={`btn ${step === 'remove' ? 'danger' : 'primary'}`}>{step === 'create' ? 'Create mail-app password' : 'Remove it'}</button></div>
         </form>
