@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'answer_invitation', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -100,6 +100,26 @@ test('add to a document: at its end, or the end of a tab; a spreadsheet refused'
   const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'S' })).body;
   assert.match((await call(rw, 'append_to_document', { file: `file:${sheet.id}`, text: 'x' })).content[0].text, /only be added to a document/);
   assert.equal((await call(ro, 'append_to_document', { file: doc.id, text: 'x' })).isError, true, 'not with a read-only token');
+});
+
+test('answer an invitation from a colleague: yes with a note (the organizer is told); not one’s own events', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'ina', domain: 'acme.com', name: 'Ina Vite', password: 'password123' })).status, 201);
+  const ina = client();
+  await ina('POST', '/api/auth/login', { username: 'ina@acme.com', password: 'password123' });
+  const start = Date.UTC(2026, 11, 3, 14);
+  const ev = (await ina('POST', '/api/events', { title: 'Budget review', start, end: start + 36e5, guests: ['olivia@acme.com'] })).body;
+  const listed = (await call(rw, 'list_events', { from: new Date(start - 864e5).toISOString(), to: new Date(start + 864e5).toISOString() })).structuredContent.events.find((e) => e.title === 'Budget review');
+  assert.equal(listed.my_answer, 'needs');
+  const r = await call(rw, 'answer_invitation', { id: listed.id, answer: 'yes', note: 'I’ll join 10 minutes late' });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.equal(r.structuredContent.answer, 'yes');
+  const after = (await call(rw, 'list_events', { from: new Date(start - 864e5).toISOString(), to: new Date(start + 864e5).toISOString() })).structuredContent.events.find((e) => e.id === listed.id);
+  assert.equal(after.my_answer, 'yes');
+  assert.match(JSON.stringify((await ina('GET', '/api/notifications')).body), /answered Yes to “Budget review”[\s\S]*10 minutes late/);
+  const own = (await call(rw, 'create_event', { title: 'My own', start: new Date(start).toISOString(), end: new Date(start + 36e5).toISOString() })).structuredContent;
+  assert.match((await call(rw, 'answer_invitation', { id: own.id, answer: 'no' })).content[0].text, /isn’t an invitation the person can answer/);
+  assert.equal((await call(ro, 'answer_invitation', { id: listed.id, answer: 'no' })).isError, true);
+  assert.ok(ev.id);
 });
 
 test('only with a valid token; a browser cookie isn’t enough', async () => {

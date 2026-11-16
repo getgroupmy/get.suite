@@ -214,6 +214,25 @@ export const TOOLS = [
     },
   },
   {
+    name: 'answer_invitation', title: 'Answer a meeting invitation', readOnly: false,
+    description: 'Answer an invitation on the person’s calendar (an event from list_events whose my_answer is set): yes, maybe or no, optionally with a note for the organizer (who is told). Only invitations from colleagues; ask the person before declining on their behalf.',
+    inputSchema: {
+      type: 'object', required: ['id', 'answer'],
+      properties: { id: { type: 'string', description: 'event:… from list_events or search' }, answer: { type: 'string', enum: ['yes', 'maybe', 'no'] }, note: { type: 'string', description: 'For the organizer, e.g. “I’ll join 10 minutes late”' } },
+    },
+    async run(api, a) {
+      const id = String(a.id || '').replace(/^event:/, '');
+      if (!['yes', 'maybe', 'no'].includes(a.answer)) throw new ToolError('answer is yes, maybe or no');
+      try {
+        await api('POST', `/events/${encodeURIComponent(id)}/rsvp`, { status: a.answer, ...(a.note && { note: String(a.note).slice(0, 300) }) });
+      } catch (e) {
+        if (/not found/i.test(e.message)) throw new ToolError('That isn’t an invitation the person can answer (their own events, or ones they aren’t invited to, have no answer)');
+        throw e;
+      }
+      return { id: `event:${id}`, answer: a.answer, ...(a.note && { note: String(a.note).slice(0, 300) }), url: link('/calendar') };
+    },
+  },
+  {
     name: 'create_task', title: 'Add a task', readOnly: false,
     description: 'Add a task to one of the person’s lists (by default their first list).',
     inputSchema: { type: 'object', required: ['title'], properties: { title: { type: 'string' }, list: { type: 'string', description: 'A list’s name or id' }, due: { type: 'string', description: 'A day, YYYY-MM-DD' }, notes: { type: 'string' } } },
@@ -462,7 +481,9 @@ export async function handle(msg, api, { onChange = null } = {}) {
 function recordChange(req, tool, args) {
   const id = String(req.apiToken?.id || '');
   const assistant = (id.startsWith('mcp:') ? q('SELECT name FROM mcp_clients WHERE client_id = ?').get(id.slice(4))?.name : q('SELECT name FROM api_tokens WHERE id = ?').get(id)?.name) || 'An assistant';
-  const what = String(args.title || args.subject || args.name || args.text || args.body || args.id || (tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}` : tool.name === 'append_to_document' ? `text added to ${args.file}` : '') || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const special = tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}`
+    : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}` : null;
+  const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
 }
 
