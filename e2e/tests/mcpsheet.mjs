@@ -48,12 +48,12 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
   sheet = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Budget', content: { sheets: [{ name: 'Sheet1', colWidths: {}, cells: { A1: 'Item', B1: 'Cost', A2: 'Taxi', B2: '12' } }] } })).body;
 });
-let side; // another tab, for the assistant's calls (the sheet's own tab reloads when the rows land)
+let side; // another tab, for the assistant's calls (as an assistant elsewhere would)
 const mcp = (token, name, args) => side.evaluate(async ([t, n, a]) => {
   const r = await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${t}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) });
   return (await r.json()).result;
 }, [token, name, args]);
-await step('the spreadsheet is open while an assistant adds rows: they appear, under the table', async () => {
+await step('the spreadsheet is open while an assistant adds rows: they appear live under the table, no reload, what was just typed kept', async () => {
   await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
   const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude', scope: 'write', days: 30 })).body.token;
   if (!token) throw new Error('no token');
@@ -62,11 +62,16 @@ await step('the spreadsheet is open while an assistant adds rows: they appear, u
   await page.goto(`${B}/sheets/${sheet.id}`);
   await cell('A2').getByText('Taxi').waitFor();
   await page.getByText('All changes saved').waitFor({ timeout: 10000 }).catch(() => {});
+  // Something typed just now, and a mark that's lost if the page reloads.
+  await cell('C2').dblclick(); await page.keyboard.type('paid'); await page.keyboard.press('Enter');
+  await page.evaluate(() => { window.__stayed = true; });
   const r = await mcp(token, 'add_sheet_rows', { file: `file:${sheet.id}`, rows: [['Lunch', 18.5], ['Hotel', 240]] });
   if (r.isError || r.structuredContent.range !== 'A3:B4') throw new Error(JSON.stringify(r));
   await cell('A3').getByText('Lunch').waitFor({ timeout: 15000 });
   await cell('B4').getByText('240').waitFor();
   await cell('A2').getByText('Taxi').waitFor();
+  if (!(await page.evaluate(() => window.__stayed))) throw new Error('the page reloaded');
+  await cell('C2').getByText('paid').waitFor();
   await page.screenshot({ path: `${SP}/shots/assistant-rows.png` });
 });
 await step('Activity: the assistant’s change is listed as its own', async () => {

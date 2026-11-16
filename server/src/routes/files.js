@@ -26,7 +26,7 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow, changeSheet } from '../collab.js';
 import { appendRows } from '../sheetrows.js';
 import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.js';
@@ -1381,25 +1381,25 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ version });
   });
 
-  // Add rows to the bottom of a spreadsheet's table: { sheet?, rows: [[…], …] } (sheetrows.js). What's being
-  // typed in it is saved first, protected ranges still hold, open editors reload, and it's a new version.
+  // Add rows to the bottom of a spreadsheet's table: { sheet?, rows: [[…], …] } (sheetrows.js). Open in
+  // someone's browser, the rows reach them live (as form responses do); protected ranges still hold, and
+  // the sheet as it was is kept in its version history when someone else edited it last.
   r.post('/:id/rows', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.kind !== 'sheet') throw bad('Rows can only be added to a spreadsheet');
     notLocked(f);
-    if (CO_EDITED.includes(f.kind)) saveNow(f.id);
-    const cur = q('SELECT content, version, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
-    const out = appendRows(JSON.parse(cur.content), { sheet: req.body?.sheet ? String(req.body.sheet) : null, rows: req.body?.rows });
-    const json = JSON.stringify(out.content);
-    protectionsKept(f, json, req.user);
+    saveNow(f.id);
+    const cur = q('SELECT updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
     if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
-    const done = q('UPDATE files SET content = ?, size = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ? AND version = ?')
-      .run(json, Buffer.byteLength(json), now(), req.user.id, f.id, cur.version);
-    if (!done.changes) throw new HttpError(409, 'Someone else changed it just now: try again');
+    let out = null;
+    changeSheet(f.id, (json) => {
+      out = appendRows(json, { sheet: req.body?.sheet ? String(req.body.sheet) : null, rows: req.body?.rows });
+      protectionsKept(f, JSON.stringify(out.content), req.user); // throws before anything changes
+      return out.content;
+    }, req.user.id);
+    if (!out) throw bad('That spreadsheet couldn’t be changed');
     recordActivity(f.id, req.user.id, 'edit');
-    if (CO_EDITED.includes(f.kind)) resetRoom(f.id);
-    notify(f.id, { type: 'content-changed', id: f.id, version: cur.version + 1, by: req.user.id, by_name: req.user.name });
-    res.json({ sheet: out.sheet, range: out.range, added: out.added, version: cur.version + 1 });
+    res.json({ sheet: out.sheet, range: out.range, added: out.added });
   });
 
   // Lock or unlock: { locked }. Editors can lock; whoever locked it, or the owner, can unlock.
