@@ -447,6 +447,24 @@ export function startChatScheduler() { setInterval(() => { try { sendDueChat(); 
  * typed in Chat. Used for notices such as comment mentions. Returns false if they can't be reached.
  */
 /** Share an email in a conversation the user can write in (Mail's Share in Chat): a card, with a note if they like. */
+/** A channel someone may choose for messages to go to (a form's responses): one they can write in, not a direct message. */
+export function channelChoice(channelId, user) {
+  const c = writable(String(channelId), user);
+  if (c.dm_key) throw bad('Choose a channel, not a direct message');
+  if (c.archived_at) throw bad('That channel is archived');
+  return { id: c.id, name: c.name };
+}
+/** A message from something rather than someone (`name`, e.g. Forms), as a webhook posts; null if the channel is gone or archived. */
+export function postAsBot(channelId, name, body) {
+  const c = q('SELECT * FROM channels WHERE id = ?').get(channelId);
+  if (!c || c.archived_at) return null;
+  const id = uid();
+  q('INSERT INTO messages (id, channel_id, user_id, bot, body, created_at) VALUES (?, ?, NULL, ?, ?, ?)').run(id, c.id, String(name).slice(0, 80), String(body).slice(0, 8000), now());
+  const msg = one(id);
+  sendTo(audience(c), { type: 'message', message: msg });
+  addPreview(c, msg);
+  return id;
+}
 /** A plain message from someone in a channel they can write in (e.g. Running late, in an event's own channel). */
 export function postToChannel(channelId, user, body) {
   const c = writable(channelId, user);

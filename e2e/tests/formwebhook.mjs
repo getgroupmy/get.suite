@@ -83,6 +83,26 @@ await step('an editor doesn’t see it (the answers would leave Workspace): only
   await mia.getByText('Who can fill it in').waitFor();
   if (await mia.getByRole('group', { name: 'Send responses to a web address' }).count()) throw new Error('shown to an editor');
 });
+await step('Post each response in a Chat channel: the answers arrive in #leads, from Forms', async () => {
+  await api(page, 'POST', '/chat/channels', { name: 'leads' });
+  await page.reload();
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  const pick = page.getByLabel('Post each response in a Chat channel');
+  await pick.locator('option', { hasText: '#leads' }).waitFor({ state: 'attached' });
+  await pick.selectOption({ label: '#leads' });
+  await until(async () => !!(await api(page, 'GET', `/forms/${form.id}`)).body.chat_channel);
+  await page.goto(`${B}/f/${form.token}`);
+  await page.getByLabel('Your name').fill('Pat Lee');
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.getByText(/response has been recorded/i).waitFor();
+  await page.goto(`${B}/chat`);
+  await page.getByRole('link', { name: /leads/ }).or(page.getByRole('button', { name: /leads/ })).first().click();
+  await page.getByText(/New response to “Leads” from Olivia Owner/).waitFor();
+  await page.getByText('Your name: Pat Lee').waitFor();
+  await page.getByText('Forms', { exact: true }).first().waitFor();
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('tab', { name: 'Settings' }).click();
+});
 await step('turning it off', async () => {
   const box = page.getByRole('group', { name: 'Send responses to a web address' });
   await box.getByRole('button', { name: 'Turn off' }).click();

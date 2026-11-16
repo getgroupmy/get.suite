@@ -678,6 +678,7 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
           try { await put(`/forms/${form.id}/email-me`, { on }); toast(on ? `Each new response will be emailed to ${me?.username || 'you'}` : 'No more response emails'); }
           catch (err) { setForm((f) => ({ ...f, email_me: !on })); toast(err.message, 'error'); }
         }} /> Email me each response, with the answers (just for you)</label>}
+      <ChatChannel form={form} setting={setting} />
       {form.role === 'owner' && <Webhook form={form} allowLinks={allowLinks} />}
       <fieldset className="stack-tight">
         <legend>Quiz</legend>
@@ -705,6 +706,23 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
         <p className="muted small" style={{ margin: 0 }}>A new link stops the old one working, if it went somewhere it shouldn't.</p>
       </div>
     </div>
+  );
+}
+
+/** Settings → Post each response in a Chat channel: one the person can write in. */
+function ChatChannel({ form, setting }) {
+  const [channels, setChannels] = useState(null);
+  useEffect(() => { get('/chat/channels').then((r) => setChannels((r.channels || r).filter((c) => !c.dm_key && !c.archived_at))).catch(() => setChannels([])); }, []);
+  if (!channels) return null;
+  const known = !form.chat_channel || channels.some((c) => c.id === form.chat_channel);
+  return (
+    <label className="field form-chat-channel"><span>Post each response in a Chat channel</span>
+      <select value={form.chat_channel || ''} onChange={(e) => setting({ chat_channel: e.target.value || null })}>
+        <option value="">Don’t post responses</option>
+        {!known && <option value={form.chat_channel}>A channel someone else chose</option>}
+        {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}{c.private ? ' (private)' : ''}</option>)}
+      </select>
+    </label>
   );
 }
 

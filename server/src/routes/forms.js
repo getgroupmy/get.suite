@@ -24,6 +24,7 @@ import path from 'node:path';
 import { FILES_DIR } from '../db.js';
 import { mimeFor } from '../util.js';
 import { audit } from '../audit.js';
+import { channelChoice, postAsBot } from './chat.js';
 import { hookOf, setHook, removeHook, newSecret, deliver, deliverNow, hookPayload } from '../formhooks.js';
 import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 
@@ -143,7 +144,7 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
 )`).run();
 // allow_edit: people can change their response afterwards, with the private link they get on sending it.
 // collect_email: "anyone with the link" forms ask for an email address; send_copy: people get their answers by email.
-for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT'], ['email_domains', 'TEXT']]) {
+for (const [col, type] of [['chat_channel', 'TEXT'], ['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT'], ['email_domains', 'TEXT']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -746,6 +747,8 @@ export default function formRoutes() {
       auto_remind: 'auto_remind' in b ? !!b.auto_remind : !!f.auto_remind,
       theme: 'theme' in b ? cleanTheme(b.theme) : f.theme,
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
+      // Post each response in a Chat channel: one the person changing it can write in.
+      chat_channel: 'chat_channel' in b ? (b.chat_channel ? channelChoice(b.chat_channel, req.user).id : null) : f.chat_channel || null,
     };
     if (next.close_at !== null && (!Number.isFinite(next.close_at) || next.close_at < 0)) throw bad('close_at must be a time');
     if (next.open_at !== null && (!Number.isFinite(next.open_at) || next.open_at < 0)) throw bad('open_at must be a time');
@@ -760,6 +763,7 @@ export default function formRoutes() {
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
         next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, next.auto_remind ? 1 : 0,
         next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, next.show_results ? 1 : 0, next.email_domains, now(), f.id); // a new closing date: the automatic reminder can go again
+    if (next.chat_channel !== (f.chat_channel || null)) q('UPDATE forms SET chat_channel = ? WHERE id = ?').run(next.chat_channel, f.id);
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -1231,6 +1235,12 @@ export function publicFormRoutes() {
     sendTo(team, { type: 'form-response', form_id: form.id });
     try { addToLinkedSheet(form, id); } catch (e) { console.error('[forms] linked sheet:', e.message); }
     deliver(form.id, 'response.created', hookPayload(form, q('SELECT * FROM form_responses WHERE id = ?').get(id)));
+    if (form.chat_channel) {
+      try {
+        const text = answersText(form.questions, answers);
+        postAsBot(form.chat_channel, 'Forms', `New response to “${form.title}”${form.audience === 'org' && user ? ` from ${user.name}` : email ? ` (${email})` : ''}\n${text.length > 3000 ? `${text.slice(0, 3000)}…` : text}\nAll responses: ${baseUrlOf(req)}/forms/${form.id}?tab=responses`);
+      } catch (e) { console.error('[forms] chat:', e.message); }
+    }
     if (form.notify) {
       // Many in a row (a form sent to everyone): one notification counting them while it's unread.
       bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null,
