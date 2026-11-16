@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -203,6 +203,29 @@ test('prompts: ready-made requests listed with their arguments; filled in; a req
     const text = (await rpc(rw, 'prompts/get', { name: p.name, arguments: { email: 'x' } })).body.result.messages[0].content.text;
     for (const m of text.matchAll(/\b([a-z]+_[a-z_]+)\b/g)) assert.ok(names.has(m[1]) || ['my_answer', 'reply_to'].includes(m[1]), `${p.name} names ${m[1]}`);
   }
+});
+
+test('change a note: items added, ticked and unticked by their text; text added to a plain note; found by title; refusals explained', async () => {
+  const list = (await call(rw, 'create_note', { title: 'Shopping', items: ['Bread', 'Eggs'] })).structuredContent;
+  const r = await call(rw, 'update_note', { note: 'shopping', add_items: ['Milk', ' '], tick: ['eggs'] });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual(r.structuredContent.items, [{ text: 'Bread', done: false }, { text: 'Eggs', done: true }, { text: 'Milk', done: false }]);
+  const ids = (await owner('GET', '/api/notes')).body.find((n) => n.id === list.id.replace('note:', '')).items.map((x) => x.id);
+  assert.equal(ids.length, 3);
+  assert.deepEqual((await call(rw, 'update_note', { note: list.id, untick: ['Eggs'], tick: ['bre'] })).structuredContent.items.map((x) => x.done), [true, false, false], 'by id; part of an item’s text');
+  assert.deepEqual((await owner('GET', '/api/notes')).body.find((n) => n.id === list.id.replace('note:', '')).items.map((x) => x.id), ids, 'items keep their ids');
+  const plain = (await call(rw, 'create_note', { title: 'Ideas', text: 'A podcast' })).structuredContent;
+  assert.equal((await call(rw, 'update_note', { note: plain.id, append_text: 'A newsletter' })).structuredContent.text, 'A podcast\nA newsletter');
+  // Refused, saying why.
+  assert.match((await call(rw, 'update_note', { note: 'Shopping', tick: ['Caviar'] })).content[0].text, /“Caviar” isn’t on the list: it has “Bread”, “Eggs”, “Milk”/);
+  assert.match((await call(rw, 'update_note', { note: 'Shopping', append_text: 'x' })).content[0].text, /is a checklist/);
+  assert.match((await call(rw, 'update_note', { note: 'Ideas', add_items: ['x'] })).content[0].text, /has no checklist/);
+  assert.match((await call(rw, 'update_note', { note: 'Nope' })).content[0].text, /No note called “Nope”/);
+  assert.match((await call(rw, 'update_note', { note: 'Shopping' })).content[0].text, /Say what to change/);
+  await call(rw, 'create_note', { title: 'Ideas', text: 'again' });
+  assert.match((await call(rw, 'update_note', { note: 'ideas', append_text: 'x' })).content[0].text, /2 notes are called “ideas”/);
+  assert.equal((await call(ro, 'update_note', { note: 'Shopping', tick: ['Milk'] })).isError, true);
+  assert.match(JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body), /shopping: 1 added, 1 ticked/);
 });
 
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {

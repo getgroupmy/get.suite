@@ -179,6 +179,20 @@ await step('an assistant cancels a meeting: the guest’s bell says so and it le
   const left = (await api(gus, 'GET', `/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
   if (left.some((e) => e.title === 'Supplier call')) throw new Error('still on their calendar');
 });
+await step('Notes open while an assistant adds to and ticks off a list: the card shows it without a reload', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 9', scope: 'write', days: 30 })).body.token;
+  await mcp(token, 'create_note', { title: 'Groceries', items: ['Bread', 'Eggs'] });
+  await page.goto(`${B}/notes`);
+  const card = page.locator('article.note-card', { hasText: 'Groceries' });
+  await card.getByRole('checkbox', { name: /Eggs/ }).waitFor();
+  await page.evaluate(() => { window.__stayed = true; });
+  const r = await mcp(token, 'update_note', { note: 'Groceries', add_items: ['Milk'], tick: ['Eggs'] });
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await card.getByRole('checkbox', { name: /Milk/ }).waitFor({ timeout: 15000 });
+  await card.getByText('1 ticked item').waitFor(); // a card puts ticked items away under a count
+  if (await card.getByRole('checkbox', { name: /Eggs/ }).count()) throw new Error('Eggs still among the open items');
+  if (!(await page.evaluate(() => window.__stayed))) throw new Error('the page reloaded');
+});
 await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');

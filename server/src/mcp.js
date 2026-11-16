@@ -487,6 +487,56 @@ export const TOOLS = [
     },
   },
   {
+    name: 'update_note', title: 'Add to or tick off a note', readOnly: false,
+    description: 'Change one of the person’s notes (their own or one shared with them), found by id (note:… from search) or by its title: add checklist items (e.g. milk to the shopping list), tick or untick items by their text, or add text to the end of a note without a checklist. Several at once is fine.',
+    inputSchema: {
+      type: 'object', required: ['note'],
+      properties: {
+        note: { type: 'string', description: 'note:… from search, or the note’s title' },
+        add_items: { type: 'array', items: { type: 'string' }, description: 'Checklist items to add at the end' },
+        tick: { type: 'array', items: { type: 'string' }, description: 'Items to tick, by their text' },
+        untick: { type: 'array', items: { type: 'string' }, description: 'Items to untick, by their text' },
+        append_text: { type: 'string', description: 'Text for the end of a note without a checklist' },
+      },
+    },
+    async run(api, a) {
+      const notes = await api('GET', '/notes');
+      const want = String(a.note || '').trim();
+      const id = want.replace(/^note:/, '');
+      let n = notes.find((x) => x.id === id);
+      if (!n) {
+        const same = notes.filter((x) => String(x.title || '').trim().toLowerCase() === want.toLowerCase());
+        if (same.length > 1) throw new ToolError(`${same.length} notes are called “${want}”: use the id from search (note:…)`);
+        n = same[0];
+      }
+      if (!n) throw new ToolError(`No note called “${want}” (archived and deleted notes aren’t looked in)`);
+      const adds = (a.add_items || []).map((t) => String(t).trim()).filter(Boolean);
+      const ticks = (a.tick || []).map(String), unticks = (a.untick || []).map(String);
+      if (!adds.length && !ticks.length && !unticks.length && !String(a.append_text || '').trim()) throw new ToolError('Say what to change: add_items, tick, untick or append_text');
+      const body = {};
+      if (n.items) {
+        if (a.append_text) throw new ToolError('That note is a checklist: add_items adds to it');
+        const items = n.items.map((x) => ({ ...x }));
+        const find = (t) => {
+          const low = t.trim().toLowerCase();
+          const hit = items.find((x) => x.text.trim().toLowerCase() === low) || items.find((x) => x.text.toLowerCase().includes(low));
+          if (!hit) throw new ToolError(`“${t}” isn’t on the list: it has ${items.map((x) => `“${x.text}”`).slice(0, 30).join(', ')}`);
+          return hit;
+        };
+        for (const t of ticks) find(t).done = true;
+        for (const t of unticks) find(t).done = false;
+        for (const t of adds) items.push({ text: t, done: false });
+        if (items.length > 200) throw new ToolError('A note holds at most 200 items');
+        body.items = items;
+      } else {
+        if (adds.length || ticks.length || unticks.length) throw new ToolError('That note has no checklist: append_text adds to it');
+        body.body = `${n.body ? `${n.body.replace(/\s+$/, '')}\n` : ''}${String(a.append_text).trim()}`;
+      }
+      const after = await api('PATCH', `/notes/${encodeURIComponent(n.id)}`, body);
+      return { id: `note:${after.id}`, title: after.title, ...(after.items ? { items: after.items.map((x) => ({ text: x.text, done: x.done })) } : { text: after.body }), url: link('/notes') };
+    },
+  },
+  {
     name: 'create_contact', title: 'Add a contact', readOnly: false,
     description: 'Add someone to the person’s Contacts (e.g. from an email signature). If a contact with that email address is already there, it isn’t added twice: that one is returned instead.',
     inputSchema: {
@@ -953,6 +1003,7 @@ function recordChange(req, tool, args) {
     : tool.name === 'set_out_of_office' ? (args.on ? `out-of-office on${args.first_day ? ` from ${args.first_day}` : ''}${args.last_day ? ` to ${args.last_day}` : ''}` : 'out-of-office off')
     : tool.name === 'set_status' ? (args.clear ? 'status cleared' : `status ${[args.emoji, args.text].filter(Boolean).join(' ')}`)
     : tool.name === 'comment_on_file' ? `comment on ${args.file}: ${args.text}`
+    : tool.name === 'update_note' ? `${args.note}: ${[args.add_items?.filter((t) => String(t).trim()).length && `${args.add_items.filter((t) => String(t).trim()).length} added`, args.tick?.length && `${args.tick.length} ticked`, args.untick?.length && `${args.untick.length} unticked`, args.append_text && 'text added'].filter(Boolean).join(', ')}`
     : tool.name === 'share_file' ? `${args.file} shared with ${args.with} (${args.role})`
     : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
