@@ -20,6 +20,7 @@ import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
 import timeOffRoutes from './routes/timeoff.js';
 import bookingRoutes, { publicBookingRoutes, freeBusyRoutes } from './routes/booking.js';
 import { publicConfidentialRoutes } from './mail/confidential.js';
+import { publicUnsubscribeRoutes, oneClickRoute } from './mail/mergeunsub.js';
 import brandRoutes from './routes/brand.js';
 import announcementRoutes from './routes/announcements.js';
 import formRoutes, { publicFormRoutes } from './routes/forms.js';
@@ -119,6 +120,7 @@ export function createApp({
   app.use('/api/public/invites', publicInviteRoutes());
   app.use('/api/public/book', publicBookingRoutes());
   app.use('/api/public/confidential', publicConfidentialRoutes());
+  app.use('/api/public/unsubscribe', publicUnsubscribeRoutes());
   app.use('/api/public/brand', brandRoutes());
   app.use('/api/public/forms', publicFormRoutes());
   app.use('/api/public/sign', publicSignRoutes());
@@ -173,7 +175,8 @@ export function createApp({
   app.use('/api/location', requireAuth, locationRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
   // Share-link pages: keep them out of search engines.
-  app.use(['/s/', '/i/', '/f/', '/c/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
+  app.use(['/s/', '/i/', '/f/', '/c/', '/u/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
+  app.post('/u/:token', ...oneClickRoute()); // mail apps' one-click unsubscribe (mail merge)
 
   // Shared to Workspace from another app, before its service worker is running (it normally takes
   // these: public/sw.js): nothing is read or kept here, Drive just opens.

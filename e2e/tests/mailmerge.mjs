@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
+const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
 const SP = process.argv[2];
 const B = 'http://localhost:8080';
 const browser = await chromium.launch();
@@ -84,6 +85,52 @@ await step('send: each person gets their own email; the report lists what was sk
   await until(async () => { const r = await api(kim, 'GET', '/mail/messages?folder=INBOX'); msg = r.body?.messages?.find((m) => m.subject === 'Your total, Kim'); return !!msg; }, 30000);
   const full = (await api(kim, 'GET', `/mail/messages/${msg.uid}?folder=INBOX`)).body;
   if (!/Hello Kim,\s+you owe 120\./.test(full.text) || full.to.length !== 1) throw new Error(JSON.stringify([full.text, full.to]));
+}, page);
+await step('Kim follows the unsubscribe link in her email: nothing changes until she confirms', async () => {
+  let msg;
+  await until(async () => { const r = await api(kim, 'GET', '/mail/messages?folder=INBOX'); msg = r.body?.messages?.find((m) => m.subject === 'Your total, Kim'); return !!msg; }, 30000);
+  const full = (await api(kim, 'GET', `/mail/messages/${msg.uid}?folder=INBOX`)).body;
+  const link = /To stop getting these emails: (\S+\/u\/[\w-]+)/.exec(full.text)?.[1];
+  if (!link) throw new Error(full.text);
+  if (!/>Unsubscribe<\/a>/.test(full.html)) throw new Error('no link in the HTML');
+  await kim.goto(link);
+  await kim.getByRole('heading', { name: 'Unsubscribe' }).waitFor();
+  await kim.getByText(/Stop getting emails like this from Olivia Owner at ki•@acme\.com\?/).waitFor();
+  if ((await api(page, 'GET', '/mail/merge/unsubscribed')).body.length) throw new Error('unsubscribed just by opening the page');
+  await kim.evaluate(AXE);
+  const v = await kim.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => x.id));
+  if (v.length) throw new Error(v.join(', '));
+  await kim.getByRole('button', { name: 'Unsubscribe' }).click();
+  await kim.getByRole('heading', { name: 'You’re unsubscribed' }).waitFor();
+  await kim.screenshot({ path: `${SP}/shots/unsubscribed.png` });
+}, page);
+await step('the next mail merge leaves Kim out, says so, and Olivia can let her back in', async () => {
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await page.locator('.grid td[data-k="A1"]').waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Mail merge…' }).click();
+  const d = page.getByRole('dialog', { name: 'Mail merge' });
+  await d.getByText('1 person has unsubscribed from your emails and won’t be sent this.').waitFor();
+  if (!(await d.getByLabel(/Add an unsubscribe link/).isChecked())) throw new Error('unsubscribe link not on by default');
+  await d.getByLabel('Subject').fill('News for {{First name}}');
+  await d.getByLabel('Message').fill('Hi {{First name}}.');
+  await d.getByRole('region', { name: 'Preview' }).getByText(/their own unsubscribe link/).waitFor();
+  await d.getByRole('button', { name: 'Send to 1 person…' }).click();
+  await d.getByRole('button', { name: 'Yes, send 1 email' }).click();
+  await d.getByText(/1\s*email sent/).waitFor();
+  await d.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Mail merge…' }).click();
+  await d.getByRole('button', { name: '1 person has unsubscribed' }).click();
+  const list = d.getByRole('list', { name: 'People who unsubscribed' });
+  await list.getByText('kim@acme.com').waitFor();
+  await list.getByRole('button', { name: 'Send to them again' }).click();
+  await page.getByText('kim@acme.com will get your emails again').waitFor();
+  await d.getByRole('button', { name: 'Send to 2 people…' }).waitFor();
+  await d.getByRole('button', { name: 'Cancel' }).click();
+  await until(async () => (await api(page, 'GET', '/mail/messages?folder=INBOX')).body?.messages?.some((m) => m.subject === 'News for Lee') || (await api(page, 'GET', '/mail/messages?folder=Sent')).body?.messages?.some((m) => m.subject === 'News for Lee'), 20000).catch(() => {});
+  const kimInbox = (await api(kim, 'GET', '/mail/messages?folder=INBOX')).body.messages;
+  if (kimInbox.some((m) => m.subject === 'News for Kim')) throw new Error('Kim was sent the second email');
 }, page);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

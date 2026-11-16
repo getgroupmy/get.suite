@@ -1308,7 +1308,7 @@ test('mail merge: a personal message to each row; unknown placeholders refused; 
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /No column called “Team”/);
   const test1 = await olivia('POST', '/api/mail/merge', { columns, rows, subject: 'Figures for {{First name}}', text: 'Dear {{first name}},\nyou owe {{Amount}}.', test: true });
-  assert.deepEqual(test1.body, { sent: 1, failed: [] });
+  assert.deepEqual(test1.body, { sent: 1, failed: [], skipped: [] });
   await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'Figures for Olivia'));
   const r = await olivia('POST', '/api/mail/merge', { columns, rows, subject: 'Figures for {{First name}}', text: 'Dear {{first name}},\nyou owe {{Amount}}.' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -1320,6 +1320,39 @@ test('mail merge: a personal message to each row; unknown placeholders refused; 
   assert.deepEqual(full.to.map((a) => a.address), ['gina@globex.com'], 'only their own address');
   assert.match(full.html, /75 &amp; tax/);
   await eventually(async () => (await inbox(olivia)).filter((m) => m.subject === 'Figures for Olivia').length === 2, 20000); // the test, then the real one
+});
+
+test('mail merge unsubscribe: a link and one-click header in each message; people who leave are skipped next time', async () => {
+  const columns = ['Email', 'Name'];
+  const rows = [{ email: 'gina@globex.com', fields: { Email: 'gina@globex.com', Name: 'Gina' } }, { email: 'olivia@acme.com', fields: { Email: 'olivia@acme.com', Name: 'Olivia' } }];
+  const r = await olivia('POST', '/api/mail/merge', { columns, rows, subject: 'Newsletter for {{Name}}', text: 'Hello {{Name}}.', unsubscribe: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.sent, 2);
+  const g = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Newsletter for Gina'));
+  const raw = (await gina('GET', `/api/mail/messages/${g.uid}/eml?folder=INBOX`)).body.toString();
+  const link = /^List-Unsubscribe: <(http[^>]+\/u\/([\w-]+))>/m.exec(raw);
+  assert.ok(link, raw.slice(0, 1500));
+  assert.match(raw, /^List-Unsubscribe-Post: List-Unsubscribe=One-Click/m);
+  const full = (await gina('GET', `/api/mail/messages/${g.uid}?folder=INBOX`)).body;
+  assert.match(full.text, /To stop getting these emails: http\S+\/u\/[\w-]+/);
+  assert.match(full.html, />Unsubscribe<\/a>/);
+  // Gina's mail app unsubscribes in one click (a form POST to the link, no cookie).
+  const one = await fetch(`${base}/u/${link[2]}`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' });
+  assert.equal(one.status, 200);
+  assert.deepEqual((await olivia('GET', '/api/mail/merge/unsubscribed')).body.map((x) => x.email), ['gina@globex.com']);
+  const again = await olivia('POST', '/api/mail/merge', { columns, rows, subject: 'Second issue for {{Name}}', text: 'Hi.', unsubscribe: true });
+  assert.equal(again.body.sent, 1);
+  assert.deepEqual(again.body.skipped, ['gina@globex.com']);
+  // A test to yourself still goes, and Gina asking to hear again takes her off the list.
+  assert.equal((await gina('GET', '/api/mail/merge/unsubscribed')).body.length, 0, "Gina's own list is empty");
+  assert.equal((await olivia('DELETE', '/api/mail/merge/unsubscribed/gina@globex.com')).status, 200);
+  const third = await olivia('POST', '/api/mail/merge', { columns, rows: rows.slice(0, 1), subject: 'Welcome back {{Name}}', text: 'Hi.' });
+  assert.deepEqual([third.body.sent, third.body.skipped], [1, []]);
+  await eventually(async () => (await inbox(gina)).some((m) => m.subject === 'Welcome back Gina'));
+  assert.ok(!(await inbox(gina)).some((m) => m.subject === 'Second issue for Gina'));
+  // Without the option, no link is added.
+  const plain = (await gina('GET', `/api/mail/messages/${(await inbox(gina)).find((m) => m.subject === 'Welcome back Gina').uid}/eml?folder=INBOX`)).body.toString();
+  assert.doesNotMatch(plain, /List-Unsubscribe/);
 });
 
 test('follow-ups: a reminder when nobody replied; none when someone did; cancelling', async () => {

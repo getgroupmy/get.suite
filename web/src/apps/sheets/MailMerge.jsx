@@ -1,7 +1,7 @@
 // Mail merge (Sheets): the first row's headings become placeholders ({{First name}}); each row below
 // with an email address gets its own message, filled in from that row, sent from your mailbox.
-import { useMemo, useRef, useState } from 'react';
-import { post } from '../../api.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { del, get, post } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { colName, cellKey } from './formula.js';
 import { usedArea } from './sheetprint.js';
@@ -39,10 +39,16 @@ export function MailMergeDialog({ cells, shown, from, onClose }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState(null);
+  const [unsub, setUnsub] = useState(true); // add an unsubscribe link (and the header mail apps use for theirs)
+  const [left, setLeft] = useState([]); // people who unsubscribed from your mail merges
+  const [showLeft, setShowLeft] = useState(false);
+  useEffect(() => { get('/mail/merge/unsubscribed').then(setLeft).catch(() => {}); }, []);
+  const leftSet = useMemo(() => new Set(left.map((x) => x.email)), [left]);
   const lastField = useRef('text');
   const subjectBox = useRef(), textBox = useRef();
   const recipients = rows.filter((r) => emailCol && r.fields[emailCol]?.trim());
-  const valid = recipients.filter((r) => EMAIL.test(r.fields[emailCol].trim()));
+  const valid = recipients.filter((r) => EMAIL.test(r.fields[emailCol].trim()) && !leftSet.has(r.fields[emailCol].trim().toLowerCase()));
+  const leaving = recipients.filter((r) => leftSet.has(r.fields[emailCol].trim().toLowerCase())).length;
   const unknown = unknownPlaceholders(subject, text, columns.map((c) => c.name));
   const sample = recipients[Math.min(at, recipients.length - 1)];
   const insert = (name) => {
@@ -56,7 +62,7 @@ export function MailMergeDialog({ cells, shown, from, onClose }) {
   const send = async (test) => {
     setBusy(true); setConfirming(false);
     try {
-      const r = await post('/mail/merge', { from, subject, text, test, columns: columns.map((c) => c.name), rows: recipients.map((x) => ({ email: x.fields[emailCol].trim(), fields: x.fields })) });
+      const r = await post('/mail/merge', { from, subject, text, test, unsubscribe: unsub, columns: columns.map((c) => c.name), rows: recipients.map((x) => ({ email: x.fields[emailCol].trim(), fields: x.fields })) });
       if (test) toast(r.sent ? 'Test sent to you (filled in from the first row)' : r.failed[0]?.error || 'The test could not be sent', r.sent ? 'info' : 'error');
       else setResult(r);
     } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
@@ -71,6 +77,7 @@ export function MailMergeDialog({ cells, shown, from, onClose }) {
       <Modal title="Mail merge" onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
         <p role="status"><strong>{result.sent}</strong> email{result.sent === 1 ? '' : 's'} sent{result.failed.length ? `; ${result.failed.length} not sent:` : '.'}</p>
         {result.failed.length > 0 && <ul className="small">{result.failed.map((f, i) => <li key={i}>{f.email}: {f.error}</li>)}</ul>}
+        {result.skipped?.length > 0 && <p className="small">{result.skipped.length} not sent: they unsubscribed from your emails.</p>}
         <p className="muted small">Copies are in your Sent folder.</p>
       </Modal>
     );
@@ -96,7 +103,21 @@ export function MailMergeDialog({ cells, shown, from, onClose }) {
         <label className="field"><span>Subject</span><input ref={subjectBox} value={subject} maxLength={300} onFocus={() => { lastField.current = 'subject'; }} onChange={(e) => setSubject(e.target.value)} placeholder="Your figures for {{Month}}" /></label>
         <label className="field"><span>Message</span><textarea ref={textBox} rows={7} value={text} onFocus={() => { lastField.current = 'text'; }} onChange={(e) => setText(e.target.value)} placeholder={'Dear {{First name}},\n…'} /></label>
         {unknown.length > 0 && <p className="error small" role="alert" style={{ margin: 0 }}>No column called {unknown.map((u) => `“${u}”`).join(', ')}.</p>}
-        {recipients.length > valid.length && <p className="muted small" style={{ margin: 0 }}>{recipients.length - valid.length} row{recipients.length - valid.length === 1 ? '' : 's'} without a valid address will be skipped.</p>}
+        {recipients.length - leaving > valid.length && <p className="muted small" style={{ margin: 0 }}>{recipients.length - leaving - valid.length} row{recipients.length - leaving - valid.length === 1 ? '' : 's'} without a valid address will be skipped.</p>}
+        {leaving > 0 && <p className="muted small" style={{ margin: 0 }}>{leaving} {leaving === 1 ? 'person has' : 'people have'} unsubscribed from your emails and won’t be sent this.</p>}
+        <label className="row small" style={{ gap: 6 }}><input type="checkbox" checked={unsub} onChange={(e) => setUnsub(e.target.checked)} />
+          Add an unsubscribe link (recommended: mail services trust bulk email that has one)</label>
+        {left.length > 0 && (
+          <div className="small">
+            <button type="button" className="link-btn" aria-expanded={showLeft} onClick={() => setShowLeft(!showLeft)}>{left.length} {left.length === 1 ? 'person has' : 'people have'} unsubscribed</button>
+            {showLeft && <ul className="merge-left" aria-label="People who unsubscribed">{left.map((x) => (
+              <li key={x.email} className="row"><span className="grow">{x.email} <span className="muted">· {new Date(x.left_at).toLocaleDateString()}</span></span>
+                <button type="button" className="link-btn" title="They asked to hear from you again" onClick={async () => {
+                  try { await del(`/mail/merge/unsubscribed/${encodeURIComponent(x.email)}`); setLeft((l) => l.filter((y) => y.email !== x.email)); toast(`${x.email} will get your emails again`); } catch (e) { toast(e.message, 'error'); }
+                }}>Send to them again</button></li>
+            ))}</ul>}
+          </div>
+        )}
         {sample && (
           <section className="merge-preview" aria-label="Preview">
             <div className="row small">
@@ -106,7 +127,7 @@ export function MailMergeDialog({ cells, shown, from, onClose }) {
             </div>
             <div className="small"><span className="muted">To:</span> {sample.fields[emailCol]}</div>
             <div className="small"><span className="muted">Subject:</span> {fillTemplate(subject, sample.fields)}</div>
-            <p className="merge-body">{fillTemplate(text, sample.fields)}</p>
+            <p className="merge-body">{fillTemplate(text, sample.fields)}{unsub && <span className="muted">{'\n\n--\nTo stop getting these emails: (their own unsubscribe link)'}</span>}</p>
           </section>
         )}
       </div>

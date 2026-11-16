@@ -22,6 +22,7 @@ import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
 const SignPage = lazy(() => import('./apps/docs/Signatures.jsx').then((m) => ({ default: m.SignPage })));
 const SignRoute = () => <Suspense fallback={<Loading />}><SignPage token={useParams().token} /></Suspense>;
 import BookingPage, { CancelBooking } from './apps/calendar/BookingPage.jsx';
+import Unsubscribe from './apps/Unsubscribe.jsx';
 import ConfidentialPage from './apps/mail/ConfidentialPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 const Drive = lazy(() => import('./apps/drive/Drive.jsx'));
@@ -64,6 +65,9 @@ export default function App() {
   if (booking) return <BookingPage token={booking[1]} />;
   const cancelling = window.location.pathname.match(/^\/b\/cancel\/([A-Za-z0-9_-]+)\/?$/);
   if (cancelling) return <CancelBooking token={cancelling[1]} />;
+  // Unsubscribing from someone's mail merge emails (no account).
+  const unsub = window.location.pathname.match(/^\/u\/([A-Za-z0-9_-]+)\/?$/);
+  if (unsub) return <Unsubscribe token={unsub[1]} />;
   // A confidential message (Mail → 🔒): its recipients read it here.
   const confidential = window.location.pathname.match(/^\/c\/([A-Za-z0-9_-]+)\/?$/);
   if (confidential) return <ConfidentialGate token={confidential[1]} />;

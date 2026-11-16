@@ -12,6 +12,7 @@ import { recordPhishing } from '../phishing.js';
 import { practiceReported } from '../phishpractice.js';
 import crypto from 'node:crypto';
 import { fillTemplate, mergeHtml, unknownPlaceholders } from '../mail/merge.js';
+import { unsubscribeToken, unsubscribeParts, leftOf, unsubscribedList, resubscribe } from '../mail/mergeunsub.js';
 import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -2045,7 +2046,8 @@ export default function webmailRoutes() {
   }
 
   /** Check and build a message from what the compose window sends: { raw, envelope, all, subject }. */
-  async function buildMessage(req) {
+  // extra: { headers } added to the message (mail merge's List-Unsubscribe); never taken from the request.
+  async function buildMessage(req, extra = {}) {
     const b = req.body;
     const to = parseRecipients(b.to, 'To');
     const cc = parseRecipients(b.cc, 'Cc');
@@ -2172,7 +2174,7 @@ export default function webmailRoutes() {
       text,
       ...(html && { html }),
       ...(b.inReplyTo && { inReplyTo: String(b.inReplyTo), references: [].concat(b.references || [], b.inReplyTo).map(String).slice(-20) }),
-      ...(b.receipt && { headers: { 'Disposition-Notification-To': from.address } }), // ask for a read receipt
+      ...((b.receipt || extra.headers) && { headers: { ...(b.receipt && { 'Disposition-Notification-To': from.address }), ...extra.headers } }), // a read receipt asked for
       ...(req.user.delegate && { sender: { name: req.user.delegate.name, address: req.user.delegate.address } }), // sent by a delegate
       attachments,
     };
@@ -2259,20 +2261,31 @@ export default function webmailRoutes() {
     // The rules look at the message as written and at the values filled into it.
     const filled = rows.slice(0, MAX_MERGE).map((r) => Object.values(r?.fields || {}).join(' ')).join('\n');
     if (dataRulesStop(req, res, { recipients: list.map((r) => String(r?.email || '').toLowerCase()), subject, text: `${text}\n${filled}`, confirmed: b.dlpConfirmed === true })) return;
-    const sent = [], failed = [];
+    const sent = [], failed = [], skipped = [];
+    // People who unsubscribed from your mail merges are never sent another (the test to yourself is).
+    const left = b.test ? new Set() : leftOf(req.user.id);
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
     for (const row of list) {
       const email = String(row?.email || '').trim().toLowerCase();
       if (!EMAIL_RE.test(email)) { failed.push({ email: email || '(empty)', error: 'Not an email address' }); continue; }
+      if (left.has(email)) { skipped.push(email); continue; }
       try {
         const fields = row.fields && typeof row.fields === 'object' ? row.fields : {};
-        const m = await buildMessage({ user: req.user, body: { from: b.from, to: email, subject: fillTemplate(subject, fields).replace(/[\r\n]+/g, ' '), text: fillTemplate(text, fields), html: mergeHtml(text, fields) } });
+        const unsub = b.unsubscribe ? unsubscribeParts(base, unsubscribeToken(req.user.id, email)) : null;
+        const m = await buildMessage({ user: req.user, body: { from: b.from, to: email, subject: fillTemplate(subject, fields).replace(/[\r\n]+/g, ' '), text: fillTemplate(text, fields) + (unsub?.text || ''), html: mergeHtml(text, fields) + (unsub?.html || '') } }, { headers: unsub?.headers });
         await deliver(req.user, m.raw, m.envelope);
         if (!b.test) recordSent(req.user, m.all);
         sent.push(email);
       } catch (e) { failed.push({ email, error: e.message }); }
     }
-    if (!b.test) audit(req, 'mail.merge', { target: subject.slice(0, 200), details: { sent: sent.length, failed: failed.length } });
-    res.json({ sent: sent.length, failed });
+    if (!b.test) audit(req, 'mail.merge', { target: subject.slice(0, 200), details: { sent: sent.length, failed: failed.length, skipped: skipped.length } });
+    res.json({ sent: sent.length, failed, skipped });
+  });
+  // Who has unsubscribed from your mail merges; DELETE takes someone off the list (they asked to hear again).
+  r.get('/merge/unsubscribed', (req, res) => res.json(unsubscribedList(req.user.id)));
+  r.delete('/merge/unsubscribed/:email', (req, res) => {
+    if (!resubscribe(req.user.id, req.params.email)) throw notFound('That address isn’t on your list');
+    res.json({ ok: true });
   });
 
   // Follow-up reminders: ?message_id= for one message's (still to come), or all: those with no reply yet, then those
