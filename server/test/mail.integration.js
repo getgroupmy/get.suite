@@ -24,6 +24,8 @@ process.env.AUTH_POLICY_URL = 'http://127.0.0.1:18081/';
 process.env.AUTH_NEVER_BAN = '127.0.0.1/32,::1';
 process.env.AUTH_SOFT_NETS = ''; // treat 127.0.0.6+ like internet addresses
 for (const sub of ['postfix', 'dovecot', 'dkim']) fs.rmSync(path.join(process.env.MAIL_CONFIG_DIR, sub), { recursive: true, force: true });
+// Mailboxes of earlier runs (the same addresses each time) would still hold their mail: start from empty ones.
+for (const d of ['acme.com', 'globex.com']) fs.rmSync(path.join(process.env.MAIL_VMAIL_DIR || '/var/vmail', d), { recursive: true, force: true });
 
 const { createApp } = await import('../src/app.js');
 const { setResolver } = await import('../src/routes/mailAdmin.js');
@@ -244,21 +246,26 @@ test('a mail-app password replaces the account password for mail apps (not for w
 });
 
 test('single sign-on required: the account password no longer opens mail apps (a mail-app password does; admins keep theirs)', async () => {
-  const before = await imapLogin('bob@acme.com', 'password123');
+  // A user of its own: Bob's password was changed and his account disabled above.
+  assert.equal((await olivia('POST', '/api/users', { local: 'sid', domain: 'acme.com', name: 'Sid Ssouser', password: 'password123' })).status, 201);
+  const sid = client();
+  assert.equal((await sid('POST', '/api/auth/login', { username: 'sid@acme.com', password: 'password123' })).status, 200);
+  await eventually(async () => { try { const c = await imapLogin('sid@acme.com', 'password123'); await c.logout(); return true; } catch { return false; } });
+  const before = await imapLogin('sid@acme.com', 'password123');
   await before.logout();
   assert.equal((await olivia('PATCH', '/api/orgs/current', { sso_issuer: 'https://login.example.com/t1', sso_client_id: 'ws', sso_secret: 's', sso_label: 'Microsoft' })).status, 200);
   assert.equal((await olivia('PATCH', '/api/orgs/current', { sso_required: true })).status, 200);
-  await eventually(async () => { try { const c = await imapLogin('bob@acme.com', 'password123'); await c.logout(); return false; } catch { return true; } });
+  await eventually(async () => { try { const c = await imapLogin('sid@acme.com', 'password123'); await c.logout(); return false; } catch { return true; } });
   const adminStill = await imapLogin('olivia@acme.com', 'password123');
   await adminStill.logout();
-  const made = await bob('POST', '/api/auth/mail-app', { password: 'password123' });
+  const made = await sid('POST', '/api/auth/mail-app', { password: 'password123' });
   assert.equal(made.status, 200, JSON.stringify(made.body));
-  await eventually(async () => { try { const c = await imapLogin('bob@acme.com', made.body.password); await c.logout(); return true; } catch { return false; } });
-  assert.equal((await bob('GET', '/api/mail/folders')).status, 200, 'webmail is unaffected');
+  await eventually(async () => { try { const c = await imapLogin('sid@acme.com', made.body.password); await c.logout(); return true; } catch { return false; } });
+  assert.equal((await sid('GET', '/api/mail/folders')).status, 200, 'webmail is unaffected');
   // Not required any more: the account password works again (once the mail-app password is removed).
   assert.equal((await olivia('PATCH', '/api/orgs/current', { sso_required: false, sso_issuer: '' })).status, 200);
-  assert.equal((await bob('DELETE', '/api/auth/mail-app', { password: 'password123' })).status, 200);
-  await eventually(async () => { try { const c = await imapLogin('bob@acme.com', 'password123'); await c.logout(); return true; } catch { return false; } });
+  assert.equal((await sid('DELETE', '/api/auth/mail-app', { password: 'password123' })).status, 200);
+  await eventually(async () => { try { const c = await imapLogin('sid@acme.com', 'password123'); await c.logout(); return true; } catch { return false; } });
 });
 
 test('postmaster@ reaches the company admin', async () => {
