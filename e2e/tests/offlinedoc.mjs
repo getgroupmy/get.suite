@@ -435,6 +435,28 @@ await step('Drive offline: a kept file renamed there gets the name when back; on
   await kept.getByRole('link', { name: 'Island notes, final' }).waitFor({ state: 'detached' });
   await ctx.setOffline(false);
 });
+await step('Drive: Make available offline keeps a file never opened here, which then opens without a connection', async () => {
+  const made = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Ferry timetable', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Departures at 7, 9 and 11' }] }] } })).body;
+  await page.goto(`${B}/drive`);
+  const row = page.locator('tr', { hasText: 'Ferry timetable' });
+  await row.getByRole('button', { name: 'Actions for Ferry timetable' }).click();
+  await page.getByRole('menuitem', { name: 'Make available offline' }).click();
+  await page.getByText('“Ferry timetable” is available offline on this device').waitFor({ timeout: 20000 });
+  await row.getByLabel('Available offline').waitFor();
+  await ctx.setOffline(true);
+  await page.reload();
+  await page.locator('section.on-this-device').getByRole('link', { name: 'Ferry timetable' }).click({ timeout: 20000 });
+  await page.waitForURL(new RegExp(made.id));
+  await editor().getByText('Departures at 7, 9 and 11').waitFor({ timeout: 20000 }); // never opened here, yet there
+  await ctx.setOffline(false);
+  await page.getByText(/You're offline/).first().waitFor({ state: 'detached', timeout: 20000 });
+  // And back: no longer kept on purpose.
+  await page.goto(`${B}/drive`);
+  await row.getByRole('button', { name: 'Actions for Ferry timetable' }).click();
+  await page.getByRole('menuitem', { name: 'Don’t keep offline' }).click();
+  await page.getByText('is no longer kept available offline').waitFor();
+  await row.getByLabel('Available offline').waitFor({ state: 'detached' });
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });

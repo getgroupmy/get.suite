@@ -175,3 +175,32 @@ export async function renameFile(file, name) {
     return { ...file, name };
   }
 }
+
+/**
+ * "Make available offline" (Drive): the file's latest is fetched and kept on this device without opening it, and stays
+ * kept (it isn't let go among the 30 last opened). Resolves true once kept.
+ */
+export async function keepOffline(file) {
+  const { WebsocketProvider } = await import('y-websocket');
+  const ydoc = new Y.Doc();
+  const url = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/collab`;
+  const provider = new WebsocketProvider(url, file.id, ydoc, { connect: false, maxBackoffTime: 5000 });
+  return new Promise((resolve) => {
+    let over = false;
+    const done = (ok) => { if (over) return; over = true; clearTimeout(limit); provider.destroy(); ydoc.destroy(); resolve(ok); };
+    const limit = setTimeout(() => done(false), 20000);
+    provider.on('sync', async (synced) => {
+      if (!synced) return;
+      const had = await keptDoc(file.id);
+      if (had?.dirty) { await keepDoc(file.id, { ...had, pinned: true }); done(true); return; } // its unsent changes stay as they are
+      await keepDoc(file.id, { gen: ydoc.getMap('meta').get('gen') || null, state: Y.encodeStateAsUpdate(ydoc), dirty: false, file, pinned: true });
+      done(true);
+    });
+    provider.connect();
+  });
+}
+/** No longer kept on purpose: it stays only while it's among the files last opened here. */
+export async function unpinOffline(id) {
+  const had = await keptDoc(id);
+  if (had) await keepDoc(id, { ...had, pinned: false });
+}

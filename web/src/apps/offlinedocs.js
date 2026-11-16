@@ -28,13 +28,17 @@ async function run(mode, fn, store = STORE) {
 /** The kept copy of a file: { gen, state: Uint8Array, dirty, file, at } or null. */
 export const keptDoc = (id) => run('readonly', (s) => s.get(id)).then((x) => x || null).catch(() => null);
 
-/** Keep (or update) a file's copy; the oldest beyond 30 are let go, except any with unsent changes. */
+/**
+ * Keep (or update) a file's copy; the oldest beyond 30 are let go, except any with unsent changes and those made
+ * available offline on purpose (pinned, which an update keeps unless it says otherwise).
+ */
 export async function keepDoc(id, rec) {
   try {
-    await run('readwrite', (s) => s.put({ ...rec, at: Date.now() }, id));
+    const had = rec.pinned === undefined ? await keptDoc(id) : null;
+    await run('readwrite', (s) => s.put({ ...rec, ...(had?.pinned && { pinned: true }), at: Date.now() }, id));
     const all = [];
-    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { all.push([cur.key, cur.value.at, cur.value.dirty]); cur.continue(); } }; return c; });
-    const extra = all.sort((a, b) => b[1] - a[1]).slice(KEEP).filter(([, , dirty]) => !dirty);
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { all.push([cur.key, cur.value.at, cur.value.dirty || cur.value.pinned]); cur.continue(); } }; return c; });
+    const extra = all.sort((a, b) => b[1] - a[1]).filter(([, , stays]) => !stays).slice(Math.max(0, KEEP - all.filter(([, , stays]) => stays).length));
     if (extra.length) await run('readwrite', (s) => { for (const [k] of extra) s.delete(k); });
   } catch { /* private mode or storage full: the document still works online */ }
 }
@@ -61,11 +65,11 @@ export const forgetAll = () => new Promise((resolve) => {
   try { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => resolve(); } catch { resolve(); }
 });
 
-/** Everything kept on this device, the most recently opened first: [{ id, file, at, dirty }]. */
+/** Everything kept on this device, the most recently opened first: [{ id, file, at, dirty, pinned }]. */
 export async function keptList() {
   try {
     const out = [];
-    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (cur.value?.file) out.push({ id: cur.key, file: cur.value.file, at: cur.value.at, dirty: !!cur.value.dirty }); cur.continue(); } }; return c; });
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (cur.value?.file) out.push({ id: cur.key, file: cur.value.file, at: cur.value.at, dirty: !!cur.value.dirty, pinned: !!cur.value.pinned }); cur.continue(); } }; return c; });
     return out.sort((a, b) => b.at - a.at);
   } catch { return []; }
 }

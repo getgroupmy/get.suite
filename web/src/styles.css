@@ -3217,3 +3217,6 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 /* Made or changed offline, not on the server yet (Calendar): a dashed outline. */
 .ev-offline { outline: 2px dashed var(--warn-line); outline-offset: -2px; }
 .not-sent { margin-left: 6px; }
+
+/* Drive: a file made available offline. */
+.offline-mark { margin-left: 6px; color: var(--muted); display: inline-flex; vertical-align: middle; }

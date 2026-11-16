@@ -1,5 +1,5 @@
 import { keptList, unreachable, offlineId, changeAdd, keepDoc, forgetDoc } from '../offlinedocs.js';
-import { renameFile } from '../KeptCopy.jsx';
+import { renameFile, keepOffline, unpinOffline } from '../KeptCopy.jsx';
 import { findClashes, clashQuestion, findFolderClashes } from './uploadclash.js';
 import { driveKey, stepIndex } from './drivekeys.js';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
@@ -202,6 +202,16 @@ export default function Drive() {
   }, [key]);
 
   const [offlineList, setOfflineList] = useState(null); // without a connection: the files kept on this device
+  // Files made available offline on purpose (kept on this device, Drive marks them).
+  const [pinned, setPinned] = useState(() => new Set());
+  const loadPinned = useCallback(() => keptList().then((l) => setPinned(new Set(l.filter((k) => k.pinned).map((k) => k.id)))), []);
+  useEffect(() => { loadPinned(); }, [loadPinned]);
+  const toggleOffline = async (f) => {
+    if (pinned.has(f.id)) { await unpinOffline(f.id); toast(`“${f.name}” is no longer kept available offline`); loadPinned(); return; }
+    toast(`Making “${f.name}” available offline…`);
+    if (await keepOffline(f)) toast(`“${f.name}” is available offline on this device`); else toast('It couldn’t be kept just now. Try again.', 'error');
+    loadPinned();
+  };
   useEffect(() => { setFiles(null); setOfflineList(null); setSelected(null); setChecked(new Set()); load(); }, [load]);
   // Back online after showing what's on the device: the real list again.
   useEffect(() => { if (!offlineList) return undefined; const back = () => { setOfflineList(null); load(); }; window.addEventListener('online', back); return () => window.removeEventListener('online', back); }, [offlineList, load]);
@@ -486,6 +496,7 @@ export default function Drive() {
       mail?.enabled && f.kind !== 'folder' && !viewOnly(f) && { label: 'Email as attachment', icon: 'mail', onClick: () => emailFile(f) },
       { label: 'Copy link', icon: 'link', onClick: () => copyLinks([f]) },
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
+      ['doc', 'sheet', 'slides'].includes(f.kind) && { label: pinned.has(f.id) ? 'Don’t keep offline' : 'Make available offline', icon: 'download', onClick: () => toggleOffline(f) },
       user.is_admin && ['doc', 'sheet', 'slides'].includes(f.kind) && { label: f.template ? 'Remove from company templates' : 'Make a company template', icon: 'doc',
         onClick: async () => { try { await put(`/files/${f.id}/template`, { template: !f.template }); toast(f.template ? 'No longer a company template' : 'Everyone in your company can now start from it (New → From a template)'); load(); } catch (e) { toast(e.message, 'error'); } } },
       f.owner_id === user.id && ['doc', 'sheet', 'slides'].includes(f.kind) && f.template !== 1 && { label: f.template === 2 ? 'Remove from my templates' : 'Use as my template', icon: 'copy',
@@ -789,7 +800,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{route.view === 'shared' && f.shared_at && <span className="muted small shared-by"> · {f.shared_by_name ? `${f.shared_by_name} shared it ` : 'Shared '}{formatDate(f.shared_at)}</span>}{route.view === 'shared' && f.share_ends && <span className="muted small share-ends"> · until {formatDate(f.share_ends)}</span>}{f.shared_with?.length > 0 && <span className="muted small shared-with"> · with {f.shared_with.slice(0, 3).join(', ')}{f.shared_with.length > 3 ? ` and ${f.shared_with.length - 3} more` : ''}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{route.view === 'shared' && f.shared_at && <span className="muted small shared-by"> · {f.shared_by_name ? `${f.shared_by_name} shared it ` : 'Shared '}{formatDate(f.shared_at)}</span>}{route.view === 'shared' && f.share_ends && <span className="muted small share-ends"> · until {formatDate(f.share_ends)}</span>}{f.shared_with?.length > 0 && <span className="muted small shared-with"> · with {f.shared_with.slice(0, 3).join(', ')}{f.shared_with.length > 3 ? ` and ${f.shared_with.length - 3} more` : ''}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{pinned.has(f.id) && <span className="offline-mark" title="Available offline" aria-label="Available offline"><Icon name="download" size={14} /></span>}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}<OwnerOrg f={f} user={user} /></td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>
