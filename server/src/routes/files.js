@@ -220,6 +220,11 @@ const UNDO_MS = 10 * 60e3;
 function notify(fileId, payload) {
   sendTo(audienceFor(fileId), payload);
 }
+/** Something new in a folder (everyone who sees the folder is told), or at the top of someone's My Drive (their own other tabs and devices). */
+function notifyPlace(parentId, user) {
+  if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+  else sendTo([user.id], { type: 'files-changed', parent_id: null });
+}
 
 /** Parent folder for a new item; null means the user's root. */
 export function resolveParent(parentId, user) {
@@ -807,7 +812,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/folder', (req, res) => {
     const parentId = resolveParent(req.body.parent_id, req.user);
     const id = insertFile({ owner: req.user.id, parentId, name: cleanName(req.body.name), kind: 'folder' });
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
@@ -839,7 +844,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const name = cleanName(req.body.name || { doc: 'Untitled document', sheet: 'Untitled spreadsheet', slides: 'Untitled presentation' }[kind]);
     const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : EMPTY[kind]();
     const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content) });
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
@@ -858,7 +863,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const storage = uid();
     fs.writeFileSync(path.join(FILES_DIR, storage), bytes);
     const id = insertFile({ owner: req.user.id, parentId, name: cleanName(/\.pdf$/i.test(name) ? name : `${name}.pdf`), kind: 'file', mime: 'application/pdf', size: bytes.length, storage });
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, req.user);
     sendTo([req.user.id], { type: 'files-changed', parent_id: parentId });
     return publicFile(loadFile(id, req.user));
   };
@@ -975,14 +980,14 @@ export default function fileRoutes({ maxUploadBytes }) {
         const made = await convertOffice(loadFile(id, req.user), req.user);
         q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), id);
         recordActivity(id, req.user.id, 'trash');
-        if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+        notifyPlace(parentId, req.user);
         return res.status(201).json({ ...publicFile(loadFile(made, req.user)), converted_from: name });
       } catch (e) {
-        if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+        notifyPlace(parentId, req.user);
         return res.status(201).json({ ...publicFile(loadFile(id, req.user)), convert_error: e.message }); // kept as it came
       }
     }
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
@@ -1163,7 +1168,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     checkQuota(req.user.org_id, row.size || 0, req.user.id);
     const name = req.body?.name ? cleanName(req.body.name) : row.name;
     const id = insertFile({ owner: req.user.id, parentId, name, kind: row.kind, size: row.size, content: row.content, activity: { action: 'copy', details: { from: `the template ${row.name}` } } });
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
@@ -1202,7 +1207,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     // Next to the original it's "Copy of …"; put somewhere else it keeps its name (a number is added if taken).
     const id = tx(() => put(tree, parentId, (parentId ?? null) === (row.parent_id ?? null) ? `Copy of ${row.name}` : row.name));
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, user);
     return { ...loadFile(id, user), ...(row.kind === 'folder' && { copied: count, skipped }) };
   }
 
@@ -1336,7 +1341,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       for (const s of e.written || []) fs.rm(path.join(FILES_DIR, s), { force: true }, () => {});
       throw e;
     }
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, req.user);
     res.status(201).json({ folder: publicFile(loadFile(done.id, req.user)), files: done.files, folders: done.folders });
   });
 
@@ -1559,8 +1564,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (q('SELECT COUNT(*) AS n FROM file_shortcuts WHERE owner_id = ?').get(req.user.id).n >= MAX_SHORTCUTS) throw bad(`Up to ${MAX_SHORTCUTS} shortcuts`);
     const id = uid();
     q('INSERT INTO file_shortcuts (id, owner_id, parent_id, target_id, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, parentId, t.id, now());
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
-    else sendTo([req.user.id], { type: 'files-changed', parent_id: null });
+    notifyPlace(parentId, req.user);
     res.status(201).json({ id });
   });
 
@@ -1633,7 +1637,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const fresh = () => crypto.randomBytes(6).toString('base64url');
     const slides = chosen.map(({ bgImage, ...sl }) => ({ ...JSON.parse(JSON.stringify(sl)), id: fresh(), ...(bgImage && copied.has(bgImage) && { bgImage: copied.get(bgImage) }),
       items: (sl.items || []).flatMap((it) => (it.type === 'image' && it.fileId && !copied.has(it.fileId) ? [] : [{ ...it, id: fresh(), ...(it.type === 'image' && it.fileId ? { fileId: copied.get(it.fileId) } : {}) }])) }));
-    if (parentId && copied.size) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    if (copied.size) notifyPlace(parentId, req.user);
     res.json({ slides, theme: content.theme || null });
   });
 
@@ -1701,7 +1705,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       const plain = JSON.stringify(readSetup({}));
       if (JSON.stringify(setup) !== plain) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(setup), id);
     }
-    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    notifyPlace(parentId, req.user);
     return id;
   };
   r.post('/:id/open-as', async (req, res) => {
