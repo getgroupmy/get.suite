@@ -13,7 +13,7 @@ import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
 import { groupPlanned, groupCompleted } from './planned.js';
-import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
@@ -165,8 +165,9 @@ export default function Tasks() {
       // No connection: kept here and sent when it's back; the change stays on screen (and in the lists kept here).
       if (unreachable(e)) {
         await changeAdd({ method: 'PATCH', url: `/tasks/tasks/${t.id}`, body: changes, user: user?.id, label: t.title });
-        await patchKeptTask(t.id, changes);
+        await patchKeptTask(t.id, { ...changes, offline: true });
         window.dispatchEvent(new Event('nw:changes'));
+        setTasks((all) => all && all.map((x) => (x.id === t.id ? { ...x, offline: true } : x)));
         return { ...t, ...changes, offline: true };
       }
       toast(e.message, 'error'); loadTasks(); return null;
@@ -288,6 +289,7 @@ export default function Tasks() {
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.priority && !t.done && (() => { const [, name, mark] = PRIORITIES.find(([k]) => k === t.priority); return <span className={`pill priority ${t.priority}`} title={`${name} priority`} aria-label={`${name} priority`}>{mark} {name}</span>; })()}
+            {t.offline && <NotSent />}
             {t.started && !t.done && <span className="pill doing">In progress</span>}
             {waits.length > 0 && <span className="pill waiting" title={`Waiting on ${waits.map((x) => `“${x.title}”`).join(', ')}`}>⏳ Waiting on {waits.length === 1 ? waits[0].title : `${waits.length} tasks`}</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}

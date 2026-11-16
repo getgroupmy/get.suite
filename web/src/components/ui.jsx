@@ -243,3 +243,8 @@ export async function withDataCheck(call) {
     return ok ? call({ dlpConfirmed: true }) : undefined;
   }
 }
+
+/** On something changed offline (in the lists kept on the device): it reaches the server when the connection is back. */
+export function NotSent({ what = 'Changed' }) {
+  return <span className="pill warn small not-sent" title={`${what} offline: saved when the connection is back`}>Not sent yet</span>;
+}

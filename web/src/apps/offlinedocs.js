@@ -155,7 +155,7 @@ export async function keepDelete({ url, user, label, id }) {
 /** A change that couldn't reach the server: kept to make later, shown in the kept lists meanwhile. */
 export async function keepChange({ method, url, body, user, label, id, shown = body }) {
   await changeAdd({ method, url, body, user, label });
-  if (id) await patchKeptItem(id, shown); // `shown`: what the kept lists take of it (when the body's form differs from the answer's)
+  if (id) await patchKeptItem(id, { ...shown, offline: true }); // `shown`: what the kept lists take of it (when the body's form differs from the answer's)
   window.dispatchEvent(new Event('nw:changes'));
 }
 

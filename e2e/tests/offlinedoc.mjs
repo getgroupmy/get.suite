@@ -220,6 +220,7 @@ await step('a task and a note made offline show here (even after reloading) and 
   await page.reload();
   await page.getByText('Trip').first().click().catch(() => {});
   await page.getByLabel('Done: Buy sun cream').waitFor({ timeout: 20000 }); // still there after reloading offline
+  await page.locator('li.task', { hasText: 'Buy sun cream' }).getByText('Not sent yet').waitFor(); // marked so
   await page.goto(`${B}/notes`).catch(() => {});
   await page.getByRole('button', { name: 'Take a note…' }).click({ timeout: 20000 });
   await page.getByLabel('Title').fill('Ferry times');
@@ -229,6 +230,7 @@ await step('a task and a note made offline show here (even after reloading) and 
   await page.getByRole('article', { name: 'Ferry times' }).waitFor();
   await page.reload();
   await page.getByRole('article', { name: 'Ferry times' }).waitFor({ timeout: 20000 });
+  await page.getByRole('article', { name: 'Ferry times' }).getByText('Not sent yet').waitFor();
   await ctx.setOffline(false);
   await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
   await until(async () => ((await api(page, 'GET', '/notes')).body || []).filter((n) => n.title === 'Ferry times' && n.body === '08:15 and 17:40').length === 1, 10000);
@@ -237,6 +239,7 @@ await step('a task and a note made offline show here (even after reloading) and 
   const made = ((await api(page, 'GET', `/tasks/lists/${trip.id}/tasks`)).body || []).filter((t) => t.title === 'Buy sun cream');
   if (made.length !== 1) throw new Error(`${made.length} tasks`);
   await page.getByRole('article', { name: 'Ferry times' }).waitFor(); // the list reloaded from the server keeps it
+  await page.getByRole('article', { name: 'Ferry times' }).getByText('Not sent yet').waitFor({ state: 'detached', timeout: 10000 }); // sent: no longer marked
 });
 await step('Calendar: an event made offline shows here (even after reloading) and is made once when back', async () => {
   await page.goto(`${B}/calendar`);
@@ -254,11 +257,13 @@ await step('Calendar: an event made offline shows here (even after reloading) an
   await page.getByText('Ferry to the island').first().waitFor();
   await page.reload();
   await page.getByText('Ferry to the island').first().waitFor({ timeout: 20000 }); // still there after reloading offline
+  await page.locator('.ev-offline', { hasText: 'Ferry to the island' }).first().waitFor(); // drawn as not sent yet
   await ctx.setOffline(false);
   await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   const day = new Date(); day.setHours(0, 0, 0, 0);
   await until(async () => ((await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 864e5}`)).body || []).filter((e) => e.title === 'Ferry to the island').length === 1, 10000);
   await page.getByText('Ferry to the island').first().waitFor(); // reloaded from the server
+  await page.locator('.ev-offline').first().waitFor({ state: 'detached', timeout: 10000 });
 });
 await step('Contacts: someone added offline is in the list (even after reloading) and added once when back', async () => {
   await page.goto(`${B}/contacts`);
@@ -275,10 +280,12 @@ await step('Contacts: someone added offline is in the list (even after reloading
   await page.getByText('Island Taxi').first().waitFor();
   await page.reload();
   await page.getByText('Island Taxi').first().waitFor({ timeout: 20000 }); // still there after reloading offline
+  await page.locator('tr', { hasText: 'Island Taxi' }).getByText('Not sent yet').waitFor();
   await ctx.setOffline(false);
   await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   await until(async () => ((await api(page, 'GET', '/contacts')).body || []).filter((c) => c.name === 'Island Taxi' && c.phone === '+44 1234 567890').length === 1, 10000);
   await page.getByText('Island Taxi').first().waitFor(); // reloaded from the server
+  await page.locator('tr', { hasText: 'Island Taxi' }).getByText('Not sent yet').waitFor({ state: 'detached', timeout: 10000 });
 });
 await step('an event and a contact changed offline show the change here (even after reloading) and on the server once back', async () => {
   await page.goto(`${B}/calendar`);
@@ -300,6 +307,7 @@ await step('an event and a contact changed offline show the change here (even af
   await page.getByText('Harbour Office changed on this device').waitFor({ timeout: 15000 });
   await page.reload();
   await page.getByText('+44 1111 222333').first().waitFor({ timeout: 20000 }); // the kept list has the change
+  await page.locator('tr', { hasText: 'Harbour Office' }).getByText('Not sent yet').waitFor();
   await ctx.setOffline(false);
   await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
   await until(async () => ((await api(page, 'GET', '/contacts')).body || []).some((c) => c.name === 'Harbour Office' && c.phone === '+44 1111 222333'), 10000);

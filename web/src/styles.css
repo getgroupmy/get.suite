@@ -3210,3 +3210,7 @@ body:has(.offline-bar) .toasts { bottom: 96px; } /* toasts above the offline bar
 body:has(.offline-bar) .shell, body:has(.offline-bar) .editor-page { height: calc(100% - 76px); }
 body:has(.offline-bar) .modal-backdrop { padding-bottom: 92px; } /* a dialog's buttons stay above the offline bar */
 body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
+
+/* Made or changed offline, not on the server yet (Calendar): a dashed outline. */
+.ev-offline { outline: 2px dashed var(--warn, #b06000); outline-offset: -2px; }
+.not-sent { margin-left: 6px; }

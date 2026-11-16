@@ -16,7 +16,7 @@ import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import SendInChat from '../../components/SendInChat.jsx';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
+import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, NotSent, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
 import DrawPad from '../../components/DrawPad.jsx';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
@@ -162,7 +162,7 @@ export default function Notes() {
     setNotes((list) => list.map((x) => (x.id === n.id ? { ...x, ...changes } : x)));
     try { await patch(`/notes/${n.id}`, changes); } catch (e) {
       // No connection: kept here, made when it's back (the note shows the change meanwhile, also after reloading).
-      if (unreachable(e)) { await keepChange({ method: 'PATCH', url: `/notes/${n.id}`, body: changes, user: user?.id, label: n.title || 'a note', id: n.id }); return; }
+      if (unreachable(e)) { await keepChange({ method: 'PATCH', url: `/notes/${n.id}`, body: changes, user: user?.id, label: n.title || 'a note', id: n.id }); load(); return; }
       toast(e.message, 'error');
     }
     load();
@@ -501,6 +501,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           </div>
         )}
         {n.title && <h3>{n.title}</h3>}
+        {n.offline && <NotSent />}
         {n.recordings?.length > 0 && <span className="note-rec-chip small" title="Open the note to listen">🎙 {n.recordings.length === 1 ? `Recording ${clock(n.recordings[0].duration_ms)}` : `${n.recordings.length} recordings`}</span>}
         {n.body && <p className="note-body">{n.body.length > 800 ? `${n.body.slice(0, 800)}…` : n.body}</p>}
       </div>

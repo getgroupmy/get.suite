@@ -774,7 +774,7 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
                   aria-label={b.room ? `${b.name} booked: ${b.title} by ${b.organizer}, ${fmtTime(b.start)} to ${fmtTime(b.end)}` : b.title ? `${b.name}: ${b.title}${b.location ? ` at ${b.location}` : ''}, ${fmtTime(b.start)} to ${fmtTime(b.end)}` : `${b.name} ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}{b.room || b.title ? ` · ${b.title}` : b.ooo ? ' · out of office' : ''}</span></div>;
               })}
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
-                <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
+                <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}${ev.offline ? ' · not sent yet' : ''}`}
                   style={{ '--c': eventColor(ev), top: (top / 60) * HOUR_PX, height: (height / 60) * HOUR_PX - 2, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)` }}
                   onPointerDown={drag.timeHandler(ev, d, 'move')} onClick={drag.click(() => onOpen(ev))}>
                   <strong>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</strong>
@@ -879,7 +879,8 @@ function RemindersField({ value, onChange }) {
 }
 
 // Invitations you haven't answered look tentative; declined ones are faded.
-const inviteClass = (ev) => (ev.kind === 'ooo' ? 'ooo' : ev.kind === 'focus' ? 'focus' : ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
+// Made or changed offline: drawn dashed ("Not sent yet" in its tooltip) until the connection is back.
+const inviteClass = (ev) => (ev.offline ? 'ev-offline ' : '') + (ev.kind === 'ooo' ? 'ooo' : ev.kind === 'focus' ? 'focus' : ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
 const ANSWER_LABELS = { yes: 'Yes', maybe: 'Maybe', no: 'No', needs: 'Not answered' };
 const JOIN_LABELS = { room: 'in the room', video: 'on video' }; // how a guest who's coming will be there
 /** "2 in the room, 1 on video" for the guests coming (yes or maybe), or ''. */
