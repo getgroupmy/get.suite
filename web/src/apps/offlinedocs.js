@@ -35,7 +35,7 @@ export const keptDoc = (id) => run('readonly', (s) => s.get(id)).then((x) => x |
 export async function keepDoc(id, rec) {
   try {
     const had = rec.pinned === undefined ? await keptDoc(id) : null;
-    await run('readwrite', (s) => s.put({ ...rec, ...(had?.pinned && { pinned: true }), at: Date.now() }, id));
+    await run('readwrite', (s) => s.put({ ...rec, ...(had?.pinned && { pinned: true }), at: rec.at ?? Date.now() }, id)); // (a refresh keeps when it was opened)
     const all = [];
     await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { all.push([cur.key, cur.value.at, cur.value.dirty || cur.value.pinned]); cur.continue(); } }; return c; });
     const extra = all.sort((a, b) => b[1] - a[1]).filter(([, , stays]) => !stays).slice(Math.max(0, KEEP - all.filter(([, , stays]) => stays).length));
@@ -69,7 +69,7 @@ export const forgetAll = () => new Promise((resolve) => {
 export async function keptList() {
   try {
     const out = [];
-    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (cur.value?.file) out.push({ id: cur.key, file: cur.value.file, at: cur.value.at, dirty: !!cur.value.dirty, pinned: !!cur.value.pinned }); cur.continue(); } }; return c; });
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (cur.value?.file) out.push({ id: cur.key, file: cur.value.file, at: cur.value.at, dirty: !!cur.value.dirty, pinned: !!cur.value.pinned, fetched: cur.value.fetched || 0 }); cur.continue(); } }; return c; });
     return out.sort((a, b) => b.at - a.at);
   } catch { return []; }
 }

@@ -443,11 +443,20 @@ await step('Drive: Make available offline keeps a file never opened here, which 
   await page.getByRole('menuitem', { name: 'Make available offline' }).click();
   await page.getByText('“Ferry timetable” is available offline on this device').waitFor({ timeout: 20000 });
   await row.getByLabel('Available offline').waitFor();
+  // Changed on the server later: brought up to date here in the background while connected (at most hourly: the last
+  // fetch is made to look old).
+  const { file: cur } = (await api(page, 'GET', `/files/${made.id}/content`)).body;
+  const put = await api(page, 'PUT', `/files/${made.id}/content`, { version: cur.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Departures at 8 and 10 from Monday' }] }] } });
+  if (put.status !== 200) throw new Error(JSON.stringify(put));
+  const fetched = () => page.evaluate((id) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction('docs', 'readwrite'); const st = t.objectStore('docs'); const g = st.get(id); g.onsuccess = () => { res(g.result?.fetched || 0); r.result.close(); }; }; }), made.id);
+  await page.evaluate((id) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction('docs', 'readwrite'); const st = t.objectStore('docs'); const g = st.get(id); g.onsuccess = () => { st.put({ ...g.result, fetched: 1 }, id); }; t.oncomplete = () => { r.result.close(); res(); }; }; }), made.id);
+  await page.reload();
+  await until(async () => (await fetched()) > 1, 20000);
   await ctx.setOffline(true);
   await page.reload();
   await page.locator('section.on-this-device').getByRole('link', { name: 'Ferry timetable' }).click({ timeout: 20000 });
   await page.waitForURL(new RegExp(made.id));
-  await editor().getByText('Departures at 7, 9 and 11').waitFor({ timeout: 20000 }); // never opened here, yet there
+  await editor().getByText('Departures at 8 and 10 from Monday').waitFor({ timeout: 20000 }); // never opened here, and up to date
   await ctx.setOffline(false);
   await page.getByText(/You're offline/).first().waitFor({ state: 'detached', timeout: 20000 });
   // And back: no longer kept on purpose.

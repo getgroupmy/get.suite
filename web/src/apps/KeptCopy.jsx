@@ -180,7 +180,7 @@ export async function renameFile(file, name) {
  * "Make available offline" (Drive): the file's latest is fetched and kept on this device without opening it, and stays
  * kept (it isn't let go among the 30 last opened). Resolves true once kept.
  */
-export async function keepOffline(file) {
+export async function keepOffline(file, { refresh = false } = {}) {
   const { WebsocketProvider } = await import('y-websocket');
   const ydoc = new Y.Doc();
   const url = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/collab`;
@@ -193,7 +193,8 @@ export async function keepOffline(file) {
       if (!synced) return;
       const had = await keptDoc(file.id);
       if (had?.dirty) { await keepDoc(file.id, { ...had, pinned: true }); done(true); return; } // its unsent changes stay as they are
-      await keepDoc(file.id, { gen: ydoc.getMap('meta').get('gen') || null, state: Y.encodeStateAsUpdate(ydoc), dirty: false, file, pinned: true });
+      if (refresh && (!had || !had.pinned)) { done(false); return; } // let go meanwhile
+      await keepDoc(file.id, { gen: ydoc.getMap('meta').get('gen') || null, state: Y.encodeStateAsUpdate(ydoc), dirty: false, file, pinned: true, fetched: Date.now(), ...(refresh && had && { at: had.at }) });
       done(true);
     });
     provider.connect();
@@ -203,4 +204,18 @@ export async function keepOffline(file) {
 export async function unpinOffline(id) {
   const had = await keptDoc(id);
   if (had) await keepDoc(id, { ...had, pinned: false });
+}
+
+/**
+ * Files made available offline are brought up to date in the background while connected (at most hourly each, not
+ * those open now or with unsent changes), so what opens offline is recent. Resolves with how many were refreshed.
+ */
+export async function refreshPinned({ every = 3600e3 } = {}) {
+  const { keptList } = await import('./offlinedocs.js');
+  let n = 0;
+  for (const k of await keptList()) {
+    if (!k.pinned || k.dirty || openNow.has(k.id) || Date.now() - k.fetched < every) continue;
+    if (await keepOffline(k.file, { refresh: true })) n++;
+  }
+  return n;
 }

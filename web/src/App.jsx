@@ -225,6 +225,7 @@ function SendUnsent() {
       if (changed) { toast(`Sent ${changed} change${changed === 1 ? '' : 's'} made offline`); window.dispatchEvent(new Event('nw:changes-sent')); }
       const r = await sendUnsent(WebsocketProvider);
       if (r.sent) toast(`Sent what you changed offline in ${r.sent} file${r.sent === 1 ? '' : 's'}`);
+      import('./apps/KeptCopy.jsx').then((m) => m.refreshPinned()).catch(() => {}); // files made available offline: kept recent
       for (const f of r.copies) toast(`A file was changed elsewhere while you were offline: your changes are in “${f.name}”`, 'info', { duration: 10000 });
     };
     // One run at a time (the network and the live connection can come back together: nothing is sent twice).
