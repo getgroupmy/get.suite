@@ -1,17 +1,31 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import { onLive, reconnectNow } from './api.js';
 import './styles.css';
 
-// Without a connection: say so (the app itself still opens, from the service worker).
+// Without a connection: say so (the app itself still opens, from the service worker). With the network up but the
+// server out of reach (restarting for an update, the proxy down) for more than a few seconds: say that too, with
+// Try now, instead of letting things fail quietly. Coming back online or to the tab tries again at once.
+const SERVER_GRACE_MS = 4000;
 function OfflineBar() {
   const [online, setOnline] = useState(navigator.onLine);
+  const [unreachable, setUnreachable] = useState(false);
   useEffect(() => {
-    const on = () => setOnline(true), off = () => setOnline(false);
+    const on = () => { setOnline(true); reconnectNow(); }, off = () => setOnline(false);
+    const back = () => { if (document.visibilityState === 'visible') reconnectNow(); };
     window.addEventListener('online', on); window.addEventListener('offline', off);
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+    document.addEventListener('visibilitychange', back);
+    let wait = null;
+    const stop = onLive((m) => {
+      if (m.type === 'live-disconnected') { if (!wait) wait = setTimeout(() => setUnreachable(true), SERVER_GRACE_MS); }
+      else if (m.type === 'live-connected') { clearTimeout(wait); wait = null; setUnreachable(false); }
+    });
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); document.removeEventListener('visibilitychange', back); stop(); clearTimeout(wait); };
   }, []);
-  return online ? null : <div className="offline-bar" role="status">You're offline. Workspace reconnects by itself when the network is back.</div>;
+  if (!online) return <div className="offline-bar" role="status">You're offline. Workspace reconnects by itself when the network is back.</div>;
+  if (unreachable) return <div className="offline-bar" role="status">Can't reach Workspace right now. Reconnecting… <button type="button" className="link-btn" onClick={reconnectNow}>Try now</button></div>;
+  return null;
 }
 
 createRoot(document.getElementById('root')).render(<StrictMode><OfflineBar /><App /></StrictMode>);

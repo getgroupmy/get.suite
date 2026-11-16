@@ -3201,3 +3201,4 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .assistant-tools .check { flex-wrap: wrap; }
 .chat-search:focus-within, .notes-search:focus-within, .mail-search:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; } /* their own input shows no ring */
 .more-files { display: flex; justify-content: center; padding: 12px; }
+.offline-bar .link-btn { color: #8ab4f8; margin-left: 8px; }

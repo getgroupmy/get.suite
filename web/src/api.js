@@ -100,21 +100,34 @@ let socket = null;
 let retry = 0;
 let wanted = false;
 
+let timer = null;
 function connect() {
-  if (!wanted) return;
+  timer = null;
+  if (!wanted || socket) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  socket = new WebSocket(`${proto}://${location.host}/ws`);
-  socket.onopen = () => { retry = 0; emit({ type: 'live-connected' }); };
-  socket.onmessage = (e) => { try { emit(JSON.parse(e.data)); } catch {} };
-  socket.onclose = () => {
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  socket = ws;
+  ws.onopen = () => { retry = 0; emit({ type: 'live-connected' }); };
+  ws.onmessage = (e) => { try { emit(JSON.parse(e.data)); } catch {} };
+  ws.onclose = () => {
+    if (socket !== ws) return;
     socket = null;
-    if (wanted) setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++));
+    if (!wanted) return;
+    emit({ type: 'live-disconnected' }); // the connection bar says so if it lasts
+    timer = setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++));
   };
+}
+/** Try the live connection again now (Try now, or the network or the tab coming back), not at the next retry. */
+export function reconnectNow() {
+  if (!wanted || socket) return;
+  clearTimeout(timer);
+  retry = 0;
+  connect();
 }
 function emit(msg) { for (const fn of listeners) fn(msg); }
 
 export function startLive() { if (!wanted) { wanted = true; connect(); } }
-export function stopLive() { wanted = false; socket?.close(); }
+export function stopLive() { wanted = false; clearTimeout(timer); socket?.close(); socket = null; }
 export function onLive(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 /** Whether a live event means "load this again": one of these types, or the connection coming (back) up,
  *  after which anything that changed while it was down has to be fetched. */
