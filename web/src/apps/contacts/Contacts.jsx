@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { unreachable, changeAdd, appendKept, offlineId } from '../offlinedocs.js';
+import { unreachable, changeAdd, appendKept, offlineId, keepChange } from '../offlinedocs.js';
 import { contactKey } from './contactkeys.js';
 import { stepTask } from '../tasks/taskkeys.js';
 import WithPerson from '../../components/WithPerson.jsx';
@@ -580,6 +580,14 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
         await appendKept('/contacts', { ...body, owner_id: user.id, created_at: new Date().toISOString(), offline: true });
         window.dispatchEvent(new Event('nw:changes'));
         toast(`${f.name} saved on this device, added when the connection is back${pic && pic !== 'remove' ? ' (add the photo then)' : ''}`);
+        onSaved();
+        return;
+      }
+      // Changing someone already here: the same, the list shows the change meanwhile (a new photo waits for the connection).
+      if (contact.id && unreachable(err)) {
+        const changes = { ...body, ...(mine && { touch_days: f.touch_days || null }) };
+        await keepChange({ method: 'PATCH', url: `/contacts/${contact.id}`, body: changes, user: user.id, label: f.name, id: contact.id });
+        toast(`${f.name} changed on this device, saved when the connection is back${pic ? ' (change the photo then)' : ''}`);
         onSaved();
         return;
       }

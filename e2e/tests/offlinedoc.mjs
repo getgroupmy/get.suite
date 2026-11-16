@@ -280,6 +280,33 @@ await step('Contacts: someone added offline is in the list (even after reloading
   await until(async () => ((await api(page, 'GET', '/contacts')).body || []).filter((c) => c.name === 'Island Taxi' && c.phone === '+44 1234 567890').length === 1, 10000);
   await page.getByText('Island Taxi').first().waitFor(); // reloaded from the server
 });
+await step('an event and a contact changed offline show the change here (even after reloading) and on the server once back', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByText('Site visit').first().waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByText('Site visit').first().click();
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  await dlg.getByLabel('Title').fill('Site visit with the surveyor');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(/“Site visit with the surveyor” changed on this device/).waitFor({ timeout: 15000 });
+  await page.reload();
+  await page.getByText('Site visit with the surveyor').first().waitFor({ timeout: 20000 });
+  await page.goto(`${B}/contacts`).catch(() => {});
+  await page.getByRole('button', { name: 'Edit Harbour Office' }).click({ timeout: 20000 });
+  const cd = page.getByRole('dialog', { name: 'Edit contact' });
+  await cd.getByLabel('Phone', { exact: true }).fill('+44 1111 222333');
+  await cd.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Harbour Office changed on this device').waitFor({ timeout: 15000 });
+  await page.reload();
+  await page.getByText('+44 1111 222333').first().waitFor({ timeout: 20000 }); // the kept list has the change
+  await ctx.setOffline(false);
+  await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
+  await until(async () => ((await api(page, 'GET', '/contacts')).body || []).some((c) => c.name === 'Harbour Office' && c.phone === '+44 1111 222333'), 10000);
+  const day = new Date(); day.setHours(0, 0, 0, 0);
+  const evs = (await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 864e5}`)).body || [];
+  if (!evs.some((e) => e.title === 'Site visit with the surveyor') || evs.some((e) => e.title === 'Site visit')) throw new Error(JSON.stringify(evs.map((e) => e.title)));
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });

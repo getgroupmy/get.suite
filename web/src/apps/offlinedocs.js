@@ -110,9 +110,9 @@ export async function patchKeptItem(taskId, changes) {
 export const patchKeptTask = patchKeptItem;
 
 /** A change that couldn't reach the server: kept to make later, shown in the kept lists meanwhile. */
-export async function keepChange({ method, url, body, user, label, id }) {
+export async function keepChange({ method, url, body, user, label, id, shown = body }) {
   await changeAdd({ method, url, body, user, label });
-  if (id) await patchKeptItem(id, body);
+  if (id) await patchKeptItem(id, shown); // `shown`: what the kept lists take of it (when the body's form differs from the answer's)
   window.dispatchEvent(new Event('nw:changes'));
 }
 

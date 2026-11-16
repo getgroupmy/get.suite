@@ -1,5 +1,5 @@
 import WorldClock from './WorldClock.jsx';
-import { unreachable, changeAdd, appendKept, offlineId, eventsCovering } from '../offlinedocs.js';
+import { unreachable, changeAdd, appendKept, offlineId, eventsCovering, keepChange } from '../offlinedocs.js';
 import { liveText } from '../meet/meetmath.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
@@ -1591,7 +1591,17 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
     let saved;
     try { saved = await applyEdit(event, f.ooo && autoReply ? { ...body, auto_reply: true } : body, which); }
     catch (err) {
-      if (event.id || !unreachable(err)) throw err;
+      if (!unreachable(err)) throw err;
+      // No connection, changing a one-off event: kept here and made when it's back; the calendar shows the change meanwhile.
+      // (Guests, rooms and files stay as they were on screen until then; a repeating event needs the connection.)
+      if (event.id) {
+        if (event.rrule || event.owner_id !== me.id) throw err;
+        const { guests: _g, rooms: _r, attachments: _a, reminders: _m, id: _i, ...shown } = body;
+        await keepChange({ method: 'PATCH', url: `/events/${event.id}`, body, user: me.id, label: body.title || 'an event', id: event.id, shown: { ...shown, offline: true } });
+        toast(`“${body.title || 'Event'}” changed on this device, saved when the connection is back`);
+        onSaved();
+        return;
+      }
       // No connection: kept here and made when it's back; shown on the calendar meanwhile (also after reloading).
       const kept = { ...body, owner_id: me.id, role: 'organizer', guests: [], rooms: [], exdates: [], attachments: [], reminders: [], offline: true, created_at: Date.now() };
       await changeAdd({ method: 'POST', url: '/events', body, user: me.id, label: body.title || 'an event' });
