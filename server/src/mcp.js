@@ -320,6 +320,26 @@ export const TOOLS = [
     },
   },
   {
+    name: 'create_contact', title: 'Add a contact', readOnly: false,
+    description: 'Add someone to the person’s Contacts (e.g. from an email signature). If a contact with that email address is already there, it isn’t added twice: that one is returned instead.',
+    inputSchema: {
+      type: 'object', required: ['name'],
+      properties: { name: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' }, company: { type: 'string' }, title: { type: 'string', description: 'Job title' }, address: { type: 'string' }, website: { type: 'string' }, notes: { type: 'string' } },
+    },
+    async run(api, a) {
+      const name = String(a.name || '').trim();
+      if (!name) throw new ToolError('Give the contact’s name');
+      const email = String(a.email || '').trim().toLowerCase();
+      if (email) {
+        const there = (await api('GET', '/contacts')).find((c) => String(c.email || '').toLowerCase() === email);
+        if (there) return { id: `contact:${there.id}`, name: there.name, already: true, note: 'Already in Contacts: not added again.', url: link(`/contacts?q=${encodeURIComponent(email)}`) };
+      }
+      const body = Object.fromEntries(['name', 'email', 'phone', 'company', 'title', 'address', 'website', 'notes'].map((k) => [k, a[k] ? String(a[k]).trim() : undefined]).filter(([, v]) => v));
+      const c = await api('POST', '/contacts', body);
+      return { id: `contact:${c.id}`, name: c.name, email: c.email || null, url: link(`/contacts?q=${encodeURIComponent(c.email || c.name)}`) };
+    },
+  },
+  {
     name: 'create_document', title: 'Make a document', readOnly: false,
     description: 'Make a new Workspace document in the person’s Drive from plain text (lines starting with # become headings).',
     inputSchema: { type: 'object', required: ['name', 'text'], properties: { name: { type: 'string' }, text: { type: 'string' } } },
