@@ -19,7 +19,7 @@ import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
 import { newDeviceSignIn, passkeyChanged, accountChanged } from '../alerts.js';
 import { smtpFor } from '../mail/imap.js';
-import { ssoOf, orgForEmail, discover, newAttempt, takeAttempt, verifyIdToken, emailOf } from '../sso.js';
+import { ssoOf, orgForEmail, discover, newAttempt, takeAttempt, verifyIdToken, emailOf, ssoRequiredFor, ssoRequiredMessage } from '../sso.js';
 import { baseUrl } from './calendar.js';
 
 // "Forgot password?": a link (valid for an hour, once) sent to the personal recovery address someone
@@ -112,6 +112,8 @@ export default function authRoutes({ secureCookies }) {
     }
     // Only from the company's own networks, when it says so (the password was right: not a failed guess).
     { const u = q('SELECT id, org_id, is_super FROM users WHERE id = ?').get(row.id); if (!networkAllowed(u, req.ip)) throw new HttpError(403, NETWORK_REFUSED); }
+    // The company signs in through its identity provider only (admins keep their password).
+    { const label = ssoRequiredFor(row.id); if (label) throw new HttpError(403, ssoRequiredMessage(label)); }
     // Accounts created before email existed get their mailbox password on next sign-in.
     if (!row.mail_hash) setMailPassword(row.id, password);
     // A password known from data breaches (when the company says so): a new one before going on.
@@ -133,7 +135,8 @@ export default function authRoutes({ secureCookies }) {
   // Whether an address's company signs in that way: { sso: "Microsoft" } or { sso: null }. By domain only.
   r.get('/sso/check', (req, res) => {
     const orgId = orgForEmail(req.query.email);
-    res.json({ sso: orgId && ssoOf(orgId) ? ssoOf(orgId).label : null });
+    const sso = orgId && ssoOf(orgId);
+    res.json({ sso: sso ? sso.label : null, required: !!(sso && q('SELECT sso_required FROM orgs WHERE id = ?').get(orgId)?.sso_required) });
   });
   // Off to the provider, with a one-time state, a nonce and a PKCE challenge.
   r.get('/sso/start', async (req, res) => {
@@ -404,6 +407,7 @@ export default function authRoutes({ secureCookies }) {
     // The passkey belongs to this person (when the browser says whose it is, it must agree).
     if (cred.response?.userHandle && cred.response.userHandle !== b64url(Buffer.from(user.id))) fail('passkey', 'That passkey doesn’t match its account');
     if (!networkAllowed(user, req.ip)) throw new HttpError(403, NETWORK_REFUSED);
+    { const label = ssoRequiredFor(user.id); if (label) throw new HttpError(403, ssoRequiredMessage(label)); }
     q('UPDATE passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?').run(ok.signCount, Date.now(), p.id);
     // A passkey is two steps in one (the device, and your fingerprint, face or PIN): no code after it.
     const u = startSession(req, res, user.id, w.userId ? 'password-passkey' : 'passkey');

@@ -118,6 +118,21 @@ await step('an address with no account here: back on the sign-in page, saying wh
   if (await p.getByRole('link', { name: /Sign in with/ }).count()) throw new Error('offered for another domain');
   await axe(p, 'sign-in error');
 }, kim);
+await step('required: Kim’s password is refused, pointing to Microsoft; the page says so; the admin still has hers', async () => {
+  await page.goto(`${B}/admin?tab=company`);
+  await page.locator('form.sso-settings').getByRole('checkbox', { name: /Require it/ }).check();
+  await page.getByText('Everyone but admins now signs in with single sign-on').waitFor();
+  const p = await mk('kim2');
+  await p.goto(B);
+  await p.getByLabel('Email address').fill('kim@acme.com');
+  await p.getByRole('note').getByText('Your company signs in with Microsoft. (Admins can still use their password.)').waitFor();
+  await p.getByLabel('Password', { exact: true }).fill('password123');
+  await p.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await p.getByRole('alert').getByText('Your company signs in with Microsoft: use “Sign in with Microsoft”.').waitFor();
+  await axe(p, 'sso required');
+  const admin = await api(p, 'POST', '/auth/login', { username: 'olivia@acme.com', password: 'password123' });
+  if (admin.status !== 200) throw new Error(JSON.stringify(admin));
+}, kim);
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 idp.close();
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));

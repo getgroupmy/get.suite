@@ -24,6 +24,7 @@ export default function Login({ needsSetup, canReset = false }) {
   // Single sign-on: the company's identity provider (offered once the address is on its domain), and what it
   // sends back here: an error to show, or, for someone with two-step verification, the code step.
   const [sso, setSso] = useState(null); // "Microsoft"…
+  const [ssoRequired, setSsoRequired] = useState(false); // the company signs in that way only (but admins)
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const err = p.get('sso_error'), t = p.get('sso_ticket');
@@ -33,7 +34,7 @@ export default function Login({ needsSetup, canReset = false }) {
   }, []);
   useEffect(() => {
     if (needsSetup || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.username)) { setSso(null); return undefined; }
-    const t = setTimeout(() => get(`/auth/sso/check?email=${encodeURIComponent(form.username)}`).then((r) => setSso(r.sso)).catch(() => setSso(null)), 300);
+    const t = setTimeout(() => get(`/auth/sso/check?email=${encodeURIComponent(form.username)}`).then((r) => { setSso(r.sso); setSsoRequired(!!r.required); }).catch(() => setSso(null)), 300);
     return () => clearTimeout(t);
   }, [form.username, needsSetup]);
 
@@ -159,7 +160,10 @@ export default function Login({ needsSetup, canReset = false }) {
           try { const again = await post('/auth/login', { username: form.username, password: form.password }); if (again.passkeyStep) { setPasskeyStep(again); withPasskey(again); } else if (again.user) setUser(again.user); } catch (err) { setError(err.message); }
         }}>{busy ? 'Waiting for your passkey…' : 'Try the passkey again'}</button>
           : <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : needsSetup ? 'Create workspace' : 'Sign in'}</button>}
-        {!needsSetup && !ticket && !passkeyStep && sso && <a className="btn block" href={`/api/auth/sso/start?email=${encodeURIComponent(form.username)}`}>Sign in with {sso}</a>}
+        {!needsSetup && !ticket && !passkeyStep && sso && <>
+          {ssoRequired && <p className="muted small" role="note" style={{ margin: 0 }}>Your company signs in with {sso}. (Admins can still use their password.)</p>}
+          <a className={`btn block ${ssoRequired ? 'primary' : ''}`} href={`/api/auth/sso/start?email=${encodeURIComponent(form.username)}`}>Sign in with {sso}</a>
+        </>}
         {!needsSetup && !ticket && !passkeyStep && passkeysSupported() && <button type="button" className="btn block" disabled={busy} onClick={() => withPasskey()}>🔑 Use a passkey</button>}
         {!needsSetup && !ticket && canReset && <button type="button" className="link-btn small" onClick={() => setForgot({})}>Forgot password?</button>}
       </form>

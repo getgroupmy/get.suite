@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { q } from './db.js';
 import { bad } from './util.js';
 
-for (const col of ['sso_issuer TEXT', 'sso_client_id TEXT', 'sso_secret TEXT', 'sso_label TEXT']) {
+for (const col of ['sso_issuer TEXT', 'sso_client_id TEXT', 'sso_secret TEXT', 'sso_label TEXT', 'sso_required INTEGER NOT NULL DEFAULT 0']) {
   if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === col.split(' ')[0])) q(`ALTER TABLE orgs ADD COLUMN ${col}`).run();
 }
 q(`CREATE TABLE IF NOT EXISTS sso_states (
@@ -113,3 +113,14 @@ export function emailOf(claims) {
   for (const k of ['preferred_username', 'upn']) if (/^[^\s@]+@[^\s@]+$/.test(String(claims[k] || ''))) return String(claims[k]).toLowerCase();
   return null;
 }
+
+/**
+ * When the company requires single sign-on: the provider's name, for someone who must sign in that way
+ * (everyone but admins, who keep their password in case the provider is down); else null.
+ */
+export function ssoRequiredFor(userId) {
+  const u = q('SELECT u.org_id, u.is_admin, u.is_super, o.sso_required FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(userId);
+  if (!u || !u.sso_required || u.is_admin || u.is_super) return null;
+  return ssoOf(u.org_id)?.label || null;
+}
+export const ssoRequiredMessage = (label) => `Your company signs in with ${label}: use “Sign in with ${label}”.`;

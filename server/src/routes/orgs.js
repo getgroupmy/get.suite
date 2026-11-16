@@ -34,7 +34,7 @@ import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js
 import { mailEnabled } from '../mail/config.js';
 import '../mail/external.js'; // orgs.ask_outside
 import { TOOLS } from '../mcp.js';
-import { cleanIssuer } from '../sso.js';
+import { cleanIssuer, ssoOf } from '../sso.js';
 // orgs.assistant_off: the assistant tools (mcp.js) the company's admins turned off, as a JSON list of names.
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'assistant_off')) q("ALTER TABLE orgs ADD COLUMN assistant_off TEXT NOT NULL DEFAULT '[]'").run();
 export const assistantOff = (orgId) => { try { return new Set(JSON.parse(q('SELECT assistant_off FROM orgs WHERE id = ?').get(orgId)?.assistant_off || '[]')); } catch { return new Set(); } };
@@ -53,7 +53,7 @@ function describe(full) {
     meet_guests: org.meet_guests === undefined ? true : !!org.meet_guests,
     allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
     allow_api_tokens: !!org.allow_api_tokens,
-    sso_issuer: org.sso_issuer || null, sso_client_id: org.sso_client_id || null, sso_label: org.sso_label || null, sso_has_secret: !!full.sso_secret, // single sign-on (sso.js)
+    sso_issuer: org.sso_issuer || null, sso_client_id: org.sso_client_id || null, sso_label: org.sso_label || null, sso_has_secret: !!full.sso_secret, sso_required: !!org.sso_required, // single sign-on (sso.js)
     assistant_off: (() => { try { return JSON.parse(org.assistant_off || '[]'); } catch { return []; } })(), // assistant tools turned off
     ms_client_id: org.ms_client_id || null, ms_tenant: org.ms_tenant || null, // importing mail from Microsoft 365 (msimport.js)
     g_client_id: org.g_client_id || null, g_has_secret: !!full.g_client_secret, // importing mail from Google (googleimport.js); the secret itself is never sent
@@ -102,6 +102,10 @@ function updateOrg(orgId, body, { asSuper, user }) {
   if (body.sso_issuer !== undefined) q('UPDATE orgs SET sso_issuer = ? WHERE id = ?').run(cleanIssuer(body.sso_issuer), orgId);
   if (body.sso_client_id !== undefined) q('UPDATE orgs SET sso_client_id = ? WHERE id = ?').run(String(body.sso_client_id || '').trim().slice(0, 300) || null, orgId);
   if (body.sso_secret !== undefined) q('UPDATE orgs SET sso_secret = ? WHERE id = ?').run(String(body.sso_secret || '').trim().slice(0, 500) || null, orgId);
+  if (body.sso_required !== undefined) {
+    if (body.sso_required && !ssoOf(orgId)) throw bad('Set up single sign-on first: the issuer address, client ID and secret');
+    q('UPDATE orgs SET sso_required = ? WHERE id = ?').run(body.sso_required ? 1 : 0, orgId);
+  }
   if (body.sso_label !== undefined) q('UPDATE orgs SET sso_label = ? WHERE id = ?').run(String(body.sso_label || '').trim().slice(0, 40) || null, orgId);
   if (body.assistant_off !== undefined) {
     if (!Array.isArray(body.assistant_off)) throw bad('assistant_off is a list of tool names');

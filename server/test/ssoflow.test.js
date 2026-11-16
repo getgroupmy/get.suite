@@ -80,8 +80,8 @@ test('set up: a company with single sign-on (the secret is never sent back)', as
   const org = (await owner('GET', '/api/orgs/current')).body;
   assert.deepEqual([org.sso_issuer, org.sso_client_id, org.sso_label, org.sso_has_secret], [issuer, 'ws-app', 'Microsoft', true]);
   assert.ok(!JSON.stringify(org).includes('shh'), 'the secret isn’t sent back');
-  assert.deepEqual((await (await fetch(`${base}/api/auth/sso/check?email=kim@ACME.com`)).json()), { sso: 'Microsoft' });
-  assert.deepEqual((await (await fetch(`${base}/api/auth/sso/check?email=kim@elsewhere.com`)).json()), { sso: null });
+  assert.deepEqual((await (await fetch(`${base}/api/auth/sso/check?email=kim@ACME.com`)).json()), { sso: 'Microsoft', required: false });
+  assert.deepEqual((await (await fetch(`${base}/api/auth/sso/check?email=kim@elsewhere.com`)).json()), { sso: null, required: false });
 });
 
 test('the provider is asked properly, and its yes signs Kim in', async () => {
@@ -149,6 +149,23 @@ test('the company requires two steps and someone’s second is a passkey: sent t
   await owner('PATCH', '/api/orgs/current', { require_2fa: false });
   q('DELETE FROM passkeys WHERE id = ?').run('cred-kim');
   assert.equal((await signIn('kim@acme.com', { email: 'kim@acme.com' })).location, '/', 'without the rule: straight in');
+});
+
+test('required: passwords refused for everyone but admins (their way back in); the sign-in page is told', async () => {
+  assert.equal((await owner('PATCH', '/api/orgs/current', { sso_required: true })).status, 200);
+  assert.deepEqual(await (await fetch(`${base}/api/auth/sso/check?email=kim@acme.com`)).json(), { sso: 'Microsoft', required: true });
+  const kim = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) });
+  assert.equal(kim.status, 403);
+  assert.match((await kim.json()).error, /Your company signs in with Microsoft: use “Sign in with Microsoft”/);
+  const admin = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'olivia@acme.com', password: 'password123' }) });
+  assert.equal(admin.status, 200, 'the admin still can (here, on to their code)');
+  assert.equal((await signIn('kim@acme.com', { email: 'kim@acme.com' })).location, '/', 'single sign-on works');
+  // Turned off, or single sign-on taken away: passwords work again (nobody is locked out).
+  await owner('PATCH', '/api/orgs/current', { sso_issuer: '' });
+  const again = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) });
+  assert.equal(again.status, 200);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { sso_required: true })).status, 400, 'can’t require it while it isn’t set up');
+  await owner('PATCH', '/api/orgs/current', { sso_issuer: issuer, sso_required: false });
 });
 
 test('a company without it: sent back to the password', async () => {

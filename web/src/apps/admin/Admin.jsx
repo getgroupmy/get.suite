@@ -1186,6 +1186,12 @@ function SsoSettings({ org }) {
   const [v, setV] = useState({ sso_label: org.sso_label || '', sso_issuer: org.sso_issuer || '', sso_client_id: org.sso_client_id || '', sso_secret: '' });
   const [has, setHas] = useState(!!org.sso_has_secret);
   const [on, setOn] = useState(!!(org.sso_issuer && org.sso_client_id && org.sso_has_secret));
+  const [required, setRequired] = useState(!!org.sso_required);
+  const require = async (want) => {
+    setRequired(want);
+    try { await patch('/orgs/current', { sso_required: want }); toast(want ? 'Everyone but admins now signs in with single sign-on' : 'People can sign in with their passwords again'); }
+    catch (err) { setRequired(!want); toast(err.message, 'error'); }
+  };
   const callback = `${window.location.origin}/api/auth/sso/callback`;
   const save = async (e) => {
     e.preventDefault();
@@ -1198,7 +1204,7 @@ function SsoSettings({ org }) {
     } catch (err) { toast(err.message, 'error'); }
   };
   const off = async () => {
-    try { await patch('/orgs/current', { sso_issuer: '', sso_secret: '' }); setV({ ...v, sso_issuer: '', sso_secret: '' }); setHas(false); setOn(false); toast('Single sign-on is off: people sign in with their passwords'); } catch (err) { toast(err.message, 'error'); }
+    try { await patch('/orgs/current', { sso_required: false, sso_issuer: '', sso_secret: '' }); setV({ ...v, sso_issuer: '', sso_secret: '' }); setHas(false); setOn(false); setRequired(false); toast('Single sign-on is off: people sign in with their passwords'); } catch (err) { toast(err.message, 'error'); }
   };
   return (
     <form className="stack-tight sso-settings" onSubmit={save} aria-labelledby="sso-h">
@@ -1210,6 +1216,7 @@ function SsoSettings({ org }) {
       <label className="field"><span>Client ID</span><input value={v.sso_client_id} onChange={(e) => setV({ ...v, sso_client_id: e.target.value })} /></label>
       <label className="field"><span>Client secret {has && <span className="muted small">(saved: type a new one to change it)</span>}</span><input type="password" value={v.sso_secret} autoComplete="new-password" onChange={(e) => setV({ ...v, sso_secret: e.target.value })} /></label>
       <div className="row"><button className="btn primary small">Save</button>{on && <button type="button" className="btn small" onClick={off}>Turn off</button>}</div>
+      {on && <label className="check"><input type="checkbox" checked={required} onChange={(e) => require(e.target.checked)} /> Require it: everyone but admins signs in this way only (passwords and passkeys don't work for them). Admins keep their password, in case the provider is down. Mail apps on phones and computers aren't affected: they sign in to the mail server as before.</label>}
     </form>
   );
 }
