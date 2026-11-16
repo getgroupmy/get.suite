@@ -98,6 +98,7 @@ export function goesIn(at, now = Date.now()) {
   return days <= 1 ? (days <= 0 ? 'Soon' : 'Tomorrow') : `In ${days} days`;
 }
 const TITLES = { drives: 'Shared drives', shared: 'Shared with me', sharedbyme: 'Shared by me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures', activity: 'Activity', links: 'Shared by link' };
+const ROWS_STEP = 200;
 const DRAG_TYPE = 'application/x-workspace-files';
 
 /** “External · their company” beside the owner of a file from someone at another company. */
@@ -514,13 +515,29 @@ export default function Drive() {
   // Shared with me, from one person (the "From" buttons above the list).
   const from = route.view === 'shared' && fromOwner && sorted.some((f) => f.owner_id === fromOwner) ? fromOwner : null;
   const shown = from ? sorted.filter((f) => f.owner_id === from) : sorted;
+  // A big folder is put on the page a batch at a time (10,000 rows at once took seconds): more as the end of
+  // the list scrolls into view, all of them for End, Select all and the like. The data is all here already.
+  const [limit, setLimit] = useState(ROWS_STEP);
+  useEffect(() => { setLimit(ROWS_STEP); }, [key, look.sort, look.desc, from]);
+  const rendered = shown.length > limit ? shown.slice(0, limit) : shown;
+  const moreRef = useRef(null);
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    const io = new IntersectionObserver((seen) => { if (seen.some((x) => x.isIntersecting)) setLimit((n) => n + ROWS_STEP); }, { rootMargin: '600px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [rendered.length, shown.length]);
+  const moreRow = shown.length > rendered.length && (
+    <div ref={moreRef} className="more-files"><button type="button" className="btn small" onClick={() => setLimit((n) => n + ROWS_STEP)}>Show {Math.min(ROWS_STEP, shown.length - rendered.length)} more of {shown.length - rendered.length}</button></div>
+  );
   const owners = route.view === 'shared' && files ? sharers(files) : [];
 
   // Keyboard (see drivekeys.js): ↑ / ↓ (or J / K), Home and End move between the files (focus and
   // selection with them); Enter opens (on each item); X ticks one; S stars it; F2 renames; Delete or #
   // moves it to the trash; U goes up a folder. The menu's own actions do the work.
   const keyState = useRef();
-  keyState.current = { keysOn: user?.keys !== false, shown, itemMenu, crumbs, route, navigate, toggleCheck, setSelected };
+  keyState.current = { keysOn: user?.keys !== false, shown, itemMenu, crumbs, route, navigate, toggleCheck, setSelected, setLimit };
   useEffect(() => {
     const items = () => [...document.querySelectorAll('table.files tbody tr[tabindex], .file-grid .tile-face')];
     const onKey = (e) => {
@@ -534,6 +551,12 @@ export default function Drive() {
       const run = (...labels) => { const m = f && st.itemMenu(f).filter(Boolean).find((x) => labels.includes(x.label)); if (m) { e.preventDefault(); m.onClick(); } };
       switch (hit.action) {
         case 'next': case 'prev': case 'first': case 'last': {
+          if (hit.action === 'last' && st.shown.length > all.length) { // not all on the page yet: put them there, then go
+            e.preventDefault();
+            st.setLimit(st.shown.length);
+            requestAnimationFrame(() => requestAnimationFrame(() => { const now = items(); const last = now[now.length - 1]; last?.focus(); last?.scrollIntoView?.({ block: 'nearest' }); const g = st.shown[now.length - 1]; if (g) st.setSelected(g.shortcut_id || g.id); }));
+            return;
+          }
           const j = stepIndex(all.length, i, hit.action);
           if (j < 0) return;
           e.preventDefault();
@@ -712,7 +735,7 @@ export default function Drive() {
                 : <Empty icon="upload" title="Drop files here">or use the New button to create a folder, document or spreadsheet</Empty>
         ) : look.layout === 'grid' ? (
           <ul className="file-grid" aria-label="Files">
-            {shown.map((f) => (
+            {rendered.map((f) => (
               <li key={f.shortcut_id ? `s-${f.shortcut_id}` : f.id} className={`file-tile ${selected === (f.shortcut_id || f.id) || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`}
                 draggable={!f.shortcut_id && route.view !== 'trash' && (f.role === 'owner' || f.role === 'editor')}
                 onDragStart={(e) => { const ids = checked.has(f.id) ? [...checked] : [f.id]; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move'; }}
@@ -737,7 +760,7 @@ export default function Drive() {
               ref={(el) => { if (el) el.indeterminate = picked.length > 0 && picked.length < files.length; }}
               onChange={(e) => setChecked(e.target.checked ? new Set(files.filter((f) => !f.shortcut_id).map((f) => f.id)) : new Set())} /></th>{sortHead('name', 'Name')}<th className="hide-sm">Owner</th>{route.view === 'trash' ? <th className="hide-sm">Deleted for good</th> : sortHead('modified', 'Modified', 'hide-sm')}{sortHead('size', 'Size', 'hide-sm')}<th aria-label="Actions" /></tr></thead>
             <tbody>
-              {shown.map((f) => f.shortcut_id ? <ShortcutRow key={`s-${f.shortcut_id}`} f={f} me={user.id} selected={selected === f.shortcut_id} onSelect={() => setSelected(f.shortcut_id)}
+              {rendered.map((f) => f.shortcut_id ? <ShortcutRow key={`s-${f.shortcut_id}`} f={f} me={user.id} selected={selected === f.shortcut_id} onSelect={() => setSelected(f.shortcut_id)}
                 onOpen={() => (f.broken ? toast('You can no longer open what this shortcut points to', 'error') : open(f))} menu={itemMenu(f)} /> : (
                 <tr key={f.id} className={`${selected === f.id || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`} tabIndex={0}
                   draggable={route.view !== 'trash' && (f.role === 'owner' || f.role === 'editor')}
@@ -758,6 +781,7 @@ export default function Drive() {
             </tbody>
           </table>
         )}
+        {moreRow}
         {dragging && <div className="drop-hint"><Icon name="upload" size={40} />Drop to upload</div>}
       </section>
 
