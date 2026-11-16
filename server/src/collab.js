@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { recordActivity } from './fileactivity.js';
 // Live co-editing for Docs: several people type in the same document at once and see each other's
 // cursors. Each open document is a "room" holding the shared Yjs document; browsers connect over
@@ -25,6 +26,10 @@ const FIELD = 'default'; // TipTap's Collaboration extension reads this fragment
 const rooms = new Map(); // fileId -> room
 
 if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'ydoc')) q('ALTER TABLE files ADD COLUMN ydoc BLOB').run();
+// A fingerprint of the JSON the shared form was saved with: while the JSON is unchanged, the shared form is used as it
+// is, without rebuilding the document a second time to compare (seconds for a sheet of hundreds of thousands of cells).
+if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'ydoc_of')) q('ALTER TABLE files ADD COLUMN ydoc_of TEXT').run();
+export const fingerprint = (json) => crypto.createHash('sha256').update(json || '').digest('base64url');
 
 // Documents are a TipTap fragment; spreadsheets a list of sheets with cell maps.
 const KINDS = {
@@ -34,17 +39,24 @@ const KINDS = {
 };
 export const CO_EDITED = Object.keys(KINDS);
 
-function loadDoc(fileId, kind) {
+export function loadDoc(fileId, kind) {
   const k = KINDS[kind];
-  const f = q('SELECT content, ydoc FROM files WHERE id = ?').get(fileId);
+  const f = q('SELECT content, ydoc, ydoc_of FROM files WHERE id = ?').get(fileId);
   if (f.ydoc) {
     const doc = new Y.Doc();
     Y.applyUpdate(doc, new Uint8Array(f.ydoc));
+    if (f.ydoc_of && f.ydoc_of === fingerprint(f.content)) return doc; // the JSON is what it was saved with
     // A JSON change made outside co-editing (restoring a version, an old client) wins: rebuild.
     // (Stored JSON and the shared form agree on everything but how empty values are written.)
-    if (JSON.stringify(k.toJson(doc)) === JSON.stringify(k.toJson(k.fromJson(JSON.parse(f.content))))) return doc;
+    if (JSON.stringify(k.toJson(doc)) === JSON.stringify(k.toJson(k.fromJson(JSON.parse(f.content))))) {
+      q('UPDATE files SET ydoc_of = ? WHERE id = ?').run(fingerprint(f.content), fileId);
+      return doc;
+    }
   }
-  return k.fromJson(JSON.parse(f.content || '{}'));
+  // Built from the JSON: kept with its fingerprint, so the next opening skips the build (not an edit: the version stays).
+  const doc = k.fromJson(JSON.parse(f.content || '{}'));
+  q('UPDATE files SET ydoc = ?, ydoc_of = ? WHERE id = ?').run(Buffer.from(Y.encodeStateAsUpdate(doc)), fingerprint(f.content), fileId);
+  return doc;
 }
 
 function save(room) {
@@ -54,8 +66,8 @@ function save(room) {
   const json = JSON.stringify(KINDS[room.kind].toJson(room.doc));
   const by = room.lastEditor;
   snapshotIfNewSession(room.fileId, by);
-  q('UPDATE files SET content = ?, size = ?, ydoc = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
-    .run(json, Buffer.byteLength(json), Buffer.from(Y.encodeStateAsUpdate(room.doc)), Date.now(), by, room.fileId);
+  q('UPDATE files SET content = ?, size = ?, ydoc = ?, ydoc_of = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
+    .run(json, Buffer.byteLength(json), Buffer.from(Y.encodeStateAsUpdate(room.doc)), fingerprint(json), Date.now(), by, room.fileId);
   if (by) recordActivity(room.fileId, by, 'edit');
   indexSoon();
   const version = q('SELECT version FROM files WHERE id = ?').get(room.fileId)?.version;
