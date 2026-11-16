@@ -708,6 +708,7 @@ function CompanySettings() {
           Let people make API tokens for their own scripts (Settings → API tokens). Each acts as its owner, can be read-only, and expires
         </label>
         <CompanyTokens />
+        {org.allow_api_tokens && <AssistantTools />}
         <label className="check">
           <input type="checkbox" checked={!!org.push_private} onChange={(e) => save({ push_private: e.target.checked }, e.target.checked ? 'Notifications on phones now hide what’s written' : 'Notifications on phones show what’s written again')} />
           Keep what’s written off lock screens: notifications on phones and computers say who or what it’s from (“HR Team · New email”), not the subject or message
@@ -1175,6 +1176,35 @@ function CompanySignature({ org, save }) {
       </fieldset>
       <div className="row end"><button className="btn primary" disabled={text === (org.signature_template || '')}>Save signature</button></div>
     </form>
+  );
+}
+
+/** What AI assistants (Claude, ChatGPT…) connected with tokens may do: each tool on or off for the company. */
+function AssistantTools() {
+  const toast = useToast();
+  const [tools, setTools] = useState(null);
+  useEffect(() => { get('/orgs/current/assistant-tools').then(setTools).catch(() => setTools([])); }, []);
+  if (!tools?.length) return null;
+  const toggle = async (t) => {
+    const before = tools;
+    const next = tools.map((x) => (x.name === t.name ? { ...x, off: !x.off } : x));
+    setTools(next); // shown at once; put back if it can't be saved
+    try {
+      await patch('/orgs/current', { assistant_off: next.filter((x) => x.off).map((x) => x.name) });
+      toast(t.off ? `Assistants can ${t.title.toLowerCase()} again` : `Assistants can no longer ${t.title.toLowerCase()}`);
+    } catch (e) { setTools(before); toast(e.message, 'error'); }
+  };
+  const group = (readOnly) => tools.filter((t) => t.read_only === readOnly).map((t) => (
+    <label key={t.name} className="check small"><input type="checkbox" checked={!t.off} onChange={() => toggle(t)} /> {t.title} <code className="muted">{t.name}</code></label>
+  ));
+  return (
+    <fieldset className="stack-tight assistant-tools" style={{ marginLeft: 26 }}>
+      <legend className="small"><strong>What AI assistants may do</strong> (Claude, ChatGPT… connected with a token): what's off disappears from their list, and they're told it's off if they try. People can still do it themselves.</legend>
+      <div className="muted small">Read</div>
+      {group(true)}
+      <div className="muted small">Make or change things (only with a read-and-write token)</div>
+      {group(false)}
+    </fieldset>
   );
 }
 

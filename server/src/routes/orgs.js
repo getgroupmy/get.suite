@@ -33,6 +33,10 @@ import { DATA_DIR } from '../db.js';
 import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js';
 import { mailEnabled } from '../mail/config.js';
 import '../mail/external.js'; // orgs.ask_outside
+import { TOOLS } from '../mcp.js';
+// orgs.assistant_off: the assistant tools (mcp.js) the company's admins turned off, as a JSON list of names.
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'assistant_off')) q("ALTER TABLE orgs ADD COLUMN assistant_off TEXT NOT NULL DEFAULT '[]'").run();
+export const assistantOff = (orgId) => { try { return new Set(JSON.parse(q('SELECT assistant_off FROM orgs WHERE id = ?').get(orgId)?.assistant_off || '[]')); } catch { return new Set(); } };
 
 const domainsOf = (orgId) => q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => d.name);
 
@@ -48,6 +52,7 @@ function describe(full) {
     meet_guests: org.meet_guests === undefined ? true : !!org.meet_guests,
     allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
     allow_api_tokens: !!org.allow_api_tokens,
+    assistant_off: (() => { try { return JSON.parse(org.assistant_off || '[]'); } catch { return []; } })(), // assistant tools turned off
     ms_client_id: org.ms_client_id || null, ms_tenant: org.ms_tenant || null, // importing mail from Microsoft 365 (msimport.js)
     g_client_id: org.g_client_id || null, g_has_secret: !!full.g_client_secret, // importing mail from Google (googleimport.js); the secret itself is never sent
     require_2fa: !!org.require_2fa,
@@ -91,6 +96,14 @@ function updateOrg(orgId, body, { asSuper, user }) {
   }
   if (body.link_password !== undefined) q('UPDATE orgs SET link_password = ? WHERE id = ?').run(body.link_password ? 1 : 0, orgId);
   if (body.allow_api_tokens !== undefined) q('UPDATE orgs SET allow_api_tokens = ? WHERE id = ?').run(body.allow_api_tokens ? 1 : 0, orgId);
+  if (body.assistant_off !== undefined) {
+    if (!Array.isArray(body.assistant_off)) throw bad('assistant_off is a list of tool names');
+    const known = new Set(TOOLS.map((t) => t.name));
+    const off = [...new Set(body.assistant_off.map(String))];
+    const unknown = off.filter((n) => !known.has(n));
+    if (unknown.length) throw bad(`No assistant tool called ${unknown.join(', ')}`);
+    q('UPDATE orgs SET assistant_off = ? WHERE id = ?').run(JSON.stringify(off.sort()), orgId);
+  }
   if (body.ms_client_id !== undefined || body.ms_tenant !== undefined) {
     const cur = q('SELECT ms_client_id, ms_tenant FROM orgs WHERE id = ?').get(orgId);
     const m = cleanMsApp({ client_id: body.ms_client_id !== undefined ? body.ms_client_id : cur.ms_client_id, tenant: body.ms_tenant !== undefined ? body.ms_tenant : cur.ms_tenant });
@@ -191,6 +204,12 @@ export default function orgRoutes() {
   const r = Router();
 
   // ---- company admins: their own company ----
+  // The assistant tools (Claude, ChatGPT…), for choosing which ones the company allows.
+  r.get('/current/assistant-tools', requireAdmin, (req, res) => {
+    const off = assistantOff(req.user.org_id);
+    res.json(TOOLS.map((t) => ({ name: t.name, title: t.title, read_only: t.readOnly, off: off.has(t.name) })));
+  });
+
   r.get('/current', requireAdmin, (req, res) => {
     res.json({ ...describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)), your_ip: normalizeIp(req.ip) });
   });

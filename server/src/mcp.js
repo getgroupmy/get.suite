@@ -65,6 +65,7 @@ const words = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 /** Plain text → a Workspace document (a paragraph per line; "# " lines as headings). */
 export { docFromText } from './doctext.js';
 import { docFromText } from './doctext.js';
+import { assistantOff } from './routes/orgs.js';
 
 const FILE_PATH = { doc: (f) => `/docs/${f.id}`, sheet: (f) => `/sheets/${f.id}`, slides: (f) => `/slides/${f.id}`, folder: (f) => `/drive/folder/${f.id}` };
 const fileUrl = (f) => link((FILE_PATH[f.kind] || ((x) => `/drive?file=${x.id}`))(f));
@@ -503,7 +504,7 @@ export const TOOLS = [
 const listed = () => TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: t.readOnly, destructiveHint: false, openWorldHint: false } }));
 
 /** One JSON-RPC message → its answer (or null for a notification). */
-export async function handle(msg, api, { onChange = null } = {}) {
+export async function handle(msg, api, { onChange = null, off = new Set() } = {}) {
   const reply = (result) => ({ jsonrpc: '2.0', id: msg.id, result });
   const fail = (code, message) => ({ jsonrpc: '2.0', id: msg.id ?? null, error: { code, message } });
   if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return fail(-32600, 'Invalid request');
@@ -519,10 +520,11 @@ export async function handle(msg, api, { onChange = null } = {}) {
       });
     }
     case 'ping': return reply({});
-    case 'tools/list': return reply({ tools: listed() });
+    case 'tools/list': return reply({ tools: listed().filter((t) => !off.has(t.name)) });
     case 'tools/call': {
       const tool = TOOLS.find((t) => t.name === msg.params?.name);
       if (!tool) return fail(-32602, `No tool called ${msg.params?.name}`);
+      if (off.has(tool.name)) return reply({ content: [{ type: 'text', text: `Your company’s admins have turned off “${tool.title}” for assistants. The person can still do it in Workspace themselves.` }], isError: true });
       try {
         const out = await tool.run(api, msg.params?.arguments || {});
         if (!tool.readOnly && onChange) { try { onChange(tool, msg.params?.arguments || {}, out); } catch { /* the record mustn't fail the call */ } }
@@ -571,7 +573,7 @@ export function mcpRoutes(auth) {
   r.post('/', bearerOnly, authed, express.json({ limit: '4mb' }), async (req, res) => {
     const api = apiFor(req);
     const one = async (m) => {
-      try { return await handle(m, api, { onChange: (tool, args) => recordChange(req, tool, args) }); }
+      try { return await handle(m, api, { onChange: (tool, args) => recordChange(req, tool, args), off: assistantOff(req.user.org_id) }); }
       catch (e) { return { jsonrpc: '2.0', id: m?.id ?? null, error: { code: -32603, message: String(e.message || e).slice(0, 300) } }; }
     };
     const body = req.body;

@@ -88,6 +88,20 @@ await step('a document open while an assistant adds to it: the text appears live
   if (!(await page.evaluate(() => window.__stayed))) throw new Error('the page reloaded');
   await page.screenshot({ path: `${SP}/shots/assistant-append.png` });
 });
+await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
+  await page.goto(`${B}/admin?tab=company`);
+  const box = page.locator('fieldset.assistant-tools');
+  await box.getByText('What AI assistants may do').waitFor();
+  await box.getByRole('checkbox', { name: /Post in Chat/ }).uncheck();
+  await page.getByText('Assistants can no longer post in chat').waitFor();
+  await page.screenshot({ path: `${SP}/shots/assistant-tools.png` });
+  await axe(page, 'assistant tools');
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 3', scope: 'write', days: 30 })).body.token;
+  const r = await mcp(token, 'send_chat_message', { to: '#general', text: 'hello' });
+  if (!r.isError || !/admins have turned off “Post in Chat”/.test(r.content[0].text)) throw new Error(JSON.stringify(r));
+  await page.reload();
+  if (await page.locator('fieldset.assistant-tools').getByRole('checkbox', { name: /Post in Chat/ }).isChecked()) throw new Error('not kept');
+});
 await step('Activity: the assistant’s change is listed as its own', async () => {
   const log = JSON.stringify((await api(page, 'GET', '/audit?action=assistant.action')).body);
   if (!/Claude/.test(log) || !/2 rows to file:/.test(log)) throw new Error(log.slice(0, 300));

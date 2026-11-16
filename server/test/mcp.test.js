@@ -174,6 +174,22 @@ test('read a Chat conversation: by #name, id or a colleague’s address; latest,
   assert.doesNotMatch((await call(rw, 'read_chat', { conversation: '#launch' })).structuredContent.text, /External/);
 });
 
+test('admins turn assistant tools off: they disappear from the list and calls are refused, saying why', async () => {
+  const tools = (await owner('GET', '/api/orgs/current/assistant-tools')).body;
+  assert.ok(tools.some((t) => t.name === 'send_chat_message' && t.read_only === false && t.off === false));
+  assert.ok(tools.find((t) => t.name === 'search').read_only);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { assistant_off: ['send_chat_message', 'nonsense'] })).status, 400);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { assistant_off: ['send_chat_message', 'draft_email'] })).status, 200);
+  assert.deepEqual((await owner('GET', '/api/orgs/current')).body.assistant_off, ['draft_email', 'send_chat_message']);
+  const listed = (await rpc(rw, 'tools/list')).body.result.tools.map((t) => t.name);
+  assert.ok(!listed.includes('send_chat_message') && !listed.includes('draft_email') && listed.includes('search'));
+  const r = await call(rw, 'send_chat_message', { to: '#general', text: 'hi' });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /admins have turned off “Post in Chat” for assistants/);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { assistant_off: [] })).status, 200);
+  assert.ok((await rpc(rw, 'tools/list')).body.result.tools.some((t) => t.name === 'send_chat_message'), 'back on');
+});
+
 test('only with a valid token; a browser cookie isn’t enough', async () => {
   const none = await rpc(null, 'tools/list');
   assert.equal(none.status, 401);
