@@ -6,9 +6,9 @@ const DB = 'nw-offline', STORE = 'docs', KEEP = 30;
 function open() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('no IndexedDB'));
-    const r = indexedDB.open(DB, 3);
+    const r = indexedDB.open(DB, 4);
     // docs: kept files; api: the last answers to a few lists, read when offline; outbox: email sent while offline.
-    r.onupgradeneeded = () => { for (const s of [STORE, 'api', 'outbox']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
+    r.onupgradeneeded = () => { for (const s of [STORE, 'api', 'outbox', 'changes']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
@@ -67,7 +67,7 @@ export async function keptList() {
 
 // The last answers to the lists people look at on the go (calendar, tasks, contacts, notes, mail), kept for reading
 // without a connection (api.js). Cleared on signing out with the rest.
-export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/tasks)?(\?|$)/, /^\/tasks\/(today|assigned|upcoming)(\?|$)/, /^\/contacts(\?|$)/, /^\/contacts\/groups$/, /^\/notes(\?|$)/, /^\/users\/directory$/, /^\/time-off(\?|$)/,
+export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/tasks)?(\?|$)/, /^\/tasks\/(today|assigned|upcoming|myday|completed|important|planned|tags)(\?|$)/, /^\/contacts(\?|$)/, /^\/contacts\/groups$/, /^\/notes(\?|$)/, /^\/users\/directory$/, /^\/time-off(\?|$)/,
   // Mail: whether it's set up, the folders, the messages listed and those opened (the shared mailbox open is part of the key).
   /^\/mail\/(status|folders|labels)(\?|$)/, /^\/mail\/messages\?folder=/, /^\/mail\/messages\/\d+\?folder=/, /^\/mail\/folder-state\?folder=/];
 export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, at: Date.now() }, url), 'api').catch(() => {});
@@ -86,3 +86,23 @@ export async function outboxList(user) {
 }
 export const outboxRemove = (id) => run('readwrite', (s) => s.delete(id), 'outbox').then(() => window.dispatchEvent(new Event('nw:outbox'))).catch(() => {});
 export const outboxNote = (id, item, error) => run('readwrite', (s) => s.put({ ...item, error }, id), 'outbox').catch(() => {});
+
+// Changes made offline to things kept for reading (a task ticked, renamed, given a date): kept here in order and sent
+// when the connection is back (App.jsx), the kept lists showing them meanwhile. { method, url, body, user, label, at }
+export const changeAdd = (c) => run('readwrite', (s) => s.put({ ...c, at: Date.now() }, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`), 'changes');
+export async function changeList(user) {
+  try {
+    const out = [];
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (!user || cur.value.user === user) out.push({ id: cur.key, ...cur.value }); cur.continue(); } }; return c; }, 'changes');
+    return out.sort((a, b) => (a.id < b.id ? -1 : 1));
+  } catch { return []; }
+}
+export const changeRemove = (id) => run('readwrite', (s) => s.delete(id), 'changes').catch(() => {});
+/** A task changed offline: the kept lists it's in show the change (until the server's answer replaces them). */
+export async function patchKeptTask(taskId, changes) {
+  try {
+    const hits = [];
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (Array.isArray(cur.value?.data) && cur.value.data.some((t) => t?.id === taskId)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
+    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: v.data.map((t) => (t?.id === taskId ? { ...t, ...changes } : t)) }, k); }, 'api');
+  } catch { /* kept lists just show the old state */ }
+}

@@ -172,6 +172,24 @@ await step('Calendar, Tasks, Contacts and Notes show what was last seen here whe
   await ctx.setOffline(false);
   await page.getByText(/Showing what was last saved/).waitFor({ state: 'detached', timeout: 20000 });
 });
+await step('Tasks: a task ticked offline stays ticked here (even after reloading) and is done on the server once back', async () => {
+  await page.goto(`${B}/tasks`);
+  await page.getByText('Trip').first().click();
+  const box = page.getByLabel('Done: Book the ferry');
+  await box.waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await box.click(); // done: it moves into Completed
+  await page.getByText(/“Book the ferry” done: saved on this device/).waitFor({ timeout: 15000 });
+  await page.reload();
+  await page.getByText('Trip').first().click().catch(() => {});
+  await page.getByText('Completed (1)').waitFor({ timeout: 20000 }); // still done after reloading offline
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline in Tasks').waitFor({ timeout: 30000 });
+  const lists = (await api(page, 'GET', '/tasks/lists')).body;
+  const trip = (Array.isArray(lists) ? lists : lists.lists).find((l) => l.name === 'Trip');
+  await until(async () => ((await api(page, 'GET', `/tasks/lists/${trip.id}/tasks?done=1`)).body || []).concat((await api(page, 'GET', '/tasks/completed?days=7')).body || []).some((t) => t.title === 'Book the ferry' && t.done), 10000);
+});
 await step('signing out clears what was kept on this device', async () => {
   const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { if (!r.result.objectStoreNames.contains('docs')) { r.result.close(); res(0); return; } const c = r.result.transaction('docs').objectStore('docs').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
   await until(async () => (await count()) > 0, 10000); // the document open now is kept (a moment after it syncs)
@@ -187,7 +205,7 @@ await step('someone else signing in on this browser (the last person’s session
   await page.goto(`${B}/docs/${doc.id}`);
   await editor().getByText('Rewritten elsewhere.').waitFor();
   await page.goto(`${B}/tasks`);
-  await page.getByText('Book the ferry').first().waitFor();
+  await page.getByText('Trip').first().waitFor(); // (its task is done by now, so out of sight)
   const count = (store) => page.evaluate((st) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { if (!r.result.objectStoreNames.contains(st)) { r.result.close(); res(0); return; } const c = r.result.transaction(st).objectStore(st).count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }), store);
   await until(async () => (await count('docs')) > 0 && (await count('api')) > 0, 10000);
   await ctx.clearCookies(); // Olivia's session ended (time limit), without signing out

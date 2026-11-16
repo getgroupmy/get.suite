@@ -1,3 +1,4 @@
+import { unreachable, changeAdd, patchKeptTask } from '../offlinedocs.js';
 // Tasks: your to-do lists and the ones colleagues share with you. Add a task with Enter, tick it
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
 import { createPortal } from 'react-dom';
@@ -122,6 +123,8 @@ export default function Tasks() {
     return get(listId === MYDAY ? `/tasks/myday?today=${localToday()}` : listId === COMPLETED ? `/tasks/completed?days=${doneDays}` : VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(latest(setTasks)).catch((e) => { if (seq !== loadSeq.current) return; toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
   }, [listId, toast, navigate, doneDays]);
   useEffect(() => { loadLists(); }, [loadLists]);
+  // Changes made offline have gone in: the list as the server has it now.
+  useEffect(() => { const again = () => { loadTasks(); loadLists(); }; window.addEventListener('nw:changes-sent', again); return () => window.removeEventListener('nw:changes-sent', again); }, [loadTasks, loadLists]);
   useEffect(() => { setTasks(null); loadTasks(); }, [loadTasks]);
   useEffect(() => onLive((m) => {
     if (m.type === 'tasks-changed') { loadLists(); if (m.list_id === listId || VIRTUAL[listId] || listId?.startsWith('tag:')) loadTasks(); }
@@ -158,10 +161,20 @@ export default function Tasks() {
   const update = async (t, changes) => {
     setTasks((all) => all && all.map((x) => (x.id === t.id ? { ...x, ...changes } : x)));
     try { const next = await patch(`/tasks/tasks/${t.id}`, changes); setTasks((all) => all && all.map((x) => (x.id === t.id ? next : x))); loadTasks(); return next; }
-    catch (e) { toast(e.message, 'error'); loadTasks(); return null; }
+    catch (e) {
+      // No connection: kept here and sent when it's back; the change stays on screen (and in the lists kept here).
+      if (unreachable(e)) {
+        await changeAdd({ method: 'PATCH', url: `/tasks/tasks/${t.id}`, body: changes, user: user?.id, label: t.title });
+        await patchKeptTask(t.id, changes);
+        window.dispatchEvent(new Event('nw:changes'));
+        return { ...t, ...changes, offline: true };
+      }
+      toast(e.message, 'error'); loadTasks(); return null;
+    }
   };
   const toggle = async (t) => {
     const next = await update(t, t.done ? { done: false } : { done: true, today: localToday() });
+    if (next?.offline) { toast(`“${t.title}” ${next.done ? 'done' : 'not done'}: saved on this device, sent when the connection is back`); return; }
     if (!next?.done) return;
     // A repeating task comes back: say when.
     const again = next.next_id && (await get(`/tasks/lists/${next.list_id}/tasks`).catch(() => [])).find((x) => x.id === next.next_id);
