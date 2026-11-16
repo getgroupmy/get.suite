@@ -99,6 +99,17 @@ await step('an assistant makes a spreadsheet: it opens in Sheets with the headin
   if (+w < 600) throw new Error(`heading not bold: ${w}`);
   await page.screenshot({ path: `${SP}/shots/assistant-sheet.png` });
 });
+await step('an assistant organizes Drive: a new folder, a file moved into it and renamed; Drive shows it so', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 4', scope: 'write', days: 30 })).body.token;
+  const folder = (await mcp(token, 'create_folder', { name: 'Travel 2026' })).structuredContent;
+  const r = await mcp(token, 'move_file', { file: `file:${sheet.id}`, folder: folder.id, name: 'Travel budget' });
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/drive`);
+  await page.locator('table.files').getByText('Travel 2026').waitFor();
+  await page.goto(`${B}/drive/folder/${folder.id.replace('file:', '')}`);
+  await page.locator('table.files').getByText('Travel budget').waitFor();
+  await page.screenshot({ path: `${SP}/shots/assistant-folder.png` });
+});
 await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');

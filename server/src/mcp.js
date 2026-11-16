@@ -70,6 +70,8 @@ const colLetter = (n) => { let s = ''; for (n += 1; n > 0; n = Math.floor((n - 1
 import { assistantOff } from './routes/orgs.js';
 
 const FILE_PATH = { doc: (f) => `/docs/${f.id}`, sheet: (f) => `/sheets/${f.id}`, slides: (f) => `/slides/${f.id}`, folder: (f) => `/drive/folder/${f.id}` };
+const FOLDER_ARG = { type: 'string', description: 'A folder to put it in (file:… from list_files, search or create_folder); the top of their Drive when left out' };
+const folderId = (v) => (v ? String(v).replace(/^file:/, '') : null);
 const fileUrl = (f) => link((FILE_PATH[f.kind] || ((x) => `/drive?file=${x.id}`))(f));
 
 // ---- the tools ----
@@ -432,9 +434,9 @@ export const TOOLS = [
   {
     name: 'create_document', title: 'Make a document', readOnly: false,
     description: 'Make a new Workspace document in the person’s Drive from plain text (lines starting with # become headings).',
-    inputSchema: { type: 'object', required: ['name', 'text'], properties: { name: { type: 'string' }, text: { type: 'string' } } },
+    inputSchema: { type: 'object', required: ['name', 'text'], properties: { name: { type: 'string' }, text: { type: 'string' }, folder: FOLDER_ARG } },
     async run(api, a) {
-      const f = await api('POST', '/files/new', { kind: 'doc', name: String(a.name || 'Untitled document').slice(0, 200), content: docFromText(a.text) });
+      const f = await api('POST', '/files/new', { kind: 'doc', name: String(a.name || 'Untitled document').slice(0, 200), content: docFromText(a.text), parent_id: folderId(a.folder) });
       return { id: `file:${f.id}`, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
     },
   },
@@ -448,6 +450,7 @@ export const TOOLS = [
         rows: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'array', maxItems: 50, items: { type: ['string', 'number', 'boolean', 'null'] } } },
         sheet: { type: 'string', description: 'The sheet’s (tab’s) name; Sheet1 when left out' },
         heading: { type: 'boolean', description: 'Whether the first row is a heading row (default true)' },
+        folder: FOLDER_ARG,
       },
     },
     async run(api, a) {
@@ -466,7 +469,7 @@ export const TOOLS = [
         }
         s.frozen = { rows: 1 };
       }
-      const f = await api('POST', '/files/new', { kind: 'sheet', name: String(a.name || 'Untitled spreadsheet').slice(0, 200), content: made.content });
+      const f = await api('POST', '/files/new', { kind: 'sheet', name: String(a.name || 'Untitled spreadsheet').slice(0, 200), content: made.content, parent_id: folderId(a.folder) });
       return { id: `file:${f.id}`, name: f.name, sheet: sheetName, range: made.range, url: fileUrl({ ...f, kind: 'sheet' }) };
     },
   },
@@ -482,6 +485,40 @@ export const TOOLS = [
       const r = await api('POST', `/files/${encodeURIComponent(id)}/append`, { text: a.text, tab: a.tab || null });
       const f = await api('GET', `/files/${encodeURIComponent(id)}`);
       return { added_paragraphs: r.added, tab: r.tab, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+    },
+  },
+  {
+    name: 'create_folder', title: 'Make a folder', readOnly: false,
+    description: 'Make a folder in the person’s Drive (at the top, or inside another folder), e.g. to keep a project’s files together. If one of that name is already there, the new one gets a number after its name.',
+    inputSchema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, folder: { ...FOLDER_ARG, description: 'The folder to make it in; the top of their Drive when left out' } } },
+    async run(api, a) {
+      const f = await api('POST', '/files/folder', { name: String(a.name || '').slice(0, 200), parent_id: folderId(a.folder) });
+      return { id: `file:${f.id}`, name: f.name, url: fileUrl(f) };
+    },
+  },
+  {
+    name: 'move_file', title: 'Move or rename a file', readOnly: false,
+    description: 'Move a Drive file or folder into another folder (or back to the top of the person’s Drive with folder "top"), and/or rename it. Nothing is deleted. They need to be able to edit it; only its owner can move it to the top of their Drive.',
+    inputSchema: {
+      type: 'object', required: ['file'],
+      properties: { file: { type: 'string', description: 'file:… from search or list_files' }, folder: { type: 'string', description: 'Where to: a folder’s file:… id, or "top"' }, name: { type: 'string', description: 'A new name' } },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      if (a.folder === undefined && a.name === undefined) throw new ToolError('Say where to move it (folder) or what to call it (name)');
+      const before = await api('GET', `/files/${encodeURIComponent(id)}`);
+      const body = {};
+      if (a.folder !== undefined) {
+        body.parent_id = a.folder === 'top' || a.folder === null ? null : folderId(a.folder);
+        if (body.parent_id) {
+          const to = await api('GET', `/files/${encodeURIComponent(body.parent_id)}`);
+          if (to.kind !== 'folder') throw new ToolError(`“${to.name}” isn’t a folder`);
+        }
+      }
+      if (a.name !== undefined) body.name = String(a.name).slice(0, 200);
+      const f = await api('PATCH', `/files/${encodeURIComponent(id)}`, body);
+      const where = f.parent_id ? (await api('GET', `/files/${encodeURIComponent(f.parent_id)}`)).name : 'top of Drive';
+      return { id: `file:${f.id}`, name: f.name, ...(f.name !== before.name && { was_called: before.name }), folder: where, url: fileUrl(f) };
     },
   },
   {
@@ -711,6 +748,7 @@ function recordChange(req, tool, args) {
     : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}`
     : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}`
     : tool.name === 'update_email' && Array.isArray(args.ids) ? `${args.ids.length} email${args.ids.length === 1 ? '' : 's'}${args.move_to ? ` to ${args.move_to}` : ''}${args.read !== undefined ? (args.read ? ' read' : ' unread') : ''}${args.starred !== undefined ? (args.starred ? ' starred' : ' unstarred') : ''}`
+    : tool.name === 'move_file' ? `${args.file}${args.folder !== undefined ? ` moved to ${args.folder}` : ''}${args.name !== undefined ? ` renamed “${args.name}”` : ''}`
     : tool.name === 'share_file' ? `${args.file} shared with ${args.with} (${args.role})`
     : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);

@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'append_to_document', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'append_to_document', 'create_folder', 'move_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -80,6 +80,32 @@ test('make a spreadsheet: rows from the top, heading row bold and kept in view; 
   assert.equal((await call(ro, 'create_spreadsheet', { name: 'x', rows: [['x']] })).isError, true);
   assert.match((await call(rw, 'create_spreadsheet', { name: 'x', rows: [] })).content[0].text, /Give the rows/);
   assert.match((await call(rw, 'create_spreadsheet', { name: 'x', rows: [[{ a: 1 }]] })).content[0].text, /Each cell must be/);
+});
+
+test('organize Drive: make folders, make files in them, move and rename; nothing deleted; refusals explained', async () => {
+  const proj = (await call(rw, 'create_folder', { name: 'Project Atlas' })).structuredContent;
+  assert.match(proj.id, /^file:/);
+  const sub = (await call(rw, 'create_folder', { name: 'Notes', folder: proj.id })).structuredContent;
+  const doc = (await call(rw, 'create_document', { name: 'Kickoff', text: 'Hello', folder: sub.id })).structuredContent;
+  const sheet = (await call(rw, 'create_spreadsheet', { name: 'Atlas budget', rows: [['a']], folder: proj.id })).structuredContent;
+  const inside = (await call(rw, 'list_files', { folder: proj.id })).structuredContent.files.map((f) => f.name).sort();
+  assert.deepEqual(inside, ['Atlas budget', 'Notes']);
+  assert.deepEqual((await call(rw, 'list_files', { folder: sub.id })).structuredContent.files.map((f) => f.name), ['Kickoff']);
+  // Move the document up a level and rename it.
+  const m = await call(rw, 'move_file', { file: doc.id, folder: proj.id, name: 'Kickoff notes' });
+  assert.ok(!m.isError, JSON.stringify(m));
+  assert.deepEqual([m.structuredContent.name, m.structuredContent.was_called, m.structuredContent.folder], ['Kickoff notes', 'Kickoff', 'Project Atlas']);
+  // To the top of Drive.
+  assert.equal((await call(rw, 'move_file', { file: sheet.id, folder: 'top' })).structuredContent.folder, 'top of Drive');
+  assert.ok((await call(rw, 'list_files', {})).structuredContent.files.some((f) => f.name === 'Atlas budget'));
+  // Refused, saying why: nothing to do; into a file; a folder into itself; a read-only token.
+  assert.match((await call(rw, 'move_file', { file: doc.id })).content[0].text, /Say where to move it/);
+  assert.match((await call(rw, 'move_file', { file: doc.id, folder: sheet.id })).content[0].text, /“Atlas budget” isn’t a folder/);
+  assert.match((await call(rw, 'move_file', { file: proj.id, folder: sub.id })).content[0].text, /into itself/);
+  assert.equal((await call(ro, 'create_folder', { name: 'x' })).isError, true);
+  assert.equal((await call(ro, 'move_file', { file: doc.id, name: 'x' })).isError, true);
+  const log = JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body);
+  assert.match(log, /moved to top renamed|moved to file:[^"]* renamed “Kickoff notes”/);
 });
 
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {
