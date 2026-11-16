@@ -633,6 +633,11 @@ const summaryRow = (f, me) => {
 
 export default function formRoutes() {
   const r = Router();
+  // A form made, copied, renamed, archived or deleted: the person's other tabs and devices update their list of forms.
+  r.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') res.on('finish', () => { if (res.statusCode < 300) sendTo([req.user.id], { type: 'forms-changed' }); });
+    next();
+  });
 
   r.get('/', (req, res) => {
     res.json(q(`SELECT f.*, u.name AS owner_name FROM forms f JOIN users u ON u.id = f.owner_id

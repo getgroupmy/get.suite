@@ -6,7 +6,7 @@ import { matchesFilter, filterOptions, ANSWERED, BLANK } from './formfilter.js';
 import { responsesPrintHtml, blankFormHtml, summaryPrintHtml, isSignature } from './formprint.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, post, put, del, onLive, formatDate, uploadFile } from '../../api.js';
+import { get, post, put, del, onLive, refreshOn, formatDate, uploadFile } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { Question } from './FormRespond.jsx';
@@ -30,6 +30,8 @@ function FormList() {
   const toast = useToast();
   const [forms, setForms] = useState(null);
   useEffect(() => { get('/forms').then(setForms).catch((e) => toast(e.message, 'error')); }, [toast]);
+  // Made, changed or deleted in another tab or on another device, or by a colleague on a form you share.
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'forms-changed', 'form-changed')) get('/forms').then(setForms).catch(() => {}); }), []);
   const [find, setFind] = useState('');
   const [show, setShow] = useState('all'); // all | open | closed | shared | archived
   const shown = (forms || []).filter((f) => (show === 'archived' ? f.archived_at : !f.archived_at)

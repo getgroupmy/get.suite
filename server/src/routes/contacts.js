@@ -189,6 +189,20 @@ export default function contactRoutes() {
   const r = Router();
   watchContacts(); // every module has added its columns by now
 
+  // Any change that worked: the person's other tabs and devices show it at once ("contacts-changed"), and for a
+  // contact shared with the company (made, changed or deleted), everyone in it.
+  r.use((req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD') return next();
+    const json = res.json.bind(res);
+    res.json = (body) => { if (body && body.shared) res.locals.sharedContact = true; return json(body); };
+    res.on('finish', () => {
+      if (res.statusCode >= 300) return;
+      const company = res.locals.sharedContact || req.body?.shared !== undefined;
+      sendTo(company ? orgMemberIds(req.user.org_id) : [req.user.id], { type: 'contacts-changed' });
+    });
+    next();
+  });
+
   // Undo changes: put your contacts back as they were at a time in the last HISTORY_DAYS days.
   // GET ?since= says how many have changed since then; POST { to } does it.
   const undoTime = (v) => {
@@ -538,7 +552,9 @@ export default function contactRoutes() {
   });
 
   r.delete('/:id', (req, res) => {
-    trashContact(editable(req).id, req.user.id);
+    const c = editable(req);
+    if (c.shared) res.locals.sharedContact = true;
+    trashContact(c.id, req.user.id);
     res.json({ ok: true, trash_days: TRASH_DAYS });
   });
 
