@@ -33,3 +33,10 @@ test('an opened message is kept under the reader’s address; a peek (kept ahead
   assert.equal(kept('/mail/messages/42?folder=INBOX&peek=1'), false);
   assert.equal(kept('/mail/messages?folder=INBOX&page=1'), true);
 });
+
+test('kept answers: the oldest beyond the limit are the ones let go', async () => {
+  const { oldestBeyond, API_KEEP } = await import('./offlinedocs.js');
+  assert.deepEqual(oldestBeyond([['a', 3], ['b', 1], ['c', 5], ['d', 2]], 2), ['d', 'b']); // c and a are the newest
+  assert.deepEqual(oldestBeyond([['a', 1]], 5), []);
+  assert.ok(API_KEEP >= 100);
+});

@@ -80,7 +80,24 @@ export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/task
   // Mail: whether it's set up, the folders, the messages listed and those opened (the shared mailbox open is part of the key).
   /^\/chat\/channels(\?|$)/, /^\/chat\/channels\/[\w-]+\/messages$/,
   /^\/mail\/(status|folders|labels)(\?|$)/, /^\/mail\/messages\?folder=/, /^\/mail\/messages\/\d+\?folder=[^&]+$/, /^\/mail\/folder-state\?folder=/];
-export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, at: Date.now() }, url), 'api').catch(() => {});
+/**
+ * Lists and messages kept for reading offline: the last answer of each, the most recent 600 (older ones go as new ones
+ * come in, every so often; they come from the server again when connected).
+ */
+export const API_KEEP = 600;
+let keptSince = 0;
+export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, at: Date.now() }, url), 'api')
+  .then(() => { const n = ++keptSince; if (n === 1 || n % 25 === 0) return trimAnswers(); return undefined; }).catch(() => {}); // (first after the page loads, then every 25)
+/** The oldest kept answers beyond the limit go (a page can lower the limit for trying it out: localStorage nw-api-keep). */
+export async function trimAnswers(max = Number(globalThis.localStorage?.getItem('nw-api-keep')) || API_KEEP) {
+  const all = [];
+  await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { all.push([cur.key, cur.value?.at || 0]); cur.continue(); } }; return c; }, 'api');
+  const extra = oldestBeyond(all, max);
+  if (extra.length) await run('readwrite', (s) => { for (const k of extra) s.delete(k); }, 'api');
+  return extra.length;
+}
+/** The keys of [key, at] pairs beyond the `max` most recent. */
+export const oldestBeyond = (pairs, max) => [...pairs].sort((a, b) => b[1] - a[1]).slice(max).map(([k]) => k);
 export const keptAnswer = (url) => run('readonly', (s) => s.get(url), 'api').then((x) => x || null).catch(() => null);
 
 // Email sent without a connection: kept here, and sent by itself when the connection is back (App.jsx SendUnsent).

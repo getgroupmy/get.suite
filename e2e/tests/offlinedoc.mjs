@@ -261,7 +261,7 @@ await step('Calendar: an event made offline shows here (even after reloading) an
   await ctx.setOffline(false);
   await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   const day = new Date(); day.setHours(0, 0, 0, 0);
-  await until(async () => ((await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 864e5}`)).body || []).filter((e) => e.title === 'Ferry to the island').length === 1, 10000);
+  await until(async () => ((await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 2 * 864e5}`)).body || []).filter((e) => e.title === 'Ferry to the island').length === 1, 10000); // (made late in the evening, the dialog starts tomorrow)
   await page.getByText('Ferry to the island').first().waitFor(); // reloaded from the server
   await page.locator('.ev-offline').first().waitFor({ state: 'detached', timeout: 10000 });
 });
@@ -490,6 +490,16 @@ await step('Chat: a conversation last seen here can be read offline, and a messa
   const r = await api(page, 'GET', `/chat/channels/${ch}/messages`);
   const list = Array.isArray(r.body) ? r.body : r.body.messages;
   if ((list.filter((m) => m.body === 'On my way, no signal').length) !== 1) throw new Error(JSON.stringify(list.map((m) => m.body)));
+});
+await step('lists and messages kept for offline don’t pile up: the oldest go beyond the limit', async () => {
+  const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const c = r.result.transaction('api').objectStore('api').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
+  const before = await count();
+  if (before <= 30) throw new Error(`only ${before} kept: nothing to trim`);
+  await page.evaluate(() => localStorage.setItem('nw-api-keep', '5')); // a small limit, to see it work
+  for (let i = 0; i < 4; i++) for (const path of ['/calendar', '/tasks', '/contacts', '/notes']) { await page.goto(B + path); await page.waitForTimeout(400); }
+  const after = await count();
+  await page.evaluate(() => localStorage.removeItem('nw-api-keep'));
+  if (after > 5 + 25) throw new Error(`${before} → ${after}`); // (trimmed on the first kept after a page loads and every 25, so a few more than the limit at most)
 });
 await step('Settings → This device: what is kept here, a warning about what is not sent yet, and removing it all', async () => {
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;
