@@ -105,6 +105,36 @@ for (const [label, make, text] of process.env.ONLY ? HOME.filter((c) => c[0] ===
     await stayed();
   });
 }
+// From a colleague: shared with me or inviting me, while the screen is open.
+let kimPage;
+const kim = async () => {
+  if (kimPage) return kimPage;
+  const ctx = await page.context().browser().newContext();
+  kimPage = await ctx.newPage();
+  await kimPage.goto(B);
+  await kimPage.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) }));
+  return kimPage;
+};
+const meId = async () => (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'olivia@acme.com').id;
+const COLLEAGUE = [
+  ['Drive: a file shared with me', '/drive/shared', async () => { const k = await kim(); const f = (await api(k, 'POST', '/files/new', { kind: 'doc', name: 'Kim’s shared plan' })).body; return api(k, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: await meId(), role: 'viewer' }] }); }, 'Kim’s shared plan'],
+  ['Tasks: a list shared with me', '/tasks', async () => { const k = await kim(); const l = (await api(k, 'POST', '/tasks/lists', { name: 'Kim’s shared list' })).body; return api(k, 'PUT', `/tasks/lists/${l.id}/members`, { user_ids: [await meId()] }); }, 'Kim’s shared list'],
+  ['Calendar: an invitation', '/calendar', async () => { const k = await kim(); const t = new Date(); t.setHours(8, 0, 0, 0); return api(k, 'POST', '/events', { title: 'Kim invites me', start: t.getTime(), end: t.getTime() + 36e5, guests: ['olivia@acme.com'] }); }, 'Kim invites me'],
+  ['Notes: a note shared with me', '/notes', async () => { const k = await kim(); const n = (await api(k, 'POST', '/notes', { title: 'Kim’s shared note', body: 'x' })).body; return api(k, 'PUT', `/notes/${n.id}/shares`, { user_ids: [await meId()] }); }, 'Kim’s shared note'],
+];
+for (const [label, path, make, text] of process.env.ONLY ? COLLEAGUE.filter((c) => c[0] === process.env.ONLY) : COLLEAGUE) {
+  await step(`${label} by a colleague: shown here at once`, async () => {
+    await fresh(path);
+    const r = await make();
+    if (r.status >= 300) throw new Error(`could not do it: ${JSON.stringify(r.body).slice(0, 200)}`);
+    try { await page.getByText(text).first().waitFor({ timeout: 8000 }); } // names sit beside other words (“· Kim Park shared it”)
+    catch (e) {
+      await page.reload(); await page.waitForTimeout(2000);
+      throw new Error(`not shown live; after a reload: ${await page.getByText(text).count() ? 'shown' : 'still not shown'}`);
+    }
+    await stayed();
+  });
+}
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
 process.exit(failed ? 1 : 0);
