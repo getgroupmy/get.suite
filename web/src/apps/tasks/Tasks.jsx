@@ -1,4 +1,4 @@
-import { unreachable, changeAdd, patchKeptTask, appendKept, offlineId } from '../offlinedocs.js';
+import { unreachable, changeAdd, patchKeptTask, appendKept, offlineId, keepDelete } from '../offlinedocs.js';
 // Tasks: your to-do lists and the ones colleagues share with you. Add a task with Enter, tick it
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
 import { createPortal } from 'react-dom';
@@ -183,7 +183,11 @@ export default function Tasks() {
   /** Delete a task (to its list's trash), with Undo. */
   const deleteTask = async (gone) => {
     try { await del(`/tasks/tasks/${gone.id}`); toast('Task deleted', 'info', { action: { label: 'Undo', onClick: () => post(`/tasks/trash/${gone.id}/restore`).then(() => { loadTasks(); loadLists(); }).catch((e) => toast(e.message, 'error')) } }); loadTasks(); loadLists(); }
-    catch (e) { toast(e.message, 'error'); }
+    catch (e) {
+      // No connection: deleted when it's back (gone from here meanwhile, also after reloading).
+      if (unreachable(e)) { await keepDelete({ url: `/tasks/tasks/${gone.id}`, user: user?.id, label: gone.title, id: gone.id }); setTasks((all) => all && all.filter((x) => x.id !== gone.id)); toast(`“${gone.title}” deleted on this device, deleted for everyone when the connection is back`); return; }
+      toast(e.message, 'error');
+    }
   };
 
   // Keyboard shortcuts (see taskkeys.js) in the list view: J / K move between the open tasks (focus moves

@@ -307,6 +307,43 @@ await step('an event and a contact changed offline show the change here (even af
   const evs = (await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 864e5}`)).body || [];
   if (!evs.some((e) => e.title === 'Site visit with the surveyor') || evs.some((e) => e.title === 'Site visit')) throw new Error(JSON.stringify(evs.map((e) => e.title)));
 });
+await step('a task, a note and a contact deleted offline are gone here (even after reloading) and deleted on the server once back', async () => {
+  await page.goto(`${B}/tasks`);
+  await page.getByText('Trip').first().click();
+  await page.getByText('Buy sun cream').first().waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByText('Buy sun cream').first().click();
+  await page.getByRole('complementary', { name: 'Task details' }).getByRole('button', { name: 'Delete task' }).click();
+  await page.getByText(/“Buy sun cream” deleted on this device/).waitFor({ timeout: 15000 });
+  await page.reload();
+  await page.getByText('Trip').first().click().catch(() => {});
+  await page.getByText('Completed (1)').waitFor({ timeout: 20000 }); // the list is there (its one task done)
+  if (await page.getByLabel('Done: Buy sun cream').count()) throw new Error('task back after reloading');
+  await page.goto(`${B}/notes`).catch(() => {});
+  const card = page.getByRole('article', { name: 'Ferry times' });
+  await card.getByRole('button', { name: 'More' }).click({ timeout: 20000 });
+  await page.getByRole('menuitem', { name: 'Delete note' }).click();
+  await page.getByText('Note deleted on this device').waitFor({ timeout: 15000 });
+  await page.reload();
+  await page.getByText('Packing list').first().waitFor({ timeout: 20000 });
+  if (await card.count()) throw new Error('note back after reloading');
+  await page.goto(`${B}/contacts`).catch(() => {});
+  await page.getByRole('button', { name: 'Delete Island Taxi' }).click({ timeout: 20000 });
+  await page.getByRole('dialog', { name: 'Delete contact?' }).getByRole('button', { name: /^Delete/ }).click();
+  await page.getByText('Island Taxi deleted on this device').waitFor({ timeout: 15000 });
+  await page.reload();
+  await page.getByText('Harbour Office').first().waitFor({ timeout: 20000 });
+  if (await page.getByText('Island Taxi', { exact: true }).count()) throw new Error('contact back after reloading');
+  await ctx.setOffline(false);
+  await page.getByText('Sent 3 changes made offline').waitFor({ timeout: 30000 });
+  const lists = (await api(page, 'GET', '/tasks/lists')).body;
+  const trip = (Array.isArray(lists) ? lists : lists.lists).find((l) => l.name === 'Trip');
+  if (((await api(page, 'GET', `/tasks/lists/${trip.id}/tasks`)).body || []).some((t) => t.title === 'Buy sun cream')) throw new Error('task still on the server');
+  if (((await api(page, 'GET', '/notes')).body || []).some((n) => n.title === 'Ferry times')) throw new Error('note still on the server');
+  if (!((await api(page, 'GET', '/notes?trash=1')).body || []).some((n) => n.title === 'Ferry times')) throw new Error('note not in the trash');
+  if (((await api(page, 'GET', '/contacts')).body || []).some((c) => c.name === 'Island Taxi')) throw new Error('contact still on the server');
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });

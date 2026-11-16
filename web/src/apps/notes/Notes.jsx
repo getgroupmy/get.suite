@@ -1,4 +1,4 @@
-import { unreachable, keepChange, changeAdd, appendKept, offlineId } from '../offlinedocs.js';
+import { unreachable, keepChange, changeAdd, appendKept, offlineId, keepDelete } from '../offlinedocs.js';
 // Notes: quick notes and checklists on coloured cards. "Take a note…" at the top, pinned ones first,
 // labels and the archive on the left, and sharing with colleagues (they see changes as they happen).
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -173,7 +173,11 @@ export default function Notes() {
   };
   // Deleting your note puts it in the trash (with Undo); there it can be restored or deleted for good.
   const trash = async (n) => {
-    try { await del(`/notes/${n.id}`); } catch (e) { toast(e.message, 'error'); return; }
+    try { await del(`/notes/${n.id}`); } catch (e) {
+      // No connection: to the trash when it's back (gone from here meanwhile, also after reloading).
+      if (unreachable(e)) { await keepDelete({ url: `/notes/${n.id}`, user: user?.id, label: n.title || 'a note', id: n.id }); setNotes((all) => all && all.filter((x) => x.id !== n.id)); toast('Note deleted on this device, moved to the trash when the connection is back'); return; }
+      toast(e.message, 'error'); return;
+    }
     load();
     toast('Note moved to the trash', 'info', { action: { label: 'Undo', onClick: async () => { await post(`/notes/${n.id}/restore`); load(); } } });
   };

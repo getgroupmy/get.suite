@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { unreachable, changeAdd, appendKept, offlineId, keepChange } from '../offlinedocs.js';
+import { unreachable, changeAdd, appendKept, offlineId, keepChange, keepDelete } from '../offlinedocs.js';
 import { contactKey } from './contactkeys.js';
 import { stepTask } from '../tasks/taskkeys.js';
 import WithPerson from '../../components/WithPerson.jsx';
@@ -303,7 +303,11 @@ export default function Contacts() {
         onConfirm={async () => {
           const c = deleting;
           try { await del(`/contacts/${c.id}`); load(); toast(`${c.name} moved to Trash`, 'info', { action: { label: 'Undo', onClick: () => putBack([c.id]) } }); }
-          catch (e) { toast(e.message, 'error'); }
+          catch (e) {
+            // No connection: to Trash when it's back (gone from the list meanwhile, also after reloading).
+            if (unreachable(e)) { await keepDelete({ url: `/contacts/${c.id}`, user: user?.id, label: c.name, id: c.id }); load(); toast(`${c.name} deleted on this device, moved to Trash when the connection is back`); return; }
+            toast(e.message, 'error');
+          }
         }} />}
     </div>
   );

@@ -217,7 +217,10 @@ function SendUnsent() {
       let changed = 0;
       for (const c of await changeList(lastUserId())) {
         try { await api(c.method, c.url, c.body); await changeRemove(c.id); changed++; }
-        catch (e) { if (unreachable(e)) break; await changeRemove(c.id); toast(`A change made offline to “${c.label || 'something'}” couldn’t be made: ${e.message}`, 'error'); }
+        catch (e) {
+          if (unreachable(e)) break;
+          if (c.method === 'DELETE' && e.status === 404) { await changeRemove(c.id); changed++; continue; } // already gone: deleted all the same
+          await changeRemove(c.id); toast(`A change made offline to “${c.label || 'something'}” couldn’t be made: ${e.message}`, 'error'); }
       }
       if (changed) { toast(`Sent ${changed} change${changed === 1 ? '' : 's'} made offline`); window.dispatchEvent(new Event('nw:changes-sent')); }
       const r = await sendUnsent(WebsocketProvider);

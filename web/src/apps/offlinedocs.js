@@ -109,6 +109,21 @@ export async function patchKeptItem(taskId, changes) {
 }
 export const patchKeptTask = patchKeptItem;
 
+/** Something deleted offline: taken out of every kept list it's in. */
+export async function removeKeptItem(id) {
+  try {
+    const hits = [];
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (Array.isArray(cur.value?.data) && cur.value.data.some((t) => t?.id === id)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
+    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: v.data.filter((t) => t?.id !== id) }, k); }, 'api');
+  } catch { /* kept lists still show it */ }
+}
+/** A delete that couldn't reach the server: made when the connection is back; gone from the kept lists meanwhile. */
+export async function keepDelete({ url, user, label, id }) {
+  await changeAdd({ method: 'DELETE', url, user, label });
+  await removeKeptItem(id);
+  window.dispatchEvent(new Event('nw:changes'));
+}
+
 /** A change that couldn't reach the server: kept to make later, shown in the kept lists meanwhile. */
 export async function keepChange({ method, url, body, user, label, id, shown = body }) {
   await changeAdd({ method, url, body, user, label });
