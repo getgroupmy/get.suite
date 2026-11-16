@@ -2,7 +2,8 @@ import { Link } from 'react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
-import { api, get, patch, post, put, del, putBlob, postBlob, uploadFile, formatBytes, onLive } from '../api.js';
+import { api, get, patch, post, put, del, putBlob, postBlob, uploadFile, formatBytes, formatDate, onLive } from '../api.js';
+import { changeText } from './changetext.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
 import { Avatar, ConfirmModal, PromptModal, useToast } from '../components/ui.jsx';
@@ -448,9 +449,23 @@ function ThisDevice() {
   const load = useCallback(async () => {
     const { keptList, apiCount, outboxList, changeList } = await import('./offlinedocs.js');
     const [files, lists, mails, changes, est] = await Promise.all([keptList(), apiCount(), outboxList(user.id), changeList(user.id), navigator.storage?.estimate?.().catch(() => null)]);
-    setK({ files: files.length, unsentFiles: files.filter((f) => f.dirty).length, lists, mails: mails.length, changes: changes.length, used: est?.usage ?? null });
+    setK({ files: files.length, unsentFiles: files.filter((f) => f.dirty).length, lists, mails: mails.length, changes: changes.length, pending: changes, used: est?.usage ?? null });
   }, [user.id]);
   useEffect(() => { load(); }, [load]);
+  // Sent (or added) meanwhile: the list follows.
+  useEffect(() => {
+    const events = ['nw:changes', 'nw:changes-sent', 'nw:outbox'];
+    for (const ev of events) window.addEventListener(ev, load);
+    return () => { for (const ev of events) window.removeEventListener(ev, load); };
+  }, [load]);
+  const [discarding, setDiscarding] = useState(null);
+  const discard = async (c) => {
+    setDiscarding(null);
+    const { changeRemove } = await import('./offlinedocs.js');
+    await changeRemove(c.id);
+    toast('Discarded: it won’t be made');
+    load();
+  };
   if (!k) return null;
   const unsent = k.unsentFiles + k.mails + k.changes;
   const clear = async () => {
@@ -469,10 +484,23 @@ function ThisDevice() {
         <li>{plural(k.files, 'file', 'files')} (the last you opened){k.unsentFiles ? `, ${k.unsentFiles} with changes not sent yet` : ''}</li>
         <li>{plural(k.lists, 'list', 'lists')} last seen (mail, calendar, tasks, contacts, notes)</li>
         {k.mails > 0 && <li>{plural(k.mails, 'email', 'emails')} waiting to send</li>}
-        {k.changes > 0 && <li>{plural(k.changes, 'change', 'changes')} waiting to be made</li>}
+        {k.changes > 0 && <li>{plural(k.changes, 'change', 'changes')} waiting to be made:
+          <ul className="plain-list device-changes" aria-label="Changes waiting to be made">
+            {k.pending.map((c) => (
+              <li key={c.id} className="row" style={{ gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0 }}>{changeText(c)} <span className="muted">· {formatDate(c.at)}</span></span>
+                <button type="button" className="link-btn small" aria-label={`Discard ${changeText(c)}`} onClick={() => setDiscarding(c)}>Discard</button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="btn small" onClick={() => { window.dispatchEvent(new Event('nw:send-unsent')); toast(navigator.onLine ? 'Sending…' : 'No connection: they go by themselves when it’s back'); }}>Send now</button>
+        </li>}
         {k.used != null && <li className="muted">About {formatBytes(k.used)} used</li>}
       </ul>
       <div><button type="button" className="btn" disabled={!k.files && !k.lists && !k.mails && !k.changes} onClick={() => setAsking(true)}>Remove everything kept here</button></div>
+      {discarding && <ConfirmModal title="Discard this change?" confirm="Discard" danger
+        message={`${changeText(discarding)}: it won’t be made. Lists on this device may show it until they come from the server again.`}
+        onConfirm={() => discard(discarding)} onClose={() => setDiscarding(null)} />}
       {asking && <ConfirmModal title="Remove everything kept on this device?" confirm="Remove" danger
         message={unsent ? `Not sent yet, and lost if you remove it: ${[k.unsentFiles && plural(k.unsentFiles, 'file with changes', 'files with changes'), k.mails && plural(k.mails, 'email', 'emails'), k.changes && plural(k.changes, 'change', 'changes')].filter(Boolean).join(', ')}. Connect first to send them.` : 'Files and lists open again from the server when you’re connected; they won’t open here without a connection until you open them again.'}
         onConfirm={clear} onClose={() => setAsking(false)} />}

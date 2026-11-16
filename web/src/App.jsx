@@ -235,8 +235,9 @@ function SendUnsent() {
     };
     go();
     window.addEventListener('online', go);
+    window.addEventListener('nw:send-unsent', go); // Settings → This device: Send now
     const off = onLive((m) => { if (m.type === 'live-connected') go(); }); // Workspace answers again (it was restarting)
-    return () => { window.removeEventListener('online', go); off(); };
+    return () => { window.removeEventListener('online', go); window.removeEventListener('nw:send-unsent', go); off(); };
   }, [toast]);
   return null;
 }

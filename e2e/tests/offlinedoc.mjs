@@ -402,10 +402,33 @@ await step('Settings → This device: what is kept here, a warning about what is
   const kept = sec.getByRole('list', { name: 'Kept on this device' });
   await kept.getByText(/\d+ files? \(the last you opened\)/).waitFor();
   await kept.getByText(/\d+ lists? last seen/).waitFor();
-  // A change made offline and not sent yet (as Tasks keeps it).
-  await page.evaluate((user) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction('changes', 'readwrite'); t.objectStore('changes').put({ method: 'PATCH', url: '/tasks/tasks/x', body: {}, user, label: 'x', at: Date.now() }, `${Date.now()}-t`); t.oncomplete = () => { r.result.close(); res(); }; }; }), me);
+  // Changes made offline and not sent yet (as Tasks and Notes keep them); their server can't be reached for now.
+  const away = (route) => route.abort('internetdisconnected');
+  await page.route('**/api/tasks/tasks/*', away);
+  await page.route('**/api/notes', away);
+  const changes = [
+    { method: 'POST', url: '/notes', body: { id: 'offShopping0123456789ab', title: 'Shopping' }, label: 'Shopping' },
+    { method: 'POST', url: '/notes', body: { id: 'offSettings0123456789ab', title: 'Sent from settings' }, label: 'Sent from settings' },
+    { method: 'PATCH', url: '/tasks/tasks/x', body: {}, label: 'x' }, // last: sending stops at the first that can't go (they're made in order)
+  ];
+  await page.evaluate(([user, list]) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction('changes', 'readwrite'); list.forEach((c, i) => t.objectStore('changes').put({ ...c, user, at: Date.now() }, `${Date.now()}-${i}`)); t.oncomplete = () => { r.result.close(); res(); }; }; }), [me, changes]);
   await page.reload();
+  await kept.getByText('3 changes waiting to be made').waitFor();
+  const waiting = sec.getByRole('list', { name: 'Changes waiting to be made' });
+  await waiting.getByText('Change a task: “x”').waitFor();
+  await waiting.getByText('Take a note: “Sent from settings”').waitFor();
+  await sec.screenshot({ path: `${SP}/shots/device-changes.png` });
+  // Discard one: it's never made.
+  await waiting.getByRole('button', { name: 'Discard Take a note: “Shopping”' }).click();
+  await page.getByRole('dialog', { name: 'Discard this change?' }).getByRole('button', { name: 'Discard' }).click();
+  await kept.getByText('2 changes waiting to be made').waitFor();
+  // Send now: what can go, goes (the note); the rest waits.
+  await page.unroute('**/api/notes', away);
+  await sec.getByRole('button', { name: 'Send now' }).click();
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 20000 });
   await kept.getByText('1 change waiting to be made').waitFor();
+  const titles = ((await api(page, 'GET', '/notes')).body || []).map((n) => n.title);
+  if (!titles.includes('Sent from settings') || titles.includes('Shopping')) throw new Error(JSON.stringify(titles));
   await sec.getByRole('button', { name: 'Remove everything kept here' }).click();
   const d = page.getByRole('dialog', { name: 'Remove everything kept on this device?' });
   await d.getByText(/Not sent yet, and lost if you remove it: 1 change/).waitFor();
@@ -413,6 +436,7 @@ await step('Settings → This device: what is kept here, a warning about what is
   await page.getByText('Nothing is kept on this device now').waitFor();
   await kept.getByText('0 files (the last you opened)').waitFor();
   if (await kept.getByText(/change waiting/).count()) throw new Error('the change is still listed');
+  await page.unroute('**/api/tasks/tasks/*', away);
   await page.goto(`${B}/docs/${doc.id}`); // something kept again for the steps below
   await editor().waitFor();
 });
