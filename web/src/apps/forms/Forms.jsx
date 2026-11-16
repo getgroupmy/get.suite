@@ -678,6 +678,7 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
           try { await put(`/forms/${form.id}/email-me`, { on }); toast(on ? `Each new response will be emailed to ${me?.username || 'you'}` : 'No more response emails'); }
           catch (err) { setForm((f) => ({ ...f, email_me: !on })); toast(err.message, 'error'); }
         }} /> Email me each response, with the answers (just for you)</label>}
+      {form.role === 'owner' && <Webhook form={form} allowLinks={allowLinks} />}
       <fieldset className="stack-tight">
         <legend>Quiz</legend>
         <label className="check"><input type="checkbox" checked={form.quiz} onChange={(e) => setting({ quiz: e.target.checked })} /> Make this a quiz (give answers points, and score each response)</label>
@@ -704,6 +705,59 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
         <p className="muted small" style={{ margin: 0 }}>A new link stops the old one working, if it went somewhere it shouldn't.</p>
       </div>
     </div>
+  );
+}
+
+/** Settings → Send responses to a web address (the owner only): each new or changed response goes there as signed JSON. */
+function Webhook({ form, allowLinks }) {
+  const toast = useToast();
+  const [hook, setHook] = useState(undefined); // undefined: loading; null: none
+  const [url, setUrl] = useState('');
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+  useEffect(() => { get(`/forms/${form.id}/webhook`).then((h) => { setHook(h); setUrl(h?.url || ''); setOpen(!!h); }).catch(() => setHook(null)); }, [form.id]);
+  if (hook === undefined) return null;
+  const save = async () => {
+    setBusy(true);
+    try { const h = await put(`/forms/${form.id}/webhook`, { url }); setHook(h); toast('Each new response will be sent to that address'); } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  const test = async () => {
+    setBusy(true);
+    try { const r = await post(`/forms/${form.id}/webhook/test`); setHook(r.hook); toast(r.ok ? `Test sent (it answered ${r.status})` : `The test didn’t arrive: ${r.error}`, r.ok ? 'info' : 'error'); } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  const last = hook?.last_at ? (hook.last_error ? `Last try ${formatDate(hook.last_at)}: ${hook.last_error}` : `Last sent ${formatDate(hook.last_at)} (it answered ${hook.last_status})`) : null;
+  return (
+    <fieldset className="stack-tight form-webhook">
+      <legend>Send responses to a web address</legend>
+      {!open && !hook ? (
+        <div><button type="button" className="btn" disabled={!allowLinks} onClick={() => setOpen(true)}>Set up…</button>
+          <p className="muted small" style={{ margin: '4px 0 0' }}>{allowLinks ? 'For a CRM, a chat bot or an automation service: each new or changed response is sent there as it arrives.' : 'Your company has turned off sharing outside it.'}</p></div>
+      ) : <>
+        <label className="field"><span>Web address (https)</span>
+          <input type="url" value={url} placeholder="https://hooks.example.com/forms" maxLength={2000} onChange={(e) => setUrl(e.target.value)} /></label>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <button type="button" className="btn primary" disabled={busy || !url.trim() || url === hook?.url} onClick={save}>Save</button>
+          {hook && <button type="button" className="btn" disabled={busy} onClick={test}>Send a test</button>}
+          {hook && <button type="button" className="btn" disabled={busy} onClick={async () => {
+            try { await del(`/forms/${form.id}/webhook`); setHook(null); setUrl(''); setOpen(false); toast('Responses are no longer sent anywhere'); } catch (e) { toast(e.message, 'error'); }
+          }}>Turn off</button>}
+        </div>
+        {last && <p className={`small ${hook.last_error ? 'error' : 'muted'}`} role="status" style={{ margin: 0 }}>{last}</p>}
+        {hook && (
+          <div className="small">
+            <span className="muted">Signing secret: </span>
+            {showSecret ? <code className="webhook-secret">{hook.secret}</code> : <button type="button" className="link-btn" onClick={() => setShowSecret(true)}>Show</button>}
+            {' · '}<button type="button" className="link-btn" onClick={async () => {
+              try { setHook(await post(`/forms/${form.id}/webhook/secret`)); setShowSecret(true); toast('New secret made; the old one is no longer used'); } catch (e) { toast(e.message, 'error'); }
+            }}>Make a new one</button>
+            <p className="muted" style={{ margin: '4px 0 0' }}>Each delivery is JSON with an <code>X-Workspace-Signature</code> header: <code>sha256=</code> and the HMAC-SHA256 of the body with this secret, so the receiver can check it came from here.</p>
+          </div>
+        )}
+      </>}
+    </fieldset>
   );
 }
 

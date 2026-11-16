@@ -23,6 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
 import { mimeFor } from '../util.js';
+import { audit } from '../audit.js';
+import { hookOf, setHook, removeHook, newSecret, deliver, deliverNow, hookPayload } from '../formhooks.js';
 import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 
 q(`CREATE TABLE IF NOT EXISTS forms (
@@ -695,6 +697,31 @@ export default function formRoutes() {
     res.json({ email_me: !!req.body?.on });
   });
 
+  // Sending each response to a web address (the form's owner only: it takes the answers outside Workspace).
+  const hookForm = (req) => {
+    const f = ownForm(req.params.id, req.user);
+    if (f.owner_id !== req.user.id) throw forbidden('Only the form’s owner can send its responses to a web address');
+    return f;
+  };
+  r.get('/:id/webhook', (req, res) => res.json(hookOf(hookForm(req).id)));
+  r.put('/:id/webhook', (req, res) => {
+    const f = hookForm(req);
+    if (!req.user.allow_links) throw forbidden('Your company has turned off sharing outside it, so responses can’t be sent to a web address');
+    const h = setHook(f.id, req.body?.url);
+    audit(req, 'form.webhook', { target: f.title, details: { url: h.url } });
+    res.json(h);
+  });
+  r.delete('/:id/webhook', (req, res) => { const f = hookForm(req); removeHook(f.id); audit(req, 'form.webhook_removed', { target: f.title }); res.json({ ok: true }); });
+  r.post('/:id/webhook/secret', (req, res) => res.json(newSecret(hookForm(req).id)));
+  // A test delivery: the latest response (or an example), sent now, with how it went.
+  r.post('/:id/webhook/test', async (req, res) => {
+    const f = hookForm(req);
+    if (!hookOf(f.id)) throw bad('Set a web address first');
+    const latest = q('SELECT * FROM form_responses WHERE form_id = ? ORDER BY created_at DESC LIMIT 1').get(f.id)
+      || { id: 'example', answers: JSON.stringify(Object.fromEntries(f.questions.filter((qu) => qu.type !== 'section').map((qu) => [qu.id, qu.options?.[0] ?? 'Example answer']))), created_at: Date.now() };
+    res.json({ ...(await deliverNow(f.id, 'test', hookPayload(f, latest))), hook: hookOf(f.id) });
+  });
+
   r.put('/:id', (req, res) => {
     const f = ownForm(req.params.id, req.user);
     const b = req.body || {};
@@ -1203,6 +1230,7 @@ export function publicFormRoutes() {
     const team = teamOf(form);
     sendTo(team, { type: 'form-response', form_id: form.id });
     try { addToLinkedSheet(form, id); } catch (e) { console.error('[forms] linked sheet:', e.message); }
+    deliver(form.id, 'response.created', hookPayload(form, q('SELECT * FROM form_responses WHERE id = ?').get(id)));
     if (form.notify) {
       // Many in a row (a form sent to everyone): one notification counting them while it's unread.
       bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null,
@@ -1243,6 +1271,7 @@ export function publicFormRoutes() {
       q('UPDATE form_responses SET answers = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(answers), now(), resp.id);
     });
     try { addToLinkedSheet(form, resp.id, { changedRow: true }); } catch (e) { console.error('[forms] linked sheet:', e.message); }
+    deliver(form.id, 'response.updated', hookPayload(form, q('SELECT * FROM form_responses WHERE id = ?').get(resp.id)));
     sendTo(teamOf(form), { type: 'form-response', form_id: form.id });
     if (form.notify) bell(teamOf(form).filter((x) => x !== user?.id), { kind: 'form', title: `A response to “${form.title}” was changed`, body: form.audience === 'org' ? `By ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null,
       group: { key: `form-changed:${form.id}`, item: form.audience === 'org' ? `By ${user.name}` : 'A response', many: (n) => ({ title: `${n} responses to “${form.title}” were changed`, body: form.audience === 'org' ? `The latest by ${user.name}` : null }) } });
