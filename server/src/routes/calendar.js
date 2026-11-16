@@ -469,7 +469,7 @@ function removeEvent(req, ev) {
   notifyOutside(req.user, gone, outside, 'cancel', { base: baseUrl(req), tz: req.query.tz || ev.tz }); // before the guest list goes
   q('DELETE FROM events WHERE id = ?').run(ev.id);
   q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(ev.id, req.user.id); // its changed occurrences go with the series
-  notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz, baseUrl(req));
+  notify(req.user, outEvent(ev), guests.map((g) => ({ id: g.id, username: g.email, name: g.name })), 'cancel', req.query.tz, baseUrl(req));
   touch([req.user.id, ...guests.map((g) => g.id)]);
 }
 
@@ -902,7 +902,7 @@ export default function calendarRoutes() {
       shareAttachments(req.user, e.id);
       notify(req.user, saved, change.added, 'invite', req.body.tz, baseUrl(req));
       declineAway(req.user, saved, change.added);
-      notify(req.user, saved, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz, baseUrl(req));
+      notify(req.user, saved, removed.map((id) => q('SELECT id, username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz, baseUrl(req));
     }
     // People outside only see what we email them: new guests are invited, the others get the update.
     const opts = { base: baseUrl(req), tz };

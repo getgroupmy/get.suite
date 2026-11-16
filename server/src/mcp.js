@@ -248,6 +248,21 @@ export const TOOLS = [
     },
   },
   {
+    name: 'cancel_event', title: 'Cancel a calendar event', readOnly: false,
+    description: 'Cancel (delete) one of the person’s own events (one they organized); its guests are told it’s cancelled. Ask the person first. They can bring it back from Workspace Calendar’s Undo for a day. Repeating events, and events others organized (use answer_invitation to decline those), can’t be cancelled here.',
+    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'string', description: 'event:… from list_events or search' } } },
+    async run(api, a) {
+      const id = String(a.id || '').replace(/^event:/, '').split(':')[0];
+      const all = await api('GET', '/events');
+      const e = (Array.isArray(all) ? all : all.events || []).find((x) => x.id === id);
+      if (!e) throw new ToolError('Event not found');
+      if (e.role !== 'organizer') throw new ToolError(`${e.organizer?.name || 'Someone else'} organized it: only they can cancel it (answer_invitation with “no” declines it)`);
+      if (e.rrule) throw new ToolError('It repeats: cancel it in Workspace Calendar, where you choose this time or every time');
+      await api('DELETE', `/events/${encodeURIComponent(id)}`);
+      return { cancelled: `event:${id}`, title: e.title, start: iso(e.start), guests_told: (e.guests || []).length };
+    },
+  },
+  {
     name: 'answer_invitation', title: 'Answer a meeting invitation', readOnly: false,
     description: 'Answer an invitation on the person’s calendar (an event from list_events whose my_answer is set): yes, maybe or no, optionally with a note for the organizer (who is told). Only invitations from colleagues; ask the person before declining on their behalf.',
     inputSchema: {
@@ -892,6 +907,7 @@ function recordChange(req, tool, args) {
   const assistant = (id.startsWith('mcp:') ? q('SELECT name FROM mcp_clients WHERE client_id = ?').get(id.slice(4))?.name : q('SELECT name FROM api_tokens WHERE id = ?').get(id)?.name) || 'An assistant';
   const special = tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}`
     : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}`
+    : tool.name === 'cancel_event' ? `cancelled ${args.id}`
     : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}`
     : tool.name === 'update_email' && Array.isArray(args.ids) ? `${args.ids.length} email${args.ids.length === 1 ? '' : 's'}${args.move_to ? ` to ${args.move_to}` : ''}${args.read !== undefined ? (args.read ? ' read' : ' unread') : ''}${args.starred !== undefined ? (args.starred ? ' starred' : ' unstarred') : ''}`
     : tool.name === 'move_file' ? `${args.file}${args.folder !== undefined ? ` moved to ${args.folder}` : ''}${args.name !== undefined ? ` renamed “${args.name}”` : ''}`

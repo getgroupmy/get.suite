@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -342,7 +342,22 @@ test('change an event: moved keeping its length, renamed; guests see it; others�
   const weekly = (await owner('POST', '/api/events', { title: 'Weekly', start, end: start + 36e5, rrule: { freq: 'weekly' } })).body;
   assert.match((await call(rw, 'update_event', { id: `event:${weekly.id}`, title: 'x' })).content[0].text, /It repeats/);
   assert.match((await call(rw, 'update_event', { id: ev.id })).content[0].text, /Say what to change/);
-  assert.match((await call(rw, 'update_event', { id: ev.id, end: new Date(start).toISOString() })).content[0].text, /end must be after the start/);
+  assert.match((await call(rw, 'update_event', { id: ev.id, end: new Date(start).toISOString() })).content[0].text, /end must be after the start/);  // Cancelled: gone from the guest's calendar too; others' and repeating events refused, as is a read-only token.
+  assert.equal((await call(ro, 'cancel_event', { id: ev.id })).isError, true);
+  assert.match((await call(rw, 'cancel_event', { id: `event:${theirs.id}` })).content[0].text, /Uma Guest organized it: only they can cancel it/);
+  assert.match((await call(rw, 'cancel_event', { id: `event:${weekly.id}` })).content[0].text, /It repeats/);
+  const gone = await call(rw, 'cancel_event', { id: ev.id });
+  assert.ok(!gone.isError, JSON.stringify(gone));
+  assert.deepEqual([gone.structuredContent.title, gone.structuredContent.guests_told], ['Pricing sync (moved)', 1]);
+  assert.equal((await uma('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body.some((e) => e.id === ev.id.replace('event:', '')), false);
+  const bell = JSON.stringify((await uma('GET', '/api/notifications')).body);
+  assert.match(bell, /cancelled “Pricing sync \(moved\)”/, 'the guest is told');
+  assert.match((await call(rw, 'cancel_event', { id: ev.id })).content[0].text, /Event not found/);
+  // Taken off another event's guest list in Calendar: told in Workspace too.
+  const other = (await owner('POST', '/api/events', { title: 'Budget review', start, end: start + 36e5, guests: ['uma@acme.com'] })).body;
+  assert.equal((await owner('PATCH', `/api/events/${other.id}`, { guests: [] })).status, 200);
+  assert.match(JSON.stringify((await uma('GET', '/api/notifications')).body), /cancelled “Budget review”/);
+  assert.match(JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body), /cancelled event:/);
 });
 
 test('change a task: due date and time, notes, important; due date taken off; bad input explained', async () => {

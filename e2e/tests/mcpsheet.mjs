@@ -155,6 +155,23 @@ await step('an assistant comments on words in a document open in Docs: the words
   await page.getByText('Is Friday still right?').waitFor();
   await page.screenshot({ path: `${SP}/shots/assistant-comment.png` });
 });
+await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
+  await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
+  const gus = await mk('gus');
+  await gus.goto(B);
+  await gus.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'gus@acme.com', password: 'password123' }) }));
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 8', scope: 'write', days: 30 })).body.token;
+  const at = Date.now() + 2 * 864e5;
+  const ev = (await mcp(token, 'create_event', { title: 'Supplier call', start: new Date(at).toISOString(), end: new Date(at + 36e5).toISOString(), guests: ['gus@acme.com'] })).structuredContent;
+  await gus.goto(`${B}/home`);
+  await gus.getByRole('button', { name: /^Notifications/ }).waitFor();
+  const r = await mcp(token, 'cancel_event', { id: ev.id });
+  if (r.isError || r.structuredContent.guests_told !== 1) throw new Error(JSON.stringify(r));
+  await gus.getByRole('button', { name: /^Notifications, \d+ new/ }).click({ timeout: 30000 });
+  await gus.getByRole('dialog', { name: 'Notifications' }).getByText('Olivia Owner cancelled “Supplier call”').waitFor();
+  const left = (await api(gus, 'GET', `/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
+  if (left.some((e) => e.title === 'Supplier call')) throw new Error('still on their calendar');
+});
 await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');
