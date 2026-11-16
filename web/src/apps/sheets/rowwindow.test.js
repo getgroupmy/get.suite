@@ -42,3 +42,19 @@ test('a merged cell reaching into the window is drawn from its top row to its en
   assert.equal(l[0], 94);
   assert.equal(l.at(-1), 148);
 });
+
+test('wide sheets: only the columns in view are drawn, gaps keeping the width; frozen and merged columns kept', async () => {
+  const { colLefts, colWindow } = await import('./rowwindow.js');
+  const l = colLefts(300, (c) => (c === 5 ? 200 : 100), new Set([7]));
+  assert.equal(l[300], 300 * 100 + 100 - 100, '300 columns, one 100px wider, one hidden');
+  const w = colWindow(l, 100 * 100, 112 * 100, { frozen: 1 });
+  assert.equal(w[0], 0);
+  assert.equal(typeof w[1], 'object');
+  const drawn = w.filter((x) => typeof x === 'number');
+  assert.ok(drawn.length < 20, `${drawn.length} drawn`);
+  const total = w.reduce((s, x) => s + (typeof x === 'number' ? l[x + 1] - l[x] : x.gap), 0);
+  assert.equal(total, l[300]);
+  const merged = colWindow(l, 100 * 100, 112 * 100, { spans: new Map([['CQ3', { colSpan: 7, rowSpan: 1 }]]) }).filter((x) => typeof x === 'number');
+  assert.equal(merged[0], 94, 'CQ is column 95 (0-based 94): its merge reaches into view');
+  assert.deepEqual(colWindow(colLefts(30, () => 100), 0, 1000).filter((x) => typeof x === 'object'), [{ gap: 1900, key: 'gap-right' }]);
+});

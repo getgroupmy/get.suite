@@ -31,7 +31,7 @@ import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
-import { rowTops, rowWindow, WINDOW_FROM } from './rowwindow.js';
+import { rowTops, rowWindow, WINDOW_FROM, colLefts, colWindow, COLS_FROM } from './rowwindow.js';
 import { dataEdge, lastUsed } from './jumpkeys.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, chipsOf, breaksRule, describeCheck } from './validation.js';
 import { columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
@@ -181,7 +181,9 @@ export default function SheetEditor() {
     const heads = grid.querySelectorAll('thead th');
     const trs = grid.querySelectorAll('tbody tr');
     const top = Array.from({ length: frozen.rows }, (_, r) => trs[r]?.offsetTop ?? 0);
-    const left = Array.from({ length: frozen.cols }, (_, c) => heads[c + 1]?.offsetLeft ?? 0);
+    // From widths, not offsetLeft: a frozen heading is sticky itself, so its offsetLeft moves with the scroll.
+    const left = [];
+    for (let c = 0, x = heads[0]?.offsetWidth ?? 0; c < frozen.cols; c++) { left.push(x); x += heads[c + 1]?.offsetWidth ?? 0; }
     if (top.join() !== stick.top.join() || left.join() !== stick.left.join()) setStick({ top, left });
   });
   const names = sheet?.names || null; // named ranges: { Tax: 'B1' }
@@ -216,8 +218,9 @@ export default function SheetEditor() {
   }, [evaluate, data?.sheets, data?.functions, active]);
   const { rows, cols } = useMemo(() => sheetSize(cells, evaluate.spilledKeys?.() || []), [cells, evaluate]);
   // A big sheet draws only the rows near the screen (rowwindow.js); `view` is the grid's scroll position and height.
-  const [view, setView] = useState({ top: 0, height: 1500 });
-  const windowed = rows > WINDOW_FROM;
+  const [view, setView] = useState({ top: 0, height: 1500, left: 0, width: 2500 });
+  const windowed = rows > WINDOW_FROM, wide = cols > COLS_FROM;
+  const viewOf = (g) => ({ top: g.scrollTop, height: g.clientHeight, left: g.scrollLeft, width: g.clientWidth });
   // The filter: which rows it hides, and where its headings are.
   const sheetFilter = sheet?.filter || null;
   // A filter view open on this screen only: { id } for a saved one, { temp, sheet } for a temporary one.
@@ -246,19 +249,35 @@ export default function SheetEditor() {
   const scrollRaf = useRef(0);
   const onGridScroll = useCallback((e) => {
     const g = e.currentTarget;
-    if (!windowed || scrollRaf.current) return;
-    scrollRaf.current = requestAnimationFrame(() => { scrollRaf.current = 0; setView({ top: g.scrollTop, height: g.clientHeight }); });
-  }, [windowed]);
+    if ((!windowed && !wide) || scrollRaf.current) return;
+    scrollRaf.current = requestAnimationFrame(() => { scrollRaf.current = 0; setView(viewOf(g)); });
+  }, [windowed, wide]);
   // Moving to a cell that isn't drawn (keyboard, Go to, find…) scrolls there first, so the cell is drawn to show.
+  const hiddenCols = useMemo(() => new Set([...(hide?.cols || []), ...collapsedOn(groups, 'col')]), [hide, groups]);
+  // The same for the columns of a wide sheet.
+  const lefts = useMemo(() => (wide ? colLefts(cols, widthOf, hiddenCols) : null), [wide, cols, colWidths, resizing, hiddenCols]); // eslint-disable-line react-hooks/exhaustive-deps
+  const colList = useMemo(() => {
+    if (!wide) return Array.from({ length: cols }, (_, c) => c);
+    const z = zoom / 100, x = view.left / z - 48; // 48: the row numbers left of column A
+    return colWindow(lefts, x - 600, x + view.width / z + 600, { frozen: frozen.cols, spans: layout.spans });
+  }, [wide, cols, lefts, view, zoom, frozen.cols, layout]);
   useLayoutEffect(() => {
     const g = gridRef.current;
-    if (!windowed || !g || sel.r < frozen.rows || rowList.includes(sel.r)) return;
+    if (!g) return;
     const z = zoom / 100;
-    g.scrollTop = Math.max(0, (tops[sel.r] + 25) * z - g.clientHeight / 2);
-    setView({ top: g.scrollTop, height: g.clientHeight });
-  }, [sel.r]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { const g = gridRef.current; if (windowed && g) setView({ top: g.scrollTop, height: g.clientHeight }); }, [windowed]);
-  const hiddenCols = useMemo(() => new Set([...(hide?.cols || []), ...collapsedOn(groups, 'col')]), [hide, groups]);
+    let moved = false;
+    if (windowed && sel.r >= frozen.rows && !rowList.includes(sel.r)) { g.scrollTop = Math.max(0, (tops[sel.r] + 25) * z - g.clientHeight / 2); moved = true; }
+    if (wide && sel.c >= frozen.cols && !colList.includes(sel.c)) { g.scrollLeft = Math.max(0, (lefts[sel.c] + 48) * z - g.clientWidth / 2); moved = true; }
+    if (moved) setView(viewOf(g));
+  }, [sel.r, sel.c]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const g = gridRef.current;
+    if (!(windowed || wide) || !g) return undefined;
+    setView(viewOf(g));
+    const resized = () => setView(viewOf(g));
+    window.addEventListener('resize', resized);
+    return () => window.removeEventListener('resize', resized);
+  }, [windowed, wide]);
   const groupToggle = useMemo(() => ({ row: toggleAt(groups, 'row'), col: toggleAt(groups, 'col') }), [groups]);
   const inGroup = (axis, i) => (groups || []).some((g) => g.axis === axis && i >= g.from && i <= g.to);
   const flipGroup = (axis, from) => writeSheet((sh) => ({ groups: toggleGroup(sh.groups, axis, from) }));
@@ -1265,7 +1284,7 @@ export default function SheetEditor() {
         <div className="grid-zoom" style={zoom !== 100 ? { zoom: zoom / 100 } : undefined}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
-            <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
+            <tr><th className="corner" />{colList.map((c) => (typeof c === 'object' ? <th key={c.key} className="grid-gap-c" aria-hidden="true" style={{ width: c.gap, minWidth: c.gap, maxWidth: c.gap }} /> : (
               <th key={c} className={`${inGroup('col', c) ? 'grouped' : ''} ${c >= range.c1 && c <= range.c2 ? 'hl' : ''} ${c < frozen.cols ? 'frozen-c' : ''} ${c === frozen.cols - 1 ? 'freeze-edge-r' : ''}`}
                 style={{ width: widthOf(c), minWidth: widthOf(c), maxWidth: widthOf(c), ...(c < frozen.cols && { left: stick.left[c] }), ...(hiddenCols.has(c) && { display: 'none' }) }}
                 onMouseDown={(e) => { if (e.button === 0) pickCol(c, e); }}
@@ -1276,10 +1295,10 @@ export default function SheetEditor() {
                 {!readOnly && <span className="col-resize" role="separator" aria-orientation="vertical" aria-label={`Resize column ${colName(c)}`} title="Drag to resize, double-click to fit"
                   onPointerDown={startResize(c)} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); fitColumn(c); }} />}
               </th>
-            ))}</tr>
+            )))}</tr>
           </thead>
           <tbody>
-            {rowList.map((r) => (typeof r === 'object' ? <tr key={r.key} className="grid-gap" aria-hidden="true" style={{ height: r.gap }}><td colSpan={cols + 1} /></tr> : hidden.has(r) ? null : (
+            {rowList.map((r) => (typeof r === 'object' ? <tr key={r.key} className="grid-gap" aria-hidden="true" style={{ height: r.gap }}><td colSpan={colList.length + 1} /></tr> : hidden.has(r) ? null : (
               <tr key={r} className={`${hidden.has(r + 1) || hidden.has(r - 1) ? 'next-to-hidden' : ''} ${rowH(r) ? 'sized' : ''}`} style={rowH(r) ? { height: rowH(r), '--rh': `${rowH(r) - 4}px` } : undefined}>
                 <th className={`${inGroup('row', r) ? 'grouped' : ''} ${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
                   style={r < frozen.rows ? { top: stick.top[r] } : undefined} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
@@ -1288,7 +1307,8 @@ export default function SheetEditor() {
                   {unhideAt.row.has(r) && <UnhideButton run={unhideAt.row.get(r)} axis="row" onShow={readOnly ? null : (a, b) => hideSpan('row', a, b, true)} />}
                   {!readOnly && <span className="row-resize" role="separator" aria-orientation="horizontal" aria-label={`Resize row ${r + 1}`} title="Drag to resize, double-click for the standard height"
                     onPointerDown={startRowResize(r)} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); setRowHeight(r, r, null); }} />}</th>
-                {Array.from({ length: cols }, (_, c) => {
+                {colList.map((c) => {
+                  if (typeof c === 'object') return <td key={c.key} className="grid-gap-c" aria-hidden="true" />;
                   const k = cellKey(c, r);
                   if (layout.covered.has(k)) return null; // drawn by its merge's top-left cell
                   if (hiddenCols.has(c) && !layout.spans.has(k)) return <td key={k} data-k={k} style={{ display: 'none' }} />;

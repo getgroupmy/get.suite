@@ -3203,3 +3203,4 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .more-files { display: flex; justify-content: center; padding: 12px; }
 .offline-bar .link-btn { color: #8ab4f8; margin-left: 8px; }
 .grid tr.grid-gap td { height: auto; padding: 0; border: 0; background: none; }
+.grid .grid-gap-c { padding: 0; border-right: 0; background: none; }

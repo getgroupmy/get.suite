@@ -128,6 +128,42 @@ await step('a cell typed in far down is saved', async () => {
   await until(async () => (await cell('B4321').innerText()).trim() === String(4320 * 3 + 1));
   await until(async () => (await api(page, 'GET', `/files/${sheetId}/content`)).body?.content?.sheets?.[0]?.cells?.B4321 === '=B4320+1', 12000);
 });
+await step('a wide sheet (200 columns) draws only the columns in view; scrolling, the Name box, Ctrl+Right and a frozen column work', async () => {
+  const col = (n) => { let x = ''; for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) x = String.fromCharCode(65 + ((n - 1) % 26)) + x; return x; };
+  const cells = {};
+  for (let r = 1; r <= 60; r++) for (let c = 0; c < 200; c++) cells[`${col(c)}${r}`] = r === 1 ? `H${c}` : String(r * 1000 + c);
+  const f = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Wide', content: { sheets: [{ name: 'Sheet1', cells, frozen: { cols: 1 }, merges: ['FA5:FC6'] }] } })).body;
+  await page.goto(`${B}/sheets/${f.id}`);
+  await cell('B2').waitFor();
+  const heads = await page.locator('.grid thead th:not(.corner):not(.grid-gap-c)').count();
+  if (heads > 60) throw new Error(`${heads} columns drawn`);
+  const w = await page.evaluate(() => document.querySelector('.grid-wrap').scrollWidth);
+  if (w < 200 * 99) throw new Error(`grid only ${w}px wide`);
+  await page.evaluate(() => { document.querySelector('.grid-wrap').scrollLeft = 120 * 100; });
+  await cell('DQ10').waitFor();
+  if (!(await cell('DQ10').isVisible()) || (await cell('DQ10').innerText()).trim() !== '10120') throw new Error('column DQ not shown');
+  if (!(await cell('A10').isVisible())) throw new Error('frozen column A not shown');
+  const a = await cell('A10').boundingBox(), g = await page.locator('.grid-wrap').boundingBox();
+  if (a.x > g.x + 60) throw new Error(`frozen column at ${a.x}`);
+  // Each row lines up: DQ10 sits under its heading.
+  const h = await page.locator('.grid thead th', { hasText: /^DQ$/ }).boundingBox(), d = await cell('DQ10').boundingBox();
+  if (Math.abs(h.x - d.x) > 2) throw new Error(`heading at ${h.x}, cell at ${d.x}`);
+  await page.getByLabel('Name box').fill('GR40');
+  await page.keyboard.press('Enter');
+  await until(async () => (await cell('GR40').count()) && (await cell('GR40').getAttribute('class')).includes('sel') && await cell('GR40').isVisible());
+  await page.getByLabel('Name box').fill('B3');
+  await page.keyboard.press('Enter');
+  await page.locator('.grid-wrap').focus();
+  await page.keyboard.press('Control+ArrowRight');
+  await until(async () => (await cell('GR3').count()) && (await cell('GR3').getAttribute('class')).includes('sel') && await cell('GR3').isVisible());
+  // The merged cell near the end is whole.
+  await page.evaluate(() => { document.querySelector('.grid-wrap').scrollLeft = 152 * 100; });
+  await cell('FA5').waitFor();
+  if ((await cell('FA5').getAttribute('colspan')) !== '3') throw new Error(`colspan ${await cell('FA5').getAttribute('colspan')}`);
+  await page.keyboard.press('Control+Home');
+  await until(() => page.evaluate(() => document.querySelector('.grid-wrap').scrollLeft < 10));
+  await cell('B2').waitFor();
+});
 await step('a small sheet still draws every row', async () => {
   const f = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Small', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'x', A150: 'y' } }] } })).body;
   await page.goto(`${B}/sheets/${f.id}`);

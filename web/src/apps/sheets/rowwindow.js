@@ -45,3 +45,39 @@ export function rowWindow(tops, y0, y1, { frozen = 0, spans = new Map() } = {}) 
   if (tops[rows] - tops[to] > 0) out.push({ gap: tops[rows] - tops[to], key: 'gap-end' });
   return out;
 }
+
+export const COLS_FROM = 40; // sheets with more columns than this draw a window of them
+
+/** Where each column starts (lefts[c]) and the sheet's width (lefts[cols]); hidden columns take no space. */
+export function colLefts(cols, widthOf, hidden = new Set()) {
+  const lefts = new Float64Array(cols + 1);
+  for (let c = 0; c < cols; c++) lefts[c + 1] = lefts[c] + (hidden.has(c) ? 0 : widthOf(c));
+  return lefts;
+}
+
+/**
+ * The columns to draw for the part of the sheet from x0 to x1 (in sheet pixels): frozen columns, then a gap,
+ * the columns in view, and a gap for the rest. Merged cells reaching into the window are drawn whole.
+ * Returns column numbers and { gap: width, key } entries.
+ */
+export function colWindow(lefts, x0, x1, { frozen = 0, spans = new Map() } = {}) {
+  const cols = lefts.length - 1;
+  let from = rowAt(lefts, Math.max(0, x0)), to = Math.min(cols, rowAt(lefts, x1) + 1);
+  for (let moved = true; moved;) {
+    moved = false;
+    for (const [k, s] of spans) {
+      const p = parseRef(k);
+      if (!p) continue;
+      const end = p.c + (s.colSpan || 1);
+      if (p.c < from && end > from) { from = p.c; moved = true; }
+      if (p.c < to && end > to) { to = Math.min(cols, end); moved = true; }
+    }
+  }
+  const out = [];
+  const lead = Math.min(frozen, from);
+  for (let c = 0; c < lead; c++) out.push(c);
+  if (lefts[from] - lefts[lead] > 0) out.push({ gap: lefts[from] - lefts[lead], key: 'gap-left' });
+  for (let c = Math.max(from, lead); c < to; c++) out.push(c);
+  if (lefts[cols] - lefts[to] > 0) out.push({ gap: lefts[cols] - lefts[to], key: 'gap-right' });
+  return out;
+}
