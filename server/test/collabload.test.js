@@ -104,6 +104,15 @@ test('changes that could not be merged become an offline copy in the person’s 
   assert.equal(r.body.parent_id, null);
   const { content } = (await api('GET', `/api/files/${r.body.id}/content`)).body;
   assert.match(JSON.stringify(content), /Written on the train/);
+  // Asked again for the same abandoned generation (the editor and the background sender): the same copy, brought up to date.
+  const st = (text) => Buffer.from(Y.encodeStateAsUpdate(cd.docFromJson({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }))).toString('base64');
+  const a1 = await api('POST', `/api/files/${f.id}/offline-copy`, { state: st('First'), gen: 'oldGen' });
+  const a2 = await api('POST', `/api/files/${f.id}/offline-copy`, { state: st('First and more'), gen: 'oldGen' });
+  assert.equal(a1.status, 201);
+  assert.equal(a2.status, 200);
+  assert.equal(a2.body.id, a1.body.id);
+  assert.match(JSON.stringify((await api('GET', `/api/files/${a1.body.id}/content`)).body.content), /First and more/);
+  assert.notEqual((await api('POST', `/api/files/${f.id}/offline-copy`, { state: st('Other'), gen: 'anotherGen' })).body.id, a1.body.id);
   assert.equal((await api('POST', `/api/files/${f.id}/offline-copy`, { state: 'bm90IHlqcw==' })).status, 400);
   assert.equal((await api('POST', '/api/files/nope/offline-copy', { state: 'AAA=' })).status, 404);
 });

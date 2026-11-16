@@ -1,3 +1,4 @@
+import { keptList, unreachable } from '../offlinedocs.js';
 import { findClashes, clashQuestion, findFolderClashes } from './uploadclash.js';
 import { driveKey, stepIndex } from './drivekeys.js';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
@@ -190,6 +191,8 @@ export default function Drive() {
       setFolder(f);
     } catch (e) {
       if (seq !== loadSeq.current) return;
+      // No connection: what's kept on this device instead (the files opened here lately).
+      if (unreachable(e)) { setOfflineList(await keptList()); return; }
       toast(e.message, 'error');
       if (e.status === 404) navigate('/drive', { replace: true });
     }
@@ -197,7 +200,10 @@ export default function Drive() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  useEffect(() => { setFiles(null); setSelected(null); setChecked(new Set()); load(); }, [load]);
+  const [offlineList, setOfflineList] = useState(null); // without a connection: the files kept on this device
+  useEffect(() => { setFiles(null); setOfflineList(null); setSelected(null); setChecked(new Set()); load(); }, [load]);
+  // Back online after showing what's on the device: the real list again.
+  useEffect(() => { if (!offlineList) return undefined; const back = () => { setOfflineList(null); load(); }; window.addEventListener('online', back); return () => window.removeEventListener('online', back); }, [offlineList, load]);
   // Several files at once: tick them, then use the bar above the list.
   const [checked, setChecked] = useState(new Set());
   const toggleCheck = (id) => setChecked((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -726,7 +732,7 @@ export default function Drive() {
             ))}
           </div>
         )}
-        {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : route.view === 'activity' ? <RecentActivity /> : route.view === 'links' ? <MyLinks /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
+        {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : route.view === 'activity' ? <RecentActivity /> : route.view === 'links' ? <MyLinks /> : offlineList ? <OnThisDevice list={offlineList} /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />
@@ -2023,5 +2029,28 @@ function RequestLimitsModal({ link, onClose, onSaved }) {
       <RequestLimits value={value} onChange={setValue} />
       <p className="muted small">The link stays the same. Files already sent stay where they are.</p>
     </Modal>
+  );
+}
+
+/** Drive without a connection: the files kept on this device (opened here lately), which open and can be edited offline. */
+function OnThisDevice({ list }) {
+  const path = { doc: 'docs', sheet: 'sheets', slides: 'slides' };
+  const icon = { doc: 'doc', sheet: 'sheet', slides: 'slides' };
+  return (
+    <section className="stack on-this-device" aria-label="Files on this device">
+      <div className="banner warn">You're offline. These files are kept on this device: they open and you can edit them; your changes go in when the connection is back.</div>
+      {!list.length ? <p className="muted">Nothing is kept on this device yet: files you open while connected are kept for next time.</p> : (
+        <ul className="plain-list">
+          {list.map(({ id, file, at, dirty }) => (
+            <li key={id} className="row" style={{ gap: 8, padding: '6px 0' }}>
+              <Icon name={icon[file.kind] || 'file'} size={18} />
+              <a href={`/${path[file.kind] || 'docs'}/${id}`} className="grow">{file.name}</a>
+              {dirty && <span className="pill warn" title="Changes made offline, sent when the connection is back">Not sent yet</span>}
+              <span className="muted small">Opened {formatDate(at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

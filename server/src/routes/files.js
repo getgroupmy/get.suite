@@ -850,6 +850,14 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
+  q(`CREATE TABLE IF NOT EXISTS offline_copies (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    gen TEXT NOT NULL,
+    copy_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, file_id, gen)
+  )`).run();
   // Changes made offline that couldn't be merged (the document was rebuilt meanwhile, see collab.js genOf): the browser
   // sends its kept copy ({ state: base64 Yjs update }) and it becomes a new file of the person's own, "… (offline copy)".
   r.post('/:id/offline-copy', (req, res) => {
@@ -861,7 +869,17 @@ export default function fileRoutes({ maxUploadBytes }) {
     const doc = new Y.Doc();
     try { Y.applyUpdate(doc, new Uint8Array(raw)); } catch { throw bad('That copy can’t be read'); }
     const content = JSON.stringify(conv(doc));
+    // One copy per person, file and abandoned generation: asked again (the editor and the background sender, two tabs),
+    // the same copy is brought up to date rather than another made.
+    const gen = String(req.body?.gen || '').slice(0, 40) || null;
+    const had = gen && q(`SELECT o.copy_id FROM offline_copies o JOIN files c ON c.id = o.copy_id AND c.trashed = 0
+                          WHERE o.user_id = ? AND o.file_id = ? AND o.gen = ?`).get(req.user.id, f.id, gen);
+    if (had) {
+      q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ? WHERE id = ?').run(content, Buffer.byteLength(content), Date.now(), had.copy_id);
+      return res.json(publicFile(loadFile(had.copy_id, req.user)));
+    }
     const id = insertFile({ owner: req.user.id, parentId: null, name: cleanName(`${f.name} (offline copy)`), kind: f.kind, content, size: Buffer.byteLength(content) });
+    if (gen) q('INSERT OR REPLACE INTO offline_copies (user_id, file_id, gen, copy_id, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, f.id, gen, id, Date.now());
     notifyPlace(null, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });

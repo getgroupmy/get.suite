@@ -164,6 +164,7 @@ function Workspace() {
           <BrowserRouter>
             <ShortcutsHelp />
             <DataCheckHost />
+            <SendUnsent />
             <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/docs/:id" element={<DocEditor />} />
@@ -183,6 +184,25 @@ function Workspace() {
       </ToastProvider>
     </AuthCtx.Provider>
   );
+}
+
+/** Changes made offline to files not open now: sent once there's a connection (at start, and when the network is back). */
+function SendUnsent() {
+  const toast = useToast();
+  useEffect(() => {
+    const run = async () => {
+      if (!navigator.onLine) return;
+      const [{ sendUnsent }, { WebsocketProvider }] = await Promise.all([import('./apps/KeptCopy.jsx'), import('y-websocket')]);
+      const r = await sendUnsent(WebsocketProvider);
+      if (r.sent) toast(`Sent what you changed offline in ${r.sent} file${r.sent === 1 ? '' : 's'}`);
+      for (const f of r.copies) toast(`A file was changed elsewhere while you were offline: your changes are in “${f.name}”`, 'info', { duration: 10000 });
+    };
+    const go = () => { run().catch(() => {}); };
+    go();
+    window.addEventListener('online', go);
+    return () => window.removeEventListener('online', go);
+  }, [toast]);
+  return null;
 }
 
 /** The company requires two-step verification: set it up before anything else. */

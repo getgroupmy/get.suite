@@ -130,6 +130,29 @@ await step('Slides: a presentation opened before opens without a connection', as
   await ctx.setOffline(false);
   await page.getByText(/You're offline/).first().waitFor({ state: 'detached', timeout: 20000 });
 });
+await step('Drive without a connection lists the files kept on this device, with any not sent yet, and opens them', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByText('Budget', { exact: true }).first().waitFor();
+  await ctx.setOffline(true);
+  await page.reload();
+  const list = page.getByRole('region', { name: 'Files on this device' });
+  await list.getByText(/These files are kept on this device/).waitFor({ timeout: 20000 });
+  for (const name of ['Field notes', 'Budget', 'Pitch']) await list.getByRole('link', { name }).waitFor();
+  await list.getByRole('link', { name: 'Budget' }).click();
+  await page.locator('[data-k="A2"]').getByText('Food').waitFor({ timeout: 20000 });
+  await page.locator('[data-k="A3"]').click();
+  await page.keyboard.type('Travel');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1500);
+  await page.goto(`${B}/drive`);
+  await list.getByRole('listitem').filter({ hasText: 'Budget' }).getByText('Not sent yet').waitFor({ timeout: 20000 });
+  await page.screenshot({ path: `${SP}/shots/on-this-device.png` });
+  await ctx.setOffline(false);
+  await page.getByRole('region', { name: 'Files on this device' }).waitFor({ state: 'detached', timeout: 20000 });
+  await page.getByText('Budget', { exact: true }).first().waitFor(); // the real list again
+  await page.getByText('Sent what you changed offline in 1 file').waitFor({ timeout: 20000 }); // without opening it
+  await until(async () => { const r = await api(page, 'GET', '/files'); const b = (Array.isArray(r.body) ? r.body : r.body?.files || []).find((f) => f.name === 'Budget'); return b && (await api(page, 'GET', `/files/${b.id}/content`)).body?.content?.sheets?.[0]?.cells?.A3 === 'Travel'; }, 30000);
+});
 await step('signing out clears what was kept on this device', async () => {
   const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline', 1); r.onupgradeneeded = () => r.result.createObjectStore('docs'); r.onsuccess = () => { const c = r.result.transaction('docs').objectStore('docs').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
   await until(async () => (await count()) > 0, 10000); // the document open now is kept (a moment after it syncs)

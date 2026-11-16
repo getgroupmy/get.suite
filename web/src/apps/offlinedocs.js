@@ -54,3 +54,12 @@ export function toBase64(bytes) {
 export const forgetAll = () => new Promise((resolve) => {
   try { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => resolve(); } catch { resolve(); }
 });
+
+/** Everything kept on this device, the most recently opened first: [{ id, file, at, dirty }]. */
+export async function keptList() {
+  try {
+    const out = [];
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (cur.value?.file) out.push({ id: cur.key, file: cur.value.file, at: cur.value.at, dirty: !!cur.value.dirty }); cur.continue(); } }; return c; });
+    return out.sort((a, b) => b.at - a.at);
+  } catch { return []; }
+}
