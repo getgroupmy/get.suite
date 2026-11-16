@@ -88,6 +88,17 @@ await step('a document open while an assistant adds to it: the text appears live
   if (!(await page.evaluate(() => window.__stayed))) throw new Error('the page reloaded');
   await page.screenshot({ path: `${SP}/shots/assistant-append.png` });
 });
+await step('an assistant makes a spreadsheet: it opens in Sheets with the heading row bold and the formulas worked out', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 2', scope: 'write', days: 30 })).body.token;
+  const r = await mcp(token, 'create_spreadsheet', { name: 'Q3 travel', rows: [['City', 'Nights', 'Cost'], ['Lisbon', 3, 610.5], ['Oslo', 2, 880], ['Total', '=SUM(B2:B3)', '=SUM(C2:C3)']] });
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await page.goto(new URL(r.structuredContent.url, B).href);
+  await cell('A2').getByText('Lisbon').waitFor();
+  await cell('C4').getByText('1490.5').waitFor();
+  const w = await cell('A1').evaluate((el) => getComputedStyle(el.querySelector('*') || el).fontWeight);
+  if (+w < 600) throw new Error(`heading not bold: ${w}`);
+  await page.screenshot({ path: `${SP}/shots/assistant-sheet.png` });
+});
 await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');

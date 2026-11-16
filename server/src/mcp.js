@@ -65,6 +65,8 @@ const words = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 /** Plain text → a Workspace document (a paragraph per line; "# " lines as headings). */
 export { docFromText } from './doctext.js';
 import { docFromText } from './doctext.js';
+import { appendRows } from './sheetrows.js';
+const colLetter = (n) => { let s = ''; for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 import { assistantOff } from './routes/orgs.js';
 
 const FILE_PATH = { doc: (f) => `/docs/${f.id}`, sheet: (f) => `/sheets/${f.id}`, slides: (f) => `/slides/${f.id}`, folder: (f) => `/drive/folder/${f.id}` };
@@ -434,6 +436,38 @@ export const TOOLS = [
     async run(api, a) {
       const f = await api('POST', '/files/new', { kind: 'doc', name: String(a.name || 'Untitled document').slice(0, 200), content: docFromText(a.text) });
       return { id: `file:${f.id}`, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+    },
+  },
+  {
+    name: 'create_spreadsheet', title: 'Make a spreadsheet', readOnly: false,
+    description: 'Make a new Workspace spreadsheet in the person’s Drive from rows of cells (e.g. a table of figures, a list to track). The first row is the heading row: bold, kept in view when scrolling. Cells are text, numbers, true/false or null; text starting with = is a formula (=SUM(B2:B9)).',
+    inputSchema: {
+      type: 'object', required: ['name', 'rows'],
+      properties: {
+        name: { type: 'string' },
+        rows: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'array', maxItems: 50, items: { type: ['string', 'number', 'boolean', 'null'] } } },
+        sheet: { type: 'string', description: 'The sheet’s (tab’s) name; Sheet1 when left out' },
+        heading: { type: 'boolean', description: 'Whether the first row is a heading row (default true)' },
+      },
+    },
+    async run(api, a) {
+      const sheetName = String(a.sheet || 'Sheet1').trim().slice(0, 100) || 'Sheet1';
+      let made;
+      try { made = appendRows({ sheets: [{ name: sheetName, cells: {}, colWidths: {} }] }, { rows: a.rows }); } catch (e) { throw new ToolError(e.message); }
+      const s = made.content.sheets[0];
+      if (a.heading !== false) {
+        const width = Math.max(...a.rows.map((r) => r.length));
+        s.formats = {};
+        for (let c = 0; c < width; c++) {
+          const col = colLetter(c);
+          if (s.cells[`${col}1`] != null) s.formats[`${col}1`] = { b: true };
+          const longest = Math.max(...a.rows.map((r) => String(r[c] ?? '').length));
+          s.colWidths[col] = Math.min(320, Math.max(100, longest * 8));
+        }
+        s.frozen = { rows: 1 };
+      }
+      const f = await api('POST', '/files/new', { kind: 'sheet', name: String(a.name || 'Untitled spreadsheet').slice(0, 200), content: made.content });
+      return { id: `file:${f.id}`, name: f.name, sheet: sheetName, range: made.range, url: fileUrl({ ...f, kind: 'sheet' }) };
     },
   },
   {

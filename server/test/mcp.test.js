@@ -56,11 +56,30 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'draft_email', 'create_note', 'create_contact', 'create_document', 'append_to_document', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'append_to_document', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
   assert.equal((await rpc(rw, 'tools/call', { name: 'nope', arguments: {} })).body.error.code, -32602);
+});
+
+test('make a spreadsheet: rows from the top, heading row bold and kept in view; formulas work; refusals explained', async () => {
+  const r = await call(rw, 'create_spreadsheet', { name: 'Q3 travel', sheet: 'Trips', rows: [['City', 'Nights', 'Cost'], ['Lisbon', 3, 610.5], ['Oslo', 2, 880], ['Total', '=SUM(B2:B3)', '=SUM(C2:C3)']] });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.name, r.structuredContent.sheet, r.structuredContent.range], ['Q3 travel', 'Trips', 'A1:C4']);
+  assert.match(r.structuredContent.url, /\/sheets\//);
+  const id = r.structuredContent.id.replace('file:', '');
+  const s = (await owner('GET', `/api/files/${id}/content`)).body.content.sheets[0];
+  assert.deepEqual([s.name, s.cells.A1, s.cells.C2, s.cells.B4, s.formats.A1, s.formats.C1, s.formats.A2, s.frozen], ['Trips', 'City', '610.5', '=SUM(B2:B3)', { b: true }, { b: true }, undefined, { rows: 1 }]);
+  assert.match((await call(rw, 'fetch', { id: r.structuredContent.id })).structuredContent.text, /Lisbon/);
+  // Without a heading row: plain, nothing frozen.
+  const plain = await call(rw, 'create_spreadsheet', { name: 'List', rows: [['a'], ['b']], heading: false });
+  const p = (await owner('GET', `/api/files/${plain.structuredContent.id.replace('file:', '')}/content`)).body.content.sheets[0];
+  assert.deepEqual([p.name, p.cells.A2, p.formats, p.frozen], ['Sheet1', 'b', undefined, undefined]);
+  // Refused: a read-only token; no rows; a cell that's an object.
+  assert.equal((await call(ro, 'create_spreadsheet', { name: 'x', rows: [['x']] })).isError, true);
+  assert.match((await call(rw, 'create_spreadsheet', { name: 'x', rows: [] })).content[0].text, /Give the rows/);
+  assert.match((await call(rw, 'create_spreadsheet', { name: 'x', rows: [[{ a: 1 }]] })).content[0].text, /Each cell must be/);
 });
 
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {
