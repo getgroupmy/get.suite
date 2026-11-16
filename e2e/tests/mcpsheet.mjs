@@ -137,6 +137,17 @@ await step('an assistant sets the person’s status: colleagues see it in the Di
   await page.locator('table tr').nth(1).waitFor();
   if (await page.getByText('🎧 Focusing').count()) throw new Error('not cleared');
 });
+await step('an assistant comments on words in a document: the comment shows in Docs, on those words', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7', scope: 'write', days: 30 })).body.token;
+  const d = (await mcp(token, 'create_document', { name: 'Launch note', text: 'The launch is on Friday.' })).structuredContent;
+  const c = await mcp(token, 'comment_on_file', { file: d.id, quote: 'on Friday', text: 'Is Friday still right?' });
+  if (c.isError) throw new Error(JSON.stringify(c));
+  await page.goto(new URL(d.url, B).href);
+  await page.getByRole('button', { name: /1\s*Comments/ }).click();
+  await page.getByText('Is Friday still right?').waitFor();
+  await page.getByText('on Friday').first().waitFor();
+  await page.screenshot({ path: `${SP}/shots/assistant-comment.png` });
+});
 await step('Admin → Company settings: untick what assistants may do; the assistant is refused, saying why', async () => {
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');

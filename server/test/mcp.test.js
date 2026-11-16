@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -149,6 +149,34 @@ test('status: set with an emoji and words, cleared at a time; shown to colleague
   assert.match((await call(rw, 'set_status', { text: 'x', until: '2001-01-01T00:00:00Z' })).content[0].text, /in the future/);
   assert.equal((await call(ro, 'set_status', { text: 'x' })).isError, true);
   assert.match(JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body), /status 🎧 Focusing/);
+});
+
+test('comments: on words in a document, a cell, a slide, a whole file; replies; @mentions notify; listed; refusals explained', async () => {
+  const doc = (await call(rw, 'create_document', { name: 'Review me', text: 'The launch is on Friday.\nBudget is fine.' })).structuredContent;
+  const c = await call(rw, 'comment_on_file', { file: doc.id, quote: 'on Friday', text: 'Is Friday still right?' });
+  assert.ok(!c.isError, JSON.stringify(c));
+  assert.match((await call(rw, 'comment_on_file', { file: doc.id, quote: 'on Monday', text: 'x' })).content[0].text, /isn’t in the document/);
+  assert.match((await call(rw, 'comment_on_file', { file: doc.id, text: 'x' })).content[0].text, /Give quote/);
+  const reply = await call(rw, 'comment_on_file', { file: doc.id, reply_to: c.structuredContent.id, text: 'Checking with ops' });
+  assert.equal(reply.structuredContent.id, c.structuredContent.id, 'same thread');
+  const listed = (await call(rw, 'list_comments', { file: doc.id })).structuredContent;
+  assert.deepEqual(listed.threads.map((t) => [t.about, t.text, t.replies.map((r) => r.text)]), [['“on Friday”', 'Is Friday still right?', ['Checking with ops']]]);
+  // A cell on a named sheet; a slide by number.
+  const sheet = (await call(rw, 'create_spreadsheet', { name: 'Review sheet', sheet: 'Costs', rows: [['a', 1]] })).structuredContent;
+  assert.ok(!(await call(rw, 'comment_on_file', { file: sheet.id, sheet: 'costs', cell: 'B1', text: 'Too low?' })).isError);
+  assert.match((await call(rw, 'comment_on_file', { file: sheet.id, sheet: 'Nope', cell: 'B1', text: 'x' })).content[0].text, /No sheet called “Nope”/);
+  assert.match((await call(rw, 'comment_on_file', { file: sheet.id, cell: 'nonsense', text: 'x' })).content[0].text, /cell like B2/);
+  assert.equal((await call(rw, 'list_comments', { file: sheet.id })).structuredContent.threads[0].about, 'cell B1');
+  const deck = (await call(rw, 'create_presentation', { name: 'Review deck', slides: [{ title: 'One' }, { title: 'Two' }] })).structuredContent;
+  assert.ok(!(await call(rw, 'comment_on_file', { file: deck.id, slide: 2, text: 'Add a chart' })).isError);
+  assert.match((await call(rw, 'comment_on_file', { file: deck.id, slide: 3, text: 'x' })).content[0].text, /from 1 to 2/);
+  assert.equal((await call(rw, 'list_comments', { file: deck.id })).structuredContent.threads[0].about, 'slide 2');
+  // Folders: no comments. Read-only tokens can list but not comment.
+  const folder = (await call(rw, 'create_folder', { name: 'Review folder' })).structuredContent;
+  assert.match((await call(rw, 'comment_on_file', { file: folder.id, text: 'x' })).content[0].text, /Folders don’t have comments/);
+  assert.equal((await call(ro, 'comment_on_file', { file: doc.id, quote: 'on Friday', text: 'x' })).isError, true);
+  assert.equal((await call(ro, 'list_comments', { file: doc.id })).structuredContent.threads.length, 1);
+  assert.match(JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body), /comment on file:[^:]+: Is Friday still right\?/);
 });
 
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {
