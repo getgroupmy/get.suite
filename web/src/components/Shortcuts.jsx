@@ -22,7 +22,7 @@ export const SHORTCUTS = {
     ['Tab / Shift+Tab', 'Next or previous table cell'],
   ] },
   sheets: { title: 'Sheets', keys: [
-    ['Arrow keys', 'Move between cells'], ['Shift+arrows', 'Select a range'], [`${mod}+A`, 'Select everything'],
+    ['Arrow keys', 'Move between cells'], ['Shift+arrows', 'Select a range'], [`${mod}+arrows`, 'Jump to the edge of the data'], [`${mod}+Home / ${mod}+End`, 'First cell, or the last with something in it'], ['Page Up / Page Down', 'A screen up or down'], [`${mod}+A`, 'Select everything'],
     ['Enter / F2', 'Edit the cell'], ['Typing', 'Replace the cell'], ['Tab / Shift+Tab', 'Next or previous cell'], ['Delete', 'Clear the selected cells'],
     [`${mod}+C / ${mod}+X / ${mod}+V`, 'Copy, cut, paste (formulas move with the cells)'],
     [`${mod}+B / ${mod}+I / ${mod}+U`, 'Bold, italic, underline'],

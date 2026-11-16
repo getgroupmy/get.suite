@@ -31,6 +31,8 @@ import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
+import { rowTops, rowWindow, WINDOW_FROM } from './rowwindow.js';
+import { dataEdge, lastUsed } from './jumpkeys.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, chipsOf, breaksRule, describeCheck } from './validation.js';
 import { columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
 import { SlicerCard } from './SheetSlicer.jsx';
@@ -213,6 +215,9 @@ export default function SheetEditor() {
     };
   }, [evaluate, data?.sheets, data?.functions, active]);
   const { rows, cols } = useMemo(() => sheetSize(cells, evaluate.spilledKeys?.() || []), [cells, evaluate]);
+  // A big sheet draws only the rows near the screen (rowwindow.js); `view` is the grid's scroll position and height.
+  const [view, setView] = useState({ top: 0, height: 1500 });
+  const windowed = rows > WINDOW_FROM;
   // The filter: which rows it hides, and where its headings are.
   const sheetFilter = sheet?.filter || null;
   // A filter view open on this screen only: { id } for a saved one, { temp, sheet } for a temporary one.
@@ -232,6 +237,27 @@ export default function SheetEditor() {
   const groups = sheet?.groups || null; // grouped rows and columns (collapsed ones are hidden too)
   const slicers = sheet?.slicers || {};
   const hidden = useMemo(() => sheetHiddenRows({ cells, filter, slicers, hide, groups }, evaluate), [filter, slicers, cells, evaluate, hide, groups]);
+  const tops = useMemo(() => (windowed ? rowTops(rows, (r) => heightOf(sheet?.rowHeights, r), hidden) : null), [windowed, rows, sheet?.rowHeights, hidden]);
+  const rowList = useMemo(() => {
+    if (!windowed) return Array.from({ length: rows }, (_, r) => r);
+    const z = zoom / 100, y = view.top / z - 25; // 25: the column letters above row 1
+    return rowWindow(tops, y - 800, y + view.height / z + 800, { frozen: frozen.rows, spans: layout.spans });
+  }, [windowed, rows, tops, view, zoom, frozen.rows, layout]);
+  const scrollRaf = useRef(0);
+  const onGridScroll = useCallback((e) => {
+    const g = e.currentTarget;
+    if (!windowed || scrollRaf.current) return;
+    scrollRaf.current = requestAnimationFrame(() => { scrollRaf.current = 0; setView({ top: g.scrollTop, height: g.clientHeight }); });
+  }, [windowed]);
+  // Moving to a cell that isn't drawn (keyboard, Go to, find…) scrolls there first, so the cell is drawn to show.
+  useLayoutEffect(() => {
+    const g = gridRef.current;
+    if (!windowed || !g || sel.r < frozen.rows || rowList.includes(sel.r)) return;
+    const z = zoom / 100;
+    g.scrollTop = Math.max(0, (tops[sel.r] + 25) * z - g.clientHeight / 2);
+    setView({ top: g.scrollTop, height: g.clientHeight });
+  }, [sel.r]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const g = gridRef.current; if (windowed && g) setView({ top: g.scrollTop, height: g.clientHeight }); }, [windowed]);
   const hiddenCols = useMemo(() => new Set([...(hide?.cols || []), ...collapsedOn(groups, 'col')]), [hide, groups]);
   const groupToggle = useMemo(() => ({ row: toggleAt(groups, 'row'), col: toggleAt(groups, 'col') }), [groups]);
   const inGroup = (axis, i) => (groups || []).some((g) => g.axis === axis && i >= g.from && i <= g.to);
@@ -712,6 +738,22 @@ export default function SheetEditor() {
     return selectionStats(vals);
   }, [range.c1, range.c2, range.r1, range.r2, cells, evaluate, hidden]);
 
+  // Straight to a cell (Ctrl+Arrow, Ctrl+Home/End, Page Up/Down); with Shift, the selection stretches there.
+  function jump(n, extend = false) {
+    if (extend) { if (!anchor) setAnchor(sel); } else setAnchor(null);
+    let r = n.r;
+    while (hidden.has(r) && r > 0) r--;
+    setSel({ c: n.c, r });
+    requestAnimationFrame(() => {
+      const g = gridRef.current;
+      if (!g) return;
+      // A frozen cell is always in view, so going to one (Ctrl+Home) also takes the sheet back to its top or left.
+      if (r < frozen.rows) g.scrollTop = 0;
+      if (n.c < frozen.cols) g.scrollLeft = 0;
+      g.querySelector(`[data-k="${cellKey(n.c, r)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  }
+
   function move(dc, dr, extend = false) {
     if (extend) { if (!anchor) setAnchor(sel); } else setAnchor(null);
     setSel((s) => {
@@ -848,6 +890,16 @@ export default function SheetEditor() {
     const u = undoKey(e);
     if (u) { e.preventDefault(); if (!readOnly) history[u](); return; }
     if (e.altKey && k === 'ArrowDown' && validationAt(validations, cellKey(sel.c, sel.r))?.type === 'list') { e.preventDefault(); if (!readOnly) setPicker({ key: cellKey(sel.c, sel.r) }); return; }
+    const arrow = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[k];
+    if (mod && !e.altKey && arrow) { e.preventDefault(); jump(dataEdge((c, r) => { const v = cells[cellKey(c, r)]; return v !== undefined && v !== ''; }, sel.c, sel.r, arrow[0], arrow[1], { cols, rows }), e.shiftKey); return; }
+    if (mod && !e.altKey && k === 'Home') { e.preventDefault(); jump({ c: 0, r: 0 }, e.shiftKey); return; }
+    if (mod && !e.altKey && k === 'End') { e.preventDefault(); jump(lastUsed(cells), e.shiftKey); return; }
+    if (!mod && !e.altKey && (k === 'PageDown' || k === 'PageUp')) {
+      e.preventDefault();
+      const page = Math.max(1, Math.floor((gridRef.current?.clientHeight || 600) / (25 * zoom / 100)) - 1);
+      jump({ c: sel.c, r: Math.max(0, Math.min(rows - 1, sel.r + (k === 'PageDown' ? page : -page))) }, e.shiftKey);
+      return;
+    }
     if (k === 'ArrowUp') { e.preventDefault(); move(0, -1, e.shiftKey); }
     else if (k === 'ArrowDown') { e.preventDefault(); move(0, 1, e.shiftKey); }
     else if (k === 'ArrowLeft') { e.preventDefault(); move(-1, 0, e.shiftKey); }
@@ -1209,7 +1261,7 @@ export default function SheetEditor() {
         {editing === 'bar' && assist.popup}
       </div>
       <div className="sheet-body">
-      <div className={`grid-wrap ${painter ? 'painting' : ''} ${fv && viewFilter ? 'fv-on' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
+      <div className={`grid-wrap ${painter ? 'painting' : ''} ${fv && viewFilter ? 'fv-on' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onScroll={onGridScroll} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
         <div className="grid-zoom" style={zoom !== 100 ? { zoom: zoom / 100 } : undefined}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
@@ -1227,7 +1279,7 @@ export default function SheetEditor() {
             ))}</tr>
           </thead>
           <tbody>
-            {Array.from({ length: rows }, (_, r) => (hidden.has(r) ? null : (
+            {rowList.map((r) => (typeof r === 'object' ? <tr key={r.key} className="grid-gap" aria-hidden="true" style={{ height: r.gap }}><td colSpan={cols + 1} /></tr> : hidden.has(r) ? null : (
               <tr key={r} className={`${hidden.has(r + 1) || hidden.has(r - 1) ? 'next-to-hidden' : ''} ${rowH(r) ? 'sized' : ''}`} style={rowH(r) ? { height: rowH(r), '--rh': `${rowH(r) - 4}px` } : undefined}>
                 <th className={`${inGroup('row', r) ? 'grouped' : ''} ${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
                   style={r < frozen.rows ? { top: stick.top[r] } : undefined} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}

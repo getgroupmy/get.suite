@@ -327,6 +327,12 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 - **Trim whitespace, change case:** right-click → **Trim whitespace** removes spaces at the ends of the text in the selected cells (or the table around the cell) and turns runs of spaces inside into one, tabs and non-breaking spaces included (pasted lists and exports are full of them). **Change case…** makes the text **UPPER CASE**, **lower case**, **Title Case** (*O'Neil-Smith*, not *John'S*) or **Sentence case**. Both change text only: formulas and numbers stay as they are, and **Undo** takes it back.
 - Widths and frozen rows and columns are shared with everyone editing, kept per sheet, and carried to and from Excel.
 
+## Big spreadsheets (Sheets)
+
+- A sheet with thousands of rows opens and scrolls as quickly as a small one: only the rows near the screen are drawn, the rest stand in as empty space of the right height, so the scroll bar is true. A 20,000-row sheet opens in about 2 seconds (it took about 15 before).
+- **Getting around from the keyboard**, as in Excel and Google Sheets: **Ctrl+Arrow** jumps to the edge of the data (the end of a run of filled cells, or the next filled cell), **Ctrl+Home** to A1 and the top of the sheet, **Ctrl+End** to the last row and column with something in them, **Page Up / Page Down** a screen at a time; with **Shift**, the selection stretches there. The Name box, Find and arrow keys reach rows far below the screen, which scroll into view.
+- Frozen rows stay at the top, and merged cells are drawn whole wherever you scroll.
+
 ## Filters (Sheets)
 
 - **Filter** in the toolbar turns on a filter over the selected cells, or the table around the cursor; its first row holds the headings, which get a ▾ button.
