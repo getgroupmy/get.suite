@@ -40,7 +40,7 @@ const resolve = (fromDir, href) => {
  */
 export function docFromNotion(md, { fromDir = '', pictureFor = () => null, pageFor = () => null } = {}) {
   const pics = [];
-  let text = String(md).replace(/\r\n?/g, '\n').split('\n').map((line) => {
+  let text = notionBlocks(String(md).replace(/\r\n?/g, '\n')).split('\n').map((line) => {
     const m = /^\s*!\[([^\]]*)\]\(\s*<?([^)>]+?)>?\s*\)\s*$/.exec(line);
     if (!m || /^[a-z]+:/i.test(m[2])) return line;
     const id = pictureFor(resolve(fromDir, m[2]));
@@ -61,6 +61,35 @@ export function docFromNotion(md, { fromDir = '', pictureFor = () => null, pageF
     return n.content ? { ...n, content: swap(n.content) } : n;
   });
   return { ...doc, content: swap(doc.content || []) };
+}
+
+/**
+ * Notion's own Markdown made plain: a database row's properties (the "Status: Doing" lines under the title) one
+ * per line with the name in bold, and callouts (<aside>…</aside>) as quotes.
+ */
+export function notionBlocks(md) {
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+  // The title, then the properties block: consecutive "Name: value" lines.
+  while (i < lines.length && !lines[i].trim()) out.push(lines[i++]);
+  if (/^#\s/.test(lines[i] || '')) {
+    out.push(lines[i++]);
+    while (i < lines.length && !lines[i].trim()) out.push(lines[i++]);
+    const props = [];
+    while (i < lines.length && /^[^\s#>\-*|`!][^:]{0,60}: \S/.test(lines[i])) props.push(lines[i++]);
+    if (props.length >= 1 && (i >= lines.length || !lines[i].trim())) {
+      for (const p of props) { const at = p.indexOf(': '); out.push(`**${p.slice(0, at).replace(/\*/g, '')}:** ${p.slice(at + 2)}`, ''); }
+    } else out.push(...props);
+  }
+  let inAside = false;
+  for (; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*<aside>\s*$/i.test(l)) { inAside = true; continue; }
+    if (inAside && /^\s*<\/aside>\s*$/i.test(l)) { inAside = false; out.push(''); continue; }
+    out.push(inAside ? (l.trim() ? `> ${l}` : '>') : l);
+  }
+  return out.join('\n');
 }
 
 const colName = (n) => { let s = ''; for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };

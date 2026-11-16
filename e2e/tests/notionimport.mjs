@@ -42,6 +42,7 @@ await step('Settings → Move here → Notion: the steps, and the export brought
   z.file(`Export-1/Team wiki ${A}/Onboarding ${C}.md`, '# Onboarding\n\n- Get a laptop\n- Meet the team\n');
   z.file(`Export-1/Team wiki ${A}/office.png`, PNG);
   z.file(`Export-1/Projects ${C}_all.csv`, 'Name,Owner,Status\nWebsite,Ana,Doing\nApp,Bo,Done\n');
+  z.file(`Export-1/Projects ${C}/Website ${A}.md`, '# Website\n\nOwner: Ana\nStatus: Doing\n\n<aside>\n💡 Launch before the trade fair.\n\n</aside>\n');
   const buf = await z.generateAsync({ type: 'nodebuffer' });
   await page.goto(`${B}/settings`);
   const sec = page.getByRole('region', { name: 'Move here from another service' });
@@ -51,12 +52,12 @@ await step('Settings → Move here → Notion: the steps, and the export brought
   await page.getByLabel('Your Notion export (.zip)').setInputFiles({ name: 'Export-1.zip', mimeType: 'application/zip', buffer: buf });
   await page.locator('.toast', { hasText: /^From Notion: brought in / }).first().waitFor({ timeout: 30000 });
   const msg = await page.locator('.toast', { hasText: /^From Notion: brought in / }).first().innerText();
-  if (!/^From Notion: brought in 4 files into “From Notion \d{4}-\d{2}-\d{2}” in Drive$/.test(msg)) throw new Error(msg);
+  if (!/^From Notion: brought in 5 files into “From Notion \d{4}-\d{2}-\d{2}” in Drive$/.test(msg)) throw new Error(msg);
 });
 await step('in Drive: the wiki’s folder with its page, sub-page and picture; the database as a spreadsheet', async () => {
   await page.goto(`${B}/drive`);
   await page.getByText(/^From Notion \d{4}-/).first().dblclick();
-  await page.locator('table.files').getByText('Projects', { exact: true }).waitFor();
+  await page.locator('table.files').getByText('Projects', { exact: true }).first().waitFor();
   await page.locator('table.files').getByText('Team wiki', { exact: true }).dblclick();
   for (const n of ['Team wiki', 'Onboarding', 'office.png']) await page.locator('table.files').getByText(n, { exact: true }).waitFor();
 });
@@ -71,10 +72,24 @@ await step('the page opens in Docs with its picture, and its link goes to the On
 });
 await step('the database opens in Sheets, its heading row bold', async () => {
   const top = (await api(page, 'GET', '/files')).body.find((f) => /^From Notion/.test(f.name));
-  const sheet = (await api(page, 'GET', `/files?parent=${top.id}`)).body.find((f) => f.name === 'Projects');
+  const folder = (await api(page, 'GET', `/files?parent=${top.id}`)).body.find((f) => f.name === 'Projects' && f.kind === 'folder');
+  const sheet = (await api(page, 'GET', `/files?parent=${folder.id}`)).body.find((f) => f.name === 'Projects' && f.kind === 'sheet');
   await page.goto(`${B}/sheets/${sheet.id}`);
   await page.getByText('Website', { exact: true }).waitFor();
   await page.getByText('Owner', { exact: true }).waitFor();
+});
+await step('a database row’s page: its properties one per line, names bold; its callout as a quote', async () => {
+  const top = (await api(page, 'GET', '/files')).body.find((f) => /^From Notion/.test(f.name));
+  const folder = (await api(page, 'GET', `/files?parent=${top.id}`)).body.find((f) => f.name === 'Projects' && f.kind === 'folder');
+  const names = (await api(page, 'GET', `/files?parent=${folder.id}`)).body.map((f) => `${f.name}:${f.kind}`).sort();
+  if (names.join() !== 'Projects:sheet,Website:doc') throw new Error(names.join());
+  const row = (await api(page, 'GET', `/files?parent=${folder.id}`)).body.find((f) => f.name === 'Website');
+  await page.goto(`${B}/docs/${row.id}`);
+  const ed = page.locator('.ProseMirror');
+  await ed.locator('p', { hasText: 'Owner: Ana' }).locator('strong', { hasText: 'Owner:' }).waitFor();
+  await ed.locator('p', { hasText: 'Status: Doing' }).waitFor();
+  await ed.locator('blockquote', { hasText: 'Launch before the trade fair.' }).waitFor();
+  if (await ed.getByText('<aside>').count()) throw new Error('aside tag shown');
 });
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));

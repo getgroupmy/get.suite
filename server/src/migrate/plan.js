@@ -76,7 +76,8 @@ export function planExport(names) {
       const clean = cleanNotionPath(p);
       // A page with sub-pages goes in their folder (named like it): "Roadmap/Roadmap".
       if (ext === 'md') { const own = name.replace(/\.md$/i, '/'); const page = clean.replace(/\.md$/i, ''); return { name, as: 'drive', path: files.some((n) => n.startsWith(own)) ? `${page}/${page.slice(page.lastIndexOf('/') + 1)}` : page, convert: 'doc' }; }
-      if (ext === 'csv') return { name, as: 'drive', path: clean.replace(/\.csv$/i, ''), convert: 'sheet' };
+      // A database whose rows have pages: the spreadsheet goes in their folder too ("Projects/Projects").
+      if (ext === 'csv') { const own = name.replace(/(_all)?\.csv$/i, '/'); const db = clean.replace(/\.csv$/i, ''); return { name, as: 'drive', path: files.some((n) => n.startsWith(own)) ? `${db}/${db.slice(db.lastIndexOf('/') + 1)}` : db, convert: 'sheet' }; }
       return { name, as: 'drive', path: clean };
     }
     // Microsoft, Zoho and anything else: by kind of file.
