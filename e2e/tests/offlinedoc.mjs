@@ -153,14 +153,57 @@ await step('Drive without a connection lists the files kept on this device, with
   await page.getByText('Sent what you changed offline in 1 file').waitFor({ timeout: 20000 }); // without opening it
   await until(async () => { const r = await api(page, 'GET', '/files'); const b = (Array.isArray(r.body) ? r.body : r.body?.files || []).find((f) => f.name === 'Budget'); return b && (await api(page, 'GET', `/files/${b.id}/content`)).body?.content?.sheets?.[0]?.cells?.A3 === 'Travel'; }, 30000);
 });
+await step('Calendar, Tasks, Contacts and Notes show what was last seen here when offline', async () => {
+  const at = new Date(); at.setHours(15, 0, 0, 0);
+  await api(page, 'POST', '/events', { title: 'Site visit', start: at.getTime(), end: at.getTime() + 36e5 });
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Trip' })).body.id;
+  await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Book the ferry' });
+  await api(page, 'POST', '/contacts', { name: 'Harbour Office', email: 'office@harbour.example' });
+  await api(page, 'POST', '/notes', { title: 'Packing list', body: 'Boots' });
+  const pages = [['/calendar', 'Site visit'], ['/tasks', 'Book the ferry'], ['/contacts', 'Harbour Office'], ['/notes', 'Packing list']];
+  for (const [path, text] of pages) { await page.goto(B + path); await page.getByText(text).first().waitFor(); await page.waitForTimeout(500); }
+  await ctx.setOffline(true);
+  for (const [path, text] of pages) {
+    await page.goto(B + path);
+    await page.getByText(text).first().waitFor({ timeout: 20000 });
+    await page.getByText(/Showing what was last saved on this device/).waitFor();
+  }
+  await page.screenshot({ path: `${SP}/shots/offline-tasks.png` });
+  await ctx.setOffline(false);
+  await page.getByText(/Showing what was last saved/).waitFor({ state: 'detached', timeout: 20000 });
+});
 await step('signing out clears what was kept on this device', async () => {
-  const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline', 1); r.onupgradeneeded = () => r.result.createObjectStore('docs'); r.onsuccess = () => { const c = r.result.transaction('docs').objectStore('docs').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
+  const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { if (!r.result.objectStoreNames.contains('docs')) { r.result.close(); res(0); return; } const c = r.result.transaction('docs').objectStore('docs').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
   await until(async () => (await count()) > 0, 10000); // the document open now is kept (a moment after it syncs)
   await page.goto(`${B}/settings`);
   await page.getByRole('button', { name: 'Account' }).click();
   await page.getByRole('menuitem', { name: 'Sign out' }).or(page.getByRole('button', { name: 'Sign out' })).first().click();
   await page.getByRole('button', { name: /^Sign in/ }).waitFor();
   if (await count()) throw new Error('still kept after signing out');
+});
+await step('someone else signing in on this browser (the last person’s session over) gets nothing of theirs offline', async () => {
+  await api(page, 'POST', '/auth/login', { username: 'olivia@acme.com', password: 'password123' });
+  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
+  await page.goto(`${B}/docs/${doc.id}`);
+  await editor().getByText('Rewritten elsewhere.').waitFor();
+  await page.goto(`${B}/tasks`);
+  await page.getByText('Book the ferry').first().waitFor();
+  const count = (store) => page.evaluate((st) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { if (!r.result.objectStoreNames.contains(st)) { r.result.close(); res(0); return; } const c = r.result.transaction(st).objectStore(st).count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }), store);
+  await until(async () => (await count('docs')) > 0 && (await count('api')) > 0, 10000);
+  await ctx.clearCookies(); // Olivia's session ended (time limit), without signing out
+  await page.goto(B);
+  await page.getByLabel('Email').fill('kim@acme.com');
+  await page.getByLabel('Password').fill('password123');
+  await page.getByRole('button', { name: /^Sign in/ }).click();
+  await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
+  await page.reload();
+  const oliviaId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'olivia@acme.com').id;
+  const keys = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { if (!r.result.objectStoreNames.contains('api')) { r.result.close(); res([]); return; } const g = r.result.transaction('api').objectStore('api').getAllKeys(); g.onsuccess = () => { res(g.result); r.result.close(); }; }; }));
+  await until(async () => (await count('docs')) === 0 && !(await keys()).some((k) => k.startsWith(`${oliviaId}:`)), 10000); // Kim's own pages may keep their own
+  await ctx.setOffline(true);
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.getByText(/hasn’t been opened on this device before/).waitFor({ timeout: 20000 });
+  await ctx.setOffline(false);
 });
 await step('no errors in the browser', async () => { const real = errors.filter((e) => !/Failed to fetch|ERR_INTERNET_DISCONNECTED|WebSocket/.test(e)); if (real.length) throw new Error(real.join(' | ')); });
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors.slice(0, 3)));

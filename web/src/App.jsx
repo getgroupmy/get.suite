@@ -54,6 +54,14 @@ const Settings = lazy(() => import('./apps/Settings.jsx'));
 
 const AuthCtx = createContext(null);
 const LAST_USER = 'nw-last-user';
+/** Who's signed in here now: remembered for opening offline; someone else than last time gets nothing of the last person's. */
+function rememberUser(user) {
+  try {
+    const was = JSON.parse(localStorage.getItem(LAST_USER) || 'null');
+    if (was && was.id !== user.id) forgetAll();
+    localStorage.setItem(LAST_USER, JSON.stringify(user));
+  } catch { /* private mode */ }
+}
 export const useAuth = () => useContext(AuthCtx);
 
 export default function App() {
@@ -119,7 +127,8 @@ function Workspace() {
     // Who was signed in here last is remembered (just their name and settings, not the session), so that without a
     // connection the app still opens for them, with the documents kept on this device.
     get('/auth/status').then((s) => {
-      try { if (s.user) localStorage.setItem(LAST_USER, JSON.stringify(s.user)); else localStorage.removeItem(LAST_USER); } catch { /* private mode */ }
+      // (Not signed in: who was here last is still remembered, so that someone else signing in gets nothing of theirs.)
+      if (s.user) rememberUser(s.user);
       setState({ loading: false, ...s });
     }).catch((e) => {
       let last = null;
@@ -129,7 +138,7 @@ function Workspace() {
     const onOut = () => setState((s) => {
       // Signed out by the company's limit on time away: say so on the sign-in page.
       if (s.user?.session_idle_min && idleMs() > s.user.session_idle_min * 60e3) { try { sessionStorage.setItem('nw-signed-out', `You were signed out after ${s.user.session_idle_min} minutes without activity.`); } catch { /* private mode */ } }
-      try { localStorage.removeItem(LAST_USER); } catch { /* private mode */ }
+      // (Still remembered: the next person signing in here, if it's someone else, gets nothing of theirs.)
       return { ...s, user: null };
     });
     window.addEventListener('nw:signed-out', onOut);
@@ -151,7 +160,7 @@ function Workspace() {
 
   const auth = {
     user: state.user,
-    setUser: (user) => setState((s) => ({ ...s, user, needsSetup: false })),
+    setUser: (user) => { if (user) rememberUser(user); setState((s) => ({ ...s, user, needsSetup: false })); },
     logout: async () => { await post('/auth/logout').catch(() => {}); try { localStorage.removeItem(LAST_USER); } catch { /* private mode */ } await forgetAll(); setState((s) => ({ ...s, user: null })); },
   };
 

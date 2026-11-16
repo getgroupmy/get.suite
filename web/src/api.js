@@ -1,3 +1,4 @@
+import { OFFLINE_READS, keepAnswer, keptAnswer } from './apps/offlinedocs.js';
 export class ApiError extends Error {
   constructor(status, message, data) { super(message); this.status = status; this.data = data; }
 }
@@ -31,19 +32,30 @@ export async function api(method, url, body, opts = {}) {
   const headers = { ...HEADERS, 'x-user-idle': String(idleMs()), ...(body !== undefined && { 'content-type': 'application/json' }),
     ...(box && url.startsWith('/mail/') && !(method === 'GET' && OWN_MAIL.test(url)) && { 'x-mailbox': box }),
     ...(calendarOwner && /^\/events(\/|\?|$)/.test(url) && { 'x-calendar': calendarOwner }) };
-  const res = await fetch(`/api${url}`, {
-    method,
-    credentials: 'same-origin',
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  // A few lists (calendar, tasks, contacts, notes) are kept for reading without a connection (offlinedocs.js).
+  const offlineKey = method === 'GET' && OFFLINE_READS.some((re) => re.test(url)) ? `${lastUserId()}:${url}` : null;
+  let res;
+  try {
+    res = await fetch(`/api${url}`, {
+      method,
+      credentials: 'same-origin',
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (e) {
+    const kept = offlineKey && await keptAnswer(offlineKey);
+    if (kept) { window.dispatchEvent(new CustomEvent('nw:offline-data', { detail: { at: kept.at } })); return kept.data; }
+    throw e;
+  }
   const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/auth/')) window.dispatchEvent(new Event('nw:signed-out'));
     throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data);
   }
+  if (offlineKey && data != null) keepAnswer(offlineKey, data);
   return data;
 }
+const lastUserId = () => { try { return JSON.parse(localStorage.getItem('nw-last-user') || 'null')?.id || 'anon'; } catch { return 'anon'; } };
 
 export const get = (url) => api('GET', url);
 export const post = (url, body = {}, opts) => api('POST', url, body, opts);

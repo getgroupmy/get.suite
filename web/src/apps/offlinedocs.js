@@ -6,18 +6,19 @@ const DB = 'nw-offline', STORE = 'docs', KEEP = 30;
 function open() {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new Error('no IndexedDB'));
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+    const r = indexedDB.open(DB, 2);
+    // docs: kept files; api: the last answers to a few lists (calendar, tasks, contacts, notes), read when offline.
+    r.onupgradeneeded = () => { for (const s of [STORE, 'api']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
 }
-async function run(mode, fn) {
+async function run(mode, fn, store = STORE) {
   const db = await open();
   try {
     return await new Promise((resolve, reject) => {
-      const t = db.transaction(STORE, mode);
-      const out = fn(t.objectStore(STORE));
+      const t = db.transaction(store, mode);
+      const out = fn(t.objectStore(store));
       t.oncomplete = () => resolve(out?.result);
       t.onerror = () => reject(t.error);
     });
@@ -63,3 +64,9 @@ export async function keptList() {
     return out.sort((a, b) => b.at - a.at);
   } catch { return []; }
 }
+
+// The last answers to the lists people look at on the go (calendar, tasks, contacts, notes), kept for reading
+// without a connection (api.js). Cleared on signing out with the rest.
+export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/tasks)?(\?|$)/, /^\/tasks\/(today|assigned|upcoming)(\?|$)/, /^\/contacts(\?|$)/, /^\/contacts\/groups$/, /^\/notes(\?|$)/, /^\/users\/directory$/, /^\/time-off(\?|$)/];
+export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, at: Date.now() }, url), 'api').catch(() => {});
+export const keptAnswer = (url) => run('readonly', (s) => s.get(url), 'api').then((x) => x || null).catch(() => null);

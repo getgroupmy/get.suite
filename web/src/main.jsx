@@ -11,6 +11,14 @@ const SERVER_GRACE_MS = 4000;
 function OfflineBar() {
   const [online, setOnline] = useState(navigator.onLine);
   const [unreachable, setUnreachable] = useState(false);
+  const [saved, setSaved] = useState(null); // what's shown came from this device (api.js), last fetched then
+  useEffect(() => {
+    const got = (e) => setSaved((t) => Math.min(t || Infinity, e.detail?.at || Date.now()));
+    window.addEventListener('nw:offline-data', got);
+    return () => window.removeEventListener('nw:offline-data', got);
+  }, []);
+  useEffect(() => { if (online && !unreachable) setSaved(null); }, [online, unreachable]);
+  const note = saved ? ` Showing what was last saved on this device (${new Date(saved).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}).` : '';
   useEffect(() => {
     const on = () => { setOnline(true); reconnectNow(); }, off = () => setOnline(false);
     const back = () => { if (document.visibilityState === 'visible') reconnectNow(); };
@@ -23,8 +31,8 @@ function OfflineBar() {
     });
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); document.removeEventListener('visibilitychange', back); stop(); clearTimeout(wait); };
   }, []);
-  if (!online) return <div className="offline-bar" role="status">You're offline. Workspace reconnects by itself when the network is back.</div>;
-  if (unreachable) return <div className="offline-bar" role="status">Can't reach Workspace right now. Reconnecting… <button type="button" className="link-btn" onClick={reconnectNow}>Try now</button></div>;
+  if (!online) return <div className="offline-bar" role="status">You're offline. Workspace reconnects by itself when the network is back.{note}</div>;
+  if (unreachable) return <div className="offline-bar" role="status">Can't reach Workspace right now. Reconnecting…{note} <button type="button" className="link-btn" onClick={reconnectNow}>Try now</button></div>;
   return null;
 }
 
