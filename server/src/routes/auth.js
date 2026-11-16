@@ -178,7 +178,12 @@ export default function authRoutes({ secureCookies }) {
     }
     { const u = q('SELECT id, org_id, is_super FROM users WHERE id = ?').get(row.id); if (!networkAllowed(u, req.ip)) return fail(NETWORK_REFUSED); }
     // Workspace's own two-step verification still applies to those who have it.
-    if (twoFactor.isEnabled(row.id)) return res.redirect(`/login?sso_ticket=${encodeURIComponent(twoFactor.newTicket(row.id))}`);
+    if (twoFactor.isEnabled(row.id)) return res.redirect(`/login?sso_ticket=${encodeURIComponent(twoFactor.newTicket(row.id, 'sso'))}`);
+    // The company requires two steps and their second is a passkey: sign in with it (it's both steps).
+    if (q('SELECT o.require_2fa FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(row.id)?.require_2fa && passkeysOf(row.id).length) {
+      audit(req, 'sign-in.failed', { actor: null, org: a.org_id, target: row.username, details: { reason: 'sso', error: 'passkey needed' } });
+      return fail(`Your company asks for two steps, and yours is a passkey: use “Use a passkey” below to sign in.`);
+    }
     const u = startSession(req, res, row.id, 'sso');
     audit(req, 'sign-in', { actor: u, target: u.username, details: { sso: sso.label } });
     res.redirect('/');
@@ -203,7 +208,7 @@ export default function authRoutes({ secureCookies }) {
     }
     twoFactor.endTicket(req.body.ticket);
     const left = how === 'recovery' ? twoFactor.status(user.id).recoveryLeft : undefined;
-    const u = startSession(req, res, user.id, how === 'recovery' ? 'recovery' : 'code');
+    const u = startSession(req, res, user.id, `${t.via === 'sso' ? 'sso-' : ''}${how === 'recovery' ? 'recovery' : 'code'}`);
     audit(req, 'sign-in', { actor: u, target: u.username, details: { twoStep: how } });
     res.json({ user: u, ...(how === 'recovery' && { recoveryLeft: left }) });
   });

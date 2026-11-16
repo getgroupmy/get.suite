@@ -132,7 +132,23 @@ test('someone with Workspace two-step verification still gives their code', asyn
   const ticket = decodeURIComponent(r.location.split('sso_ticket=')[1]);
   const done = await fetch(`${base}/api/auth/login/code`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ ticket, code: codeAt(setup.secret, Math.floor(Date.now() / 30000) + 1) }) }); // the next code: one is never accepted twice
   assert.equal(done.status, 200);
+  const signedIn = done.headers.get('set-cookie').split(';')[0];
   assert.equal((await done.json()).user.username, 'olivia@acme.com');
+  const devices = await (await fetch(`${base}/api/auth/sessions`, { headers: { cookie: signedIn } })).json();
+  assert.ok(JSON.stringify(devices).includes('"sso-code"'), `the device list says single sign-on and a code: ${JSON.stringify(devices).slice(0, 300)}`);
+});
+
+test('the company requires two steps and someone’s second is a passkey: sent to sign in with the passkey', async () => {
+  const { q } = await import('../src/db.js');
+  const kimId = (await owner('GET', '/api/users')).body.find((u) => u.username === 'kim@acme.com').id;
+  q('INSERT INTO passkeys (id, user_id, name, public_key, alg, created_at) VALUES (?, ?, ?, ?, ?, ?)').run('cred-kim', kimId, 'Phone', 'x', -7, Date.now());
+  await owner('PATCH', '/api/orgs/current', { require_2fa: true });
+  const r = await signIn('kim@acme.com', { email: 'kim@acme.com' });
+  assert.match(decodeURIComponent(r.location), /yours is a passkey: use “Use a passkey”/);
+  assert.equal(r.cookie, '', 'no session');
+  await owner('PATCH', '/api/orgs/current', { require_2fa: false });
+  q('DELETE FROM passkeys WHERE id = ?').run('cred-kim');
+  assert.equal((await signIn('kim@acme.com', { email: 'kim@acme.com' })).location, '/', 'without the rule: straight in');
 });
 
 test('a company without it: sent back to the password', async () => {

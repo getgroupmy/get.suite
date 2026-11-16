@@ -71,10 +71,11 @@ export function disable(userId) {
 // ---- sign-in tickets: password checked, waiting for the code (5 minutes, 5 tries) ----
 const tickets = new Map(); // token -> { userId, expires, tries }
 const TICKET_MS = 5 * 60e3;
-export function newTicket(userId) {
+/** A ticket for the second step; `via` is how the first one was done ('password', or 'sso' for single sign-on). */
+export function newTicket(userId, via = 'password') {
   for (const [t, v] of tickets) if (v.expires < Date.now()) tickets.delete(t);
   const token = crypto.randomBytes(24).toString('base64url');
-  tickets.set(token, { userId, expires: Date.now() + TICKET_MS, tries: 0 });
+  tickets.set(token, { userId, via, expires: Date.now() + TICKET_MS, tries: 0 });
   return token;
 }
 export function ticketUser(token) {
