@@ -21,3 +21,10 @@ test('the question names one file, or counts them', () => {
   assert.equal(clashQuestion(new Map([[1, { name: 'a.pdf' }]])), '“a.pdf” is already in this folder');
   assert.equal(clashQuestion(new Map([[1, { name: 'a' }], [2, { name: 'b' }]])), '2 files with these names are already in this folder');
 });
+
+test('a folder being uploaded whose name a folder here has (exactly)', async () => {
+  const { findFolderClashes } = await import('./uploadclash.js');
+  const here = [{ id: 'p', name: 'Photos', kind: 'folder' }, { id: 'r', name: 'Report', kind: 'file' }];
+  const c = findFolderClashes([up(1, 'a.jpg', ['Photos', '2026']), up(2, 'b.jpg', ['Photos']), up(3, 'c.txt', ['Report']), up(4, 'd', ['photos']), up(5, 'e')], here);
+  assert.deepEqual([...c.entries()].map(([n, f]) => [n, f.id]), [['Photos', 'p']]);
+});

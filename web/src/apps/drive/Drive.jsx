@@ -1,4 +1,4 @@
-import { findClashes, clashQuestion } from './uploadclash.js';
+import { findClashes, clashQuestion, findFolderClashes } from './uploadclash.js';
 import { driveKey, stepIndex } from './drivekeys.js';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router';
@@ -138,6 +138,7 @@ export default function Drive() {
   };
   const [files, setFiles] = useState(null);
   const [clash, setClash] = useState(null); // uploads whose names are already here: { items, clashes }
+  const [folderClash, setFolderClash] = useState(null); // folders being uploaded whose names are already here: { items, folders }
   const [fromOwner, setFromOwner] = useState(null); // Shared with me: only what this person shared
   const [crumbs, setCrumbs] = useState([]);
   // Sort and list/grid, kept for you on the server (the same on every computer).
@@ -334,10 +335,28 @@ export default function Drive() {
       return { id: Math.random(), name: [...(dir || []), file.name].join('/'), progress: 0, file, dir: dir || [] };
     });
     if (!items.length) return;
-    // A name already here: ask first (replace with a new version, keep both, or skip those).
+    // A folder being uploaded whose name a folder here has: merge into it, or keep both ("Photos (1)").
+    const folderClashes = route.view === 'mine' ? findFolderClashes(items, files || []) : new Map();
+    if (folderClashes.size) { setFolderClash({ items, folders: folderClashes }); return; }
+    checkFileClashes(items);
+  }
+  /** A file's name already here: ask first (replace with a new version, keep both, or skip those). */
+  function checkFileClashes(items) {
     const clashes = route.view === 'mine' ? findClashes(items, files || []) : new Map();
     if (clashes.size) { setClash({ items, clashes }); return; }
     runUploads(items);
+  }
+  /** The folders' answer: 'merge' (as before), 'both' (a new folder each, numbered) or 'skip' (leave them out). */
+  async function answerFolders({ items, folders }, choice) {
+    setFolderClash(null);
+    if (choice === 'merge') { checkFileClashes(items); return; }
+    if (choice === 'skip') { const rest = items.filter((it) => !folders.has(it.dir[0])); if (rest.length) checkFileClashes(rest); return; }
+    const made = new Map();
+    try {
+      for (const name of folders.keys()) made.set(name, (await post('/files/folder', { name, parent_id: parentId })).id);
+    } catch (e) { toast(e.message, 'error'); return; }
+    // Into the new folder: its own name is no longer part of the path.
+    checkFileClashes(items.map((it) => (made.has(it.dir[0]) ? { ...it, base: made.get(it.dir[0]), dir: it.dir.slice(1) } : it)));
   }
   /** Upload them; `clash` = { clashes, choice: 'replace' | 'both' | 'skip' } for names already here. */
   async function runUploads(items0, clash = null) {
@@ -349,10 +368,10 @@ export default function Drive() {
     let converted = 0;
     for (const it of items) {
       try {
-        let into = parentId;
+        let into = it.base ?? parentId;
         if (it.dir.length) {
-          const key = it.dir.join('/');
-          if (!folders.has(key)) folders.set(key, (await post('/files/folder-path', { parent_id: parentId, path: it.dir })).id);
+          const key = `${into}|${it.dir.join('/')}`;
+          if (!folders.has(key)) folders.set(key, (await post('/files/folder-path', { parent_id: into, path: it.dir })).id);
           into = folders.get(key);
         }
         const same = clash?.choice === 'replace' && clash.clashes.get(it.id);
@@ -839,6 +858,17 @@ export default function Drive() {
           if (route.view === 'label' && route.label === dialog.label) navigate('/drive', { replace: true }); else load();
         }} />}
       {dialog?.type === 'labels' && <LabelsDialog file={dialog.file} all={myLabels.map((l) => l.name)} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); loadLabels(); }} />}
+      {folderClash && (() => {
+        const names = [...folderClash.folders.keys()];
+        return (
+          <Modal title={names.length === 1 ? `A folder named “${names[0]}” is already here` : `${names.length} folders with these names are already here`} onClose={() => setFolderClash(null)}
+            footer={<><button type="button" className="btn" onClick={() => answerFolders(folderClash, 'skip')}>Cancel</button>
+              <button type="button" className="btn" onClick={() => answerFolders(folderClash, 'both')}>Keep both</button>
+              <button type="button" className="btn primary" autoFocus onClick={() => answerFolders(folderClash, 'merge')}>Merge</button></>}>
+            <p style={{ margin: 0 }}><strong>Merge</strong> puts what you're uploading into the folder that's there (a file with a name already in it is added with a number after it). <strong>Keep both</strong> uploads it as a new folder with a number after the name.</p>
+          </Modal>
+        );
+      })()}
       {clash && (() => {
         const list = [...clash.clashes.values()];
         const some = list.some((f) => f.canReplace), all = list.every((f) => f.canReplace);

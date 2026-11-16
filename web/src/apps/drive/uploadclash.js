@@ -23,3 +23,15 @@ export function clashQuestion(clashes) {
   const list = [...clashes.values()];
   return list.length === 1 ? `“${list[0].name}” is already in this folder` : `${list.length} files with these names are already in this folder`;
 }
+
+/**
+ * Folders being uploaded whose name a folder here already has: Map(name → that folder). Merging puts the
+ * files into it (as uploading a folder always did); keeping both makes "Photos (1)".
+ */
+export function findFolderClashes(items, here = []) {
+  const byName = new Map();
+  for (const f of here) if (f && !f.trashed && f.kind === 'folder') byName.set(f.name, f);
+  const out = new Map();
+  for (const it of items) { const top = it.dir?.[0]; if (top && byName.has(top)) out.set(top, byName.get(top)); }
+  return out;
+}

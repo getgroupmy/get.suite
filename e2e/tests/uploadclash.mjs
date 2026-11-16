@@ -89,6 +89,44 @@ await step('several at once, some new: Skip these uploads only the new ones', as
   const r = (await mine()).find((f) => f.name === 'report.txt');
   if (await raw(r.id) !== 'version two') throw new Error('a skipped one was uploaded');
 });
+// A folder on disk to upload: Photos/a.txt and Photos/sub/b.txt.
+const fs = await import('node:fs');
+const DIR = `${SP}/Photos`;
+fs.mkdirSync(`${DIR}/sub`, { recursive: true });
+fs.writeFileSync(`${DIR}/a.txt`, 'aaa'); fs.writeFileSync(`${DIR}/sub/b.txt`, 'bbb');
+const uploadFolder = () => page.locator('input[aria-label="Folder to upload"]').setInputFiles(DIR);
+const top = async () => (await api(page, 'GET', '/files')).body;
+const inside = async (id) => (await api(page, 'GET', `/files?parent=${id}`)).body.map((f) => f.name).sort();
+await step('uploading a folder: the first time, no question', async () => {
+  await uploadFolder();
+  await page.getByRole('row', { name: /Photos/ }).first().waitFor();
+  if (await page.getByRole('dialog').count()) throw new Error('asked about a new folder');
+  const ph = (await top()).find((f) => f.name === 'Photos');
+  await until(async () => JSON.stringify(await inside(ph.id)) === JSON.stringify(['a.txt', 'sub']));
+});
+await step('the same folder again: asked; Keep both makes Photos (1) with everything in it', async () => {
+  await uploadFolder();
+  const dlg = page.getByRole('dialog', { name: 'A folder named “Photos” is already here' });
+  await dlg.waitFor();
+  await axe(page, 'folder clash');
+  await dlg.getByRole('button', { name: 'Keep both' }).click();
+  await page.getByRole('row', { name: /Photos \(1\)/ }).waitFor();
+  const p1 = (await top()).find((f) => f.name === 'Photos (1)');
+  await until(async () => JSON.stringify(await inside(p1.id)) === JSON.stringify(['a.txt', 'sub']));
+  const sub = (await api(page, 'GET', `/files?parent=${p1.id}`)).body.find((f) => f.name === 'sub');
+  if (JSON.stringify(await inside(sub.id)) !== '["b.txt"]') throw new Error('sub folder not kept');
+});
+await step('Merge puts it into the folder that is there; Cancel uploads nothing', async () => {
+  await uploadFolder();
+  await page.getByRole('dialog').getByRole('button', { name: 'Merge' }).click();
+  const ph = (await top()).find((f) => f.name === 'Photos');
+  await until(async () => JSON.stringify(await inside(ph.id)) === JSON.stringify(['a (1).txt', 'a.txt', 'sub']));
+  const before = (await top()).length;
+  await uploadFolder();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
+  await page.waitForTimeout(600);
+  if ((await top()).length !== before || (await inside(ph.id)).length !== 3) throw new Error('Cancel uploaded something');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
