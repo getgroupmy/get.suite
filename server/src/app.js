@@ -198,7 +198,9 @@ export function createApp({
     const status = err.status || err.statusCode || 500;
     if (status >= 500) console.error(err);
     if (res.headersSent) return res.end();
-    res.status(status).json({ error: status >= 500 ? 'Server error' : err.message });
+    // Errors the code raised on purpose (HttpError) say what's wrong ("Email is not set up on this server", "The mail
+    // server took too long to answer"); anything unexpected stays "Server error", its details only in the log.
+    res.status(status).json({ error: status >= 500 && !(err instanceof HttpError) ? 'Server error' : err.message });
   });
 
   return app;

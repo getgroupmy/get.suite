@@ -57,9 +57,11 @@ const list = (arr) => (arr || []).map((a) => (a.name ? `${a.name} <${a.address}>
 // Mail starts afresh on it (folders, messages and sending all go to that mailbox).
 export default function MailPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [sharedList, setSharedList] = useState([]);
   const [mailbox, setMailbox] = useState(() => { try { return sessionStorage.getItem('nw-mailbox') || null; } catch { return null; } });
-  useEffect(() => { get('/mail/status').then((s) => setSharedList(s.shared || [])).catch(() => {}); }, []);
+  const [enabled, setEnabled] = useState(null); // whether this server has email at all (null: not known yet)
+  useEffect(() => { get('/mail/status').then((s) => { setEnabled(s.enabled !== false); setSharedList(s.shared || []); }).catch(() => setEnabled(true)); }, []);
   // How much is unread in each shared mailbox's Inbox (checked every minute while Mail is open).
   const [sharedUnread, setSharedUnread] = useState({});
   useEffect(() => {
@@ -77,6 +79,15 @@ export default function MailPage() {
     setMailbox(id);
     navigate('/mail');
   };
+  // No email on this server: say so (and where it's set up) rather than every part of Mail failing in turn.
+  if (enabled === false) {
+    return (
+      <div className="page">
+        <Empty icon="mail" title="Email isn’t set up on this server">{user?.is_super ? 'It’s turned on where Workspace is installed (see Email in the README), and companies’ domains are added in Admin → Email.' : 'Ask whoever runs Workspace to set it up. Everything else works without it.'}</Empty>
+      </div>
+    );
+  }
+  if (enabled === null) return <div className="page" aria-busy="true" />;
   return <Mail key={known?.id || 'own'} shared={known} sharedList={sharedList.map((b) => ({ ...b, unseen: sharedUnread[b.id] || 0 }))} onPickMailbox={pick} />;
 }
 
