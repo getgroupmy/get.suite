@@ -1244,7 +1244,9 @@ function AssistantTools() {
     } catch (e) { setTools(before); toast(e.message, 'error'); }
   };
   const group = (readOnly) => tools.filter((t) => t.read_only === readOnly).map((t) => (
-    <label key={t.name} className="check small"><input type="checkbox" checked={!t.off} onChange={() => toggle(t)} /> {t.title} <code className="muted">{t.name}</code></label>
+    <label key={t.name} className="check small"><input type="checkbox" checked={!t.off} onChange={() => toggle(t)} /> {t.title} <code className="muted">{t.name}</code>
+      {t.replaces && <span className="tool-tag" title="It can change or remove what’s there, not only add">changes or removes</span>}
+      {t.reaches_others && <span className="tool-tag" title="Other people see it or are told">others see it</span>}</label>
   ));
   return (
     <fieldset className="stack-tight assistant-tools" style={{ marginLeft: 26 }}>

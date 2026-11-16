@@ -228,6 +228,21 @@ test('change a note: items added, ticked and unticked by their text; text added 
   assert.match(JSON.stringify((await owner('GET', '/api/audit?action=assistant.action')).body), /shopping: 1 added, 1 ticked/);
 });
 
+test('tool hints: read tools read only; changes that can replace or remove are marked destructive; the sets name only real tools', async () => {
+  const { TOOLS, ADDITIVE, REPEATABLE, REACHES_OTHERS } = await import('../src/mcp.js');
+  const names = new Set(TOOLS.map((t) => t.name));
+  for (const set of [ADDITIVE, REPEATABLE, REACHES_OTHERS]) for (const n of set) assert.ok(names.has(n), `${n} is a tool`);
+  for (const n of [...ADDITIVE, ...REPEATABLE]) assert.equal(TOOLS.find((t) => t.name === n).readOnly, false, `${n} changes things`);
+  const hints = Object.fromEntries((await rpc(rw, 'tools/list')).body.result.tools.map((t) => [t.name, t.annotations]));
+  assert.deepEqual(hints.search, { title: 'Search Workspace', readOnlyHint: true, openWorldHint: false });
+  assert.deepEqual([hints.cancel_event.destructiveHint, hints.cancel_event.idempotentHint, hints.cancel_event.openWorldHint], [true, true, true]);
+  assert.deepEqual([hints.update_email.destructiveHint, hints.share_file.destructiveHint, hints.move_file.destructiveHint], [true, true, true]);
+  assert.deepEqual([hints.draft_email.destructiveHint, hints.draft_email.idempotentHint, hints.draft_email.openWorldHint], [false, false, false]);
+  assert.deepEqual([hints.send_chat_message.destructiveHint, hints.send_chat_message.openWorldHint], [false, true]);
+  // Every tool that changes things has both hints.
+  for (const t of TOOLS.filter((x) => !x.readOnly)) assert.equal(typeof hints[t.name].destructiveHint, 'boolean', t.name);
+});
+
 test('add rows to a spreadsheet: after its table, lined up; a read-only token can’t; refusals explained', async () => {
   const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Budget', content: { sheets: [{ name: 'Sheet1', cells: {} }, { name: 'Expenses', cells: { B1: 'Item', C1: 'Cost', B2: 'Taxi', C2: '12' } }] } })).body;
   const r = await call(rw, 'add_sheet_rows', { file: `file:${sheet.id}`, sheet: 'expenses', rows: [['Lunch', 18.5], ['Hotel', 240]] });

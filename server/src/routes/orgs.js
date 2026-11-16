@@ -33,7 +33,7 @@ import { DATA_DIR } from '../db.js';
 import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js';
 import { mailEnabled } from '../mail/config.js';
 import '../mail/external.js'; // orgs.ask_outside
-import { TOOLS } from '../mcp.js';
+import { TOOLS, ADDITIVE, REACHES_OTHERS } from '../mcp.js';
 import { cleanIssuer, ssoOf } from '../sso.js';
 // orgs.assistant_off: the assistant tools (mcp.js) the company's admins turned off, as a JSON list of names.
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'assistant_off')) q("ALTER TABLE orgs ADD COLUMN assistant_off TEXT NOT NULL DEFAULT '[]'").run();
@@ -221,7 +221,7 @@ export default function orgRoutes() {
   // The assistant tools (Claude, ChatGPT…), for choosing which ones the company allows.
   r.get('/current/assistant-tools', requireAdmin, (req, res) => {
     const off = assistantOff(req.user.org_id);
-    res.json(TOOLS.map((t) => ({ name: t.name, title: t.title, read_only: t.readOnly, off: off.has(t.name) })));
+    res.json(TOOLS.map((t) => ({ name: t.name, title: t.title, read_only: t.readOnly, off: off.has(t.name), ...(!t.readOnly && { replaces: !ADDITIVE.has(t.name), reaches_others: REACHES_OTHERS.has(t.name) }) })));
   });
 
   r.get('/current', requireAdmin, (req, res) => {

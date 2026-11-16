@@ -912,7 +912,20 @@ export const TOOLS = [
   },
 ];
 
-const listed = () => TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: t.readOnly, destructiveHint: false, openWorldHint: false } }));
+// How each tool that changes things behaves, for the hints assistants use to decide when to ask the person first
+// (MCP tool annotations). Additive: only adds something new (a draft, an event, a comment…). Every other
+// change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
+// status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
+// people see or are told of it (guests, colleagues, a channel).
+export const ADDITIVE = new Set(['create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message']);
+export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
+export const REACHES_OTHERS = new Set(['create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
+const annotationsOf = (t) => ({
+  title: t.title, readOnlyHint: t.readOnly,
+  ...(!t.readOnly && { destructiveHint: !ADDITIVE.has(t.name), idempotentHint: REPEATABLE.has(t.name) }),
+  openWorldHint: REACHES_OTHERS.has(t.name),
+});
+const listed = () => TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: annotationsOf(t) }));
 
 /** One JSON-RPC message → its answer (or null for a notification). */
 // Ready-made requests (MCP prompts) that assistants offer as commands: each one a message to start from,

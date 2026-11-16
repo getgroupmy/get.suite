@@ -197,6 +197,15 @@ await step('Admin → Company settings: untick what assistants may do; the assis
   await page.goto(`${B}/admin?tab=company`);
   const box = page.locator('fieldset.assistant-tools');
   await box.getByText('What AI assistants may do').waitFor();
+  // Each change is tagged with what it can do: cancelling an event changes or removes, and others see it; a draft does neither.
+  const label = (code) => box.locator('label', { has: page.locator('code', { hasText: new RegExp(`^${code}$`) }) });
+  const tags = async (code) => (await label(code).locator('.tool-tag').allInnerTexts()).join(' | ');
+  if (await tags('cancel_event') !== 'changes or removes | others see it') throw new Error(`cancel_event: ${await tags('cancel_event')}`);
+  if (await tags('draft_email') !== '') throw new Error(`draft_email: ${await tags('draft_email')}`);
+  if (await tags('search') !== '') throw new Error(`search: ${await tags('search')}`);
+  // Long titles wrap without squeezing their tick boxes.
+  const sizes = await box.locator('input[type=checkbox]').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
+  if (new Set(sizes).size !== 1) throw new Error(`tick boxes of different sizes: ${[...new Set(sizes)].join(', ')}`);
   await box.getByRole('checkbox', { name: /Post in Chat/ }).uncheck();
   await page.getByText('Assistants can no longer post in chat').waitFor();
   await page.screenshot({ path: `${SP}/shots/assistant-tools.png` });
