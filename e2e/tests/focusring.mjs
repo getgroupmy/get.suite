@@ -33,6 +33,21 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
 // Keyboard users can see where they are: every element Tab reaches shows a focus ring (outline or box-shadow).
+const VISIBLE = () => {
+        const e = document.activeElement;
+        if (!e || e === document.body) return null;
+        if (e.isContentEditable && e.closest('.ProseMirror, .tiptap')) return null; // a writing area: the text cursor shows where you are
+        const chain = [e, e.parentElement, e.parentElement?.parentElement, e.parentElement?.parentElement?.parentElement].filter(Boolean);
+        const look = () => chain.map((x) => { const c = getComputedStyle(x); return [c.outlineStyle, c.outlineWidth, c.outlineColor, c.boxShadow, c.borderTopColor, c.borderBottomColor, c.backgroundColor, c.textDecorationLine].join('|'); }).join('/');
+        const focused = look();
+        const sel = e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement ? [e.selectionStart, e.selectionEnd] : null;
+        e.blur();
+        const unfocused = look();
+        e.focus({ focusVisible: true });
+        if (sel) try { e.setSelectionRange(...sel); } catch { /* not every input type */ }
+        if (focused !== unfocused) return null;
+        return `${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? `.${e.className.trim().split(/\s+/).join('.')}` : ''} “${(e.getAttribute('aria-label') || e.innerText || e.value || '').trim().slice(0, 40)}”`;
+      };
 const PAGES = ['/home', '/drive', '/mail', '/calendar', '/tasks', '/notes', '/chat', '/contacts', '/forms', '/settings', '/admin?tab=company'];
 for (const path of process.env.ONLY ? [process.env.ONLY] : PAGES) {
   await step(`focus is visible: ${path}`, async () => {
@@ -44,25 +59,54 @@ for (const path of process.env.ONLY ? [process.env.ONLY] : PAGES) {
       await page.keyboard.press('Tab');
       // Visible: the element (or one of its three nearest containers) looks different focused than not:
       // an outline, a shadow, a border or background colour.
-      const r = await page.evaluate(() => {
-        const e = document.activeElement;
-        if (!e || e === document.body) return null;
-        const chain = [e, e.parentElement, e.parentElement?.parentElement, e.parentElement?.parentElement?.parentElement].filter(Boolean);
-        const look = () => chain.map((x) => { const c = getComputedStyle(x); return [c.outlineStyle, c.outlineWidth, c.outlineColor, c.boxShadow, c.borderTopColor, c.borderBottomColor, c.backgroundColor, c.textDecorationLine].join('|'); }).join('/');
-        const focused = look();
-        const sel = e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement ? [e.selectionStart, e.selectionEnd] : null;
-        e.blur();
-        const unfocused = look();
-        e.focus({ focusVisible: true });
-        if (sel) try { e.setSelectionRange(...sel); } catch { /* not every input type */ }
-        if (focused !== unfocused) return null;
-        return `${e.tagName.toLowerCase()}${e.className && typeof e.className === 'string' ? `.${e.className.trim().split(/\s+/).join('.')}` : ''} “${(e.getAttribute('aria-label') || e.innerText || e.value || '').trim().slice(0, 40)}”`;
-      });
+      const r = await page.evaluate(VISIBLE);
       if (r && !bad.includes(r)) bad.push(r);
     }
     if (bad.length) throw new Error(bad.slice(0, 8).join(' ; '));
   });
 }
+await step('editors: documents, spreadsheets, presentations (their toolbars)', async () => {
+  const all = [];
+  for (const kind of ['doc', 'sheet', 'slides']) {
+    const f = (await api(page, 'POST', '/files/new', { kind, name: `Focus ${kind}` })).body;
+    await page.goto(`${B}/${{ doc: 'docs', sheet: 'sheets', slides: 'slides' }[kind]}/${f.id}`);
+    await page.waitForTimeout(2500);
+    await page.evaluate(() => document.activeElement?.blur());
+    const bad = [];
+    for (let i = 0; i < 70; i++) {
+      await page.keyboard.press('Tab');
+      const r = await page.evaluate(VISIBLE);
+      if (r && !bad.includes(r)) bad.push(r);
+    }
+    if (bad.length) all.push(`${kind}: ${bad.slice(0, 8).join(' ; ')}`);
+  }
+  if (all.length) throw new Error(all.join(' || '));
+});
+const tabThrough = async (n) => {
+  const bad = [];
+  for (let i = 0; i < n; i++) {
+    await page.keyboard.press('Tab');
+    const r = await page.evaluate(VISIBLE);
+    if (r && !bad.includes(r)) bad.push(r);
+  }
+  return bad;
+};
+await step('dialogs: a new calendar event, sharing a file', async () => {
+  const all = [];
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('dialog', { name: 'New event' }).waitFor();
+  let bad = await tabThrough(40);
+  if (bad.length) all.push(`event: ${bad.slice(0, 8).join(' ; ')}`);
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Focus doc' }).click();
+  await page.getByRole('menuitem', { name: 'Share' }).click();
+  await page.getByRole('dialog', { name: /Share “Focus doc”/ }).waitFor();
+  bad = await tabThrough(30);
+  if (bad.length) all.push(`share: ${bad.slice(0, 8).join(' ; ')}`);
+  if (all.length) throw new Error(all.join(' || '));
+});
 await step('Mail’s search box shows focus too', async () => {
   await page.goto(`${B}/mail`);
   await page.waitForTimeout(1500);

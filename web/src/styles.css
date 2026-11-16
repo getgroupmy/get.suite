@@ -339,7 +339,7 @@ input[type=checkbox], input[type=radio] { flex: none; } /* never squeezed by a l
 .formula-bar .cell-name { min-width: 72px; font-weight: 500; text-align: center; color: var(--muted); }
 .formula-bar .fx { font-style: italic; color: var(--muted); font-family: serif; }
 .formula-bar input { flex: 1; border: 0; background: none; padding: 4px 0; font-family: ui-monospace, Menlo, Consolas, monospace; }
-.formula-bar input:focus-visible { outline: none; }
+.formula-bar input:focus-visible { outline: none; box-shadow: 0 2px 0 var(--accent); } /* a line under what you type, the bar itself stays put */
 .grid-wrap { flex: 1; overflow: auto; background: var(--surface); outline: none; position: relative; }
 .grid { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 13px; user-select: none; }
 .grid th { position: sticky; background: var(--surface-2); color: var(--muted); font-weight: 500; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); z-index: 4; height: 24px; }
