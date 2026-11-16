@@ -185,10 +185,27 @@ await step('Tasks: a task ticked offline stays ticked here (even after reloading
   await page.getByText('Trip').first().click().catch(() => {});
   await page.getByText('Completed (1)').waitFor({ timeout: 20000 }); // still done after reloading offline
   await ctx.setOffline(false);
-  await page.getByText('Sent 1 change made offline in Tasks').waitFor({ timeout: 30000 });
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   const lists = (await api(page, 'GET', '/tasks/lists')).body;
   const trip = (Array.isArray(lists) ? lists : lists.lists).find((l) => l.name === 'Trip');
   await until(async () => ((await api(page, 'GET', `/tasks/lists/${trip.id}/tasks?done=1`)).body || []).concat((await api(page, 'GET', '/tasks/completed?days=7')).body || []).some((t) => t.title === 'Book the ferry' && t.done), 10000);
+});
+await step('Notes: a note changed offline keeps the change here (even after reloading) and on the server once back', async () => {
+  await page.goto(`${B}/notes`);
+  await page.getByText('Packing list').first().waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByText('Packing list').first().click();
+  const d = page.getByRole('dialog');
+  await d.getByLabel('Note').fill('Boots and a rain jacket');
+  await d.getByRole('button', { name: 'Close' }).last().click();
+  await page.getByText('Boots and a rain jacket').first().waitFor();
+  await page.waitForTimeout(800);
+  await page.reload();
+  await page.getByText('Boots and a rain jacket').first().waitFor({ timeout: 20000 }); // the kept list shows the change
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await until(async () => ((await api(page, 'GET', '/notes')).body || []).some((n) => n.title === 'Packing list' && n.body === 'Boots and a rain jacket'), 10000);
 });
 await step('signing out clears what was kept on this device', async () => {
   const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { if (!r.result.objectStoreNames.contains('docs')) { r.result.close(); res(0); return; } const c = r.result.transaction('docs').objectStore('docs').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));

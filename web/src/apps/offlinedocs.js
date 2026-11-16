@@ -98,11 +98,19 @@ export async function changeList(user) {
   } catch { return []; }
 }
 export const changeRemove = (id) => run('readwrite', (s) => s.delete(id), 'changes').catch(() => {});
-/** A task changed offline: the kept lists it's in show the change (until the server's answer replaces them). */
-export async function patchKeptTask(taskId, changes) {
+/** Something changed offline (a task, a note): the kept lists it's in show the change (until the server's answer replaces them). */
+export async function patchKeptItem(taskId, changes) {
   try {
     const hits = [];
     await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (Array.isArray(cur.value?.data) && cur.value.data.some((t) => t?.id === taskId)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
     if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: v.data.map((t) => (t?.id === taskId ? { ...t, ...changes } : t)) }, k); }, 'api');
   } catch { /* kept lists just show the old state */ }
+}
+export const patchKeptTask = patchKeptItem;
+
+/** A change that couldn't reach the server: kept to make later, shown in the kept lists meanwhile. */
+export async function keepChange({ method, url, body, user, label, id }) {
+  await changeAdd({ method, url, body, user, label });
+  if (id) await patchKeptItem(id, body);
+  window.dispatchEvent(new Event('nw:changes'));
 }

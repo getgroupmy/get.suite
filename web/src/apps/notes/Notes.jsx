@@ -1,3 +1,4 @@
+import { unreachable, keepChange } from '../offlinedocs.js';
 // Notes: quick notes and checklists on coloured cards. "Take a note…" at the top, pinned ones first,
 // labels and the archive on the left, and sharing with colleagues (they see changes as they happen).
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -158,7 +159,11 @@ export default function Notes() {
 
   const change = async (n, changes) => {
     setNotes((list) => list.map((x) => (x.id === n.id ? { ...x, ...changes } : x)));
-    try { await patch(`/notes/${n.id}`, changes); } catch (e) { toast(e.message, 'error'); }
+    try { await patch(`/notes/${n.id}`, changes); } catch (e) {
+      // No connection: kept here, made when it's back (the note shows the change meanwhile, also after reloading).
+      if (unreachable(e)) { await keepChange({ method: 'PATCH', url: `/notes/${n.id}`, body: changes, user: user?.id, label: n.title || 'a note', id: n.id }); return; }
+      toast(e.message, 'error');
+    }
     load();
   };
   const archive = async (n, on) => {
@@ -539,14 +544,19 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
 /** A note open for editing: changes save when it closes (and every few seconds while typing). */
 function NoteEditor({ note, onClose }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [f, setF] = useState({ title: note.title, body: note.body, items: note.items });
   const dirty = useRef(false);
   const saveRef = useRef(null);
   const save = useCallback(async () => {
     if (!dirty.current) return;
     dirty.current = false;
-    try { await patch(`/notes/${note.id}`, { title: f.title, ...(f.items ? { items: f.items } : { body: f.body, items: null }) }); } catch (e) { toast(e.message, 'error'); }
-  }, [f, note.id, toast]);
+    const body = { title: f.title, ...(f.items ? { items: f.items } : { body: f.body, items: null }) };
+    try { await patch(`/notes/${note.id}`, body); } catch (e) {
+      if (unreachable(e)) { await keepChange({ method: 'PATCH', url: `/notes/${note.id}`, body, user: user?.id, label: f.title || 'a note', id: note.id }); return; }
+      toast(e.message, 'error');
+    }
+  }, [f, note.id, toast, user?.id]);
   saveRef.current = save;
   useEffect(() => { const t = setTimeout(() => saveRef.current(), 1500); return () => clearTimeout(t); }, [f]);
   const edit = (patchF) => { dirty.current = true; setF({ ...f, ...patchF }); };

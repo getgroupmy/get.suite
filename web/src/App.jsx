@@ -212,14 +212,14 @@ function SendUnsent() {
         catch (e) { if (unreachable(e)) break; await outboxNote(m.id, m, e.message); window.dispatchEvent(new Event('nw:outbox')); toast(`“${m.subject || '(no subject)'}” couldn’t be sent: ${e.message}`, 'error'); }
       }
       if (mails) toast(`Sent ${mails} email${mails === 1 ? '' : 's'} written while offline`);
-      // Changes made offline in Tasks, in the order they were made (a task deleted meanwhile: that change is dropped).
+      // Changes made offline (Tasks, Notes), in the order they were made (one deleted meanwhile: that change is dropped).
       const { changeList, changeRemove } = await import('./apps/offlinedocs.js');
       let changed = 0;
       for (const c of await changeList(lastUserId())) {
         try { await api(c.method, c.url, c.body); await changeRemove(c.id); changed++; }
-        catch (e) { if (unreachable(e)) break; await changeRemove(c.id); toast(`A change made offline to “${c.label || 'a task'}” couldn’t be made: ${e.message}`, 'error'); }
+        catch (e) { if (unreachable(e)) break; await changeRemove(c.id); toast(`A change made offline to “${c.label || 'something'}” couldn’t be made: ${e.message}`, 'error'); }
       }
-      if (changed) { toast(`Sent ${changed} change${changed === 1 ? '' : 's'} made offline in Tasks`); window.dispatchEvent(new Event('nw:changes-sent')); }
+      if (changed) { toast(`Sent ${changed} change${changed === 1 ? '' : 's'} made offline`); window.dispatchEvent(new Event('nw:changes-sent')); }
       const r = await sendUnsent(WebsocketProvider);
       if (r.sent) toast(`Sent what you changed offline in ${r.sent} file${r.sent === 1 ? '' : 's'}`);
       for (const f of r.copies) toast(`A file was changed elsewhere while you were offline: your changes are in “${f.name}”`, 'info', { duration: 10000 });
