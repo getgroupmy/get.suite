@@ -10,6 +10,7 @@ import { q } from '../db.js';
 import { dovecotHash } from './crypt.js';
 import { userSieve } from './sieve.js';
 import { allSharedMailboxes } from './shared.js';
+import '../sso.js'; // its columns (orgs.sso_*), read when writing the passwords
 
 // Emptying Trash and Junk by themselves (a company setting, in days; 0: never).
 for (const col of ['mail_trash_days', 'mail_junk_days']) {
@@ -130,7 +131,8 @@ export function blockProgramsMap() {
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'plus_folders')) q('ALTER TABLE users ADD COLUMN plus_folders INTEGER NOT NULL DEFAULT 0').run(); // you+name@ into the folder "name"
-  const users = q(`SELECT u.id, u.org_id, u.plus_folders, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.legal_hold, u.is_admin, o.mail_trash_days, o.mail_junk_days
+  const users = q(`SELECT u.id, u.org_id, u.plus_folders, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.legal_hold, u.is_admin, o.mail_trash_days, o.mail_junk_days,
+                      (o.sso_required = 1 AND o.sso_issuer IS NOT NULL AND o.sso_client_id IS NOT NULL AND o.sso_secret IS NOT NULL AND u.is_admin = 0 AND u.is_super = 0) AS sso_only
                    FROM users u LEFT JOIN orgs o ON o.id = u.org_id ORDER BY u.username`).all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const shared = allSharedMailboxes();
@@ -165,7 +167,9 @@ export function buildMailConfig() {
     'dovecot/passwd': lines([...users.map((u) => {
       // "*" can never match: users who haven't signed in since email was enabled have no hash yet.
       // With a mail-app password, that is the only password mail apps accept.
-      const pass = u.mail_app_hash || u.mail_hash || '{SHA512-CRYPT}*';
+      // When the company requires single sign-on (sso.js), the account password no longer opens mail apps either:
+      // only a mail-app password does (admins keep theirs, like their web sign-in).
+      const pass = u.mail_app_hash || (u.sso_only ? '{SHA512-CRYPT}*' : u.mail_hash) || '{SHA512-CRYPT}*';
       const extra = [];
       if (u.disabled) extra.push('nologin=y', 'reason=Account_disabled');
       if (u.mail_quota_mb > 0) extra.push(`userdb_quota_rule=*:storage=${u.mail_quota_mb}M`);

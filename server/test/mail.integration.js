@@ -243,6 +243,24 @@ test('a mail-app password replaces the account password for mail apps (not for w
   await assert.rejects(imapLogin('gina@globex.com', app));
 });
 
+test('single sign-on required: the account password no longer opens mail apps (a mail-app password does; admins keep theirs)', async () => {
+  const before = await imapLogin('bob@acme.com', 'password123');
+  await before.logout();
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { sso_issuer: 'https://login.example.com/t1', sso_client_id: 'ws', sso_secret: 's', sso_label: 'Microsoft' })).status, 200);
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { sso_required: true })).status, 200);
+  await eventually(async () => { try { const c = await imapLogin('bob@acme.com', 'password123'); await c.logout(); return false; } catch { return true; } });
+  const adminStill = await imapLogin('olivia@acme.com', 'password123');
+  await adminStill.logout();
+  const made = await bob('POST', '/api/auth/mail-app', { password: 'password123' });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  await eventually(async () => { try { const c = await imapLogin('bob@acme.com', made.body.password); await c.logout(); return true; } catch { return false; } });
+  assert.equal((await bob('GET', '/api/mail/folders')).status, 200, 'webmail is unaffected');
+  // Not required any more: the account password works again (once the mail-app password is removed).
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { sso_required: false, sso_issuer: '' })).status, 200);
+  assert.equal((await bob('DELETE', '/api/auth/mail-app', { password: 'password123' })).status, 200);
+  await eventually(async () => { try { const c = await imapLogin('bob@acme.com', 'password123'); await c.logout(); return true; } catch { return false; } });
+});
+
 test('postmaster@ reaches the company admin', async () => {
   assert.equal((await olivia('POST', '/api/mail/send', { to: 'postmaster@globex.com', subject: 'DMARC report', text: 'x' })).status, 200);
   await eventually(async () => (await inbox(gina)).some((m) => m.subject === 'DMARC report'));

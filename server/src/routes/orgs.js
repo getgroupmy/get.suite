@@ -105,7 +105,9 @@ function updateOrg(orgId, body, { asSuper, user }) {
   if (body.sso_required !== undefined) {
     if (body.sso_required && !ssoOf(orgId)) throw bad('Set up single sign-on first: the issuer address, client ID and secret');
     q('UPDATE orgs SET sso_required = ? WHERE id = ?').run(body.sso_required ? 1 : 0, orgId);
+    scheduleMailConfig(); // the mail server's passwords follow (mail apps: mail-app passwords only)
   }
+  if (body.sso_issuer !== undefined || body.sso_client_id !== undefined || body.sso_secret !== undefined) scheduleMailConfig(); // whether single sign-on counts as set up
   if (body.sso_label !== undefined) q('UPDATE orgs SET sso_label = ? WHERE id = ?').run(String(body.sso_label || '').trim().slice(0, 40) || null, orgId);
   if (body.assistant_off !== undefined) {
     if (!Array.isArray(body.assistant_off)) throw bad('assistant_off is a list of tool names');

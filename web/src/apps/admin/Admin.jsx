@@ -1216,7 +1216,7 @@ function SsoSettings({ org }) {
       <label className="field"><span>Client ID</span><input value={v.sso_client_id} onChange={(e) => setV({ ...v, sso_client_id: e.target.value })} /></label>
       <label className="field"><span>Client secret {has && <span className="muted small">(saved: type a new one to change it)</span>}</span><input type="password" value={v.sso_secret} autoComplete="new-password" onChange={(e) => setV({ ...v, sso_secret: e.target.value })} /></label>
       <div className="row"><button className="btn primary small">Save</button>{on && <button type="button" className="btn small" onClick={off}>Turn off</button>}</div>
-      {on && <label className="check"><input type="checkbox" checked={required} onChange={(e) => require(e.target.checked)} /> Require it: everyone but admins signs in this way only (passwords and passkeys don't work for them). Admins keep their password, in case the provider is down. Mail apps on phones and computers aren't affected: they sign in to the mail server as before.</label>}
+      {on && <label className="check"><input type="checkbox" checked={required} onChange={(e) => require(e.target.checked)} /> Require it: everyone but admins signs in this way only (passwords and passkeys don't work for them). Admins keep their password, in case the provider is down. Mail, calendar and contacts apps on phones and computers then need a mail-app password (Settings), as the account password no longer opens them.</label>}
     </form>
   );
 }

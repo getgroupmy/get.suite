@@ -30,6 +30,7 @@ import { notify as bell } from './notifications.js';
 import { peopleOf } from './mycalendars.js';
 import { publicHolidays, COUNTRIES } from './publicholidays.js';
 import { markActive } from './activedays.js';
+import { ssoRequiredFor } from './sso.js';
 
 const NS = 'xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/"';
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -49,7 +50,7 @@ export function authenticate(req) {
   const u = q('SELECT id, username, name, password_hash, mail_app_hash, disabled, org_id FROM users WHERE username = ?').get(login);
   // A mail-app password always works; the account password only without two-step verification.
   const ok = u && !u.disabled && ((u.mail_app_hash && verifyDovecotHash(password, u.mail_app_hash))
-    || (!twoFactor.isEnabled(u.id) && verifyPassword(password, u.password_hash)));
+    || (!twoFactor.isEnabled(u.id) && !ssoRequiredFor(u.id) && verifyPassword(password, u.password_hash))); // not when the company requires single sign-on
   if (!ok) {
     guard.recordFailure({ ip: req.ip, login, fp: guard.passwordFingerprint(password), service: 'dav' });
     return null;

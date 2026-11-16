@@ -160,10 +160,14 @@ test('required: passwords refused for everyone but admins (their way back in); t
   const admin = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'olivia@acme.com', password: 'password123' }) });
   assert.equal(admin.status, 200, 'the admin still can (here, on to their code)');
   assert.equal((await signIn('kim@acme.com', { email: 'kim@acme.com' })).location, '/', 'single sign-on works');
+  // Calendar, contacts and the network drive on phones and computers: not with the account password either.
+  const dav = (pw) => fetch(`${base}/dav/`, { method: 'PROPFIND', headers: { depth: '0', authorization: `Basic ${Buffer.from(`kim@acme.com:${pw}`).toString('base64')}` } });
+  assert.equal((await dav('password123')).status, 401);
   // Turned off, or single sign-on taken away: passwords work again (nobody is locked out).
   await owner('PATCH', '/api/orgs/current', { sso_issuer: '' });
   const again = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) });
   assert.equal(again.status, 200);
+  assert.notEqual((await dav('password123')).status, 401, 'and for calendar sync too');
   assert.equal((await owner('PATCH', '/api/orgs/current', { sso_required: true })).status, 400, 'can’t require it while it isn’t set up');
   await owner('PATCH', '/api/orgs/current', { sso_issuer: issuer, sso_required: false });
 });
