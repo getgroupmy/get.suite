@@ -177,3 +177,14 @@ test('indents: left margins become 40px steps; Gmail-style indents too, but not 
   assert.match(html, /<p data-indent="1" style="text-align: center; margin-left: 40px">both<\/p>/);
   assert.match(html, /<p>negative<\/p><p>odd<\/p>/);
 });
+
+test('signatures are cleaned: formatting, links, placeholders and Drive pictures kept; scripts, handlers and outside pictures gone', async () => {
+  const { signatureHtml } = await import('../src/mail/forwardhtml.js');
+  const out = signatureHtml('<p><strong>{name}</strong> · {job_title}</p><p><img src="/api/files/abc-123/raw" alt="Logo" onerror="steal()"><img src="https://tracker.example/p.gif"><img src="x" onerror="alert(1)"></p><script>alert(1)</script><p><a href="javascript:alert(1)">click</a> <a href="https://acme.com">acme.com</a></p><style>p{}</style><iframe src="https://evil"></iframe><p onclick="x()">Call {work_phone}</p>');
+  assert.match(out, /<strong>\{name\}<\/strong> · \{job_title\}/);
+  assert.match(out, /<img src="\/api\/files\/abc-123\/raw" alt="Logo">/);
+  assert.match(out, /<a href="https:\/\/acme\.com">acme\.com<\/a>/);
+  assert.match(out, /Call \{work_phone\}/);
+  for (const bad of [/script/i, /onerror/i, /onclick/i, /javascript:/i, /tracker\.example/, /iframe/i, /<style/i, /src="x"/]) assert.doesNotMatch(out, bad);
+  assert.equal(signatureHtml('Plain {name}\nline two'), 'Plain {name}\nline two', 'plain text is left for its own escaping');
+});

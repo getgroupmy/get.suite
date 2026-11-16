@@ -2,6 +2,7 @@
 // {work_phone}, {email} and {company} filled in for each person and address. It's either what people
 // get until they write their own ('default'), or what everyone uses ('always').
 import { q } from '../db.js';
+import { signatureHtml } from './forwardhtml.js';
 
 for (const c of ['signature_template TEXT', "signature_mode TEXT NOT NULL DEFAULT 'off'"]) {
   if (!q('PRAGMA table_info(orgs)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE orgs ADD COLUMN ${c}`).run();
@@ -43,5 +44,5 @@ export function companySignatureFor(user, address) {
   const c = companySignature(user.org_id);
   if (c.mode === 'off') return null;
   const u = q('SELECT name, job_title, department, work_phone FROM users WHERE id = ?').get(user.id) || {};
-  return fillSignature(c.template, { ...u, email: address, company: c.company });
+  return fillSignature(signatureHtml(c.template), { ...u, email: address, company: c.company }); // cleaned again: saved before templates were
 }

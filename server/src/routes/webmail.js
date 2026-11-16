@@ -31,7 +31,7 @@ import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
 import { applyRule } from '../mail/applyrule.js';
 import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers, delegatedMailboxesFor, delegatedMailboxFor, delegatesOf, MAX_DELEGATES } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
-import { forwardHtml } from '../mail/forwardhtml.js';
+import { forwardHtml, signatureHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
 import { groupSubscriptions } from '../mail/subscriptions.js';
 import { baseSubject, shareSomeone } from '../mail/thread.js';
@@ -957,8 +957,9 @@ export default function webmailRoutes() {
     const address = String(req.params.address).toLowerCase();
     if (!identities(req.user).some((i) => i.address === address)) throw bad('You cannot send from that address');
     if (companySignature(req.user.org_id).mode === 'always') throw bad('Your company uses one signature for everyone; an admin changes it in Admin → Company settings');
-    const html = typeof req.body.html === 'string' ? req.body.html : '';
-    if (html.length > 20000) throw bad('The signature is too long');
+    const raw = typeof req.body.html === 'string' ? req.body.html : '';
+    if (raw.length > 20000) throw bad('The signature is too long');
+    const html = signatureHtml(raw); // formatting, links and Drive pictures only (it goes out in mail)
     q(`INSERT INTO identity_signatures (user_id, address, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id, address) DO UPDATE SET html = excluded.html, on_new = excluded.on_new, on_reply = excluded.on_reply, updated_at = excluded.updated_at`)
       .run(req.user.id, address, html, req.body.on_new === false ? 0 : 1, req.body.on_reply === false ? 0 : 1, Date.now());
@@ -2432,7 +2433,7 @@ function signatureOf(userId, address, user = null) {
   const mode = user ? companySignature(user.org_id).mode : 'off';
   if (mode === 'always') return { html: companySignatureFor(user, address), on_new: true, on_reply: true, company: 'always' };
   const sg = q('SELECT html, on_new, on_reply FROM identity_signatures WHERE user_id = ? AND address = ?').get(userId, address);
-  if (sg) return { html: sg.html, on_new: !!sg.on_new, on_reply: !!sg.on_reply };
+  if (sg) return { html: signatureHtml(sg.html), on_new: !!sg.on_new, on_reply: !!sg.on_reply }; // cleaned again: saved before signatures were
   if (mode === 'default') return { html: companySignatureFor(user, address), on_new: true, on_reply: true, company: 'default' };
   return { html: '', on_new: true, on_reply: true };
 }

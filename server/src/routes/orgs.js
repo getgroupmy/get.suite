@@ -1,3 +1,4 @@
+import { signatureHtml } from '../mail/forwardhtml.js';
 import { TEMPLATES, sendPractice, practiceFor, setAutoPractice, autoPracticeOf } from '../phishpractice.js';
 import { phishingFor, setHandled, blockValue, blockedFor, addBlock, removeBlock } from '../phishing.js';
 import { migrationOf } from '../migrationstatus.js';
@@ -195,7 +196,8 @@ function updateOrg(orgId, body, { asSuper, user }) {
   if (body.signature_template !== undefined) {
     const t = String(body.signature_template ?? '');
     if (t.length > 20000) throw bad('The signature is too long');
-    q('UPDATE orgs SET signature_template = ? WHERE id = ?').run(t.trim() ? t : null, orgId);
+    const clean = signatureHtml(t); // shown in everyone's Mail settings and in their mail: no scripts or event handlers
+    q('UPDATE orgs SET signature_template = ? WHERE id = ?').run(clean.trim() ? clean : null, orgId);
   }
   if (body.signature_mode !== undefined) {
     if (!SIGNATURE_MODES.includes(body.signature_mode)) throw bad('signature_mode must be off, default or always');

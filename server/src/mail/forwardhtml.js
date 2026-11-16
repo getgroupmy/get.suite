@@ -4,6 +4,8 @@
 // flattened into paragraphs. Everything else — scripts, styles, forms, tracking pixels and pictures
 // loaded from the internet — is dropped. The result only ever contains the handful of tags the
 // message editor knows, so nothing from the original can run or phone home.
+// The same cleaning makes signatures safe (signatureHtml): what an admin or a person writes is shown in other
+// people's pages and in sent mail, so only formatting, links and pictures from Drive are kept.
 import { parseDocument } from 'htmlparser2';
 
 const SKIP = new Set(['script', 'style', 'head', 'title', 'noscript', 'template', 'iframe', 'object', 'embed', 'svg', 'math', 'form', 'button', 'select', 'textarea', 'input', 'video', 'audio', 'canvas', 'map']);
@@ -189,7 +191,7 @@ const safeHref = (h) => {
  * @param {(cid: string) => string | null} pictureUrl  where the editor can show an embedded picture, or null to drop it
  * @returns {{ html: string, pictures: number }}
  */
-export function forwardHtml(html, pictureUrl) {
+export function forwardHtml(html, pictureUrl, { keepPicture = () => null } = {}) {
   const doc = parseDocument(String(html || ''), { decodeEntities: true, lowerCaseTags: true, lowerCaseAttributeNames: true });
   let pictures = 0;
 
@@ -236,7 +238,7 @@ export function forwardHtml(html, pictureUrl) {
       marks = styled(marks, tag, a); // colour, highlight, size and font apply to everything inside, until overridden
       if (tag === 'img') {
         const src = String(a.src || '').trim();
-        const url = /^cid:/i.test(src) ? pictureUrl(src.slice(4).replace(/^<|>$/g, '')) : null;
+        const url = /^cid:/i.test(src) ? pictureUrl(src.slice(4).replace(/^<|>$/g, '')) : keepPicture(src);
         if (!url) return; // remote and data: pictures are left out
         flush();
         const alt = String(a.alt || '').slice(0, 200);
@@ -302,4 +304,11 @@ export function forwardHtml(html, pictureUrl) {
   let out = flow((body || doc).children || []);
   if (out.length > MAX_OUT) out = out.slice(0, MAX_OUT).replace(/<[^>]*$/, '');
   return { html: out, pictures };
+}
+
+/** A signature (the company's template, or someone's own) cleaned to formatting, links and pictures from Drive. */
+export function signatureHtml(html) {
+  const s = String(html || '');
+  if (!/<[a-z][\s\S]*>/i.test(s)) return s; // plain text: filled in and escaped line by line where it's used
+  return forwardHtml(s, () => null, { keepPicture: (src) => (/^\/api\/files\/[\w-]+\/raw$/.test(src) ? src : null) }).html;
 }

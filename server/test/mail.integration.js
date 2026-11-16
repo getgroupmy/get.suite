@@ -604,6 +604,16 @@ test('company signature: a default for people without their own, or the same for
   const now = (await olivia('GET', '/api/mail/signatures')).body.find((x) => x.address === 'olivia@acme.com');
   assert.equal(now.company, 'always'); assert.match(now.html, /<p>Owner · <\/p>/);
   assert.equal((await olivia('PUT', '/api/mail/signatures/olivia@acme.com', { html: '<p>x</p>' })).status, 400);
+  // An HTML template is cleaned when saved: it shows in everyone's Mail settings and goes out in their mail.
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { signature_template: '<p><strong>{name}</strong></p><p><img src="x" onerror="alert(document.cookie)"><a href="javascript:alert(1)">site</a></p><script>alert(1)</script>' })).status, 200);
+  const cleaned = (await sig('GET', '/api/mail/signatures')).body.find((x) => x.address === 'sigbo@acme.com').html;
+  assert.match(cleaned, /<strong>Sig Bo<\/strong>/);
+  for (const bad of [/onerror/i, /script/i, /javascript:/i]) assert.doesNotMatch(cleaned, bad);
+  // And someone's own: kept to formatting, links and Drive pictures.
+  assert.equal((await sig('PATCH', '/api/orgs/current', {})).status, 403);
+  await olivia('PATCH', '/api/orgs/current', { signature_mode: 'default', signature_template: tpl });
+  assert.equal((await sig('PUT', '/api/mail/signatures/sigbo@acme.com', { html: '<p>Bo<img src="x" onerror="alert(1)"></p>' })).status, 200);
+  assert.equal((await sig('GET', '/api/mail/signatures')).body.find((x) => x.address === 'sigbo@acme.com').html, '<p>Bo</p>');
   // Back to off: her own again.
   await olivia('PATCH', '/api/orgs/current', { signature_mode: 'off' });
   assert.equal((await olivia('GET', '/api/mail/signatures')).body.find((x) => x.address === 'olivia@acme.com').html, '<p><strong>Olivia Owner</strong></p>');
