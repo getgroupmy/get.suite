@@ -106,6 +106,22 @@ await step('an assistant makes a form; it is in Forms, someone fills it in, and 
   await page.goto(`${B}/settings`);
   await page.getByRole('group', { name: /^Recent changes by / }).getByText('Make a form “Lunch poll”').waitFor();
 });
+await step('an assistant asks for a day off; it is in Calendar’s Time off', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const d = new Date(); d.setDate(d.getDate() + 14); while (d.getDay() !== 3) d.setDate(d.getDate() + 1); // a Wednesday two weeks or more ahead
+  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const r = (await rpc('tools/call', { name: 'request_time_off', arguments: { first_day: day, kind: 'personal', note: 'Dentist' } })).result;
+  if (r.isError || r.structuredContent.working_days !== 1) throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: /Time off/ }).click();
+  const dlg = page.getByRole('dialog', { name: 'Time off' });
+  const mine = dlg.getByRole('region', { name: 'Your time off' });
+  const shown = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); // as the list writes it: Wed, Dec 2
+  await mine.getByText(new RegExp(`Personal: ${shown}`)).waitFor();
+  await mine.getByText('(1 working day)').waitFor();
+  const listed = (await rpc('tools/call', { name: 'list_time_off', arguments: {} })).result.structuredContent;
+  if (!listed.requests.some((x) => x.first_day === day && x.status === r.structuredContent.status)) throw new Error(JSON.stringify(listed));
+});
 await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
   const crypto = await import('node:crypto');
   const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }) })).json();

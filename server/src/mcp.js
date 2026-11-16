@@ -1017,6 +1017,45 @@ export const TOOLS = [
       return { id: `form:${f.id}`, title: f.title, questions: f.questions.length, link: link(`/f/${f.token}`), edit: link(`/forms/${f.id}`) };
     },
   },
+  {
+    name: 'list_time_off', title: 'Time off', readOnly: true,
+    description: 'The person’s time off: their requests (waiting, approved, declined), how many vacation days they have left this year, the company’s coming holidays, and requests from people who report to them that wait for their answer.',
+    inputSchema: { type: 'object', properties: {} },
+    async run(api) {
+      const r = await api('GET', '/time-off');
+      const today = new Date().toISOString().slice(0, 10);
+      const holidays = await api('GET', `/time-off/holidays?from=${today}`);
+      const item = (t) => ({ id: `timeoff:${t.id}`, kind: t.kind_label, first_day: t.start_date, last_day: t.end_date, ...(t.half && { half: t.half === 'am' ? 'morning' : 'afternoon' }), working_days: t.days, status: t.status, ...(t.note && { note: t.note }), ...(t.answer && { answer: t.answer }), ...(t.decided_by_name && { decided_by: t.decided_by_name }) });
+      const b = r.balance || {};
+      return {
+        vacation: { year: b.year, allowance: b.days, carried_over: b.carried, taken: b.used, waiting: b.pending, left: b.left },
+        requests: (r.mine || []).slice(0, 50).map(item),
+        company_holidays: holidays.slice(0, 15).map((h) => ({ date: h.date, name: h.name })),
+        waiting_for_you: (r.to_decide || []).filter((t) => t.status === 'pending').map((t) => ({ ...item(t), from: t.name })),
+        url: link('/calendar?timeoff=1'),
+      };
+    },
+  },
+  {
+    name: 'request_time_off', title: 'Ask for time off', readOnly: false,
+    description: 'Ask for time off for the person: vacation, sick leave, personal or other, from a first to a last day (YYYY-MM-DD), or half a day. Whoever they report to is asked to approve it, as when asked in Calendar (with nobody to ask it is approved at once). Weekends and company holidays aren’t counted; vacation must fit in what’s left of the year’s allowance.',
+    inputSchema: {
+      type: 'object', required: ['first_day'],
+      properties: {
+        first_day: { type: 'string', description: 'YYYY-MM-DD' }, last_day: { type: 'string', description: 'YYYY-MM-DD (default: the first day)' },
+        kind: { type: 'string', enum: ['vacation', 'sick', 'personal', 'other'], description: 'Default vacation' },
+        half: { type: 'string', enum: ['morning', 'afternoon'], description: 'Half a day (one day only)' },
+        note: { type: 'string', description: 'For whoever approves it' },
+      },
+    },
+    async run(api, a) {
+      const day = (v, what) => { const d = String(v || '').trim(); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new ToolError(`The ${what} day should look like 2026-12-24`); return d; };
+      const first = day(a.first_day, 'first'), last = a.last_day ? day(a.last_day, 'last') : first;
+      const t = await api('POST', '/time-off', { start_date: first, end_date: last, kind: a.kind || 'vacation', ...(a.half && { half: a.half === 'afternoon' ? 'pm' : 'am' }), ...(a.note && { note: String(a.note) }) });
+      return { id: `timeoff:${t.id}`, kind: t.kind_label, first_day: t.start_date, last_day: t.end_date, working_days: t.days, status: t.status,
+        text: t.status === 'approved' ? 'Approved (there is nobody to ask), and it is on the calendar.' : 'Asked: whoever they report to has been told and will approve or decline it.', url: link('/calendar?timeoff=1') };
+    },
+  },
 ];
 
 // How each tool that changes things behaves, for the hints assistants use to decide when to ask the person first
@@ -1024,9 +1063,9 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form']);
+export const ADDITIVE = new Set(['create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
-export const REACHES_OTHERS = new Set(['create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
+export const REACHES_OTHERS = new Set(['request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({
   title: t.title, readOnlyHint: t.readOnly,
   ...(!t.readOnly && { destructiveHint: !ADDITIVE.has(t.name), idempotentHint: REPEATABLE.has(t.name) }),
@@ -1125,6 +1164,7 @@ function recordChange(req, tool, args) {
     : tool.name === 'comment_on_file' ? `comment on ${args.file}: ${args.text}`
     : tool.name === 'update_note' ? `${args.note}: ${[args.add_items?.filter((t) => String(t).trim()).length && `${args.add_items.filter((t) => String(t).trim()).length} added`, args.tick?.length && `${args.tick.length} ticked`, args.untick?.length && `${args.untick.length} unticked`, args.append_text && 'text added'].filter(Boolean).join(', ')}`
     : tool.name === 'share_file' ? `${args.file} shared with ${args.with} (${args.role})`
+    : tool.name === 'request_time_off' ? `${args.kind || 'vacation'} ${args.first_day}${args.last_day && args.last_day !== args.first_day ? ` to ${args.last_day}` : ''}${args.half ? ` (${args.half})` : ''}`
     : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });

@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -604,6 +604,36 @@ test('forms: make one, list them, read what people answered (a summary per quest
   const none = await call(ro, 'read_form_responses', { form: 'No such survey' });
   assert.equal(none.isError, true);
   assert.match(none.content[0].text, /No form called “No such survey”/);
+});
+
+test('time off: the balance and holidays, asking for days off, half a day, and what is refused', async () => {
+  assert.equal((await owner('PUT', '/api/time-off/allowance', { days: 25 })).status, 200);
+  const y = new Date().getUTCFullYear() + 1;
+  assert.equal((await owner('POST', '/api/time-off/holidays', { date: `${y}-03-02`, name: 'Founders Day' })).status, 201);
+  const asked = (await call(rw, 'request_time_off', { first_day: `${y}-03-01`, last_day: `${y}-03-07`, note: 'Family trip' })).structuredContent;
+  assert.equal(asked.status, 'approved', 'nobody to ask in a company of one');
+  assert.match(asked.text, /Approved/);
+  const half = (await call(rw, 'request_time_off', { first_day: `${y}-03-10`, kind: 'personal', half: 'afternoon' })).structuredContent;
+  assert.equal(half.working_days, 0.5);
+  const sat = new Date(Date.UTC(y, 5, 1)); while (sat.getUTCDay() !== 6) sat.setUTCDate(sat.getUTCDate() + 1);
+  const weekend = await call(rw, 'request_time_off', { first_day: sat.toISOString().slice(0, 10) });
+  assert.equal(weekend.isError, true);
+  assert.match(weekend.content[0].text, /isn’t a working day/);
+  const again = await call(rw, 'request_time_off', { first_day: `${y}-03-03` });
+  assert.match(again.content[0].text, /already asked for time off/);
+  assert.match((await call(rw, 'request_time_off', { first_day: 'next friday' })).content[0].text, /should look like 2026-12-24/);
+  assert.equal((await call(ro, 'request_time_off', { first_day: `${y}-04-01` })).isError, true, 'not with a read-only token');
+  const list = (await call(ro, 'list_time_off', {})).structuredContent;
+  const trip = list.requests.find((r) => r.note === 'Family trip');
+  assert.equal(trip.working_days, 4, 'a week less the weekend and the company holiday');
+  assert.equal(trip.kind, 'Vacation');
+  assert.ok(list.requests.some((r) => r.half === 'afternoon' && r.kind === 'Personal'));
+  assert.ok(list.company_holidays.some((h) => h.name === 'Founders Day'));
+  assert.equal(list.vacation.allowance, 25);
+  assert.deepEqual(list.waiting_for_you, []);
+  const hints = Object.fromEntries((await rpc(rw, 'tools/list')).body.result.tools.map((t) => [t.name, t.annotations]));
+  assert.equal(hints.request_time_off.openWorldHint, true, 'whoever approves is told');
+  assert.equal(hints.list_time_off.readOnlyHint, true);
 });
 
 test('company network rules apply to the assistant’s calls too', async () => {
