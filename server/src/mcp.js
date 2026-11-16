@@ -285,6 +285,36 @@ export const TOOLS = [
     },
   },
   {
+    name: 'update_task', title: 'Change a task', readOnly: false,
+    description: 'Change a task: its title, notes, due date (YYYY-MM-DD, or "" to take it off), a time on that day (HH:MM) or whether it’s important. complete_task ticks it off.',
+    inputSchema: {
+      type: 'object', required: ['id'],
+      properties: {
+        id: { type: 'string', description: 'task:… from list_tasks or search' }, title: { type: 'string' }, notes: { type: 'string' },
+        due: { type: 'string', description: 'YYYY-MM-DD, or "" for no due date' }, due_time: { type: 'string', description: 'HH:MM (needs a due date)' }, important: { type: 'boolean' },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.id || '').replace(/^task:/, '');
+      const body = {};
+      if (a.title !== undefined) body.title = String(a.title);
+      if (a.notes !== undefined) body.notes = String(a.notes);
+      if (a.due !== undefined) {
+        if (a.due && !/^\d{4}-\d{2}-\d{2}$/.test(String(a.due))) throw new ToolError('due is a date like 2026-12-01, or "" for none');
+        body.due = a.due || null;
+        if (!a.due) body.due_time = null;
+      }
+      if (a.due_time !== undefined) {
+        if (a.due_time && !/^\d{2}:\d{2}$/.test(String(a.due_time))) throw new ToolError('due_time is a time like 15:30');
+        body.due_time = a.due_time || null;
+      }
+      if (a.important !== undefined) body.important = !!a.important;
+      if (!Object.keys(body).length) throw new ToolError('Say what to change: title, notes, due, due_time or important');
+      const t = await api('PATCH', `/tasks/tasks/${encodeURIComponent(id)}`, body);
+      return { id: `task:${t.id || id}`, title: t.title, due: t.due || null, due_time: t.due_time || null, important: !!t.important, done: !!t.done, url: link('/tasks') };
+    },
+  },
+  {
     name: 'list_mail', title: 'Email', readOnly: true,
     description: 'Emails in a mail folder (default: Inbox), newest first, optionally matching a search (Gmail-style: from:, to:, subject:, has:attachment, is:unread, before:, after:).',
     inputSchema: { type: 'object', properties: { folder: { type: 'string', default: 'INBOX' }, query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 50, default: 20 } } },
@@ -593,7 +623,8 @@ function recordChange(req, tool, args) {
   const assistant = (id.startsWith('mcp:') ? q('SELECT name FROM mcp_clients WHERE client_id = ?').get(id.slice(4))?.name : q('SELECT name FROM api_tokens WHERE id = ?').get(id)?.name) || 'An assistant';
   const special = tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}`
     : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}`
-    : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}` : null;
+    : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}`
+    : tool.name === 'update_task' ? `changed ${args.id}${args.due !== undefined ? ` (due ${args.due || 'none'})` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
 }

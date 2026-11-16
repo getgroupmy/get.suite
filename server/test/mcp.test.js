@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_contact', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'draft_email', 'create_note', 'create_contact', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -223,6 +223,19 @@ test('change an event: moved keeping its length, renamed; guests see it; othersâ
   assert.match((await call(rw, 'update_event', { id: `event:${weekly.id}`, title: 'x' })).content[0].text, /It repeats/);
   assert.match((await call(rw, 'update_event', { id: ev.id })).content[0].text, /Say what to change/);
   assert.match((await call(rw, 'update_event', { id: ev.id, end: new Date(start).toISOString() })).content[0].text, /end must be after the start/);
+});
+
+test('change a task: due date and time, notes, important; due date taken off; bad input explained', async () => {
+  const t = (await call(rw, 'create_task', { title: 'Send the quote', due: '2027-04-01' })).structuredContent;
+  const r = await call(rw, 'update_task', { id: t.id, due: '2027-04-03', due_time: '15:30', notes: 'Use the new prices', important: true, title: 'Send the revised quote' });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.title, r.structuredContent.due, r.structuredContent.due_time, r.structuredContent.important], ['Send the revised quote', '2027-04-03', '15:30', true]);
+  assert.match((await call(rw, 'fetch', { id: t.id })).structuredContent.text, /Due: 2027-04-03 15:30[\s\S]*Notes: Use the new prices/);
+  const off = (await call(rw, 'update_task', { id: t.id, due: '' })).structuredContent;
+  assert.deepEqual([off.due, off.due_time], [null, null]);
+  assert.match((await call(rw, 'update_task', { id: t.id, due: 'Friday' })).content[0].text, /due is a date like/);
+  assert.match((await call(rw, 'update_task', { id: t.id })).content[0].text, /Say what to change/);
+  assert.equal((await call(rw, 'update_task', { id: 'task:nope', title: 'x' })).isError, true);
 });
 
 test('only with a valid token; a browser cookie isnâ€™t enough', async () => {
