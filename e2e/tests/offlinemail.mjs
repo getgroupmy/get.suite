@@ -137,6 +137,21 @@ await step('mail labelled offline shows the label here (even after reloading) an
   await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
   await until(async () => (await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages.find((m) => m.subject === 'Harbour notice')?.labels?.includes(label.id), 10000);
 });
+await step('mail never opened here can be read offline: the newest are kept (without marking them read)', async () => {
+  await until(async () => (await api(page, 'POST', '/mail/send', { to: 'olivia@acme.com', subject: 'Unopened news', text: 'The harbour opens at six tomorrow.' })).status === 200, 30000);
+  const list = page.locator('.mail-list');
+  for (let i = 0; i < 20 && !(await list.getByText('Unopened news').count()); i++) { await page.getByRole('button', { name: 'Refresh' }).click(); await page.waitForTimeout(700); }
+  await list.getByText('Unopened news').first().waitFor();
+  await page.waitForTimeout(4000); // fetched in the background
+  const msg = (await api(page, 'GET', '/mail/messages?folder=INBOX')).body.messages.find((m) => m.subject === 'Unopened news');
+  if (msg.seen) throw new Error('marked read by being kept');
+  await page.context().setOffline(true);
+  await page.reload();
+  await list.getByText('Unopened news').first().click({ timeout: 20000 });
+  await page.getByText('The harbour opens at six tomorrow.').waitFor({ timeout: 20000 });
+  await page.context().setOffline(false);
+  await page.getByText(/Showing what was last saved/).waitFor({ state: 'detached', timeout: 20000 }).catch(() => {});
+});
 const real = errors.filter((e) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket/.test(e));
 if (real.length) { failed++; console.log('FAIL page errors', real.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

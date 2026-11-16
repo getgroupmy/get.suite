@@ -79,7 +79,7 @@ export async function keptList() {
 export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/tasks)?(\?|$)/, /^\/tasks\/(today|assigned|upcoming|myday|completed|important|planned|tags)(\?|$)/, /^\/contacts(\?|$)/, /^\/contacts\/groups$/, /^\/notes(\?|$)/, /^\/users\/directory$/, /^\/time-off(\?|$)/,
   // Mail: whether it's set up, the folders, the messages listed and those opened (the shared mailbox open is part of the key).
   /^\/chat\/channels(\?|$)/, /^\/chat\/channels\/[\w-]+\/messages$/,
-  /^\/mail\/(status|folders|labels)(\?|$)/, /^\/mail\/messages\?folder=/, /^\/mail\/messages\/\d+\?folder=/, /^\/mail\/folder-state\?folder=/];
+  /^\/mail\/(status|folders|labels)(\?|$)/, /^\/mail\/messages\?folder=/, /^\/mail\/messages\/\d+\?folder=[^&]+$/, /^\/mail\/folder-state\?folder=/];
 export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, at: Date.now() }, url), 'api').catch(() => {});
 export const keptAnswer = (url) => run('readonly', (s) => s.get(url), 'api').then((x) => x || null).catch(() => null);
 
@@ -172,6 +172,23 @@ export const eventsCovering = (start, end) => (key) => {
   const m = /\/events\?from=(-?\d+)&to=(-?\d+)$/.exec(key);
   return !!m && start <= Number(m[2]) && end >= Number(m[1]);
 };
+
+/**
+ * Mail kept for reading offline before it's opened: the newest messages of a folder just listed (up to `max`) are
+ * fetched without marking them read (peek) and kept as the reader asks for them. Ones already kept are skipped.
+ * Resolves with how many were fetched.
+ */
+export async function prefetchMail({ user, mailbox, folder, uids, get, max = 20 }) {
+  let n = 0;
+  for (const uid of uids.slice(0, max)) {
+    const url = `/mail/messages/${uid}?folder=${encodeURIComponent(folder)}`;
+    const key = `${user}:${mailbox || ''}:${url}`;
+    if (await keptAnswer(key)) continue;
+    if (!navigator.onLine) break;
+    try { await keepAnswer(key, await get(`${url}&peek=1`)); n++; } catch { break; } // gone, or the connection went: next time
+  }
+  return n;
+}
 
 /** How many lists' last answers are kept (Settings → This device). */
 export const apiCount = () => run('readonly', (s) => s.count(), 'api').then((n) => n || 0).catch(() => 0);

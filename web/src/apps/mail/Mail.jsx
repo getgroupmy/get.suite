@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { unreachable, outboxAdd, outboxList, outboxRemove, changeAdd, patchKeptMail } from '../offlinedocs.js';
+import { unreachable, outboxAdd, outboxList, outboxRemove, changeAdd, patchKeptMail, prefetchMail } from '../offlinedocs.js';
 import { api, get, post, put, del, postBlob, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
@@ -255,8 +255,15 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const loadList = useCallback(() => {
     const seq = ++listSeq.current;
     return get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}${labelId ? `&label=${enc(labelId)}` : ''}${tabbed ? `&tab=${tab}` : ''}`)
-      .then((d) => { if (seq === listSeq.current) { setData(d); setError(''); } }).catch((e) => { if (seq === listSeq.current) setError(e.message); });
-  }, [folder, page, q, labelId, tabbed, tab]);
+      .then((d) => {
+        if (seq !== listSeq.current) return;
+        setData(d); setError('');
+        // The newest messages are kept for reading offline, opened or not (fetched without marking them read).
+        if (navigator.onLine && !q && page === 1 && d?.messages?.length) {
+          setTimeout(() => prefetchMail({ user: user.id, mailbox: currentSharedMailbox(), folder, uids: d.messages.map((m) => m.uid), get }).catch(() => {}), 1500);
+        }
+      }).catch((e) => { if (seq === listSeq.current) setError(e.message); });
+  }, [folder, page, q, labelId, tabbed, tab, user.id]);
 
   useEffect(() => { setData(null); setChecked(new Set()); loadList(); }, [loadList]);
   useEffect(() => { loadFolders(); }, [loadFolders]);

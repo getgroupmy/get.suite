@@ -24,3 +24,12 @@ test('sending what was kept offline: "not now" answers keep it for the next try,
   for (const status of [401, 408, 429, 500, 502, 503, 504]) assert.equal(tryLater({ status }), true, String(status));
   for (const status of [400, 403, 404, 409, 413, 422]) assert.equal(tryLater({ status }), false, String(status));
 });
+
+test('an opened message is kept under the reader’s address; a peek (kept ahead, or printed) isn’t kept twice', async () => {
+  const { OFFLINE_READS } = await import('./offlinedocs.js');
+  const kept = (url) => OFFLINE_READS.some((re) => re.test(url));
+  assert.equal(kept('/mail/messages/42?folder=INBOX'), true);
+  assert.equal(kept('/mail/messages/42?folder=Archive%2F2024'), true);
+  assert.equal(kept('/mail/messages/42?folder=INBOX&peek=1'), false);
+  assert.equal(kept('/mail/messages?folder=INBOX&page=1'), true);
+});
