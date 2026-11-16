@@ -402,6 +402,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   }
 
   const [show, setShow] = useState('all'); // in a shared mailbox: all, given to me, not done
+  const [reporting, setReporting] = useState(false); // the shared mailbox's report
   if (failing) {
     return (
       <div className="page">
@@ -606,6 +607,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             {[['all', 'All'], ['mine', 'Given to me'], ['open', 'Not done']].map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={show === k} className={show === k ? 'on' : ''} onClick={() => setShow(k)}>{label}</button>)}
           </div>
         )}
+        {shared && data && <button type="button" className="link-btn small shared-report-btn" onClick={() => setReporting(true)}>Report</button>}
+        {reporting && <SharedReport name={shared?.name || 'Shared mailbox'} onClose={() => setReporting(false)} />}
         {!data ? <p className="muted mail-note">Loading…</p> : shown.length === 0 ? (
           <Empty icon={q ? 'search' : 'inbox'} title={q ? 'No messages found' : tabbed && tab === 'updates' ? 'No updates: newsletters and notifications go here' : `${current?.name || 'Folder'} is empty`} />
         ) : (
@@ -3332,5 +3335,42 @@ function DeliveryStatus({ messageId }) {
         ))}
       </ul>
     </details>
+  );
+}
+
+/** A shared mailbox's report: who has what open, what they finished and how fast, and what's been waiting longest. */
+function SharedReport({ name, onClose }) {
+  const [days, setDays] = useState(30);
+  const [r, setR] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { setR(null); get(`/mail/shared-report?days=${days}`).then(setR).catch((e) => setError(e.message)); }, [days]);
+  const hours = (h) => (h == null ? '—' : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h * 10) / 10} h` : `${Math.round(h / 24 * 10) / 10} days`);
+  return (
+    <Modal title={`${name}: who answers what`} onClose={onClose} wide footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
+      <div className="stack shared-report">
+        <label className="row small" style={{ gap: 6 }}>Over the last
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Period">
+            <option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option>
+          </select></label>
+        {error ? <p className="error" role="alert">{error}</p> : !r ? <p className="muted">Loading…</p> : <>
+          <table className="data-table">
+            <caption className="muted small" style={{ textAlign: 'left' }}>By person</caption>
+            <thead><tr><th scope="col">Person</th><th scope="col">Given to them, not done</th><th scope="col">Done</th><th scope="col">Usual time to done</th></tr></thead>
+            <tbody>{r.people.map((p) => <tr key={p.id}><th scope="row">{p.name}</th><td>{p.open}</td><td>{p.done}</td><td>{hours(p.median_hours)}</td></tr>)}</tbody>
+          </table>
+          <p className="small" style={{ margin: 0 }}>
+            <strong>{r.not_done}</strong> not done{r.unassigned ? ` (${r.unassigned} not given to anyone)` : ''}
+            {r.done_unassigned ? ` · ${r.done_unassigned} done without being given to anyone` : ''}.
+          </p>
+          {r.oldest.length > 0 && (
+            <section aria-label="Waiting longest">
+              <strong className="small">Waiting longest</strong>
+              <ul className="small shared-oldest">{r.oldest.map((o) => <li key={o.message_id}>{o.subject} <span className="muted">· since {formatDate(o.since)}{o.assignee ? ` · ${o.assignee}` : ' · nobody yet'}</span></li>)}</ul>
+            </section>
+          )}
+          <p className="muted small" style={{ margin: 0 }}>Counts the messages someone gave to a person or marked done here. The usual time is the median from being given one to marking it done.</p>
+        </>}
+      </div>
+    </Modal>
   );
 }

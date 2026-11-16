@@ -39,6 +39,38 @@ q(`CREATE TABLE IF NOT EXISTS shared_assignments (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (mailbox_id, message_id)
 )`).run();
+// When it was first given to someone or marked, last given to someone, and marked done (and by whom): for the report.
+for (const [col, type] of [['created_at', 'INTEGER'], ['assigned_at', 'INTEGER'], ['done_at', 'INTEGER'], ['done_by', 'TEXT']]) {
+  if (!q('PRAGMA table_info(shared_assignments)').all().some((c) => c.name === col)) q(`ALTER TABLE shared_assignments ADD COLUMN ${col} ${type}`).run();
+}
+
+const median = (xs) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+/**
+ * Who answers what, over the last `days`: for each of the mailbox's people, the messages given to them and not done
+ * yet, those they finished in the period, and the median time from being given one to its being done; overall, how
+ * many were finished without being given to anyone, and the oldest still waiting. Only messages someone has given
+ * or marked are counted (Workspace doesn't see the rest).
+ */
+export function sharedReport(mailboxId, days = 30, now = Date.now()) {
+  const since = now - days * 864e5;
+  const rows = q('SELECT * FROM shared_assignments WHERE mailbox_id = ?').all(mailboxId);
+  const people = q(`SELECT u.id, u.name FROM shared_mailbox_members m JOIN users u ON u.id = m.user_id WHERE m.mailbox_id = ? ORDER BY u.name`).all(mailboxId);
+  const byPerson = people.map((p) => {
+    const open = rows.filter((r) => r.assignee_id === p.id && !r.done);
+    const done = rows.filter((r) => r.assignee_id === p.id && r.done && r.done_at >= since);
+    const times = done.filter((r) => r.assigned_at && r.done_at >= r.assigned_at).map((r) => r.done_at - r.assigned_at);
+    return { id: p.id, name: p.name, open: open.length, done: done.length, median_hours: times.length ? Math.round(median(times) / 36e5 * 10) / 10 : null };
+  });
+  const waiting = rows.filter((r) => !r.done).sort((a, b) => (a.created_at || a.updated_at) - (b.created_at || b.updated_at));
+  const name = (id) => people.find((p) => p.id === id)?.name || null;
+  return {
+    days, people: byPerson,
+    done_unassigned: rows.filter((r) => r.done && !r.assignee_id && r.done_at >= since).length,
+    not_done: waiting.length, unassigned: waiting.filter((r) => !r.assignee_id).length,
+    oldest: waiting.slice(0, 5).map((r) => ({ message_id: r.message_id, subject: r.subject || '(no subject)', since: r.created_at || r.updated_at, assignee: name(r.assignee_id) })),
+  };
+}
+
 /** Assignments for some messages of a mailbox: Map(messageId -> { assignee: { id, name } | null, done, by_name }). */
 export function assignmentsOf(mailboxId, messageIds) {
   const out = new Map();

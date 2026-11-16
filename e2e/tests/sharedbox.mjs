@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
 const SP = process.argv[2];
+const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
 const B = 'http://localhost:8080';
 const browser = await chromium.launch();
 const errors = [];
@@ -130,6 +131,25 @@ await step('Kim gives it to Olivia (also on the mailbox); Olivia is told, sees i
   await until(async () => !(await page.locator('.mail-list').getByText(/Question about invoice 77/).count()));
   await page.getByRole('tab', { name: 'All' }).click();
   await page.locator('.mail-list').getByText('✓ Done').first().waitFor();
+}, page);
+await step('Report: who has what open, what each finished and how fast, nothing waiting', async () => {
+  await page.getByRole('button', { name: 'Report', exact: true }).click();
+  const d = page.getByRole('dialog', { name: /Acme Support: who answers what/ });
+  const row = (name) => d.getByRole('row', { name: new RegExp(`^${name}`) });
+  await row('Olivia Owner').waitFor();
+  const cells = async (name) => (await row(name).locator('td').allInnerTexts()).map((x) => x.trim());
+  const o = await cells('Olivia Owner');
+  if (o[0] !== '0' || o[1] !== '1' || !/min|h/.test(o[2])) throw new Error(`Olivia: ${o}`);
+  const k = await cells('Kim Park');
+  if (k.join() !== '0,0,—') throw new Error(`Kim: ${k}`);
+  await d.getByText(/0\s*not done/).waitFor();
+  await d.getByLabel('Period').selectOption('7');
+  await row('Olivia Owner').waitFor();
+  await page.evaluate(AXE);
+  const v = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id}: ${x.nodes[0]?.html.slice(0, 100)}`));
+  if (v.length) throw new Error(v.join(' | '));
+  await page.screenshot({ path: `${SP}/shots/shared-report.png` });
+  await d.getByRole('button', { name: 'Done' }).click();
 }, page);
 await step('back to Your mail: the support message is not there', async () => {
   await kim.getByLabel('Mailbox').selectOption({ label: 'Your mail' });

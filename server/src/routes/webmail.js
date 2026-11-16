@@ -30,7 +30,7 @@ import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.j
 import { withClient, withFolder, smtpFor, sendWithRetry } from '../mail/imap.js';
 import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
 import { applyRule } from '../mail/applyrule.js';
-import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers, delegatedMailboxesFor, delegatedMailboxFor, delegatesOf, MAX_DELEGATES } from '../mail/shared.js';
+import { sharedReport, sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers, delegatedMailboxesFor, delegatedMailboxFor, delegatesOf, MAX_DELEGATES } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml, signatureHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
@@ -533,7 +533,7 @@ export default function webmailRoutes() {
     ['GET', /^\/(unread|folders|messages|find|messages-eml\.zip)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+(\/preview|\/zip)?))?$/],
     ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
     ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
-    ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/members$/], ['GET', /^\/notes$/], ['POST', /^\/notes$/], ['DELETE', /^\/notes\/[\w-]+$/],
+    ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/shared-report$/], ['GET', /^\/members$/], ['GET', /^\/notes$/], ['POST', /^\/notes$/], ['DELETE', /^\/notes\/[\w-]+$/],
   ];
   r.use((req, res, next) => {
     const id = req.get('x-mailbox') || (req.method === 'GET' ? req.query.mailbox : null);
@@ -541,7 +541,7 @@ export default function webmailRoutes() {
     const mb = String(id).startsWith('d:') ? delegatedMailboxFor(req.user, id) : sharedMailboxFor(req.user, id);
     if (!mb) return next(new HttpError(404, 'Shared mailbox not found'));
     if (!SHARED_OK.some(([m, re]) => m === req.method && re.test(req.path))) return next(bad('That isn’t available in a shared mailbox'));
-    if (mb.delegated && /^\/(assign|members|notes)/.test(req.path)) return next(bad('Assigning and internal notes are for shared mailboxes'));
+    if (mb.delegated && /^\/(assign|members|notes|shared-report)/.test(req.path)) return next(bad('Assigning and internal notes are for shared mailboxes'));
     if (req.path === '/send' && (req.body?.sendAt != null || req.body?.followUp)) return next(bad('Send from a shared mailbox now (scheduling and follow-up reminders are for your own mail)'));
     req.realUserId = req.user.id; req.realUserName = req.user.name;
     // A delegate sends as the owner, and the mail says who actually sent it (Sender:).
@@ -604,6 +604,13 @@ export default function webmailRoutes() {
     sendTo(sharedMembers(mb).map((m) => m.id), { type: 'mail-notes', mailbox: mb, message_id: n.message_id });
     res.json(notesOf(mb, n.message_id));
   });
+  // Who answers what in a shared mailbox: the report for its people (?days=7, 30 or 90).
+  r.get('/shared-report', (req, res) => {
+    const mb = req.user.shared_mailbox;
+    if (!mb) throw bad('The report is for shared mailboxes');
+    const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+    res.json(sharedReport(mb, days));
+  });
   r.post('/assign', (req, res) => {
     const mb = req.user.shared_mailbox;
     if (!mb) throw bad('Messages are given to people in shared mailboxes');
@@ -617,9 +624,13 @@ export default function webmailRoutes() {
     }
     const done = req.body?.done !== undefined ? (req.body.done ? 1 : 0) : (before?.done ?? 0);
     const subject = str(req.body?.subject ?? before?.subject ?? '', { max: 300 }) || '';
-    q(`INSERT INTO shared_assignments (mailbox_id, message_id, assignee_id, done, subject, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(mailbox_id, message_id) DO UPDATE SET assignee_id = excluded.assignee_id, done = excluded.done, subject = excluded.subject, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-      .run(mb, messageId, assignee, done, subject, req.realUserId, now());
+    const t = now();
+    const assignedAt = assignee && assignee !== before?.assignee_id ? t : (assignee ? before?.assigned_at ?? null : null);
+    const doneAt = done ? (before?.done ? before.done_at ?? t : t) : null;
+    q(`INSERT INTO shared_assignments (mailbox_id, message_id, assignee_id, done, subject, updated_by, updated_at, created_at, assigned_at, done_at, done_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(mailbox_id, message_id) DO UPDATE SET assignee_id = excluded.assignee_id, done = excluded.done, subject = excluded.subject, updated_by = excluded.updated_by, updated_at = excluded.updated_at,
+         assigned_at = excluded.assigned_at, done_at = excluded.done_at, done_by = excluded.done_by`)
+      .run(mb, messageId, assignee, done, subject, req.realUserId, t, before?.created_at ?? t, assignedAt, doneAt, done ? (before?.done ? before.done_by ?? req.realUserId : req.realUserId) : null);
     if (assignee && assignee !== before?.assignee_id && assignee !== req.realUserId) {
       notifyBell([assignee], { kind: 'assign', title: `${req.realUserName} gave you an email in ${req.user.username}`, body: subject || '(no subject)', link: '/mail', actor: req.realUserId });
     }
