@@ -17,3 +17,10 @@ test('ids for things made offline are ones the server takes', () => {
   assert.match(a, /^[A-Za-z0-9_-]{16,40}$/);
   assert.notEqual(a, b);
 });
+
+test('sending what was kept offline: "not now" answers keep it for the next try, refusals drop it', async () => {
+  const { tryLater } = await import('./offlinedocs.js');
+  assert.equal(tryLater(new TypeError('Failed to fetch')), true, 'no connection');
+  for (const status of [401, 408, 429, 500, 502, 503, 504]) assert.equal(tryLater({ status }), true, String(status));
+  for (const status of [400, 403, 404, 409, 413, 422]) assert.equal(tryLater({ status }), false, String(status));
+});

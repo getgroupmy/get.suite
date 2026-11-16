@@ -344,6 +344,32 @@ await step('a task, a note and a contact deleted offline are gone here (even aft
   if (!((await api(page, 'GET', '/notes?trash=1')).body || []).some((n) => n.title === 'Ferry times')) throw new Error('note not in the trash');
   if (((await api(page, 'GET', '/contacts')).body || []).some((c) => c.name === 'Island Taxi')) throw new Error('contact still on the server');
 });
+await step('a change sent while the server is restarting (503) stays on the device and goes on the next try', async () => {
+  await page.goto(`${B}/notes`);
+  await page.getByText('Packing list').first().waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByText('Packing list').first().click();
+  const d = page.getByRole('dialog');
+  await d.getByLabel('Note').fill('Boots, rain jacket and a torch');
+  await d.getByRole('button', { name: 'Close' }).last().click();
+  await page.getByText('Boots, rain jacket and a torch').first().waitFor();
+  await page.waitForTimeout(800);
+  let refused = 0;
+  const restarting = (route) => (route.request().method() === 'PATCH' ? (refused++, route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Workspace is restarting"}' })) : route.continue());
+  await page.route('**/api/notes/*', restarting);
+  await ctx.setOffline(false);
+  await until(async () => refused > 0, 30000);
+  await page.waitForTimeout(1500);
+  if (await page.getByText(/couldn’t be made/).count()) throw new Error('the change was dropped');
+  const queued = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const c = r.result.transaction('changes').objectStore('changes').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
+  if ((await queued()) !== 1) throw new Error(`queued: ${await queued()}`);
+  await page.unroute('**/api/notes/*', restarting);
+  await page.reload(); // the next try (also when the network or the live connection comes back)
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await until(async () => ((await api(page, 'GET', '/notes')).body || []).some((n) => n.title === 'Packing list' && n.body === 'Boots, rain jacket and a torch'), 10000);
+  if ((await queued()) !== 0) throw new Error('still queued');
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });

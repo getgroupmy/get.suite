@@ -89,3 +89,10 @@ test('a contact sent with its own id is made once; someone else cannot take the 
   assert.equal((await mia('POST', '/api/contacts', { id, name: 'Mine' })).status, 400);
   assert.equal((await mia('GET', '/api/contacts')).body.filter((c) => c.name === 'Mine').length, 0);
 });
+
+test('a change sent after the session ended is answered 401 (the app keeps it for after signing in), not 4xx "no"', async () => {
+  const stranger = client();
+  for (const [m, u, b] of [['PATCH', '/api/notes/whatever', { body: 'x' }], ['POST', '/api/notes', { title: 'x' }], ['DELETE', '/api/contacts/whatever'], ['POST', '/api/mail/messages/flags', { folder: 'INBOX', uids: [1], seen: true }]]) {
+    assert.equal((await stranger(m, u, b)).status, 401, `${m} ${u}`);
+  }
+});

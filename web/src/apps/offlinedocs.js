@@ -43,6 +43,11 @@ export const forgetDoc = (id) => run('readwrite', (s) => s.delete(id)).catch(() 
 
 /** Whether an error means the server couldn't be reached (rather than an answer from it). */
 export const unreachable = (e) => !e?.status;
+/**
+ * Sending what was kept offline: answers that mean "not now" rather than "no" (signed out, the server restarting or busy).
+ * What got one stays on the device for the next try instead of being dropped.
+ */
+export const tryLater = (e) => unreachable(e) || [401, 408, 425, 429].includes(e.status) || e.status >= 500;
 
 /** A Uint8Array as base64 (for sending a copy to the server). */
 export function toBase64(bytes) {

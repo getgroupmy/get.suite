@@ -1,4 +1,4 @@
-import { unreachable, forgetAll } from './apps/offlinedocs.js';
+import { unreachable, tryLater, forgetAll } from './apps/offlinedocs.js';
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useState } from 'react';
 import OAuthConsent from './apps/oauth/Consent.jsx';
 import OAuthSignOut from './apps/oauth/SignOut.jsx';
@@ -209,7 +209,7 @@ function SendUnsent() {
       for (const m of await outboxList(lastUserId())) {
         if (m.error) continue; // refused before: left for the person to see (and delete)
         try { await post('/mail/send', m.body, { mailbox: m.mailbox || null }); await outboxRemove(m.id); mails++; }
-        catch (e) { if (unreachable(e)) break; await outboxNote(m.id, m, e.message); window.dispatchEvent(new Event('nw:outbox')); toast(`“${m.subject || '(no subject)'}” couldn’t be sent: ${e.message}`, 'error'); }
+        catch (e) { if (tryLater(e)) break; await outboxNote(m.id, m, e.message); window.dispatchEvent(new Event('nw:outbox')); toast(`“${m.subject || '(no subject)'}” couldn’t be sent: ${e.message}`, 'error'); }
       }
       if (mails) toast(`Sent ${mails} email${mails === 1 ? '' : 's'} written while offline`);
       // Changes made offline (Tasks, Notes, Chat messages), in the order they were made (one deleted meanwhile: that change is dropped).
@@ -218,7 +218,7 @@ function SendUnsent() {
       for (const c of await changeList(lastUserId())) {
         try { await api(c.method, c.url, c.body, c.url.startsWith('/mail/') ? { mailbox: c.mailbox || null } : {}); await changeRemove(c.id); changed++; } // mail: in the mailbox it was made in
         catch (e) {
-          if (unreachable(e)) break;
+          if (tryLater(e)) break; // kept for the next try (signed out, or the server restarting)
           if (c.method === 'DELETE' && e.status === 404) { await changeRemove(c.id); changed++; continue; } // already gone: deleted all the same
           await changeRemove(c.id); toast(`A change made offline to “${c.label || 'something'}” couldn’t be made: ${e.message}`, 'error'); }
       }
@@ -227,10 +227,16 @@ function SendUnsent() {
       if (r.sent) toast(`Sent what you changed offline in ${r.sent} file${r.sent === 1 ? '' : 's'}`);
       for (const f of r.copies) toast(`A file was changed elsewhere while you were offline: your changes are in “${f.name}”`, 'info', { duration: 10000 });
     };
-    const go = () => { run().catch(() => {}); };
+    // One run at a time (the network and the live connection can come back together: nothing is sent twice).
+    let running = null, again = false;
+    const go = () => {
+      if (running) { again = true; return; }
+      running = run().catch(() => {}).finally(() => { running = null; if (again) { again = false; go(); } });
+    };
     go();
     window.addEventListener('online', go);
-    return () => window.removeEventListener('online', go);
+    const off = onLive((m) => { if (m.type === 'live-connected') go(); }); // Workspace answers again (it was restarting)
+    return () => { window.removeEventListener('online', go); off(); };
   }, [toast]);
   return null;
 }
