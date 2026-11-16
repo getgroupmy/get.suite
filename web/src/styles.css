@@ -2040,7 +2040,7 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .person-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 .person-facts dt { color: var(--muted); font-size: 13px; }
 .person-facts dd { margin: 0; }
-.avatar-btn { border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%; align-self: flex-start; }
+.msg .avatar-btn { border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%; align-self: flex-start; }
 .msg-author { color: inherit; }
 .form-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .form-files li { gap: 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }
@@ -2901,8 +2901,8 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .status-recent { display: inline-flex; align-items: center; }
 .status-recent .icon-btn { width: 24px; height: 24px; font-size: 14px; }
 .room-usage { margin-top: 8px; border-top: 1px solid var(--border, #e0e0e0); padding-top: 12px; }
-.usage-bar { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: var(--hover, #eef1f6); vertical-align: middle; overflow: hidden; }
-.usage-bar span { display: block; height: 100%; background: var(--accent, #1a73e8); }
+.data-table .usage-bar { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: var(--hover, #eef1f6); vertical-align: middle; overflow: hidden; }
+.data-table .usage-bar span { display: block; height: 100%; background: var(--accent, #1a73e8); }
 .meet-hand small { font-size: 12px; font-weight: 600; margin-left: 2px; color: #fff; background: rgba(0,0,0,.5); border-radius: 8px; padding: 0 5px; vertical-align: top; }
 .meet-hands { display: block !important; background: var(--hover, #eef1f6); border-radius: 8px; padding: 8px; }
 .meet-hands ol { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
@@ -3131,7 +3131,7 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
 .attach-kind { font-size: 22px; width: 28px; text-align: center; }
 /* Mail list: attachment chips under a message */
 .msg-list li:has(.msg-files) { flex-wrap: wrap; }
-.msg-files { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px 30px; margin-top: -4px; min-width: 0; }
+.msg-list .msg-files { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px 30px; margin-top: -4px; min-width: 0; }
 .file-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 180px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 14px; font-size: 12.5px; color: var(--text); background: var(--surface); text-decoration: none; cursor: pointer; }
 .file-chip:hover { background: var(--surface-2); }
 .file-chip.more { font: inherit; font-size: 12.5px; color: var(--muted); }
