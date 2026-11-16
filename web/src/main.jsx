@@ -33,4 +33,9 @@ createRoot(document.getElementById('root')).render(<StrictMode><OfflineBar /><Ap
 // Installable as an app (and opens without a connection): see public/sw.js.
 if ('serviceWorker' in navigator && window.isSecureContext) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  // Tell it which app files are loaded (now and as more load), so they're kept for opening offline.
+  const tell = (urls) => { if (urls.length) navigator.serviceWorker.ready.then((r) => r.active?.postMessage({ type: 'keep-assets', urls })).catch(() => {}); };
+  const assets = (list) => list.map((e) => e.name).filter((u) => u.includes('/assets/'));
+  window.addEventListener('load', () => tell(assets(performance.getEntriesByType('resource'))));
+  try { new PerformanceObserver((l) => tell(assets(l.getEntries()))).observe({ type: 'resource', buffered: false }); } catch { /* older browsers */ }
 }

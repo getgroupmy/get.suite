@@ -1,3 +1,4 @@
+import { unreachable, forgetAll } from './apps/offlinedocs.js';
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useState } from 'react';
 import OAuthConsent from './apps/oauth/Consent.jsx';
 import OAuthSignOut from './apps/oauth/SignOut.jsx';
@@ -52,6 +53,7 @@ const Mail = lazy(() => import('./apps/mail/Mail.jsx'));
 const Settings = lazy(() => import('./apps/Settings.jsx'));
 
 const AuthCtx = createContext(null);
+const LAST_USER = 'nw-last-user';
 export const useAuth = () => useContext(AuthCtx);
 
 export default function App() {
@@ -114,10 +116,20 @@ function Workspace() {
   const guestMeet = /^\/meet\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(window.location.pathname) && !guestSignIn;
 
   useEffect(() => {
-    get('/auth/status').then((s) => setState({ loading: false, ...s })).catch(() => setState({ loading: false, user: null }));
+    // Who was signed in here last is remembered (just their name and settings, not the session), so that without a
+    // connection the app still opens for them, with the documents kept on this device.
+    get('/auth/status').then((s) => {
+      try { if (s.user) localStorage.setItem(LAST_USER, JSON.stringify(s.user)); else localStorage.removeItem(LAST_USER); } catch { /* private mode */ }
+      setState({ loading: false, ...s });
+    }).catch((e) => {
+      let last = null;
+      if (unreachable(e)) { try { last = JSON.parse(localStorage.getItem(LAST_USER) || 'null'); } catch { /* none */ } }
+      setState({ loading: false, user: last });
+    });
     const onOut = () => setState((s) => {
       // Signed out by the company's limit on time away: say so on the sign-in page.
       if (s.user?.session_idle_min && idleMs() > s.user.session_idle_min * 60e3) { try { sessionStorage.setItem('nw-signed-out', `You were signed out after ${s.user.session_idle_min} minutes without activity.`); } catch { /* private mode */ } }
+      try { localStorage.removeItem(LAST_USER); } catch { /* private mode */ }
       return { ...s, user: null };
     });
     window.addEventListener('nw:signed-out', onOut);
@@ -131,7 +143,7 @@ function Workspace() {
   const idleLimit = state.user?.session_idle_min;
   useEffect(() => {
     if (!idleLimit) return undefined;
-    const t = setInterval(() => { if (idleMs() > idleLimit * 60e3) get('/auth/me').catch(() => window.dispatchEvent(new Event('nw:signed-out'))); }, 15000);
+    const t = setInterval(() => { if (idleMs() > idleLimit * 60e3) get('/auth/me').catch((e) => { if (e.status === 401) window.dispatchEvent(new Event('nw:signed-out')); }); }, 15000);
     return () => clearInterval(t);
   }, [idleLimit]);
 
@@ -140,7 +152,7 @@ function Workspace() {
   const auth = {
     user: state.user,
     setUser: (user) => setState((s) => ({ ...s, user, needsSetup: false })),
-    logout: async () => { await post('/auth/logout').catch(() => {}); setState((s) => ({ ...s, user: null })); },
+    logout: async () => { await post('/auth/logout').catch(() => {}); try { localStorage.removeItem(LAST_USER); } catch { /* private mode */ } await forgetAll(); setState((s) => ({ ...s, user: null })); },
   };
 
   return (

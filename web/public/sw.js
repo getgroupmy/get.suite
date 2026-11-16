@@ -23,6 +23,15 @@ function keepShared(v) {
   });
 }
 
+// The page tells us the app files it has loaded (some before this worker was running, which it never saw): keep
+// them too, so the app and the editors it has opened start without a connection.
+self.addEventListener('message', (e) => {
+  if (e.data?.type !== 'keep-assets' || !Array.isArray(e.data.urls)) return;
+  const urls = e.data.urls.map((u) => { try { return new URL(u, self.location.origin); } catch { return null; } })
+    .filter((u) => u && u.origin === self.location.origin && u.pathname.startsWith('/assets/')).map((u) => u.pathname).slice(0, 300);
+  e.waitUntil(caches.open(CACHE).then(async (c) => { for (const u of urls) if (!(await c.match(u))) await c.add(u).catch(() => {}); }));
+});
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method === 'POST' && new URL(req.url).pathname === '/share-target') {

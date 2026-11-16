@@ -1,3 +1,5 @@
+import { jsonFromDoc, jsonFromSheetDoc, jsonFromDeckDoc } from '../collabdoc.js';
+import * as Y from 'yjs';
 import { announceFileState } from '../chatgone.js';
 import { withoutSuggestions } from '../office/suggestions.js';
 import { combine, extract, parsePages, pageCount, typeOf, stamp, organize, MAX_PAGES as MAX_PDF_PAGES } from '../pdftools.js';
@@ -845,6 +847,22 @@ export default function fileRoutes({ maxUploadBytes }) {
     const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : EMPTY[kind]();
     const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content) });
     notifyPlace(parentId, req.user);
+    res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
+
+  // Changes made offline that couldn't be merged (the document was rebuilt meanwhile, see collab.js genOf): the browser
+  // sends its kept copy ({ state: base64 Yjs update }) and it becomes a new file of the person's own, "… (offline copy)".
+  r.post('/:id/offline-copy', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const conv = { doc: jsonFromDoc, sheet: jsonFromSheetDoc, slides: jsonFromDeckDoc }[f.kind];
+    if (!conv) throw bad('Only documents, spreadsheets and presentations are kept offline');
+    const raw = Buffer.from(String(req.body?.state || ''), 'base64');
+    if (!raw.length || raw.length > 20 * 1024 * 1024) throw bad('Nothing to keep');
+    const doc = new Y.Doc();
+    try { Y.applyUpdate(doc, new Uint8Array(raw)); } catch { throw bad('That copy can’t be read'); }
+    const content = JSON.stringify(conv(doc));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: cleanName(`${f.name} (offline copy)`), kind: f.kind, content, size: Buffer.byteLength(content) });
+    notifyPlace(null, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 

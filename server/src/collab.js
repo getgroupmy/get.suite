@@ -39,22 +39,29 @@ const KINDS = {
 };
 export const CO_EDITED = Object.keys(KINDS);
 
+// Each shared form has a generation, set when it's built (from the JSON): a browser that kept a copy (offline) says which
+// generation it has when it connects, and is turned away (4001) if the document was rebuilt meanwhile, so an old copy is
+// never merged into a new one (which would repeat the text).
+export const genOf = (doc) => doc.getMap('meta').get('gen') || null;
+function stamp(doc) { if (!genOf(doc)) doc.getMap('meta').set('gen', crypto.randomBytes(9).toString('base64url')); return doc; }
+
 export function loadDoc(fileId, kind) {
   const k = KINDS[kind];
   const f = q('SELECT content, ydoc, ydoc_of FROM files WHERE id = ?').get(fileId);
   if (f.ydoc) {
     const doc = new Y.Doc();
     Y.applyUpdate(doc, new Uint8Array(f.ydoc));
-    if (f.ydoc_of && f.ydoc_of === fingerprint(f.content)) return doc; // the JSON is what it was saved with
+    const keep = () => { if (!genOf(doc)) { stamp(doc); q('UPDATE files SET ydoc = ? WHERE id = ?').run(Buffer.from(Y.encodeStateAsUpdate(doc)), fileId); } return doc; };
+    if (f.ydoc_of && f.ydoc_of === fingerprint(f.content)) return keep(); // the JSON is what it was saved with
     // A JSON change made outside co-editing (restoring a version, an old client) wins: rebuild.
     // (Stored JSON and the shared form agree on everything but how empty values are written.)
     if (JSON.stringify(k.toJson(doc)) === JSON.stringify(k.toJson(k.fromJson(JSON.parse(f.content))))) {
       q('UPDATE files SET ydoc_of = ? WHERE id = ?').run(fingerprint(f.content), fileId);
-      return doc;
+      return keep();
     }
   }
   // Built from the JSON: kept with its fingerprint, so the next opening skips the build (not an edit: the version stays).
-  const doc = k.fromJson(JSON.parse(f.content || '{}'));
+  const doc = stamp(k.fromJson(JSON.parse(f.content || '{}')));
   q('UPDATE files SET ydoc = ?, ydoc_of = ? WHERE id = ?').run(Buffer.from(Y.encodeStateAsUpdate(doc)), fingerprint(f.content), fileId);
   return doc;
 }
@@ -225,8 +232,11 @@ export function handleCollabUpgrade(req, socket, head, user) {
   const f = fileId && q('SELECT id, kind, trashed, locked_at, owner_id FROM files WHERE id = ?').get(fileId);
   const role = f && roleFor(f.id, user.id);
   if (!f || !KINDS[f.kind] || f.trashed || !role) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
+  const knownGen = new URLSearchParams(req.url.split('?')[1] || '').get('gen');
   wss.handleUpgrade(req, socket, head, (ws) => {
     const room = getRoom(f.id, f.kind);
+    // A kept copy of an older generation: not merged (see genOf).
+    if (knownGen && knownGen !== genOf(room.doc)) { try { ws.close(4001, 'rebuilt'); } catch {} return; }
     room.conns.set(ws, { userId: user.id, ownerId: f.owner_id, canEdit: atLeast(role, 'editor') && !f.locked_at, clients: new Set() });
     ws.binaryType = 'arraybuffer';
     ws.on('message', (data) => {
