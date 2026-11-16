@@ -19,6 +19,8 @@ import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
 import { newDeviceSignIn, passkeyChanged, accountChanged } from '../alerts.js';
 import { smtpFor } from '../mail/imap.js';
+import { ssoOf, orgForEmail, discover, newAttempt, takeAttempt, verifyIdToken, emailOf } from '../sso.js';
+import { baseUrl } from './calendar.js';
 
 // "Forgot password?": a link (valid for an hour, once) sent to the personal recovery address someone
 // added in Settings. The reply never says whether the account exists or has an address.
@@ -125,6 +127,61 @@ export default function authRoutes({ secureCookies }) {
     const u = startSession(req, res, row.id);
     audit(req, 'sign-in', { actor: u, target: u.username });
     res.json({ user: u });
+  });
+
+  // ---- Single sign-on with the company's identity provider (sso.js) ----
+  // Whether an address's company signs in that way: { sso: "Microsoft" } or { sso: null }. By domain only.
+  r.get('/sso/check', (req, res) => {
+    const orgId = orgForEmail(req.query.email);
+    res.json({ sso: orgId && ssoOf(orgId) ? ssoOf(orgId).label : null });
+  });
+  // Off to the provider, with a one-time state, a nonce and a PKCE challenge.
+  r.get('/sso/start', async (req, res) => {
+    const email = String(req.query.email || '').trim().toLowerCase();
+    const orgId = orgForEmail(email);
+    const sso = orgId && ssoOf(orgId);
+    if (!sso) return res.redirect(`/login?sso_error=${encodeURIComponent('Your company doesn’t sign in that way: use your password')}`);
+    let d;
+    try { d = await discover(sso.issuer); } catch (e) { return res.redirect(`/login?sso_error=${encodeURIComponent(`${sso.label} can’t be reached right now (${e.message}). Try again, or use your password.`)}`); }
+    const a = newAttempt(orgId);
+    const u = new URL(d.authorization_endpoint);
+    for (const [k, v] of Object.entries({ response_type: 'code', client_id: sso.clientId, redirect_uri: `${baseUrl(req)}/api/auth/sso/callback`, scope: 'openid email profile',
+      state: a.state, nonce: a.nonce, code_challenge: a.challenge, code_challenge_method: 'S256', ...(email.includes('@') && { login_hint: email }) })) u.searchParams.set(k, v);
+    res.redirect(u.toString());
+  });
+  // Back from the provider: the code swapped for an ID token, checked, and the person signed in.
+  r.get('/sso/callback', async (req, res) => {
+    const fail = (why) => res.redirect(`/login?sso_error=${encodeURIComponent(why)}`);
+    if (req.query.error) return fail(`Your company’s sign-in said no: ${String(req.query.error_description || req.query.error).slice(0, 200)}`);
+    const a = takeAttempt(req.query.state);
+    if (!a) return fail('That sign-in took too long or was used already. Try again.');
+    const sso = ssoOf(a.org_id);
+    if (!sso) return fail('Your company no longer signs in that way: use your password');
+    let claims;
+    try {
+      const d = await discover(sso.issuer);
+      const r2 = await fetch(d.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, signal: AbortSignal.timeout(10000),
+        body: new URLSearchParams({ grant_type: 'authorization_code', code: String(req.query.code || ''), redirect_uri: `${baseUrl(req)}/api/auth/sso/callback`, client_id: sso.clientId, client_secret: sso.secret, code_verifier: a.verifier }) });
+      const tok = await r2.json().catch(() => ({}));
+      if (!r2.ok || !tok.id_token) throw new Error(tok.error_description || tok.error || `the provider answered ${r2.status}`);
+      const jwks = await (await fetch(d.jwks_uri, { signal: AbortSignal.timeout(10000) })).json();
+      claims = verifyIdToken(tok.id_token, { issuer: sso.issuer, clientId: sso.clientId, nonce: a.nonce, jwks });
+    } catch (e) {
+      audit(req, 'sign-in.failed', { actor: null, org: a.org_id, target: null, details: { reason: 'sso', error: String(e.message).slice(0, 200) } });
+      return fail(`Signing in with ${sso.label} didn’t work: ${e.message}`);
+    }
+    const email = emailOf(claims);
+    const row = email && q('SELECT id, username, disabled FROM users WHERE username = ? AND org_id = ?').get(email, a.org_id);
+    if (!row || row.disabled) {
+      audit(req, 'sign-in.failed', { actor: null, org: a.org_id, target: email || null, details: { reason: 'sso', error: row ? 'disabled' : 'no such account' } });
+      return fail(email ? `${email} has no Workspace account here. Ask your admin.` : `${sso.label} didn’t say which email address you have`);
+    }
+    { const u = q('SELECT id, org_id, is_super FROM users WHERE id = ?').get(row.id); if (!networkAllowed(u, req.ip)) return fail(NETWORK_REFUSED); }
+    // Workspace's own two-step verification still applies to those who have it.
+    if (twoFactor.isEnabled(row.id)) return res.redirect(`/login?sso_ticket=${encodeURIComponent(twoFactor.newTicket(row.id))}`);
+    const u = startSession(req, res, row.id, 'sso');
+    audit(req, 'sign-in', { actor: u, target: u.username, details: { sso: sso.label } });
+    res.redirect('/');
   });
 
   // Second step: a code from the authenticator app, or a recovery code.

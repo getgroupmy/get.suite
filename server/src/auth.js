@@ -92,9 +92,10 @@ export async function validateNewPassword(pw, opts = {}) {
 }
 
 // How each session signed in (Settings → Signed-in devices): password, code (password and an app's code),
-// recovery (password and a recovery code), passkey, or password-passkey (a passkey as the second step).
+// recovery (password and a recovery code), passkey, password-passkey (a passkey as the second step), or sso
+// (the company's identity provider, sso.js).
 if (!q('PRAGMA table_info(sessions)').all().some((c) => c.name === 'method')) q('ALTER TABLE sessions ADD COLUMN method TEXT').run();
-export const SIGN_IN_METHODS = ['password', 'code', 'recovery', 'passkey', 'password-passkey'];
+export const SIGN_IN_METHODS = ['password', 'code', 'recovery', 'passkey', 'password-passkey', 'sso'];
 
 export function createSession(userId, { userAgent = '', ip = '', method = null } = {}) {
   const token = crypto.randomBytes(32).toString('base64url');

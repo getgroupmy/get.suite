@@ -1112,7 +1112,7 @@ function SignInApps() {
 }
 
 /** How a device signed in, after "signed in 3 Nov". */
-const SIGNED_IN_WITH = { password: 'with a password', code: 'with a password and a code', recovery: 'with a password and a recovery code', passkey: 'with a passkey', 'password-passkey': 'with a password and a passkey' };
+const SIGNED_IN_WITH = { password: 'with a password', code: 'with a password and a code', recovery: 'with a password and a recovery code', passkey: 'with a passkey', 'password-passkey': 'with a password and a passkey', sso: 'with your company’s single sign-on' };
 
 function Devices() {
   const toast = useToast();

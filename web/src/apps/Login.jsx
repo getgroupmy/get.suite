@@ -21,6 +21,21 @@ export default function Login({ needsSetup, canReset = false }) {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const [forgot, setForgot] = useState(null); // null, or { sent: message } once asked
   const [passkeyStep, setPasskeyStep] = useState(null); // after the password: { ticket, options } for the passkey
+  // Single sign-on: the company's identity provider (offered once the address is on its domain), and what it
+  // sends back here: an error to show, or, for someone with two-step verification, the code step.
+  const [sso, setSso] = useState(null); // "Microsoft"…
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const err = p.get('sso_error'), t = p.get('sso_ticket');
+    if (err) setError(err);
+    if (t) setTicket(t);
+    if (err || t) window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+  useEffect(() => {
+    if (needsSetup || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.username)) { setSso(null); return undefined; }
+    const t = setTimeout(() => get(`/auth/sso/check?email=${encodeURIComponent(form.username)}`).then((r) => setSso(r.sso)).catch(() => setSso(null)), 300);
+    return () => clearTimeout(t);
+  }, [form.username, needsSetup]);
 
   // A passkey instead of the password (and code): the browser offers the ones it has for this site.
   async function withPasskey(step) {
@@ -144,6 +159,7 @@ export default function Login({ needsSetup, canReset = false }) {
           try { const again = await post('/auth/login', { username: form.username, password: form.password }); if (again.passkeyStep) { setPasskeyStep(again); withPasskey(again); } else if (again.user) setUser(again.user); } catch (err) { setError(err.message); }
         }}>{busy ? 'Waiting for your passkey…' : 'Try the passkey again'}</button>
           : <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : needsSetup ? 'Create workspace' : 'Sign in'}</button>}
+        {!needsSetup && !ticket && !passkeyStep && sso && <a className="btn block" href={`/api/auth/sso/start?email=${encodeURIComponent(form.username)}`}>Sign in with {sso}</a>}
         {!needsSetup && !ticket && !passkeyStep && passkeysSupported() && <button type="button" className="btn block" disabled={busy} onClick={() => withPasskey()}>🔑 Use a passkey</button>}
         {!needsSetup && !ticket && canReset && <button type="button" className="link-btn small" onClick={() => setForgot({})}>Forgot password?</button>}
       </form>

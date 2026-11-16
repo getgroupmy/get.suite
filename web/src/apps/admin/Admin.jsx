@@ -709,6 +709,7 @@ function CompanySettings() {
         </label>
         <CompanyTokens />
         {org.allow_api_tokens && <AssistantTools />}
+        <SsoSettings org={org} />
         <label className="check">
           <input type="checkbox" checked={!!org.push_private} onChange={(e) => save({ push_private: e.target.checked }, e.target.checked ? 'Notifications on phones now hide what’s written' : 'Notifications on phones show what’s written again')} />
           Keep what’s written off lock screens: notifications on phones and computers say who or what it’s from (“HR Team · New email”), not the subject or message
@@ -1175,6 +1176,40 @@ function CompanySignature({ org, save }) {
         ))}
       </fieldset>
       <div className="row end"><button className="btn primary" disabled={text === (org.signature_template || '')}>Save signature</button></div>
+    </form>
+  );
+}
+
+/** Single sign-on: people sign in with the company's identity provider (Microsoft Entra ID, Google, Okta…). */
+function SsoSettings({ org }) {
+  const toast = useToast();
+  const [v, setV] = useState({ sso_label: org.sso_label || '', sso_issuer: org.sso_issuer || '', sso_client_id: org.sso_client_id || '', sso_secret: '' });
+  const [has, setHas] = useState(!!org.sso_has_secret);
+  const [on, setOn] = useState(!!(org.sso_issuer && org.sso_client_id && org.sso_has_secret));
+  const callback = `${window.location.origin}/api/auth/sso/callback`;
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      const body = { sso_label: v.sso_label, sso_issuer: v.sso_issuer, sso_client_id: v.sso_client_id, ...(v.sso_secret && { sso_secret: v.sso_secret }) };
+      const r = await patch('/orgs/current', body);
+      setHas(!!r.sso_has_secret); setV({ ...v, sso_secret: '' });
+      setOn(!!(r.sso_issuer && r.sso_client_id && r.sso_has_secret));
+      toast(r.sso_issuer && r.sso_client_id && r.sso_has_secret ? `People can sign in with ${r.sso_label || 'your identity provider'}` : 'Saved: fill in the address, client ID and secret to turn it on');
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  const off = async () => {
+    try { await patch('/orgs/current', { sso_issuer: '', sso_secret: '' }); setV({ ...v, sso_issuer: '', sso_secret: '' }); setHas(false); setOn(false); toast('Single sign-on is off: people sign in with their passwords'); } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <form className="stack-tight sso-settings" onSubmit={save} aria-labelledby="sso-h">
+      <strong id="sso-h">Single sign-on {on ? <span className="pill">On</span> : <span className="muted small">(off)</span>}</strong>
+      <p className="muted small" style={{ margin: 0 }}>Let people sign in with your company's identity provider (Microsoft Entra ID, Google, Okta, Keycloak… anything that speaks OpenID Connect) as well as their password: the sign-in page offers it once someone types an address on your domains. Register Workspace there as a web app with this sign-in (redirect) address, then fill in what it gives you. Their accounts here must already exist, with the same email address; two-step verification set up here still applies.</p>
+      <label className="field"><span>Sign-in (redirect) address to give the provider</span><input readOnly value={callback} onFocus={(e) => e.target.select()} /></label>
+      <label className="field"><span>Name on the sign-in page</span><input value={v.sso_label} maxLength={40} placeholder="Microsoft" onChange={(e) => setV({ ...v, sso_label: e.target.value })} /></label>
+      <label className="field"><span>Issuer address</span><input value={v.sso_issuer} placeholder="https://login.microsoftonline.com/<tenant id>/v2.0" onChange={(e) => setV({ ...v, sso_issuer: e.target.value })} /></label>
+      <label className="field"><span>Client ID</span><input value={v.sso_client_id} onChange={(e) => setV({ ...v, sso_client_id: e.target.value })} /></label>
+      <label className="field"><span>Client secret {has && <span className="muted small">(saved: type a new one to change it)</span>}</span><input type="password" value={v.sso_secret} autoComplete="new-password" onChange={(e) => setV({ ...v, sso_secret: e.target.value })} /></label>
+      <div className="row"><button className="btn primary small">Save</button>{on && <button type="button" className="btn small" onClick={off}>Turn off</button>}</div>
     </form>
   );
 }
