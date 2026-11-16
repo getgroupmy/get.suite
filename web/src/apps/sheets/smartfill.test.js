@@ -75,3 +75,28 @@ test('the top row of the table, empty in this column, is taken for headings and 
   const p = planSmartFill({ r1: 0, r2: 3, target: 1, cols: [0], value: (c, r) => g[r]?.[c] ?? '' });
   assert.deepEqual(p.fills.map((f) => [f.r, f.v]), [[3, 'DIAZ']]);
 });
+
+test('dates: read in several forms', async () => {
+  const { parseDate } = await import('./smartfill.js');
+  assert.deepEqual(parseDate('2026-11-05'), { y: 2026, m: 11, d: 5 });
+  assert.deepEqual(parseDate('2026-11-05 14:30'), { y: 2026, m: 11, d: 5 });
+  assert.deepEqual(parseDate('5/11/2026'), { y: 2026, m: 11, d: 5 }, 'day first');
+  assert.deepEqual(parseDate('11/25/2026'), { y: 2026, m: 11, d: 25 }, 'month first when it must be');
+  assert.deepEqual(parseDate('05.11.26'), { y: 2026, m: 11, d: 5 });
+  assert.deepEqual(parseDate('5 Nov 2026'), { y: 2026, m: 11, d: 5 });
+  assert.deepEqual(parseDate('November 5th, 2026'), { y: 2026, m: 11, d: 5 });
+  for (const no of ['2026-02-30', 'hello', '12/13/14/15', '5 Foo 2026', '']) assert.equal(parseDate(no), null, no);
+});
+
+test('dates reformatted from one or two examples', () => {
+  const p = learn([['2026-11-15', '15 Nov 2026']]);
+  assert.equal(run(p, '2026-03-05'), '5 Mar 2026', 'the day without a leading zero');
+  const q = learn([['15/11/2026', '2026-11-15'], ['5/3/2026', '2026-03-05']]);
+  assert.equal(run(q, '25/12/2026'), '2026-12-25');
+  const w = learn([['2026-11-16', 'Monday']]);
+  assert.equal(run(w, '2026-11-20'), 'Friday');
+  const m = learn([['2026-11-16', 'NOVEMBER 2026']]);
+  assert.equal(run(m, '2027-01-02'), 'JANUARY 2027');
+  assert.equal(run(p, 'not a date'), null, 'not a date: left empty');
+  assert.match(describeFill(p, ['A']), /the day of the date in A \+ “ ” \+ the month name, short of the date in A/);
+});

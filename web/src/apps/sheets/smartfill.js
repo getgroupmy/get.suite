@@ -10,6 +10,38 @@ const MAX_OUT = 120; // longer examples aren't learnt from
 const MAX_PART = 6; // parts counted from the start…
 const MAX_BACK = 3; // …and from the end
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const monthOf = (w) => { const i = MONTHS.findIndex((m) => m.slice(0, 3).toLowerCase() === String(w).slice(0, 3).toLowerCase()); return i < 0 ? null : i + 1; };
+const real = (y, m, d) => { const t = new Date(Date.UTC(y, m - 1, d)); return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d ? { y, m, d } : null; };
+const fullYear = (y) => (y.length === 2 ? 2000 + +y : +y);
+
+/**
+ * A cell's text as a date, or null: "2026-11-15" (how Sheets keeps dates, a time after it allowed),
+ * "15/11/2026" or "15.11.26" (day first, unless that can't be: "11/25/2026"), "15 Nov 2026", "Nov 15, 2026".
+ */
+export function parseDate(text) {
+  const s = String(text ?? '').trim();
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]\d{1,2}:\d{2}(?::\d{2})?)?$/.exec(s);
+  if (m) return real(+m[1], +m[2], +m[3]);
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})$/.exec(s);
+  if (m) { const [a, b, y] = [+m[1], +m[2], fullYear(m[3])]; return a > 12 || b <= 12 ? real(y, b, a) : real(y, a, b); }
+  m = /^(\d{1,2})(?:st|nd|rd|th)? ([A-Za-z]{3,9})\.?,? (\d{4})$/.exec(s);
+  if (m && monthOf(m[2])) return real(+m[3], monthOf(m[2]), +m[1]);
+  m = /^([A-Za-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?,? (\d{4})$/.exec(s);
+  if (m && monthOf(m[1])) return real(+m[3], monthOf(m[1]), +m[2]);
+  return null;
+}
+const pad2 = (n) => String(n).padStart(2, '0');
+/** One part of a date, as text. */
+const DATE_PARTS = {
+  d: (t) => String(t.d), dd: (t) => pad2(t.d), m: (t) => String(t.m), mm: (t) => pad2(t.m),
+  mon: (t) => MONTHS[t.m - 1].slice(0, 3), month: (t) => MONTHS[t.m - 1],
+  yyyy: (t) => String(t.y), yy: (t) => pad2(t.y % 100),
+  wd: (t) => DAYS[new Date(Date.UTC(t.y, t.m - 1, t.d)).getUTCDay()].slice(0, 3), weekday: (t) => DAYS[new Date(Date.UTC(t.y, t.m - 1, t.d)).getUTCDay()],
+};
+const TEXT_PARTS = new Set(['mon', 'month', 'wd', 'weekday']);
+
 const proper = (s) => s.toLowerCase().replace(/(^|[^\p{L}\p{N}'’])(\p{L})/gu, (_, a, b) => a + b.toUpperCase());
 const recase = (s, c) => (c === 'lower' ? s.toLowerCase() : c === 'upper' ? s.toUpperCase() : c === 'proper' ? proper(s) : s);
 const pick = (list, idx) => (idx >= 0 ? list[idx] : list[list.length + idx]);
@@ -22,6 +54,7 @@ function atomsFor(nCols) {
     for (const cs of CASES) {
       for (let col = 0; col < nCols; col++) {
         if (!first) out.push({ col, kind: 'whole', case: cs, first });
+        if (!first) for (const part of Object.keys(DATE_PARTS)) if (!cs || TEXT_PARTS.has(part)) out.push({ col, kind: 'date', part, case: cs, first });
         for (const idx of idxs) out.push({ col, kind: 'word', idx, case: cs, first });
         for (const idx of idxs) out.push({ col, kind: 'num', idx, case: '', first });
         for (const sep of SEPS) for (const idx of idxs) out.push({ col, kind: 'part', sep, idx, case: cs, first });
@@ -37,6 +70,7 @@ export function atomValue(a, inputs) {
   if (!s) return null;
   let v;
   if (a.kind === 'whole') v = s;
+  else if (a.kind === 'date') { const t = parseDate(s); if (!t) return null; v = DATE_PARTS[a.part](t); }
   else if (a.kind === 'word') v = pick(s.match(/[\p{L}\p{N}'’]+/gu) || [], a.idx);
   else if (a.kind === 'num') v = pick(s.match(/\d+(?:[.,]\d+)?/g) || [], a.idx);
   else {
@@ -119,6 +153,7 @@ export function applyFill(pattern, inputs) {
   return out;
 }
 
+const DATE_WORDS = { d: 'day', dd: 'day (2 digits)', m: 'month number', mm: 'month number (2 digits)', mon: 'month name, short', month: 'month name', yyyy: 'year', yy: 'year (2 digits)', wd: 'weekday, short', weekday: 'weekday' };
 const ORD = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth'];
 const BACK = ['last', 'second to last', 'third to last'];
 const nth = (i) => (i >= 0 ? ORD[i] : BACK[-i - 1]);
@@ -130,6 +165,7 @@ export function describeFill(pattern, colNames) {
     if (s.text !== undefined) return `“${s.text}”`;
     const a = s.atom, col = colNames[a.col] ?? `column ${a.col + 1}`;
     const what = a.kind === 'whole' ? col
+      : a.kind === 'date' ? `the ${DATE_WORDS[a.part]} of the date in ${col}`
       : a.kind === 'word' ? `the ${nth(a.idx)} word of ${col}`
       : a.kind === 'num' ? `the ${nth(a.idx)} number in ${col}`
       : `the ${nth(a.idx)} part of ${col} between ${SEP_NAMES[a.sep]}s`;

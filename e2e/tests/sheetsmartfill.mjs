@@ -125,6 +125,20 @@ await step('No thanks: not offered again for that column; the same text twice is
   await page.waitForTimeout(400);
   if (await bar.count()) throw new Error('offered for the same text twice');
 });
+await step('dates: two examples in another form, and the rest are offered in it', async () => {
+  sheet = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Dates', content: { sheets: [{ name: 'Sheet1', colWidths: {}, cells: {
+    A1: 'Due', A2: '2026-11-15', A3: '2026-03-05', A4: '2026-12-25', A5: '2027-01-01' } }] } })).body;
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await cell('A2').waitFor();
+  await typeIn('B2', '15 Nov 2026');
+  await typeIn('B3', '5 Mar 2026');
+  const bar = page.getByRole('region', { name: 'Smart fill suggestion' });
+  await bar.getByText(/fill 2 more cells in column B like your examples \(25 Dec 2026, 1 Jan 2027\)/).waitFor();
+  await bar.getByRole('button', { name: 'Preview…' }).click();
+  await page.getByRole('dialog', { name: 'Smart fill' }).getByText('the day of the date in A + “ ” + the month name, short of the date in A + “ ” + the year of the date in A').waitFor();
+  await page.getByRole('dialog', { name: 'Smart fill' }).getByRole('button', { name: 'Fill 2 cells' }).click();
+  await until(async () => { const c = await now(); return [c.B4, c.B5].join('|') === '25 Dec 2026|1 Jan 2027'; });
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
