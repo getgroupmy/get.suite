@@ -234,7 +234,7 @@ export default function Chat() {
       const from = read ? newFromId(list, read.read_at, user.id) : null;
       if (from) stick.current = false;
       setNewFrom(from);
-      setMessages(list); markRead(channelId);
+      setMessages((cur) => (jumpTo ? list : mergeLatest(list, cur))); markRead(channelId); // keeping any that arrived live while this was loading
       if (from) {
         // Show where the new messages start (with a little of what came before), or the end if they all fit.
         requestAnimationFrame(() => {
@@ -1030,8 +1030,8 @@ function Thread({ id, channelId, channel, user, onClose }) {
   const navigate = useNavigate();
   const typing = useTyping(channelId, id, user.id);
   useEffect(() => {
-    setFollowing(null);
-    get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); setFollowing(t.following); }).catch((e) => { toast(e.message, 'error'); onClose(); });
+    setFollowing(null); setReplies([]);
+    get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies((cur) => mergeLatest(t.replies, cur)); setFollowing(t.following); }).catch((e) => { toast(e.message, 'error'); onClose(); });
     box.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
