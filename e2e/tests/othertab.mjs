@@ -81,6 +81,30 @@ for (const [label, path, change, now, before] of process.env.ONLY ? CHANGES.filt
     await stayed();
   });
 }
+// Home's cards (today's events, tasks for today, unread chat) keep up too.
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const HOME = [
+  ['Home: an event today', async () => { const t = new Date(); t.setHours(23, 0, 0, 0); return api(other, 'POST', '/events', { title: 'Late call today', start: t.getTime(), end: t.getTime() + 30 * 6e4 }); }, 'Late call today'],
+  ['Home: a task due today', async () => { const ls = (await api(other, 'GET', '/tasks/lists')).body; const l = (Array.isArray(ls) ? ls : ls.lists)[0]; return api(other, 'POST', `/tasks/lists/${l.id}/tasks`, { title: 'Due today task', due: today() }); }, 'Due today task'],
+  ['Home: a chat message for me', async () => {
+    const kim = (await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body;
+    const k = await page.context().browser().newContext().then((c) => c.newPage());
+    await k.goto(B); await k.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) }));
+    const me = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'olivia@acme.com');
+    const dm = (await api(k, 'POST', '/chat/dm', { user_id: me.id })).body.id;
+    return api(k, 'POST', `/chat/channels/${dm}/messages`, { body: 'Ping from Kim' });
+  }, 'UNREAD:Kim Park'],
+];
+for (const [label, make, text] of process.env.ONLY ? HOME.filter((c) => c[0] === process.env.ONLY) : HOME) {
+  await step(`${label}: shows on an open Home at once`, async () => {
+    await fresh('/home');
+    const r = await make();
+    if (r.status >= 300) throw new Error(`could not make it: ${JSON.stringify(r.body).slice(0, 200)}`);
+    if (text.startsWith('UNREAD:')) await page.getByRole('region', { name: 'Unread' }).getByRole('link', { name: text.slice(7) }).waitFor({ timeout: 8000 }); // the card lists conversations
+    else await page.getByText(text).first().waitFor({ timeout: 8000 });
+    await stayed();
+  });
+}
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
 process.exit(failed ? 1 : 0);
