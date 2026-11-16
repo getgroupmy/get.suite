@@ -56,7 +56,7 @@ export function replyIcs(text, me, answer, now = Date.now()) {
   const keep = ['UID', 'SEQUENCE', 'DTSTART', 'DTEND', 'DURATION', 'SUMMARY', 'ORGANIZER', 'RECURRENCE-ID'];
   const body = lines.filter((l) => keep.includes(nameOf(l)));
   const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-  const cn = String(me.name || me.email).replace(/[";:,]/g, ' ').trim();
+  const cn = String(me.name || me.email).replace(/[";:,\x00-\x1f\x7f]/g, ' ').trim(); // no line breaks: they'd start new lines in the file
   const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//NAS Workspace//Calendar//EN', 'METHOD:REPLY', 'BEGIN:VEVENT', ...body, `DTSTAMP:${stamp}`,
     `ATTENDEE;CN=${cn};PARTSTAT=${PARTSTAT[answer]}:mailto:${me.email}`, 'END:VEVENT', 'END:VCALENDAR'];
   // Fold at 75 octets (roughly; continuation lines start with a space).

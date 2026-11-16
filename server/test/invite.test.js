@@ -60,3 +60,10 @@ test('a guest\'s emailed answer (METHOD:REPLY) goes on your event, once', async 
   assert.equal(applyReply(org.id, r, 'mail.test').changed, false, 'once');
   assert.equal(applyReply(org.id, { ...r, uid: 'ev123@elsewhere.example' }, 'mail.test'), null, 'not one of ours');
 });
+
+test('a reply can’t gain lines from the name (line breaks and control characters in it become spaces)', () => {
+  const r = replyIcs(ICS, { name: 'Eve\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:boss@acme.com', email: 'eve@acme.com' }, 'no', Date.UTC(2026, 10, 2));
+  const lines = r.replace(/\r\n /g, '').split(/\r?\n/);
+  assert.equal(lines.filter((l) => l.startsWith('ATTENDEE')).length, 1);
+  assert.equal(lines.some((l) => l.startsWith('ATTENDEE;PARTSTAT=ACCEPTED')), false, 'no line of its own');
+});
