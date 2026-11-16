@@ -780,12 +780,22 @@ export default function calendarRoutes() {
   });
 
   r.post('/', (req, res) => {
+    // An id chosen by the app (an event made offline): sending it again returns the event made the first time.
+    const want = typeof req.body?.id === 'string' && /^[A-Za-z0-9_-]{16,40}$/.test(req.body.id) ? req.body.id : null;
+    if (want) {
+      const had = q('SELECT * FROM events WHERE id = ?').get(want);
+      if (had) {
+        if (had.owner_id !== req.user.id) throw bad('That id is taken');
+        const made = outEvent(had);
+        return res.json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(want), rooms: roomsOf(want), reminders: remindersOf(want, req.user.id) });
+      }
+    }
     if (req.body?.calendar_id && !ownsCalendar(req.user.id, req.body.calendar_id)) actAsSharer(req, req.body.calendar_id); // a colleague's, shared to change
     const e = readEvent(req.body);
     // Check the guests before saving anything, so a refused invitation leaves no event behind.
     const guests = req.body.guests !== undefined && !SPECIAL.includes(e.kind) ? readGuests(req.user, req.body.guests) : null;
     const attachments = req.body.attachments !== undefined ? readAttachments(req.user, req.body.attachments) : [];
-    const id = uid();
+    const id = want || uid();
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : null;
     // "This event" of a repeating one: remember which series and occurrence it replaces (phones show it as part of the series).
     const of = req.body.recurrence_of;

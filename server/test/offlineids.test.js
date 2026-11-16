@@ -54,3 +54,22 @@ test('a task and a note sent with their own id are made once; someone else canno
   assert.equal((await olivia('GET', '/api/notes')).body.filter((n) => n.title === 'Ferry').length, 1);
   assert.equal((await mia('POST', '/api/notes', { id: nid, title: 'Mine now' })).status, 400);
 });
+
+test('an event sent with its own id is made once; someone else cannot take the id', async () => {
+  const olivia = client(), mia = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const id = 'offEvent0123456789abcdef';
+  const start = Date.UTC(2030, 0, 7, 9), end = start + 3600e3;
+  const a = await olivia('POST', '/api/events', { id, title: 'Dentist', start, end });
+  assert.equal(a.status, 201);
+  assert.equal(a.body.id, id);
+  const again = await olivia('POST', '/api/events', { id, title: 'Dentist', start, end });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.title, 'Dentist');
+  const listed = (await olivia('GET', `/api/events?from=${start - 1}&to=${end + 1}`)).body;
+  assert.equal(listed.filter((e) => e.title === 'Dentist').length, 1);
+  assert.equal((await mia('POST', '/api/events', { id, title: 'Mine', start, end })).status, 400);
+  const odd = await olivia('POST', '/api/events', { id: 'x', title: 'Odd', start, end });
+  assert.notEqual(odd.body.id, 'x');
+});

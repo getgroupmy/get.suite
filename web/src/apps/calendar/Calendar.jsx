@@ -1,4 +1,5 @@
 import WorldClock from './WorldClock.jsx';
+import { unreachable, changeAdd, appendKept, offlineId, eventsCovering } from '../offlinedocs.js';
 import { liveText } from '../meet/meetmath.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
@@ -284,6 +285,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.
   useEffect(() => onLive((m) => { if (refreshOn(m, 'events-changed')) { load(); loadCals(); } }), [load, loadCals]);
+  useEffect(() => { const again = () => { load(); loadCals(); }; window.addEventListener('nw:changes-sent', again); return () => window.removeEventListener('nw:changes-sent', again); }, [load, loadCals]);
   const loadTasks = useCallback(() => {
     if (!showTasks) { setTasks([]); return; }
     const last = new Date(days[days.length - 1]);
@@ -1583,8 +1585,22 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   async function save(which) {
     const { start, end, body } = read();
     if (end < start) return setError('The event ends before it starts');
+    // A new event gets its id here, so one made offline is made once when the connection is back (however often it's sent).
+    if (!event.id) body.id = offlineId();
     // With the auto-reply, the server turns it on for the event's days, along with saving it.
-    const saved = await applyEdit(event, f.ooo && autoReply ? { ...body, auto_reply: true } : body, which);
+    let saved;
+    try { saved = await applyEdit(event, f.ooo && autoReply ? { ...body, auto_reply: true } : body, which); }
+    catch (err) {
+      if (event.id || !unreachable(err)) throw err;
+      // No connection: kept here and made when it's back; shown on the calendar meanwhile (also after reloading).
+      const kept = { ...body, owner_id: me.id, role: 'organizer', guests: [], rooms: [], exdates: [], attachments: [], reminders: [], offline: true, created_at: Date.now() };
+      await changeAdd({ method: 'POST', url: '/events', body, user: me.id, label: body.title || 'an event' });
+      await appendKept(eventsCovering(start, end), kept);
+      window.dispatchEvent(new Event('nw:changes'));
+      toast(`“${body.title || 'Event'}” saved on this device, added when the connection is back${body.guests?.length ? ' (guests are invited then)' : ''}`);
+      onSaved();
+      return;
+    }
     if (f.ooo && autoReply) toast(`Email auto-reply on from ${f.startDate} to ${f.endDate}`);
     // Planned from a conversation (Chat's 📅): the event goes there too, as a card for everyone in it.
     if (!event.id && event.from_chat && saved?.id) {

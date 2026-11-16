@@ -238,6 +238,28 @@ await step('a task and a note made offline show here (even after reloading) and 
   if (made.length !== 1) throw new Error(`${made.length} tasks`);
   await page.getByRole('article', { name: 'Ferry times' }).waitFor(); // the list reloaded from the server keeps it
 });
+await step('Calendar: an event made offline shows here (even after reloading) and is made once when back', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByText('Site visit').first().waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByRole('button', { name: 'Create' }).click();
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  await dlg.getByLabel('Title').fill('Ferry to the island');
+  await dlg.getByLabel('Start time').fill('10:00');
+  await dlg.getByLabel('End time').fill('11:00');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(/“Ferry to the island” saved on this device/).waitFor({ timeout: 15000 });
+  await dlg.waitFor({ state: 'detached' });
+  await page.getByText('Ferry to the island').first().waitFor();
+  await page.reload();
+  await page.getByText('Ferry to the island').first().waitFor({ timeout: 20000 }); // still there after reloading offline
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  const day = new Date(); day.setHours(0, 0, 0, 0);
+  await until(async () => ((await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 864e5}`)).body || []).filter((e) => e.title === 'Ferry to the island').length === 1, 10000);
+  await page.getByText('Ferry to the island').first().waitFor(); // reloaded from the server
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });
