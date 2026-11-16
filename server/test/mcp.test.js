@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'answer_invitation', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_contact', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'answer_invitation', 'create_task', 'complete_task', 'list_mail', 'draft_email', 'create_note', 'create_contact', 'create_document', 'append_to_document', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -202,6 +202,27 @@ test('add a contact: found again by search and fetch; the same email isn’t add
   assert.equal((await owner('GET', '/api/contacts')).body.filter((x) => /initech/i.test(x.email || '')).length, 1);
   assert.match((await call(rw, 'create_contact', { name: ' ' })).content[0].text, /Give the contact’s name/);
   assert.equal((await call(ro, 'create_contact', { name: 'X' })).isError, true);
+});
+
+test('change an event: moved keeping its length, renamed; guests see it; others’ and repeating events refused', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'uma', domain: 'acme.com', name: 'Uma Guest', password: 'password123' })).status, 201);
+  const uma = client();
+  await uma('POST', '/api/auth/login', { username: 'uma@acme.com', password: 'password123' });
+  const start = Date.UTC(2027, 2, 10, 15); // a week no other test lists
+  const ev = (await call(rw, 'create_event', { title: 'Pricing sync', start: new Date(start).toISOString(), end: new Date(start + 30 * 60e3).toISOString(), guests: ['uma@acme.com'] })).structuredContent;
+  const moved = await call(rw, 'update_event', { id: ev.id, start: new Date(start + 36e5).toISOString(), title: 'Pricing sync (moved)' });
+  assert.ok(!moved.isError, JSON.stringify(moved));
+  assert.deepEqual([moved.structuredContent.start, moved.structuredContent.end, moved.structuredContent.title, moved.structuredContent.guests_told],
+    [new Date(start + 36e5).toISOString(), new Date(start + 36e5 + 30 * 60e3).toISOString(), 'Pricing sync (moved)', 1]);
+  const seen = (await uma('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body.find((e) => e.id === ev.id.replace('event:', ''));
+  assert.deepEqual([seen.start, seen.title], [start + 36e5, 'Pricing sync (moved)']);
+  // Uma's own event, seen by Olivia as an invitation: not Olivia's to change.
+  const theirs = (await uma('POST', '/api/events', { title: 'Uma’s review', start, end: start + 36e5, guests: ['olivia@acme.com'] })).body;
+  assert.match((await call(rw, 'update_event', { id: `event:${theirs.id}`, start: new Date(start + 2 * 36e5).toISOString() })).content[0].text, /Uma Guest organized it: only they can change it/);
+  const weekly = (await owner('POST', '/api/events', { title: 'Weekly', start, end: start + 36e5, rrule: { freq: 'weekly' } })).body;
+  assert.match((await call(rw, 'update_event', { id: `event:${weekly.id}`, title: 'x' })).content[0].text, /It repeats/);
+  assert.match((await call(rw, 'update_event', { id: ev.id })).content[0].text, /Say what to change/);
+  assert.match((await call(rw, 'update_event', { id: ev.id, end: new Date(start).toISOString() })).content[0].text, /end must be after the start/);
 });
 
 test('only with a valid token; a browser cookie isn’t enough', async () => {

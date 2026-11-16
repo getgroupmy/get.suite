@@ -215,6 +215,33 @@ export const TOOLS = [
     },
   },
   {
+    name: 'update_event', title: 'Change a calendar event', readOnly: false,
+    description: 'Move or change one of the person’s own events (one they organized): a new start (it keeps its length unless an end is given), end, title, location or description. Guests are sent the update. Repeating events, and events others organized, can’t be changed here.',
+    inputSchema: {
+      type: 'object', required: ['id'],
+      properties: {
+        id: { type: 'string', description: 'event:… from list_events or search' }, start: { type: 'string', description: 'ISO 8601' }, end: { type: 'string', description: 'ISO 8601' },
+        title: { type: 'string' }, location: { type: 'string' }, description: { type: 'string' },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.id || '').replace(/^event:/, '').split(':')[0];
+      const all = await api('GET', '/events');
+      const e = (Array.isArray(all) ? all : all.events || []).find((x) => x.id === id);
+      if (!e) throw new ToolError('Event not found');
+      if (e.role !== 'organizer') throw new ToolError(`${e.organizer?.name || 'Someone else'} organized it: only they can change it (answer_invitation answers it)`);
+      if (e.rrule) throw new ToolError('It repeats: change it in Workspace Calendar, where you choose this time or every time');
+      const body = {};
+      const start = a.start ? timeOf(a.start, 'start') : null, end = a.end ? timeOf(a.end, 'end') : null;
+      if (start !== null) { body.start = start; body.end = end ?? start + (e.end - e.start); } else if (end !== null) body.end = end;
+      if ((body.end ?? e.end) <= (body.start ?? e.start)) throw new ToolError('The end must be after the start');
+      for (const k of ['title', 'location', 'description']) if (a[k] !== undefined) body[k] = String(a[k]);
+      if (!Object.keys(body).length) throw new ToolError('Say what to change: start, end, title, location or description');
+      const s2 = await api('PATCH', `/events/${encodeURIComponent(id)}`, body);
+      return { id: `event:${id}`, title: s2.title, start: iso(s2.start), end: iso(s2.end), location: s2.location || null, guests_told: (s2.guests || []).length, url: link('/calendar') };
+    },
+  },
+  {
     name: 'answer_invitation', title: 'Answer a meeting invitation', readOnly: false,
     description: 'Answer an invitation on the person’s calendar (an event from list_events whose my_answer is set): yes, maybe or no, optionally with a note for the organizer (who is told). Only invitations from colleagues; ask the person before declining on their behalf.',
     inputSchema: {
@@ -565,7 +592,8 @@ function recordChange(req, tool, args) {
   const id = String(req.apiToken?.id || '');
   const assistant = (id.startsWith('mcp:') ? q('SELECT name FROM mcp_clients WHERE client_id = ?').get(id.slice(4))?.name : q('SELECT name FROM api_tokens WHERE id = ?').get(id)?.name) || 'An assistant';
   const special = tool.name === 'add_sheet_rows' && Array.isArray(args.rows) ? `${args.rows.length} row${args.rows.length === 1 ? '' : 's'} to ${args.file}`
-    : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}` : null;
+    : tool.name === 'answer_invitation' ? `${args.answer} to ${args.id}`
+    : tool.name === 'update_event' ? `changed ${args.id}${args.start ? ` to ${args.start}` : ''}` : null;
   const what = String(special || args.title || args.subject || args.name || args.text || args.body || args.id || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   audit(req, 'assistant.action', { target: what || tool.title, details: { assistant, tool: tool.name, title: tool.title, token: req.apiToken?.id || null } });
 }
