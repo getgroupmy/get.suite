@@ -12,6 +12,7 @@ import path from 'node:path';
 import { requireAuth, tokenFromReq } from './auth.js';
 import { HttpError } from './util.js';
 import authRoutes from './routes/auth.js';
+import { compressJson, gzipStatic } from './compress.js';
 import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
 import roomRoutes from './routes/rooms.js';
@@ -111,6 +112,7 @@ export function createApp({
     next();
   });
 
+  app.use('/api', compressJson()); // big GET answers gzipped (see compress.js)
   app.use('/api', (req, res, next) => (req.path === '/files/upload' || /^\/files\/[^/]+\/versions$/.test(req.path) ? next() : express.json({ limit: '25mb' })(req, res, next)));
 
   app.use('/api/auth', authRoutes({ secureCookies }));
@@ -180,6 +182,10 @@ export function createApp({
   // Web app (built React bundle) with SPA fallback.
   if (publicDir && fs.existsSync(publicDir)) {
     publicDir = path.resolve(publicDir);
+    app.use(gzipStatic(publicDir, (p) => ({
+      ...(p.includes(`${path.sep}assets${path.sep}`) && { 'Cache-Control': 'public, max-age=31536000, immutable' }),
+      ...(/[\\/](sw\.js|manifest\.webmanifest)$/.test(p) && { 'Cache-Control': 'no-cache' }),
+    })));
     app.use(express.static(publicDir, { index: false, maxAge: '1h', setHeaders: (res, p) => {
       if (p.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       if (/[\\/](sw\.js|manifest\.webmanifest)$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); // the installed app picks up new versions at once

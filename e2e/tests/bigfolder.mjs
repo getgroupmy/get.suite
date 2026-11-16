@@ -61,6 +61,18 @@ await step('End goes to the very last file (all of them put on the page first); 
   await page.locator('table.files thead input[type=checkbox]').check();
   await page.getByText('450 selected').waitFor();
 });
+await step('the folder’s list and the app’s scripts come gzipped', async () => {
+  const got = [];
+  page.on('response', async (r) => { if (/\/api\/files\?.*parent=|\/assets\/.*\.js$/.test(r.url())) got.push({ url: r.url(), enc: (await r.allHeaders())['content-encoding'], size: Number((await r.allHeaders())['content-length'] || 0) }); });
+  await page.goto(`${B}/drive/folder/${folder.id}`);
+  await page.locator('table.files').getByText('Report 000', { exact: true }).waitFor();
+  const list = got.find((x) => x.url.includes('/api/files'));
+  const js = got.find((x) => x.url.includes('/assets/'));
+  if (list?.enc !== 'gzip') throw new Error(`list: ${JSON.stringify(list)}`);
+  if (js && js.enc !== 'gzip') throw new Error(`script: ${JSON.stringify(js)}`);
+  const full = (await api(page, 'GET', `/files?parent=${folder.id}`)).body;
+  console.log(`  list of 450: ${JSON.stringify(full).length} bytes of JSON, ${list.size} sent`);
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
