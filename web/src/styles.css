@@ -283,6 +283,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .field > span { font-size: 13px; color: var(--muted); font-weight: 500; }
 .check { display: flex; align-items: center; gap: 8px; }
+input[type=checkbox], input[type=radio] { flex: none; } /* never squeezed by a long label beside them */
 .toasts { position: fixed; left: 24px; bottom: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 200; }
 .toast { background: #323232; color: #fff; padding: 12px 20px; border-radius: 8px; box-shadow: var(--shadow); max-width: 420px; }
 .toast.error { background: #a50e0e; }
@@ -3197,4 +3198,4 @@ tr[data-contact]:focus { outline: 2px solid var(--accent); outline-offset: -2px;
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 .tool-tag { margin-left: 6px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border); color: var(--muted); font-size: 11px; line-height: 16px; white-space: nowrap; }
-.assistant-tools .check { flex-wrap: wrap; } .assistant-tools .check input { flex: none; }
+.assistant-tools .check { flex-wrap: wrap; }
