@@ -785,9 +785,17 @@ const MOVE_FROM = {
     ],
     notes: 'Writer, Sheet and Show files come from WorkDrive as Word, Excel and PowerPoint files, which open here.',
   },
+  notion: {
+    name: 'Notion',
+    steps: [
+      <>In Notion: <strong>Settings</strong> → <strong>Workspace</strong> (or <strong>General</strong>) → <strong>Export all workspace content</strong>, or a page's <strong>⋯</strong> menu → <strong>Export</strong>: choose <strong>Markdown &amp; CSV</strong>, tick <strong>Include subpages</strong>, and download the .zip.</>,
+      <>Press <strong>Bring in a .zip…</strong> below. Every page becomes a document (its pictures in it, links to other pages going to their documents), every database a spreadsheet, in one new Drive folder <em>From Notion</em> keeping the page tree; Notion's long ids come off the names.</>,
+    ],
+    notes: 'Comments, page history and who could see what stay in Notion.',
+  },
 };
 
-/** Moving here from Google, Microsoft or Zoho: how to export from there, and bringing the .zip in. */
+/** Moving here from Google, Microsoft, Zoho or Notion: how to export from there, and bringing the .zip in. */
 function MoveHere() {
   const mail = useMailStatus();
   const [from, setFrom] = useState('google');
@@ -845,7 +853,7 @@ function MoveHere() {
         <button type="button" className="btn" disabled={bring.restoring} onClick={bring.pickFromDrive}>From Drive…</button>
         {from === 'microsoft' && msData?.available && !(msShown && ['waiting', 'signed-in', 'importing'].includes(msData.status)) && <button type="button" className="btn" onClick={fromMicrosoft} title="Sign in at Microsoft with a code and bring your calendars, contacts and OneDrive now, no export needed">Calendars, contacts and OneDrive from Microsoft…</button>}
         {from === 'google' && google?.available && <button type="button" className="btn" disabled={googleBusy} onClick={fromGoogle} title="Sign in at Google and bring your calendars, contacts and Drive now, no export needed">{googleBusy ? 'Going to Google…' : 'Calendars, contacts and Drive from Google…'}</button>}
-        {mail?.enabled && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Copy messages from the account…</Link>}
+        {mail?.enabled && m.mail && <Link className="btn" to={`/mail?import=1&from=${encodeURIComponent(m.mail)}`}><Icon name="mail" size={18} /> Copy messages from the account…</Link>}
         {bring.controls(`Your ${m.name} export (.zip)`, `Bring in your ${m.name} export from Drive`)}
       </div>
       {from === 'google' && google?.job && (

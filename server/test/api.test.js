@@ -13970,6 +13970,41 @@ test('moving from Google: a Takeout .zip brings calendars, contacts, Drive, Keep
   assert.match(none.body.error, /YouTube/);
 });
 
+test('moving from Notion: pages become documents (pictures in, links between pages kept), databases spreadsheets, ids off the names', async () => {
+  const n = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fromn', domain: 'acme.com', name: 'From Notion', password: 'password123' })).status, 201);
+  await login(n, 'fromn@acme.com');
+  const JSZip = (await import('jszip')).default;
+  const z = new JSZip();
+  const A = '0123456789abcdef0123456789abcdef', C = 'fedcba9876543210fedcba9876543210';
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  z.file(`Export-1/Roadmap ${A}.md`, `# Roadmap\n\nSee [Q3 plan](Roadmap%20${A}/Q3%20plan%20${C}.md).\n\n![diagram.png](Roadmap%20${A}/diagram.png)\n`);
+  z.file(`Export-1/Roadmap ${A}/Q3 plan ${C}.md`, '# Q3 plan\n\n- Ship the beta\n- Hire two people\n');
+  z.file(`Export-1/Roadmap ${A}/diagram.png`, PNG);
+  z.file(`Export-1/Contacts DB ${C}.csv`, 'Name,Email\nAna,ana@x.com\n');
+  z.file(`Export-1/Contacts DB ${C}_all.csv`, 'Name,Email\nAna,ana@x.com\nBo,bo@x.com\n');
+  const r = await n('POST', '/api/takeout/restore?tz=UTC', await z.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.from, 'Notion');
+  assert.match(r.body.drive.folder, /^From Notion \d{4}-\d\d-\d\d$/);
+  assert.equal(r.body.contacts, undefined, 'a database with a Name column is not taken for contacts');
+  const list = async (parent) => { const b = (await n('GET', `/api/files?parent=${parent}`)).body; return (b.files || b).map((f) => ({ id: f.id, name: f.name, kind: f.kind })); };
+  const top = await list(r.body.drive.folder_id);
+  assert.deepEqual(top.map((f) => [f.name, f.kind]).sort(), [['Contacts DB', 'sheet'], ['Roadmap', 'folder']]);
+  // A page with sub-pages: in their folder, first, under its own name.
+  const inside = await list(top.find((f) => f.kind === 'folder').id);
+  assert.deepEqual(inside.map((f) => [f.name, f.kind]).sort(), [['Q3 plan', 'doc'], ['Roadmap', 'doc'], ['diagram.png', 'file']]);
+  // The page: its picture is the Drive file, its link goes to the other page's document.
+  const road = (await n('GET', `/api/files/${inside.find((f) => f.name === 'Roadmap').id}/content`)).body.content;
+  const q3 = inside.find((f) => f.name === 'Q3 plan'), pic = inside.find((f) => f.name === 'diagram.png');
+  assert.ok(road.content.some((x) => x.type === 'image' && x.attrs.fileId === pic.id), JSON.stringify(road));
+  assert.match(JSON.stringify(road), new RegExp(`"href":"/docs/${q3.id}"`));
+  assert.match(JSON.stringify((await n('GET', `/api/files/${q3.id}/content`)).body.content), /Hire two people/);
+  // The database: every row (the _all copy), as a spreadsheet.
+  const sheet = (await n('GET', `/api/files/${top.find((f) => f.kind === 'sheet').id}/content`)).body.content.sheets[0];
+  assert.deepEqual([sheet.cells.A1, sheet.cells.A2, sheet.cells.A3, sheet.cells.B3], ['Name', 'Ana', 'Bo', 'bo@x.com']);
+});
+
 test('moving from Microsoft or Zoho: OneDrive files, an Outlook contacts CSV, a calendar, and .eml mail kept for Mail', async () => {
   const { q, FILES_DIR } = await import('../src/db.js');
   const m = client();

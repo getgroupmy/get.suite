@@ -43,6 +43,7 @@ import { odpFromDeck } from '../office/odp.js';
 import { excelFromSheet } from '../office/excel.js';
 import { powerPointFromDeck } from '../office/powerpoint.js';
 import { withoutSuggestions } from '../office/suggestions.js';
+import { docFromNotion, sheetFromNotionCsv } from '../migrate/notion.js';
 
 const MAX_BYTES = 10 * 1024 ** 3; // stored files; beyond this, download Drive in parts
 const safe = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 150) || 'untitled';
@@ -142,7 +143,14 @@ export async function intoDrive(user, { drive: driveEntries, mail: mailEntries, 
   if (!driveEntries.some((x) => !x.dir) && !mailEntries.length) return out;
   if (driveEntries.length > 20000) throw bad('That Drive has more than 20,000 files and folders: upload its folders in Drive instead');
   const MAILDIR = '\u0000mail'; // its own folder, even if the Drive has one called Mail
-  const toWrite = [...driveEntries.filter((x) => !x.dir).map((x) => ({ e: x.e, path: x.path })),
+  // Pages and databases from Notion (convert: 'doc' or 'sheet') become documents and spreadsheets: read whole, made below.
+  const converts = [];
+  for (const x of driveEntries.filter((y) => !y.dir && y.convert)) {
+    const chunks = []; let n = 0;
+    for await (const c of x.e.stream()) { n += c.length; if (n > 10 * 1024 * 1024) throw bad(`“${x.path}” is too big to bring in as a ${x.convert === 'doc' ? 'document' : 'spreadsheet'} (10 MB at most)`); chunks.push(c); }
+    converts.push({ ...x, text: Buffer.concat(chunks).toString('utf8') });
+  }
+  const toWrite = [...driveEntries.filter((x) => !x.dir && !x.convert).map((x) => ({ e: x.e, path: x.path, from: x.from })),
     ...mailEntries.map((x) => ({ e: x.e, path: `${MAILDIR}/${x.path}`, mailFolder: x.folder ?? '', gmail: !!x.gmail }))];
   // Each file straight to disk, one at a time (a big Drive never sits in memory); then all of them recorded at once.
   const written = [];
@@ -155,12 +163,13 @@ export async function intoDrive(user, { drive: driveEntries, mail: mailEntries, 
       await pipeline(w.e.stream(), fs.createWriteStream(path.join(FILES_DIR, one.storage)));
       one.size = fs.statSync(path.join(FILES_DIR, one.storage)).size;
     }
-    checkQuota(user.org_id, written.reduce((n, w) => n + w.size, 0), user.id);
+    checkQuota(user.org_id, written.reduce((n, w) => n + w.size, 0) + converts.reduce((n, c) => n + Buffer.byteLength(c.text), 0), user.id);
   } catch (e) { drop(); throw e; }
   const mboxes = [];
   try {
     tx(() => {
       const root = insertFile({ owner: user.id, parentId: null, name: rootName, kind: 'folder' });
+      const byFrom = new Map(); // a file's name in the .zip → its Drive id (pictures in Notion pages)
       const folders = new Map([['', root]]);
       const folderFor = (dir) => {
         if (folders.has(dir)) return folders.get(dir);
@@ -174,8 +183,26 @@ export async function intoDrive(user, { drive: driveEntries, mail: mailEntries, 
         const cut = w.path.lastIndexOf('/');
         const fid = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : w.path.slice(0, cut)), name: w.path.slice(cut + 1).slice(0, 255), kind: 'file', mime: w.mailFolder !== undefined ? 'application/mbox' : mimeFor(w.path), size: w.size, storage: w.storage });
         if (w.mailFolder !== undefined) mboxes.push({ id: fid, folder: w.mailFolder, ...(w.gmail && { gmail: true }) });
+        if (w.from) byFrom.set(w.from, fid);
       }
-      out.drive = { folder: rootName, folder_id: root, files: written.length - mboxes.length };
+      // Documents first made empty (so pages can link to each other), then filled; spreadsheets straight away.
+      const docIds = new Map();
+      for (const c of converts) {
+        const cut = c.path.lastIndexOf('/');
+        const parentId = folderFor(cut < 0 ? '' : c.path.slice(0, cut));
+        const name = c.path.slice(cut + 1).slice(0, 255) || 'Untitled';
+        if (c.convert === 'sheet') {
+          const content = JSON.stringify(sheetFromNotionCsv(c.text, name));
+          insertFile({ owner: user.id, parentId, name, kind: 'sheet', content, size: Buffer.byteLength(content) });
+        } else docIds.set(c.from, insertFile({ owner: user.id, parentId, name, kind: 'doc', content: '{"type":"doc","content":[]}', size: 0 }));
+      }
+      for (const c of converts.filter((x) => x.convert === 'doc')) {
+        const fromDir = c.from.includes('/') ? c.from.slice(0, c.from.lastIndexOf('/')) : '';
+        const doc = docFromNotion(c.text, { fromDir, pictureFor: (p) => byFrom.get(p) || null, pageFor: (p) => (docIds.get(p) ? `/docs/${docIds.get(p)}` : null) });
+        const content = JSON.stringify(doc);
+        q('UPDATE files SET content = ?, size = ? WHERE id = ?').run(content, Buffer.byteLength(content), docIds.get(c.from));
+      }
+      out.drive = { folder: rootName, folder_id: root, files: written.length - mboxes.length + converts.length };
     });
   } catch (e) { drop(); throw e; }
   sendTo([user.id], { type: 'files-changed' });

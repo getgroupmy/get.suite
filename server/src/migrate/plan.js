@@ -4,17 +4,20 @@
 //   Microsoft 365 / Outlook.com: OneDrive's .zip download, contacts as .csv, calendars as .ics, mail as .eml or .mbox.
 //   Zoho: Zoho Mail's export (.eml files in a folder per mail folder, or .mbox), Zoho Contacts (.vcf/.csv), Zoho
 //     Calendar (.ics), WorkDrive's .zip download.
+//   Notion: its Markdown & CSV export: pages to documents, databases to spreadsheets (see notion.js).
 // Anything else in a non-Google export goes into Drive, keeping its folders.
+import { isNotionExport, cleanNotionPath, notionSkip } from './notion.js';
 
 const JUNK = /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db|desktop\.ini)(\/|$)/i;
 const GOOGLE_KNOWN = ['Mail', 'Calendar', 'Contacts', 'Drive', 'Keep', 'Tasks'];
 
-/** Which service made the export, from the paths in it: 'google', 'microsoft', 'zoho' or 'other'. */
+/** Which service made the export, from the paths in it: 'google', 'microsoft', 'zoho', 'notion' or 'other'. */
 export function sourceOf(names) {
   const all = names.join('\n');
   if (/(^|\n)Takeout\//.test(all) || /(^|\n)archive_browser\.html(\n|$)/.test(all)) return 'google';
   if (/(^|\n)(OneDrive|Outlook)([ _-][^/\n]*)?\//i.test(all) || /\.pst(\n|$)/i.test(all)) return 'microsoft';
   if (/(^|\n)(Zoho|WorkDrive)[^/\n]*\//i.test(all) || /zmail|zoho/i.test(all)) return 'zoho';
+  if (isNotionExport(names)) return 'notion';
   return 'other';
 }
 
@@ -67,6 +70,14 @@ export function planExport(names) {
       if (top === 'Keep') return ['json', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'html'].includes(ext) && base(rest) !== 'Labels.txt' ? { name, as: 'keep' } : { name, as: 'skip', why: 'Keep’s label list' };
       if (top === 'Tasks') return ext === 'json' ? { name, as: 'tasks' } : { name, as: 'skip', why: 'not tasks' };
       return { name, as: 'drive', path: rest }; // Drive
+    }
+    if (source === 'notion') { // pages to documents, databases to spreadsheets, the rest (pictures, files) as they are
+      if (notionSkip(name, files)) return { name, as: 'skip', why: 'the same database as its “_all” file' };
+      const clean = cleanNotionPath(p);
+      // A page with sub-pages goes in their folder (named like it): "Roadmap/Roadmap".
+      if (ext === 'md') { const own = name.replace(/\.md$/i, '/'); const page = clean.replace(/\.md$/i, ''); return { name, as: 'drive', path: files.some((n) => n.startsWith(own)) ? `${page}/${page.slice(page.lastIndexOf('/') + 1)}` : page, convert: 'doc' }; }
+      if (ext === 'csv') return { name, as: 'drive', path: clean.replace(/\.csv$/i, ''), convert: 'sheet' };
+      return { name, as: 'drive', path: clean };
     }
     // Microsoft, Zoho and anything else: by kind of file.
     if (ext === 'mbox') return { name, as: 'mbox', folder: base(p).replace(/\.mbox$/i, '') };

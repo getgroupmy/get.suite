@@ -14,7 +14,7 @@ import { q } from '../db.js';
 import { bad } from '../util.js';
 import { sendTo } from '../hub.js';
 
-const NAMES = { google: 'Google', microsoft: 'Microsoft', zoho: 'Zoho', other: 'your export' };
+const NAMES = { google: 'Google', microsoft: 'Microsoft', zoho: 'Zoho', notion: 'Notion', other: 'your export' };
 const CAL_COLORS = ['#039be5', '#7986cb', '#33b679', '#8e24aa', '#e67c73', '#f6bf26', '#f4511e', '#616161'];
 const soft = (fn) => { try { return fn(); } catch (e) { if (e.status === 400 || e.status === 403) return { error: e.message }; throw e; } };
 
@@ -82,7 +82,7 @@ export async function restoreForeign(entries, user, tz = 'UTC', onStep = () => {
     catch (e) { if (e.status !== 400) throw e; }
   }
   // Drive files, and mail: .mbox files as they are, .eml files gathered into one .mbox per folder.
-  const drive = of('drive').map((x) => ({ e: byName.get(x.name), path: x.path }));
+  const drive = of('drive').map((x) => ({ e: byName.get(x.name), path: x.path, from: x.name, ...(x.convert && { convert: x.convert }) }));
   const mail = of('mbox').map((x) => ({ e: byName.get(x.name), path: x.name.slice(x.name.lastIndexOf('/') + 1), folder: x.folder ?? '', gmail: !!x.gmail }));
   const emlFolders = new Map();
   for (const x of of('eml')) { if (!emlFolders.has(x.folder)) emlFolders.set(x.folder, []); emlFolders.get(x.folder).push(x.name); }
@@ -90,7 +90,7 @@ export async function restoreForeign(entries, user, tz = 'UTC', onStep = () => {
     const e = { stream: () => Readable.from((async function* () { for (const n of names) yield mboxEntry(await byName.get(n).buffer()); })()) };
     mail.push({ e, path: `${folder.replace(/[/\\]/g, '-') || 'Imported'}.mbox`, folder });
   }
-  const label = { google: 'From Google', microsoft: 'From Microsoft', zoho: 'From Zoho', other: 'Brought in' }[source];
+  const label = { google: 'From Google', microsoft: 'From Microsoft', zoho: 'From Zoho', notion: 'From Notion', other: 'Brought in' }[source];
   Object.assign(out, await intoDrive(user, { drive, mail, rootName: `${label} ${new Date().toISOString().slice(0, 10)}`, onStep }));
   if (leftOut.length) out.left_out = leftOut;
   const skipped = plan.filter((x) => x.as === 'skip' && /\.pst/i.test(x.why || ''));
