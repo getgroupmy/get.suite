@@ -1,4 +1,5 @@
-import { keptList, unreachable, offlineId, changeAdd, keepDoc } from '../offlinedocs.js';
+import { keptList, unreachable, offlineId, changeAdd, keepDoc, forgetDoc } from '../offlinedocs.js';
+import { renameFile } from '../KeptCopy.jsx';
 import { findClashes, clashQuestion, findFolderClashes } from './uploadclash.js';
 import { driveKey, stepIndex } from './drivekeys.js';
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
@@ -745,7 +746,7 @@ export default function Drive() {
             ))}
           </div>
         )}
-        {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : route.view === 'activity' ? <RecentActivity /> : route.view === 'links' ? <MyLinks /> : offlineList ? <OnThisDevice list={offlineList} /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
+        {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : route.view === 'activity' ? <RecentActivity /> : route.view === 'links' ? <MyLinks /> : offlineList ? <OnThisDevice list={offlineList} onChanged={async () => setOfflineList(await keptList())} /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />
@@ -2046,24 +2047,41 @@ function RequestLimitsModal({ link, onClose, onSaved }) {
 }
 
 /** Drive without a connection: the files kept on this device (opened here lately), which open and can be edited offline. */
-function OnThisDevice({ list }) {
+function OnThisDevice({ list, onChanged }) {
+  const toast = useToast();
   const path = { doc: 'docs', sheet: 'sheets', slides: 'slides' };
   const icon = { doc: 'doc', sheet: 'sheet', slides: 'slides' };
+  const [renaming, setRenaming] = useState(null);
+  const [removing, setRemoving] = useState(null);
+  // Taking a file off this device: it opens from the server again when connected (asked first if it has unsent changes).
+  const remove = async (k) => { setRemoving(null); await forgetDoc(k.id); toast(`“${k.file.name}” is no longer kept on this device`); onChanged(); };
   return (
     <section className="stack on-this-device" aria-label="Files on this device">
       <div className="banner warn">You're offline. These files are kept on this device: they open and you can edit them; your changes go in when the connection is back.</div>
       {!list.length ? <p className="muted">Nothing is kept on this device yet: files you open while connected are kept for next time.</p> : (
         <ul className="plain-list">
-          {list.map(({ id, file, at, dirty }) => (
-            <li key={id} className="row" style={{ gap: 8, padding: '6px 0' }}>
-              <Icon name={icon[file.kind] || 'file'} size={18} />
-              <a href={`/${path[file.kind] || 'docs'}/${id}`} className="grow">{file.name}</a>
-              {dirty && <span className="pill warn" title="Changes made offline, sent when the connection is back">Not sent yet</span>}
-              <span className="muted small">Opened {formatDate(at)}</span>
-            </li>
-          ))}
+          {list.map((k) => {
+            const { id, file, at, dirty } = k;
+            return (
+              <li key={id} className="row" style={{ gap: 8, padding: '6px 0' }}>
+                <Icon name={icon[file.kind] || 'file'} size={18} />
+                <a href={`/${path[file.kind] || 'docs'}/${id}`} className="grow">{file.name}</a>
+                {dirty && <span className="pill warn" title="Changes made offline, sent when the connection is back">Not sent yet</span>}
+                <span className="muted small">Opened {formatDate(at)}</span>
+                <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`More for ${file.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
+                  ...(file.role === 'owner' || file.role === 'editor' ? [{ label: 'Rename…', icon: 'edit', onClick: () => setRenaming(k) }] : []),
+                  { label: 'Remove from this device', icon: 'trash', onClick: () => (dirty ? setRemoving(k) : remove(k)) },
+                ]} />
+              </li>
+            );
+          })}
         </ul>
       )}
+      {renaming && <PromptModal title="Rename" label="Name" initial={renaming.file.name} confirm="Rename" onClose={() => setRenaming(null)}
+        onSubmit={async (name) => { await renameFile(renaming.file, name); setRenaming(null); toast(`Renamed on this device: “${name}” when the connection is back`); onChanged(); }} />}
+      {removing && <ConfirmModal title="Remove from this device?" confirm="Remove" danger
+        message={`“${removing.file.name}” has changes made offline that haven't been sent yet. Removing it loses them.`}
+        onConfirm={() => remove(removing)} onClose={() => setRemoving(null)} />}
     </section>
   );
 }

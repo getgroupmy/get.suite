@@ -409,6 +409,32 @@ await step('Drive: a new document made offline is written in here, kept after re
   const blocks = doc.content[0]?.type === 'docTab' ? doc.content[0].content : doc.content;
   if (blocks.length !== 1 || blocks[0]?.content?.[0]?.text !== 'Notes from the island') throw new Error(JSON.stringify(doc)); // no empty line with it
 });
+await step('Drive offline: a kept file renamed there gets the name when back; one can be taken off the device', async () => {
+  await page.goto(`${B}/drive`);
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.reload();
+  const kept = page.getByRole('region', { name: 'Files on this device' }).or(page.locator('section.on-this-device'));
+  await kept.getByRole('link', { name: 'Island notes' }).waitFor({ timeout: 20000 });
+  const islandId = (await kept.getByRole('link', { name: 'Island notes' }).getAttribute('href')).split('/').pop();
+  await kept.getByRole('button', { name: 'More for Island notes' }).click();
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await page.getByRole('dialog', { name: 'Rename' }).getByLabel('Name').fill('Island notes, final');
+  await page.getByRole('dialog', { name: 'Rename' }).getByRole('button', { name: 'Rename' }).click();
+  await page.getByText('Renamed on this device').waitFor({ timeout: 15000 });
+  await kept.getByRole('link', { name: 'Island notes, final' }).waitFor();
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await until(async () => (await api(page, 'GET', `/files/${islandId}/content`)).body?.file?.name === 'Island notes, final', 10000);
+  // Taken off the device: not listed there any more (it opens from the server when connected).
+  await ctx.setOffline(true);
+  await page.reload();
+  await kept.getByRole('button', { name: 'More for Island notes, final' }).click({ timeout: 20000 });
+  await page.getByRole('menuitem', { name: 'Remove from this device' }).click();
+  await page.getByText('is no longer kept on this device').waitFor();
+  await kept.getByRole('link', { name: 'Island notes, final' }).waitFor({ state: 'detached' });
+  await ctx.setOffline(false);
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });
