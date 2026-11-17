@@ -861,6 +861,16 @@ export default function Chat() {
           </div>
         ) : !current ? <Empty icon="chat" title="Pick a conversation" /> : <>
           <LiveCalls channelId={current.id} />
+          {current.welcome && !current.welcome_seen && !current.dm_key && (
+            <section className="chat-welcome" aria-label={`Welcome to #${current.name}`}>
+              <span aria-hidden="true">👋</span>
+              <div className="grow"><strong>Welcome to #{current.name}</strong><p className="chat-welcome-text">{current.welcome}</p></div>
+              <button type="button" className="btn small" onClick={async () => {
+                setChannels((cs) => cs.map((c) => (c.id === current.id ? { ...c, welcome_seen: true } : c)));
+                await post(`/chat/channels/${current.id}/welcome/seen`).catch(() => {});
+              }}>Got it</button>
+            </section>
+          )}
           <div className="chat-head">
             <div className="grow" style={{ minWidth: 0 }}>
               <h1>{current.private && !current.dm_key ? `🔒 ${current.name}` : title}</h1>
@@ -2206,6 +2216,18 @@ function Webhooks({ channel }) {
 }
 
 /** A channel's topic, name, privacy, members and archiving. */
+/** A note for people new to the channel (the rules, where to start), shown to them until they dismiss it. */
+function WelcomeNote({ channel, onSave }) {
+  const [text, setText] = useState(channel.welcome || '');
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <label className="field"><span><strong>Welcome note</strong> <span className="muted small">for people who join from now on</span></span>
+        <textarea rows={3} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} placeholder="Hi! Read the pinned messages first, and ask your questions in threads." /></label>
+      <div className="row"><button type="button" className="btn" disabled={text.trim() === (channel.welcome || '')} onClick={() => onSave(text.trim())}>Save</button></div>
+    </div>
+  );
+}
+
 /** Announcement channels: everyone posts, or only the people chosen (whoever made it and admins always can). */
 function WhoPosts({ channel, people, onSave }) {
   const [some, setSome] = useState(!!channel.posters);
@@ -2268,6 +2290,7 @@ function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, o
           </section>
         ) : <p className="muted small" style={{ margin: 0 }}>Everyone in the company can see and join this channel.</p>}
         {canManage && <Webhooks channel={channel} />}
+        {canManage && <WelcomeNote channel={channel} onSave={(welcome) => change({ welcome }, welcome ? 'Welcome note saved: people who join from now on see it' : 'Welcome note removed')} />}
         {canManage && <WhoPosts channel={channel} people={people.filter((p) => !p.external)} onSave={(posters) => change({ posters }, posters ? 'Only the people chosen (and admins) can post now' : 'Everyone can post again')} />}
         {canManage && !general && (
           <div className="row wrap" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>

@@ -3281,3 +3281,8 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .workload-open { display: inline-flex; align-items: center; gap: 8px; }
 .workload-bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
 .workload-late { color: var(--danger, #c5221f); font-weight: 600; }
+
+/* Chat: a channel's welcome note for people new to it */
+.chat-welcome { display: flex; gap: 12px; align-items: flex-start; margin: 8px 16px 0; padding: 10px 14px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.chat-welcome > span { font-size: 20px; }
+.chat-welcome-text { margin: 2px 0 0; white-space: pre-wrap; }

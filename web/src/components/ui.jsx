@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { avatarColor } from './avatarcolor.js';
 import Icon from './Icon.jsx';
@@ -87,7 +87,22 @@ export function ConfirmModal({ title, message, confirm = 'Delete', danger = true
 /** Small dropdown menu anchored to a trigger button. */
 export function Menu({ trigger, items, align = 'right' }) {
   const [open, setOpen] = useState(false);
+  const [side, setSide] = useState(align); // flipped when that side would be cut off
   const ref = useRef();
+  const menuRef = useRef();
+  // Opening towards the side asked for, unless it would be cut off there (by the window, or a panel that clips
+  // what spills out of it): then towards the other side.
+  useLayoutEffect(() => {
+    if (!open) { setSide(align); return; }
+    const m = menuRef.current?.getBoundingClientRect();
+    if (!m || side !== align) return; // flipped once already: if both sides are cut off, stay put
+    let lo = 0; let hi = window.innerWidth;
+    for (let el = ref.current?.parentElement; el && el !== document.body; el = el.parentElement) {
+      if (getComputedStyle(el).overflowX !== 'visible') { const r = el.getBoundingClientRect(); lo = Math.max(lo, r.left); hi = Math.min(hi, r.right); break; }
+    }
+    if (side === 'right' && m.left < lo - 1) setSide('left');
+    else if (side === 'left' && m.right > hi + 1) setSide('right');
+  }, [open, side, align]);
   useEffect(() => {
     if (!open) return;
     const close = (e) => !ref.current?.contains(e.target) && setOpen(false);
@@ -100,7 +115,7 @@ export function Menu({ trigger, items, align = 'right' }) {
     <div className="menu-wrap" ref={ref} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       {trigger({ onClick: () => setOpen((o) => !o), 'aria-expanded': open, 'aria-haspopup': 'menu' })}
       {open && (
-        <div className={`menu menu-${align}`} role="menu">
+        <div ref={menuRef} className={`menu menu-${side}`} role="menu">
           {items.filter(Boolean).map((it, i) => it === '-' ? <hr key={i} /> : (
             <button key={i} role="menuitem" className={`menu-item ${it.danger ? 'danger' : ''}`} disabled={it.disabled}
               onClick={() => { setOpen(false); it.onClick(); }}>

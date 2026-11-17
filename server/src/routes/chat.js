@@ -747,12 +747,18 @@ export function conversationFor(channelId, user) {
   return { title, messages };
 }
 
+// A channel's welcome note (channels.welcome), shown to people new to it until they dismiss it. Whoever was already
+// in the channel when it's written counts as having seen it.
+if (!q('PRAGMA table_info(channels)').all().some((c) => c.name === 'welcome')) q('ALTER TABLE channels ADD COLUMN welcome TEXT').run();
+q('CREATE TABLE IF NOT EXISTS chat_welcome_seen (channel_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (channel_id, user_id))').run();
+
 export default function chatRoutes() {
   const r = Router();
 
   r.get('/channels', (req, res) => {
     const me = req.user.id;
-    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters, c.about_kind, c.about_title, c.about_path, c.about_id,
+    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters, c.about_kind, c.about_title, c.about_path, c.about_id, c.welcome,
+                      EXISTS (SELECT 1 FROM chat_welcome_seen ws WHERE ws.channel_id = c.id AND ws.user_id = ?) AS welcome_seen,
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
                       (SELECT mu.until FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted_until,
@@ -775,7 +781,7 @@ export default function chatRoutes() {
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     const inSection = new Map(q('SELECT channel_id, section_id FROM chat_section_items WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.section_id]));
     const closed = new Map(q('SELECT channel_id, closed_at FROM chat_closed WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.closed_at]));
     // An own channel whose event, list, file or note has gone (deleted, or in the trash): said so, not linked.
@@ -787,9 +793,16 @@ export default function chatRoutes() {
       if (c.about_kind === 'note') return !q('SELECT 1 FROM notes WHERE id = ? AND trashed_at IS NULL').get(c.about_id);
       return false;
     };
-    res.json({ channels: rows.map(({ has_left: hasLeft, about_id: aboutId, ...c }) => ({ ...c, about_gone: gone({ ...c, about_id: aboutId }), muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null,
+    res.json({ channels: rows.map(({ has_left: hasLeft, about_id: aboutId, ...c }) => ({ ...c, about_gone: gone({ ...c, about_id: aboutId }), muted: !!c.muted, welcome: c.welcome || null, welcome_seen: !!c.welcome_seen, starred: !!c.starred_at, section_id: inSection.get(c.id) || null,
       ...(closed.has(c.id) && !(c.last_at > closed.get(c.id)) && { closed: true }), /* closed, nothing new since */ posters: postersOf(c), can_post: mayPost(c, req.user, null),
       ...(hasLeft && { left: true, unread: 0, mentions: 0 }) })), online: onlineUserIds() });
+  });
+
+  // "Got it" on a channel's welcome note.
+  r.post('/channels/:id/welcome/seen', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    q('INSERT OR IGNORE INTO chat_welcome_seen (channel_id, user_id) VALUES (?, ?)').run(c.id, req.user.id);
+    res.json({ ok: true });
   });
 
   r.post('/channels', (req, res) => {
@@ -850,6 +863,13 @@ export default function chatRoutes() {
       set.name = name;
     }
     if (b.archived !== undefined) set.archived_at = b.archived ? now() : null;
+    // A welcome note for people who join (whoever made it, or an admin): those already in it don't get it.
+    let welcomed = false;
+    if (b.welcome !== undefined) {
+      if (!canManage(c, req.user)) throw new HttpError(403, 'Only whoever made the channel, or an admin, can change that');
+      set.welcome = (str(b.welcome ?? '', { max: 1000, name: 'Welcome note' }) || '').trim() || null;
+      welcomed = !!set.welcome && set.welcome !== c.welcome;
+    }
     // Who can post: { posters: null } (everyone) or { posters: [user ids] } (just them, plus whoever made it and admins).
     if (b.posters !== undefined) {
       if (!canManage(c, req.user)) throw new HttpError(403, 'Only whoever made the channel, or an admin, can change that');
@@ -870,6 +890,10 @@ export default function chatRoutes() {
           q('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(c.id, m);
         }
         else q('DELETE FROM channel_members WHERE channel_id = ?').run(c.id);
+      }
+      if (welcomed) {
+        q(`INSERT OR IGNORE INTO chat_welcome_seen (channel_id, user_id) SELECT ?, user_id FROM channel_members WHERE channel_id = ?
+           UNION SELECT ?, user_id FROM channel_reads WHERE channel_id = ? UNION SELECT ?, ?`).run(c.id, c.id, c.id, c.id, c.id, req.user.id);
       }
       const keys = Object.keys(set);
       if (keys.length) q(`UPDATE channels SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => set[k]), c.id);

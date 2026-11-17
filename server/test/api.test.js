@@ -15583,3 +15583,23 @@ test('tasks: remind someone of their overdue tasks on a shared list — once a d
   assert.equal((await remind(a, { user_id: bobId })).status, 429, 'once a day');
   assert.equal((await remind(b, { user_id: (await a('GET', '/api/auth/me')).body.user.id })).status, 400, 'nothing of Ann’s is overdue');
 });
+
+test('chat: a channel’s welcome note — new people see it until they dismiss it', async () => {
+  const a = client(); const b = client(); const c = client();
+  for (const [l, n] of [['welca', 'We Ann'], ['welcb', 'We Bob'], ['welcc', 'We Cal']]) assert.equal((await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: n, password: 'password123' })).status, 201);
+  await login(a, 'welca@acme.com'); await login(b, 'welcb@acme.com'); await login(c, 'welcc@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'welcome-test' })).body;
+  await b('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Hi all' }); // Bob is already in it
+  assert.equal((await b('PATCH', `/api/chat/channels/${ch.id}`, { welcome: 'Read the pinned rules' })).status, 403, 'only whoever made it, or an admin');
+  assert.equal((await a('PATCH', `/api/chat/channels/${ch.id}`, { welcome: '  Please read the pinned rules first.  ' })).status, 200);
+  const seen = async (who) => (await who('GET', '/api/chat/channels')).body.channels.find((x) => x.id === ch.id);
+  const cal = await seen(c);
+  assert.deepEqual([cal.welcome, cal.welcome_seen], ['Please read the pinned rules first.', false], 'someone new sees it');
+  assert.equal((await seen(b)).welcome_seen, true, 'someone already in it doesn’t');
+  assert.equal((await seen(a)).welcome_seen, true);
+  assert.equal((await c('POST', `/api/chat/channels/${ch.id}/welcome/seen`)).status, 200);
+  assert.equal((await seen(c)).welcome_seen, true);
+  assert.equal((await a('PATCH', `/api/chat/channels/${ch.id}`, { welcome: 'x'.repeat(1001) })).status, 400);
+  assert.equal((await a('PATCH', `/api/chat/channels/${ch.id}`, { welcome: '' })).status, 200);
+  assert.equal((await seen(c)).welcome, null, 'cleared');
+});
