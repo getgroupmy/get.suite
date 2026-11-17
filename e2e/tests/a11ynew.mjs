@@ -146,6 +146,15 @@ await step('Notes: the Templates window', async () => {
   await page.getByRole('dialog', { name: 'Note templates' }).getByText('Weekly 1:1').waitFor({ timeout: 10000 });
   await both('note templates');
 });
+await step('Home: the Today’s note card with tick boxes', async () => {
+  const d = new Date();
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const n = (await api(page, 'POST', '/notes/daily', { date, title: 'Today' })).body;
+  await api(page, 'PATCH', `/notes/${n.id}`, { items: [{ text: 'Plan the week', done: true }, { text: 'Reply to Kim' }] });
+  await page.goto(`${B}/home`);
+  await page.getByRole('region', { name: 'Today’s note' }).getByRole('checkbox', { name: 'Reply to Kim' }).waitFor({ timeout: 10000 });
+  await both('home today’s note');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -149,6 +149,28 @@ await step('/thanks in Chat: a thank-you for Kim, posted in the channel', async 
   await page.keyboard.press('Enter');
   await page.getByText('Write it as /thanks @someone what for').last().waitFor();
 });
+await step('/thanks in a thread: the thank-you is a reply there', async () => {
+  const m = page.locator('.chat-main').locator('.msg', { hasText: 'Thanks, Kim Park: for fixing the build' }).last();
+  await m.hover();
+  await m.getByRole('button', { name: 'Reply in thread' }).click();
+  const thread = page.getByRole('complementary', { name: 'Thread' });
+  await thread.getByLabel('Reply', { exact: true }).fill('/thanks @kim@acme.com 🙏 and for the late night');
+  await page.keyboard.press('Enter');
+  await thread.getByText('🙏 Thanks, Kim Park: and for the late night').waitFor({ timeout: 10000 });
+  if (await page.locator('.chat-main').locator('.msg', { hasText: 'and for the late night' }).count()) throw new Error('also posted in the channel');
+});
+await step('/thanks in a direct message: posted there as your message', async () => {
+  const dm = (await api(page, 'POST', '/chat/dm', { user_id: (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id })).body.id;
+  await page.goto(`${B}/chat/${dm}`);
+  const box = page.getByLabel('Message', { exact: true });
+  await box.waitFor({ timeout: 10000 });
+  await box.fill('/thanks @kim@acme.com for covering for me');
+  await page.keyboard.press('Enter');
+  await page.getByText('🙌 Thanks, Kim Park: for covering for me').first().waitFor({ timeout: 10000 });
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const got = (await api(page, 'GET', `/kudos/for/${kimId}`)).body.latest.map((k) => k.message);
+  if (!got.includes('for covering for me') || !got.includes('and for the late night')) throw new Error(JSON.stringify(got));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

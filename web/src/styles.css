@@ -1966,7 +1966,8 @@ button.usage:hover .muted { color: var(--text); }
 .home-card h2 a:hover { text-decoration: underline; }
 .home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .home-list li { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.home-list li.past { opacity: .55; }
+.home-list li.past { color: var(--muted); } /* over: muted, still readable (fading it failed contrast) */
+.home-list li.past .home-when { text-decoration: line-through; }
 .home-date-today { color: var(--accent-text); font-weight: 600; }
 .home-item { text-align: left; color: var(--text); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.home-item:hover, button.home-item:hover { text-decoration: underline; }
