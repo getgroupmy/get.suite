@@ -577,6 +577,12 @@ function SharedDoc({ file, setFile }) {
         startReadingRef.current();
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && k === 'f') { // Focus mode on or off
+        if (document.querySelector('.modal-backdrop')) return;
+        e.preventDefault();
+        setFocusMode((on) => !on);
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && k === 'c') { // Word count, as in Google Docs
         if (document.querySelector('.modal-backdrop')) return;
         e.preventDefault();

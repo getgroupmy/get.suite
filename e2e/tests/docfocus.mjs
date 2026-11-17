@@ -155,6 +155,15 @@ await step('a sprint that ended while the document was closed is told on the nex
   await page.waitForTimeout(1000);
   if (await page.getByText('Your sprint ended while you were away').count()) throw new Error('told twice');
 });
+await step('Ctrl+Shift+F turns focus mode on and off; the shortcuts list says so', async () => {
+  await page.locator('.ProseMirror').first().click();
+  await page.keyboard.press('Control+Shift+F');
+  await page.getByRole('button', { name: 'Exit focus mode' }).waitFor();
+  await page.keyboard.press('Control+Shift+F');
+  await page.getByRole('toolbar', { name: 'Formatting' }).waitFor();
+  await page.keyboard.press('Control+/');
+  await page.getByText('Focus mode on or off').waitFor({ timeout: 5000 });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

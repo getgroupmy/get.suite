@@ -20,6 +20,7 @@ export const SHORTCUTS = {
     [`${mod}+Enter`, 'Page break'],
     [`${mod}+Shift+L / E / R`, 'Align left, centre, right'],
     ['Tab / Shift+Tab', 'Next or previous table cell'],
+    [`${mod}+Shift+C`, 'Word count'], [`${mod}+Shift+F`, 'Focus mode on or off (Esc leaves it too)'],
   ] },
   sheets: { title: 'Sheets', keys: [
     ['Arrow keys', 'Move between cells'], ['Shift+arrows', 'Select a range'], [`${mod}+arrows`, 'Jump to the edge of the data'], [`${mod}+Home / ${mod}+End`, 'First cell, or the last with something in it'], ['Page Up / Page Down', 'A screen up or down'], [`${mod}+A`, 'Select everything'],
