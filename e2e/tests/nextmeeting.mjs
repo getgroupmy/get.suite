@@ -90,6 +90,18 @@ await step('meeting notes from the top bar: made for your meeting and opened in 
   if (ev?.notes_id !== id) throw new Error(`notes ${ev?.notes_id} vs ${id}`);
   await solo.getByRole('button', { name: 'Open meeting notes' }).waitFor(); // made: now it opens them
 });
+await step('× hides the meeting (also after reloading); the next one still shows', async () => {
+  const now = Date.now();
+  await api(page, 'POST', '/events', { title: 'Coffee chat', start: now + 13 * 60e3, end: now + 40 * 60e3 });
+  const solo = page.getByRole('status', { name: /Solo work/ });
+  await solo.waitFor({ timeout: 10000 });
+  await solo.getByRole('button', { name: 'Hide this meeting here' }).click();
+  const coffee = page.getByRole('status', { name: /Coffee chat in \d+ min/ });
+  await coffee.waitFor(); // the next one
+  await page.reload();
+  await coffee.waitFor({ timeout: 10000 });
+  if (await page.getByRole('status', { name: /Solo work/ }).count()) throw new Error('hidden meeting back after reloading');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

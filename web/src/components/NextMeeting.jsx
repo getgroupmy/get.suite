@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router';
 import { get, post, onLive, refreshOn } from '../api.js';
 import { Menu, useToast } from './ui.jsx';
 import { expandAll } from '../apps/calendar/calmath.js';
-import { nextMeeting } from './nextmeeting.js';
+import { nextMeeting, meetingKey, keepDismissed } from './nextmeeting.js';
+
+const DISMISSED = 'nw-meeting-dismissed';
+const readDismissed = () => { try { return JSON.parse(localStorage.getItem(DISMISSED) || '[]'); } catch { return []; } };
 
 /** Top bar: "Design review in 5 min · Join", for a meeting of yours starting soon or going on (checked each minute). */
 export default function NextMeeting() {
@@ -11,6 +14,7 @@ export default function NextMeeting() {
   const toast = useToast();
   const [events, setEvents] = useState([]);
   const [now, setNow] = useState(Date.now());
+  const [dismissed, setDismissed] = useState(readDismissed); // waved away (×), remembered in this browser
   useEffect(() => {
     let live = true;
     const load = () => {
@@ -24,7 +28,7 @@ export default function NextMeeting() {
     const off = onLive((m) => { if (refreshOn(m, 'events-changed')) load(); });
     return () => { live = false; clearInterval(tick); clearInterval(again); off(); };
   }, []);
-  const next = nextMeeting(events, now);
+  const next = nextMeeting(events, now, undefined, dismissed);
   if (!next) return null;
   const { ev, label } = next;
   // Running late, said from here: the others on it are told (as from the event's own window).
@@ -49,6 +53,11 @@ export default function NextMeeting() {
       {withOthers && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn small" aria-label="Running late" title="Running late: tell the others" {...p}>⏱</button>}
         items={[5, 10, 15, 30].map((minutes) => ({ label: `${minutes} minutes late`, onClick: () => late(minutes) }))} />}
       {ev.meet_code && <a className="btn small primary" href={`/meet/${ev.meet_code}`} target="_blank" rel="noopener noreferrer">Join</a>}
+      <button type="button" className="icon-btn small" aria-label="Hide this meeting here" title="Hide (until the next meeting)" onClick={() => {
+        const keys = keepDismissed([...dismissed, meetingKey(ev)]);
+        setDismissed(keys);
+        try { localStorage.setItem(DISMISSED, JSON.stringify(keys)); } catch { /* not remembered */ }
+      }}>×</button>
     </div>
   );
 }
