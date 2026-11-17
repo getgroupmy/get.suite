@@ -1056,6 +1056,52 @@ export const TOOLS = [
         text: t.status === 'approved' ? 'Approved (there is nobody to ask), and it is on the calendar.' : 'Asked: whoever they report to has been told and will approve or decline it.', url: link('/calendar?timeoff=1') };
     },
   },
+  {
+    name: 'track_time', title: 'Time on a task', readOnly: false,
+    description: 'Track the person’s time on a task, as in Tasks: start their timer on it (starting one stops the other), start a focus session that stops by itself after a number of minutes (5 to 180), stop the timer that’s running, or add time by hand (such as "45m", "1h 30m"; for today unless a day YYYY-MM-DD is given).',
+    inputSchema: {
+      type: 'object', required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['start', 'focus', 'stop', 'add'] },
+        task: { type: 'string', description: 'task:… from list_tasks or search (not needed to stop)' },
+        minutes: { type: 'integer', minimum: 5, maximum: 180, description: 'focus: how long' },
+        duration: { type: 'string', description: 'add: how long, such as "45m" or "1h 30m"' },
+        day: { type: 'string', description: 'add: YYYY-MM-DD, today if left out' },
+        note: { type: 'string', description: 'add: what it was for (optional)' },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.task || '').replace(/^task:/, '');
+      if (a.action === 'stop') {
+        const r = await api('POST', '/tasks/timer/stop');
+        return { stopped: true, task: `task:${r.task_id}`, total_minutes: r.total };
+      }
+      if (!id) throw new ToolError('Say which task (task:… from list_tasks or search)');
+      const at = `/tasks/tasks/${encodeURIComponent(id)}`;
+      if (a.action === 'add') {
+        const r = await api('POST', `${at}/time`, { duration: String(a.duration || ''), ...(a.day && { day: a.day }), ...(a.note && { note: a.note }) });
+        return { added: true, task: `task:${id}`, total_minutes: r.total };
+      }
+      if (a.action !== 'start' && a.action !== 'focus') throw new ToolError('action is start, focus, stop or add');
+      const r = await api('POST', `${at}/timer`, a.action === 'focus' ? { minutes: Number(a.minutes) || 25 } : {});
+      const run = await api('GET', '/tasks/timer');
+      return { running: true, task: `task:${id}`, ...(run?.until && { ends: new Date(run.until).toISOString() }), total_minutes: r.total };
+    },
+  },
+  {
+    name: 'time_on_tasks', title: 'Time spent on tasks', readOnly: true,
+    description: 'How much time the person tracked on tasks in the last days (7 unless asked; up to 31), and the tasks it went on most, with the timer running now if any.',
+    inputSchema: { type: 'object', properties: { days: { type: 'integer', minimum: 1, maximum: 31, default: 7 } } },
+    async run(api, a) {
+      const t = await api('GET', `/tasks/time/mine?days=${Math.min(31, Math.max(1, Number(a.days) || 7))}`);
+      const run = await api('GET', '/tasks/timer');
+      return {
+        days: t.days, minutes: t.minutes,
+        tasks: t.tasks.map((x) => ({ id: `task:${x.id}`, title: x.title, minutes: x.minutes, url: link(`/tasks/${x.list_id}?task=${x.id}`) })),
+        running: run ? { task: `task:${run.task_id}`, title: run.title, since: new Date(run.since).toISOString(), ...(run.until && { ends: new Date(run.until).toISOString() }) } : null,
+      };
+    },
+  },
 ];
 
 // How each tool that changes things behaves, for the hints assistants use to decide when to ask the person first

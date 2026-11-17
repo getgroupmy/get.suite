@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -772,4 +772,26 @@ test('what an assistant changes is recorded: the activity log, and the token’s
   assert.match(text, /Book the venue/);
   assert.match(text, /"assistant":"Claude"/);
   assert.doesNotMatch(text, /venue","details":\{"assistant":"Claude","tool":"search"/);
+});
+
+test('time on tasks: a focus session, time added by hand, stopping, and the week’s totals', async () => {
+  const list = (await owner('POST', '/api/tasks/lists', { name: 'Assistant work' })).body.id;
+  const task = (await owner('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Draft the proposal' })).body;
+  const focus = (await call(rw, 'track_time', { action: 'focus', task: `task:${task.id}`, minutes: 25 })).structuredContent;
+  assert.equal(focus.running, true);
+  assert.ok(Math.abs(Date.parse(focus.ends) - Date.now() - 25 * 60e3) < 5000, 'ends in 25 minutes');
+  const added = (await call(rw, 'track_time', { action: 'add', task: `task:${task.id}`, duration: '1h 15m', note: 'Research' })).structuredContent;
+  assert.equal(added.added, true);
+  const week = (await call(ro, 'time_on_tasks', {})).structuredContent;
+  assert.equal(week.running.title, 'Draft the proposal');
+  assert.ok(week.tasks.some((x) => x.title === 'Draft the proposal' && x.minutes >= 75));
+  assert.ok(week.minutes >= 75);
+  const stopped = (await call(rw, 'track_time', { action: 'stop' })).structuredContent;
+  assert.equal(stopped.stopped, true);
+  assert.equal((await call(ro, 'time_on_tasks', {})).structuredContent.running, null);
+  // Read-only tokens can't track time; nonsense is refused with the reason.
+  assert.equal((await call(ro, 'track_time', { action: 'stop' })).isError, true);
+  const bad = await call(rw, 'track_time', { action: 'add', task: `task:${task.id}`, duration: 'a while' });
+  assert.equal(bad.isError, true);
+  assert.equal((await call(rw, 'track_time', { action: 'start' })).isError, true, 'no task');
 });
