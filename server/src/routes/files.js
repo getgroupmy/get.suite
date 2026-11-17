@@ -686,6 +686,14 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ files: n });
   });
 
+  // Starred folders, for the Drive sidebar: the ones you can still open, by name (at most 20).
+  r.get('/starred-folders', (req, res) => {
+    const rows = q(`SELECT f.id, f.name, f.color FROM files f JOIN file_stars st ON st.file_id = f.id AND st.user_id = ?
+                    WHERE f.kind = 'folder' AND f.trashed = 0 ORDER BY f.name COLLATE NOCASE`).all(req.user.id)
+      .filter((f) => roleFor(f.id, req.user.id)).slice(0, 20);
+    res.json(rows.map((f) => ({ id: f.id, name: f.name, ...(f.color && { color: f.color }) })));
+  });
+
   r.get('/labels', (req, res) => {
     const rows = q(`SELECT fl.label, fl.file_id FROM file_labels fl JOIN files f ON f.id = fl.file_id WHERE fl.user_id = ? AND f.trashed = 0`).all(req.user.id)
       .filter((x) => roleFor(x.file_id, req.user.id));

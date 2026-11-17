@@ -167,6 +167,9 @@ export default function Drive() {
   const [myLabels, setMyLabels] = useState([]);
   const loadLabels = useCallback(() => get('/files/labels').then(setMyLabels).catch(() => {}), []);
   useEffect(() => { loadLabels(); }, [loadLabels]);
+  // Starred folders in the sidebar, a click away (brought up to date whenever the list shown changes: starring one, say).
+  const [starredFolders, setStarredFolders] = useState([]);
+  useEffect(() => { get('/files/starred-folders').then(setStarredFolders).catch(() => {}); }, [files]);
   const labelColor = (name) => myLabels.find((l) => l.name === name)?.color;
   const setLabelColor = async (label, color) => { try { await put('/files/labels/color', { label, color }); loadLabels(); } catch (e) { toast(e.message, 'error'); } };
 
@@ -658,6 +661,10 @@ export default function Drive() {
         {user.allow_links !== false && <NavLink to="/drive/links" className="subnav-item"><Icon name="link" /><span className="grow">Shared by link</span></NavLink>}
         <NavLink to="/drive/activity" className="subnav-item"><Icon name="restore" /><span className="grow">Activity</span>{activityNew > 0 && route.view !== 'activity' && <span className="count" aria-label={`${activityNew} new`}>{activityNew > 99 ? '99+' : activityNew}</span>}</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
+        {starredFolders.length > 0 && <div className="subnav-title" id="starred-folders-h">Starred folders</div>}
+        {starredFolders.length > 0 && <div role="group" aria-labelledby="starred-folders-h">
+          {starredFolders.map((f) => <NavLink key={f.id} to={`/drive/folder/${f.id}`} className={() => `subnav-item ${route.folderId === f.id ? 'active' : ''}`}><Icon name="folder" style={f.color ? { color: f.color } : undefined} /><span className="grow ellipsis">{f.name}</span></NavLink>)}
+        </div>}
         {myLabels.length > 0 && <div className="subnav-title">Labels</div>}
         {myLabels.map((l) => (
           <div key={l.name} className="drive-label-row">

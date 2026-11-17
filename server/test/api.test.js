@@ -15510,3 +15510,20 @@ test('forms: a progress bar is a setting, shown on the form page', async () => {
   assert.equal((await owner('PUT', `/api/forms/${made.id}`, { title: 'Long survey 2' })).body.progress_bar, true, 'kept when other things change');
   assert.equal((await owner('PUT', `/api/forms/${made.id}`, { progress_bar: false })).body.progress_bar, false);
 });
+
+test('drive: starred folders for the sidebar — folders only, by name, not trashed', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'stfo', domain: 'acme.com', name: 'St Fo', password: 'password123' })).status, 201);
+  await login(a, 'stfo@acme.com');
+  const zeta = (await a('POST', '/api/files/folder', { name: 'zeta projects' })).body;
+  const alpha = (await a('POST', '/api/files/folder', { name: 'Alpha' })).body;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Plan' })).body;
+  for (const f of [zeta, alpha, doc]) await a('PUT', `/api/files/${f.id}/star`, { starred: true });
+  await a('PATCH', `/api/files/${alpha.id}`, { color: '#d93025' });
+  assert.deepEqual((await a('GET', '/api/files/starred-folders')).body.map((f) => f.name), ['Alpha', 'zeta projects']);
+  assert.equal((await a('DELETE', `/api/files/${zeta.id}`)).status < 300, true);
+  assert.deepEqual((await a('GET', '/api/files/starred-folders')).body.map((f) => f.name), ['Alpha'], 'a trashed folder leaves');
+  await a('PUT', `/api/files/${alpha.id}/star`, { starred: false });
+  assert.deepEqual((await a('GET', '/api/files/starred-folders')).body, []);
+  assert.deepEqual((await owner('GET', '/api/files/starred-folders')).status, 200);
+});
