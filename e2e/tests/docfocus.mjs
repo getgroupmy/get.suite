@@ -164,6 +164,25 @@ await step('Ctrl+Shift+F turns focus mode on and off; the shortcuts list says so
   await page.keyboard.press('Control+/');
   await page.getByText('Focus mode on or off').waitFor({ timeout: 5000 });
 });
+await step('a sprint can pause notifications until it ends; stopping it turns them back on', async () => {
+  await page.evaluate(() => localStorage.setItem('nw-sprint-seconds', '1'));
+  await page.keyboard.press('Escape'); // the shortcuts list from the step before
+  await page.getByRole('dialog').waitFor({ state: 'detached' }).catch(() => {});
+  await page.locator('.ProseMirror').first().click();
+  await page.keyboard.press('Control+Shift+F');
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: 'Pause notifications during sprints' }).click();
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: '45 minutes' }).click();
+  await page.getByText('Notifications paused until the sprint ends').waitFor();
+  const pause = async () => (await api(page, 'GET', '/users/me/pause')).body.paused_until;
+  const at = await pause();
+  if (!at || at < Date.now() + 30e3 || at > Date.now() + 50e3) throw new Error(`paused until ${at}`);
+  await page.getByRole('timer', { name: 'Writing sprint' }).getByRole('button', { name: 'Stop the sprint' }).click();
+  await until(async () => !(await pause()));
+  await page.evaluate(() => { localStorage.removeItem('nw-sprint-seconds'); localStorage.removeItem('nw-sprint-quiet'); });
+  await page.keyboard.press('Control+Shift+F');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

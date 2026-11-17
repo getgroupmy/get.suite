@@ -1,3 +1,4 @@
+import { isPaused, pausedUntil, pauseUntil } from '../../pause.js';
 import { sprintText, SPRINTS } from './sprint.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keptDoc, unreachable } from '../offlinedocs.js';
@@ -690,9 +691,21 @@ function SharedDoc({ file, setFile }) {
   const setSprint = (x) => { setSprintState(x); try { if (x) localStorage.setItem(sprintKey, JSON.stringify(x)); else localStorage.removeItem(sprintKey); } catch { /* this tab only */ } };
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const [sprintNow, setSprintNow] = useState(Date.now());
-  const startSprint = (minutes) => {
+  // Notifications paused for the length of a sprint (when asked: remembered here), and back on when it's stopped,
+  // unless they were paused anyway.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [sprintQuiet, setSprintQuietState] = useState(() => { try { return localStorage.getItem('nw-sprint-quiet') === '1'; } catch { return false; } });
+  const setSprintQuiet = (on) => { setSprintQuietState(on); try { localStorage.setItem('nw-sprint-quiet', on ? '1' : '0'); } catch { /* not remembered */ } };
+  const startSprint = async (minutes) => {
     let unit = 60e3; try { if (localStorage.getItem('nw-sprint-seconds') === '1') unit = 1e3; } catch { /* minutes */ } // (tests: seconds)
-    setSprintNow(Date.now()); setSprint({ ends: Date.now() + minutes * unit, words: countWords(editor.state.doc).words });
+    const ends = Date.now() + minutes * unit;
+    let paused = false;
+    if (sprintQuiet && !isPaused()) { try { await pauseUntil(ends); paused = true; toast('Notifications paused until the sprint ends'); } catch { /* the sprint goes on without */ } }
+    setSprintNow(Date.now()); setSprint({ ends, words: countWords(editor.state.doc).words, paused });
+  };
+  const stopSprint = () => {
+    if (sprint?.paused && sprint.ends > Date.now() && pausedUntil() === sprint.ends) pauseUntil(null).catch(() => {});
+    setSprint(null);
   };
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
@@ -704,7 +717,7 @@ function SharedDoc({ file, setFile }) {
     return () => clearInterval(t);
   }, [sprint, editor, toast]);
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => { if (!focusMode && !resumingRef.current && sprint) setSprint(null); resumingRef.current = false; }, [focusMode]); // (only a running one: one that ended while away is told below) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!focusMode && !resumingRef.current && sprint) stopSprint(); resumingRef.current = false; }, [focusMode]); // (only a running one: one that ended while away is told below) // eslint-disable-line react-hooks/exhaustive-deps
   // A sprint carried over from before reloading: back in focus mode, where it shows.
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const resumingRef = useRef(!!sprint);
@@ -747,9 +760,10 @@ function SharedDoc({ file, setFile }) {
       {focusMode && (
         <div className="focus-exit row" style={{ gap: 6 }}>
           {sprint ? <span className="btn small sprint-clock" role="timer" aria-label="Writing sprint">{sprintText(sprint.ends - sprintNow, countWords(editor.state.doc).words - sprint.words)}
-            <button type="button" className="link-btn small" aria-label="Stop the sprint" onClick={() => setSprint(null)}>×</button></span>
+            <button type="button" className="link-btn small" aria-label="Stop the sprint" onClick={stopSprint}>×</button></span>
             : <Menu trigger={(p) => <button type="button" className="btn small" {...p} title="Write for a set time, counting the words you add">Sprint</button>}
-              items={SPRINTS.map((m) => ({ label: `${m} minutes`, onClick: () => startSprint(m) }))} />}
+              items={[...SPRINTS.map((m) => ({ label: `${m} minutes`, onClick: () => startSprint(m) })), '-',
+                { label: `${sprintQuiet ? '✓ ' : ''}Pause notifications during sprints`, icon: 'bell', onClick: () => setSprintQuiet(!sprintQuiet) }]} />}
           <button type="button" className={`btn small ${dimOthers ? 'primary' : ''}`} aria-pressed={dimOthers} onClick={() => setDimOthers(!dimOthers)} title="Fade all but the paragraph you're writing">Dim</button>
           <button type="button" className={`btn small ${typewriter ? 'primary' : ''}`} aria-pressed={typewriter} onClick={() => setTypewriter(!typewriter)} title="Keep the line you're writing in the middle of the screen">Typewriter</button>
           <button type="button" className="btn small" onClick={() => setFocusMode(false)} title="Esc">Exit focus mode</button>
