@@ -127,6 +127,17 @@ await step('Kim finds the reminder in the bell; it opens the list showing her ta
   await until(async () => (await k.getByLabel('Show tasks for').inputValue()) !== '');
   await k.getByText('Write the press release').waitFor();
 }, page);
+await step('Team workload: each person across the shared lists you’re on', async () => {
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByRole('button', { name: 'Team workload' }).click();
+  const table = page.getByRole('dialog', { name: 'Team workload' }).getByRole('table', { name: 'Workload' });
+  const cells = async (name) => (await table.getByRole('row', { name: new RegExp(`^${name}`) }).getByRole('cell').allTextContents()).map((x) => x.trim());
+  await until(async () => (await table.count()) > 0);
+  const kim = await cells('Kim Park');
+  if (kim[0] !== '1' || kim[1] !== '3' || kim[2] !== '1') throw new Error(`Kim: ${kim}`); // 1 list, 3 open, 1 overdue
+  if (await table.getByRole('row', { name: /^Not assigned/ }).count()) throw new Error('unassigned listed as a person');
+  await both('team workload');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

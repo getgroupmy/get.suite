@@ -15703,3 +15703,25 @@ test('drive: empty folders — the outermost ones holding no files, and trashing
   assert.deepEqual((await a('GET', '/api/files/empty-folders')).body, []);
   assert.equal((await a('GET', `/api/files?view=trash`)).body.some((f) => f.name === 'Old project'), true);
 });
+
+test('tasks: team workload across every shared list you are on', async () => {
+  const a = client(); const b = client(); const c = client();
+  for (const [l, n] of [['tmwa', 'Tm Ann'], ['tmwb', 'Tm Bob'], ['tmwc', 'Tm Cal']]) assert.equal((await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: n, password: 'password123' })).status, 201);
+  await login(a, 'tmwa@acme.com'); await login(b, 'tmwb@acme.com'); await login(c, 'tmwc@acme.com');
+  const id = async (who) => (await who('GET', '/api/auth/me')).body.user.id;
+  const [bob, cal] = [await id(b), await id(c)];
+  const l1 = (await a('POST', '/api/tasks/lists', { name: 'Site' })).body;
+  const l2 = (await c('POST', '/api/tasks/lists', { name: 'Brochure' })).body;
+  const solo = (await a('POST', '/api/tasks/lists', { name: 'Just me' })).body;
+  await a('PUT', `/api/tasks/lists/${l1.id}/members`, { user_ids: [bob, cal] });
+  await c('PUT', `/api/tasks/lists/${l2.id}/members`, { user_ids: [await id(a), bob] });
+  await a('POST', `/api/tasks/lists/${l1.id}/tasks`, { title: 'Late', due: '2026-11-01', assignee_id: bob });
+  await c('POST', `/api/tasks/lists/${l2.id}/tasks`, { title: 'Copy', due: '2026-11-20', assignee_id: bob });
+  await c('POST', `/api/tasks/lists/${l2.id}/tasks`, { title: 'Photos', assignee_id: cal });
+  await a('POST', `/api/tasks/lists/${solo.id}/tasks`, { title: 'Mine alone', due: '2026-11-01', assignee_id: await id(a) });
+  await a('POST', `/api/tasks/lists/${l1.id}/tasks`, { title: 'Nobody’s' });
+  const w = (await a('GET', '/api/tasks/workload?today=2026-11-18')).body;
+  assert.equal(w.lists, 2, 'shared lists only');
+  assert.deepEqual(w.people.map((p) => [p.name, p.lists, p.open, p.overdue, p.this_week, p.no_date]),
+    [['Tm Bob', 2, 2, 1, 1, 0], ['Tm Cal', 1, 1, 0, 0, 1], ['Tm Ann', 0, 0, 0, 0, 0]]);
+});

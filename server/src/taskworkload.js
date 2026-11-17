@@ -61,3 +61,24 @@ export function titlesText(tasks) {
   if (more > 0) return `${names.join(', ')} and ${more} more`;
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '';
 }
+
+/**
+ * Across every shared list someone is on (their own or shared with them): each person's open tasks there, added up,
+ * with how many of those lists they have open tasks on. Only lists shared with others count (a list of your own
+ * nobody else is on isn't a team's). Unassigned tasks aren't anyone's, so they're left out.
+ */
+export function teamWorkloadOf(userId, today) {
+  const lists = q(`SELECT * FROM task_lists WHERE (owner_id = ? OR id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                   AND id IN (SELECT list_id FROM task_list_members)`).all(userId, userId);
+  const people = new Map();
+  for (const l of lists) {
+    for (const p of workloadOf(l, today)) {
+      if (!p.user_id) continue;
+      const t = people.get(p.user_id) || { user_id: p.user_id, name: p.name, lists: 0, open: 0, overdue: 0, this_week: 0, next_week: 0, later: 0, no_date: 0, estimate: 0 };
+      for (const k of ['open', 'overdue', 'this_week', 'next_week', 'later', 'no_date', 'estimate']) t[k] += p[k];
+      if (p.open) t.lists++;
+      people.set(p.user_id, t);
+    }
+  }
+  return { lists: lists.length, people: [...people.values()].sort((a, b) => b.overdue - a.overdue || b.open - a.open || a.name.localeCompare(b.name)) };
+}

@@ -352,6 +352,9 @@ export default function Tasks() {
         <button type="button" className="subnav-item" onClick={() => setDialog('sheet')} title="Your time on tasks this week, day by day">
           <Icon name="clock" /><span className="grow">My timesheet</span>
         </button>
+        {lists?.some((l) => l.members.length) && <button type="button" className="subnav-item" onClick={() => setDialog('team')} title="Open tasks per person across the shared lists you're on">
+          <Icon name="people" /><span className="grow">Team workload</span>
+        </button>}
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
         {lists.filter((l) => l.mine).map((l) => (
           <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
@@ -668,6 +671,7 @@ export default function Tasks() {
           {n > 0 && <button type="button" className="link-btn small danger" onClick={async () => { await del(`/tasks/sections/${sectionEdit.remove.id}?tasks=1`); setSectionEdit(null); loadTasks(); loadLists(); }}>Delete the section and its {n} task{n === 1 ? '' : 's'}</button>}
         </ConfirmModal>;
       })()}
+      {dialog === 'team' && <Workload onClose={() => setDialog(null)} />}
       {dialog === 'workload' && list && <Workload list={list} onClose={() => setDialog(null)} onPick={(id) => { setWho(id); setDialog(null); }} />}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} onRate={loadLists} />}
       {dialog === 'sheet' && <Timesheet onClose={() => setDialog(null)} onOpen={(t) => { setDialog(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }} />}
@@ -1051,7 +1055,8 @@ function Timesheet({ onClose, onOpen }) {
 const loadText = (w) => (w?.open ? ` · ${w.open} open${w.overdue ? `, ${w.overdue} overdue` : ''}` : '');
 
 /** Workload: who on a shared list has how much open, and when it's due (server: taskworkload.js). */
-function Workload({ list, onClose, onPick }) {
+/** With a list: that list's Workload (names filter it, Remind). Without: Team workload across your shared lists. */
+function Workload({ list = null, onClose, onPick }) {
   const { user } = useAuth();
   const toast = useToast();
   const [sent, setSent] = useState(() => new Set());
@@ -1061,33 +1066,35 @@ function Workload({ list, onClose, onPick }) {
   };
   const [w, setW] = useState(null);
   const [error, setError] = useState('');
-  useEffect(() => { get(`/tasks/lists/${list.id}/workload?today=${localToday()}`).then(setW).catch((e) => setError(e.message)); }, [list.id]);
+  useEffect(() => { get(list ? `/tasks/lists/${list.id}/workload?today=${localToday()}` : `/tasks/workload?today=${localToday()}`).then(setW).catch((e) => setError(e.message)); }, [list?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const most = w ? Math.max(1, ...w.people.map((p) => p.open)) : 1;
   const hours = (m) => (m ? (m >= 60 ? `${Math.round(m / 6) / 10} h` : `${m} min`) : '');
   const cols = [['overdue', 'Overdue'], ['this_week', 'This week'], ['next_week', 'Next week'], ['later', 'Later'], ['no_date', 'No date']];
   return (
-    <Modal wide title={`Workload on “${list.name}”`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+    <Modal wide title={list ? `Workload on “${list.name}”` : 'Team workload'} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
       {error && <p className="error">{error}</p>}
       {!w && !error && <p className="muted">Loading…</p>}
-      {w && (
+      {w && !list && !w.people.length && <p className="muted">Nobody to show yet: share a list with colleagues and give them tasks.</p>}
+      {w && (list || w.people.length > 0) && (
         <table className="data-table workload" aria-label="Workload">
-          <thead><tr><th scope="col">Person</th><th scope="col">Open</th>{cols.map(([k, label]) => <th key={k} scope="col">{label}</th>)}<th scope="col">Estimated</th><th scope="col"><span className="sr-only">Remind</span></th></tr></thead>
+          <thead><tr><th scope="col">Person</th>{!list && <th scope="col">Lists</th>}<th scope="col">Open</th>{cols.map(([k, label]) => <th key={k} scope="col">{label}</th>)}<th scope="col">Estimated</th>{list && <th scope="col"><span className="sr-only">Remind</span></th>}</tr></thead>
           <tbody>
             {w.people.map((p) => (
               <tr key={p.user_id || 'none'}>
-                <th scope="row"><button type="button" className="link-btn" title={`Show only ${p.user_id ? `${p.name}’s tasks` : 'tasks nobody has'}`} onClick={() => onPick(p.user_id || 'none')}>{p.name}</button></th>
+                <th scope="row">{list ? <button type="button" className="link-btn" title={`Show only ${p.user_id ? `${p.name}’s tasks` : 'tasks nobody has'}`} onClick={() => onPick(p.user_id || 'none')}>{p.name}</button> : p.name}</th>
+                {!list && <td>{p.lists || ''}</td>}
                 <td><span className="workload-open">{p.open > 0 && <span className="workload-bar" style={{ width: `${Math.round((p.open / most) * 60)}px` }} aria-hidden="true" />}{p.open}</span></td>
                 {cols.map(([k]) => <td key={k} className={k === 'overdue' && p[k] ? 'workload-late' : ''}>{p[k] || ''}</td>)}
                 <td>{hours(p.estimate)}</td>
-                <td>{p.user_id && p.user_id !== user.id && p.overdue > 0 && (sent.has(p.user_id)
+                {list && <td>{p.user_id && p.user_id !== user.id && p.overdue > 0 && (sent.has(p.user_id)
                   ? <span className="muted small">Reminded</span>
-                  : <button type="button" className="btn small" aria-label={`Remind ${p.name} of overdue tasks`} title="A note in their bell naming their overdue tasks here (once a day)" onClick={() => remind(p)}>Remind</button>)}</td>
+                  : <button type="button" className="btn small" aria-label={`Remind ${p.name} of overdue tasks`} title="A note in their bell naming their overdue tasks here (once a day)" onClick={() => remind(p)}>Remind</button>)}</td>}
               </tr>
             ))}
           </tbody>
         </table>
       )}
-      <p className="muted small">Open tasks on this list, by who they're given to and when they're due (weeks run Monday to Sunday). Estimated adds up the tasks' time estimates.</p>
+      <p className="muted small">{list ? 'Open tasks on this list' : `Open tasks on the ${w?.lists ?? ''} shared lists you’re on (Lists: how many of them each person has open tasks on)`}, by who they're given to and when they're due (weeks run Monday to Sunday). Estimated adds up the tasks' time estimates.</p>
     </Modal>
   );
 }

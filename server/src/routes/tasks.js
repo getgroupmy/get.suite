@@ -1,7 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
-import { workloadOf, overdueFor, noteReminder, titlesText } from '../taskworkload.js';
+import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf } from '../taskworkload.js';
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
@@ -625,6 +625,11 @@ export default function taskRoutes() {
   });
 
   // What happened on a list lately, newest first (?before= a time from the last page for older).
+  // Team workload: the same, added up across every shared list you're on. ?today=YYYY-MM-DD.
+  r.get('/workload', (req, res) => {
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.today || '')) ? String(req.query.today) : new Date().toISOString().slice(0, 10);
+    res.json({ today, ...teamWorkloadOf(req.user.id, today) });
+  });
   // Workload: open tasks per person on the list, by when they're due (taskworkload.js). ?today=YYYY-MM-DD (the browser's day).
   r.get('/lists/:id/workload', (req, res) => {
     const list = loadList(req.params.id, req.user);
