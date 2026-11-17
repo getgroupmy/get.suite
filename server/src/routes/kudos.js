@@ -6,6 +6,7 @@ import { q } from '../db.js';
 import { uid, now, str, bad, notFound } from '../util.js';
 import { notify } from '../notifications.js';
 import { sendTo } from '../hub.js';
+import { audit } from '../audit.js';
 import { channelChoice, postToChannel } from './chat.js';
 
 q(`CREATE TABLE IF NOT EXISTS kudos (
@@ -33,9 +34,9 @@ const PER_DAY = 20; // thanks one person may give in a day
 const SELECT = `SELECT k.id, k.emoji, k.message, k.created_at, k.from_id, f.name AS from_name, k.to_id, t.name AS to_name
   FROM kudos k JOIN users f ON f.id = k.from_id JOIN users t ON t.id = k.to_id`;
 /** With its applause: how many, whether you're among them, and who (names, up to 10). */
-const shape = (r, me) => {
+const shape = (r, me, admin = false) => {
   const claps = q('SELECT c.user_id, u.name FROM kudos_claps c JOIN users u ON u.id = c.user_id WHERE c.kudos_id = ? ORDER BY c.created_at').all(r.id);
-  return { ...r, mine: r.from_id === me, claps: claps.length, clapped: claps.some((c) => c.user_id === me), clappers: claps.slice(0, 10).map((c) => c.name) };
+  return { ...r, mine: r.from_id === me, can_remove: r.from_id === me || admin, claps: claps.length, clapped: claps.some((c) => c.user_id === me), clappers: claps.slice(0, 10).map((c) => c.name) };
 };
 
 /** The org's people get the new one live (Home's card, cards that are open). */
@@ -46,7 +47,7 @@ export default function kudosRoutes() {
   // The company's latest (Home): ?limit (up to 50).
   r.get('/', (req, res) => {
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
-    res.json(q(`${SELECT} WHERE k.org_id IS ? AND t.disabled = 0 ORDER BY k.created_at DESC LIMIT ?`).all(req.user.org_id, limit).map((x) => shape(x, req.user.id)));
+    res.json(q(`${SELECT} WHERE k.org_id IS ? AND t.disabled = 0 ORDER BY k.created_at DESC LIMIT ?`).all(req.user.org_id, limit).map((x) => shape(x, req.user.id, req.user.is_admin)));
   });
   // Someone's (their card): the latest 20 and how many in all.
   r.get('/for/:userId', (req, res) => {
@@ -54,7 +55,7 @@ export default function kudosRoutes() {
     if (!u || u.org_id !== req.user.org_id) throw notFound('No such person');
     res.json({
       count: q('SELECT COUNT(*) AS n FROM kudos WHERE to_id = ?').get(u.id).n,
-      latest: q(`${SELECT} WHERE k.to_id = ? ORDER BY k.created_at DESC LIMIT 20`).all(u.id).map((x) => shape(x, req.user.id)),
+      latest: q(`${SELECT} WHERE k.to_id = ? ORDER BY k.created_at DESC LIMIT 20`).all(u.id).map((x) => shape(x, req.user.id, req.user.is_admin)),
     });
   });
   // { to, message, emoji, channel_id? }: with a channel, it's also posted there, as you (a channel you can write in).
@@ -84,11 +85,16 @@ export default function kudosRoutes() {
     tell(k.org_id);
     res.json(shape(q(`${SELECT} WHERE k.id = ?`).get(k.id), req.user.id));
   });
-  // Take back your own.
+  // Take back your own; an admin can remove anyone's in the company (kept in the activity log, and its giver is told).
   r.delete('/:id', (req, res) => {
-    const k = q('SELECT * FROM kudos WHERE id = ? AND from_id = ?').get(String(req.params.id), req.user.id);
-    if (!k) throw notFound('Not found');
+    const k = q('SELECT * FROM kudos WHERE id = ?').get(String(req.params.id));
+    if (!k || k.org_id !== req.user.org_id || (k.from_id !== req.user.id && !req.user.is_admin)) throw notFound('Not found');
     q('DELETE FROM kudos WHERE id = ?').run(k.id);
+    if (k.from_id !== req.user.id) {
+      const to = q('SELECT name FROM users WHERE id = ?').get(k.to_id)?.name || 'someone';
+      audit(req, 'kudos.remove', { org: k.org_id, target: `${to}: ${k.message.slice(0, 80)}`, details: { from: k.from_id, to: k.to_id } });
+      notify([k.from_id], { kind: 'kudos', title: `An admin removed your thanks to ${to}`, body: k.message, link: '/home', actor: req.user.id });
+    }
     tell(k.org_id);
     res.json({ ok: true });
   });

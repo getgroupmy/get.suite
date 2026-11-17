@@ -117,6 +117,22 @@ await step('thanks also posted in a Chat channel, as the giver', async () => {
   await kim.getByText('🎉 Thanks, Kim Park: Great demo today').first().waitFor({ timeout: 10000 });
   await kim.screenshot({ path: `${SP}/shots/kudos-chat.png` });
 }, kim);
+await step('an admin removes someone else’s thank-you from Home; its giver is told', async () => {
+  const oid = (await api(page, 'GET', '/auth/me')).body;
+  const olivia = oid.user?.id || oid.id;
+  const r = await api(kim, 'POST', '/kudos', { to: olivia, message: 'Something not meant for the wall' });
+  if (r.status !== 201) throw new Error(JSON.stringify(r.body));
+  await page.goto(`${B}/home`);
+  const home = page.getByRole('region', { name: 'Thanks' });
+  await home.getByText('Something not meant for the wall').waitFor({ timeout: 10000 });
+  if (await home.getByRole('button', { name: 'Take back your thanks' }).count() !== 1) throw new Error('own thanks not removable');
+  await home.getByRole('button', { name: 'Remove Kim Park’s thanks (admin)' }).click();
+  await page.getByText('Thank-you removed').last().waitFor();
+  await home.getByText('Something not meant for the wall').waitFor({ state: 'detached' });
+  await kim.getByRole('button', { name: /Notifications/ }).first().click();
+  await kim.getByText('An admin removed your thanks to Olivia Owner').first().waitFor({ timeout: 10000 });
+  await kim.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

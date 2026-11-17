@@ -457,6 +457,8 @@ export default function Home() {
                 <li key={k.id}>
                   <span className="kudos-emoji" aria-hidden="true">{k.emoji}</span>{' '}
                   <strong>{k.from_name}</strong> thanked <strong>{k.to_name}</strong>: {k.message} <span className="muted small">{formatDate(k.created_at)}</span> <Clap kudos={k} />
+                  {k.can_remove && <button type="button" className="icon-btn" style={{ verticalAlign: 'middle' }} aria-label={k.mine ? 'Take back your thanks' : `Remove ${k.from_name}’s thanks (admin)`} title={k.mine ? 'Take back' : 'Remove (admins): kept in the activity log, and its giver is told'}
+                    onClick={async () => { try { await del(`/kudos/${k.id}`); toast(k.mine ? 'Thanks taken back' : 'Thank-you removed'); load(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="close" size={14} /></button>}
                 </li>
               ))}
             </ul>

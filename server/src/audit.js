@@ -36,7 +36,7 @@ export const ACTIONS = {
   'mail.delegate': 'Let someone read and send their mail', 'mail.undelegate': 'Stopped someone reading their mail', 'mail.merge': 'Sent a mail merge', 'form.webhook': 'Sent a form’s responses to a web address', 'form.webhook_removed': 'Stopped sending a form’s responses to a web address',
   'shared_mailbox.create': 'Made a shared mailbox', 'shared_mailbox.update': 'Changed a shared mailbox', 'shared_mailbox.delete': 'Deleted a shared mailbox',
   'dlp.blocked': 'Was stopped from sharing sensitive data', 'dlp.sent_anyway': 'Sent sensitive data after a warning', 'dlp.rule_add': 'Added a data protection rule', 'dlp.rule_change': 'Changed a data protection rule', 'dlp.rule_delete': 'Deleted a data protection rule',
-  'checkup.remind': 'Sent a security checkup reminder', 'announcement.post': 'Posted an announcement', 'announcement.remove': 'Took down an announcement',
+  'checkup.remind': 'Sent a security checkup reminder', 'announcement.post': 'Posted an announcement', 'announcement.remove': 'Took down an announcement', 'kudos.remove': 'Removed a thank-you',
   'link.request': 'Made a file request link', 'link.expiry': 'Changed when a public link expires', 'link.password': 'Changed a public link\'s password', 'link.enforce': 'Applied the public link rules to old links', 'link.stopall': 'Stopped all of a person\'s public links', 'link.export': 'Downloaded the list of public links',
   'file.publish': 'Published a file to the web', 'file.unpublish': 'Stopped publishing a file', 'file.transfer': 'Moved a person\'s files to someone else',
   'pdf.combine': 'Combined PDFs', 'pdf.extract': 'Took pages out of a PDF', 'pdf.sign': 'Signed a PDF', 'pdf.organize': 'Reordered a PDF\'s pages',

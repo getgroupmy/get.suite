@@ -75,7 +75,17 @@ test('thanks: given to a colleague, who is told; on their card and the companyâ€
   assert.equal((await tara('POST', `/api/kudos/${k.body.id}/clap`, { on: false })).body.claps, 0);
   assert.equal((await tara('POST', '/api/kudos/nope/clap', {})).status, 404);
   await tara('POST', `/api/kudos/${k.body.id}/clap`, {});
-  assert.equal((await tara('DELETE', `/api/kudos/${k.body.id}`)).status, 404, 'only its giver');
+  assert.equal((await tara('DELETE', `/api/kudos/${k.body.id}`)).status, 404, 'only its giver (or an admin)');
+  assert.equal((await tara('GET', `/api/kudos/for/${taraId}`)).body.latest[0].can_remove, false);
+  // An admin removes Tara's thanks to Olivia: logged, and Tara is told.
+  const tk = (await tara('POST', '/api/kudos', { to: me.id, message: 'Something unkind' })).body;
+  assert.equal((await olivia('GET', `/api/kudos/for/${me.id}`)).body.latest[0].can_remove, true, 'admins can');
+  assert.equal((await olivia('DELETE', `/api/kudos/${tk.id}`)).status, 200);
+  const log = (await olivia('GET', '/api/audit')).body;
+  const rows = log.items || log.entries || log;
+  assert.ok(rows.some((x) => x.action === 'kudos.remove' && /Something unkind/.test(x.target)), JSON.stringify(rows).slice(0, 200));
+  const tb = (await tara('GET', '/api/notifications')).body;
+  assert.ok((tb.items || tb.notifications || tb).some((n) => /An admin removed your thanks to Olivia Owner/.test(n.title)));
   assert.equal((await olivia('DELETE', `/api/kudos/${k.body.id}`)).status, 200);
   assert.equal((await tara('GET', `/api/kudos/for/${taraId}`)).body.count, 1);
 

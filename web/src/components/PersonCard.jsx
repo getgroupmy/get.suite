@@ -37,7 +37,7 @@ function Thanks({ person, me }) {
       setForm(null); toast(`${form.emoji} Thanks sent to ${person.name}${ch ? `, and posted in #${ch.name}` : ''}`); load();
     } catch (err) { toast(err.message, 'error'); }
   };
-  const takeBack = async (k) => { try { await del(`/kudos/${k.id}`); toast('Thanks taken back'); load(); } catch (err) { toast(err.message, 'error'); } };
+  const takeBack = async (k) => { try { await del(`/kudos/${k.id}`); toast(k.mine ? 'Thanks taken back' : 'Thank-you removed'); load(); } catch (err) { toast(err.message, 'error'); } };
   return (
     <section className="stack-tight person-thanks" aria-label="Thanks">
       {person.id !== me && !form && <div><button type="button" className="btn" onClick={() => setForm({ emoji: KUDOS_EMOJI[0], message: '', channel_id: '' })}>🙌 Say thanks</button></div>}
@@ -65,7 +65,7 @@ function Thanks({ person, me }) {
             {data.latest.slice(0, 5).map((k) => (
               <li key={k.id} className="row" style={{ gap: 6 }}>
                 <span className="grow"><span aria-hidden="true">{k.emoji}</span> {k.message} <span className="muted small">— {k.from_name}, {formatDate(k.created_at)}</span> <Clap kudos={k} /></span>
-                {k.mine && <button type="button" className="icon-btn" aria-label="Take back your thanks" title="Take back" onClick={() => takeBack(k)}><Icon name="close" size={14} /></button>}
+                {k.can_remove && <button type="button" className="icon-btn" aria-label={k.mine ? 'Take back your thanks' : `Remove ${k.from_name}’s thanks (admin)`} title={k.mine ? 'Take back' : 'Remove (admins): kept in the activity log, and its giver is told'} onClick={() => takeBack(k)}><Icon name="close" size={14} /></button>}
               </li>
             ))}
           </ul>
