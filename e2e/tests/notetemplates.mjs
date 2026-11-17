@@ -101,8 +101,14 @@ await step('Today’s note: from the template chosen for it, and the same note w
 await step('Home: the Today’s note card shows the day’s list, and Open opens it', async () => {
   await page.goto(`${B}/home`);
   const card = page.getByRole('region', { name: 'Today’s note' });
-  await card.getByText('☐ Yesterday').waitFor({ timeout: 10000 });
-  await card.getByText('☐ Today').waitFor();
+  const yesterday = card.getByRole('checkbox', { name: 'Yesterday' });
+  await yesterday.waitFor({ timeout: 10000 });
+  await card.getByRole('checkbox', { name: 'Today' }).waitFor();
+  // Ticked right here: saved in the note.
+  await yesterday.check();
+  await until(async () => (await api(page, 'GET', `/notes/daily?date=${await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })}`)).body.items.find((i) => i.text === 'Yesterday').done);
+  await page.reload();
+  if (!(await card.getByRole('checkbox', { name: 'Yesterday' }).isChecked())) throw new Error('not kept');
   await page.screenshot({ path: `${SP}/shots/home-daily.png` });
   await card.getByRole('link', { name: 'Open' }).click();
   await page.waitForURL(/\/notes\?note=/);

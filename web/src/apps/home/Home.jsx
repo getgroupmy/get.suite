@@ -460,7 +460,18 @@ export default function Home() {
               <>
                 {data.daily.items ? (
                   <ul className="plain-list">
-                    {data.daily.items.slice(0, 6).map((i) => <li key={i.id} className={i.done ? 'muted' : ''}>{i.done ? '☑' : '☐'} {i.text || '…'}</li>)}
+                    {data.daily.items.slice(0, 6).map((i) => (
+                      <li key={i.id} className={i.done ? 'muted' : ''}>
+                        <label className="row" style={{ gap: 6 }}>
+                          <input type="checkbox" checked={!!i.done} onChange={async (e) => {
+                            const items = data.daily.items.map((x) => (x.id === i.id ? { ...x, done: e.target.checked } : x));
+                            setData((d) => ({ ...d, daily: { ...d.daily, items } }));
+                            try { await patch(`/notes/${data.daily.id}`, { items }); } catch (err) { toast(err.message, 'error'); load(); }
+                          }} />
+                          <span style={i.done ? { textDecoration: 'line-through' } : undefined}>{i.text || '…'}</span>
+                        </label>
+                      </li>
+                    ))}
                     {data.daily.items.length > 6 && <li className="muted small">and {data.daily.items.length - 6} more</li>}
                   </ul>
                 ) : <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{(data.daily.body || '').slice(0, 280) || <span className="muted">Nothing written yet.</span>}</p>}
