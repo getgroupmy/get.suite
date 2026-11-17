@@ -4,6 +4,7 @@
 // only their own entries.
 import { q } from './db.js';
 import { uid, now, str, bad, notFound } from './util.js';
+import { colName } from './office/sheetnames.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_time (
   id TEXT PRIMARY KEY,
@@ -105,6 +106,35 @@ export function listReport(listId, from, to, at = now(), billing = null) {
   const money = (m) => Math.round((m / 60) * billing.rate * 100) / 100;
   for (const l of list) l.amount = money(l.minutes);
   return { from, to, lines: list, total, rate: billing.rate, currency: billing.currency, amount: Math.round(list.reduce((n, l) => n + l.amount * 100, 0)) / 100 };
+}
+
+/**
+ * The report as a spreadsheet (Sheets' content): Person, Task, Minutes, Hours (and Amount at a rate), a header row kept
+ * in view, and a Total row of SUM formulas, so changes made there add up.
+ */
+export function reportSheet(report, listName) {
+  const billed = report.rate != null;
+  const head = ['Person', 'Task', 'Minutes', 'Hours', ...(billed ? [`Amount (${report.currency})`] : [])];
+  const cells = {}, formats = {};
+  head.forEach((h, c) => { cells[`${colName(c)}1`] = h; formats[`${colName(c)}1`] = { b: true }; });
+  const plain = (v) => (/^[=+\-@]/.test(v) ? `'${v}` : v); // names that look like formulas stay text
+  report.lines.forEach((l, i) => {
+    const r = i + 2;
+    cells[`A${r}`] = plain(l.person); cells[`B${r}`] = plain(l.task); cells[`C${r}`] = String(l.minutes);
+    cells[`D${r}`] = `=ROUND(C${r}/60,2)`; formats[`D${r}`] = { num: 'number', dp: 2 };
+    if (billed) { cells[`E${r}`] = `=ROUND(C${r}/60*$G$2,2)`; formats[`E${r}`] = { num: 'currency', cur: report.currency, dp: 2 }; } // the rate is in G2: change it there and the amounts follow
+  });
+  const last = report.lines.length + 1, t = last + 1;
+  cells[`A${t}`] = 'Total'; formats[`A${t}`] = { b: true };
+  for (const c of billed ? ['C', 'D', 'E'] : ['C', 'D']) {
+    cells[`${c}${t}`] = last >= 2 ? `=SUM(${c}2:${c}${last})` : '0';
+    formats[`${c}${t}`] = { b: true, ...(c === 'D' && { num: 'number', dp: 2 }), ...(c === 'E' && { num: 'currency', cur: report.currency, dp: 2 }) };
+  }
+  if (billed) { cells.G1 = 'Rate per hour'; formats.G1 = { b: true }; cells.G2 = String(report.rate); formats.G2 = { num: 'currency', cur: report.currency, dp: 2 }; }
+  return {
+    name: `${listName} time ${report.from} to ${report.to}`.slice(0, 200),
+    content: { sheets: [{ name: 'Time', cells, formats, colWidths: { A: 160, B: 240, C: 90, D: 90, ...(billed && { E: 130, G: 120 }) }, frozen: { rows: 1 } }] },
+  };
 }
 
 /** Validates { rate, currency } for a list: a rate above 0 (up to 100 000) and a three-letter currency; rate null clears. */
@@ -227,6 +257,15 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
       return;
     }
     res.json({ ...report, list: list.name, can_bill: list.owner_id === req.user.id });
+  });
+  // The report in a new spreadsheet in your Drive ({ from, to }); → { id }.
+  r.post('/lists/:id/time-report/sheet', async (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const report = listReport(list.id, String(req.body?.from || ''), String(req.body?.to || ''), now(), list.rate ? { rate: list.rate, currency: list.currency } : null);
+    const { insertFile } = await import('./routes/files.js');
+    const sheet = reportSheet(report, list.name);
+    const id = insertFile({ owner: req.user.id, parentId: null, name: sheet.name, kind: 'sheet', content: JSON.stringify(sheet.content) });
+    res.status(201).json({ id });
   });
   // The list's hourly rate for the time report (its owner only): { rate, currency }, or { rate: null } for none.
   r.put('/lists/:id/rate', (req, res) => {

@@ -3984,6 +3984,22 @@ test('task time: a timer per person, time added by hand, totals, a report and CS
   const bcsv = (await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}&format=csv`)).body;
   assert.match(bcsv, /Person,Task,Minutes,Hours,"Amount \(EUR, 80\.00\/h\)"/);
   assert.match(bcsv, /Time Ben,Design,90,1\.50,120\.00/);
+  // In a new spreadsheet, for whoever asks (any member): formulas for hours, amounts (from the rate in G2) and totals.
+  const made = await b('POST', `/api/tasks/lists/${list}/time-report/sheet`, { from: since, to: day });
+  assert.equal(made.status, 201);
+  const file = q('SELECT * FROM files WHERE id = ?').get(made.body.id);
+  assert.equal(file.owner_id, bid);
+  assert.equal(file.kind, 'sheet');
+  assert.match(file.name, /time .* to /);
+  const sh = JSON.parse(file.content).sheets[0];
+  assert.deepEqual(['A1', 'B1', 'C1', 'D1', 'E1', 'G1', 'G2'].map((k) => sh.cells[k]), ['Person', 'Task', 'Minutes', 'Hours', 'Amount (EUR)', 'Rate per hour', '80']);
+  const n = billed.lines.length, ben = billed.lines.findIndex((l) => l.person === 'Time Ben') + 2;
+  assert.deepEqual([sh.cells[`C${ben}`], sh.cells[`D${ben}`], sh.cells[`E${ben}`]], ['90', `=ROUND(C${ben}/60,2)`, `=ROUND(C${ben}/60*$G$2,2)`]);
+  assert.deepEqual([sh.cells[`A${n + 2}`], sh.cells[`E${n + 2}`]], ['Total', `=SUM(E2:E${n + 1})`]);
+  assert.deepEqual(sh.frozen, { rows: 1 });
+  assert.equal(sh.formats[`E${ben}`].cur, 'EUR');
+  assert.equal((await x('POST', `/api/tasks/lists/${list}/time-report/sheet`, { from: since, to: day })).status, 404);
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/time-report/sheet`, { from: day, to: since })).status, 400);
   assert.deepEqual((await a('PUT', `/api/tasks/lists/${list}/rate`, { rate: null })).body, { rate: null, currency: null });
   assert.equal((await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}`)).body.amount, undefined, 'cleared');
   assert.equal((await b('DELETE', `/api/tasks/time/${bens.id}`)).body.total, 25);

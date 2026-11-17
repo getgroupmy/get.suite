@@ -992,6 +992,7 @@ function Timesheet({ onClose, onOpen }) {
 
 /** Who spent how long on what in a list, between two dates; downloadable as CSV. */
 function TimeReport({ list, onClose }) {
+  const navigate = useNavigate();
   const today = new Date().toISOString().slice(0, 10);
   const [range, setRange] = useState({ from: `${today.slice(0, 8)}01`, to: today });
   const [rep, setRep] = useState(null);
@@ -1007,6 +1008,9 @@ function TimeReport({ list, onClose }) {
   return (
     <Modal wide title={`Time on “${list.name}”`} onClose={onClose} footer={<>
       <a className="btn" href={`/api/tasks/lists/${list.id}/time-report?from=${range.from}&to=${range.to}&format=csv`}><Icon name="download" size={18} /> Download CSV</a>
+      {rep?.lines.length > 0 && <button type="button" className="btn" title="A copy of this report in a new spreadsheet in your Drive, with formulas for the totals" onClick={async () => {
+        try { const r = await post(`/tasks/lists/${list.id}/time-report/sheet`, range); toast('Report saved as a spreadsheet in your Drive'); navigate(`/sheets/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+      }}>Open in Sheets</button>}
       <span className="grow" /><button type="button" className="btn primary" onClick={onClose}>Close</button></>}>
       <div className="stack">
         <div className="row wrap" style={{ gap: 12 }}>

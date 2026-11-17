@@ -305,6 +305,17 @@ await step('the time report at an hourly rate: amounts per line, a total, and in
   const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('link', { name: 'Download CSV' }).click()]);
   const csv = fs.readFileSync(await dl.path(), 'utf8');
   if (!/Person,Task,Minutes,Hours,"Amount \(EUR, 80\.00\/h\)"/.test(csv) || !/Kim Park,Design,45,0\.75,60\.00/.test(csv)) throw new Error(csv);
+  // Open in Sheets: a new spreadsheet with the report, its amounts worked out by formulas.
+  await dlg.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.waitForURL(/\/sheets\//, { timeout: 10000 });
+  await page.getByText('Rate per hour').first().waitFor({ timeout: 15000 });
+  await page.getByText('€60.00', { exact: true }).first().waitFor({ timeout: 10000 }); // Kim: =ROUND(C/60*$G$2,2)
+  await page.getByText('0.75', { exact: true }).first().waitFor(); // hours
+  await page.screenshot({ path: `${SP}/shots/report-sheet.png` });
+  await page.goBack();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Time report…' }).click();
+  await dlg.getByText(/^Billed at €80\.00 an hour$/).waitFor({ timeout: 10000 });
   // The colleague sees the amounts but can't change the rate.
   const r = (await api(kim, 'PUT', `/tasks/lists/${list}/rate`, { rate: 1, currency: 'EUR' })).status;
   if (r !== 400) throw new Error(`colleague set the rate: ${r}`);
