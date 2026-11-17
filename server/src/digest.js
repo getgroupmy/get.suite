@@ -2,6 +2,7 @@
 // today's events, the tasks due today or overdue, how many chat messages are waiting, and what others
 // changed in Drive (files they can open) in the last day, and open comments that @mention them or are assigned to them. Sent from
 // their own mailbox to itself, so it needs this server's email to be on.
+import { workloadOf } from './taskworkload.js';
 import { q } from './db.js';
 import { expand } from './calmath.js';
 import { zonedToUtc, zoneOrUtc } from './ics.js';
@@ -69,6 +70,8 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
   if (!off.has('tasks')) {
     lines.push(tasks.length ? `Tasks due (${tasks.length}):${link('/tasks/myday')}` : 'No tasks due.');
     for (const k of tasks) lines.push(`  ${k.due < date ? `Overdue (${k.due})` : k.due_time ? `Today ${k.due_time}` : 'Today'}  ${k.title}  [${k.list}]`);
+    // Lists of yours shared with others: whose tasks there are overdue (Tasks → Workload has the rest).
+    for (const o of overdueOnShared(userId, date)) lines.push(`Overdue on ${o.list}: ${o.people.map((p) => `${p.name} ${p.overdue}`).join(', ')}${link(`/tasks/${o.id}`)}`);
     lines.push('');
   }
   let dates = [];
@@ -122,6 +125,13 @@ const hrs = (h) => { const r = Math.round(h * 10) / 10; return r > 0 && r < 1 ? 
  * Last week for someone, for Monday's summary: hours in meetings (events with others), focus time and other
  * events (not all-day ones, out of office, or ones they declined), their focus goal, time on tasks, and thanks.
  */
+/** For lists someone owns and shares: the others with overdue tasks there, most first. */
+export function overdueOnShared(userId, date) {
+  const lists = q('SELECT * FROM task_lists WHERE owner_id = ? AND id IN (SELECT list_id FROM task_list_members) ORDER BY name').all(userId);
+  return lists.map((l) => ({ id: l.id, list: l.name, people: workloadOf(l, date).filter((p) => p.user_id && p.user_id !== userId && p.overdue).sort((a, b) => b.overdue - a.overdue) }))
+    .filter((x) => x.people.length).slice(0, 5);
+}
+
 export function lastWeek(userId, todayStart, tz, y, m, d) {
   const from = zonedToUtc(y, m, d - 7, 0, 0, 0, tz), to = todayStart;
   const rows = q(`SELECT e.*, g.status AS my_status, (SELECT COUNT(*) FROM event_guests x WHERE x.event_id = e.id AND x.user_id IS NOT ? AND x.status != 'no') AS others

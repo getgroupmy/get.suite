@@ -15603,3 +15603,22 @@ test('chat: a channel’s welcome note — new people see it until they dismiss 
   assert.equal((await a('PATCH', `/api/chat/channels/${ch.id}`, { welcome: '' })).status, 200);
   assert.equal((await seen(c)).welcome, null, 'cleared');
 });
+
+test('digest: overdue tasks of others on lists you share, by person', async () => {
+  const { digestFor, overdueOnShared } = await import('../src/digest.js');
+  const a = client(); const b = client();
+  for (const [l, n] of [['dgova', 'Dg Ann'], ['dgovb', 'Dg Bob']]) assert.equal((await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: n, password: 'password123' })).status, 201);
+  await login(a, 'dgova@acme.com'); await login(b, 'dgovb@acme.com');
+  const annId = (await a('GET', '/api/auth/me')).body.user.id;
+  const bobId = (await b('GET', '/api/auth/me')).body.user.id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Stand build' })).body;
+  await a('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [bobId] });
+  const day = new Date().toISOString().slice(0, 10);
+  const before = new Date(Date.now() - 5 * 864e5).toISOString().slice(0, 10);
+  await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Order panels', due: before, assignee_id: bobId });
+  await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Ship banners', due: before, assignee_id: bobId });
+  await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'My own late one', due: before, assignee_id: annId });
+  assert.deepEqual(overdueOnShared(annId, day).map((o) => [o.list, o.people.map((p) => [p.name, p.overdue])]), [['Stand build', [['Dg Bob', 2]]]], 'not your own');
+  assert.deepEqual(overdueOnShared(bobId, day), [], 'only lists you own');
+  assert.match(digestFor(annId).text, /Overdue on Stand build: Dg Bob 2/);
+});

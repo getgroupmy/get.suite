@@ -140,6 +140,20 @@ await step('a contact’s birthday today is in it', async () => {
   await card.getByRole('button', { name: 'Send me one now' }).click();
   await card.getByLabel('Summary preview').getByText(/🎂 Bea Birthday’s birthday/).waitFor();
 });
+await step('a list of yours shared with others: whose tasks there are overdue', async () => {
+  await api(page, 'POST', '/users', { local: 'lane', domain: 'acme.com', name: 'Lee Lane', password: 'password123' });
+  const leeId = (await api(page, 'GET', '/users')).body.find((u) => u.name === 'Lee Lane').id;
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Trade booth' })).body;
+  await api(page, 'PUT', `/tasks/lists/${list.id}/members`, { user_ids: [leeId] });
+  const late = new Date(Date.now() - 4 * 864e5).toISOString().slice(0, 10);
+  await api(page, 'POST', `/tasks/lists/${list.id}/tasks`, { title: 'Print the flyers', due: late, assignee_id: leeId });
+  await page.goto(`${B}/settings`);
+  const card = page.getByRole('region', { name: 'Morning summary' });
+  await card.getByLabel('Tasks due or overdue').check();
+  await until(async () => !(await api(page, 'GET', '/users/me/digest')).body.off.includes('tasks'));
+  await card.getByRole('button', { name: 'Send me one now' }).click();
+  await card.getByLabel('Summary preview').getByText('Overdue on Trade booth: Lee Lane 1').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
