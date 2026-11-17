@@ -58,6 +58,13 @@ await step('anyone with the address reads it, without signing in', async () => {
   await anon.getByText('Widgets: 10 each').waitFor();
   await anon.getByText(/Published by Acme Trading/).waitFor();
 });
+await step('the published page keeps the document’s normal text and page colour', async () => {
+  await api(page, 'PATCH', `/files/${doc.id}`, { page_setup: { font: 'Georgia', fontSize: 14, pageColor: '#fff2cc' } });
+  await anon.reload();
+  await anon.getByText('Widgets: 10 each').waitFor();
+  const look = await anon.locator('.preview-paper').evaluate((el) => { const t = el.querySelector('.tiptap') || el; const c = getComputedStyle(t); return `${c.fontFamily}|${c.fontSize}|${getComputedStyle(el).backgroundColor}`; });
+  if (!/Georgia/.test(look) || !look.includes('|18.6') || !look.endsWith('rgb(255, 242, 204)')) throw new Error(look); // 14 pt ≈ 18.67 px
+});
 await step('a spreadsheet shows worked-out values; a presentation its slides, without speaker notes', async () => {
   const sheet = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Rates', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Hours', B1: '8', A2: 'Total', B2: '=B1*25' } }] } })).body;
   const sp = (await api(page, 'PUT', `/publish/${sheet.id}`, { on: true })).body.path;
@@ -75,7 +82,7 @@ await step('Stop publishing: the address shows nothing any more', async () => {
   await page.getByRole('button', { name: 'More' }).click();
   await page.getByRole('menuitem', { name: 'Publish to the web…' }).click();
   const dlg = page.getByRole('dialog', { name: 'Publish to the web' });
-  await dlg.getByText(/Opened 1 time/).waitFor();
+  await dlg.getByText(/Opened 2 times/).waitFor(); // read, then read again after its page setup changed
   await dlg.getByRole('button', { name: 'Stop publishing' }).click();
   await dlg.getByRole('button', { name: 'Publish' }).waitFor();
   await anon.goto(url);

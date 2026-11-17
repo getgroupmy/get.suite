@@ -91,7 +91,9 @@ export function publicPublishRoutes() {
     if (!req.query.peek) q('UPDATE published_files SET views = views + 1 WHERE file_id = ?').run(p.file_id);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex');
-    res.json({ name: p.name, kind: p.kind, org_name: p.org_name, updated_at: p.updated_at, content });
+    // A document's look from its page setup: normal text and page colour (not its header, footer or other print settings).
+    const look = p.kind === 'doc' ? (() => { try { const ps = JSON.parse(q('SELECT page_setup FROM files WHERE id = ?').get(p.file_id).page_setup || 'null'); return ps ? Object.fromEntries(['font', 'fontSize', 'pageColor'].filter((k) => ps[k]).map((k) => [k, ps[k]])) : null; } catch { return null; } })() : null;
+    res.json({ name: p.name, kind: p.kind, org_name: p.org_name, updated_at: p.updated_at, content, ...(look && Object.keys(look).length && { look }) });
   });
   // Pictures the published document or presentation shows (owned by someone who can edit it, as in the editor).
   r.get('/:token/pictures/:pic', (req, res) => {

@@ -34,7 +34,7 @@ export default function PublishedPage({ token }) {
       </header>
       <main className="pub-main">
         {error ? <p className="error" role="alert">{error}</p> : !data ? <p className="muted">Loading…</p>
-          : data.kind === 'doc' ? <DocPreview key={data.updated_at} content={data.content} pictureBase={base} />
+          : data.kind === 'doc' ? <DocPreview key={data.updated_at} content={data.content} pictureBase={base} look={data.look} />
           : data.kind === 'slides' ? <PublishedDeck deck={data.content} base={base} />
           : <PublishedSheet book={data.content} base={base} />}
       </main>

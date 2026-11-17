@@ -23,7 +23,7 @@ import { get, post, patch, put, del, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal, withDataCheck } from '../../components/ui.jsx';
-import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf, PAGE_COLORS, pageColorOf, DOC_FONTS, DOC_FONT_SIZES } from './pagesetup.js';
+import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf, PAGE_COLORS, pageColorOf, DOC_FONTS, DOC_FONT_SIZES, textVars, inkFor } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
@@ -1607,7 +1607,7 @@ function NoteBox({ n, note, onChange, onDone }) {
 }
 
 /** A read-only document (an earlier version), drawn as the editor draws it. */
-export function DocPreview({ content, fileId, pictureBase = null }) {
+export function DocPreview({ content, fileId, pictureBase = null, look = null }) {
   const editor = useEditor({
     editable: false,
     content,
@@ -1617,5 +1617,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, EmailDraft, EventDraft, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
-  return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;
+  // look: the document's normal text and page colour (a published page), as its own paper shows them.
+  const style = look ? { ...textVars(look), ...(pageColorOf(look) && { backgroundColor: pageColorOf(look), color: inkFor(pageColorOf(look)) }) } : undefined;
+  return <div className="paper preview-paper" style={style}><EditorContent editor={editor} /></div>;
 }

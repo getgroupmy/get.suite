@@ -15828,3 +15828,15 @@ test('docs: an OpenDocument file’s normal text comes along when opened, and ro
   const ps = typeof f.page_setup === 'string' ? JSON.parse(f.page_setup) : f.page_setup;
   assert.deepEqual([ps.font, ps.fontSize], ['Georgia', 12]);
 });
+
+test('publish: a published document keeps its normal text and page colour', async () => {
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Price list', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Prices' }] }] } })).body;
+  await owner('PATCH', `/api/files/${d.id}`, { page_setup: { font: 'Georgia', fontSize: 14, pageColor: '#fff2cc', header: 'Not shown' } });
+  const pub = (await owner('PUT', `/api/publish/${d.id}`, { on: true })).body;
+  const token = pub.path.split('/').pop();
+  const page = (await client()('GET', `/api/public/pub/${token}?peek=1`)).body;
+  assert.deepEqual(page.look, { font: 'Georgia', fontSize: 14, pageColor: '#fff2cc' }, 'not the header or print settings');
+  const plain = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Plain' })).body;
+  const p2 = (await owner('PUT', `/api/publish/${plain.id}`, { on: true })).body;
+  assert.equal('look' in (await client()('GET', `/api/public/pub/${p2.path.split('/').pop()}?peek=1`)).body, false);
+});
