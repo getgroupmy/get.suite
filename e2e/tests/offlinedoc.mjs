@@ -623,6 +623,9 @@ await step('Chat threads: read offline, and a reply edited and another deleted t
   // A link to the message (from search or a notification) opens the conversation as last seen here.
   await page.goto(`${B}/chat/${ch}?msg=${top.id}`).catch(() => {});
   await page.locator('.msg', { hasText: 'Who brings the map?' }).waitFor({ timeout: 20000 });
+  if (await page.getByText('isn’t kept on this device').count()) throw new Error('said missing, though it is there');
+  await page.goto(`${B}/chat/${ch}?msg=nosuchmessage`).catch(() => {}); // one older than what's kept here
+  await page.getByText('That message isn’t kept on this device').waitFor({ timeout: 20000 });
   await page.reload();
   await openThread();
   await reply('Not me').waitFor({ timeout: 20000 }); // the thread, from this device
@@ -638,6 +641,7 @@ await step('Chat threads: read offline, and a reply edited and another deleted t
   await panel.getByRole('textbox', { name: 'Reply', exact: true }).fill('Compass too');
   await page.keyboard.press('Enter');
   await reply('Compass too').getByText('Sends when the connection is back').waitFor({ timeout: 15000 });
+  await page.locator('.msg', { hasText: 'Who brings the map?' }).getByRole('button', { name: /2 replies/ }).waitFor(); // one deleted, one added
   await page.reload();
   await page.locator('.msg', { hasText: 'Who brings the map?' }).getByRole('button', { name: /repl/ }).click({ timeout: 20000 });
   await reply('I will, the big one').waitFor({ timeout: 20000 });

@@ -1,4 +1,4 @@
-import { unreachable, keepChange, keepDelete, appendKept } from '../offlinedocs.js';
+import { unreachable, keepChange, keepDelete, appendKept, patchKeptItem } from '../offlinedocs.js';
 import { toggleReaction } from './chatreact.js';
 import { seenBy } from './seenby.js';
 import { moved } from '../../components/moved.js';
@@ -251,6 +251,8 @@ export default function Chat() {
       }
       if (jumpTo) {
         if (jumpThread) setThreadId(jumpThread);
+        // Offline, from the conversation as last seen here: the message may be older than what was kept.
+        if (!list.some((m) => m.id === jumpTo || m.id === jumpThread) && !navigator.onLine) toast('That message isn’t kept on this device: it shows when the connection is back', 'info');
         requestAnimationFrame(() => {
           const el = scroller.current?.querySelector(`[data-mid="${jumpTo}"]`);
           el?.scrollIntoView({ block: 'center' });
@@ -391,6 +393,12 @@ export default function Chat() {
   useEffect(() => { loadSaved(); }, [loadSaved]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-saved') loadSaved(); }), [loadSaved]);
   // Messages written offline have gone: the conversation as the server has it (their "waiting" copies go).
+  // A reply written or deleted offline in a thread: its count follows here at once.
+  useEffect(() => {
+    const replied = (e) => setMessages((list) => list.map((x) => (x.id === e.detail.id ? { ...x, reply_count: e.detail.n } : x)));
+    window.addEventListener('nw:chat-replied', replied);
+    return () => window.removeEventListener('nw:chat-replied', replied);
+  }, []);
   useEffect(() => {
     if (!channelId) return undefined;
     const again = () => get(`/chat/channels/${channelId}/messages`).then((list) => setMessages(list)).catch(() => {});
@@ -1134,8 +1142,15 @@ function Thread({ id, channelId, channel, user, onClose }) {
       if (!unreachable(err) || m.pending) { toast(err.message, 'error'); return; }
       await keepDelete({ url: `/chat/messages/${m.id}`, user: user.id, label: 'a message in Chat', id: m.id });
       toast('Message deleted on this device: deleted for everyone when the connection is back');
-      if (m.id === id) onClose(); else setReplies((list) => list.filter((x) => x.id !== m.id));
+      if (m.id === id) onClose(); else { setReplies((list) => list.filter((x) => x.id !== m.id)); countReplies(-1); }
     }
+  }
+  /** A reply added or deleted offline: the thread's count goes up or down in the conversation (and its kept copy). */
+  function countReplies(by) {
+    const n = Math.max(0, (parent?.reply_count || 0) + by);
+    setParent((p) => (p ? { ...p, reply_count: n } : p));
+    patchKeptItem(id, { reply_count: n });
+    window.dispatchEvent(new CustomEvent('nw:chat-replied', { detail: { id, n } }));
   }
   async function send(e) {
     e.preventDefault();
@@ -1168,6 +1183,8 @@ function Thread({ id, channelId, channel, user, onClose }) {
         await keepChange({ method: 'POST', url: `/chat/channels/${channelId}/messages`, body: { body, parent_id: id }, user: user.id, label: 'a reply in Chat' });
         await appendKept(`/chat/messages/${id}/replies`, pending);
         setReplies((list) => [...list, pending]);
+        // The conversation counts it too (here and in its kept copy).
+        countReplies(1);
         return;
       }
       toast(err.message, 'error'); setText(body);
