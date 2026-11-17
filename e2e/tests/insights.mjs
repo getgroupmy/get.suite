@@ -47,13 +47,13 @@ await step('Time insights shows the split and who you meet', async () => {
   await page.getByRole('button', { name: 'Time insights' }).click();
   const d = page.getByRole('dialog', { name: 'Time insights' });
   const tiles = d.getByRole('list', { name: 'This week' });
-  await tiles.getByText('1 h').waitFor();
-  await tiles.getByText('2 h').waitFor();
-  await tiles.getByText('30 min').waitFor();
+  await tiles.locator('.insight-num', { hasText: /^1 h$/ }).waitFor(); // the total itself (not the “vs last week” line)
+  await tiles.locator('.insight-num', { hasText: /^2 h$/ }).waitFor(); // the total itself (not the “vs last week” line)
+  await tiles.locator('.insight-num', { hasText: /^30 min$/ }).waitFor(); // the total itself (not the “vs last week” line)
   await d.getByText('Kim Park').waitFor();
   await page.screenshot({ path: `${SP}/shots/insights.png` });
   await d.getByRole('button', { name: 'Next week' }).click();
-  await tiles.getByText('0 h').first().waitFor();
+  await tiles.locator('.insight-num', { hasText: /^0 h$/ }).first().waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
