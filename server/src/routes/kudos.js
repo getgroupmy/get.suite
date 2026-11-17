@@ -6,6 +6,7 @@ import { q } from '../db.js';
 import { uid, now, str, bad, notFound } from '../util.js';
 import { notify } from '../notifications.js';
 import { sendTo } from '../hub.js';
+import { channelChoice, postToChannel } from './chat.js';
 
 q(`CREATE TABLE IF NOT EXISTS kudos (
   id TEXT PRIMARY KEY,
@@ -56,7 +57,7 @@ export default function kudosRoutes() {
       latest: q(`${SELECT} WHERE k.to_id = ? ORDER BY k.created_at DESC LIMIT 20`).all(u.id).map((x) => shape(x, req.user.id)),
     });
   });
-  // { to, message, emoji }
+  // { to, message, emoji, channel_id? }: with a channel, it's also posted there, as you (a channel you can write in).
   r.post('/', (req, res) => {
     const to = q('SELECT id, org_id, name, disabled FROM users WHERE id = ?').get(String(req.body?.to || ''));
     if (!to || to.disabled || to.org_id !== req.user.org_id) throw notFound('No such person');
@@ -65,10 +66,12 @@ export default function kudosRoutes() {
     if (!message) throw bad('Say what you’re thanking them for');
     const emoji = KUDOS_EMOJI.includes(req.body?.emoji) ? req.body.emoji : KUDOS_EMOJI[0];
     if (q('SELECT COUNT(*) AS n FROM kudos WHERE from_id = ? AND created_at > ?').get(req.user.id, now() - 864e5).n >= PER_DAY) throw bad('That’s a lot of thanks for one day; try again tomorrow');
+    const channel = req.body?.channel_id ? channelChoice(req.body.channel_id, req.user) : null;
     const id = uid();
     q('INSERT INTO kudos (id, org_id, from_id, to_id, emoji, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.user.org_id, req.user.id, to.id, emoji, message, now());
     notify([to.id], { kind: 'kudos', title: `${emoji} ${req.user.name} thanked you`, body: message, link: '/home', actor: req.user.id });
     tell(req.user.org_id);
+    if (channel) postToChannel(channel.id, req.user, `${emoji} Thanks, ${to.name}: ${message}`);
     res.status(201).json(shape(q(`${SELECT} WHERE k.id = ?`).get(id), req.user.id));
   });
   // 👏 on someone's thank-you, or off again: { on }.

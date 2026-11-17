@@ -103,6 +103,20 @@ await step('the giver takes it back: gone from the card and Home', async () => {
   await kim.waitForTimeout(1500);
   if (await kim.getByRole('region', { name: 'Thanks' }).count()) throw new Error('still on Home');
 });
+await step('thanks also posted in a Chat channel, as the giver', async () => {
+  const card = page.getByRole('dialog', { name: 'Kim Park' });
+  await card.getByRole('button', { name: '🙌 Say thanks' }).click();
+  const form = card.getByRole('form', { name: 'Thank Kim Park' });
+  await form.getByRole('radio', { name: '🎉' }).click();
+  await form.getByLabel('What for').fill('Great demo today');
+  await form.getByLabel('Also post in').selectOption({ label: '#general' });
+  await form.getByRole('button', { name: 'Send thanks' }).click();
+  await page.getByText('🎉 Thanks sent to Kim Park, and posted in #general').last().waitFor();
+  await kim.goto(`${B}/chat`);
+  await kim.getByRole('button', { name: /general/ }).first().click();
+  await kim.getByText('🎉 Thanks, Kim Park: Great demo today').first().waitFor({ timeout: 10000 });
+  await kim.screenshot({ path: `${SP}/shots/kudos-chat.png` });
+}, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

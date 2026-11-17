@@ -20,24 +20,41 @@ const KUDOS_EMOJI = ['🙌', '🎉', '💪', '🌟', '🙏', '🚀', '❤️', '
 function Thanks({ person, me }) {
   const toast = useToast();
   const [data, setData] = useState(null);
-  const [form, setForm] = useState(null); // { emoji, message } while writing
+  const [form, setForm] = useState(null); // { emoji, message, channel_id } while writing
+  const [channels, setChannels] = useState([]); // channels to post it in too (not direct messages or archived ones)
+  useEffect(() => {
+    if (!form || channels.length) return;
+    get('/chat/channels').then((r) => setChannels((r.channels || []).filter((c) => !c.dm_key && !c.archived_at && c.member !== false))).catch(() => {});
+  }, [form, channels.length]);
   const load = useCallback(() => get(`/kudos/for/${person.id}`).then(setData).catch(() => {}), [person.id]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => onLive((m) => { if (m.type === 'kudos-changed') load(); }), [load]);
   const send = async (e) => {
     e.preventDefault();
-    try { await post('/kudos', { to: person.id, ...form }); setForm(null); toast(`${form.emoji} Thanks sent to ${person.name}`); load(); } catch (err) { toast(err.message, 'error'); }
+    try {
+      await post('/kudos', { to: person.id, emoji: form.emoji, message: form.message, ...(form.channel_id && { channel_id: form.channel_id }) });
+      const ch = channels.find((c) => c.id === form.channel_id);
+      setForm(null); toast(`${form.emoji} Thanks sent to ${person.name}${ch ? `, and posted in #${ch.name}` : ''}`); load();
+    } catch (err) { toast(err.message, 'error'); }
   };
   const takeBack = async (k) => { try { await del(`/kudos/${k.id}`); toast('Thanks taken back'); load(); } catch (err) { toast(err.message, 'error'); } };
   return (
     <section className="stack-tight person-thanks" aria-label="Thanks">
-      {person.id !== me && !form && <div><button type="button" className="btn" onClick={() => setForm({ emoji: KUDOS_EMOJI[0], message: '' })}>🙌 Say thanks</button></div>}
+      {person.id !== me && !form && <div><button type="button" className="btn" onClick={() => setForm({ emoji: KUDOS_EMOJI[0], message: '', channel_id: '' })}>🙌 Say thanks</button></div>}
       {form && (
         <form className="stack-tight" aria-label={`Thank ${person.name}`} onSubmit={send}>
           <div className="row wrap" role="radiogroup" aria-label="Emoji" style={{ gap: 4 }}>
             {KUDOS_EMOJI.map((em) => <button key={em} type="button" role="radio" aria-checked={form.emoji === em} aria-label={em} className={`icon-btn kudos-pick ${form.emoji === em ? 'on' : ''}`} onClick={() => setForm({ ...form, emoji: em })}>{em}</button>)}
           </div>
           <textarea aria-label="What for" placeholder={`What are you thanking ${person.name.split(' ')[0]} for?`} rows={2} maxLength={280} required autoFocus value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+          {channels.length > 0 && (
+            <label className="row small" style={{ gap: 6 }}>Also post in
+              <select value={form.channel_id} onChange={(e) => setForm({ ...form, channel_id: e.target.value })}>
+                <option value="">No channel</option>
+                {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+              </select>
+            </label>
+          )}
           <div className="row" style={{ gap: 6 }}><button className="btn primary small">Send thanks</button><button type="button" className="btn small" onClick={() => setForm(null)}>Cancel</button><span className="muted small">Everyone in the company can see it on Home.</span></div>
         </form>
       )}

@@ -55,6 +55,16 @@ test('thanks: given to a colleague, who is told; on their card and the company�
   const wall = (await tara('GET', '/api/kudos?limit=5')).body;
   assert.equal(wall[0].to_name, 'Tara Thanks');
 
+  // Also posted in a Chat channel, as the giver; a channel you can't write in is refused (and nothing is given).
+  const general = (await olivia('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general');
+  assert.equal((await olivia('POST', '/api/kudos', { to: taraId, message: 'Lost', channel_id: 'nope' })).status, 404);
+  const posted = await olivia('POST', '/api/kudos', { to: taraId, message: 'Great demo', emoji: '🎉', channel_id: general.id });
+  assert.equal(posted.status, 201);
+  const msgs = (await tara('GET', `/api/chat/channels/${general.id}/messages`)).body;
+  const list = msgs.messages || msgs;
+  assert.ok(list.some((m) => m.body === '🎉 Thanks, Tara Thanks: Great demo' && m.user_id === me.id), JSON.stringify(list).slice(0, 300));
+  assert.ok(!(await tara('GET', `/api/kudos/for/${taraId}`)).body.latest.some((x) => x.message === 'Lost'));
+  await olivia('DELETE', `/api/kudos/${posted.body.id}`);
   // 👏: anyone but its giver, once each; off again.
   assert.equal((await olivia('POST', `/api/kudos/${k.body.id}/clap`, {})).status, 400, 'not on your own');
   const c1 = (await tara('POST', `/api/kudos/${k.body.id}/clap`, {})).body;
