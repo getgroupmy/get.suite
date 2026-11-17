@@ -1047,6 +1047,9 @@ function Timesheet({ onClose, onOpen }) {
 }
 
 /** Who spent how long on what in a list, between two dates; downloadable as CSV. */
+/** " · 3 open, 1 overdue" after a name in the Assigned to menu ('' when there's nothing to say). */
+const loadText = (w) => (w?.open ? ` · ${w.open} open${w.overdue ? `, ${w.overdue} overdue` : ''}` : '');
+
 /** Workload: who on a shared list has how much open, and when it's due (server: taskworkload.js). */
 function Workload({ list, onClose, onPick }) {
   const [w, setW] = useState(null);
@@ -1162,6 +1165,10 @@ function ListLook({ list, onClose, onSaved }) {
 }
 
 function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onClose, onDelete, onMove, onReplaced, inMyDay, onMyDay }) {
+  // How much each person on the list already has (Workload), beside their name when giving the task to someone.
+  const [load, setLoad] = useState(null);
+  const shared = people.length > 1;
+  useEffect(() => { if (shared) get(`/tasks/lists/${task.list_id}/workload?today=${localToday()}`).then((w) => setLoad(w.people)).catch(() => {}); }, [shared, task.list_id, task.assignee_id]);
   const [chattingOne, setChattingOne] = useState(false); // Send in Chat, from here
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes || '');
@@ -1238,7 +1245,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
         <label className="field"><span>Assigned to</span>
           <select value={task.assignee_id || ''} onChange={(e) => onChange({ assignee_id: e.target.value || null })}>
             <option value="">Nobody</option>
-            {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {people.map((p) => <option key={p.id} value={p.id}>{p.name}{loadText(load?.find((x) => x.user_id === p.id))}</option>)}
           </select>
         </label>
       )}

@@ -95,6 +95,14 @@ await step('a name in Workload shows only their tasks; a task added then is thei
   await page.getByText('Order banners').waitFor();
   await both('tasks for one person');
 });
+await step('Assigned to in a task’s details says how much each person has', async () => {
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByText('Order banners').click();
+  const pick = page.getByLabel('Assigned to');
+  await until(async () => (await pick.locator('option').allTextContents()).some((x) => /^Kim Park · 3 open, 1 overdue$/.test(x)));
+  const texts = await pick.locator('option').allTextContents();
+  if (!texts.includes('Olivia Owner')) throw new Error(texts.join(' | '));
+});
 await step('a list nobody shares has no Workload', async () => {
   const solo = (await api(page, 'POST', '/tasks/lists', { name: 'Just mine' })).body;
   await page.goto(`${B}/tasks/${solo.id}`);
