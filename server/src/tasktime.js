@@ -90,12 +90,12 @@ export function listTime(listId, at = now()) {
 export function listReport(listId, from, to, at = now(), billing = null) {
   const start = Date.parse(`${from}T00:00:00Z`), end = Date.parse(`${to}T00:00:00Z`) + 864e5;
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw bad('Choose a start and end date, the start first');
-  const rows = q(`SELECT e.*, t.title, u.name AS user_name FROM task_time e JOIN tasks t ON t.id = e.task_id LEFT JOIN users u ON u.id = e.user_id
+  const rows = q(`SELECT e.*, t.title, t.nonbillable, u.name AS user_name FROM task_time e JOIN tasks t ON t.id = e.task_id LEFT JOIN users u ON u.id = e.user_id
                   WHERE t.list_id = ? AND e.started_at >= ? AND e.started_at < ? ORDER BY u.name, t.title`).all(listId, start, end);
   const lines = new Map();
   for (const r of rows) {
     const k = `${r.user_id}|${r.task_id}`;
-    const l = lines.get(k) || { person: r.user_name || 'Someone', task: r.title, minutes: 0 };
+    const l = lines.get(k) || { person: r.user_name || 'Someone', task: r.title, minutes: 0, ...(r.nonbillable && { billable: false }) };
     l.minutes += r.ended_at === null ? minutesBetween(r.started_at, at) : r.minutes;
     lines.set(k, l);
   }
@@ -104,7 +104,7 @@ export function listReport(listId, from, to, at = now(), billing = null) {
   if (!billing?.rate) return { from, to, lines: list, total };
   // At the list's hourly rate: each line's amount to the cent, and the total of those.
   const money = (m) => Math.round((m / 60) * billing.rate * 100) / 100;
-  for (const l of list) l.amount = money(l.minutes);
+  for (const l of list) l.amount = l.billable === false ? 0 : money(l.minutes); // a task marked not billable counts nothing
   return { from, to, lines: list, total, rate: billing.rate, currency: billing.currency, amount: Math.round(list.reduce((n, l) => n + l.amount * 100, 0)) / 100 };
 }
 
@@ -122,7 +122,8 @@ export function reportSheet(report, listName) {
     const r = i + 2;
     cells[`A${r}`] = plain(l.person); cells[`B${r}`] = plain(l.task); cells[`C${r}`] = String(l.minutes);
     cells[`D${r}`] = `=ROUND(C${r}/60,2)`; formats[`D${r}`] = { num: 'number', dp: 2 };
-    if (billed) { cells[`E${r}`] = `=ROUND(C${r}/60*$G$2,2)`; formats[`E${r}`] = { num: 'currency', cur: report.currency, dp: 2 }; } // the rate is in G2: change it there and the amounts follow
+    if (billed && l.billable === false) cells[`E${r}`] = 'not billable';
+    else if (billed) { cells[`E${r}`] = `=ROUND(C${r}/60*$G$2,2)`; formats[`E${r}`] = { num: 'currency', cur: report.currency, dp: 2 }; } // the rate is in G2: change it there and the amounts follow
   });
   const last = report.lines.length + 1, t = last + 1;
   cells[`A${t}`] = 'Total'; formats[`A${t}`] = { b: true };
@@ -165,7 +166,7 @@ export function myTimeCsv(userId, at = now()) {
 export function reportCsv(report) {
   const billed = report.rate != null, money = (x) => x.toFixed(2);
   const rows = [['Person', 'Task', 'Minutes', 'Hours', ...(billed ? [`Amount (${report.currency}, ${money(report.rate)}/h)`] : [])],
-    ...report.lines.map((l) => [l.person, l.task, l.minutes, (l.minutes / 60).toFixed(2), ...(billed ? [money(l.amount)] : [])]),
+    ...report.lines.map((l) => [l.person, l.task, l.minutes, (l.minutes / 60).toFixed(2), ...(billed ? [l.billable === false ? 'not billable' : money(l.amount)] : [])]),
     ['Total', '', report.total, (report.total / 60).toFixed(2), ...(billed ? [money(report.amount)] : [])]];
   return `${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }

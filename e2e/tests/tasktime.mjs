@@ -345,6 +345,25 @@ await step('the time report at an hourly rate: amounts per line, a total, and in
   const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('link', { name: 'Download CSV' }).click()]);
   const csv = fs.readFileSync(await dl.path(), 'utf8');
   if (!/Person,Task,Minutes,Hours,"Amount \(EUR, 80\.00\/h\)"/.test(csv) || !/Kim Park,Design,45,0\.75,60\.00/.test(csv)) throw new Error(csv);
+  // Design marked not billable (in its details, now that the list has a rate): its lines count nothing.
+  await page.keyboard.press('Escape');
+  await row(page, 'Design').locator('.task-main').click();
+  const billable = page.getByRole('checkbox', { name: /^Billable/ });
+  await billable.waitFor({ timeout: 10000 });
+  if (!(await billable.isChecked())) throw new Error('billable by default');
+  await billable.uncheck();
+  await until(async () => (await api(page, 'GET', `/tasks/lists/${list}/time-report?from=2026-01-01&to=2026-12-31`)).body.lines.some((l) => l.task === 'Design' && l.billable === false));
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Time report…' }).click();
+  await table.getByRole('row').filter({ hasText: 'Kim Park' }).filter({ hasText: 'not billable' }).first().waitFor({ timeout: 10000 });
+  await page.screenshot({ path: `${SP}/shots/report-nonbillable.png` });
+  await page.keyboard.press('Escape');
+  if (!(await billable.isVisible())) await row(page, 'Design').locator('.task-main').click(); // the details stayed open behind the report
+  await billable.check();
+  await until(async () => !(await api(page, 'GET', `/tasks/lists/${list}/time-report?from=2026-01-01&to=2026-12-31`)).body.lines.some((l) => l.billable === false));
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Time report…' }).click();
+  await table.getByRole('row').filter({ hasText: 'Kim Park' }).filter({ hasText: '€60.00' }).first().waitFor({ timeout: 10000 });
   // Open in Sheets: a new spreadsheet with the report, its amounts worked out by formulas.
   await dlg.getByRole('button', { name: 'Open in Sheets' }).click();
   await page.waitForURL(/\/sheets\//, { timeout: 10000 });

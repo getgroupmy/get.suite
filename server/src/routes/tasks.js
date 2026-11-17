@@ -50,7 +50,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT'], ['repeat_until', 'TEXT'], ['section_id', 'TEXT'], ['estimate', 'INTEGER'], ['priority', 'INTEGER']]) { // priority: 1 low, 2 medium, 3 high, or null; // estimate: minutes you expect it to take; // section_id: a heading on its list the task sits under, or null; // repeat_until: the last day a repeating task may come due (YYYY-MM-DD), or null for always; // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT'], ['repeat_until', 'TEXT'], ['section_id', 'TEXT'], ['estimate', 'INTEGER'], ['priority', 'INTEGER'], ['nonbillable', 'INTEGER NOT NULL DEFAULT 0']]) { // priority: 1 low, 2 medium, 3 high, or null; // estimate: minutes you expect it to take; // section_id: a heading on its list the task sits under, or null; // repeat_until: the last day a repeating task may come due (YYYY-MM-DD), or null for always; // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -431,7 +431,7 @@ export default function taskRoutes() {
     const me = req.user.id;
     // Everyone starts with a list of their own.
     if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(me)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), me, 'My tasks', now());
-    const lists = q(`SELECT l.id, l.name, l.owner_id, l.created_at, l.color, l.emoji, u.name AS owner_name,
+    const lists = q(`SELECT l.id, l.name, l.owner_id, l.created_at, l.color, l.emoji, l.rate, u.name AS owner_name,
                        (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id AND t.done_at IS NULL) AS open
                      FROM task_lists l JOIN users u ON u.id = l.owner_id
                      WHERE l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)
@@ -1019,6 +1019,7 @@ export default function taskRoutes() {
     if (b.priority !== undefined) set.priority = priorityOf(b.priority);
     if (b.tags !== undefined) set.tags = tagsOf(b.tags);
     if (b.started !== undefined) set.started = b.started ? 1 : 0;
+    if (b.billable !== undefined) set.nonbillable = b.billable ? 0 : 1; // left out of the time report's amounts
     if (b.estimate !== undefined) {
       const m = b.estimate === null || b.estimate === '' ? null : Number(b.estimate);
       if (m !== null && !(Number.isInteger(m) && m >= 1 && m <= 100 * 60)) throw bad('An estimate is a whole number of minutes, up to 100 hours');

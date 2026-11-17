@@ -3981,6 +3981,17 @@ test('task time: a timer per person, time added by hand, totals, a report and CS
   assert.equal(billed.lines.find((l) => l.person === 'Time Ben').amount, 120);
   assert.equal(billed.lines.find((l) => l.task === 'Design' && l.person === 'Time Ann').amount, 33.33);
   assert.equal(billed.amount, Math.round(billed.lines.reduce((n, l) => n + l.amount * 100, 0)) / 100);
+  // A task marked not billable: its time stays in the report, at nothing.
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { billable: false })).status, 200);
+  assert.equal(q('SELECT nonbillable FROM tasks WHERE id = ?').get(t1.id).nonbillable, 1);
+  const nb = (await b('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}`)).body;
+  const bensLine = nb.lines.find((l) => l.person === 'Time Ben' && l.task === 'Design');
+  assert.deepEqual([bensLine.billable, bensLine.amount, bensLine.minutes], [false, 0, 90]);
+  assert.equal(nb.amount, Math.round(nb.lines.filter((l) => l.task !== 'Design').reduce((n, l) => n + l.amount * 100, 0)) / 100);
+  assert.match((await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}&format=csv`)).body, /Time Ben,Design,90,1\.50,not billable/);
+  const nbs = JSON.parse(q('SELECT content FROM files WHERE id = ?').get((await a('POST', `/api/tasks/lists/${list}/time-report/sheet`, { from: since, to: day })).body.id).content).sheets[0];
+  assert.ok(Object.values(nbs.cells).includes('not billable'));
+  await a('PATCH', `/api/tasks/tasks/${t1.id}`, { billable: true });
   const bcsv = (await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}&format=csv`)).body;
   assert.match(bcsv, /Person,Task,Minutes,Hours,"Amount \(EUR, 80\.00\/h\)"/);
   assert.match(bcsv, /Time Ben,Design,90,1\.50,120\.00/);

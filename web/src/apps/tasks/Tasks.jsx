@@ -654,7 +654,7 @@ export default function Tasks() {
           {n > 0 && <button type="button" className="link-btn small danger" onClick={async () => { await del(`/tasks/sections/${sectionEdit.remove.id}?tasks=1`); setSectionEdit(null); loadTasks(); loadLists(); }}>Delete the section and its {n} task{n === 1 ? '' : 's'}</button>}
         </ConfirmModal>;
       })()}
-      {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
+      {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} onRate={loadLists} />}
       {dialog === 'sheet' && <Timesheet onClose={() => setDialog(null)} onOpen={(t) => { setDialog(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }} />}
       {dialog === 'activity' && list && <ListActivity list={list} onClose={() => setDialog(null)} onOpen={(id) => { setDialog(null); navigate(`/tasks/${list.id}?task=${id}`); }} />}
       {dialog === 'trash' && list && <TaskTrash list={list} onClose={() => setDialog(null)} onRestored={() => { loadTasks(); loadLists(); }} />}
@@ -1032,7 +1032,7 @@ function Timesheet({ onClose, onOpen }) {
 }
 
 /** Who spent how long on what in a list, between two dates; downloadable as CSV. */
-function TimeReport({ list, onClose }) {
+function TimeReport({ list, onClose, onRate }) {
   const navigate = useNavigate();
   const today = new Date().toISOString().slice(0, 10);
   const [range, setRange] = useState({ from: `${today.slice(0, 8)}01`, to: today });
@@ -1044,7 +1044,7 @@ function TimeReport({ list, onClose }) {
   useEffect(() => { setError(''); load(); }, [load]);
   const money = (x) => { try { return new Intl.NumberFormat([], { style: 'currency', currency: rep.currency }).format(x); } catch { return `${x.toFixed(2)} ${rep.currency}`; } };
   const saveRate = async (body) => {
-    try { await put(`/tasks/lists/${list.id}/rate`, body); setBilling(null); toast(body.rate == null ? 'Rate removed' : 'Rate saved'); load(); } catch (e) { toast(e.message, 'error'); }
+    try { await put(`/tasks/lists/${list.id}/rate`, body); setBilling(null); toast(body.rate == null ? 'Rate removed' : 'Rate saved'); load(); onRate?.(); } catch (e) { toast(e.message, 'error'); }
   };
   return (
     <Modal wide title={`Time on “${list.name}”`} onClose={onClose} footer={<>
@@ -1078,7 +1078,7 @@ function TimeReport({ list, onClose }) {
         {rep && (rep.lines.length ? (
           <table className="data-table" aria-label="Time report">
             <thead><tr><th scope="col">Person</th><th scope="col">Task</th><th scope="col" className="num">Time</th>{rep.rate != null && <th scope="col" className="num">Amount</th>}</tr></thead>
-            <tbody>{rep.lines.map((l, i) => <tr key={i}><td>{l.person}</td><td>{l.task}</td><td className="num">{formatMinutes(l.minutes)}</td>{rep.rate != null && <td className="num">{money(l.amount)}</td>}</tr>)}</tbody>
+            <tbody>{rep.lines.map((l, i) => <tr key={i}><td>{l.person}</td><td>{l.task}</td><td className="num">{formatMinutes(l.minutes)}</td>{rep.rate != null && <td className="num">{l.billable === false ? <span className="muted">not billable</span> : money(l.amount)}</td>}</tr>)}</tbody>
             <tfoot><tr><th scope="row" colSpan={2}>Total</th><td className="num"><strong>{formatMinutes(rep.total)}</strong></td>{rep.rate != null && <td className="num" aria-label={`Total amount: ${money(rep.amount)}`}><strong>{money(rep.amount)}</strong></td>}</tr></tfoot>
           </table>
         ) : <p className="muted">No time recorded on this list in those dates.</p>)}
@@ -1182,6 +1182,11 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
           {[...new Set([15, 30, 45, 60, 90, 120, 180, 240, 360, 480, ...(task.estimate ? [task.estimate] : [])])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{formatMinutes(m)}</option>)}
         </select>
       </label>
+      {lists?.find((l) => l.id === task.list_id)?.rate != null && (
+        <label className="row small" style={{ gap: 6 }} title="Time on a task that isn't billable stays in the time report, at nothing">
+          <input type="checkbox" checked={!task.nonbillable} onChange={(e) => onChange({ billable: e.target.checked, nonbillable: e.target.checked ? 0 : 1 })} /> Billable (the list’s hourly rate applies)
+        </label>
+      )}
       {people.length > 1 && (
         <label className="field"><span>Assigned to</span>
           <select value={task.assignee_id || ''} onChange={(e) => onChange({ assignee_id: e.target.value || null })}>
