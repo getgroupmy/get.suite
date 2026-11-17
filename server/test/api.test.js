@@ -15487,3 +15487,16 @@ test('mail: default reply — the sender, or everyone', async () => {
   await a('PUT', '/api/users/me/mail-reply', { reply: 'sender' });
   assert.equal((await a('GET', '/api/auth/me')).body.user.mail_reply, 'sender');
 });
+
+test('mail: when an opened email is marked read — at once, after seconds, or never', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'rdaf', domain: 'acme.com', name: 'R Daf', password: 'password123' })).status, 201);
+  await login(a, 'rdaf@acme.com');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_read_after, 0);
+  for (const after of [5, 20, -1, 0]) {
+    assert.deepEqual((await a('PUT', '/api/users/me/mail-read-after', { after })).body, { after });
+    assert.equal((await a('GET', '/api/auth/me')).body.user.mail_read_after, after);
+  }
+  assert.equal((await a('PUT', '/api/users/me/mail-read-after', { after: 7 })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/mail-read-after', { after: '5' })).status, 400);
+});

@@ -1184,7 +1184,7 @@ export default function webmailRoutes() {
         if (p.html ? !h.quoted : !t.quoted) return null;
         return { html: h?.quoted ? h.main : null, view_html: h?.quoted ? checkLinks(proxyImages(h.main, req.user.id).html, { likeOf: linkLookalike(req.user) }).html : null, text: t.quoted ? t.main : null };
       })(),
-      flagged: flags.has('\\Flagged'),
+      flagged: flags.has('\\Flagged'), seen: flags.has('\\Seen') || req.query.peek !== '1', // read: false only when opened with ?peek=1 and not read before
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       // From outside the company (when it marks such mail), or using a colleague's name from outside.

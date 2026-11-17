@@ -66,6 +66,7 @@ export default function Settings() {
       <MailPane />
       <MailAdvance />
       <MailReply />
+      <MailReadAfter />
       <MailTidy />
       <MailNudges />
       <MailAttachCheck />
@@ -662,6 +663,27 @@ function MailAdvance() {
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'list'} onChange={() => set('list')} /> Go back to the list</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'newer'} onChange={() => set('newer')} /> Open the next newer message</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'older'} onChange={() => set('older')} /> Open the next older message</label>
+      </div>
+    </section>
+  );
+}
+
+function MailReadAfter() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [now, setNow] = useState(user.mail_read_after || 0);
+  const set = async (after) => {
+    const was = now;
+    setNow(after);
+    try { await put('/users/me/mail-read-after', { after }); setUser({ ...user, mail_read_after: after }); toast('Saved'); } catch (e) { setNow(was); toast(e.message, 'error'); }
+  };
+  const choices = [[0, 'As soon as I open it'], [5, 'After 5 seconds open'], [20, 'After 20 seconds open'], [-1, 'Never: I mark emails read myself']];
+  return (
+    <section className="card stack" aria-labelledby="mread-h">
+      <h2 id="mread-h">Mark emails as read</h2>
+      <p className="muted small" style={{ margin: 0 }}>Clicking through mail without reading it leaves it unread. Phones and mail apps go by their own setting.</p>
+      <div className="stack" role="radiogroup" aria-labelledby="mread-h">
+        {choices.map(([v, label]) => <label key={v} className="check"><input type="radio" name="mail-read-after" checked={now === v} onChange={() => set(v)} /> {label}</label>)}
       </div>
     </section>
   );

@@ -897,8 +897,16 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   const [phishing, setPhishing] = useState(false);
   const [unsubscribing, setUnsubscribing] = useState(false);
   const [muted, setMuted] = useState(null); // its conversation is muted: the entry's id
+  // Settings → Mark as read: at once (opening it does), after some seconds still open, or never (only by hand).
+  const readAfter = user.mail_read_after || 0;
   useEffect(() => {
-    get(`/mail/messages/${uid}?folder=${enc(folder)}`).then((x) => {
+    if (readAfter <= 0 || !m || m.seen !== false) return undefined;
+    const t = setTimeout(() => { post('/mail/messages/flags', { folder, uids: [uid], seen: true }).then(onChanged).catch(() => {}); }, readAfter * 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m, uid, folder, readAfter]);
+  useEffect(() => {
+    get(`/mail/messages/${uid}?folder=${enc(folder)}${readAfter ? '&peek=1' : ''}`).then((x) => {
       setM(x); onChanged();
       if (x.messageId) get(`/mail/muted/check?message_id=${encodeURIComponent(x.messageId)}&references=${encodeURIComponent((x.references || []).join(','))}`).then((r) => setMuted(r.id)).catch(() => {});
     }).catch((e) => { toast(e.message, 'error'); onClose(); });

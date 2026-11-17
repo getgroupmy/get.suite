@@ -102,6 +102,31 @@ await step('default reply: the sender again, Reply first', async () => {
   const first = (await reader().locator('.reader-reply button').first().textContent()).trim();
   if (first !== 'Reply') throw new Error('first is ' + first);
 });
+const unread = async (subj) => page.locator('.mail-list li', { has: page.getByText(subj, { exact: true }) }).evaluate((li) => li.classList.contains('unread'));
+await step('mark as read after 5 seconds: unread while glancing, read once it stays open', async () => {
+  await page.goto(`${B}/settings`);
+  await page.getByLabel('After 5 seconds open').check();
+  await page.getByText('Saved').first().waitFor();
+  await send('Delta note');
+  await page.goto(`${B}/mail`);
+  await row('Delta note').click({ timeout: 40000 });
+  await reader().getByText('About Delta note').waitFor();
+  await page.waitForTimeout(1500);
+  if (!(await unread('Delta note'))) throw new Error('read straight away');
+  await until(async () => !(await unread('Delta note')), 9000);
+});
+await step('never: an opened email stays unread until marked by hand', async () => {
+  await api(page, 'PUT', '/users/me/mail-read-after', { after: -1 });
+  await send('Echo note');
+  await page.goto(`${B}/mail`);
+  await row('Echo note').click({ timeout: 40000 });
+  await reader().getByText('About Echo note').waitFor();
+  await page.waitForTimeout(6500);
+  await page.reload();
+  await row('Echo note').waitFor();
+  if (!(await unread('Echo note'))) throw new Error('was marked read');
+  await api(page, 'PUT', '/users/me/mail-read-after', { after: 0 });
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

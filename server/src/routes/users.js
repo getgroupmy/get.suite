@@ -367,6 +367,14 @@ export default function userRoutes() {
     res.json({ advance: a });
   });
 
+  // Mail: when an opened email is marked read: { after: 0 (at once) | 5 | 20 (seconds) | -1 (never: only by hand) }.
+  r.put('/me/mail-read-after', (req, res) => {
+    const v = req.body?.after;
+    if (![0, 5, 20, -1].includes(v)) throw bad('Choose 0, 5, 20 or -1');
+    q('UPDATE users SET mail_read_after = ? WHERE id = ?').run(v || null, req.user.id);
+    res.json({ after: v });
+  });
+
   // Mail: what Reply (and R) does by default: { reply: 'sender' | 'all' }.
   r.put('/me/mail-reply', (req, res) => {
     const v = req.body?.reply;

@@ -33,7 +33,7 @@ export async function api(method, url, body, opts = {}) {
     ...(box && url.startsWith('/mail/') && !(method === 'GET' && OWN_MAIL.test(url)) && { 'x-mailbox': box }),
     ...(calendarOwner && /^\/events(\/|\?|$)/.test(url) && { 'x-calendar': calendarOwner }) };
   // A few lists (calendar, tasks, contacts, notes) are kept for reading without a connection (offlinedocs.js).
-  const offlineKey = method === 'GET' && OFFLINE_READS.some((re) => re.test(url)) ? `${lastUserId()}:${headers['x-mailbox'] || ''}:${url}` : null;
+  const offlineKey = method === 'GET' && OFFLINE_READS.some((re) => re.test(url)) ? `${lastUserId()}:${headers['x-mailbox'] || ''}:${url.replace('&peek=1', '')}` : null;
   let res;
   try {
     res = await fetch(`/api${url}`, {
