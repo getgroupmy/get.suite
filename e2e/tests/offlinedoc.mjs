@@ -518,11 +518,11 @@ await step('lists and messages kept for offline don’t pile up: the oldest go b
   // While a change waits to be sent, an old list showing it stays (the only place that shows it).
   await page.route('**/api/tasks/tasks/held', (route) => route.abort('internetdisconnected'));
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;
-  const idb = (fn, arg) => page.evaluate(([f, a]) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction(['api', 'changes'], 'readwrite'); const out = new Function('t', 'a', f)(t, a); t.oncomplete = () => { r.result.close(); res(out?.result ?? null); }; }; }), [fn, arg]);
-  await idb("t.objectStore('api').put({ data: [{ id: 'x', title: 'Not sent', offline: true }], at: 1 }, 'test:holds-unsent'); t.objectStore('changes').put({ method: 'PATCH', url: '/tasks/tasks/held', body: {}, user: a, label: 'held', at: Date.now() }, '0-held');", me);
+  // (plain functions: the page's content policy allows no code built from text)
+  await page.evaluate((user) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction(['api', 'changes'], 'readwrite'); t.objectStore('api').put({ data: [{ id: 'x', title: 'Not sent', offline: true }], at: 1 }, 'test:holds-unsent'); t.objectStore('changes').put({ method: 'PATCH', url: '/tasks/tasks/held', body: {}, user, label: 'held', at: Date.now() }, '0-held'); t.oncomplete = () => { r.result.close(); res(); }; }; }), me);
   await visit();
   const held = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const g = r.result.transaction('api').objectStore('api').get('test:holds-unsent'); g.onsuccess = () => { res(!!g.result); r.result.close(); }; }; }));
-  await idb("t.objectStore('api').delete('test:holds-unsent'); t.objectStore('changes').delete('0-held');");
+  await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction(['api', 'changes'], 'readwrite'); t.objectStore('api').delete('test:holds-unsent'); t.objectStore('changes').delete('0-held'); t.oncomplete = () => { r.result.close(); res(); }; }; }));
   await page.unroute('**/api/tasks/tasks/held');
   await page.evaluate(() => localStorage.removeItem('nw-api-keep'));
   if (!held) throw new Error('a list with something not sent yet was trimmed');
