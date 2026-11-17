@@ -11715,10 +11715,10 @@ test('mail: where the reading pane goes (beside the list, below it, or none), pe
 
 test('calendar settings: default length, speedy meetings and default reminders, per person', async () => {
   const { cleanCalPrefs, newEventMinutes } = await import('../src/calprefs.js');
-  assert.deepEqual(cleanCalPrefs(null), { length: 60, speedy: false, reminders: [10], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0 });
+  assert.deepEqual(cleanCalPrefs(null), { length: 60, speedy: false, reminders: [10], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0, emailReminders: false });
   assert.equal(cleanCalPrefs({ focusGoal: 10 }).focusGoal, 10, 'a weekly focus goal, in hours');
   for (const bad of [0, -2, 61, 2.5, 'lots']) assert.equal(cleanCalPrefs({ focusGoal: bad }).focusGoal, 0);
-  assert.deepEqual(cleanCalPrefs({ length: 33, speedy: 1, reminders: [30, 10, 10, -5, 99999, 'x'] }), { length: 60, speedy: true, reminders: [10, 30], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0 });
+  assert.deepEqual(cleanCalPrefs({ length: 33, speedy: 1, reminders: [30, 10, 10, -5, 99999, 'x'] }), { length: 60, speedy: true, reminders: [10, 30], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0, emailReminders: false });
   assert.deepEqual(cleanCalPrefs({ reminders: [] }).reminders, [], 'none is allowed');
   assert.equal(newEventMinutes({ length: 30, speedy: true }), 25);
   assert.equal(newEventMinutes({ length: 60, speedy: true }), 50);
@@ -11728,13 +11728,13 @@ test('calendar settings: default length, speedy meetings and default reminders, 
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'calp', domain: 'acme.com', name: 'Cal P', password: 'password123' })).status, 201);
   await login(a, 'calp@acme.com');
-  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs, { length: 60, speedy: false, reminders: [10], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0 });
-  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { length: 30, speedy: true, reminders: [5, 1440], declined: true })).body, { length: 30, speedy: true, reminders: [5, 1440], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0 });
-  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs, { length: 30, speedy: true, reminders: [5, 1440], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0 });
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs, { length: 60, speedy: false, reminders: [10], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0, emailReminders: false });
+  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { length: 30, speedy: true, reminders: [5, 1440], declined: true })).body, { length: 30, speedy: true, reminders: [5, 1440], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0, emailReminders: false });
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs, { length: 30, speedy: true, reminders: [5, 1440], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0, emailReminders: false });
   // Hide declined invitations: one switch, the others kept.
   assert.equal(cleanCalPrefs({ declined: false, colorRules: [] }).declined, false);
   assert.equal(cleanCalPrefs({ declined: 'no' }).declined, true, 'only false hides them');
-  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { declined: false, colorRules: [] })).body, { length: 30, speedy: true, reminders: [5, 1440], declined: false, colorRules: [], nextMeeting: true, focusGoal: 0 });
+  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { declined: false, colorRules: [] })).body, { length: 30, speedy: true, reminders: [5, 1440], declined: false, colorRules: [], nextMeeting: true, focusGoal: 0, emailReminders: false });
   assert.equal((await a('GET', '/api/auth/me')).body.user.cal_prefs.declined, false);
   // Colour rules: by a word in the title, for you alone; bad ones refused, the rest kept as they are.
   assert.equal((await a('PUT', '/api/users/me/calendar-prefs', { colorRules: [{ word: '1:1', color: 'purple' }] })).status, 400);
@@ -11745,9 +11745,9 @@ test('calendar settings: default length, speedy meetings and default reminders, 
   assert.equal(rules.length, 30, 'the other settings stay');
   assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs.colorRules, rules.colorRules);
   assert.deepEqual(cleanCalPrefs({ colorRules: 'x' }).colorRules, []);
-  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { reset: true })).body, { length: 60, speedy: false, reminders: [10], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0 });
+  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { reset: true })).body, { length: 60, speedy: false, reminders: [10], declined: true, colorRules: [], nextMeeting: true, focusGoal: 0, emailReminders: false });
   // The next meeting in the top bar: on unless turned off; turning it off changes nothing else.
-  assert.equal((await a('PUT', '/api/users/me/calendar-prefs', { nextMeeting: false, focusGoal: 0 })).body.nextMeeting, false);
+  assert.equal((await a('PUT', '/api/users/me/calendar-prefs', { nextMeeting: false, focusGoal: 0, emailReminders: false })).body.nextMeeting, false);
   assert.equal((await a('GET', '/api/auth/me')).body.user.cal_prefs.nextMeeting, false);
   assert.equal((await a('GET', '/api/auth/me')).body.user.cal_prefs.length, 60);
   assert.equal((await a('PUT', '/api/users/me/calendar-prefs', { nextMeeting: 'yes' })).body.nextMeeting, true);
@@ -15744,4 +15744,17 @@ test('tasks: workload as CSV, for a list and for the team', async () => {
   assert.match(String(team.body), /^﻿?Person,Lists,Open/);
   assert.match(String(team.body), /Csv Bob,1,1,1,/);
   assert.equal((await owner('GET', `/api/tasks/lists/${list.id}/workload.csv`)).status, 404);
+});
+
+test('calendar: event reminders by email — a setting, and each due reminder emailed once', async () => {
+  const { cleanCalPrefs } = await import('../src/calprefs.js');
+  assert.equal(cleanCalPrefs({ emailReminders: true }).emailReminders, true);
+  assert.equal(cleanCalPrefs({ emailReminders: 'yes' }).emailReminders, false);
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'remmail', domain: 'acme.com', name: 'Rem Mail', password: 'password123' })).status, 201);
+  await login(a, 'remmail@acme.com');
+  assert.equal((await a('PUT', '/api/users/me/calendar-prefs', { emailReminders: true })).body.emailReminders, true);
+  assert.equal((await a('GET', '/api/auth/me')).body.user.cal_prefs.emailReminders, true);
+  const { sendDueReminderEmails } = await import('../src/pushreminders.js');
+  assert.equal(await sendDueReminderEmails(), 0, 'nothing without email on the server');
 });

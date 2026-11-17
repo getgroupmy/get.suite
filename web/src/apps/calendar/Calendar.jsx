@@ -908,6 +908,8 @@ export const reminderLabel = (m) => REMINDER_CHOICES.find(([v]) => v === m)?.[1]
 function CalPrefsDialog({ onClose }) {
   const toast = useToast();
   const { user, setUser } = useAuth();
+  const [mail, setMail] = useState(null); // email on this server: reminders can come by email too
+  useEffect(() => { get('/mail/status').then(setMail).catch(() => setMail(null)); }, []);
   const [p, setP] = useState(user?.cal_prefs || DEFAULT_CAL_PREFS);
   const save = async () => {
     try { const saved = await put('/users/me/calendar-prefs', p); setUser({ ...user, cal_prefs: saved }); toast('Calendar settings saved'); onClose(); } catch (e) { toast(e.message, 'error'); }
@@ -924,6 +926,7 @@ function CalPrefsDialog({ onClose }) {
         <p className="muted small" style={{ margin: 0 }}>Meetings of 30 minutes end 5 minutes early, and those of an hour or more 10 minutes early, leaving a gap before the next one. New events now last {mins === p.length ? lengthLabel(mins) : `${mins} minutes`}.</p>
         <span className="small"><strong>Reminders</strong> on a new event (you can still change them on each one):</span>
         <RemindersField value={p.reminders} onChange={(reminders) => setP({ ...p, reminders })} />
+        {mail?.enabled && <label className="check"><input type="checkbox" checked={!!p.emailReminders} onChange={(e) => setP({ ...p, emailReminders: e.target.checked })} /> Email me my event reminders too (in my inbox, as each comes due)</label>}
         <ColorRulesField value={p.colorRules || []} onChange={(colorRules) => setP({ ...p, colorRules })} />
         <label className="check"><input type="checkbox" checked={p.nextMeeting !== false} onChange={(e) => setP({ ...p, nextMeeting: e.target.checked })} /> Show my next meeting in the top bar</label>
       </div>

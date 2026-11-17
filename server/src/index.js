@@ -33,7 +33,7 @@ import { releaseNoShows, askCheckIns } from './routes/rooms.js';
 import { refreshDueFeeds } from './calfeeds.js';
 import { sendDueDigests } from './digest.js';
 import { sendBookingReminders } from './routes/booking.js';
-import { sendDueReminderPushes, sendTaskPushes } from './pushreminders.js';
+import { sendDueReminderPushes, sendTaskPushes, sendDueReminderEmails } from './pushreminders.js';
 import { sendChatEmails } from './chatmail.js';
 
 const port = Number(process.env.PORT || 8080);
@@ -68,7 +68,7 @@ setInterval(() => { try { purgeOldChat(); } catch (e) { console.error('[chat] ke
 setTimeout(() => { try { purgeOldChat(); } catch {} }, 90e3).unref();
 setInterval(() => sendChatEmails().catch((e) => console.error('[chat] email:', e.message)), 5 * 60e3).unref(); // unread mentions and direct messages
 setInterval(() => sendDueDigests().catch((e) => console.error('[digest]', e.message)), 5 * 60e3).unref(); // morning summaries
-setInterval(() => sendDueReminderPushes().then(() => sendTaskPushes()).catch((e) => console.error('[push] reminders:', e.message)), 60e3).unref(); // calendar and task reminders on devices
+setInterval(() => sendDueReminderPushes().then(() => sendTaskPushes()).then(() => sendDueReminderEmails()).catch((e) => console.error('[push] reminders:', e.message)), 60e3).unref(); // calendar and task reminders on devices
 setInterval(() => sendDueFormReminders().catch((e) => console.error('[forms] reminders:', e.message)), 10 * 60e3).unref(); // forms that close within a day
 setInterval(() => { try { warnExpiringLinks(); } catch (e) { console.error('[links] expiring:', e.message); } }, 10 * 60e3).unref(); // share links that end within a day
 setInterval(() => sendBookingReminders().catch((e) => console.error('[booking] reminders:', e.message)), 10 * 60e3).unref(); // visitors, the day before

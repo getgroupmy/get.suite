@@ -10,6 +10,8 @@ import { onlineUserIds } from './hub.js';
 import { zonedToUtc, zoneOrUtc } from './ics.js';
 import { localNow } from './digest.js';
 import { hoursOf } from './workhours.js';
+import { mailEnabled } from './mail/config.js';
+import { smtpFor } from './mail/imap.js';
 
 q('CREATE TABLE IF NOT EXISTS push_reminders_sent (key TEXT PRIMARY KEY, sent_at INTEGER NOT NULL)').run();
 const LATE = 5 * 6e4; // one missed by up to five minutes (the server was restarting) still goes
@@ -44,6 +46,41 @@ export async function sendDueReminderPushes(now = Date.now(), { skipOnline = tru
     }
   }
   q('DELETE FROM push_reminders_sent WHERE sent_at < ?').run(now - 3 * 864e5);
+  return sent;
+}
+
+// ---- Event reminders by email (Calendar settings → Email me my event reminders): each reminder as it comes due
+// also goes to the person's own inbox, whether or not Workspace is open. Each once.
+export async function sendDueReminderEmails(now = Date.now(), base = process.env.PUBLIC_URL || '') {
+  if (!mailEnabled()) return 0;
+  const users = q("SELECT id, username, name FROM users WHERE disabled = 0 AND cal_prefs LIKE '%\"emailReminders\":true%'").all();
+  let sent = 0;
+  for (const user of users) {
+    const tz = zoneOf(user.id);
+    const time = (t) => new Date(t).toLocaleString('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const rows = q(`SELECT e.*, (SELECT status FROM event_guests g WHERE g.event_id = e.id AND g.user_id = ?) AS my_status FROM events e
+                    WHERE e.id IN (SELECT DISTINCT event_id FROM event_reminders WHERE user_id = ?)`).all(user.id, user.id);
+    for (const row of rows) {
+      if (row.owner_id !== user.id && (!row.my_status || row.my_status === 'no')) continue;
+      const mins = q('SELECT minutes FROM event_reminders WHERE event_id = ? AND user_id = ?').all(row.id, user.id).map((r) => r.minutes);
+      for (const occ of expand(outEvent(row), now - LATE, now + Math.max(...mins) * 6e4 + 864e5)) {
+        if (occ.end < now) continue;
+        for (const m of mins) {
+          const at = occ.start - m * 6e4;
+          if (at > now || at <= now - LATE) continue;
+          if (!q('INSERT OR IGNORE INTO push_reminders_sent (key, sent_at) VALUES (?, ?)').run(`mail:${user.id}:${row.id}@${occ.start}:${m}`, now).changes) continue;
+          const title = row.title || '(No title)';
+          const lines = [`${title}`, `${row.all_day ? 'All day' : `${time(occ.start)} – ${time(occ.end).replace(/^.*, /, '')}`} (${tz})`,
+            row.location && `Where: ${row.location}`, row.meet_code && `Video meeting: ${base}/meet/${row.meet_code}`, '', `Open your calendar: ${base}/calendar`,
+            '', 'You get this because Email me my event reminders is on in Calendar settings.'].filter((x) => x !== null && x !== undefined && x !== false);
+          try {
+            await smtpFor(user).sendMail({ from: { name: 'Workspace', address: user.username }, to: user.username, subject: `Reminder: ${title} · ${when(m)}`, text: lines.join('\n') });
+            sent++;
+          } catch (e) { console.error('[reminders] email:', e.message); }
+        }
+      }
+    }
+  }
   return sent;
 }
 
