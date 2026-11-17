@@ -276,6 +276,18 @@ await step('Tasks → My timesheet: the week day by day; a day’s cell adds tim
   await page.getByText('Added to “Design”').last().waitFor();
   await page.waitForFunction(([b]) => { const el = document.querySelector('[aria-label^="Week total:"]'); return el && el.getAttribute('aria-label') !== b; }, [before], { timeout: 10000 });
   await page.screenshot({ path: `${SP}/shots/timesheet.png` });
+  // The cell's entries: the 45 minutes just added, removable; the total goes back.
+  const panel = dlg.getByRole('region', { name: new RegExp(`^Time on Design, ${today}`) });
+  const entries = panel.getByRole('list', { name: 'Entries that day' });
+  await entries.getByText('Added by hand · 45 min').waitFor({ timeout: 10000 });
+  const after = await total();
+  await entries.getByRole('button', { name: 'Remove 45 min' }).click();
+  await page.getByText('Time removed').last().waitFor();
+  await page.waitForFunction(([b]) => document.querySelector('[aria-label^="Week total:"]')?.getAttribute('aria-label') !== b, [after], { timeout: 10000 });
+  if ((await total()) !== before) throw new Error(`total ${await total()} not back to ${before}`);
+  await form.getByLabel('How long').fill('45m'); // and back again, for the CSV below
+  await form.getByRole('button', { name: 'Add' }).click();
+  await entries.getByText('Added by hand · 45 min').waitFor({ timeout: 10000 });
   // A future day can't take time.
   const d = new Date(); d.setDate(d.getDate() + 1);
   if (d.getDay() !== 1) { // tomorrow still in this week

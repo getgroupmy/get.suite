@@ -21,7 +21,7 @@ import { historyText } from './taskhistory.js';
 import { taskKey, stepTask, afterLeaving } from './taskkeys.js';
 import { taskLink } from '../chat/filelinks.js';
 import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
-import { timesheet, timesheetCsv, hm } from './timesheet.js';
+import { timesheet, timesheetCsv, hm, cellEntries } from './timesheet.js';
 
 /** The open tasks a task still waits on (from the tasks on its list). */
 const waitingOn = (t, all) => (t.blocked_by?.length && !t.done ? (all || []).filter((x) => t.blocked_by.includes(x.id) && !x.done) : []);
@@ -948,7 +948,7 @@ function Timesheet({ onClose, onOpen }) {
     e.preventDefault();
     try {
       await post(`/tasks/tasks/${adding.task.id}/time`, { duration: adding.duration, day: adding.day.date });
-      toast(`Added to “${adding.task.title}”`); setAdding(null); load();
+      toast(`Added to “${adding.task.title}”`); setAdding({ ...adding, duration: '' }); load();
     } catch (err) { toast(err.message, 'error'); }
   };
   return (
@@ -978,11 +978,29 @@ function Timesheet({ onClose, onOpen }) {
           </div>
         )}
         {adding && (
+          <section className="stack-tight ts-cell-panel" aria-label={`Time on ${adding.task.title}, ${dayName(adding.day)}`}>
+          {(() => {
+            const here = cellEntries(data?.spans, adding.task.id, adding.day);
+            const clock = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            return here.length > 0 && (
+              <ul className="plain-list" aria-label="Entries that day">
+                {here.map((e) => (
+                  <li key={e.id} className="row small" style={{ gap: 6 }}>
+                    <span className="grow">{e.logged ? 'Added by hand' : e.running ? `${clock(e.start)} – now (running)` : `${clock(e.start)} – ${clock(e.end)}`} · {formatMinutes(e.minutes_here)}{e.note ? ` · ${e.note}` : ''}</span>
+                    {!e.running && <button type="button" className="icon-btn" aria-label={`Remove ${formatMinutes(e.minutes_here)}${e.note ? ` (${e.note})` : ''}`} onClick={async () => {
+                      try { await del(`/tasks/time/${e.id}`); toast('Time removed'); load(); } catch (err) { toast(err.message, 'error'); }
+                    }}><Icon name="close" size={14} /></button>}
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
           <form className="row wrap" style={{ gap: 6 }} onSubmit={add} aria-label="Add time">
             <span className="small">Add to <strong>{adding.task.title}</strong> on {dayName(adding.day)}:</span>
             <input aria-label="How long" placeholder="1h 30m" size={8} autoFocus value={adding.duration} onChange={(e) => setAdding({ ...adding, duration: e.target.value })} />
-            <button className="btn small primary">Add</button><button type="button" className="btn small" onClick={() => setAdding(null)}>Cancel</button>
+            <button className="btn small primary">Add</button><button type="button" className="btn small" onClick={() => setAdding(null)}>Close</button>
           </form>
+          </section>
         )}
         <p className="muted small" style={{ margin: 0 }}>Only you see this: the time you tracked or added, on tasks in all your lists.</p>
       </div>

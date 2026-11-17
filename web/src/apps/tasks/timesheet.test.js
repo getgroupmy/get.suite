@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { weekDays, timesheet, timesheetCsv, hm } from './timesheet.js';
+import { weekDays, timesheet, timesheetCsv, hm, cellEntries } from './timesheet.js';
 
 const mon = new Date(2026, 10, 16).getTime(); // Monday 16 November, local midnight
 const h = 36e5;
@@ -40,4 +40,17 @@ test('hours:minutes and the CSV', () => {
     'Task,2026-11-16,2026-11-17,2026-11-18,2026-11-19,2026-11-20,2026-11-21,2026-11-22,Total (h)\r\n'
     + '"Report, Q4",1.5,,,,,,,1.5\r\n'
     + 'Total,1.5,,,,,,,1.5\r\n');
+});
+
+test('the entries behind a cell', () => {
+  const days = weekDays(mon), tue = mon + 24 * h;
+  const spans = [
+    { id: 'late', task_id: 'a', start: tue + 23 * h, end: tue + 25 * h },
+    { id: 'early', task_id: 'a', start: tue + 9 * h, end: tue + 9.5 * h },
+    { id: 'other', task_id: 'b', start: tue + 9 * h, end: tue + 10 * h },
+    { id: 'logged', task_id: 'a', start: Date.UTC(2026, 10, 17, 12), minutes: 20, logged: true, note: 'Call' },
+  ];
+  assert.deepEqual(cellEntries(spans, 'a', days[1]).map((e) => [e.id, e.minutes_here]), [['early', 30], ['logged', 20], ['late', 60]]);
+  assert.deepEqual(cellEntries(spans, 'a', days[2]).map((e) => [e.id, e.minutes_here]), [['late', 60]], 'the part after midnight');
+  assert.deepEqual(cellEntries(spans, 'a', days[3]), []);
 });

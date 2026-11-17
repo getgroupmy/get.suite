@@ -121,9 +121,15 @@ test('time on tasks for a range (Calendar → Time insights): only entries start
   const from = Date.parse(`${d(-3)}T00:00:00Z`), to = Date.parse(`${d(1)}T00:00:00Z`);
   const r = (await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}`)).body;
   assert.equal(r.tasks.find((x) => x.title === 'Bookkeeping').minutes, 45, 'the 2 h three weeks ago left out');
-  assert.deepEqual(r.spans.find((x) => x.minutes === 45), { task_id: task.id, start: Date.parse(`${d(-1)}T12:00:00Z`), minutes: 45, logged: true }, 'each entry, for the day bars');
+  const logged = r.spans.find((x) => x.minutes === 45);
+  assert.deepEqual({ ...logged, id: undefined }, { id: undefined, task_id: task.id, start: Date.parse(`${d(-1)}T12:00:00Z`), minutes: 45, logged: true }, 'each entry, for the day bars');
+  assert.ok(logged.id, 'with its id, to remove it from the timesheet');
+  assert.equal((await a('DELETE', `/api/tasks/time/${logged.id}`)).status, 200);
+  assert.ok(!(await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}`)).body.spans.some((x) => x.id === logged.id));
+  await a('POST', `/api/tasks/tasks/${task.id}/time`, { duration: '45m', day: d(-1), note: 'Receipts' });
   assert.ok(r.spans.every((x) => x.start >= from && x.start < to && (x.logged || x.end > x.start)), JSON.stringify(r.spans));
   assert.equal((await a('GET', '/api/tasks/time/mine?days=7')).body.spans, undefined, 'only for a range');
+  assert.equal((await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}`)).body.spans.find((x) => x.minutes === 45).note, 'Receipts');
   // The timesheet asks for every task (not only the top five).
   for (let i = 0; i < 6; i++) {
     const x = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: `Chore ${i}` })).body;

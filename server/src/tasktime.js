@@ -176,7 +176,7 @@ export function reportCsv(report) {
  */
 export function myTimeOf(userId, days = 7, at = now(), range = null, limit = 5) {
   const since = range ? range.from : at - days * 864e5, until = range ? range.to : Infinity;
-  const rows = q(`SELECT e.task_id, e.started_at, e.ended_at, e.minutes, e.manual, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id
+  const rows = q(`SELECT e.id, e.task_id, e.started_at, e.ended_at, e.minutes, e.manual, e.note, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id
     WHERE e.user_id = ? AND ((e.started_at >= ? AND e.started_at < ?) OR (e.ended_at IS NULL AND ? >= ?))`).all(userId, since, until === Infinity ? 8.64e15 : until, until === Infinity ? 8.64e15 : until, at);
   const byTask = new Map(), spans = [];
   let total = 0;
@@ -184,7 +184,7 @@ export function myTimeOf(userId, days = 7, at = now(), range = null, limit = 5) 
     const m = r.ended_at === null ? minutesBetween(r.started_at, at) : r.minutes;
     total += m;
     // For each day's bar in Time insights: a timed entry runs start → end; a logged one is `minutes` on its day.
-    if (range && m > 0) spans.push(r.manual ? { task_id: r.task_id, start: r.started_at, minutes: m, logged: true } : { task_id: r.task_id, start: r.started_at, end: r.ended_at ?? at });
+    if (range && m > 0) spans.push({ id: r.id, task_id: r.task_id, start: r.started_at, ...(r.manual ? { minutes: m, logged: true } : { end: r.ended_at ?? at, ...(r.ended_at === null && { running: true }) }), ...(r.note && { note: r.note }) });
     const x = byTask.get(r.task_id) || { id: r.task_id, title: r.title, list_id: r.list_id, minutes: 0 };
     x.minutes += m; byTask.set(r.task_id, x);
   }

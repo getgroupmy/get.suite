@@ -39,6 +39,21 @@ export function timesheet(spans, tasks, weekStart) {
   return { days, rows: list, dayTotals, total: dayTotals.reduce((a, b) => a + b, 0) };
 }
 
+/**
+ * The entries behind one cell: a task's spans that fall on `day` ({ start, end, date } from weekDays), each with the
+ * minutes it counts that day (a timer past midnight shows on both days, with its part on each).
+ */
+export function cellEntries(spans, taskId, day) {
+  const out = [];
+  for (const s of spans || []) {
+    if (s.task_id !== taskId) continue;
+    const m = s.logged ? (new Date(s.start).toISOString().slice(0, 10) === day.date ? s.minutes : 0)
+      : Math.round(Math.max(0, Math.min(s.end, day.end) - Math.max(s.start, day.start)) / 60e3);
+    if (m > 0) out.push({ ...s, minutes_here: m });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
 /** "1:30" (hours:minutes), for the grid and the CSV; '' for none. */
 export const hm = (min) => (min ? `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}` : '');
 
