@@ -1103,6 +1103,37 @@ export const TOOLS = [
     },
   },
   {
+    name: 'book_focus_time', title: 'Book focus time', readOnly: false,
+    description: 'Book blocks of focus time in the person’s calendar (one a day, in their working hours, soonest first, where they’re free) adding up to the hours asked for, within the next days (7 unless asked; up to 14). Ask them first; say what was booked.',
+    inputSchema: {
+      type: 'object', required: ['hours'],
+      properties: {
+        hours: { type: 'number', minimum: 0.5, maximum: 20, description: 'How much focus time in all' },
+        block_minutes: { type: 'integer', enum: [60, 90, 120], default: 90 },
+        days: { type: 'integer', minimum: 1, maximum: 14, default: 7 },
+        title: { type: 'string', description: 'Default: Focus time' },
+        time_zone: { type: 'string', description: 'Their time zone, for working hours when they haven’t set theirs (default UTC)' },
+      },
+    },
+    async run(api, a) {
+      const hours = Number(a.hours);
+      if (!(hours >= 0.5 && hours <= 20)) throw new ToolError('hours is 0.5 to 20');
+      const minutes = [60, 90, 120].includes(Number(a.block_minutes)) ? Number(a.block_minutes) : 90;
+      const days = Math.min(14, Math.max(1, Math.round(Number(a.days) || 7)));
+      const count = Math.min(10, Math.ceil((hours * 60) / minutes));
+      const from = Date.now(), to = from + days * DAY;
+      const r = await api('GET', `/freebusy/focus-slots?from=${from}&to=${to}&minutes=${minutes}&count=${count}&tz=${encodeURIComponent(a.time_zone || 'UTC')}`);
+      if (!r.slots.length) throw new ToolError(`No free ${minutes}-minute blocks in their working hours in the next ${days} days`);
+      const title = String(a.title || 'Focus time').slice(0, 200);
+      const booked = [];
+      for (const x of r.slots) {
+        const e = await api('POST', '/events', { title, kind: 'focus', start: x.start, end: x.end });
+        booked.push({ id: `event:${e.id}`, start: iso(x.start), end: iso(x.end) });
+      }
+      return { booked, hours: Math.round((booked.length * minutes) / 6) / 10, asked: hours, ...(booked.length < count && { note: 'Fewer free blocks than asked for' }), url: link('/calendar') };
+    },
+  },
+  {
     name: 'add_to_todays_note', title: 'Add to today’s note', readOnly: false,
     description: 'Add a line to the person’s note for today (Notes → Today’s note: a journal or log, one note a day), making it if there isn’t one yet (from their daily template, if they chose one): an item at the end when it’s a checklist, otherwise a line at the end of its text.',
     inputSchema: {
@@ -1168,7 +1199,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({

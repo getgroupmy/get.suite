@@ -146,6 +146,18 @@ await step('an assistant adds to Today’s note; Notes → Today’s note opens 
   await until(async () => (await page.getByRole('dialog').locator('textarea, [contenteditable="true"]').evaluateAll((els) => els.map((e) => e.value ?? e.textContent)).catch(() => [])).some((v) => v.includes('Called the bank about the card')), 10000);
   await page.keyboard.press('Escape');
 });
+await step('an assistant books focus time; it is in Calendar as focus time', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const tz = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const r = (await rpc('tools/call', { name: 'book_focus_time', arguments: { hours: 2, block_minutes: 60, days: 7, time_zone: tz, title: 'Write the brief' } })).result;
+  if (r.isError || r.structuredContent.booked.length !== 2) throw new Error(JSON.stringify(r));
+  const first = r.structuredContent.booked[0];
+  const evs = (await api(page, 'GET', `/events?from=${Date.parse(first.start) - 1}&to=${Date.parse(first.end) + 1}`)).body;
+  const ev = evs.find((e) => `event:${e.id}` === first.id);
+  if (ev?.kind !== 'focus' || ev.title !== 'Write the brief') throw new Error(JSON.stringify(ev));
+  await page.goto(`${B}/calendar`);
+  await page.getByText('Write the brief').first().waitFor({ timeout: 10000 });
+});
 await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
   const crypto = await import('node:crypto');
   const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }) })).json();

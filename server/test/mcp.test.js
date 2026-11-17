@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -825,4 +825,22 @@ test('add_to_todays_note: today’s note is made (from the daily template) and a
   const note = (await owner('GET', '/api/notes')).body.find((n) => `note:${n.id}` === first.note);
   assert.equal(note.body, 'Called the bank\nBooked the venue');
   assert.match(note.title, /^[A-Z][a-z]+day, [A-Z][a-z]+ \d+, \d{4}$/);
+});
+
+test('book_focus_time: blocks in working hours, one a day, adding up to what was asked', async () => {
+  assert.equal((await call(ro, 'book_focus_time', { hours: 2 })).isError, true, 'read-only tokens can’t');
+  assert.equal((await call(rw, 'book_focus_time', { hours: 50 })).isError, true);
+  const r = (await call(rw, 'book_focus_time', { hours: 3, block_minutes: 90, days: 7, title: 'Deep work' })).structuredContent;
+  assert.equal(r.booked.length, 2);
+  assert.equal(r.hours, 3);
+  const days = new Set(r.booked.map((b) => b.start.slice(0, 10)));
+  assert.equal(days.size, 2, 'one a day');
+  for (const b of r.booked) {
+    assert.equal(Date.parse(b.end) - Date.parse(b.start), 90 * 60e3);
+    const h = new Date(b.start).getUTCHours();
+    assert.ok(h >= 9 && h < 17, b.start);
+    const list = (await owner('GET', `/api/events?from=${Date.parse(b.start) - 1}&to=${Date.parse(b.end) + 1}`)).body;
+    const ev = list.find((e) => `event:${e.id}` === b.id);
+    assert.deepEqual([ev.title, ev.kind], ['Deep work', 'focus']);
+  }
 });
