@@ -64,7 +64,7 @@ export const SHORTCUTS = {
     ['J / K', 'Next or previous person'], ['Enter / O', 'Open (edit a contact, or a colleague’s card)'], ['S', 'Star or unstar'], ['#', 'Delete (it goes to Trash)'], ['C', 'New contact'],
   ] },
   tasks: { title: 'Tasks', keys: [
-    ['J / K', 'Next or previous task'], ['Enter / O', 'Open the task'], ['X', 'Tick it off'], ['S', 'Mark important, or not'], ['#', 'Delete it (with Undo)'], ['N', 'Add a task'],
+    ['J / K', 'Next or previous task'], ['Enter / O', 'Open the task'], ['X', 'Tick it off'], ['S', 'Mark important, or not'], ['#', 'Delete it (with Undo)'], ['N', 'Add a task'], ['T', 'Start or stop your timer on it'],
   ] },
   all: { title: 'Everywhere', keys: [[`${mod}+/`, 'This list (or ? outside a text field)'], ['Escape', 'Close a dialog or menu'], ['/', 'Search everything (in Mail: search mail)'],
     ...GO_TO.map(([k, , name]) => [`G then ${k.toUpperCase()}`, `Go to ${name}`])] },

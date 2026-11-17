@@ -142,6 +142,19 @@ await step('Home: Time this week, with the tasks most time went on', async () =>
   await card.getByRole('link', { name: 'Design' }).click();
   await page.waitForURL(/\/tasks\/.*task=/);
 });
+await step('T starts your timer on the task in view, and stops it', async () => {
+  await page.goto(`${B}/tasks`);
+  await row(page, 'Design').waitFor();
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('j');
+  await page.keyboard.press('t');
+  await page.getByText('Timer started on “Design”').waitFor();
+  await page.getByRole('status', { name: /^Design: \d+ min$/ }).waitFor(); // in the top bar
+  if ((await api(page, 'GET', '/tasks/timer')).body?.task_id !== design) throw new Error('not on Design');
+  await page.keyboard.press('t');
+  await page.getByText('Timer stopped on “Design”').waitFor();
+  await until(async () => !(await api(page, 'GET', '/tasks/timer')).body);
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

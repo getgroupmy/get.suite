@@ -194,7 +194,16 @@ export default function Tasks() {
   // Keyboard shortcuts (see taskkeys.js) in the list view: J / K move between the open tasks (focus moves
   // with them), O or Enter opens one, X ticks it off, S stars it, # deletes it, N goes to Add a task.
   const keyState = useRef();
-  keyState.current = { on: user?.keys !== false, view, tasks, toggle, update, deleteTask, addBox };
+  // T: your timer on a task, started (stopping any other) or stopped if it's running on that one.
+  const toggleTimer = async (t) => {
+    try {
+      const run = await get('/tasks/timer');
+      if (run?.task_id === t.id) { await post('/tasks/timer/stop'); toast(`Timer stopped on “${t.title}”`); }
+      else { await post(`/tasks/tasks/${t.id}/timer`); toast(`Timer started on “${t.title}”`); }
+      loadTasks();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  keyState.current = { on: user?.keys !== false, view, tasks, toggle, update, deleteTask, addBox, toggleTimer };
   useEffect(() => {
     const focusTask = (id) => {
       const b = id && document.querySelector(`li.task[data-task="${CSS.escape(id)}"] .task-main`);
@@ -214,6 +223,7 @@ export default function Tasks() {
       e.preventDefault();
       if (action === 'open') document.activeElement.closest('li.task').querySelector('.task-main')?.click();
       else if (action === 'star') { if (!t.done) st.update(t, { important: !t.important }); }
+      else if (action === 'timer') st.toggleTimer(t);
       else if (action === 'done' || action === 'delete') {
         const next = t.done ? null : afterLeaving(ids, t.id);
         if (action === 'done') st.toggle(t); else st.deleteTask(t);

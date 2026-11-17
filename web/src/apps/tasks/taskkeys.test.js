@@ -30,3 +30,9 @@ test('after a task leaves: the one below, else above', () => {
   assert.equal(afterLeaving(['a', 'b', 'c'], 'c'), 'b');
   assert.equal(afterLeaving(['a'], 'a'), null);
 });
+
+test('T starts or stops your timer on the task', async () => {
+  const { taskKey } = await import('./taskkeys.js');
+  assert.equal(taskKey({ key: 't', target: { tagName: 'BODY' } }), 'timer');
+  assert.equal(taskKey({ key: 'T', shiftKey: true, target: { tagName: 'BODY' } }), null, 'not with Shift');
+});
