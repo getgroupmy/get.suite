@@ -1,4 +1,5 @@
 import { unreachable, keepChange, keepDelete, appendKept } from '../offlinedocs.js';
+import { toggleReaction } from './chatreact.js';
 import { seenBy } from './seenby.js';
 import { moved } from '../../components/moved.js';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
@@ -541,7 +542,17 @@ export default function Chat() {
     }
   }
   const react = (m, emoji) => post(`/chat/messages/${m.id}/reactions`, { emoji })
-    .then((msg) => setMessages((list) => list.map((x) => (x.id === msg.id ? msg : x)))).catch((err) => toast(err.message, 'error'));
+    .then((msg) => setMessages((list) => list.map((x) => (x.id === msg.id ? msg : x))))
+    .catch(async (err) => {
+      // No connection: the reaction shows here (also after reloading) and goes when it's back.
+      if (unreachable(err) && !m.pending) {
+        const reactions = toggleReaction(m.reactions, emoji, user);
+        await keepChange({ method: 'POST', url: `/chat/messages/${m.id}/reactions`, body: { emoji }, user: user.id, label: `${emoji} on a message`, id: m.id, shown: { reactions } });
+        setMessages((list) => list.map((x) => (x.id === m.id ? { ...x, reactions } : x)));
+        return;
+      }
+      toast(err.message, 'error');
+    });
 
   async function openDm(personId) {
     const { id } = await post('/chat/dm', { user_id: personId });
@@ -1197,7 +1208,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
       {grouped ? <span className="msg-gutter" /> : m.user_id ? <button type="button" className="avatar-btn" aria-label={`About ${m.user_name}`} onClick={() => setCard(true)}><Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} /></button> : m.bot ? <span className="msg-bot-avatar" aria-hidden="true">🤖</span> : <Avatar name="Deleted user" size={36} />}
       {card && <PersonCard userId={m.user_id} onClose={() => setCard(false)} />}
       <div className="msg-body">
-        {!grouped && <div className="msg-meta">{m.user_id ? <><button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button>{m.user_org_id && user?.org_id && m.user_org_id !== user.org_id && <span className="pill ext small" title={`${m.user_org}, outside your company`}>External · {m.user_org}</span>}</> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>{m.pending && <span className="pill small msg-pending" title="Written offline">Sends when the connection is back</span>}{m.offline && !m.pending && <span className="pill small msg-pending" title="Edited offline">Edit not sent yet</span>}</div>}
+        {!grouped && <div className="msg-meta">{m.user_id ? <><button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button>{m.user_org_id && user?.org_id && m.user_org_id !== user.org_id && <span className="pill ext small" title={`${m.user_org}, outside your company`}>External · {m.user_org}</span>}</> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>{m.pending && <span className="pill small msg-pending" title="Written offline">Sends when the connection is back</span>}{m.offline && !m.pending && <span className="pill small msg-pending" title="Changed offline (edited or reacted to): saved when the connection is back">Not sent yet</span>}</div>}
         {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
         {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
         {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}

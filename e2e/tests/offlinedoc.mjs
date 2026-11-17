@@ -576,6 +576,8 @@ await step('Chat: a message edited and another deleted offline show so here (eve
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'ferry-crew' })).body.id;
   const a = (await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Boat leaves at 9' })).body;
   const b = (await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Bring snacks maybe' })).body;
+  const c = (await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Tickets bought' })).body;
+  await api(page, 'POST', `/chat/messages/${c.id}/reactions`, { emoji: '👍' });
   const msg = (text) => page.locator('.msg', { hasText: text }).last();
   await page.goto(`${B}/chat/${ch}`);
   await msg('Bring snacks maybe').waitFor();
@@ -585,20 +587,25 @@ await step('Chat: a message edited and another deleted offline show so here (eve
   await msg('Boat leaves at 9').getByRole('button', { name: 'Edit message' }).click();
   await page.getByLabel('Change the message').fill('Boat leaves at 10');
   await page.keyboard.press('Enter');
-  await msg('Boat leaves at 10').getByText('Edit not sent yet').waitFor({ timeout: 15000 });
+  await msg('Boat leaves at 10').getByText('Not sent yet').waitFor({ timeout: 15000 });
   await msg('Bring snacks maybe').hover();
   await msg('Bring snacks maybe').getByRole('button', { name: 'Delete message' }).click();
   await page.getByText('Message deleted on this device').waitFor({ timeout: 15000 });
+  // A reaction taken back offline (and one added).
+  await msg('Tickets bought').getByRole('button', { name: /^👍 1/ }).click();
+  await msg('Tickets bought').getByRole('button', { name: /^👍/ }).waitFor({ state: 'detached' });
   await page.reload();
   await msg('Boat leaves at 10').waitFor({ timeout: 20000 });
+  if (await msg('Tickets bought').getByRole('button', { name: /^👍/ }).count()) throw new Error('reaction back after reloading');
   if (await page.getByText('Bring snacks maybe').count()) throw new Error('deleted message back after reloading');
   await ctx.setOffline(false);
-  await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
+  await page.getByText('Sent 3 changes made offline').waitFor({ timeout: 30000 });
   const r = await api(page, 'GET', `/chat/channels/${ch}/messages`);
   const list = Array.isArray(r.body) ? r.body : r.body.messages;
   if (list.find((m) => m.id === a.id)?.body !== 'Boat leaves at 10') throw new Error('edit not made');
   const gone = list.find((m) => m.id === b.id);
   if (gone && !gone.deleted_at && gone.body === 'Bring snacks maybe') throw new Error('delete not made');
+  if (list.find((m) => m.id === c.id)?.reactions?.length) throw new Error('reaction still there');
 });
 await step('Settings → This device: what is kept here, a warning about what is not sent yet, and removing it all', async () => {
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;
