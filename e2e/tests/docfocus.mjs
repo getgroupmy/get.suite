@@ -59,6 +59,23 @@ await step('Focus mode shows only the page; writing goes on; Esc or the button b
   await page.getByRole('button', { name: 'Exit focus mode' }).click();
   await page.getByRole('toolbar', { name: 'Formatting' }).waitFor();
 });
+await step('Typewriter (in focus mode) keeps the line being written in the middle of the screen, and is remembered', async () => {
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Focus mode' }).click();
+  await page.getByRole('button', { name: 'Typewriter' }).click();
+  const ed = page.locator('.ProseMirror').first();
+  await ed.click();
+  await page.keyboard.press('Control+End');
+  for (let i = 1; i <= 40; i++) { await page.keyboard.press('Enter'); await page.keyboard.type(`Line ${i}`); }
+  await page.waitForTimeout(300);
+  const off = await page.evaluate(() => { const r = window.getSelection().getRangeAt(0).getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - window.innerHeight / 2); });
+  if (off > 80) throw new Error(`the caret is ${Math.round(off)}px from the middle`);
+  await page.getByRole('button', { name: 'Exit focus mode' }).click();
+  await page.reload();
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Focus mode' }).click();
+  if ((await page.getByRole('button', { name: 'Typewriter' }).getAttribute('aria-pressed')) !== 'true') throw new Error('not remembered');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

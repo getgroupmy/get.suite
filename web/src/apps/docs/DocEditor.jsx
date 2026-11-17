@@ -178,6 +178,9 @@ function SharedDoc({ file, setFile }) {
   // Focus mode: only the page (no header, toolbar or panels), full screen where the browser allows; Esc, or leaving
   // full screen, brings everything back.
   const [focusMode, setFocusMode] = useState(false);
+  // Typewriter scrolling (in focus mode): the line being written stays in the middle of the screen. Remembered here.
+  const [typewriter, setTypewriterState] = useState(() => { try { return localStorage.getItem('nw-typewriter') === '1'; } catch { return false; } });
+  const setTypewriter = (on) => { setTypewriterState(on); try { localStorage.setItem('nw-typewriter', on ? '1' : '0'); } catch { /* not remembered */ } };
   useEffect(() => {
     if (!focusMode) return undefined;
     const root = document.documentElement;
@@ -652,13 +655,33 @@ function SharedDoc({ file, setFile }) {
     window.addEventListener('hashchange', go);
     return () => window.removeEventListener('hashchange', go);
   }, [editor]);
+  // Typewriter scrolling: after each change or caret move, the page scrolls so the caret's line sits mid-screen.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!editor || !focusMode || !typewriter) return undefined;
+    const centre = () => {
+      const scroller = document.querySelector('.doc-focus .doc-scroll');
+      if (!scroller || !editor.view.hasFocus()) return;
+      let at; try { at = editor.view.coordsAtPos(editor.state.selection.head); } catch { return; }
+      const box = scroller.getBoundingClientRect();
+      scroller.scrollTop += (at.top + at.bottom) / 2 - (box.top + box.height / 2);
+    };
+    editor.on('selectionUpdate', centre); editor.on('update', centre);
+    centre();
+    return () => { editor.off('selectionUpdate', centre); editor.off('update', centre); };
+  }, [editor, focusMode, typewriter]);
   if (!editor) return null;
   // The same person in two tabs shows once.
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
 
   return (
-    <div className={`editor-page doc-page ${focusMode ? 'doc-focus' : ''}`}>
-      {focusMode && <button type="button" className="btn small focus-exit" onClick={() => setFocusMode(false)} title="Esc">Exit focus mode</button>}
+    <div className={`editor-page doc-page ${focusMode ? `doc-focus ${typewriter ? 'typewriter' : ''}` : ''}`}>
+      {focusMode && (
+        <div className="focus-exit row" style={{ gap: 6 }}>
+          <button type="button" className={`btn small ${typewriter ? 'primary' : ''}`} aria-pressed={typewriter} onClick={() => setTypewriter(!typewriter)} title="Keep the line you're writing in the middle of the screen">Typewriter</button>
+          <button type="button" className="btn small" onClick={() => setFocusMode(false)} title="Esc">Exit focus mode</button>
+        </div>
+      )}
       <EditorHeader
         icon="doc" file={file} status={fromDevice && status === 'connecting' ? 'offline' : status}
         onRename={async (name) => setFile(await renameFile(file, name))} // (offline too: given when the connection is back)
