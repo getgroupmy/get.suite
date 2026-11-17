@@ -15556,3 +15556,30 @@ test('tasks: workload per person on a shared list, by when it is due', async () 
     [['Wl Ann', 0, 0, 0, 0, 0, 0, 0], ['Wl Bob', 3, 1, 1, 1, 0, 0, 90], ['Not assigned', 1, 0, 0, 0, 0, 1, 0]]);
   assert.equal((await owner('GET', `/api/tasks/lists/${list.id}/workload`)).status, 404, 'only people on the list');
 });
+
+test('tasks: remind someone of their overdue tasks on a shared list — once a day', async () => {
+  const { titlesText } = await import('../src/taskworkload.js');
+  assert.equal(titlesText([{ title: 'A' }]), '“A”');
+  assert.equal(titlesText([{ title: 'A' }, { title: 'B' }]), '“A” and “B”');
+  assert.equal(titlesText([{ title: 'A' }, { title: 'B' }, { title: 'C' }, { title: 'D' }, { title: 'E' }]), '“A”, “B”, “C” and 2 more');
+  const a = client(); const b = client(); const c = client();
+  for (const [l, n] of [['remia', 'Rm Ann'], ['remib', 'Rm Bob'], ['remic', 'Rm Cal']]) assert.equal((await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: n, password: 'password123' })).status, 201);
+  await login(a, 'remia@acme.com'); await login(b, 'remib@acme.com'); await login(c, 'remic@acme.com');
+  const bobId = (await b('GET', '/api/auth/me')).body.user.id;
+  const calId = (await c('GET', '/api/auth/me')).body.user.id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Fit-out' })).body;
+  await a('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [bobId] });
+  await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Order chairs', due: '2026-11-01', assignee_id: bobId });
+  await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Paint the wall', due: '2026-11-30', assignee_id: bobId });
+  const remind = (who, body) => who('POST', `/api/tasks/lists/${list.id}/workload/remind`, { today: '2026-11-18', ...body });
+  assert.equal((await remind(a, { user_id: calId })).status, 400, 'not on the list');
+  assert.equal((await remind(a, { user_id: (await a('GET', '/api/auth/me')).body.user.id })).status, 400, 'yourself');
+  assert.equal((await remind(c, { user_id: bobId })).status, 404, 'only people on the list can');
+  assert.deepEqual((await remind(a, { user_id: bobId })).body, { reminded: 1 });
+  const note = (await b('GET', '/api/notifications')).body.items.find((x) => /reminds you/.test(x.title));
+  assert.equal(note.title, 'Rm Ann reminds you: 1 task is overdue on Fit-out');
+  assert.equal(note.body, '“Order chairs”', 'only what is overdue');
+  assert.match(note.link, new RegExp(`\\?who=${bobId}$`), 'opens the list showing their tasks');
+  assert.equal((await remind(a, { user_id: bobId })).status, 429, 'once a day');
+  assert.equal((await remind(b, { user_id: (await a('GET', '/api/auth/me')).body.user.id })).status, 400, 'nothing of Ann’s is overdue');
+});

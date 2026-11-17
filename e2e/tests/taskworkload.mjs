@@ -75,6 +75,10 @@ await step('a shared list: Workload shows each person’s open tasks by when the
   if ((await cells('Olivia Owner'))[0] !== '0') throw new Error('owner');
   await page.screenshot({ path: `${SP}/shots/workload.png` });
   await both('workload');
+  if (await table.getByRole('button', { name: 'Remind Olivia Owner of overdue tasks' }).count()) throw new Error('can remind yourself');
+  await table.getByRole('button', { name: 'Remind Kim Park of overdue tasks' }).click();
+  await page.getByText('Reminded Kim Park of 1 overdue task').waitFor();
+  await table.getByText('Reminded').waitFor();
 });
 await step('a name in Workload shows only their tasks; a task added then is theirs', async () => {
   await page.getByRole('table', { name: 'Workload' }).getByRole('button', { name: 'Kim Park' }).click();
@@ -110,6 +114,19 @@ await step('a list nobody shares has no Workload', async () => {
   await page.getByRole('menuitem', { name: 'Time report…' }).waitFor();
   if (await page.getByRole('menuitem', { name: 'Workload…' }).count()) throw new Error('offered on a list nobody shares');
 });
+await step('Kim finds the reminder in the bell; it opens the list showing her tasks', async () => {
+  const k = await mk('kim');
+  await k.goto(B);
+  await k.getByLabel('Email address').fill('kim@acme.com');
+  await k.getByLabel('Password').fill('password123');
+  await k.getByRole('button', { name: 'Sign in' }).click();
+  await k.getByRole('link', { name: 'Drive' }).waitFor();
+  const n = (await api(k, 'GET', '/notifications')).body.items.find((x) => /reminds you/.test(x.title));
+  if (n?.title !== 'Olivia Owner reminds you: 1 task is overdue on Launch' || n.body !== '“Write the press release”') throw new Error(JSON.stringify(n));
+  await k.goto(`${B}${n.link}`);
+  await until(async () => (await k.getByLabel('Show tasks for').inputValue()) !== '');
+  await k.getByText('Write the press release').waitFor();
+}, page);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

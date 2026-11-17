@@ -1,7 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
-import { workloadOf } from '../taskworkload.js';
+import { workloadOf, overdueFor, noteReminder, titlesText } from '../taskworkload.js';
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
@@ -15,7 +15,7 @@ import { trashTask, restoreTask, trashOfList, TASK_TRASH_DAYS } from '../tasktra
 import express, { Router } from 'express';
 import { splitByList, tasksFromCsv } from '../taskimport.js';
 import { q, tx } from '../db.js';
-import { uid, now, str, bad, notFound } from '../util.js';
+import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
 import { canReach } from '../tenancy.js';
@@ -630,6 +630,22 @@ export default function taskRoutes() {
     const list = loadList(req.params.id, req.user);
     const today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.today || '')) ? String(req.query.today) : new Date().toISOString().slice(0, 10);
     res.json({ today, people: workloadOf(list, today) });
+  });
+  // Remind someone on the list of their overdue tasks there (a bell notice; once a day per person and list).
+  r.post('/lists/:id/workload/remind', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const userId = String(req.body?.user_id || '');
+    if (!peopleOn(list).includes(userId)) throw bad('They aren’t on this list');
+    if (userId === req.user.id) throw bad('That’s you');
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.today || '')) ? String(req.body.today) : new Date().toISOString().slice(0, 10);
+    const { tasks, wait_until } = overdueFor(list, userId, today);
+    if (!tasks.length) throw bad('Nothing of theirs is overdue here');
+    if (wait_until) throw new HttpError(429, 'They were reminded in the last day');
+    const by = req.user.name || req.user.username;
+    bell([userId], { kind: 'task', title: `${by} reminds you: ${tasks.length === 1 ? '1 task is' : `${tasks.length} tasks are`} overdue on ${list.name}`, body: titlesText(tasks),
+      link: `/tasks/${list.id}?who=${encodeURIComponent(userId)}`, actor: by });
+    noteReminder(list.id, userId);
+    res.json({ reminded: tasks.length });
   });
   r.get('/lists/:id/activity', (req, res) => {
     const list = loadList(req.params.id, req.user);

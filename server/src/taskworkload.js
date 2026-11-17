@@ -37,3 +37,27 @@ export function workloadOf(list, today) {
   const [owner, ...rest] = [...rows.values()];
   return [owner, ...rest.sort((a, b) => a.name.localeCompare(b.name)), ...(none.open ? [none] : [])].filter(Boolean);
 }
+
+// Remind someone of their overdue tasks on a list: a bell notice naming them (the first three). At most once a
+// day for each person and list, whoever sends it, so a list's members can't pile them up.
+q(`CREATE TABLE IF NOT EXISTS task_workload_reminders (list_id TEXT NOT NULL, user_id TEXT NOT NULL, sent_at INTEGER NOT NULL, PRIMARY KEY (list_id, user_id))`).run();
+const DAY = 86400000;
+
+/** The overdue tasks a reminder would name, and whether one may go now: { tasks, wait_until }. */
+export function overdueFor(list, userId, today) {
+  const tasks = q('SELECT id, title, due FROM tasks WHERE list_id = ? AND assignee_id = ? AND done_at IS NULL AND due IS NOT NULL AND due < ? ORDER BY due, title').all(list.id, userId, today);
+  const last = q('SELECT sent_at FROM task_workload_reminders WHERE list_id = ? AND user_id = ?').get(list.id, userId)?.sent_at;
+  return { tasks, wait_until: last && Date.now() - last < DAY ? last + DAY : null };
+}
+
+export function noteReminder(listId, userId) {
+  q('INSERT INTO task_workload_reminders (list_id, user_id, sent_at) VALUES (?, ?, ?) ON CONFLICT(list_id, user_id) DO UPDATE SET sent_at = excluded.sent_at').run(listId, userId, Date.now());
+}
+
+/** "“Write the press release”, “Book the venue” and 1 more" */
+export function titlesText(tasks) {
+  const names = tasks.slice(0, 3).map((t) => `“${t.title}”`);
+  const more = tasks.length - names.length;
+  if (more > 0) return `${names.join(', ')} and ${more} more`;
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '';
+}

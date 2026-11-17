@@ -1052,6 +1052,13 @@ const loadText = (w) => (w?.open ? ` · ${w.open} open${w.overdue ? `, ${w.overd
 
 /** Workload: who on a shared list has how much open, and when it's due (server: taskworkload.js). */
 function Workload({ list, onClose, onPick }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [sent, setSent] = useState(() => new Set());
+  const remind = async (p) => {
+    try { const r = await post(`/tasks/lists/${list.id}/workload/remind`, { user_id: p.user_id, today: localToday() }); setSent((x) => new Set([...x, p.user_id])); toast(`Reminded ${p.name} of ${r.reminded === 1 ? '1 overdue task' : `${r.reminded} overdue tasks`}`); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   const [w, setW] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => { get(`/tasks/lists/${list.id}/workload?today=${localToday()}`).then(setW).catch((e) => setError(e.message)); }, [list.id]);
@@ -1064,7 +1071,7 @@ function Workload({ list, onClose, onPick }) {
       {!w && !error && <p className="muted">Loading…</p>}
       {w && (
         <table className="data-table workload" aria-label="Workload">
-          <thead><tr><th scope="col">Person</th><th scope="col">Open</th>{cols.map(([k, label]) => <th key={k} scope="col">{label}</th>)}<th scope="col">Estimated</th></tr></thead>
+          <thead><tr><th scope="col">Person</th><th scope="col">Open</th>{cols.map(([k, label]) => <th key={k} scope="col">{label}</th>)}<th scope="col">Estimated</th><th scope="col"><span className="sr-only">Remind</span></th></tr></thead>
           <tbody>
             {w.people.map((p) => (
               <tr key={p.user_id || 'none'}>
@@ -1072,6 +1079,9 @@ function Workload({ list, onClose, onPick }) {
                 <td><span className="workload-open">{p.open > 0 && <span className="workload-bar" style={{ width: `${Math.round((p.open / most) * 60)}px` }} aria-hidden="true" />}{p.open}</span></td>
                 {cols.map(([k]) => <td key={k} className={k === 'overdue' && p[k] ? 'workload-late' : ''}>{p[k] || ''}</td>)}
                 <td>{hours(p.estimate)}</td>
+                <td>{p.user_id && p.user_id !== user.id && p.overdue > 0 && (sent.has(p.user_id)
+                  ? <span className="muted small">Reminded</span>
+                  : <button type="button" className="btn small" aria-label={`Remind ${p.name} of overdue tasks`} title="A note in their bell naming their overdue tasks here (once a day)" onClick={() => remind(p)}>Remind</button>)}</td>
               </tr>
             ))}
           </tbody>
