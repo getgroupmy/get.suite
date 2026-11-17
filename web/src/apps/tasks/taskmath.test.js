@@ -53,3 +53,11 @@ test('sorting by priority: high first, none last, ties keep their order', async 
   const list = [{ id: 'a', priority: null }, { id: 'b', priority: 'low' }, { id: 'c', priority: 'high' }, { id: 'd', priority: 'medium' }, { id: 'e', priority: 'high' }];
   assert.deepEqual(sortTasks(list, 'priority').map((t) => t.id), ['c', 'e', 'd', 'b', 'a']);
 });
+
+test('a shared list for one person, or the tasks nobody has', async () => {
+  const { assignedTo } = await import('./taskmath.js');
+  const ts = [{ id: 1, assignee_id: 'kim' }, { id: 2, assignee_id: 'lee' }, { id: 3, assignee_id: null }, { id: 4 }];
+  assert.deepEqual(ts.filter(assignedTo('kim')).map((t) => t.id), [1]);
+  assert.deepEqual(ts.filter(assignedTo('none')).map((t) => t.id), [3, 4]);
+  assert.deepEqual(ts.filter(assignedTo(null)).map((t) => t.id), [1, 2, 3, 4]);
+});

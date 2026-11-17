@@ -15,7 +15,7 @@ import Icon from '../../components/Icon.jsx';
 import { groupPlanned, groupCompleted } from './planned.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES } from './taskmath.js';
+import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES, assignedTo } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
 import { historyText } from './taskhistory.js';
 import { taskKey, stepTask, afterLeaving } from './taskkeys.js';
@@ -137,7 +137,11 @@ export default function Tasks() {
   const list = lists?.find((l) => l.id === listId);
   const people = list ? [{ id: list.owner_id, name: list.owner_name }, ...list.members] : [];
   const sortBy = list?.sort || 'mine';
-  const sorted = sortTasks((tasks || []).filter((t) => !t.done), sortBy);
+  // A shared list for one person only (?who=…: from the menu by Select, or a name in Workload).
+  const who = list?.members.length ? params.get('who') : null;
+  const whoName = who === 'none' ? 'Not assigned' : people.find((p) => p.id === who)?.name;
+  const setWho = (id) => setParams((p) => { const n = new URLSearchParams(p); if (id) n.set('who', id); else n.delete('who'); return n; });
+  const sorted = sortTasks((tasks || []).filter((t) => !t.done).filter(assignedTo(who)), sortBy);
   // With sections, tasks under none come first, then each section's in turn (each in the list's order).
   const secIndex = (t) => { const k = sections.findIndex((x) => x.id === t.section_id); return k; };
   const open = !virtual && sections.length ? sorted.map((t, k) => [t, k]).sort((x, y) => secIndex(x[0]) - secIndex(y[0]) || x[1] - y[1]).map(([t]) => t) : sorted;
@@ -145,7 +149,7 @@ export default function Tasks() {
     setLists((ls) => ls.map((l) => (l.id === list.id ? { ...l, sort } : l)));
     try { await put(`/tasks/lists/${list.id}/sort`, { sort }); } catch (e) { toast(e.message, 'error'); loadLists(); }
   };
-  const done = (tasks || []).filter((t) => t.done);
+  const done = (tasks || []).filter((t) => t.done).filter(assignedTo(who));
   const mail = useMailStatus();
   const [chatting, setChatting] = useState(null); // tasks to send in Chat
   /** A new email in Mail with the list in it (handed over in this browser's storage, as Docs and Notes do). */
@@ -242,6 +246,7 @@ export default function Tasks() {
     const text = title.trim();
     if (!text || !list) return;
     const body = quick?.found.length ? { title: quick.title, due: quick.due, due_time: quick.due_time, repeat: quick.repeat, important: quick.important, ...(quick.priority && { priority: quick.priority }), assignee_id: quick.assignee_id, tags: quick.tags } : { title: text };
+    if (who && who !== 'none' && !body.assignee_id) body.assignee_id = who; // showing Kim's tasks: a new one is Kim's (or it would vanish)
     setTitle(''); setAsTyped(false);
     const id = offlineId();
     try { await post(`/tasks/lists/${list.id}/tasks`, { ...body, id }); loadTasks(); loadLists(); }
@@ -436,6 +441,14 @@ export default function Tasks() {
               <button type="button" role="tab" aria-selected={view === 'timeline'} className={view === 'timeline' ? 'on' : ''} onClick={() => setView('timeline')}>Timeline</button>
             </div>
           )}
+          {list?.members.length > 0 && (
+            <select className="task-who" aria-label="Show tasks for" value={who || ''} onChange={(e) => setWho(e.target.value || null)}>
+              <option value="">Everyone</option>
+              {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="none">Not assigned</option>
+            </select>
+          )}
+          {whoName && <button type="button" className="btn small" onClick={() => setWho(null)}>Show everyone</button>}
           {((list && view === 'list') || virtual) && (tasks || []).length > 0 && (
             <button type="button" className={`btn small ${selecting ? 'primary' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
               title="Choose several tasks to change at once">{selecting ? 'Done selecting' : 'Select'}</button>
@@ -655,7 +668,7 @@ export default function Tasks() {
           {n > 0 && <button type="button" className="link-btn small danger" onClick={async () => { await del(`/tasks/sections/${sectionEdit.remove.id}?tasks=1`); setSectionEdit(null); loadTasks(); loadLists(); }}>Delete the section and its {n} task{n === 1 ? '' : 's'}</button>}
         </ConfirmModal>;
       })()}
-      {dialog === 'workload' && list && <Workload list={list} onClose={() => setDialog(null)} />}
+      {dialog === 'workload' && list && <Workload list={list} onClose={() => setDialog(null)} onPick={(id) => { setWho(id); setDialog(null); }} />}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} onRate={loadLists} />}
       {dialog === 'sheet' && <Timesheet onClose={() => setDialog(null)} onOpen={(t) => { setDialog(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }} />}
       {dialog === 'activity' && list && <ListActivity list={list} onClose={() => setDialog(null)} onOpen={(id) => { setDialog(null); navigate(`/tasks/${list.id}?task=${id}`); }} />}
@@ -1035,7 +1048,7 @@ function Timesheet({ onClose, onOpen }) {
 
 /** Who spent how long on what in a list, between two dates; downloadable as CSV. */
 /** Workload: who on a shared list has how much open, and when it's due (server: taskworkload.js). */
-function Workload({ list, onClose }) {
+function Workload({ list, onClose, onPick }) {
   const [w, setW] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => { get(`/tasks/lists/${list.id}/workload?today=${localToday()}`).then(setW).catch((e) => setError(e.message)); }, [list.id]);
@@ -1052,7 +1065,7 @@ function Workload({ list, onClose }) {
           <tbody>
             {w.people.map((p) => (
               <tr key={p.user_id || 'none'}>
-                <th scope="row" className={p.user_id ? '' : 'muted'}>{p.name}</th>
+                <th scope="row"><button type="button" className="link-btn" title={`Show only ${p.user_id ? `${p.name}’s tasks` : 'tasks nobody has'}`} onClick={() => onPick(p.user_id || 'none')}>{p.name}</button></th>
                 <td><span className="workload-open">{p.open > 0 && <span className="workload-bar" style={{ width: `${Math.round((p.open / most) * 60)}px` }} aria-hidden="true" />}{p.open}</span></td>
                 {cols.map(([k]) => <td key={k} className={k === 'overdue' && p[k] ? 'workload-late' : ''}>{p[k] || ''}</td>)}
                 <td>{hours(p.estimate)}</td>

@@ -81,3 +81,6 @@ export function sortTasks(tasks, sort) {
   else if (sort === 'priority') list.sort((a, b) => (PRIORITY_RANK[b.priority] || 0) - (PRIORITY_RANK[a.priority] || 0) || keep(a, b)); // high first, none last
   return list;
 }
+
+/** A shared list shown for one person (?who=<user id>) or for tasks nobody has been given (?who=none); null: everyone. */
+export const assignedTo = (who) => (t) => !who || (who === 'none' ? !t.assignee_id : t.assignee_id === who);

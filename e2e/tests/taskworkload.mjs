@@ -76,6 +76,25 @@ await step('a shared list: Workload shows each person’s open tasks by when the
   await page.screenshot({ path: `${SP}/shots/workload.png` });
   await both('workload');
 });
+await step('a name in Workload shows only their tasks; a task added then is theirs', async () => {
+  await page.getByRole('table', { name: 'Workload' }).getByRole('button', { name: 'Kim Park' }).click();
+  await page.waitForURL(/who=/);
+  await until(async () => (await page.getByLabel('Show tasks for').inputValue()) !== '');
+  await page.getByText('Write the press release').waitFor();
+  if (await page.getByText('Order banners').count()) throw new Error('someone else’s task shown');
+  await page.getByPlaceholder('Add a task').fill('Send the invitations');
+  await page.keyboard.press('Enter');
+  await page.getByText('Send the invitations').waitFor();
+  const t = (await api(page, 'GET', `/tasks/lists/${list.id}/tasks`)).body.find((x) => x.title === 'Send the invitations');
+  if (!t?.assignee_id) throw new Error('not given to Kim');
+  await page.getByLabel('Show tasks for').selectOption({ label: 'Not assigned' });
+  await page.getByText('Order banners').waitFor();
+  if (await page.getByText('Write the press release').count()) throw new Error('Kim’s task among the unassigned');
+  await page.getByRole('button', { name: 'Show everyone' }).click();
+  await page.getByText('Write the press release').waitFor();
+  await page.getByText('Order banners').waitFor();
+  await both('tasks for one person');
+});
 await step('a list nobody shares has no Workload', async () => {
   const solo = (await api(page, 'POST', '/tasks/lists', { name: 'Just mine' })).body;
   await page.goto(`${B}/tasks/${solo.id}`);
