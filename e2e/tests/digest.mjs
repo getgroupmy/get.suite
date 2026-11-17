@@ -164,6 +164,15 @@ await step('a meeting with a contact that has ended counts as being in touch', a
   const row = page.locator('table.files tbody tr[aria-label="Carla Client"]');
   await row.getByText('In touch today').waitFor({ timeout: 10000 });
 });
+await step('a repeating meeting with a contact counts each time it has happened', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Dana Daily', email: 'dana@client.example' });
+  const start = Date.now() - 26 * 36e5; // daily, an hour long: today's ended an hour ago
+  const r = await api(page, 'POST', '/events', { title: 'Daily check-in', start, end: start + 36e5, rrule: { freq: 'daily' }, guests: ['dana@client.example'] });
+  if (r.status >= 300) throw new Error(JSON.stringify(r.body));
+  await page.goto(`${B}/contacts`);
+  const row = page.locator('table.files tbody tr[aria-label="Dana Daily"]');
+  await row.getByText('In touch today').waitFor({ timeout: 10000 });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

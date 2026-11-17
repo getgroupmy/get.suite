@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { expand } from '../calmath.js';
+import { outEvent } from './calendar.js';
 import { q, tx } from '../db.js';
 import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
@@ -47,15 +49,30 @@ if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'touch_notifi
  * person with any newly due ("Time to catch up with Rita Moreno", "… and 2 others"). Returns how many sent.
  */
 /**
- * A meeting with a contact counts as being in touch: for events of yours that ended in the last `within` ms (one-off
- * ones; not those the contact said No to), your contacts invited to them by email address were in touch when it
+ * A meeting with a contact counts as being in touch: for events of yours that ended in the last `within` ms (each
+ * time a repeating one happened, too; not those the contact said No to), your contacts invited to them by email address were in touch when it
  * ended. Runs with the keep-in-touch check (hourly), so a meeting counts within the hour.
  */
 export function meetingsCountAsTouch(at = Date.now(), within = 2 * 864e5, ownerId = null) {
-  const met = q(`SELECT e.owner_id, LOWER(g.email) AS email, MAX(e.end) AS ended FROM events e JOIN event_outside_guests g ON g.event_id = e.id
-                 WHERE e.rrule IS NULL AND e.end <= ? AND e.end > ? AND g.status != 'no' AND (? IS NULL OR e.owner_id = ?) GROUP BY e.owner_id, LOWER(g.email)`).all(at, at - within, ownerId, ownerId);
+  const pairs = new Map(); // owner \u0000 email -> when they last met
+  const met = (owner, email, ended) => { const k = `${owner}\u0000${email}`; if (!(pairs.get(k) >= ended)) pairs.set(k, ended); };
+  // One-off events that ended in the window.
+  for (const m of q(`SELECT e.owner_id, LOWER(g.email) AS email, MAX(e.end) AS ended FROM events e JOIN event_outside_guests g ON g.event_id = e.id
+                     WHERE e.rrule IS NULL AND e.end <= ? AND e.end > ? AND g.status != 'no' AND (? IS NULL OR e.owner_id = ?) GROUP BY e.owner_id, LOWER(g.email)`).all(at, at - within, ownerId, ownerId)) met(m.owner_id, m.email, m.ended);
+  // Repeating ones: the times they happened that ended in the window (moved or cancelled ones as they are).
+  const repeating = q(`SELECT DISTINCT e.* FROM events e JOIN event_outside_guests g ON g.event_id = e.id
+                       WHERE e.rrule IS NOT NULL AND e.start <= ? AND (? IS NULL OR e.owner_id = ?)`).all(at, ownerId, ownerId);
+  for (const row of repeating) {
+    const ends = expand(outEvent(row), at - within - 864e5, at).map((o) => o.end).filter((t) => t <= at && t > at - within);
+    if (!ends.length) continue;
+    const last = Math.max(...ends);
+    for (const g of q("SELECT LOWER(email) AS email FROM event_outside_guests WHERE event_id = ? AND status != 'no'").all(row.id)) met(row.owner_id, g.email, last);
+  }
   let n = 0;
-  for (const m of met) n += q('UPDATE contacts SET last_contact = ? WHERE owner_id = ? AND LOWER(email) = ? AND (last_contact IS NULL OR last_contact < ?)').run(m.ended, m.owner_id, m.email, m.ended).changes;
+  for (const [k, ended] of pairs) {
+    const [owner, email] = k.split('\u0000');
+    n += q('UPDATE contacts SET last_contact = ? WHERE owner_id = ? AND LOWER(email) = ? AND (last_contact IS NULL OR last_contact < ?)').run(ended, owner, email, ended).changes;
+  }
   return n;
 }
 

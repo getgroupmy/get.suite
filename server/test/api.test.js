@@ -15661,3 +15661,24 @@ test('contacts: a meeting with a contact counts as being in touch once it has en
   meetingsCountAsTouch(now);
   assert.equal((await a('GET', '/api/contacts')).body.find((c) => c.id === rita.id).last_contact, later, 'never moves it back');
 });
+
+test('contacts: each time a repeating meeting with a contact happens counts as being in touch', async () => {
+  const { db } = await import('../src/db.js');
+  const { meetingsCountAsTouch } = await import('../src/routes/contacts.js');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'reptouch', domain: 'acme.com', name: 'Rep Touch', password: 'password123' })).status, 201);
+  await login(a, 'reptouch@acme.com');
+  const me = (await a('GET', '/api/auth/me')).body.user.id;
+  const pat = (await a('POST', '/api/contacts', { name: 'Pat Weekly', email: 'pat.weekly@example.org' })).body;
+  const now = Date.UTC(2026, 10, 17, 15);
+  const first = Date.UTC(2026, 10, 10, 9); // daily at 9:00 UTC for an hour, since a week ago
+  db.prepare('INSERT INTO events (id, owner_id, title, start, end, rrule, exdates, tz) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run('rt-daily', me, 'Stand-up', first, first + 36e5, JSON.stringify({ freq: 'daily' }), '[]', 'UTC');
+  db.prepare("INSERT INTO event_outside_guests (event_id, email, status, token) VALUES ('rt-daily', 'pat.weekly@example.org', 'yes', 'rt-tok')").run();
+  meetingsCountAsTouch(now);
+  const got = db.prepare('SELECT last_contact FROM contacts WHERE id = ?').get(pat.id).last_contact;
+  assert.equal(got, Date.UTC(2026, 10, 17, 10), 'today’s, which ended at 10:00');
+  db.prepare("UPDATE event_outside_guests SET status = 'no' WHERE event_id = 'rt-daily'").run();
+  db.prepare('UPDATE contacts SET last_contact = NULL WHERE id = ?').run(pat.id);
+  meetingsCountAsTouch(now);
+  assert.equal(db.prepare('SELECT last_contact FROM contacts WHERE id = ?').get(pat.id).last_contact, null, 'not if they said No');
+});
