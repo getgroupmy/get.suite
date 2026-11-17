@@ -246,7 +246,7 @@ const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE not
 function shape(n, me) {
   return {
     id: n.id, title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, color: n.color, pinned: !!n.pinned, archived: !!n.archived, trashed_at: n.trashed_at ?? null,
-    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, remind_repeat: n.remind_repeat || null, remind_reset: !!n.remind_reset, pictures: picturesOf(n.id).map((p) => p.id), recordings: recordingsOf(n.id).map((x) => ({ id: x.id, duration_ms: x.duration_ms, created_at: x.created_at })), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
+    labels: JSON.parse(n.labels || '[]'), ...(n.daily_date && { daily_date: n.daily_date }), remind_at: n.remind_at ?? null, remind_repeat: n.remind_repeat || null, remind_reset: !!n.remind_reset, pictures: picturesOf(n.id).map((p) => p.id), recordings: recordingsOf(n.id).map((x) => ({ id: x.id, duration_ms: x.duration_ms, created_at: x.created_at })), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
   };
@@ -586,7 +586,9 @@ export default function noteRoutes() {
     // Kind and colour (Lists, Pictures, Voice, Links, Reminders; a card colour).
     const f = noteFilterOf(req.query);
     if (f.error) throw bad(f.error);
-    res.json(rows.map((n) => shape(n, req.user.id)).filter((n) => noteFits(n, f)));
+    const out = rows.map((n) => shape(n, req.user.id)).filter((n) => noteFits(n, f));
+    if (f.type === 'daily') out.sort((a, b) => b.daily_date.localeCompare(a.daily_date)); // a journal: the latest day first
+    res.json(out);
   });
 
   // Your order of the cards: { ids } as they should now show, first to last (yours and shared ones;

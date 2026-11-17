@@ -28,5 +28,8 @@ test('what the request asks for', () => {
   assert.deepEqual(noteFilterOf({ type: 'list', color: '#abcdef' }), { type: 'list', color: '#abcdef' });
   assert.deepEqual(noteFilterOf({}), { type: null, color: null });
   assert.match(noteFilterOf({ type: 'video' }).error, /type can be/);
+  assert.equal(noteFilterOf({ type: 'daily' }).type, 'daily');
+  assert.equal(noteFits({ title: 'x', body: '', daily_date: '2026-11-17' }, { type: 'daily' }), true);
+  assert.equal(noteFits({ title: 'x', body: '' }, { type: 'daily' }), false);
   assert.match(noteFilterOf({ color: 'red' }).error, /color is/);
 });

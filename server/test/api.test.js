@@ -15427,6 +15427,10 @@ test('Today’s note: one a day, made from the daily template, the same one agai
   await a('PATCH', `/api/notes/${today.body.id}`, { title: 'Tue: shipped it' });
   const again = (await a('POST', '/api/notes/daily', { date: '2026-11-17', title: 'Tuesday 17 November' })).body;
   assert.deepEqual([again.id, again.made, again.title], [today.body.id, false, 'Tue: shipped it']);
+  // The Daily notes filter: only Today's notes, the latest day first.
+  const daily = (await a('GET', '/api/notes?type=daily')).body;
+  assert.deepEqual(daily.map((n) => n.daily_date), ['2026-11-17', '2026-11-16']);
+  assert.ok(!(await a('GET', '/api/notes')).body.find((n) => n.title === 'Stand-up').daily_date);
   // In the trash: a new one is made.
   await a('DELETE', `/api/notes/${today.body.id}`);
   const fresh = (await a('POST', '/api/notes/daily', { date: '2026-11-17', title: 'Tuesday 17 November' })).body;

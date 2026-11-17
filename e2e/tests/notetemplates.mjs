@@ -92,6 +92,11 @@ await step('Today’s note: from the template chosen for it, and the same note w
   await page.keyboard.press('Escape');
   const mine = (await api(page, 'GET', '/notes')).body.filter((x) => x.title === title);
   if (mine.length !== 1) throw new Error(`${mine.length} notes titled ${title}`);
+  // Filter → 📅 Daily notes: only Today's notes.
+  await page.getByRole('button', { name: 'Filter' }).click();
+  await page.getByRole('button', { name: '📅 Daily notes' }).click();
+  await page.locator('article').filter({ hasText: title }).first().waitFor({ timeout: 10000 });
+  await until(async () => (await page.locator('article').count()) === 1);
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
