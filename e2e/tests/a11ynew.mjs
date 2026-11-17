@@ -113,6 +113,31 @@ await step('Calendar: Time insights with a focus goal', async () => {
   await page.getByRole('progressbar', { name: 'Focus goal' }).waitFor({ timeout: 10000 });
   await both('time insights');
 });
+await step('top bar: the timer chip and the next meeting with Join', async () => {
+  const now = Date.now();
+  const code = (await api(page, 'POST', '/meet', { title: 'Design review' })).body.code;
+  await api(page, 'POST', '/events', { title: 'Design review', start: now + 5 * 60e3 + 20e3, end: now + 35 * 60e3, meet_code: code });
+  await api(page, 'POST', `/tasks/tasks/${task}/timer`, { minutes: 25 });
+  await page.goto(`${B}/drive`);
+  await page.getByRole('status', { name: /Design review in \d+ min/ }).waitFor({ timeout: 10000 });
+  await page.getByRole('status', { name: /^Design: \d+ min left$/ }).waitFor({ timeout: 10000 });
+  await both('top bar chips');
+  await api(page, 'POST', '/tasks/timer/stop');
+});
+await step('Docs: focus mode with a writing sprint running', async () => {
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Essay', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First line.' }] }] } })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.locator('.ProseMirror').first().getByText('First line.').waitFor({ timeout: 15000 });
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Focus mode' }).click();
+  await page.getByRole('button', { name: 'Exit focus mode' }).waitFor();
+  await page.mouse.move(10, 500); // away from the corner, as when writing
+  await both('docs focus mode');
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: '10 minutes' }).click();
+  await page.getByRole('timer', { name: 'Writing sprint' }).waitFor();
+  await both('docs focus sprint');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

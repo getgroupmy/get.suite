@@ -3225,8 +3225,9 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 /* Docs focus mode: only the page. */
 .doc-focus > .editor-head, .doc-focus > .toolbar, .doc-focus .doc-body > :not(.doc-scroll) { display: none !important; }
 .doc-focus .doc-scroll { padding-top: 32px; }
-.focus-exit { position: fixed; top: 12px; right: 16px; z-index: 50; opacity: .35; transition: opacity .15s; }
-.focus-exit:hover, .focus-exit:focus-visible { opacity: 1; }
+.focus-exit { position: fixed; top: 12px; right: 16px; z-index: 50; opacity: .8; transition: opacity .15s; }
+.focus-exit:hover, .focus-exit:focus-within { opacity: 1; }
+.focus-exit:has(.sprint-clock) { opacity: 1; } /* a running sprint's words and time stay fully readable */
 
 /* Top bar: a meeting of yours starting soon or going on. */
 .next-meeting { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 340px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--hover, rgba(0,0,0,.05)); }
