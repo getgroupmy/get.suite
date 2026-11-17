@@ -240,6 +240,21 @@ await step('Time insights → the previous week shows the time logged then, on i
   await tiles.getByRole('listitem').filter({ hasText: 'Other events' }).getByText('↓ 2 h vs last week').waitFor({ timeout: 10000 });
   await tiles.getByRole('listitem').filter({ hasText: 'On tasks' }).getByText(/(↑|↓) .* vs last week|Same as last week/).waitFor();
   await page.screenshot({ path: `${SP}/shots/insights-delta.png` });
+  // A weekly focus goal: progress towards it, then reached.
+  const today = new Date(); today.setHours(7, 0, 0, 0);
+  await api(page, 'POST', '/events', { title: 'Deep work', kind: 'focus', start: today.getTime(), end: today.getTime() + 2 * 36e5 });
+  await dlg.getByRole('button', { name: 'Previous week' }).click();
+  await dlg.getByRole('button', { name: 'Next week' }).click();
+  await dlg.getByLabel('Weekly focus goal').selectOption('4');
+  const bar = dlg.getByRole('progressbar', { name: 'Focus goal' });
+  await bar.waitFor({ timeout: 10000 });
+  await until(async () => (await bar.getAttribute('aria-valuetext')) === '2 h of 4 h');
+  await page.screenshot({ path: `${SP}/shots/insights-goal.png` });
+  await dlg.getByLabel('Weekly focus goal').selectOption('2');
+  await dlg.getByText('🎯 Goal reached').waitFor();
+  if ((await api(page, 'GET', '/auth/me')).body.user.cal_prefs.focusGoal !== 2) throw new Error('goal not saved');
+  await dlg.getByLabel('Weekly focus goal').selectOption('0');
+  await bar.waitFor({ state: 'detached' });
 });
 await step('away from a running timer: coming back asks whether to count the time away', async () => {
   await page.goto(`${B}/drive`);

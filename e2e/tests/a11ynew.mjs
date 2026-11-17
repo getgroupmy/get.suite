@@ -104,6 +104,15 @@ await step('the top-bar timer and “You were away”', async () => {
   await page.getByRole('button', { name: 'Leave it out and stop' }).click();
   await page.evaluate(() => localStorage.removeItem('nw-away-seconds'));
 });
+await step('Calendar: Time insights with a focus goal', async () => {
+  await api(page, 'PUT', '/users/me/calendar-prefs', { focusGoal: 4 });
+  const t = new Date(); t.setHours(7, 0, 0, 0);
+  await api(page, 'POST', '/events', { title: 'Deep work', kind: 'focus', start: t.getTime(), end: t.getTime() + 36e5 });
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: /Time insights/ }).first().click();
+  await page.getByRole('progressbar', { name: 'Focus goal' }).waitFor({ timeout: 10000 });
+  await both('time insights');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

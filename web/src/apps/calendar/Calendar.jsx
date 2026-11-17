@@ -654,7 +654,12 @@ function Delta({ now, before }) {
 }
 
 function TimeInsights({ anchor, onClose }) {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
+  const toast = useToast();
+  const goal = user.cal_prefs?.focusGoal || 0; // hours of focus time a week to aim for
+  const setGoal = async (h) => {
+    try { const p = await put('/users/me/calendar-prefs', { focusGoal: h }); setUser({ ...user, cal_prefs: p }); toast(h ? `Weekly focus goal: ${h} h` : 'Weekly focus goal removed'); } catch (e) { toast(e.message, 'error'); }
+  };
   const monday = (d) => { const x = startOfDay(new Date(d)); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
   const [week, setWeek] = useState(() => monday(anchor).getTime());
   const [data, setData] = useState(null);
@@ -683,7 +688,10 @@ function TimeInsights({ anchor, onClose }) {
         {!data ? <p className="muted">Loading…</p> : <>
           <div className="insight-tiles" role="list" aria-label="This week">
             <div role="listitem"><span className="insight-num">{hoursText(data.meetings)}</span><span className="muted small"><i className="ins-dot meetings" /> In meetings</span><Delta now={data.meetings} before={prev?.meetings} /></div>
-            <div role="listitem"><span className="insight-num">{hoursText(data.focus)}</span><span className="muted small"><i className="ins-dot focus" /> Focus time</span><Delta now={data.focus} before={prev?.focus} /></div>
+            <div role="listitem"><span className="insight-num">{hoursText(data.focus)}</span><span className="muted small"><i className="ins-dot focus" /> Focus time{goal ? ` · goal ${goal} h` : ''}</span>
+              {goal > 0 && <span className="insight-goal" role="progressbar" aria-label="Focus goal" aria-valuemin={0} aria-valuemax={goal} aria-valuenow={Math.min(goal, data.focus)} aria-valuetext={data.focus >= goal ? `Goal reached: ${hoursText(data.focus)} of ${goal} h` : `${hoursText(data.focus)} of ${goal} h`}><span style={{ width: `${Math.min(100, (data.focus / goal) * 100)}%` }} className={data.focus >= goal ? 'done' : ''} /></span>}
+              {goal > 0 && data.focus >= goal && <span className="small insight-delta">🎯 Goal reached</span>}
+              <Delta now={data.focus} before={prev?.focus} /></div>
             <div role="listitem"><span className="insight-num">{hoursText(data.other)}</span><span className="muted small"><i className="ins-dot other" /> Other events</span><Delta now={data.other} before={prev?.other} /></div>
             {taskTime?.minutes > 0 && <div role="listitem"><span className="insight-num">{hoursText(Math.round(taskTime.minutes / 6) / 10)}</span><span className="muted small"><i className="ins-dot tasks" /> ⏱ On tasks</span><Delta now={Math.round(taskTime.minutes / 6) / 10} before={prev?.tasks} /></div>}
           </div>
@@ -703,7 +711,7 @@ function TimeInsights({ anchor, onClose }) {
               return (
                 <li key={d.day} title={`${label}: ${hoursText(d.meetings)} meetings, ${hoursText(d.focus)} focus, ${hoursText(d.other)} other${tasksText}`}>
                   <span className="insight-day">{label}</span>
-                  <span className="insight-bar" aria-label={`${label}: ${hoursText(Math.round(sum * 10) / 10)} in events${tasksText}`}>
+                  <span className="insight-bar" role="img" aria-label={`${label}: ${hoursText(Math.round(sum * 10) / 10)} in events${tasksText}`}>
                     {['meetings', 'focus', 'other'].map((k) => d[k] > 0 && <span key={k} className={`seg ${k}`} style={{ width: `${(d[k] / most) * 100}%` }} />)}
                     {tasks > 0 && <span className="seg tasks" style={{ width: `${(tasks / most) * 100}%` }} />}
                   </span>
@@ -720,6 +728,12 @@ function TimeInsights({ anchor, onClose }) {
               </ul>
             </div>
           )}
+          <label className="row small" style={{ gap: 6 }}>Weekly focus goal
+            <select value={goal} onChange={(e) => setGoal(Number(e.target.value))}>
+              <option value={0}>None</option>
+              {[2, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30].map((h) => <option key={h} value={h}>{h} h</option>)}
+            </select>
+          </label>
           <p className="muted small" style={{ margin: 0 }}>Only you see this. Meetings are events with other people; all-day events, out of office and invitations you declined aren't counted.</p>
         </>}
       </div>
