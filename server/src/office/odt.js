@@ -35,11 +35,32 @@ export const columnsXml = (page) => (page?.columns >= 2 && page.columns <= 3 ? `
 /** Line numbers in the margin, every line, on through the document. */
 export const lineNumbersXml = (page) => (page?.lineNumbers ? '<text:linenumbering-configuration text:number-lines="true" text:increment="1" text:restart-on-page="false" style:num-format="1" text:number-position="left" text:offset="0.5cm"/>' : '');
 const xmlEsc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/**
+ * The watermark (Page setup): faint grey text across the middle of every page, rising at 45°, as LibreOffice makes
+ * its own (Format → Watermark): a text-path shape named PowerPlusWaterMarkObject, anchored in the header.
+ */
+export function watermarkXml(page) {
+  const text = String(page?.watermark || '').trim();
+  if (!text) return '';
+  const w = Math.min(16, 1.6 * text.length + 2), h = w / 4; // cm: wider for longer words
+  const pt = Math.round(Math.min(96, (w / (text.length * 0.6)) * 28.35)); // letters as tall as the shape allows
+  return `<text:p><draw:custom-shape text:anchor-type="char" draw:z-index="0" draw:name="PowerPlusWaterMarkObject1" draw:style-name="Wm" draw:text-style-name="WmText${pt}" svg:width="${w.toFixed(2)}cm" svg:height="${h.toFixed(2)}cm" draw:transform="rotate (0.785398163397448) translate (${(-w / 2 * Math.SQRT1_2 + 0).toFixed(3)}cm ${(10 + w / 2 * Math.SQRT1_2).toFixed(3)}cm)"><text:p text:style-name="WmText${pt}">${xmlEsc(text)}</text:p><draw:enhanced-geometry svg:viewBox="0 0 21600 21600" draw:text-areas="0 0 21600 21600" draw:text-path="true" draw:text-path-mode="shape" draw:text-path-scale="shape" draw:text-path-same-letter-heights="false" draw:type="fontwork-plain-text" draw:enhanced-path="M 0 0 L 21600 0 N M 0 21600 L 21600 21600 N"/></draw:custom-shape></text:p>`;
+}
+
+/** The watermark's letters: large, light grey, in the size watermarkXml picked. */
+export function watermarkTextStyle(page) {
+  const text = String(page?.watermark || '').trim();
+  if (!text) return '';
+  const w = Math.min(16, 1.6 * text.length + 2), pt = Math.round(Math.min(96, (w / (text.length * 0.6)) * 28.35));
+  return `<style:style style:name="WmText${pt}" style:family="paragraph"><style:text-properties fo:font-size="${pt}pt" style:font-name="Liberation Sans" fo:font-family="'Liberation Sans'" fo:color="#c0c0c0"/></style:style>`;
+}
+
 /** The master page: Page setup's header, and footer with the page number ("Private   3"), centred. */
 export function masterPage(page) {
   const header = String(page?.header || '').trim(), footer = String(page?.footer || '').trim(), numbers = !!page?.numbers;
   const centred = (inner) => `<text:p text:style-name="HeaderFooter">${inner}</text:p>`;
-  return `<style:master-page style:name="Standard" style:page-layout-name="pm1">${header ? `<style:header>${centred(xmlEsc(header))}</style:header>` : ''}${footer || numbers ? `<style:footer>${centred(`${xmlEsc(footer)}${footer && numbers ? '<text:s text:c="3"/>' : ''}${numbers ? '<text:page-number text:select-page="current">1</text:page-number>' : ''}`)}</style:footer>` : ''}</style:master-page>`;
+  const mark = watermarkXml(page);
+  return `<style:master-page style:name="Standard" style:page-layout-name="pm1">${header || mark ? `<style:header>${mark}${header ? centred(xmlEsc(header)) : ''}</style:header>` : ''}${footer || numbers ? `<style:footer>${centred(`${xmlEsc(footer)}${footer && numbers ? '<text:s text:c="3"/>' : ''}${numbers ? '<text:page-number text:select-page="current">1</text:page-number>' : ''}`)}</style:footer>` : ''}</style:master-page>`;
 }
 
 /** The paragraphs' default text: the document's Normal text (Page setup), else Liberation Sans 11 pt. */
@@ -216,7 +237,7 @@ ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<styl
 <style:style style:name="Table_20_Heading" style:display-name="Table Heading" style:family="paragraph" style:parent-style-name="Table_20_Contents" style:class="extra"><style:text-properties fo:font-weight="bold"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:text-properties fo:font-size="9pt"/></style:style>
 <style:style style:name="Reference" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="1.27cm" fo:text-indent="-1.27cm"/></style:style>
-</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties ${pageLayout(page)}>${columnsXml(page)}</style:page-layout-properties></style:page-layout></office:automatic-styles>
+</office:styles><office:automatic-styles><style:style style:name="Wm" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="solid" draw:fill-color="#c0c0c0" draw:opacity="50%" draw:textarea-horizontal-align="center" draw:textarea-vertical-align="middle" draw:fit-to-size="true" style:run-through="background" style:wrap="run-through" style:number-wrapped-paragraphs="no-limit" style:vertical-pos="center" style:vertical-rel="page-content" style:horizontal-pos="center" style:horizontal-rel="page-content"/></style:style>${watermarkTextStyle(page)}<style:page-layout style:name="pm1"><style:page-layout-properties ${pageLayout(page)}>${columnsXml(page)}</style:page-layout-properties></style:page-layout></office:automatic-styles>
 <office:master-styles>${masterPage(page)}</office:master-styles></office:document-styles>`;
   const meta = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-meta ${NS}><office:meta><dc:title>${x(title)}</dc:title><meta:generator>Workspace</meta:generator></office:meta></office:document-meta>`;
@@ -281,7 +302,12 @@ export async function pageOfOdt(buffer) {
     const textIn = (xml) => (xml || '').replace(/<text:page-number\b[\s\S]*?<\/text:page-number>|<text:page-number\b[^>]*\/>/g, '').replace(/<text:s(?:\s[^>]*)?\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 200);
     const head = /<style:header\b[^>]*>([\s\S]*?)<\/style:header>/.exec(master)?.[1];
     const foot = /<style:footer\b[^>]*>([\s\S]*?)<\/style:footer>/.exec(master)?.[1];
-    if (head) out.header = textIn(head);
+    // A watermark (LibreOffice's or ours): the text of the PowerPlusWaterMarkObject shape; the header without it.
+    const wm = /<draw:custom-shape\b[^>]*draw:name="PowerPlusWaterMarkObject[^"]*"[^>]*>([\s\S]*?)<\/draw:custom-shape>/.exec(head || '');
+    if (wm) { const t = textIn(wm[1].replace(/<draw:enhanced-geometry\b[\s\S]*?(?:\/>|<\/draw:enhanced-geometry>)/, '')); if (t) out.watermark = t.slice(0, 40); }
+    const headText = wm ? head.replace(wm[0], '') : head;
+    if (head && textIn(headText)) out.header = textIn(headText);
+    else if (head && !wm) out.header = '';
     if (foot) { out.footer = textIn(foot); out.numbers = /<text:page-number\b/.test(foot); }
     const bg = /fo:background-color="(#[0-9a-fA-F]{6})"/.exec(layout)?.[1]?.toLowerCase();
     if (bg && bg !== '#ffffff') out.pageColor = bg;

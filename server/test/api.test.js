@@ -15884,3 +15884,17 @@ test('docs: columns and line numbers in the .odt download, and back', async () =
   const plain = await pageOfOdt(await odtFromDoc(doc, 'x'));
   assert.equal('columns' in plain || 'lineNumbers' in plain, false);
 });
+
+test('docs: the watermark in the .odt download (as LibreOffice makes one), and back', async () => {
+  const { odtFromDoc, pageOfOdt } = await import('../src/office/odt.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+  const buf = await odtFromDoc(doc, 'x', { page: { watermark: 'DRAFT', header: 'Acme Ltd' } });
+  const styles = await (await JSZip.loadAsync(buf)).file('styles.xml').async('string');
+  assert.match(styles, /<style:header><text:p><draw:custom-shape [^>]*draw:name="PowerPlusWaterMarkObject1"[^>]*draw:transform="rotate \(0\.785398163397448\)/);
+  assert.match(styles, /style:name="WmText\d+" style:family="paragraph"><style:text-properties fo:font-size="\d+pt"/);
+  const back = await pageOfOdt(buf);
+  assert.deepEqual([back.watermark, back.header], ['DRAFT', 'Acme Ltd'], 'the watermark isn’t taken for header text');
+  const only = await pageOfOdt(await odtFromDoc(doc, 'x', { page: { watermark: 'CONFIDENTIAL' } }));
+  assert.deepEqual([only.watermark, only.header], ['CONFIDENTIAL', undefined]);
+});
