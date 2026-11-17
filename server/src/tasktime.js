@@ -15,6 +15,8 @@ q(`CREATE TABLE IF NOT EXISTS task_time (
   note TEXT,
   manual INTEGER NOT NULL DEFAULT 0
 )`).run();
+// A focus session: a timer that stops by itself at `until` (counted to then), with a note to its owner.
+if (!q('PRAGMA table_info(task_time)').all().some((c) => c.name === 'until')) q('ALTER TABLE task_time ADD COLUMN until INTEGER').run();
 q('CREATE INDEX IF NOT EXISTS task_time_task ON task_time(task_id)').run();
 q('CREATE INDEX IF NOT EXISTS task_time_user ON task_time(user_id, ended_at)').run();
 
@@ -44,8 +46,22 @@ const minutesBetween = (a, b) => Math.max(0, Math.min(TIMER_LIMIT, Math.round((b
 export function stopTimer(userId, at = now()) {
   const run = q('SELECT * FROM task_time WHERE user_id = ? AND ended_at IS NULL').get(userId);
   if (!run) return null;
-  q('UPDATE task_time SET ended_at = ?, minutes = ? WHERE id = ?').run(at, minutesBetween(run.started_at, at), run.id);
+  const end = run.until ? Math.min(at, run.until) : at; // a focus session counts no further than its end
+  q('UPDATE task_time SET ended_at = ?, minutes = ? WHERE id = ?').run(end, minutesBetween(run.started_at, end), run.id);
   return run.task_id;
+}
+
+/**
+ * Focus sessions whose time is up are stopped (at their end) and their owners told; `onDone(userId, task, minutes)`
+ * does the telling. Run every half minute; returns how many were stopped.
+ */
+export function endFocusSessions(onDone, at = now()) {
+  const due = q('SELECT e.*, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id WHERE e.ended_at IS NULL AND e.until IS NOT NULL AND e.until <= ?').all(at);
+  for (const run of due) {
+    q('UPDATE task_time SET ended_at = ?, minutes = ? WHERE id = ?').run(run.until, minutesBetween(run.started_at, run.until), run.id);
+    try { onDone(run.user_id, run, minutesBetween(run.started_at, run.until)); } catch { /* told or not, it's stopped */ }
+  }
+  return due.length;
 }
 
 /** A task's time: entries (newest first, running ones with their minutes so far), and totals per person. */
@@ -97,12 +113,16 @@ export function reportCsv(report) {
 export function addTimeRoutes(r, { taskFor, loadList, changed }) {
   r.get('/timer', (req, res) => {
     const run = q('SELECT e.*, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id WHERE e.user_id = ? AND e.ended_at IS NULL').get(req.user.id);
-    res.json(run ? { task_id: run.task_id, title: run.title, list_id: run.list_id, since: run.started_at } : null);
+    res.json(run ? { task_id: run.task_id, title: run.title, list_id: run.list_id, since: run.started_at, until: run.until || null } : null);
   });
+  // { minutes } (5 to 180) makes it a focus session: it stops by itself then.
   r.post('/tasks/:id/timer', (req, res) => {
     const { task, list } = taskFor(req);
+    const focus = req.body?.minutes == null ? null : Number(req.body.minutes);
+    if (focus !== null && !(Number.isInteger(focus) && focus >= 5 && focus <= 180)) throw bad('A focus session lasts 5 minutes to 3 hours');
     const stoppedOn = stopTimer(req.user.id); // one timer at a time
-    q('INSERT INTO task_time (id, task_id, user_id, started_at) VALUES (?, ?, ?, ?)').run(uid(), task.id, req.user.id, now());
+    const t = now();
+    q('INSERT INTO task_time (id, task_id, user_id, started_at, until) VALUES (?, ?, ?, ?, ?)').run(uid(), task.id, req.user.id, t, focus ? t + focus * 60e3 : null);
     changed(list);
     if (stoppedOn && stoppedOn !== task.id) { const other = q('SELECT list_id FROM tasks WHERE id = ?').get(stoppedOn); if (other && other.list_id !== list.id) changed(loadList(other.list_id, req.user)); }
     res.status(201).json(timeOf(task.id));

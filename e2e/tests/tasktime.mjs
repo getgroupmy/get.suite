@@ -91,6 +91,19 @@ await step('the time report: who spent how long on what, and a CSV download', as
   const csv = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
   if (!/Person,Task,Minutes,Hours/.test(csv) || !/Kim Park,Design,45,0\.75/.test(csv)) throw new Error(csv);
 });
+await step('Focus 25 min: a timer that ends by itself, shown with the minutes left; stopped early it counts what ran', async () => {
+  if (await page.getByRole('dialog').count()) await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click(); // the report from the step before
+  if (!(await timeBox(page).count())) await row(page, 'Design').locator('.task-main').click(); // (its details may still be open)
+  await timeBox(page).getByRole('button', { name: '◎ Focus 25 min' }).click();
+  await page.getByText('Focus for 25 minutes: the timer stops by itself').waitFor();
+  await timeBox(page).getByRole('button', { name: /■ Stop focus \((25|24) min left\)/ }).waitFor();
+  const t = (await api(page, 'GET', '/tasks/timer')).body;
+  if (t.until - t.since !== 25 * 60e3) throw new Error(JSON.stringify(t));
+  await row(kim, 'Design').locator('.pill.timing', { hasText: 'Olivia' }).waitFor(); // as any timer, for the others
+  await timeBox(page).getByRole('button', { name: /■ Stop focus/ }).click();
+  await page.getByText('Timer stopped').waitFor();
+  if ((await api(page, 'GET', '/tasks/timer')).body) throw new Error('still running');
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -4,7 +4,11 @@
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
-import { addTimeRoutes } from '../tasktime.js';
+import { addTimeRoutes, endFocusSessions } from '../tasktime.js';
+
+let focusDoneFn = null;
+/** End the focus sessions due by `at` (every half minute; tests pass a later time). */
+export const endFocusNow = (at = Date.now()) => (focusDoneFn ? endFocusSessions(focusDoneFn, at) : 0);
 import { cleanRepeat, nextDue } from '../taskrepeat.js';
 import { trashTask, restoreTask, trashOfList, TASK_TRASH_DAYS } from '../tasktrash.js';
 import express, { Router } from 'express';
@@ -547,6 +551,14 @@ export default function taskRoutes() {
     return { task: t, list: loadList(t.list_id, req.user) };
   };
   addTimeRoutes(r, { taskFor, loadList, changed }); // time spent on tasks (tasktime.js)
+  // Focus sessions run out on the server (the page may be closed): stopped at their end, and their owner told.
+  const focusDone = (userId, run, minutes) => {
+    bell([userId], { kind: 'task', title: `Focus session done: “${run.title}”`, body: `${minutes} minutes counted`, link: `/tasks/${run.list_id}?task=${run.task_id}` });
+    const who = q('SELECT * FROM users WHERE id = ?').get(userId);
+    try { if (who) changed(loadList(run.list_id, who)); } catch { /* the list is gone */ }
+  };
+  focusDoneFn = focusDone;
+  if (!globalThis.__focusSweep) globalThis.__focusSweep = setInterval(() => { try { endFocusNow(); } catch { /* next time */ } }, 30e3).unref();
   // A link to a task, pasted in Chat: what it is, for a card. Only for people on its list (404 otherwise, as for the link).
   r.get('/tasks/:id/preview', (req, res) => {
     const { task: t } = taskFor(req);

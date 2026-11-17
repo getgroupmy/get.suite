@@ -874,8 +874,13 @@ function TaskTime({ task }) {
       <span>Time{t.total ? ` · ${formatMinutes(t.total)} in all` : ''}</span>
       <div className="row wrap" style={{ gap: 8 }}>
         {mine
-          ? <button type="button" className="btn small primary" onClick={() => act(() => post('/tasks/timer/stop').then(() => get(`/tasks/tasks/${task.id}/time`)), 'Timer stopped')}>■ Stop timer ({formatMinutes(elapsed)})</button>
-          : <button type="button" className="btn small" onClick={() => act(() => post(`/tasks/tasks/${task.id}/timer`))}>▶ Start timer</button>}
+          ? <button type="button" className="btn small primary" onClick={() => act(() => post('/tasks/timer/stop').then(() => get(`/tasks/tasks/${task.id}/time`)), 'Timer stopped')}>
+            ■ {mine.until ? `Stop focus (${Math.max(0, Math.ceil((mine.until - Date.now()) / 60000))} min left)` : `Stop timer (${formatMinutes(elapsed)})`}</button>
+          : <>
+            <button type="button" className="btn small" onClick={() => act(() => post(`/tasks/tasks/${task.id}/timer`))}>▶ Start timer</button>
+            {/* A focus session: the timer stops by itself after 25 minutes (you're told), counting just that. */}
+            <button type="button" className="btn small" title="Time 25 minutes on this task; it stops by itself and tells you" onClick={() => act(() => post(`/tasks/tasks/${task.id}/timer`, { minutes: 25 }), 'Focus for 25 minutes: the timer stops by itself')}>◎ Focus 25 min</button>
+          </>}
         {!adding && <button type="button" className="link-btn small" onClick={() => setAdding({ duration: '', day: new Date().toISOString().slice(0, 10), note: '' })}>Add time</button>}
       </div>
       {adding && (
