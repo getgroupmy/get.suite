@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node --no-warnings=ExperimentalWarning src/index.js",
     "dev": "node --watch --no-warnings=ExperimentalWarning src/index.js",
-    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js",
+    "test": "node --no-warnings=ExperimentalWarning --import ./test/cleanup.js --test test/*.test.js",
     "test:mail": "node --no-warnings=ExperimentalWarning --test --test-concurrency=1 test/mail.integration.js",
     "lint": "eslint src test"
   },
