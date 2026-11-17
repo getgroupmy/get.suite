@@ -12989,7 +12989,7 @@ test('morning summary: each person chooses which parts it has', async () => {
   d = digestFor(made.body.id);
   assert.doesNotMatch(d.text, /events today|Today \(/);
   assert.match(d.text, /No tasks due\./);
-  assert.equal((await a('PUT', '/api/users/me/digest/parts', { off: ['events', 'tasks', 'dates', 'chat', 'comments', 'drive'] })).status, 400, 'at least one stays');
+  assert.equal((await a('PUT', '/api/users/me/digest/parts', { off: ['events', 'tasks', 'dates', 'chat', 'comments', 'drive', 'week'] })).status, 400, 'at least one stays');
   assert.equal((await a('PUT', '/api/users/me/digest/parts', {})).status, 400);
   assert.deepEqual((await a('PUT', '/api/users/me/digest/parts', { off: [] })).body.off, []);
   assert.match(digestFor(made.body.id).text, /No events today\./);
@@ -15336,4 +15336,35 @@ test('Admin → Moving here: remind those who haven’t started (a notification 
   assert.equal((await owner('GET', '/api/notifications')).body.items.some((n) => n.kind === 'company'), false, 'not the admin who sent it');
   assert.equal((await c('POST', '/api/orgs/current/migration/remind', {})).status, 403);
   assert.equal((await owner('POST', '/api/orgs/current/migration/remind', { ids: ['nobody'] })).status, 400);
+});
+
+test('morning summary on Mondays: last week — meetings, focus time against the goal, time on tasks, thanks', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client();
+  const aid = (await owner('POST', '/api/users', { local: 'dgwa', domain: 'acme.com', name: 'Dgw Ann', password: 'password123' })).body.id;
+  assert.equal((await owner('POST', '/api/users', { local: 'dgwb', domain: 'acme.com', name: 'Dgw Ben', password: 'password123' })).status, 201);
+  await login(a, 'dgwa@acme.com'); await login(b, 'dgwb@acme.com');
+  // Monday 16 November 2026, 08:00 UTC; last week is 9–15 November.
+  const monday = Date.UTC(2026, 10, 16, 8), wed = Date.UTC(2026, 10, 11, 9);
+  await a('POST', '/api/events', { title: 'Planning', start: wed, end: wed + 2 * 36e5, guests: ['dgwb@acme.com'] });
+  await a('POST', '/api/events', { title: 'Deep work', kind: 'focus', start: wed + 3 * 36e5, end: wed + 6 * 36e5 });
+  await a('POST', '/api/events', { title: 'Dentist', start: wed + 7 * 36e5, end: wed + 8 * 36e5 });
+  await a('POST', '/api/events', { title: 'This week', start: monday + 36e5, end: monday + 2 * 36e5 }); // not last week
+  await a('PUT', '/api/users/me/calendar-prefs', { focusGoal: 4 });
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Dgw' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Write the brief' })).body;
+  await a('POST', `/api/tasks/tasks/${task.id}/time`, { duration: '1h 30m', day: '2026-11-12' });
+  const k = (await b('POST', '/api/kudos', { to: aid, message: 'Thanks for running planning', emoji: '🎉' })).body;
+  q('UPDATE kudos SET created_at = ? WHERE id = ?').run(wed + 864e5, k.id);
+  const d = digestFor(aid, monday);
+  assert.match(d.text, /Last week \(9 November – 15 November\):/);
+  assert.match(d.text, /In meetings 2 h · Focus time 3 h of your 4 h goal · Other events 1 h/);
+  assert.match(d.text, /On tasks 1\.5 h: Write the brief 1\.5 h/);
+  assert.match(d.text, /🙌 1 thank-you for you:\n    🎉 Dgw Ben: Thanks for running planning/);
+  assert.equal(d.week.any, true);
+  // Not on other days; and it can be left out.
+  assert.doesNotMatch(digestFor(aid, monday + 864e5).text, /Last week/);
+  assert.deepEqual((await a('PUT', '/api/users/me/digest/parts', { off: ['week'] })).body.off, ['week']);
+  assert.doesNotMatch(digestFor(aid, monday).text, /Last week/);
 });

@@ -12,13 +12,14 @@ import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
 import { datesOn } from './contactreminders.js';
+import { myTimeOf } from './tasktime.js';
 
 for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT'], ['digest_off', 'TEXT'], ['digest_weekdays', 'INTEGER'], ['digest_skip_empty', 'INTEGER']]) {
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === col)) q(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
 }
 
 /** The parts of the summary, which each person can leave out. */
-export const DIGEST_PARTS = ['events', 'tasks', 'dates', 'chat', 'comments', 'drive'];
+export const DIGEST_PARTS = ['events', 'tasks', 'dates', 'chat', 'comments', 'drive', 'week']; // week: last week's look back, on Mondays
 /** The parts someone left out of their summary. */
 export function digestOff(userId) {
   try { return JSON.parse(q('SELECT digest_off FROM users WHERE id = ?').get(userId)?.digest_off || '[]').filter((p) => DIGEST_PARTS.includes(p)); } catch { return []; }
@@ -95,10 +96,59 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     if (drive.length > 8) lines.push(`  and ${drive.length - 8} more (Drive → Activity)${link('/drive/activity')}`);
     lines.push('');
   }
+  // Mondays: a look back at last week (Monday to Sunday, in their time zone).
+  const week = !off.has('week') && new Date(`${date}T12:00:00Z`).getUTCDay() === 1 ? lastWeek(userId, from, tz, y, m, d) : null;
+  if (week) {
+    lines.push(`Last week (${week.label}):${link('/calendar')}`);
+    if (week.hours.meetings || week.hours.focus || week.hours.other || week.goal) {
+      lines.push(`  In meetings ${hrs(week.hours.meetings)} · Focus time ${hrs(week.hours.focus)}${week.goal ? ` of your ${week.goal} h goal${week.hours.focus >= week.goal ? ' 🎯' : ''}` : ''} · Other events ${hrs(week.hours.other)}`);
+    }
+    if (week.tasks.minutes) lines.push(`  On tasks ${hrs(week.tasks.minutes / 60)}: ${week.tasks.tasks.slice(0, 3).map((x) => `${x.title} ${hrs(x.minutes / 60)}`).join(', ')}`);
+    if (week.thanks.length) {
+      lines.push(`  🙌 ${week.thanks.length} thank-you${week.thanks.length === 1 ? '' : 's'} for you:`);
+      for (const k of week.thanks.slice(0, 3)) lines.push(`    ${k.emoji} ${k.from_name}: ${k.message.length > 80 ? `${k.message.slice(0, 80)}…` : k.message}`);
+    }
+    lines.push('');
+  }
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
   return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length,
     // Nothing in the parts it has: no events, tasks, unread chat, comments or Drive changes.
-    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + dates.length + comments.length + drive.length), dates: dates.length };
+    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + dates.length + comments.length + drive.length + (week?.any ? 1 : 0)), dates: dates.length, week };
+}
+
+const hrs = (h) => { const r = Math.round(h * 10) / 10; return r > 0 && r < 1 ? `${Math.round(h * 60)} min` : `${r} h`; };
+
+/**
+ * Last week for someone, for Monday's summary: hours in meetings (events with others), focus time and other
+ * events (not all-day ones, out of office, or ones they declined), their focus goal, time on tasks, and thanks.
+ */
+export function lastWeek(userId, todayStart, tz, y, m, d) {
+  const from = zonedToUtc(y, m, d - 7, 0, 0, 0, tz), to = todayStart;
+  const rows = q(`SELECT e.*, g.status AS my_status, (SELECT COUNT(*) FROM event_guests x WHERE x.event_id = e.id AND x.user_id IS NOT ? AND x.status != 'no') AS others
+                  FROM events e LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
+                  WHERE (e.owner_id = ? OR (g.user_id IS NOT NULL AND g.status != 'no')) AND e.start < ?
+                    AND (e.end >= ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until >= ?)))`).all(userId, userId, userId, to, from, from);
+  const hours = { meetings: 0, focus: 0, other: 0 };
+  for (const r of rows) {
+    const guest = r.owner_id !== userId;
+    for (const e of expand(outEvent(r), from, to)) {
+      if (e.all_day || e.kind === 'ooo') continue;
+      const ms = Math.min(e.end, to) - Math.max(e.start, from);
+      if (ms <= 0) continue;
+      const kind = r.kind === 'focus' ? 'focus' : guest || r.others > 0 ? 'meetings' : 'other';
+      hours[kind] += ms / 36e5;
+    }
+  }
+  let goal = 0;
+  try { goal = JSON.parse(q('SELECT cal_prefs FROM users WHERE id = ?').get(userId)?.cal_prefs || '{}').focusGoal || 0; } catch { goal = 0; }
+  const tasks = myTimeOf(userId, 7, Date.now(), { from, to }, 5);
+  let thanks = [];
+  try {
+    thanks = q(`SELECT k.emoji, k.message, f.name AS from_name FROM kudos k JOIN users f ON f.id = k.from_id
+                WHERE k.to_id = ? AND k.created_at >= ? AND k.created_at < ? ORDER BY k.created_at DESC`).all(userId, from, to);
+  } catch { thanks = []; } // no thanks table yet
+  const day = (t) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric', month: 'long' }).format(new Date(t + 12 * 36e5));
+  return { from, to, label: `${day(from)} – ${day(to - 864e5)}`, hours, goal, tasks, thanks, any: !!(hours.meetings || hours.focus || hours.other || tasks.minutes || thanks.length) };
 }
 
 const PATH = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };

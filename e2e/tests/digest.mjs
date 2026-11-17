@@ -103,6 +103,13 @@ await step('untick parts: they leave the summary, kept for next time; at least o
   await page.screenshot({ path: `${SP}/shots/digest-parts.png` });
   await page.reload();
   if (await card.getByLabel("Today's events").isChecked()) throw new Error('not kept');
+  // On Mondays, last week: a part of its own, on unless unticked, kept.
+  const week = card.getByLabel('On Mondays: last week (meetings, focus time, time on tasks, thanks)');
+  if (!(await week.isChecked())) throw new Error('last week off by default');
+  await week.uncheck();
+  await until(async () => (await api(page, 'GET', '/users/me/digest')).body.off?.includes('week'));
+  await page.reload();
+  if (await week.isChecked()) throw new Error('last week: not kept');
   for (const l of ['Tasks due or overdue', 'Contacts’ birthdays and dates', 'Unread chat messages', 'Comments for you']) await card.getByLabel(l).uncheck();
   await page.getByText('Keep at least one part in the summary').waitFor();
   await page.reload();
