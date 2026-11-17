@@ -15393,3 +15393,33 @@ test('note templates: a note kept as a template (checklist unticked), new notes 
   assert.equal((await a('DELETE', `/api/notes/templates/${list[0].id}`)).status, 200);
   assert.deepEqual((await a('GET', '/api/notes/templates')).body, []);
 });
+
+test('Today’s note: one a day, made from the daily template, the same one again that day', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'dlya', domain: 'acme.com', name: 'Dly Ann', password: 'password123' })).status, 201);
+  await login(a, 'dlya@acme.com');
+  // Without a daily template: an empty note with the title given.
+  const plain = (await a('POST', '/api/notes/daily', { date: '2026-11-16', title: 'Monday 16 November' })).body;
+  assert.deepEqual([plain.title, plain.made, plain.items], ['Monday 16 November', true, null]);
+  assert.equal((await a('POST', '/api/notes/daily', { date: 'soon' })).status, 400);
+  // A template marked for it (only one is).
+  const n1 = (await a('POST', '/api/notes', { title: 'Stand-up', items: [{ text: 'Yesterday', done: true }, { text: 'Today' }, { text: 'Blockers' }], labels: ['journal'] })).body;
+  const n2 = (await a('POST', '/api/notes', { title: 'Other', body: 'x' })).body;
+  const t1 = (await a('POST', '/api/notes/templates', { note_id: n1.id, name: 'Stand-up' })).body;
+  const t2 = (await a('POST', '/api/notes/templates', { note_id: n2.id, name: 'Other' })).body;
+  assert.equal((await a('PATCH', `/api/notes/templates/${t2.id}`, { daily: true })).body.daily, true);
+  assert.equal((await a('PATCH', `/api/notes/templates/${t1.id}`, { daily: true })).body.daily, true);
+  assert.deepEqual((await a('GET', '/api/notes/templates')).body.map((t) => [t.name, t.daily]), [['Other', false], ['Stand-up', true]], 'only one');
+  const today = await a('POST', '/api/notes/daily', { date: '2026-11-17', title: 'Tuesday 17 November' });
+  assert.equal(today.status, 201);
+  assert.deepEqual([today.body.title, today.body.from_template, today.body.items.map((i) => [i.text, i.done]), today.body.labels], ['Tuesday 17 November', 'Stand-up', [['Yesterday', false], ['Today', false], ['Blockers', false]], ['journal']]);
+  // Again the same day: the same note, as it is now.
+  await a('PATCH', `/api/notes/${today.body.id}`, { title: 'Tue: shipped it' });
+  const again = (await a('POST', '/api/notes/daily', { date: '2026-11-17', title: 'Tuesday 17 November' })).body;
+  assert.deepEqual([again.id, again.made, again.title], [today.body.id, false, 'Tue: shipped it']);
+  // In the trash: a new one is made.
+  await a('DELETE', `/api/notes/${today.body.id}`);
+  const fresh = (await a('POST', '/api/notes/daily', { date: '2026-11-17', title: 'Tuesday 17 November' })).body;
+  assert.notEqual(fresh.id, today.body.id);
+  assert.equal(fresh.made, true);
+});
