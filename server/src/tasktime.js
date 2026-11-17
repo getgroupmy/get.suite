@@ -146,7 +146,21 @@ export function billingOf(body) {
   return { rate: Math.round(rate * 100) / 100, currency };
 }
 
-const csvCell = (v) => { const s = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+export const csvCell = (v) => { const s = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+/** All your time entries, oldest first, as CSV (Download your data): when, how long, on what, and a note. */
+export function myTimeCsv(userId, at = now()) {
+  const rows = q(`SELECT e.*, t.title, l.name AS list_name FROM task_time e JOIN tasks t ON t.id = e.task_id LEFT JOIN task_lists l ON l.id = t.list_id
+                  WHERE e.user_id = ? ORDER BY e.started_at`).all(userId);
+  const iso = (t) => new Date(t).toISOString().replace('T', ' ').slice(0, 16);
+  const lines = [['Day', 'Started (UTC)', 'Ended (UTC)', 'Minutes', 'Task', 'List', 'Note', 'How']];
+  for (const r of rows) {
+    const running = r.ended_at === null;
+    lines.push([iso(r.started_at).slice(0, 10), r.manual ? '' : iso(r.started_at), r.manual || running ? '' : iso(r.ended_at),
+      running ? minutesBetween(r.started_at, at) : r.minutes, r.title, r.list_name || '', r.note || '', r.manual ? 'added by hand' : running ? 'timer, still running' : r.until ? 'focus session' : 'timer']);
+  }
+  return `${lines.map((l) => l.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
+
 /** The report as CSV (formula-looking text made plain, for Excel). */
 export function reportCsv(report) {
   const billed = report.rate != null, money = (x) => x.toFixed(2);

@@ -6036,6 +6036,10 @@ test('download your data: one zip with Drive, calendar, contacts, tasks and note
   const list = (await a('POST', '/api/tasks/lists', { name: 'Work' })).body.id;
   await a('POST', `/api/tasks/lists/${list}/tasks`, { title: '=cmd() not a formula' });
   await a('POST', '/api/notes', { title: 'Ideas', items: [{ text: 'One' }, { text: 'Two', done: true }] });
+  const tt = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Quarterly review' })).body;
+  await a('POST', `/api/tasks/tasks/${tt.id}/time`, { duration: '1h 15m', note: 'Prep, =notes' });
+  const ownerId = (await owner('GET', '/api/auth/me')).body.user.id;
+  await a('POST', '/api/kudos', { to: ownerId, message: 'Thanks for the help', emoji: '🙏' });
   const sum = (await a('GET', '/api/takeout/summary')).body;
   assert.deepEqual([sum.files, sum.events, sum.contacts, sum.notes], [2, 1, 1, 1]);
   const r = await a('GET', '/api/takeout', undefined, { binary: true });
@@ -6048,6 +6052,12 @@ test('download your data: one zip with Drive, calendar, contacts, tasks and note
   assert.match(await zip.file('Contacts.vcf').async('string'), /zed@example.com/);
   assert.match(await zip.file('Tasks.csv').async('string'), /Work,'=cmd\(\) not a formula/);
   assert.match(await zip.file('Notes.md').async('string'), /## Ideas[\s\S]*- \[ \] One\n- \[x\] Two/);
+  const time = await zip.file('Time on tasks.csv').async('string');
+  assert.match(time, /^\ufeffDay,Started \(UTC\),Ended \(UTC\),Minutes,Task,List,Note,How\r\n/);
+  assert.match(time, /\d{4}-\d\d-\d\d,,,75,Quarterly review,Work,"Prep, =notes",added by hand/);
+  const thanks = await zip.file('Thanks.csv').async('string');
+  assert.match(thanks, /given,Tak Eout,.*,🙏,Thanks for the help,0/);
+  assert.match(await zip.file('README.txt').async('string'), /Thanks\.csv/);
 });
 
 test('download your data: admins can download a colleague’s (same company only)', async () => {

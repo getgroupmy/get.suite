@@ -46,6 +46,10 @@ await step('some data', async () => {
   const kl = (await api(page, 'POST', '/tasks/lists', { name: 'Kites' })).body.id;
   const kt = (await api(page, 'POST', `/tasks/lists/${kl}/tasks`, { title: 'Buy string' })).body.id;
   await api(page, 'PATCH', `/tasks/tasks/${kt}`, { due: '2026-12-05' });
+  await api(page, 'POST', `/tasks/tasks/${kt}/time`, { duration: '40m', note: 'At the shop' });
+  const kim = (await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body;
+  const th = await api(page, 'POST', '/kudos', { to: kim.id, message: 'Thanks for the kite tips', emoji: '🌟' });
+  if (th.status !== 201) throw new Error(`thanks ${th.status} ${JSON.stringify(th.body)}`);
   const et = await api(page, 'POST', '/events/templates', { name: 'Kite lesson', event: { title: 'Kite lesson', minutes: 60 } });
   if (et.status !== 201) throw new Error(`event template ${et.status} ${JSON.stringify(et.body)}`);
 });
@@ -66,6 +70,10 @@ await step('Settings shows what is in it and downloads one zip', async () => {
   const chat = await zip.file('Chat/kite-club.txt')?.async('string');
   if (!(await zip.file('Calendar templates.json')?.async('string'))?.includes('Kite lesson')) throw new Error('no event template');
   if (!(await zip.file('Forms/Kite sizes - questions.md')?.async('string'))?.includes('Your size')) throw new Error('no form');
+  const time = await zip.file('Time on tasks.csv')?.async('string');
+  if (!/,40,Buy string,Kites,At the shop,added by hand/.test(time || '')) throw new Error(`Time on tasks.csv: ${time}`);
+  const thanks = await zip.file('Thanks.csv')?.async('string');
+  if (!/given,Olivia Owner,Kim Park,🌟,Thanks for the kite tips,0/.test(thanks || '')) throw new Error(`Thanks.csv: ${thanks}`);
   if (!/Flying on Sunday/.test(chat || '')) throw new Error(`Chat: ${Object.keys(zip.files).filter((n) => n.startsWith('Chat')).join(', ')}`);
 });
 await step('Notes → Import notes… takes the whole download and brings in just its notes', async () => {

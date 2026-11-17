@@ -6,6 +6,8 @@ import { notesZipEntries, importNotes } from './notes.js';
 import { importContacts } from './contacts.js';
 import { allListsCsv, importTaskLists } from './tasks.js';
 import { historyTable } from '../taskhistory.js';
+import { myTimeCsv } from '../tasktime.js';
+import { kudosCsv } from './kudos.js';
 import { conversationFor } from './chat.js';
 import { userSieve } from '../mail/sieve.js';
 import { formsForExport } from './forms.js';
@@ -410,6 +412,8 @@ export default function takeoutRoutes() {
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
     { const h = historyTable(me); if (h.length > 1) zip.file('Task history.csv', `\ufeff${h.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`); }
+    if (q('SELECT 1 FROM task_time WHERE user_id = ? LIMIT 1').get(me)) zip.file('Time on tasks.csv', `\ufeff${myTimeCsv(me)}`);
+    { const k = kudosCsv(me); if (k) zip.file('Thanks.csv', k); }
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
     // Each note on its own too, with its pictures, as Notes' Download (.zip) gives them (and Import notes… takes back).
     for (const e of await notesZipEntries(q('SELECT * FROM notes WHERE owner_id = ? AND trashed_at IS NULL ORDER BY archived, pinned DESC, position DESC').all(me))) {
@@ -453,6 +457,8 @@ export default function takeoutRoutes() {
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',
+      'Time on tasks.csv  the time you tracked or added on tasks, oldest first (if any)',
+      'Thanks.csv    thank-yous you gave and were given (if any)',
       'Notes.md      your notes, all in one file',
       'Notes/        each note as Markdown with its pictures (Notes → Import notes… takes them back)',
       'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',

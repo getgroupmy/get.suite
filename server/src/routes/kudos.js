@@ -7,6 +7,7 @@ import { uid, now, str, bad, notFound } from '../util.js';
 import { notify } from '../notifications.js';
 import { sendTo } from '../hub.js';
 import { audit } from '../audit.js';
+import { csvCell } from '../tasktime.js';
 import { channelChoice, postToChannel } from './chat.js';
 
 q(`CREATE TABLE IF NOT EXISTS kudos (
@@ -41,6 +42,18 @@ const shape = (r, me, admin = false) => {
 
 /** The org's people get the new one live (Home's card, cards that are open). */
 const tell = (orgId) => sendTo(q('SELECT id FROM users WHERE org_id IS ? AND disabled = 0').all(orgId).map((u) => u.id), { type: 'kudos-changed' });
+
+/** Thanks you gave and were given, oldest first, as CSV (Download your data); empty (null) if none. */
+export function kudosCsv(userId) {
+  const rows = q(`${SELECT} WHERE k.from_id = ? OR k.to_id = ? ORDER BY k.created_at`).all(userId, userId);
+  if (!rows.length) return null;
+  const lines = [['When (UTC)', 'Given or received', 'From', 'To', 'Emoji', 'Message', 'Applause']];
+  for (const r of rows) {
+    const claps = q('SELECT COUNT(*) AS n FROM kudos_claps WHERE kudos_id = ?').get(r.id).n;
+    lines.push([new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 16), r.from_id === userId ? 'given' : 'received', r.from_name, r.to_name, r.emoji, r.message, claps]);
+  }
+  return `\ufeff${lines.map((l) => l.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
 
 export default function kudosRoutes() {
   const r = Router();
