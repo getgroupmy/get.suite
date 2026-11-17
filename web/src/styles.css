@@ -3226,3 +3226,9 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 .doc-focus .doc-scroll { padding-top: 32px; }
 .focus-exit { position: fixed; top: 12px; right: 16px; z-index: 50; opacity: .35; transition: opacity .15s; }
 .focus-exit:hover, .focus-exit:focus-visible { opacity: 1; }
+
+/* Top bar: a meeting of yours starting soon or going on. */
+.next-meeting { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 340px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--hover, rgba(0,0,0,.05)); }
+.next-meeting-title { display: inline-flex; gap: 4px; min-width: 0; white-space: nowrap; color: var(--text); text-decoration: none; }
+.next-meeting-title .ellipsis { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 700px) { .next-meeting-title .ellipsis, .next-meeting-title .muted { display: none; } }
