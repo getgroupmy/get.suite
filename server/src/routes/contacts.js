@@ -61,7 +61,7 @@ export function meetingsCountAsTouch(at = Date.now(), within = 2 * 864e5, ownerI
                      WHERE e.rrule IS NULL AND e.end <= ? AND e.end > ? AND g.status != 'no' AND (? IS NULL OR e.owner_id = ?) GROUP BY e.owner_id, LOWER(g.email)`).all(at, at - within, ownerId, ownerId)) met(m.owner_id, m.email, m.ended);
   // Repeating ones: the times they happened that ended in the window (moved or cancelled ones as they are).
   const repeating = q(`SELECT DISTINCT e.* FROM events e JOIN event_outside_guests g ON g.event_id = e.id
-                       WHERE e.rrule IS NOT NULL AND e.start <= ? AND (? IS NULL OR e.owner_id = ?)`).all(at, ownerId, ownerId);
+                       WHERE e.rrule IS NOT NULL AND e.start <= ? AND (e.repeat_until IS NULL OR e.repeat_until > ?) AND (? IS NULL OR e.owner_id = ?)`).all(at, at - within, ownerId, ownerId); // not ones that stopped repeating before the window
   for (const row of repeating) {
     const ends = expand(outEvent(row), at - within - 864e5, at).map((o) => o.end).filter((t) => t <= at && t > at - within);
     if (!ends.length) continue;

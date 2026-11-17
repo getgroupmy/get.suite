@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -857,4 +857,16 @@ test('task workload: who on a shared list has how much, by when it is due', asyn
   assert.deepEqual([byName['Work Mate'].open, byName['Work Mate'].overdue, byName['Not assigned'].no_date], [1, 1, 1]);
   assert.equal('user_id' in byName['Work Mate'], false);
   assert.equal((await call(ro, 'task_workload', { list: 'No such list' })).isError, true);
+});
+
+test('keep in touch: the contacts due a catch-up, most overdue first', async () => {
+  const c1 = (await owner('POST', '/api/contacts', { name: 'Kit Overdue', email: 'kit@example.org' })).body;
+  const c2 = (await owner('POST', '/api/contacts', { name: 'Never Yet', email: 'never@example.org' })).body;
+  await owner('PATCH', `/api/contacts/${c1.id}`, { touch_days: 7 });
+  await owner('PATCH', `/api/contacts/${c2.id}`, { touch_days: 30 });
+  await owner('POST', `/api/contacts/${c1.id}/log`, { kind: 'call', text: 'Old call', at: Date.now() - 20 * 864e5 });
+  const r = (await call(ro, 'keep_in_touch', {})).structuredContent.contacts;
+  const mine = r.filter((c) => ['Kit Overdue', 'Never Yet'].includes(c.name));
+  assert.deepEqual(mine.map((c) => [c.name, c.meant_to_be, c.last_in_touch === null]), [['Never Yet', 'every month', true], ['Kit Overdue', 'every week', false]]);
+  assert.equal(mine[1].id, `contact:${c1.id}`);
 });

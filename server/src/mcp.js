@@ -221,6 +221,16 @@ export const TOOLS = [
     },
   },
   {
+    name: 'keep_in_touch', title: 'Contacts to catch up with', readOnly: true,
+    description: 'The person’s contacts they mean to keep in touch with and are due to (as Contacts → Keep in touch lists them), most overdue first: when they were last in touch (emailing them, a meeting with them, or a call they logged) and how often they meant to be.',
+    inputSchema: { type: 'object', properties: {} },
+    async run(api) {
+      const due = await api('GET', '/contacts/keep-in-touch');
+      const every = (d) => ({ 7: 'every week', 14: 'every 2 weeks', 30: 'every month', 60: 'every 2 months', 90: 'every 3 months', 180: 'every 6 months', 365: 'every year' }[d] || `every ${d} days`);
+      return { contacts: due.slice(0, 50).map((c) => ({ id: `contact:${c.id}`, name: c.name, email: c.email || null, phone: c.phone || null, last_in_touch: c.last_contact ? new Date(c.last_contact).toISOString() : null, meant_to_be: every(c.touch_days) })) };
+    },
+  },
+  {
     name: 'task_workload', title: 'Workload on a shared task list', readOnly: true,
     description: 'For a shared task list: each person on it (and “Not assigned”) with their open tasks, how many are overdue, due this week (Monday to Sunday), next week, later or with no date, and their estimates added up in minutes. For who has room for one more task.',
     inputSchema: { type: 'object', required: ['list'], properties: { list: { type: 'string', description: 'A list’s name or id' }, today: { type: 'string', description: 'YYYY-MM-DD (default: today)' } } },

@@ -242,6 +242,17 @@ await step('an assistant reads a shared list’s workload; it matches Tasks → 
   const row = page.getByRole('table', { name: 'Workload' }).getByRole('row', { name: /^Kim Park/ });
   if ((await row.getByRole('cell').first().textContent()).trim() !== '2') throw new Error('Workload shows otherwise');
 });
+await step('an assistant lists who to catch up with; the same people as Contacts → Keep in touch', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const api = (m, u, b) => page.evaluate(async ([m2, u2, b2]) => (await fetch('/api' + u2, { method: m2, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: b2 ? JSON.stringify(b2) : undefined })).json(), [m, u, b]);
+  const c = await api('POST', '/contacts', { name: 'Rosa Catchup', email: 'rosa@example.org' });
+  await api('PATCH', `/contacts/${c.id}`, { touch_days: 14 });
+  const r = (await rpc('tools/call', { name: 'keep_in_touch', arguments: {} })).result.structuredContent.contacts;
+  const rosa = r.find((x) => x.name === 'Rosa Catchup');
+  if (rosa?.meant_to_be !== 'every 2 weeks' || rosa.last_in_touch !== null) throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/contacts?tab=touch`);
+  await page.getByText('Rosa Catchup').first().waitFor({ timeout: 10000 });
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
