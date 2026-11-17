@@ -113,7 +113,7 @@ export function reportCsv(report) {
  * Your time on tasks in the last `days` (Home): minutes in all (running timers counted so far) and the tasks with
  * the most, on lists you're still on.
  */
-export function myTimeOf(userId, days = 7, at = now(), range = null) {
+export function myTimeOf(userId, days = 7, at = now(), range = null, limit = 5) {
   const since = range ? range.from : at - days * 864e5, until = range ? range.to : Infinity;
   const rows = q(`SELECT e.task_id, e.started_at, e.ended_at, e.minutes, e.manual, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id
     WHERE e.user_id = ? AND ((e.started_at >= ? AND e.started_at < ?) OR (e.ended_at IS NULL AND ? >= ?))`).all(userId, since, until === Infinity ? 8.64e15 : until, until === Infinity ? 8.64e15 : until, at);
@@ -123,21 +123,22 @@ export function myTimeOf(userId, days = 7, at = now(), range = null) {
     const m = r.ended_at === null ? minutesBetween(r.started_at, at) : r.minutes;
     total += m;
     // For each day's bar in Time insights: a timed entry runs start → end; a logged one is `minutes` on its day.
-    if (range && m > 0) spans.push(r.manual ? { start: r.started_at, minutes: m, logged: true } : { start: r.started_at, end: r.ended_at ?? at });
+    if (range && m > 0) spans.push(r.manual ? { task_id: r.task_id, start: r.started_at, minutes: m, logged: true } : { task_id: r.task_id, start: r.started_at, end: r.ended_at ?? at });
     const x = byTask.get(r.task_id) || { id: r.task_id, title: r.title, list_id: r.list_id, minutes: 0 };
     x.minutes += m; byTask.set(r.task_id, x);
   }
-  return { days, ...(range && { ...range, spans: spans.sort((a, b) => a.start - b.start) }), minutes: total, tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 5) };
+  return { days, ...(range && { ...range, spans: spans.sort((a, b) => a.start - b.start) }), minutes: total, tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes).slice(0, limit) };
 }
 
 /** The routes, added to the tasks router: taskFor(req) → { task, list } (checks access), changed(list) tells the list's people. */
 export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {} }) {
-  // ?days=N (the last N days), or ?from=&to= (ms; a week in Calendar's Time insights, up to 62 days).
+  // ?days=N (the last N days), or ?from=&to= (ms; a week in Calendar's Time insights or the timesheet, up to 62 days;
+  // with spans, each entry, and with &all=1 every task, not just the top five).
   r.get('/time/mine', (req, res) => {
     const from = Number(req.query.from), to = Number(req.query.to);
     if (Number.isFinite(from) && Number.isFinite(to)) {
       if (to <= from || to - from > 62 * 864e5) throw bad('Pick up to two months');
-      return res.json(myTimeOf(req.user.id, Math.round((to - from) / 864e5), now(), { from, to }));
+      return res.json(myTimeOf(req.user.id, Math.round((to - from) / 864e5), now(), { from, to }, req.query.all ? Infinity : 5)); // all: every task (the timesheet)
     }
     res.json(myTimeOf(req.user.id, Math.min(31, Math.max(1, Number(req.query.days) || 7))));
   });

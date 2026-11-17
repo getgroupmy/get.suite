@@ -3242,3 +3242,9 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 .timer-chip-title { display: inline-flex; gap: 4px; min-width: 0; white-space: nowrap; color: var(--text); text-decoration: none; }
 .timer-chip-title .ellipsis { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 700px) { .timer-chip-title .ellipsis { display: none; } }
+
+/* Tasks → My timesheet */
+.timesheet th.today { color: var(--accent); }
+.timesheet .ts-cell { background: none; border: 0; padding: 2px 6px; min-width: 40px; border-radius: 4px; cursor: pointer; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
+.timesheet .ts-cell:hover:not(:disabled) { background: var(--surface-2); }
+.timesheet .ts-cell:disabled { cursor: default; opacity: .4; }

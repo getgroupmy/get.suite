@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import fs from 'node:fs';
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
@@ -251,6 +252,37 @@ await step('away from a running timer: coming back asks whether to count the tim
   await page.getByRole('status', { name: /^Design:/ }).waitFor({ state: 'detached', timeout: 5000 });
   if ((await api(page, 'GET', '/tasks/timer')).body) throw new Error('still running');
   await page.evaluate(() => localStorage.removeItem('nw-away-seconds'));
+});
+await step('Tasks → My timesheet: the week day by day; a day’s cell adds time; other weeks; CSV', async () => {
+  await page.goto(`${B}/tasks`);
+  await page.getByRole('button', { name: 'My timesheet' }).click();
+  const dlg = page.getByRole('dialog', { name: 'My timesheet' });
+  const table = dlg.getByRole('table', { name: 'Timesheet' });
+  await table.getByRole('rowheader', { name: 'Design' }).waitFor({ timeout: 10000 });
+  const total = async () => (await table.getByLabel(/^Week total:/).getAttribute('aria-label'));
+  const before = await total();
+  const today = new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+  await table.getByRole('button', { name: new RegExp(`^Design, ${today}: .*Add time$`) }).click();
+  const form = dlg.getByRole('form', { name: 'Add time' });
+  await form.getByLabel('How long').fill('45m');
+  await form.getByRole('button', { name: 'Add' }).click();
+  await page.getByText('Added to “Design”').last().waitFor();
+  await page.waitForFunction(([b]) => { const el = document.querySelector('[aria-label^="Week total:"]'); return el && el.getAttribute('aria-label') !== b; }, [before], { timeout: 10000 });
+  await page.screenshot({ path: `${SP}/shots/timesheet.png` });
+  // A future day can't take time.
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  if (d.getDay() !== 1) { // tomorrow still in this week
+    const tomorrow = d.toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+    if (!(await table.getByRole('button', { name: new RegExp(`^Design, ${tomorrow}:`) }).isDisabled())) throw new Error('tomorrow is open');
+  }
+  const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('button', { name: 'Download CSV' }).click()]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  if (!/^Task,\d{4}-\d\d-\d\d,/.test(csv) || !/\nDesign,/.test(csv) || !/\nTotal,/.test(csv)) throw new Error(csv.slice(0, 300));
+  await dlg.getByRole('button', { name: 'Previous week' }).click();
+  await table.getByRole('rowheader', { name: 'Last week’s report' }).waitFor({ timeout: 10000 });
+  await table.getByRole('row', { name: /Last week’s report/ }).getByText('1:30').first().waitFor();
+  await table.getByRole('rowheader', { name: 'Last week’s report' }).getByRole('button').click();
+  await page.waitForURL(/task=/);
 });
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();

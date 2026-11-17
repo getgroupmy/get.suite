@@ -21,6 +21,7 @@ import { historyText } from './taskhistory.js';
 import { taskKey, stepTask, afterLeaving } from './taskkeys.js';
 import { taskLink } from '../chat/filelinks.js';
 import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
+import { timesheet, timesheetCsv, hm } from './timesheet.js';
 
 /** The open tasks a task still waits on (from the tasks on its list). */
 const waitingOn = (t, all) => (t.blocked_by?.length && !t.done ? (all || []).filter((x) => t.blocked_by.includes(x.id) && !x.done) : []);
@@ -343,6 +344,9 @@ export default function Tasks() {
         <button type="button" className={`subnav-item ${listId === COMPLETED ? 'active' : ''}`} onClick={() => navigate(`/tasks/${COMPLETED}`)} title="What you ticked off in the last 30 days, from all your lists">
           <Icon name="check" /><span className="grow">Completed</span>
         </button>
+        <button type="button" className="subnav-item" onClick={() => setDialog('sheet')} title="Your time on tasks this week, day by day">
+          <Icon name="clock" /><span className="grow">My timesheet</span>
+        </button>
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
         {lists.filter((l) => l.mine).map((l) => (
           <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
@@ -651,6 +655,7 @@ export default function Tasks() {
         </ConfirmModal>;
       })()}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
+      {dialog === 'sheet' && <Timesheet onClose={() => setDialog(null)} onOpen={(t) => { setDialog(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }} />}
       {dialog === 'activity' && list && <ListActivity list={list} onClose={() => setDialog(null)} onOpen={(id) => { setDialog(null); navigate(`/tasks/${list.id}?task=${id}`); }} />}
       {dialog === 'trash' && list && <TaskTrash list={list} onClose={() => setDialog(null)} onRestored={() => { loadTasks(); loadLists(); }} />}
       {dialog === 'look' && list && <ListLook list={list} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
@@ -914,6 +919,74 @@ function TaskTime({ task }) {
         </ul>
       )}
     </section>
+  );
+}
+
+/** Your week: time on each task, each day; a day's cell adds time to it; ‹ › other weeks; CSV for Excel or Sheets. */
+function Timesheet({ onClose, onOpen }) {
+  const toast = useToast();
+  const monday = () => { const x = new Date(); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x.getTime(); };
+  const [week, setWeek] = useState(monday);
+  const [data, setData] = useState(null);
+  const [adding, setAdding] = useState(null); // { task, day, duration }
+  const end = (() => { const d = new Date(week); d.setDate(d.getDate() + 7); return d.getTime(); })();
+  const load = useCallback(() => get(`/tasks/time/mine?from=${week}&to=${end}&all=1`).then(setData).catch((e) => toast(e.message, 'error')), [week, end, toast]);
+  useEffect(() => { setData(null); setAdding(null); load(); }, [load]);
+  useEffect(() => onLive((m) => { if (m.type === 'tasks-changed') load(); }), [load]);
+  const step = (n) => { const d = new Date(week); d.setDate(d.getDate() + 7 * n); setWeek(d.getTime()); };
+  const sheet = data && timesheet(data.spans, data.tasks, week);
+  const today = localToday();
+  const dayName = (d) => new Date(d.start).toLocaleDateString([], { weekday: 'short', day: 'numeric' });
+  const range = `${new Date(week).toLocaleDateString([], { day: 'numeric', month: 'short' })} – ${new Date(end - 864e5).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const download = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([timesheetCsv(sheet)], { type: 'text/csv' }));
+    a.download = `timesheet-${sheet.days[0].date}.csv`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const add = async (e) => {
+    e.preventDefault();
+    try {
+      await post(`/tasks/tasks/${adding.task.id}/time`, { duration: adding.duration, day: adding.day.date });
+      toast(`Added to “${adding.task.title}”`); setAdding(null); load();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <Modal wide title="My timesheet" onClose={onClose} footer={<>
+      {sheet?.rows.length > 0 && <button type="button" className="btn" onClick={download}><Icon name="download" size={18} /> Download CSV</button>}
+      <span className="grow" /><button type="button" className="btn primary" onClick={onClose}>Close</button></>}>
+      <div className="stack">
+        <div className="row"><button type="button" className="icon-btn" aria-label="Previous week" onClick={() => step(-1)}>‹</button><strong className="grow" style={{ textAlign: 'center' }}>{range}</strong><button type="button" className="icon-btn" aria-label="Next week" onClick={() => step(1)}>›</button></div>
+        {!sheet ? <p className="muted">Loading…</p> : !sheet.rows.length ? <p className="muted">No time on tasks this week. Start a timer or add time in a task’s details.</p> : (
+          <div className="table-scroll">
+            <table className="data-table timesheet" aria-label="Timesheet">
+              <thead><tr><th scope="col">Task</th>{sheet.days.map((d) => <th key={d.date} scope="col" className={`num ${d.date === today ? 'today' : ''}`}>{dayName(d)}</th>)}<th scope="col" className="num">Total</th></tr></thead>
+              <tbody>{sheet.rows.map((r) => (
+                <tr key={r.id}>
+                  <th scope="row"><button type="button" className="link-btn" onClick={() => onOpen(r)}>{r.title}</button></th>
+                  {sheet.days.map((d, i) => (
+                    <td key={d.date} className="num">
+                      <button type="button" className="ts-cell" disabled={d.date > today} aria-label={`${r.title}, ${dayName(d)}: ${r.cells[i] ? formatMinutes(r.cells[i]) : 'nothing'}. Add time`}
+                        onClick={() => setAdding({ task: r, day: d, duration: '' })}>{hm(r.cells[i]) || '·'}</button>
+                    </td>
+                  ))}
+                  <td className="num"><strong>{hm(r.total)}</strong></td>
+                </tr>
+              ))}</tbody>
+              <tfoot><tr><th scope="row">Total</th>{sheet.dayTotals.map((m, i) => <td key={i} className="num">{hm(m)}</td>)}<td className="num" aria-label={`Week total: ${formatMinutes(sheet.total)}`}><strong>{hm(sheet.total)}</strong></td></tr></tfoot>
+            </table>
+          </div>
+        )}
+        {adding && (
+          <form className="row wrap" style={{ gap: 6 }} onSubmit={add} aria-label="Add time">
+            <span className="small">Add to <strong>{adding.task.title}</strong> on {dayName(adding.day)}:</span>
+            <input aria-label="How long" placeholder="1h 30m" size={8} autoFocus value={adding.duration} onChange={(e) => setAdding({ ...adding, duration: e.target.value })} />
+            <button className="btn small primary">Add</button><button type="button" className="btn small" onClick={() => setAdding(null)}>Cancel</button>
+          </form>
+        )}
+        <p className="muted small" style={{ margin: 0 }}>Only you see this: the time you tracked or added, on tasks in all your lists.</p>
+      </div>
+    </Modal>
   );
 }
 

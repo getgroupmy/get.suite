@@ -121,9 +121,18 @@ test('time on tasks for a range (Calendar → Time insights): only entries start
   const from = Date.parse(`${d(-3)}T00:00:00Z`), to = Date.parse(`${d(1)}T00:00:00Z`);
   const r = (await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}`)).body;
   assert.equal(r.tasks.find((x) => x.title === 'Bookkeeping').minutes, 45, 'the 2 h three weeks ago left out');
-  assert.deepEqual(r.spans.find((x) => x.minutes === 45), { start: Date.parse(`${d(-1)}T12:00:00Z`), minutes: 45, logged: true }, 'each entry, for the day bars');
+  assert.deepEqual(r.spans.find((x) => x.minutes === 45), { task_id: task.id, start: Date.parse(`${d(-1)}T12:00:00Z`), minutes: 45, logged: true }, 'each entry, for the day bars');
   assert.ok(r.spans.every((x) => x.start >= from && x.start < to && (x.logged || x.end > x.start)), JSON.stringify(r.spans));
   assert.equal((await a('GET', '/api/tasks/time/mine?days=7')).body.spans, undefined, 'only for a range');
+  // The timesheet asks for every task (not only the top five).
+  for (let i = 0; i < 6; i++) {
+    const x = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: `Chore ${i}` })).body;
+    await a('POST', `/api/tasks/tasks/${x.id}/time`, { duration: `${10 + i}m`, day: d(0) });
+  }
+  assert.equal((await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}`)).body.tasks.length, 5);
+  const all = (await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}&all=1`)).body;
+  assert.ok(all.tasks.length >= 7 && all.tasks.some((x) => x.title === 'Chore 0'), all.tasks.map((x) => x.title).join());
+  assert.ok(all.spans.every((x) => all.tasks.some((t) => t.id === x.task_id)), 'each span belongs to a listed task');
   assert.equal((await a('GET', `/api/tasks/time/mine?from=${to}&to=${from}`)).status, 400);
   assert.equal((await a('GET', `/api/tasks/time/mine?from=0&to=${to}`)).status, 400, 'too long');
 });
