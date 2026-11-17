@@ -64,6 +64,20 @@ await step('keep the newest, trash the rest', async () => {
   if (a.trashed === b.trashed) throw new Error('one should be in the trash');
   if (b.trashed) throw new Error('the newest (b) should stay');
 });
+await step('Storage lists empty folders; one goes to the trash with what’s inside it', async () => {
+  const old = (await api(page, 'POST', '/files/folder', { name: 'Old stuff' })).body;
+  await api(page, 'POST', '/files/folder', { name: 'Nothing here', parent_id: old.id });
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Storage' }).click();
+  const list = page.getByRole('dialog', { name: 'Storage' }).getByRole('list', { name: 'Empty folders' });
+  await list.getByText('in My Drive · 1 empty folder inside').waitFor();
+  if (await list.getByRole('button', { name: 'Nothing here' }).count()) throw new Error('the inner one listed too');
+  await list.getByRole('button', { name: 'Move Old stuff to trash' }).click();
+  await page.getByText('Moved 1 empty folder to the trash').waitFor();
+  await until(async () => !(await list.getByRole('button', { name: 'Old stuff' }).count()));
+  const trash = (await api(page, 'GET', '/files?view=trash')).body;
+  if (!trash.some((f) => f.name === 'Old stuff')) throw new Error('not in the trash');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

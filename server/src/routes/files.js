@@ -247,6 +247,33 @@ export function uniqueName(parentId, ownerId, name) {
   return `${base} (${Date.now()})${ext}`;
 }
 
+/** Someone's own folders holding no files at all, outermost first by name, with where they are. */
+export function emptyFoldersOf(userId) {
+  // A folder inside a trashed one is in the trash with it (only the outermost is marked): those are left out.
+  const all = new Map(q("SELECT id, name, parent_id, is_drive, trashed FROM files WHERE owner_id = ? AND kind = 'folder'").all(userId).map((f) => [f.id, f]));
+  const binned = (f) => { for (let p = f, n = 0; p && n < 100; p = all.get(p.parent_id), n++) if (p.trashed) return true; return q('SELECT 1 FROM files WHERE id = ? AND trashed = 1').get(f.parent_id ?? '') != null; };
+  const folders = [...all.values()].filter((f) => !binned(f));
+  const byId = new Map(folders.map((f) => [f.id, { ...f, kids: [], files: 0 }]));
+  for (const f of byId.values()) byId.get(f.parent_id)?.kids.push(f);
+  // What's directly inside each folder that isn't a folder (anyone's: a colleague's upload counts).
+  for (const r of q("SELECT parent_id, COUNT(*) AS n FROM files WHERE kind != 'folder' AND trashed = 0 AND parent_id IN (SELECT value FROM json_each(?)) GROUP BY parent_id").all(JSON.stringify([...byId.keys()]))) byId.get(r.parent_id).files = r.n;
+  // Folders inside that aren't yours (someone else's in your shared folder) make it not empty.
+  const othersInside = new Set(q("SELECT DISTINCT parent_id FROM files WHERE kind = 'folder' AND trashed = 0 AND owner_id != ? AND parent_id IN (SELECT value FROM json_each(?))").all(userId, JSON.stringify([...byId.keys()])).map((r) => r.parent_id));
+  const memo = new Map();
+  const empty = (f) => {
+    if (memo.has(f.id)) return memo.get(f.id);
+    memo.set(f.id, false); // cycles can't happen, but be safe
+    const e = !f.files && !othersInside.has(f.id) && f.kids.every(empty);
+    memo.set(f.id, e);
+    return e;
+  };
+  const out = [...byId.values()].filter((f) => !f.is_drive && empty(f) && !(byId.get(f.parent_id) && !byId.get(f.parent_id).is_drive && empty(byId.get(f.parent_id))));
+  const pathOf = (f) => { const names = []; for (let p = byId.get(f.parent_id); p && names.length < 10; p = byId.get(p.parent_id)) names.unshift(p.name); return names.join(' / '); };
+  return out.map((f) => ({ id: f.id, name: f.name, parent_id: f.parent_id, where: pathOf(f) || 'My Drive', inside: countInside(f) }))
+    .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 200);
+  function countInside(f) { return f.kids.reduce((n, k) => n + 1 + countInside(k), 0); }
+}
+
 export function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storage = null, content = null, activity = null, id: given = null }) {
   const id = given || uid();
   const t = now();
@@ -809,6 +836,21 @@ export default function fileRoutes({ maxUploadBytes }) {
       mine: (() => { const mb = q('SELECT drive_quota_mb FROM users WHERE id = ?').get(me)?.drive_quota_mb; return { used: userStorageUsed(me), quota: mb ? mb * 1024 * 1024 : null }; })(),
       largest,
     });
+  });
+
+  // Empty folders (Storage): your own folders with no files in them, however deep (only empty folders, or nothing).
+  // Just the outermost of them: trashing one takes the empty ones inside along. Not shared drives themselves.
+  r.get('/empty-folders', (req, res) => res.json(emptyFoldersOf(req.user.id)));
+  r.post('/empty-folders/trash', (req, res) => {
+    const ids = new Set(emptyFoldersOf(req.user.id).map((f) => f.id));
+    const want = (Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [...ids]).filter((id) => ids.has(id)); // still empty, and yours
+    for (const id of want) {
+      const parent = q('SELECT parent_id FROM files WHERE id = ?').get(id)?.parent_id ?? null;
+      q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), id);
+      recordActivity(id, req.user.id, 'trash');
+      notify(id, { type: 'files-changed', parent_id: parent });
+    }
+    res.json({ trashed: want.length });
   });
 
   // A new shared drive: { name }. You're its owner; add members with Share.

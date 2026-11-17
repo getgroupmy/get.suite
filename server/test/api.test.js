@@ -15682,3 +15682,24 @@ test('contacts: each time a repeating meeting with a contact happens counts as b
   meetingsCountAsTouch(now);
   assert.equal(db.prepare('SELECT last_contact FROM contacts WHERE id = ?').get(pat.id).last_contact, null, 'not if they said No');
 });
+
+test('drive: empty folders — the outermost ones holding no files, and trashing them', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'emptyf', domain: 'acme.com', name: 'Empty F', password: 'password123' })).status, 201);
+  await login(a, 'emptyf@acme.com');
+  const mk = async (name, parent_id) => (await a('POST', '/api/files/folder', { name, parent_id })).body;
+  const old = await mk('Old project');
+  await mk('Drafts', old.id);
+  await mk('Final', (await mk('Inner', old.id)).id); // nothing anywhere inside
+  const keep = await mk('Receipts');
+  const sub = await mk('2026', keep.id);
+  await a('POST', `/api/files/upload?name=r.txt&parent=${sub.id}`, 'receipt', { raw: true });
+  const alone = await mk('Lonely', keep.id); // empty, inside a folder that isn't
+  const list = (await a('GET', '/api/files/empty-folders')).body;
+  assert.deepEqual(list.map((f) => [f.name, f.where, f.inside]), [['Lonely', 'Receipts', 0], ['Old project', 'My Drive', 3]]);
+  assert.deepEqual((await a('POST', '/api/files/empty-folders/trash', { ids: [alone.id, keep.id] })).body, { trashed: 1 }, 'only ones still empty');
+  assert.deepEqual((await a('GET', '/api/files/empty-folders')).body.map((f) => f.name), ['Old project']);
+  assert.deepEqual((await a('POST', '/api/files/empty-folders/trash', {})).body, { trashed: 1 }, 'all of them');
+  assert.deepEqual((await a('GET', '/api/files/empty-folders')).body, []);
+  assert.equal((await a('GET', `/api/files?view=trash`)).body.some((f) => f.name === 'Old project'), true);
+});

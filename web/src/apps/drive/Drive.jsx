@@ -1708,9 +1708,37 @@ function StorageDialog({ onClose, onChanged }) {
           </ul>
         )}
         <Duplicates onChanged={() => { load(); onChanged(); }} onShow={(f) => { onClose(); navigate(f.folder ? `/drive/folder/${f.folder.id}` : '/drive'); }} />
+        <EmptyFolders onChanged={() => { load(); onChanged(); }} onShow={(f) => { onClose(); navigate(`/drive/folder/${f.id}`); }} />
         <p className="muted small" style={{ margin: 0 }}>Older versions are kept so you can go back; deleting them can't be undone. Trash is emptied for good after your company's set time.</p>
       </div>
     </Modal>
+  );
+}
+
+/** Folders of yours with no files in them (however deep): look at one, or move them all to the trash. */
+function EmptyFolders({ onChanged, onShow }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = () => get('/files/empty-folders').then(setList).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  if (!list?.length) return null;
+  const trash = async (ids) => {
+    try { const r = await post('/files/empty-folders/trash', ids ? { ids } : {}); toast(r.trashed === 1 ? 'Moved 1 empty folder to the trash' : `Moved ${r.trashed} empty folders to the trash`); load(); onChanged(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <>
+      <div className="row"><strong className="grow">Empty folders ({list.length})</strong>{list.length > 1 && <button type="button" className="btn small" onClick={() => trash(null)}>Move all to trash</button>}</div>
+      <ul className="storage-list" aria-label="Empty folders">
+        {list.map((f) => (
+          <li key={f.id}>
+            <button type="button" className="link-btn grow ellipsis" title="Open it in Drive" onClick={() => onShow(f)}>{f.name}</button>
+            <span className="muted small">in {f.where}{f.inside ? ` · ${f.inside === 1 ? '1 empty folder' : `${f.inside} empty folders`} inside` : ''}</span>
+            <button type="button" className="icon-btn" aria-label={`Move ${f.name} to trash`} onClick={() => trash([f.id])}><Icon name="trash" size={18} /></button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
