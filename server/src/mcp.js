@@ -221,6 +221,19 @@ export const TOOLS = [
     },
   },
   {
+    name: 'task_workload', title: 'Workload on a shared task list', readOnly: true,
+    description: 'For a shared task list: each person on it (and “Not assigned”) with their open tasks, how many are overdue, due this week (Monday to Sunday), next week, later or with no date, and their estimates added up in minutes. For who has room for one more task.',
+    inputSchema: { type: 'object', required: ['list'], properties: { list: { type: 'string', description: 'A list’s name or id' }, today: { type: 'string', description: 'YYYY-MM-DD (default: today)' } } },
+    async run(api, a) {
+      const r = await api('GET', '/tasks/lists');
+      const lists = Array.isArray(r) ? r : r.lists || [];
+      const l = lists.find((x) => x.id === a.list || x.name.toLowerCase() === String(a.list).toLowerCase());
+      if (!l) throw new ToolError(`No list called “${a.list}”`);
+      const w = await api('GET', `/tasks/lists/${l.id}/workload${a.today ? `?today=${encodeURIComponent(a.today)}` : ''}`);
+      return { list: l.name, today: w.today, people: w.people.map(({ user_id, ...p }) => ({ ...p, estimate_minutes: p.estimate, estimate: undefined })) };
+    },
+  },
+  {
     name: 'update_event', title: 'Change a calendar event', readOnly: false,
     description: 'Move or change one of the person’s own events (one they organized): a new start (it keeps its length unless an end is given), end, title, location or description. Guests are sent the update. Repeating events, and events others organized, can’t be changed here.',
     inputSchema: {

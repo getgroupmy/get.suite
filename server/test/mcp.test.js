@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -843,4 +843,18 @@ test('book_focus_time: blocks in working hours, one a day, adding up to what was
     const ev = list.find((e) => `event:${e.id}` === b.id);
     assert.deepEqual([ev.title, ev.kind], ['Deep work', 'focus']);
   }
+});
+
+test('task workload: who on a shared list has how much, by when it is due', async () => {
+  const mate = (await owner('POST', '/api/users', { local: 'wkmate', domain: 'acme.com', name: 'Work Mate', password: 'password123' })).body;
+  const list = (await owner('POST', '/api/tasks/lists', { name: 'Assistant launch' })).body.id;
+  await owner('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [mate.id] });
+  await owner('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Late one', due: '2026-11-02', assignee_id: mate.id });
+  await owner('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Undated' });
+  const w = (await call(ro, 'task_workload', { list: 'assistant launch', today: '2026-11-18' })).structuredContent;
+  assert.equal(w.list, 'Assistant launch');
+  const byName = Object.fromEntries(w.people.map((p) => [p.name, p]));
+  assert.deepEqual([byName['Work Mate'].open, byName['Work Mate'].overdue, byName['Not assigned'].no_date], [1, 1, 1]);
+  assert.equal('user_id' in byName['Work Mate'], false);
+  assert.equal((await call(ro, 'task_workload', { list: 'No such list' })).isError, true);
 });

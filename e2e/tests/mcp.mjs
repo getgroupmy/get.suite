@@ -225,6 +225,23 @@ await step('on a phone the command wraps and nothing slides sideways', async () 
   await card.scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${SP}/shots/mcp-help-phone.png` });
 });
+await step('an assistant reads a shared list’s workload; it matches Tasks → Workload', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const api = (m, u, b) => page.evaluate(async ([m2, u2, b2]) => (await fetch('/api' + u2, { method: m2, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: b2 ? JSON.stringify(b2) : undefined })).json(), [m, u, b]);
+  const kimId = (await api('GET', '/users')).find((u) => u.name === 'Kim Park').id;
+  const list = await api('POST', '/tasks/lists', { name: 'Office move' });
+  await api('PUT', `/tasks/lists/${list.id}/members`, { user_ids: [kimId] });
+  await api('POST', `/tasks/lists/${list.id}/tasks`, { title: 'Pack the archive', assignee_id: kimId });
+  await api('POST', `/tasks/lists/${list.id}/tasks`, { title: 'Label the boxes', assignee_id: kimId });
+  const w = (await rpc('tools/call', { name: 'task_workload', arguments: { list: 'Office move' } })).result.structuredContent;
+  const kim = w.people.find((x) => x.name === 'Kim Park');
+  if (kim?.open !== 2 || kim.no_date !== 2) throw new Error(JSON.stringify(w));
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Workload…' }).click();
+  const row = page.getByRole('table', { name: 'Workload' }).getByRole('row', { name: /^Kim Park/ });
+  if ((await row.getByRole('cell').first().textContent()).trim() !== '2') throw new Error('Workload shows otherwise');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
