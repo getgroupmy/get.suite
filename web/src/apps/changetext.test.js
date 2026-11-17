@@ -15,5 +15,6 @@ test('changes kept offline in words', () => {
   assert.equal(changeText({ method: 'POST', url: '/files/new', body: { kind: 'doc' }, label: 'Untitled document' }), 'Make a document: “Untitled document”');
   assert.equal(changeText({ method: 'PATCH', url: '/files/f1', body: { name: 'Trip notes' }, label: 'Trip notes' }), 'Rename a file: “Trip notes”');
   assert.equal(changeText({ method: 'POST', url: '/files/new', body: { kind: 'sheet' }, label: 'Untitled spreadsheet' }), 'Make a spreadsheet: “Untitled spreadsheet”');
+  assert.equal(changeText({ method: 'DELETE', url: '/chat/messages/m1', label: 'a message in Chat' }), 'Delete a chat message: “a message in Chat”');
   assert.equal(changeText({ method: 'PUT', url: '/something/else' }), 'A change');
 });

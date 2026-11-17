@@ -1,4 +1,4 @@
-import { unreachable, keepChange, appendKept } from '../offlinedocs.js';
+import { unreachable, keepChange, keepDelete, appendKept } from '../offlinedocs.js';
 import { seenBy } from './seenby.js';
 import { moved } from '../../components/moved.js';
 import VoiceRecorder from '../../components/VoiceRecorder.jsx';
@@ -517,7 +517,28 @@ export default function Chat() {
     const body = editText.trim();
     if (body === m.body) { setEditingId(null); return; }
     try { const msg = await patch(`/chat/messages/${m.id}`, { body }); setMessages((list) => list.map((x) => (x.id === msg.id ? msg : x))); setEditingId(null); }
-    catch (err) { toast(err.message, 'error'); }
+    catch (err) {
+      // No connection: the edit shows here (also after reloading) and is made when it's back. (One still waiting to
+      // be sent can't be edited yet.)
+      if (unreachable(err) && !m.pending) {
+        await keepChange({ method: 'PATCH', url: `/chat/messages/${m.id}`, body: { body }, user: user.id, label: 'a message in Chat', id: m.id });
+        setMessages((list) => list.map((x) => (x.id === m.id ? { ...x, body, offline: true } : x))); setEditingId(null);
+        return;
+      }
+      toast(err.message, 'error');
+    }
+  }
+  /** Delete a message; without a connection it goes from here at once and from the conversation when it's back. */
+  async function deleteMessage(m) {
+    try { await del(`/chat/messages/${m.id}`); } catch (err) {
+      if (unreachable(err) && !m.pending) {
+        await keepDelete({ url: `/chat/messages/${m.id}`, user: user.id, label: 'a message in Chat', id: m.id });
+        setMessages((list) => list.filter((x) => x.id !== m.id));
+        toast('Message deleted on this device: deleted for everyone when the connection is back');
+        return;
+      }
+      toast(err.message, 'error');
+    }
   }
   const react = (m, emoji) => post(`/chat/messages/${m.id}/reactions`, { emoji })
     .then((msg) => setMessages((list) => list.map((x) => (x.id === msg.id ? msg : x)))).catch((err) => toast(err.message, 'error'));
@@ -902,7 +923,7 @@ export default function Chat() {
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
                     onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
                       try { await post(`/chat/messages/${m.id}/unread`); navigate('/chat'); toast(`Marked unread from ${m.user_name || 'this message'}’s message`); } catch (e) { toast(e.message, 'error'); }
-                    }} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
+                    }} onDelete={() => deleteMessage(m)} />
                   {lastMine && current.dm_key && seenAt >= m.created_at && current.dm_user_id !== user.id && <div className="seen-mark muted small" title={`Seen ${new Date(seenAt).toLocaleString()}`}>Seen</div>}
                   {lastMine && !current.dm_key && readers && <SeenBy readers={readers} at={m.created_at} everyone={(current.member_count || 0) - 1} />}
                 </div>
@@ -1176,7 +1197,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
       {grouped ? <span className="msg-gutter" /> : m.user_id ? <button type="button" className="avatar-btn" aria-label={`About ${m.user_name}`} onClick={() => setCard(true)}><Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} /></button> : m.bot ? <span className="msg-bot-avatar" aria-hidden="true">🤖</span> : <Avatar name="Deleted user" size={36} />}
       {card && <PersonCard userId={m.user_id} onClose={() => setCard(false)} />}
       <div className="msg-body">
-        {!grouped && <div className="msg-meta">{m.user_id ? <><button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button>{m.user_org_id && user?.org_id && m.user_org_id !== user.org_id && <span className="pill ext small" title={`${m.user_org}, outside your company`}>External · {m.user_org}</span>}</> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>{m.pending && <span className="pill small msg-pending" title="Written offline">Sends when the connection is back</span>}</div>}
+        {!grouped && <div className="msg-meta">{m.user_id ? <><button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button>{m.user_org_id && user?.org_id && m.user_org_id !== user.org_id && <span className="pill ext small" title={`${m.user_org}, outside your company`}>External · {m.user_org}</span>}</> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>{m.pending && <span className="pill small msg-pending" title="Written offline">Sends when the connection is back</span>}{m.offline && !m.pending && <span className="pill small msg-pending" title="Edited offline">Edit not sent yet</span>}</div>}
         {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
         {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
         {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}
