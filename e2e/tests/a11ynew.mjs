@@ -138,6 +138,14 @@ await step('Docs: focus mode with a writing sprint running', async () => {
   await page.getByRole('timer', { name: 'Writing sprint' }).waitFor();
   await both('docs focus sprint');
 });
+await step('Notes: the Templates window', async () => {
+  const n = (await api(page, 'POST', '/notes', { title: 'Weekly 1:1', items: [{ text: 'Wins' }, { text: 'Blockers' }] })).body;
+  await api(page, 'POST', '/notes/templates', { note_id: n.id, name: 'Weekly 1:1' });
+  await page.goto(`${B}/notes`);
+  await page.getByRole('button', { name: 'Templates' }).click();
+  await page.getByRole('dialog', { name: 'Note templates' }).getByText('Weekly 1:1').waitFor({ timeout: 10000 });
+  await both('note templates');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

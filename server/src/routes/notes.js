@@ -466,8 +466,46 @@ export async function importNotes(user, body) {
   return { added: notes.length, skipped: all.length - notes.length }; // empty ones, and ones in Keep's trash
 }
 
+// Templates: a note kept to start new ones from (a packing list, a 1:1 agenda): its title, text or checklist
+// (unticked), colour and labels, under a name. Each person's own.
+q(`CREATE TABLE IF NOT EXISTS note_templates (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,         -- JSON { title, body, items, color, labels }
+  created_at INTEGER NOT NULL
+)`).run();
+const MAX_TEMPLATES = 50;
+const templateOut = (t) => ({ id: t.id, name: t.name, ...JSON.parse(t.content) });
+
 export default function noteRoutes() {
   const r = Router();
+  r.get('/templates', (req, res) => {
+    res.json(q('SELECT * FROM note_templates WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id).map(templateOut));
+  });
+  // { note_id, name }: a note you can open, kept as a template (its checklist unticked).
+  r.post('/templates', (req, res) => {
+    const n = load(String(req.body?.note_id || ''), req.user);
+    const name = (str(req.body?.name, { max: 80, name: 'Name' }) || n.title || '').trim();
+    if (!name) throw bad('Give the template a name');
+    if (q('SELECT COUNT(*) AS c FROM note_templates WHERE owner_id = ?').get(req.user.id).c >= MAX_TEMPLATES) throw bad(`You can keep up to ${MAX_TEMPLATES} templates`);
+    let items = null;
+    try { items = n.items ? JSON.parse(n.items).map((it) => ({ text: it.text, ...(it.indent && { indent: 1 }) })) : null; } catch { items = null; }
+    let labels = [];
+    try { labels = JSON.parse(n.labels || '[]'); } catch { labels = []; }
+    const content = { title: n.title, body: n.body, items, color: n.color || null, labels };
+    const had = q('SELECT id FROM note_templates WHERE owner_id = ? AND name = ? COLLATE NOCASE').get(req.user.id, name);
+    const id = had?.id || uid();
+    if (had) q('UPDATE note_templates SET content = ? WHERE id = ?').run(JSON.stringify(content), id); // same name: replaced
+    else q('INSERT INTO note_templates (id, owner_id, name, content, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(content), now());
+    res.status(had ? 200 : 201).json(templateOut(q('SELECT * FROM note_templates WHERE id = ?').get(id)));
+  });
+  r.delete('/templates/:id', (req, res) => {
+    const t = q('SELECT * FROM note_templates WHERE id = ? AND owner_id = ?').get(String(req.params.id), req.user.id);
+    if (!t) throw notFound('No such template');
+    q('DELETE FROM note_templates WHERE id = ?').run(t.id);
+    res.json({ ok: true });
+  });
 
   // Yours and those shared with you: ?archived=1 for the archive, ?q= words to search, ?label= one label.
   r.get('/', (req, res) => {

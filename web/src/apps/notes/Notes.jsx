@@ -186,6 +186,8 @@ export default function Notes() {
   const restore = async (n) => { try { await post(`/notes/${n.id}/restore`); toast('Note restored'); load(); } catch (e) { toast(e.message, 'error'); } };
   const [forever, setForever] = useState(null); // a note (or 'all') to delete for good
   const copy = async (n) => { try { await post(`/notes/${n.id}/copy`); toast('Copy made'); load(); } catch (e) { toast(e.message, 'error'); } };
+  const [templating, setTemplating] = useState(null); // a note being saved as a template
+  const [templates, setTemplates] = useState(false); // the Templates window
 
   const pinned = sortNotes((notes || []).filter((n) => n.pinned), sort);
   const others = sortNotes((notes || []).filter((n) => !n.pinned), sort);
@@ -222,7 +224,7 @@ export default function Notes() {
   const card = (n) => <NoteCard key={n.id} labelColors={labelColors} note={n} drag={dragProps(n)} dragging={dragging === n.id} picked={picked.has(n.id)} picking={picked.size > 0} onPick={() => pickNote(n.id)}
     onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
-    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onChat={() => setChatting([n])} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
+    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onChat={() => setChatting([n])} onCopy={() => copy(n)} onTemplate={() => setTemplating(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
     onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast(`Copied to a new document in My Drive${d.pictures ? `, with its ${d.pictures === 1 ? 'picture' : `${d.pictures} pictures`}` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
@@ -241,6 +243,7 @@ export default function Notes() {
         ))}
         <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>
         <button type="button" className={`subnav-item ${where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, trash: true })}><Icon name="trash" /><span className="grow">Trash</span></button>
+        <button type="button" className="subnav-item" title="Start a note from one you saved as a template" onClick={() => setTemplates(true)}><Icon name="copy" /><span className="grow">Templates</span></button>
         <button type="button" className="subnav-item" title="Markdown (.md), text (.txt) or HTML files, one note each; Evernote exports (.enex); notes from Google Keep (its Google Takeout .zip, or the .json files in it); or a .zip of any of these" onClick={() => importRef.current?.click()}><Icon name="upload" /><span className="grow">Import notes…</span></button>
         <input ref={importRef} type="file" accept=".md,.markdown,.txt,.json,.enex,.html,.htm,.zip,text/markdown,text/plain,application/json,text/html,application/zip" multiple hidden aria-label="Notes to import" onChange={async (e) => {
           const picked = [...e.target.files]; e.target.value = '';
@@ -329,6 +332,16 @@ export default function Notes() {
       {current && <NoteEditor key={current.id} note={current} onClose={() => { setEditing(null); load(); }} />}
  {history && <NoteHistory note={history} onClose={() => setHistory(null)} onRestored={() => { setHistory(null); load(); toast('Earlier version restored (what was there is kept in the history)'); }} />}
       {sharing && <ShareNote note={sharing} onClose={() => { setSharing(null); load(); }} />}
+      {templating && <PromptModal title="Save as template" label="Template name" initial={templating.title || ''} confirm="Save" message="New notes can start from it (Templates, on the left): its title, text or list (unticked), colour and labels."
+        onClose={() => setTemplating(null)} onSubmit={async (name) => {
+          try { const t = await post('/notes/templates', { note_id: templating.id, name }); toast(`Saved as the template “${t.name}”`); setTemplating(null); } catch (e) { toast(e.message, 'error'); }
+        }} />}
+      {templates && <NoteTemplates onClose={() => setTemplates(false)} onUse={async (t) => {
+        try {
+          const n = await post('/notes', { title: t.title, body: t.body, ...(t.items && { items: t.items }), ...(t.color && { color: t.color }), labels: t.labels || [] });
+          setTemplates(false); toast(`New note from “${t.name}”`); await load(); setEditing(n.id);
+        } catch (e) { toast(e.message, 'error'); }
+      }} />}
       {labelling && <LabelNote note={labelling} all={labels} onSave={async (ls) => { await change(labelling, { labels: ls }); setLabelling(null); }} onClose={() => setLabelling(null)} />}
       {picking && <PickTime note={picking} onClose={() => setPicking(null)} onPick={(t, more) => { change(picking, { remind_at: t, ...more }); toast(`Reminder set for ${reminderText(t)}${more?.remind_repeat ? `, ${REPEAT_CHOICES.find(([k]) => k === more.remind_repeat)?.[1].toLowerCase()}` : ''}`); setPicking(null); }} />}
       {labelEdit?.rename && <PromptModal title="Rename label" label="Label name" initial={labelEdit.rename} confirm="Rename"
@@ -482,7 +495,30 @@ function PickTime({ note, onPick, onClose }) {
 /** How a reminder can repeat (the server's REPEATS), with what the menu says. */
 const REPEAT_CHOICES = [[null, 'Doesn’t repeat'], ['daily', 'Repeat daily'], ['weekdays', 'Repeat on weekdays'], ['weekly', 'Repeat weekly'], ['monthly', 'Repeat monthly']];
 
-function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory, onChat }) {
+/** Your note templates: start a note from one, or delete one. */
+function NoteTemplates({ onClose, onUse }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = useCallback(() => get('/notes/templates').then(setList).catch((e) => toast(e.message, 'error')), [toast]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <Modal title="Note templates" onClose={onClose}>
+      {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">No templates yet. On a note, choose ⋮ → <strong>Save as template…</strong> to start new notes from it.</p> : (
+        <ul className="plain-list stack-tight" aria-label="Templates">
+          {list.map((t) => (
+            <li key={t.id} className="row" style={{ gap: 8 }}>
+              <span className="grow"><strong>{t.name}</strong> <span className="muted small">{t.items ? `☑ ${t.items.length} item${t.items.length === 1 ? '' : 's'}` : (t.body || '').slice(0, 60)}</span></span>
+              <button type="button" className="btn small primary" onClick={() => onUse(t)}>Use</button>
+              <button type="button" className="icon-btn" aria-label={`Delete the template ${t.name}`} onClick={async () => { try { await del(`/notes/templates/${t.id}`); toast('Template deleted'); load(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="trash" size={16} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
+}
+
+function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onTemplate, onDelete, onRemind, onToDoc, onToTasks, onHistory, onChat }) {
   const mail = useMailStatus();
   const navigate = useNavigate();
   const toast = useToast();
@@ -544,6 +580,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           } }] : []),
           { label: 'Copy link', icon: 'link', onClick: async () => { const url = noteLink(n); try { await navigator.clipboard.writeText(url); toast('Link to the note copied: people it’s shared with can open it'); } catch { toast(url); } } },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
+          ...(onTemplate ? [{ label: 'Save as template…', icon: 'copy', onClick: onTemplate }] : []),
           { label: 'Download (.md)', icon: 'download', onClick: () => { window.location.href = `/api/notes/${n.id}/export.md`; } },
           { label: 'Print', icon: 'print', onClick: () => printHtml(notePrintHtml(n)) },
           mail?.enabled && { label: 'Send by email', icon: 'mail', onClick: () => {

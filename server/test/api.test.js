@@ -15368,3 +15368,28 @@ test('morning summary on Mondays: last week — meetings, focus time against the
   assert.deepEqual((await a('PUT', '/api/users/me/digest/parts', { off: ['week'] })).body.off, ['week']);
   assert.doesNotMatch(digestFor(aid, monday).text, /Last week/);
 });
+
+test('note templates: a note kept as a template (checklist unticked), new notes from it, replaced by name, removed', async () => {
+  const a = client(), b = client();
+  for (const local of ['ntpa', 'ntpb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+  await login(a, 'ntpa@acme.com'); await login(b, 'ntpb@acme.com');
+  const note = (await a('POST', '/api/notes', { title: 'Packing', items: [{ text: 'Passport', done: true }, { text: 'Charger' }, { text: 'Cable', indent: true }], color: '#d4e4ed', labels: ['travel'] })).body;
+  assert.equal((await a('POST', '/api/notes/templates', { note_id: note.id, name: '' })).status, 201, 'the title is the name by default');
+  const list = (await a('GET', '/api/notes/templates')).body;
+  assert.equal(list.length, 1);
+  assert.deepEqual([list[0].name, list[0].title, list[0].color, list[0].labels], ['Packing', 'Packing', '#d4e4ed', ['travel']]);
+  assert.deepEqual(list[0].items, [{ text: 'Passport' }, { text: 'Charger' }, { text: 'Cable', indent: 1 }], 'unticked, without ids');
+  // A new note from it.
+  const made = (await a('POST', '/api/notes', { title: list[0].title, items: list[0].items, color: list[0].color, labels: list[0].labels })).body;
+  assert.ok(made.items.every((i) => !i.done && i.id));
+  // Same name again: replaced, not added; another person's note: not found.
+  await a('PATCH', `/api/notes/${note.id}`, { body: '' });
+  const again = await a('POST', '/api/notes/templates', { note_id: made.id, name: 'packing' });
+  assert.equal(again.status, 200);
+  assert.equal((await a('GET', '/api/notes/templates')).body.length, 1);
+  assert.equal((await b('POST', '/api/notes/templates', { note_id: note.id, name: 'Mine now' })).status, 404);
+  assert.deepEqual((await b('GET', '/api/notes/templates')).body, [], 'each person’s own');
+  assert.equal((await b('DELETE', `/api/notes/templates/${list[0].id}`)).status, 404);
+  assert.equal((await a('DELETE', `/api/notes/templates/${list[0].id}`)).status, 200);
+  assert.deepEqual((await a('GET', '/api/notes/templates')).body, []);
+});
