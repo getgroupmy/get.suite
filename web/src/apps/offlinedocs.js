@@ -225,7 +225,7 @@ export const apiCount = () => run('readonly', (s) => s.count(), 'api').then((n) 
 export async function appendKept(urlEnd, item, { first = false } = {}) {
   try {
     const hits = [];
-    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if ((typeof urlEnd === 'function' ? urlEnd(String(cur.key)) : String(cur.key).endsWith(urlEnd)) && Array.isArray(cur.value?.data)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
-    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: first ? [item, ...v.data] : [...v.data, item] }, k); }, 'api');
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if ((typeof urlEnd === 'function' ? urlEnd(String(cur.key)) : String(cur.key).endsWith(urlEnd)) && (Array.isArray(cur.value?.data) || Array.isArray(cur.value?.data?.replies))) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
+    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: keptMap(v.data, (list) => (first ? [item, ...list] : [...list, item])) }, k); }, 'api');
   } catch { /* the kept list just doesn't show it */ }
 }

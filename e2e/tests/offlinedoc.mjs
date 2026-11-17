@@ -631,16 +631,23 @@ await step('Chat threads: read offline, and a reply edited and another deleted t
   await reply('Not me').hover();
   await reply('Not me').getByRole('button', { name: 'Delete message' }).click();
   await page.getByText('Message deleted on this device').waitFor({ timeout: 15000 });
+  // A reply written offline: waits here, and goes when the connection is back.
+  await panel.getByRole('textbox', { name: 'Reply', exact: true }).fill('Compass too');
+  await page.keyboard.press('Enter');
+  await reply('Compass too').getByText('Sends when the connection is back').waitFor({ timeout: 15000 });
   await page.reload();
   await page.locator('.msg', { hasText: 'Who brings the map?' }).getByRole('button', { name: /repl/ }).click({ timeout: 20000 });
   await reply('I will, the big one').waitFor({ timeout: 20000 });
+  await reply('Compass too').waitFor(); // still waiting after reloading
   if (await panel.getByText('Not me').count()) throw new Error('deleted reply back after reloading');
   await ctx.setOffline(false);
-  await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
+  await page.getByText('Sent 3 changes made offline').waitFor({ timeout: 30000 });
+  await panel.getByText('Sends when the connection is back').waitFor({ state: 'detached', timeout: 15000 });
   const t = (await api(page, 'GET', `/chat/messages/${top.id}/replies`)).body;
   if (t.replies.find((m) => m.id === r1.id)?.body !== 'I will, the big one') throw new Error('edit not made');
   const gone = t.replies.find((m) => m.id === r2.id);
   if (gone && !gone.deleted_at && gone.body === 'Not me') throw new Error('delete not made');
+  if (t.replies.filter((m) => m.body === 'Compass too').length !== 1) throw new Error('reply not made once');
 });
 await step('Settings → This device: what is kept here, a warning about what is not sent yet, and removing it all', async () => {
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;

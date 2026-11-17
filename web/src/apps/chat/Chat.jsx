@@ -1097,6 +1097,12 @@ function Thread({ id, channelId, channel, user, onClose }) {
     } else if (m.type === 'message-deleted' && m.parent_id === id) setReplies((list) => list.filter((x) => x.id !== m.id));
     else if (m.type === 'chat-file-state') { setReplies((list) => withFileState(list, m)); setParent((p) => (p ? withFileState([p], m)[0] : p)); }
   }), [id]);
+  // Sent what was waiting (a reply written offline): the thread as the server has it now.
+  useEffect(() => {
+    const again = () => get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); }).catch(() => {});
+    window.addEventListener('nw:changes-sent', again);
+    return () => window.removeEventListener('nw:changes-sent', again);
+  }, [id]);
   useLayoutEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [replies.length]);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.modal-backdrop')) onClose(); };
@@ -1153,7 +1159,17 @@ function Thread({ id, channelId, channel, user, onClose }) {
       return;
     }
     try { const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id }); setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); checkLinkAccess(channelId, body, toast, user.org_name); }
-    catch (err) { toast(err.message, 'error'); setText(body); }
+    catch (err) {
+      // No connection: the reply waits on this device (shown as waiting, also after reloading) and goes when it's back.
+      if (unreachable(err)) {
+        const pending = { id: `pending-${Date.now()}`, pending: true, channel_id: channelId, parent_id: id, user_id: user.id, user_name: user.name, body, files: [], reactions: [], created_at: Date.now() };
+        await keepChange({ method: 'POST', url: `/chat/channels/${channelId}/messages`, body: { body, parent_id: id }, user: user.id, label: 'a reply in Chat' });
+        await appendKept(`/chat/messages/${id}/replies`, pending);
+        setReplies((list) => [...list, pending]);
+        return;
+      }
+      toast(err.message, 'error'); setText(body);
+    }
   }
   const item = (m, grouped) => (
     <Message key={m.id} m={m} grouped={grouped} user={user} editing={editingId === m.id} editText={editText} setEditText={setEditText}
@@ -1172,7 +1188,7 @@ function Thread({ id, channelId, channel, user, onClose }) {
       <div className="thread-body">
         {parent && item(parent, false)}
         {parent && <div className="thread-count muted small">{replies.length ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : 'No replies yet'}</div>}
-        {replies.map((m, i) => item(m, i > 0 && replies[i - 1].user_id === m.user_id && m.created_at - replies[i - 1].created_at < 5 * 60e3))}
+        {replies.map((m, i) => item(m, !m.pending && i > 0 && replies[i - 1].user_id === m.user_id && m.created_at - replies[i - 1].created_at < 5 * 60e3))} {/* (one waiting to be sent keeps its own line: its note shows) */}
         <div ref={end} />
       </div>
       {typing.line}
