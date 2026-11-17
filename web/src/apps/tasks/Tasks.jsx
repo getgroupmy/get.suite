@@ -879,7 +879,8 @@ function TaskTime({ task }) {
           : <>
             <button type="button" className="btn small" onClick={() => act(() => post(`/tasks/tasks/${task.id}/timer`))}>▶ Start timer</button>
             {/* A focus session: the timer stops by itself after 25 minutes (you're told), counting just that. */}
-            <button type="button" className="btn small" title="Time 25 minutes on this task; it stops by itself and tells you" onClick={() => act(() => post(`/tasks/tasks/${task.id}/timer`, { minutes: 25 }), 'Focus for 25 minutes: the timer stops by itself')}>◎ Focus 25 min</button>
+            <Menu trigger={(p) => <button type="button" className="btn small" title="Time a set while on this task; it stops by itself and tells you" {...p}>◎ Focus</button>}
+              items={[15, 25, 50, 90].map((m) => ({ label: `${m} minutes`, onClick: () => act(() => post(`/tasks/tasks/${task.id}/timer`, { minutes: m }), `Focus for ${m} minutes: the timer stops by itself`) }))} />
           </>}
         {!adding && <button type="button" className="link-btn small" onClick={() => setAdding({ duration: '', day: new Date().toISOString().slice(0, 10), note: '' })}>Add time</button>}
       </div>
