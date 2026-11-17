@@ -279,8 +279,9 @@ function Calendar({ acting = null, managed = [], onPick }) {
     const shown = (list) => list.filter((e) => !((e.role === 'organizer' || e.role === 'shared') && e.calendar_id && hidden.has(e.calendar_id))
       && (showDeclined || !(e.role === 'guest' && e.my_status === 'no')));
     get(`/events?from=${from}&to=${to}`).then((list) => { if (seq === loadSeq.current) setEvents(expandAll(shown(list), from, to)); }).catch((e) => { if (seq === loadSeq.current) toast(e.message, 'error'); });
-    const now = Date.now();
-    get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(shown(list), now, now + 30 * DAY))).catch(() => {});
+    // Asked from the start of today (the same address all day: kept for offline once, not anew on every visit).
+    const now = Date.now(), today = new Date(now).setHours(0, 0, 0, 0);
+    get(`/events?from=${today}&to=${today + 31 * DAY}`).then((list) => setUpcoming(expandAll(shown(list), now, now + 30 * DAY))).catch(() => {});
   }, [days, toast, hiddenKey, showDeclined]);
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.

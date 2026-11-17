@@ -91,11 +91,16 @@ export const keepAnswer = (url, data) => run('readwrite', (s) => s.put({ data, a
 /** The oldest kept answers beyond the limit go (a page can lower the limit for trying it out: localStorage nw-api-keep). */
 export async function trimAnswers(max = Number(globalThis.localStorage?.getItem('nw-api-keep')) || API_KEEP) {
   const all = [];
-  await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { all.push([cur.key, cur.value?.at || 0]); cur.continue(); } }; return c; }, 'api');
+  // While changes wait to be sent, a list showing one (added or changed offline) stays: it's the only place that shows
+  // it. Once nothing waits, a mark left in a list not looked at since is just old, and goes like the rest.
+  const waiting = await run('readonly', (s) => s.count(), 'changes').catch(() => 0);
+  await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (!(waiting && holdsUnsent(cur.value?.data))) all.push([cur.key, cur.value?.at || 0]); cur.continue(); } }; return c; }, 'api');
   const extra = oldestBeyond(all, max);
   if (extra.length) await run('readwrite', (s) => { for (const k of extra) s.delete(k); }, 'api');
   return extra.length;
 }
+/** Whether a kept answer shows something added or changed offline that isn't on the server yet. */
+export const holdsUnsent = (data) => Array.isArray(data) && data.some((x) => x?.offline || x?.pending);
 /** The keys of [key, at] pairs beyond the `max` most recent. */
 export const oldestBeyond = (pairs, max) => [...pairs].sort((a, b) => b[1] - a[1]).slice(max).map(([k]) => k);
 export const keptAnswer = (url) => run('readonly', (s) => s.get(url), 'api').then((x) => x || null).catch(() => null);

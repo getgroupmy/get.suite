@@ -40,3 +40,12 @@ test('kept answers: the oldest beyond the limit are the ones let go', async () =
   assert.deepEqual(oldestBeyond([['a', 1]], 5), []);
   assert.ok(API_KEEP >= 100);
 });
+
+test('a kept list showing something not sent yet isn’t trimmed', async () => {
+  const { holdsUnsent } = await import('./offlinedocs.js');
+  assert.equal(holdsUnsent([{ id: 'a' }, { id: 'b', offline: true }]), true, 'added or changed offline');
+  assert.equal(holdsUnsent([{ id: 'm', pending: true }]), true, 'a chat message waiting');
+  assert.equal(holdsUnsent([{ id: 'a' }]), false);
+  assert.equal(holdsUnsent({ messages: [] }), false);
+  assert.equal(holdsUnsent(null), false);
+});

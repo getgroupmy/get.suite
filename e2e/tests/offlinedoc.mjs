@@ -466,6 +466,21 @@ await step('Drive: Make available offline keeps a file never opened here, which 
   await page.getByText('is no longer kept available offline').waitFor();
   await row.getByLabel('Available offline').waitFor({ state: 'detached' });
 });
+await step('Calendar quick add works offline: the event is made when the connection is back', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByLabel('Quick add an event').waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByLabel('Quick add an event').fill('Ferry back tomorrow 5pm');
+  await page.keyboard.press('Enter');
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(/“Ferry back” saved on this device/).waitFor({ timeout: 15000 });
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  const day = new Date(); day.setHours(0, 0, 0, 0);
+  await until(async () => ((await api(page, 'GET', `/events?from=${day.getTime()}&to=${day.getTime() + 3 * 864e5}`)).body || []).filter((e) => e.title === 'Ferry back' && new Date(e.start).getHours() === 17).length === 1, 10000);
+});
 await step('Chat: a conversation last seen here can be read offline, and a message written offline goes when the connection is back', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'trip-plans' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Meet at the harbour at 8' });
@@ -495,11 +510,22 @@ await step('lists and messages kept for offline don’t pile up: the oldest go b
   const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const c = r.result.transaction('api').objectStore('api').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
   const before = await count();
   if (before <= 30) throw new Error(`only ${before} kept: nothing to trim`);
+  const visit = async () => { for (let i = 0; i < 4; i++) for (const path of ['/calendar', '/tasks', '/contacts', '/notes']) { await page.goto(B + path); await page.waitForTimeout(400); } };
   await page.evaluate(() => localStorage.setItem('nw-api-keep', '5')); // a small limit, to see it work
-  for (let i = 0; i < 4; i++) for (const path of ['/calendar', '/tasks', '/contacts', '/notes']) { await page.goto(B + path); await page.waitForTimeout(400); }
+  await visit();
   const after = await count();
+  if (after > 5 + 25) throw new Error(`${before} → ${after}`); // (trimmed on the first kept after a page loads and every 25)
+  // While a change waits to be sent, an old list showing it stays (the only place that shows it).
+  await page.route('**/api/tasks/tasks/held', (route) => route.abort('internetdisconnected'));
+  const me = (await api(page, 'GET', '/auth/me')).body.user.id;
+  const idb = (fn, arg) => page.evaluate(([f, a]) => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const t = r.result.transaction(['api', 'changes'], 'readwrite'); const out = new Function('t', 'a', f)(t, a); t.oncomplete = () => { r.result.close(); res(out?.result ?? null); }; }; }), [fn, arg]);
+  await idb("t.objectStore('api').put({ data: [{ id: 'x', title: 'Not sent', offline: true }], at: 1 }, 'test:holds-unsent'); t.objectStore('changes').put({ method: 'PATCH', url: '/tasks/tasks/held', body: {}, user: a, label: 'held', at: Date.now() }, '0-held');", me);
+  await visit();
+  const held = await page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const g = r.result.transaction('api').objectStore('api').get('test:holds-unsent'); g.onsuccess = () => { res(!!g.result); r.result.close(); }; }; }));
+  await idb("t.objectStore('api').delete('test:holds-unsent'); t.objectStore('changes').delete('0-held');");
+  await page.unroute('**/api/tasks/tasks/held');
   await page.evaluate(() => localStorage.removeItem('nw-api-keep'));
-  if (after > 5 + 25) throw new Error(`${before} → ${after}`); // (trimmed on the first kept after a page loads and every 25, so a few more than the limit at most)
+  if (!held) throw new Error('a list with something not sent yet was trimmed');
 });
 await step('Settings → This device: what is kept here, a warning about what is not sent yet, and removing it all', async () => {
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;
