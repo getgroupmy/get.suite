@@ -19,6 +19,7 @@ import { placeText } from '../../components/workloc.js';
 import { greeting } from './greeting.js';
 import { Attendance, KeptChat } from '../../components/MeetHistory.jsx';
 import { upcoming, addDays, sinceText } from './dates.js';
+import Clap from '../../components/Clap.jsx';
 
 /** "tomorrow", "Mon 16 Nov" for a YYYY-MM-DD. */
 function dayText(d) {
@@ -455,7 +456,7 @@ export default function Home() {
               {data.kudos.map((k) => (
                 <li key={k.id}>
                   <span className="kudos-emoji" aria-hidden="true">{k.emoji}</span>{' '}
-                  <strong>{k.from_name}</strong> thanked <strong>{k.to_name}</strong>: {k.message} <span className="muted small">{formatDate(k.created_at)}</span>
+                  <strong>{k.from_name}</strong> thanked <strong>{k.to_name}</strong>: {k.message} <span className="muted small">{formatDate(k.created_at)}</span> <Clap kudos={k} />
                 </li>
               ))}
             </ul>

@@ -3254,3 +3254,6 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 .kudos-pick { font-size: 18px; border-radius: 8px; }
 .kudos-pick.on { background: var(--accent-soft, var(--surface-2)); outline: 2px solid var(--accent); }
 .person-thanks textarea { width: 100%; box-sizing: border-box; }
+.kudos-clap { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0 8px; font-size: 13px; line-height: 20px; cursor: pointer; color: inherit; }
+.kudos-clap.on { border-color: var(--accent); background: var(--accent-soft, var(--surface-2)); }
+span.kudos-clap { cursor: default; border-color: transparent; }

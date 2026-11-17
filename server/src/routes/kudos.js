@@ -17,6 +17,13 @@ q(`CREATE TABLE IF NOT EXISTS kudos (
   created_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS kudos_to ON kudos (to_id, created_at)').run();
+// 👏: colleagues joining in on a thank-you (not its giver).
+q(`CREATE TABLE IF NOT EXISTS kudos_claps (
+  kudos_id TEXT NOT NULL REFERENCES kudos(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (kudos_id, user_id)
+)`).run();
 q('CREATE INDEX IF NOT EXISTS kudos_org ON kudos (org_id, created_at)').run();
 
 export const KUDOS_EMOJI = ['🙌', '🎉', '💪', '🌟', '🙏', '🚀', '❤️', '🏆'];
@@ -24,7 +31,11 @@ const PER_DAY = 20; // thanks one person may give in a day
 
 const SELECT = `SELECT k.id, k.emoji, k.message, k.created_at, k.from_id, f.name AS from_name, k.to_id, t.name AS to_name
   FROM kudos k JOIN users f ON f.id = k.from_id JOIN users t ON t.id = k.to_id`;
-const shape = (r, me) => ({ ...r, mine: r.from_id === me });
+/** With its applause: how many, whether you're among them, and who (names, up to 10). */
+const shape = (r, me) => {
+  const claps = q('SELECT c.user_id, u.name FROM kudos_claps c JOIN users u ON u.id = c.user_id WHERE c.kudos_id = ? ORDER BY c.created_at').all(r.id);
+  return { ...r, mine: r.from_id === me, claps: claps.length, clapped: claps.some((c) => c.user_id === me), clappers: claps.slice(0, 10).map((c) => c.name) };
+};
 
 /** The org's people get the new one live (Home's card, cards that are open). */
 const tell = (orgId) => sendTo(q('SELECT id FROM users WHERE org_id IS ? AND disabled = 0').all(orgId).map((u) => u.id), { type: 'kudos-changed' });
@@ -59,6 +70,16 @@ export default function kudosRoutes() {
     notify([to.id], { kind: 'kudos', title: `${emoji} ${req.user.name} thanked you`, body: message, link: '/home', actor: req.user.id });
     tell(req.user.org_id);
     res.status(201).json(shape(q(`${SELECT} WHERE k.id = ?`).get(id), req.user.id));
+  });
+  // 👏 on someone's thank-you, or off again: { on }.
+  r.post('/:id/clap', (req, res) => {
+    const k = q('SELECT * FROM kudos WHERE id = ?').get(String(req.params.id));
+    if (!k || k.org_id !== req.user.org_id) throw notFound('Not found');
+    if (k.from_id === req.user.id) throw bad('That’s your own thank-you');
+    if (req.body?.on === false) q('DELETE FROM kudos_claps WHERE kudos_id = ? AND user_id = ?').run(k.id, req.user.id);
+    else q('INSERT OR IGNORE INTO kudos_claps (kudos_id, user_id, created_at) VALUES (?, ?, ?)').run(k.id, req.user.id, now());
+    tell(k.org_id);
+    res.json(shape(q(`${SELECT} WHERE k.id = ?`).get(k.id), req.user.id));
   });
   // Take back your own.
   r.delete('/:id', (req, res) => {

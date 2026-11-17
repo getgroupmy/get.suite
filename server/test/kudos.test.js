@@ -55,6 +55,16 @@ test('thanks: given to a colleague, who is told; on their card and the companyâ€
   const wall = (await tara('GET', '/api/kudos?limit=5')).body;
   assert.equal(wall[0].to_name, 'Tara Thanks');
 
+  // ðŸ‘: anyone but its giver, once each; off again.
+  assert.equal((await olivia('POST', `/api/kudos/${k.body.id}/clap`, {})).status, 400, 'not on your own');
+  const c1 = (await tara('POST', `/api/kudos/${k.body.id}/clap`, {})).body;
+  assert.deepEqual([c1.claps, c1.clapped, c1.clappers], [1, true, ['Tara Thanks']]);
+  assert.equal((await tara('POST', `/api/kudos/${k.body.id}/clap`, {})).body.claps, 1, 'once each');
+  const seen = (await olivia('GET', '/api/kudos')).body.find((x) => x.id === k.body.id);
+  assert.deepEqual([seen.claps, seen.clapped], [1, false]);
+  assert.equal((await tara('POST', `/api/kudos/${k.body.id}/clap`, { on: false })).body.claps, 0);
+  assert.equal((await tara('POST', '/api/kudos/nope/clap', {})).status, 404);
+  await tara('POST', `/api/kudos/${k.body.id}/clap`, {});
   assert.equal((await tara('DELETE', `/api/kudos/${k.body.id}`)).status, 404, 'only its giver');
   assert.equal((await olivia('DELETE', `/api/kudos/${k.body.id}`)).status, 200);
   assert.equal((await tara('GET', `/api/kudos/for/${taraId}`)).body.count, 1);

@@ -74,6 +74,25 @@ await step('Kim is told in the bell, and sees it on Home (live) and on her own c
   if (await card.getByRole('button', { name: '🙌 Say thanks' }).count()) throw new Error('thanking yourself is offered');
   if (await card.getByRole('button', { name: 'Take back your thanks' }).count()) throw new Error('Kim can take back Olivia’s thanks');
 }, kim);
+await step('👏 Kim joins in from Home; Olivia sees the count on the card, live, and can’t clap her own', async () => {
+  await kim.goto(`${B}/home`);
+  const home = kim.getByRole('region', { name: 'Thanks' });
+  const clap = home.getByRole('button', { name: /^👏 Applaud: 0 people/ });
+  await clap.waitFor({ timeout: 10000 });
+  await clap.click();
+  await home.getByRole('button', { name: /^👏 Applauding: 1 person \(Kim Park\)/ }).waitFor();
+  await kim.reload();
+  await home.getByRole('button', { name: /^👏 Applauding: 1 person/ }).waitFor({ timeout: 10000 });
+  const card = page.getByRole('dialog', { name: 'Kim Park' });
+  await card.locator('span.kudos-clap', { hasText: '👏 1' }).waitFor({ timeout: 10000 }); // live
+  if (await card.getByRole('button', { name: /Applaud/ }).count()) throw new Error('Olivia can clap her own');
+  await page.screenshot({ path: `${SP}/shots/kudos-clap.png` });
+  await home.getByRole('button', { name: /^👏 Applauding/ }).click();
+  await home.getByRole('button', { name: /^👏 Applaud: 0 people/ }).waitFor();
+  await card.locator('span.kudos-clap').waitFor({ state: 'detached', timeout: 10000 });
+  await home.getByRole('button', { name: /^👏 Applaud/ }).click(); // on again, for the next step
+  await card.locator('span.kudos-clap', { hasText: '👏 1' }).waitFor({ timeout: 10000 });
+}, kim);
 await step('the giver takes it back: gone from the card and Home', async () => {
   const card = page.getByRole('dialog', { name: 'Kim Park' });
   await card.getByRole('button', { name: 'Take back your thanks' }).click();

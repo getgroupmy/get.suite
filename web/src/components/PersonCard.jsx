@@ -6,6 +6,7 @@ import { get, post, del, onLive, formatDate } from '../api.js';
 import { Avatar, Modal, useToast } from './ui.jsx';
 import { useAuth } from '../App.jsx';
 import WithPerson from './WithPerson.jsx';
+import Clap from './Clap.jsx';
 import Icon from './Icon.jsx';
 import { statusLine, unreachableText } from './status.js';
 import { placeText } from './workloc.js';
@@ -46,7 +47,7 @@ function Thanks({ person, me }) {
           <ul className="plain-list kudos-list" aria-label="Thanks received">
             {data.latest.slice(0, 5).map((k) => (
               <li key={k.id} className="row" style={{ gap: 6 }}>
-                <span className="grow"><span aria-hidden="true">{k.emoji}</span> {k.message} <span className="muted small">— {k.from_name}, {formatDate(k.created_at)}</span></span>
+                <span className="grow"><span aria-hidden="true">{k.emoji}</span> {k.message} <span className="muted small">— {k.from_name}, {formatDate(k.created_at)}</span> <Clap kudos={k} /></span>
                 {k.mine && <button type="button" className="icon-btn" aria-label="Take back your thanks" title="Take back" onClick={() => takeBack(k)}><Icon name="close" size={14} /></button>}
               </li>
             ))}
