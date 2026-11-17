@@ -15527,3 +15527,32 @@ test('drive: starred folders for the sidebar — folders only, by name, not tras
   assert.deepEqual((await a('GET', '/api/files/starred-folders')).body, []);
   assert.deepEqual((await owner('GET', '/api/files/starred-folders')).status, 200);
 });
+
+test('tasks: workload per person on a shared list, by when it is due', async () => {
+  const { bucketOf, weekEnds } = await import('../src/taskworkload.js');
+  assert.deepEqual(weekEnds('2026-11-18'), { thisWeek: '2026-11-22', nextWeek: '2026-11-29' }, 'a Wednesday');
+  assert.deepEqual(weekEnds('2026-11-22'), { thisWeek: '2026-11-22', nextWeek: '2026-11-29' }, 'Sunday ends its own week');
+  assert.deepEqual(['2026-11-17', '2026-11-18', '2026-11-22', '2026-11-23', '2026-11-30', null].map((d) => bucketOf(d, '2026-11-18')), ['overdue', 'this_week', 'this_week', 'next_week', 'later', 'no_date']);
+  const a = client(); const b = client();
+  for (const [l, n] of [['wkla', 'Wl Ann'], ['wklb', 'Wl Bob']]) assert.equal((await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: n, password: 'password123' })).status, 201);
+  await login(a, 'wkla@acme.com'); await login(b, 'wklb@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body;
+  const bobId = (await b('GET', '/api/auth/me')).body.user.id;
+  assert.equal((await a('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [bobId] })).status, 200);
+  const add = async (title, { estimate, ...extra }) => {
+    const t = (await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title, ...extra })).body;
+    if (estimate) await a('PATCH', `/api/tasks/tasks/${t.id}`, { estimate });
+    return t;
+  };
+  await add('Late', { due: '2026-11-10', assignee_id: bobId, estimate: 60 });
+  await add('Soon', { due: '2026-11-20', assignee_id: bobId, estimate: 30 });
+  await add('Next', { due: '2026-11-25', assignee_id: bobId });
+  await add('Whenever', {});
+  const done = await add('Finished', { due: '2026-11-19', assignee_id: bobId });
+  await a('PATCH', `/api/tasks/tasks/${done.id}`, { done: true });
+  const w = (await b('GET', `/api/tasks/lists/${list.id}/workload?today=2026-11-18`)).body;
+  assert.equal(w.today, '2026-11-18');
+  assert.deepEqual(w.people.map((p) => [p.name, p.open, p.overdue, p.this_week, p.next_week, p.later, p.no_date, p.estimate]),
+    [['Wl Ann', 0, 0, 0, 0, 0, 0, 0], ['Wl Bob', 3, 1, 1, 1, 0, 0, 90], ['Not assigned', 1, 0, 0, 0, 0, 1, 0]]);
+  assert.equal((await owner('GET', `/api/tasks/lists/${list.id}/workload`)).status, 404, 'only people on the list');
+});

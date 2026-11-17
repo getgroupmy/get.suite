@@ -1,0 +1,39 @@
+// Tasks → Workload: on a shared list, how much each person on it has open, and when it's due:
+// overdue, this week (Monday to Sunday), next week, later, or with no date; and the time it's estimated
+// to take. Tasks nobody has been given count under "Not assigned".
+import { q } from './db.js';
+
+const ymd = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+
+/** The Sunday ending this week and the next, for a day (YYYY-MM-DD). */
+export function weekEnds(today) {
+  const d = new Date(`${today}T00:00:00Z`);
+  const toSunday = (7 - d.getUTCDay()) % 7;
+  const end = new Date(d.getTime() + toSunday * 86400000);
+  return { thisWeek: ymd(end), nextWeek: ymd(new Date(end.getTime() + 7 * 86400000)) };
+}
+
+/** Where a due date falls, seen from today. */
+export function bucketOf(due, today) {
+  if (!due) return 'no_date';
+  if (due < today) return 'overdue';
+  const { thisWeek, nextWeek } = weekEnds(today);
+  if (due <= thisWeek) return 'this_week';
+  if (due <= nextWeek) return 'next_week';
+  return 'later';
+}
+
+/** One row per person on the list (the owner first, then by name), and "Not assigned" if anything is. */
+export function workloadOf(list, today) {
+  const people = [list.owner_id, ...q('SELECT user_id FROM task_list_members WHERE list_id = ?').all(list.id).map((r) => r.user_id)];
+  const names = new Map(q('SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(people)).map((u) => [u.id, u.name]));
+  const blank = (user_id, name) => ({ user_id, name, open: 0, overdue: 0, this_week: 0, next_week: 0, later: 0, no_date: 0, estimate: 0 });
+  const rows = new Map(people.filter((id) => names.has(id)).map((id) => [id, blank(id, names.get(id))]));
+  const none = blank(null, 'Not assigned');
+  for (const t of q('SELECT assignee_id, due, estimate FROM tasks WHERE list_id = ? AND done_at IS NULL').all(list.id)) {
+    const row = (t.assignee_id && rows.get(t.assignee_id)) || none; // someone who has since left the list: not assigned any more, in effect
+    row.open++; row[bucketOf(t.due, today)]++; row.estimate += t.estimate || 0;
+  }
+  const [owner, ...rest] = [...rows.values()];
+  return [owner, ...rest.sort((a, b) => a.name.localeCompare(b.name)), ...(none.open ? [none] : [])].filter(Boolean);
+}

@@ -457,6 +457,7 @@ export default function Tasks() {
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }, { label: 'Colour and emoji…', icon: 'star', onClick: () => setDialog('look') }] : []),
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
+              ...(list.members.length ? [{ label: 'Workload…', icon: 'people', onClick: () => setDialog('workload') }] : []),
               { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },
               { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
               { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
@@ -654,6 +655,7 @@ export default function Tasks() {
           {n > 0 && <button type="button" className="link-btn small danger" onClick={async () => { await del(`/tasks/sections/${sectionEdit.remove.id}?tasks=1`); setSectionEdit(null); loadTasks(); loadLists(); }}>Delete the section and its {n} task{n === 1 ? '' : 's'}</button>}
         </ConfirmModal>;
       })()}
+      {dialog === 'workload' && list && <Workload list={list} onClose={() => setDialog(null)} />}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} onRate={loadLists} />}
       {dialog === 'sheet' && <Timesheet onClose={() => setDialog(null)} onOpen={(t) => { setDialog(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }} />}
       {dialog === 'activity' && list && <ListActivity list={list} onClose={() => setDialog(null)} onOpen={(id) => { setDialog(null); navigate(`/tasks/${list.id}?task=${id}`); }} />}
@@ -1032,6 +1034,38 @@ function Timesheet({ onClose, onOpen }) {
 }
 
 /** Who spent how long on what in a list, between two dates; downloadable as CSV. */
+/** Workload: who on a shared list has how much open, and when it's due (server: taskworkload.js). */
+function Workload({ list, onClose }) {
+  const [w, setW] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { get(`/tasks/lists/${list.id}/workload?today=${localToday()}`).then(setW).catch((e) => setError(e.message)); }, [list.id]);
+  const most = w ? Math.max(1, ...w.people.map((p) => p.open)) : 1;
+  const hours = (m) => (m ? (m >= 60 ? `${Math.round(m / 6) / 10} h` : `${m} min`) : '');
+  const cols = [['overdue', 'Overdue'], ['this_week', 'This week'], ['next_week', 'Next week'], ['later', 'Later'], ['no_date', 'No date']];
+  return (
+    <Modal wide title={`Workload on “${list.name}”`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      {error && <p className="error">{error}</p>}
+      {!w && !error && <p className="muted">Loading…</p>}
+      {w && (
+        <table className="data-table workload" aria-label="Workload">
+          <thead><tr><th scope="col">Person</th><th scope="col">Open</th>{cols.map(([k, label]) => <th key={k} scope="col">{label}</th>)}<th scope="col">Estimated</th></tr></thead>
+          <tbody>
+            {w.people.map((p) => (
+              <tr key={p.user_id || 'none'}>
+                <th scope="row" className={p.user_id ? '' : 'muted'}>{p.name}</th>
+                <td><span className="workload-open">{p.open > 0 && <span className="workload-bar" style={{ width: `${Math.round((p.open / most) * 60)}px` }} aria-hidden="true" />}{p.open}</span></td>
+                {cols.map(([k]) => <td key={k} className={k === 'overdue' && p[k] ? 'workload-late' : ''}>{p[k] || ''}</td>)}
+                <td>{hours(p.estimate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="muted small">Open tasks on this list, by who they're given to and when they're due (weeks run Monday to Sunday). Estimated adds up the tasks' time estimates.</p>
+    </Modal>
+  );
+}
+
 function TimeReport({ list, onClose, onRate }) {
   const navigate = useNavigate();
   const today = new Date().toISOString().slice(0, 10);

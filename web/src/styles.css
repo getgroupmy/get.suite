@@ -3275,3 +3275,9 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .form-progress { display: flex; align-items: center; gap: 10px; }
 .form-progress-bar { flex: 1; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 25%, transparent); overflow: hidden; }
 .form-progress-bar span { display: block; height: 100%; background: var(--form-accent, var(--accent)); transition: width .25s; }
+
+/* Tasks: Workload on a shared list */
+.workload td, .workload th { text-align: left; }
+.workload-open { display: inline-flex; align-items: center; gap: 8px; }
+.workload-bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+.workload-late { color: var(--danger, #c5221f); font-weight: 600; }
