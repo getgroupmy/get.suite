@@ -19,7 +19,7 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { get, post, patch, put, uploadFile, onLive } from '../../api.js';
+import { get, post, patch, put, del, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal, withDataCheck } from '../../components/ui.jsx';
@@ -696,15 +696,29 @@ function SharedDoc({ file, setFile }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const [sprintQuiet, setSprintQuietState] = useState(() => { try { return localStorage.getItem('nw-sprint-quiet') === '1'; } catch { return false; } });
   const setSprintQuiet = (on) => { setSprintQuietState(on); try { localStorage.setItem('nw-sprint-quiet', on ? '1' : '0'); } catch { /* not remembered */ } };
+  // Colleagues see "✍️ Writing" as your status for the sprint (when asked; not over a status you've set yourself).
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [sprintStatus, setSprintStatusState] = useState(() => { try { return localStorage.getItem('nw-sprint-status') === '1'; } catch { return false; } });
+  const setSprintStatus = (on) => { setSprintStatusState(on); try { localStorage.setItem('nw-sprint-status', on ? '1' : '0'); } catch { /* not remembered */ } };
   const startSprint = async (minutes) => {
     let unit = 60e3; try { if (localStorage.getItem('nw-sprint-seconds') === '1') unit = 1e3; } catch { /* minutes */ } // (tests: seconds)
     const ends = Date.now() + minutes * unit;
     let paused = false;
     if (sprintQuiet && !isPaused()) { try { await pauseUntil(ends); paused = true; toast('Notifications paused until the sprint ends'); } catch { /* the sprint goes on without */ } }
-    setSprintNow(Date.now()); setSprint({ ends, words: countWords(editor.state.doc).words, paused });
+    let status = false;
+    if (sprintStatus) {
+      try {
+        const now = (await get('/users/me/status')).status;
+        if (!now) { await put('/users/me/status', { emoji: '✍️', text: 'Writing', until: ends }); status = true; }
+      } catch { /* the sprint goes on without */ }
+    }
+    setSprintNow(Date.now()); setSprint({ ends, words: countWords(editor.state.doc).words, paused, status });
   };
   const stopSprint = () => {
     if (sprint?.paused && sprint.ends > Date.now() && pausedUntil() === sprint.ends) pauseUntil(null).catch(() => {});
+    if (sprint?.status && sprint.ends > Date.now()) {
+      get('/users/me/status').then((r) => (r.status?.text === 'Writing' && r.status?.until === sprint.ends ? del('/users/me/status') : null)).catch(() => {});
+    }
     setSprint(null);
   };
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -763,7 +777,8 @@ function SharedDoc({ file, setFile }) {
             <button type="button" className="link-btn small" aria-label="Stop the sprint" onClick={stopSprint}>×</button></span>
             : <Menu trigger={(p) => <button type="button" className="btn small" {...p} title="Write for a set time, counting the words you add">Sprint</button>}
               items={[...SPRINTS.map((m) => ({ label: `${m} minutes`, onClick: () => startSprint(m) })), '-',
-                { label: `${sprintQuiet ? '✓ ' : ''}Pause notifications during sprints`, icon: 'bell', onClick: () => setSprintQuiet(!sprintQuiet) }]} />}
+                { label: `${sprintQuiet ? '✓ ' : ''}Pause notifications during sprints`, icon: 'bell', onClick: () => setSprintQuiet(!sprintQuiet) },
+                { label: `${sprintStatus ? '✓ ' : ''}Show “✍️ Writing” as my status during sprints`, icon: 'chat', onClick: () => setSprintStatus(!sprintStatus) }]} />}
           <button type="button" className={`btn small ${dimOthers ? 'primary' : ''}`} aria-pressed={dimOthers} onClick={() => setDimOthers(!dimOthers)} title="Fade all but the paragraph you're writing">Dim</button>
           <button type="button" className={`btn small ${typewriter ? 'primary' : ''}`} aria-pressed={typewriter} onClick={() => setTypewriter(!typewriter)} title="Keep the line you're writing in the middle of the screen">Typewriter</button>
           <button type="button" className="btn small" onClick={() => setFocusMode(false)} title="Esc">Exit focus mode</button>

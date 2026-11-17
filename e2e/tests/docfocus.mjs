@@ -183,6 +183,33 @@ await step('a sprint can pause notifications until it ends; stopping it turns th
   await page.evaluate(() => { localStorage.removeItem('nw-sprint-seconds'); localStorage.removeItem('nw-sprint-quiet'); });
   await page.keyboard.press('Control+Shift+F');
 });
+await step('a sprint can show “✍️ Writing” as your status until it ends, not over your own', async () => {
+  await page.evaluate(() => localStorage.setItem('nw-sprint-seconds', '1'));
+  const status = async () => (await api(page, 'GET', '/users/me/status')).body.status;
+  await page.locator('.ProseMirror').first().click();
+  await page.keyboard.press('Control+Shift+F');
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: /Show “✍️ Writing” as my status during sprints/ }).click();
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: '45 minutes' }).click();
+  await until(async () => (await status())?.text === 'Writing');
+  const s1 = await status();
+  if (s1.emoji !== '✍️' || !s1.until || s1.until > Date.now() + 50e3) throw new Error(JSON.stringify(s1));
+  await page.getByRole('timer', { name: 'Writing sprint' }).getByRole('button', { name: 'Stop the sprint' }).click();
+  await until(async () => !(await status()));
+  // A status of your own stays as it is.
+  await api(page, 'PUT', '/users/me/status', { emoji: '🏖️', text: 'On leave' });
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: '10 minutes' }).click();
+  await page.getByRole('timer', { name: 'Writing sprint' }).waitFor();
+  await page.waitForTimeout(800);
+  if ((await status())?.text !== 'On leave') throw new Error('your own status was replaced');
+  await page.getByRole('timer', { name: 'Writing sprint' }).getByRole('button', { name: 'Stop the sprint' }).click();
+  await page.waitForTimeout(800);
+  if ((await status())?.text !== 'On leave') throw new Error('your own status was cleared');
+  await page.evaluate(() => { localStorage.removeItem('nw-sprint-seconds'); localStorage.removeItem('nw-sprint-status'); });
+  await page.keyboard.press('Control+Shift+F');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
