@@ -77,6 +77,19 @@ await step('running late, said from the top bar: the others on the meeting are t
   await solo.waitFor({ timeout: 10000 });
   if (await solo.getByRole('button', { name: 'Running late' }).count()) throw new Error('running late shown with nobody to tell');
 });
+await step('meeting notes from the top bar: made for your meeting and opened in a new tab', async () => {
+  const solo = page.getByRole('status', { name: /Solo work in \d+ min/ });
+  await solo.waitFor({ timeout: 10000 });
+  const [tab] = await Promise.all([page.context().waitForEvent('page'), solo.getByRole('button', { name: 'Take meeting notes' }).click()]);
+  await tab.waitForURL(/\/docs\//, { timeout: 15000 });
+  const id = new URL(tab.url()).pathname.split('/').pop();
+  await tab.locator('.ProseMirror').getByText('Solo work').first().waitFor({ timeout: 15000 });
+  await tab.close();
+  const day = new Date(); day.setHours(0, 0, 0, 0);
+  const ev = ((await api(page, 'GET', `/events?from=${day.getTime() - 864e5}&to=${day.getTime() + 2 * 864e5}`)).body || []).find((e) => e.title === 'Solo work');
+  if (ev?.notes_id !== id) throw new Error(`notes ${ev?.notes_id} vs ${id}`);
+  await solo.getByRole('button', { name: 'Open meeting notes' }).waitFor(); // made: now it opens them
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

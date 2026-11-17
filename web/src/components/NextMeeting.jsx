@@ -29,6 +29,15 @@ export default function NextMeeting() {
   const { ev, label } = next;
   // Running late, said from here: the others on it are told (as from the event's own window).
   const withOthers = ev.role === 'guest' || ev.guests?.length > 0;
+  // Meeting notes: yours made (or opened) as from the event's window; someone else's opened.
+  const notes = async () => {
+    const tab = window.open('', '_blank');
+    try {
+      const id = ev.role === 'organizer' ? (await post(`/events/${ev.id}/notes`, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone })).id : ev.notes_id;
+      if (tab) tab.location.href = `/docs/${id}`; else navigate(`/docs/${id}`);
+      if (!ev.notes_id) setEvents((list) => list.map((x) => (x.id === ev.id ? { ...x, notes_id: id } : x)));
+    } catch (e) { tab?.close(); toast(e.message, 'error'); }
+  };
   const late = (minutes) => post(`/events/${ev.id}/late`, { minutes, at: ev.occurrence ?? ev.start })
     .then(() => toast(`Told the others you’re running ${minutes} minutes late`)).catch((e) => toast(e.message, 'error'));
   return (
@@ -36,6 +45,7 @@ export default function NextMeeting() {
       <button type="button" className="link-btn next-meeting-title" title="Open in Calendar" onClick={() => navigate(`/calendar?event=${encodeURIComponent(ev.id)}`)}>
         📅 <span className="ellipsis">{ev.title || 'Meeting'}</span> <span className="muted">{label}</span>
       </button>
+      {(ev.role === 'organizer' || ev.notes_id) && <button type="button" className="icon-btn small" aria-label={ev.notes_id ? 'Open meeting notes' : 'Take meeting notes'} title={ev.notes_id ? 'Open meeting notes' : 'Take meeting notes'} onClick={notes}>📝</button>}
       {withOthers && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn small" aria-label="Running late" title="Running late: tell the others" {...p}>⏱</button>}
         items={[5, 10, 15, 30].map((minutes) => ({ label: `${minutes} minutes late`, onClick: () => late(minutes) }))} />}
       {ev.meet_code && <a className="btn small primary" href={`/meet/${ev.meet_code}`} target="_blank" rel="noopener noreferrer">Join</a>}
