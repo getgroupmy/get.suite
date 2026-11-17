@@ -55,7 +55,10 @@ export default function TimerChip() {
     const due = setInterval(() => {
       setRun((r) => {
         if (!r?.until || Date.now() - (r.skew || 0) < r.until) return r;
-        setEnded({ task_id: r.task_id, list_id: r.list_id, title: r.title, minutes: Math.max(5, Math.round((r.until - r.since) / 60e3)) });
+        const e = { task_id: r.task_id, list_id: r.list_id, title: r.title, minutes: Math.max(5, Math.round((r.until - r.since) / 60e3)) };
+        setEnded(e);
+        const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+        get(`/tasks/focus/done?since=${midnight.getTime() - (r.skew || 0)}`).then((d) => setEnded((x) => (x && x.task_id === e.task_id ? { ...x, today: d.sessions } : x))).catch(() => {});
         return null;
       });
     }, 1000);
@@ -97,8 +100,8 @@ export default function TimerChip() {
   }
   if (!run && ended) {
     return (
-      <div className="timer-chip" role="status" aria-label={`Focus session done: ${ended.title}`}>
-        <span className="timer-chip-title">🎯 <span className="ellipsis">{ended.title}</span> <span className="muted">done</span></span>
+      <div className="timer-chip timer-chip-done" role="status" aria-label={`Focus session done: ${ended.title}${ended.today > 1 ? `, ${ended.today} today` : ''}`}>
+        <span className="timer-chip-title">🎯 <span className="ellipsis">{ended.title}</span> <span className="muted">done{ended.today > 1 ? ` · ${ended.today} today` : ''}</span></span>
         <button type="button" className="btn small" onClick={() => focusAgain(ended)}>Another {ended.minutes} min</button>
         <button type="button" className="btn small" onClick={() => takeBreak(ended)}>5-min break</button>
         <button type="button" className="icon-btn small" aria-label="Dismiss" title="Dismiss" onClick={() => setEnded(null)}>✕</button>

@@ -214,3 +214,21 @@ test('a timer stopped within half a minute leaves no entry', async () => {
   assert.equal((await a('GET', `/api/tasks/tasks/${task.id}/time`)).body.entries.length, 0);
   await a('POST', '/api/tasks/timer/stop');
 });
+
+test('focus sessions finished today: only ones that ran to their end', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Pomodoro' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Focus me' })).body;
+  const since = Date.now() - 1000;
+  const before = (await a('GET', `/api/tasks/focus/done?since=${since}`)).body.sessions;
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`, { minutes: 25 });
+  endFocusNow(Date.now() + 26 * 60e3); // ran to its end
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`, { minutes: 25 });
+  q('UPDATE task_time SET started_at = started_at - 10 * 60000 WHERE ended_at IS NULL').run();
+  await a('POST', '/api/tasks/timer/stop'); // stopped early: not counted
+  const r = (await a('GET', `/api/tasks/focus/done?since=${since}`)).body;
+  assert.equal(r.sessions, before + 1);
+  assert.ok(r.minutes >= 25);
+  assert.equal((await a('GET', '/api/tasks/focus/done')).status, 400);
+});

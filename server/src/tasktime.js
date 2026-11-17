@@ -52,7 +52,7 @@ export function stopTimer(userId, at = now()) {
   const end = run.until ? Math.min(at, run.until) : at; // a focus session counts no further than its end
   const minutes = minutesBetween(run.started_at, end);
   // Under half a minute (started by mistake, or all of it left out as time away) counts nothing: no "0 min" entry is kept.
-  if (minutes === 0) q('DELETE FROM task_time WHERE id = ?').run(run.id);
+  if (minutes === 0 && !(run.until && end >= run.until)) q('DELETE FROM task_time WHERE id = ?').run(run.id); // a focus session that ran to its end is kept
   else q('UPDATE task_time SET ended_at = ?, minutes = ? WHERE id = ?').run(end, minutes, run.id);
   return run.task_id;
 }
@@ -208,6 +208,15 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
       return res.json(myTimeOf(req.user.id, Math.round((to - from) / 864e5), now(), { from, to }, req.query.all ? Infinity : 5)); // all: every task (the timesheet)
     }
     res.json(myTimeOf(req.user.id, Math.min(31, Math.max(1, Number(req.query.days) || 7))));
+  });
+  // Focus sessions finished since a time (?since=ms, the browser's midnight): { sessions, minutes }. Ones stopped early don't count.
+  r.get('/focus/done', (req, res) => {
+    const since = Number(req.query.since);
+    if (!Number.isFinite(since)) throw bad('Since when?');
+    const t = now(); // one whose time is up but not yet closed by the half-minute sweep counts too
+    const row = q(`SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(minutes, ROUND((until - started_at) / 60000.0))), 0) AS m FROM task_time
+                   WHERE user_id = ? AND until IS NOT NULL AND until >= ? AND ((ended_at IS NOT NULL AND ended_at >= until) OR (ended_at IS NULL AND until <= ?))`).get(req.user.id, since, t + 2000); // a browser a moment ahead still counts the one just ended
+    res.json({ sessions: row.n, minutes: row.m });
   });
   r.get('/timer', (req, res) => {
     const run = q('SELECT e.*, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id WHERE e.user_id = ? AND e.ended_at IS NULL').get(req.user.id);

@@ -35,6 +35,14 @@ await step('setup', async () => {
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
+const AXE = (await import('node:fs')).readFileSync(`${ROOT}/e2e/node_modules/axe-core/axe.min.js`, 'utf8');
+const scan = async (label) => {
+  await page.evaluate(AXE);
+  const res = await page.evaluate(async () => (await window.axe.run(document, { resultTypes: ['violations'], runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations
+    .filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}(${v.nodes.length}): ${v.nodes[0]?.html.slice(0, 160)}`));
+  if (res.length) throw new Error(`${label}: ${res.join(' | ')}`);
+};
+const both = async (label) => { for (const c of ['light', 'dark']) { await page.emulateMedia({ colorScheme: c }); await scan(`${label} ${c}`); } await page.emulateMedia({ colorScheme: 'light' }); };
 let task;
 await step('a focus session ends: the top bar offers another one or a break', async () => {
   const list = (await api(page, 'POST', '/tasks/lists', { name: 'Work' })).body.id;
@@ -47,6 +55,7 @@ await step('a focus session ends: the top bar offers another one or a break', as
   const done = page.getByRole('status', { name: 'Focus session done: Write the report' });
   await done.waitFor({ timeout: 10000 });
   await page.screenshot({ path: `${SP}/shots/focus-done.png` });
+  await both('done chip');
   // Another one: a new 5-minute session on the same task.
   await done.getByRole('button', { name: 'Another 5 min' }).click();
   await page.getByText('Focus for 5 minutes on Write the report').last().waitFor({ timeout: 10000 });
@@ -54,9 +63,14 @@ await step('a focus session ends: the top bar offers another one or a break', as
   if (!t || t.task_id !== task || Math.round((t.until - t.since) / 1e3) !== 5) throw new Error(JSON.stringify(t));
 });
 await step('a 5-minute break, counted down; when it’s over, back to the task', async () => {
-  const done = page.getByRole('status', { name: 'Focus session done: Write the report' });
-  await done.getByRole('button', { name: '5-min break' }).click({ timeout: 15000 });
+  const done = page.getByRole('status', { name: /^Focus session done: Write the report/ });
+  await done.waitFor({ timeout: 15000 });
+  await until(async () => /, 2 today$/.test(await done.getAttribute('aria-label')), 8000).catch(async () => { throw new Error(`label: ${await done.getAttribute('aria-label')}`); }); // the second one today
+  await done.getByText('done · 2 today').waitFor();
+  await page.screenshot({ path: `${SP}/shots/focus-done-2.png` });
+  await done.getByRole('button', { name: '5-min break' }).click();
   await page.getByRole('status', { name: /^Break: 1 min left$/ }).waitFor(); // 4 seconds in this test
+  await both('break chip');
   await page.reload(); // kept across reloads
   await page.getByRole('status', { name: /^Break: \d min left$/ }).waitFor({ timeout: 10000 });
   await page.getByText('Break’s over').last().waitFor({ timeout: 15000 });
