@@ -221,6 +221,27 @@ await step('Word count lists your sprints in the document', async () => {
   await page.screenshot({ path: `${SP}/shots/sprint-history.png` });
   await page.getByRole('dialog', { name: 'Word count' }).getByRole('button', { name: 'OK' }).click();
 });
+await step('a sprint ended without a connection is kept, and reaches the history when back', async () => {
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const count = async () => (await api(page, 'GET', `/files/${id}/sprints`)).body.count;
+  const before = await count();
+  await page.evaluate(() => localStorage.setItem('nw-sprint-seconds', '1'));
+  await page.locator('.ProseMirror').first().click();
+  await page.keyboard.press('Control+Shift+F');
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: '10 minutes' }).click();
+  await page.waitForTimeout(500);
+  await page.context().setOffline(true);
+  await page.getByRole('timer', { name: 'Writing sprint' }).getByRole('button', { name: 'Stop the sprint' }).click();
+  await page.waitForTimeout(800);
+  await page.context().setOffline(false);
+  await page.getByText(/Sent \d+ changes? made offline/).waitFor({ timeout: 30000 });
+  await until(async () => (await count()) === before + 1, 10000);
+  await page.evaluate(() => localStorage.removeItem('nw-sprint-seconds'));
+  await page.keyboard.press('Control+Shift+F');
+  // The browser's own complaints about the lost connection aren't errors of the page.
+  for (let i = errors.length - 1; i >= 0; i--) if (/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket/.test(errors[i])) errors.splice(i, 1);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

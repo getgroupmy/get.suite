@@ -3,7 +3,7 @@ const WHAT = [
   [/^\/tasks\/lists\/[^/]+\/tasks$/, 'POST', 'Add a task'], [/^\/tasks\/tasks\/[^/]+$/, 'PATCH', 'Change a task'], [/^\/tasks\/tasks\/[^/]+$/, 'DELETE', 'Delete a task'],
   [/^\/notes$/, 'POST', 'Take a note'], [/^\/notes\/[^/]+$/, 'PATCH', 'Change a note'], [/^\/notes\/[^/]+$/, 'DELETE', 'Delete a note'],
   [/^\/contacts$/, 'POST', 'Add a contact'], [/^\/contacts\/[^/]+$/, 'PATCH', 'Change a contact'], [/^\/contacts\/[^/]+$/, 'DELETE', 'Delete a contact'],
-  [/^\/files\/new$/, 'POST', 'Make a document'], [/^\/files\/[^/]+$/, 'PATCH', 'Rename a file'],
+  [/^\/files\/new$/, 'POST', 'Make a document'], [/^\/files\/[^/]+\/sprints$/, 'POST', 'Keep a writing sprint'], [/^\/files\/[^/]+$/, 'PATCH', 'Rename a file'],
   [/^\/events$/, 'POST', 'Add an event'], [/^\/events\/[^/]+$/, 'PATCH', 'Change an event'],
   [/^\/chat\/channels\/[^/]+\/messages$/, 'POST', 'Send a chat message'], [/^\/chat\/messages\/[^/]+$/, 'PATCH', 'Change a chat message'], [/^\/chat\/messages\/[^/]+$/, 'DELETE', 'Delete a chat message'], [/^\/chat\/messages\/[^/]+\/reactions$/, 'POST', 'React in Chat'],
   [/^\/mail\/messages\/move$/, 'POST', 'Move mail'], [/^\/mail\/messages\/delete$/, 'POST', 'Delete mail'],

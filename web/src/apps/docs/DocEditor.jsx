@@ -1,7 +1,7 @@
 import { isPaused, pausedUntil, pauseUntil } from '../../pause.js';
 import { sprintText, SPRINTS } from './sprint.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { keptDoc, unreachable } from '../offlinedocs.js';
+import { keptDoc, unreachable, changeAdd } from '../offlinedocs.js';
 import { useKeptCopy, renameFile, RebuiltNote } from '../KeptCopy.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
@@ -717,7 +717,9 @@ function SharedDoc({ file, setFile }) {
   // Each sprint ended or stopped is kept (Word count shows them): when it began, how long it ran, the words added.
   const recordSprint = (sp, words) => {
     const started = sp.started || sp.ends - 60e3, ranMs = Math.min(Date.now(), sp.ends) - started;
-    post(`/files/${file.id}/sprints`, { started: Math.round(started), minutes: Math.max(0, Math.round(ranMs / 60e3)), words }).catch(() => {});
+    const url = `/files/${file.id}/sprints`, body = { started: Math.round(started), minutes: Math.max(0, Math.round(ranMs / 60e3)), words };
+    // Without a connection it waits with the other changes made offline (sending it again changes nothing).
+    post(url, body).catch((e) => { if (unreachable(e)) changeAdd({ method: 'POST', url, body, user: user.id, label: `${words >= 0 ? '+' : '−'}${Math.abs(words)} words` }).then(() => window.dispatchEvent(new Event('nw:changes'))).catch(() => {}); });
   };
   const stopSprint = () => {
     if (sprint && editor) recordSprint(sprint, countWords(editor.state.doc).words - sprint.words);
