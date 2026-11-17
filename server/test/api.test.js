@@ -14781,6 +14781,11 @@ test('meet: a meeting’s calendar event and its notes — for its organiser and
   await a('POST', '/api/events', { title: 'Standup', start: s0, end: s0 + 15 * 60e3, meet_code: daily, rrule: { freq: 'daily' } });
   const dEnd = (await a('GET', `/api/meet/${daily}/event`)).body.end;
   assert.equal(dEnd, s0 + 7 * 864e5 + 15 * 60e3, 'today’s');
+  // Weekly on another weekday: no occurrence within a day, so no end.
+  const weekly = (await a('POST', '/api/meet', { title: 'Weekly' })).body.code;
+  const w0 = Date.now() - 7 * 864e5 + 3 * 864e5; // three days from today's weekday, last week
+  await a('POST', '/api/events', { title: 'Weekly sync', start: w0, end: w0 + 30 * 60e3, meet_code: weekly, rrule: { freq: 'weekly' } });
+  assert.equal((await a('GET', `/api/meet/${weekly}/event`)).body.end, null, 'not today');
   assert.equal((await a('GET', `/api/meet/${plain}/event`)).body, null, 'a meeting without an event');
   const notes = (await a('POST', `/api/events/${ev.id}/notes`, { tz: 'UTC' })).body;
   const forB = (await b('GET', `/api/meet/${code}/event`)).body;

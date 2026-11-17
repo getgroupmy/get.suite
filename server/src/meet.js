@@ -2,6 +2,8 @@
 // (WebRTC, each to each, so up to MAX_PEOPLE); this server only introduces them over a WebSocket
 // (/ws/meet/<code>) and passes on what they say to each other: connection offers and answers, network
 // candidates, mute/camera/hand state, and the meeting's chat. Mounted at /api/meet for the REST side.
+import { expand } from './calmath.js';
+import { outEvent } from './routes/calendar.js';
 import { Router } from 'express';
 import { insertFile } from './routes/files.js';
 import crypto from 'node:crypto';
@@ -225,10 +227,15 @@ export function meetRoutes() {
     const t = Date.now();
     const ev = evs.sort((a, b) => Math.abs(a.start - t) - Math.abs(b.start - t))[0];
     const notes = ev.notes_id && q('SELECT id, name FROM files WHERE id = ? AND trashed = 0').get(ev.notes_id);
-    // Its end (for "Ends in 5 min"): a one-off, timed event's own; a repeating one's today, at the same time of day.
+    // Its end (for "Ends in 5 min"): a one-off, timed event's own; a repeating one's nearest occurrence (within a day).
     let end = null;
     if (!ev.all_day && !ev.rrule) end = ev.end;
-    else if (!ev.all_day) { const len = ev.end - ev.start, day = 864e5; const today = ev.start + Math.round((t - ev.start) / day) * day; end = today + len; }
+    else if (!ev.all_day) {
+      // The occurrence nearest now, by the event's own repeat rule (as Calendar shows it); none within a day: no end.
+      const full = q('SELECT * FROM events WHERE id = ?').get(ev.id);
+      const occ = expand(outEvent(full), t - 864e5, t + 864e5).sort((a, b) => Math.abs(a.start - t) - Math.abs(b.start - t))[0];
+      end = occ ? occ.end : null;
+    }
     res.json({ id: ev.id, title: ev.title, organiser: ev.owner_id === req.user.id, notes: notes && roleFor(notes.id, req.user.id) ? { id: notes.id, name: notes.name } : null, end });
   });
 
