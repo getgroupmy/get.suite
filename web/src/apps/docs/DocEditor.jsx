@@ -53,7 +53,8 @@ import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { captureFormat, applyFormat, wordAt } from './paintformat.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
-import { NodeSelection } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { LinkDialog } from './LinkDialog.jsx';
 import { measureLines } from './linenumbers.js';
 import { flushSync } from 'react-dom';
@@ -180,6 +181,9 @@ function SharedDoc({ file, setFile }) {
   const [focusMode, setFocusMode] = useState(false);
   // Typewriter scrolling (in focus mode): the line being written stays in the middle of the screen. Remembered here.
   const [typewriter, setTypewriterState] = useState(() => { try { return localStorage.getItem('nw-typewriter') === '1'; } catch { return false; } });
+  // Dim (in focus mode): all but the paragraph being written fade. Remembered here.
+  const [dimOthers, setDimState] = useState(() => { try { return localStorage.getItem('nw-dim-others') === '1'; } catch { return false; } });
+  const setDimOthers = (on) => { setDimState(on); try { localStorage.setItem('nw-dim-others', on ? '1' : '0'); } catch { /* not remembered */ } };
   const setTypewriter = (on) => { setTypewriterState(on); try { localStorage.setItem('nw-typewriter', on ? '1' : '0'); } catch { /* not remembered */ } };
   useEffect(() => {
     if (!focusMode) return undefined;
@@ -670,14 +674,31 @@ function SharedDoc({ file, setFile }) {
     centre();
     return () => { editor.off('selectionUpdate', centre); editor.off('update', centre); };
   }, [editor, focusMode, typewriter]);
+  // Dim: the block holding the caret (a paragraph, heading, list…: one directly in the page or tab) is decorated as
+  // current (a decoration, so the editor keeps it as it redraws).
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!editor || !focusMode || !dimOthers) return undefined;
+    const key = new PluginKey('dimOthers');
+    editor.registerPlugin(new Plugin({ key, props: { decorations: (state) => {
+      const { $from } = state.selection;
+      let d = $from.depth;
+      while (d > 1 && !['doc', 'docTab'].includes($from.node(d - 1).type.name)) d--;
+      if (d < 1) return null;
+      const from = $from.before(d);
+      return DecorationSet.create(state.doc, [Decoration.node(from, from + $from.node(d).nodeSize, { class: 'is-current' })]);
+    } } }));
+    return () => { if (!editor.isDestroyed) editor.unregisterPlugin(key); };
+  }, [editor, focusMode, dimOthers]);
   if (!editor) return null;
   // The same person in two tabs shows once.
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
 
   return (
-    <div className={`editor-page doc-page ${focusMode ? `doc-focus ${typewriter ? 'typewriter' : ''}` : ''}`}>
+    <div className={`editor-page doc-page ${focusMode ? `doc-focus ${typewriter ? 'typewriter' : ''} ${dimOthers ? 'dim-others' : ''}` : ''}`}>
       {focusMode && (
         <div className="focus-exit row" style={{ gap: 6 }}>
+          <button type="button" className={`btn small ${dimOthers ? 'primary' : ''}`} aria-pressed={dimOthers} onClick={() => setDimOthers(!dimOthers)} title="Fade all but the paragraph you're writing">Dim</button>
           <button type="button" className={`btn small ${typewriter ? 'primary' : ''}`} aria-pressed={typewriter} onClick={() => setTypewriter(!typewriter)} title="Keep the line you're writing in the middle of the screen">Typewriter</button>
           <button type="button" className="btn small" onClick={() => setFocusMode(false)} title="Esc">Exit focus mode</button>
         </div>

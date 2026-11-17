@@ -76,6 +76,22 @@ await step('Typewriter (in focus mode) keeps the line being written in the middl
   await page.getByRole('menuitem', { name: 'Focus mode' }).click();
   if ((await page.getByRole('button', { name: 'Typewriter' }).getAttribute('aria-pressed')) !== 'true') throw new Error('not remembered');
 });
+await step('Dim (in focus mode) fades all but the paragraph being written', async () => {
+  await page.getByRole('button', { name: 'Typewriter' }).click(); // off: not needed here
+  await page.getByRole('button', { name: 'Dim' }).click();
+  const ed = page.locator('.ProseMirror').first();
+  await ed.getByText('Line 3', { exact: true }).click();
+  const op = (text) => ed.getByText(text, { exact: true }).evaluate((el) => Number(getComputedStyle(el.closest('p')).opacity));
+  await page.waitForTimeout(300);
+  if ((await op('Line 3')) !== 1) throw new Error('the current paragraph is faded');
+  if ((await op('Line 10')) >= 0.5) throw new Error('another paragraph is not faded');
+  await ed.getByText('Line 10', { exact: true }).click();
+  await page.waitForTimeout(300);
+  if ((await op('Line 10')) !== 1 || (await op('Line 3')) >= 0.5) throw new Error('the dimming didn’t follow the caret');
+  await page.screenshot({ path: `${SP}/shots/docfocus-dim.png` });
+  await page.getByRole('button', { name: 'Exit focus mode' }).click();
+  if ((await op('Line 3')) !== 1) throw new Error('still faded outside focus mode');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

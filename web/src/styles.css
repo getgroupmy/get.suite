@@ -3233,3 +3233,4 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 .next-meeting-title .ellipsis { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 700px) { .next-meeting-title .ellipsis, .next-meeting-title .muted { display: none; } }
 .doc-focus.typewriter .doc-scroll { padding-bottom: 50vh; padding-top: 40vh; } /* room to keep the first and last lines mid-screen */
+.doc-focus.dim-others .ProseMirror :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure, hr):not(.is-current):not(.is-current *) { opacity: .3; transition: opacity .15s; }
