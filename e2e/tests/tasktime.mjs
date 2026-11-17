@@ -170,16 +170,15 @@ await step('T works in My Day too', async () => {
   await page.getByText('Timer stopped on “Design”').waitFor();
 });
 await step('while Olivia is in a focus session, colleagues see “Focusing” by her name', async () => {
-  await api(page, 'POST', `/tasks/tasks/${design}/timer`, { minutes: 25 });
+  // Kim has the Directory open already: it changes as Olivia starts and stops, without reloading.
   await kim.goto(`${B}/contacts`);
   await kim.getByRole('tab', { name: 'Directory' }).click();
-  await kim.locator('tr', { hasText: 'Olivia Owner' }).getByText(/Focusing/).waitFor({ timeout: 10000 });
+  const olivia = kim.locator('tr', { hasText: 'Olivia Owner' });
+  await olivia.waitFor();
+  await api(page, 'POST', `/tasks/tasks/${design}/timer`, { minutes: 25 });
+  await olivia.getByText(/Focusing/).waitFor({ timeout: 10000 });
   await api(page, 'POST', '/tasks/timer/stop');
-  await kim.reload();
-  await kim.getByRole('tab', { name: 'Directory' }).click();
-  await kim.locator('tr', { hasText: 'Olivia Owner' }).waitFor();
-  await kim.waitForTimeout(800);
-  if (await kim.locator('tr', { hasText: 'Olivia Owner' }).getByText(/Focusing/).count()) throw new Error('still focusing after stopping');
+  await olivia.getByText(/Focusing/).waitFor({ state: 'detached', timeout: 10000 });
 });
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();

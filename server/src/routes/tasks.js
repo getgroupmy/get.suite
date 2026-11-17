@@ -550,12 +550,15 @@ export default function taskRoutes() {
     if (!t) throw notFound('Task not found');
     return { task: t, list: loadList(t.list_id, req.user) };
   };
-  addTimeRoutes(r, { taskFor, loadList, changed }); // time spent on tasks (tasktime.js)
+  // A focus session starting or ending changes the status colleagues see (calendarStatus): told at once.
+  const focusStatus = (user) => sendTo(q('SELECT id FROM users WHERE org_id = ? AND disabled = 0').all(user.org_id).map((u) => u.id), { type: 'status-changed', user_id: user.id });
+  addTimeRoutes(r, { taskFor, loadList, changed, onFocus: focusStatus }); // time spent on tasks (tasktime.js)
   // Focus sessions run out on the server (the page may be closed): stopped at their end, and their owner told.
   const focusDone = (userId, run, minutes) => {
     bell([userId], { kind: 'task', title: `Focus session done: “${run.title}”`, body: `${minutes} minutes counted`, link: `/tasks/${run.list_id}?task=${run.task_id}` });
     const who = q('SELECT * FROM users WHERE id = ?').get(userId);
     try { if (who) changed(loadList(run.list_id, who)); } catch { /* the list is gone */ }
+    if (who) focusStatus(who);
   };
   focusDoneFn = focusDone;
   if (!globalThis.__focusSweep) globalThis.__focusSweep = setInterval(() => { try { endFocusNow(); } catch { /* next time */ } }, 30e3).unref();

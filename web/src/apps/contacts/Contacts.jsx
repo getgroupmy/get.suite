@@ -122,6 +122,8 @@ export default function Contacts() {
     } catch (e) { toast(e.message, 'error'); }
   };
   useEffect(() => { load(); get('/users/directory').then(setDirectory); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Someone's status changes (set by them, or worked out from their calendar or a focus session): the Directory shows it at once.
+  useEffect(() => onLive((m) => { if (m.type === 'status-changed') get('/users/directory').then(setDirectory).catch(() => {}); }), []);
   useEffect(() => onLive((m) => { if (refreshOn(m, 'directory-changed')) get('/users/directory').then(setDirectory).catch(() => {}); }), []);
   const loadRef = useRef(load); loadRef.current = load;
   useEffect(() => { const again = () => loadRef.current(); window.addEventListener('nw:changes-sent', again); return () => window.removeEventListener('nw:changes-sent', again); }, []); // added offline, now made

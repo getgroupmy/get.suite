@@ -129,7 +129,7 @@ export function myTimeOf(userId, days = 7, at = now()) {
 }
 
 /** The routes, added to the tasks router: taskFor(req) → { task, list } (checks access), changed(list) tells the list's people. */
-export function addTimeRoutes(r, { taskFor, loadList, changed }) {
+export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {} }) {
   r.get('/time/mine', (req, res) => res.json(myTimeOf(req.user.id, Math.min(31, Math.max(1, Number(req.query.days) || 7)))));
   r.get('/timer', (req, res) => {
     const run = q('SELECT e.*, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id WHERE e.user_id = ? AND e.ended_at IS NULL').get(req.user.id);
@@ -140,15 +140,19 @@ export function addTimeRoutes(r, { taskFor, loadList, changed }) {
     const { task, list } = taskFor(req);
     const focus = req.body?.minutes == null ? null : Number(req.body.minutes);
     if (focus !== null && !(Number.isInteger(focus) && focus >= 5 && focus <= 180)) throw bad('A focus session lasts 5 minutes to 3 hours');
+    const wasFocus = !!q('SELECT 1 FROM task_time WHERE user_id = ? AND ended_at IS NULL AND until IS NOT NULL').get(req.user.id);
     const stoppedOn = stopTimer(req.user.id); // one timer at a time
     const t = now();
     q('INSERT INTO task_time (id, task_id, user_id, started_at, until) VALUES (?, ?, ?, ?, ?)').run(uid(), task.id, req.user.id, t, focus ? t + focus * 60e3 : null);
+    if (focus || wasFocus) onFocus(req.user); // colleagues see "Focusing" come (or go) at once
     changed(list);
     if (stoppedOn && stoppedOn !== task.id) { const other = q('SELECT list_id FROM tasks WHERE id = ?').get(stoppedOn); if (other && other.list_id !== list.id) changed(loadList(other.list_id, req.user)); }
     res.status(201).json(timeOf(task.id));
   });
   r.post('/timer/stop', (req, res) => {
+    const wasFocus = !!q('SELECT 1 FROM task_time WHERE user_id = ? AND ended_at IS NULL AND until IS NOT NULL').get(req.user.id);
     const taskId = stopTimer(req.user.id);
+    if (taskId && wasFocus) onFocus(req.user);
     if (!taskId) throw notFound('No timer is running');
     const listId = q('SELECT list_id FROM tasks WHERE id = ?').get(taskId)?.list_id;
     if (listId) changed(loadList(listId, req.user));
