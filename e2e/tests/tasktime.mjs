@@ -76,7 +76,19 @@ await step('time added by hand, totals per person; only your own entries can be 
   await timeBox(kim).getByRole('button', { name: 'Add', exact: true }).click();
   await kim.getByText(/Enter how long/).waitFor();
   await timeBox(kim).getByRole('button', { name: 'Cancel' }).click();
-  if (await timeBox(page).getByRole('button', { name: /^Remove 1 h 30 min/ }).count()) throw new Error('could remove someone else’s');
+  if (await timeBox(page).getByRole('button', { name: /^(Remove|Change) 1 h 30 min/ }).count()) throw new Error('could change someone else’s');
+  // ✎ on her own: 2 hours, and Olivia sees it live.
+  await timeBox(kim).getByRole('button', { name: /^Change 1 h 30 min/ }).click();
+  const edit = timeBox(kim).getByRole('form', { name: 'Change time entry' });
+  if (await edit.getByLabel('How long').inputValue() !== '1h 30m') throw new Error('not filled in');
+  await edit.getByLabel('How long').fill('2h');
+  await edit.getByRole('button', { name: 'Save' }).click();
+  await timeBox(kim).getByText(/Kim Park · .* · 2 h · Workshop/).waitFor();
+  await timeBox(page).getByText(/2 h in all/).waitFor({ timeout: 10000 });
+  await timeBox(kim).getByRole('button', { name: /^Change 2 h/ }).click();
+  await edit.getByLabel('How long').fill('1h 30m');
+  await edit.getByRole('button', { name: 'Save' }).click();
+  await timeBox(kim).getByText(/Kim Park · .* · 1 h 30 min · Workshop/).waitFor();
   await timeBox(kim).getByRole('button', { name: /^Remove 1 h 30 min/ }).click();
   await until(async () => !(await timeBox(page).getByText(/1 h 30 min/).count()));
   await api(kim, 'POST', `/tasks/tasks/${design}/time`, { duration: '45m' });
@@ -285,9 +297,18 @@ await step('Tasks → My timesheet: the week day by day; a day’s cell adds tim
   await page.getByText('Time removed').last().waitFor();
   await page.waitForFunction(([b]) => document.querySelector('[aria-label^="Week total:"]')?.getAttribute('aria-label') !== b, [after], { timeout: 10000 });
   if ((await total()) !== before) throw new Error(`total ${await total()} not back to ${before}`);
-  await form.getByLabel('How long').fill('45m'); // and back again, for the CSV below
+  await form.getByLabel('How long').fill('30m'); // and back again, for the CSV below
   await form.getByRole('button', { name: 'Add' }).click();
-  await entries.getByText('Added by hand · 45 min').waitFor({ timeout: 10000 });
+  await entries.getByText('Added by hand · 30 min').waitFor({ timeout: 10000 });
+  // ✎ changes it: 45 minutes, with a note.
+  await entries.getByRole('button', { name: 'Change 30 min' }).click();
+  const edit = entries.getByRole('form', { name: 'Change time entry' });
+  if (await edit.getByLabel('How long').inputValue() !== '30m') throw new Error('not filled in with its length');
+  await edit.getByLabel('How long').fill('45m');
+  await edit.getByLabel('Note').fill('Sketches');
+  await edit.getByRole('button', { name: 'Save' }).click();
+  await entries.getByText('Added by hand · 45 min · Sketches').waitFor({ timeout: 10000 });
+  await page.waitForFunction(([b]) => document.querySelector('[aria-label^="Week total:"]')?.getAttribute('aria-label') !== b, [before], { timeout: 10000 });
   // A future day can't take time.
   const d = new Date(); d.setDate(d.getDate() + 1);
   if (d.getDay() !== 1) { // tomorrow still in this week

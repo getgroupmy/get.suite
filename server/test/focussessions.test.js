@@ -172,3 +172,27 @@ test('time away left out: stop a timer when you went away, and carry on or not',
   await a('POST', '/api/tasks/timer/stop', { at: Date.now(), resume: true });
   assert.equal((await a('GET', '/api/tasks/timer')).body, null);
 });
+
+test('a time entry changed: its length (a timer’s end moves too) and its note; only your own, not while running', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Edits' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Write up' })).body;
+  const added = (await a('POST', `/api/tasks/tasks/${task.id}/time`, { duration: '45m', note: 'Draft' })).body;
+  const id = added.entries[0].id;
+  const r = await a('PATCH', `/api/tasks/time/${id}`, { duration: '1h 10m', note: 'Draft and edit' });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.total, r.body.entries[0].note], [70, 'Draft and edit']);
+  assert.equal((await a('PATCH', `/api/tasks/time/${id}`, { note: '' })).body.entries[0].note ?? null, null);
+  assert.equal((await a('PATCH', `/api/tasks/time/${id}`, { duration: 'ages' })).status, 400);
+  assert.equal((await a('PATCH', `/api/tasks/time/${id}`, { duration: '25h' })).status, 400);
+  // A timer entry: its end moves with its length.
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`);
+  assert.equal((await a('PATCH', `/api/tasks/time/${(await a('GET', `/api/tasks/tasks/${task.id}/time`)).body.entries.find((x) => x.running).id}`, { duration: '5m' })).status, 400, 'not while running');
+  await a('POST', '/api/tasks/timer/stop');
+  const timed = (await a('GET', `/api/tasks/tasks/${task.id}/time`)).body.entries.find((x) => x.id !== id);
+  await a('PATCH', `/api/tasks/time/${timed.id}`, { duration: '30m' });
+  const row = q('SELECT * FROM task_time WHERE id = ?').get(timed.id);
+  assert.deepEqual([row.minutes, row.ended_at - row.started_at], [30, 30 * 60e3]);
+  assert.equal((await a('PATCH', '/api/tasks/time/nope', { duration: '5m' })).status, 404);
+});

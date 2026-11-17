@@ -870,11 +870,30 @@ function TaskSchedule({ task }) {
   );
 }
 
+const durationText = (min) => { const h = Math.floor(min / 60), m = min % 60; return [h && `${h}h`, m && `${m}m`].filter(Boolean).join(' ') || '0m'; };
+
+/** ✎ on one of your time entries: change how long it was, or its note. onSaved(the task's time). */
+function EntryEdit({ entry, minutes, onSaved, onCancel }) {
+  const toast = useToast();
+  const [f, setF] = useState({ duration: durationText(minutes ?? entry.minutes), note: entry.note || '' });
+  return (
+    <form className="row wrap" style={{ gap: 6 }} aria-label="Change time entry" onSubmit={async (e) => {
+      e.preventDefault();
+      try { const r = await patch(`/tasks/time/${entry.id}`, f); toast('Time entry changed'); onSaved(r); } catch (err) { toast(err.message, 'error'); }
+    }}>
+      <input aria-label="How long" size={8} autoFocus value={f.duration} onChange={(e) => setF({ ...f, duration: e.target.value })} />
+      <input aria-label="Note" placeholder="What for (optional)" maxLength={300} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+      <button className="btn small primary">Save</button><button type="button" className="btn small" onClick={onCancel}>Cancel</button>
+    </form>
+  );
+}
+
 function TaskTime({ task }) {
   const { user } = useAuth();
   const toast = useToast();
   const [t, setT] = useState(null);
   const [adding, setAdding] = useState(null); // { duration, day, note }
+  const [editing, setEditing] = useState(null); // an entry's id
   const [, tick] = useState(0);
   const load = useCallback(() => get(`/tasks/tasks/${task.id}/time`).then(setT).catch(() => {}), [task.id]);
   useEffect(() => { load(); }, [load, task.updated_at]);
@@ -911,10 +930,12 @@ function TaskTime({ task }) {
       {t.entries.length > 0 && (
         <ul className="plain-list task-time-list" aria-label="Time entries">
           {t.entries.slice(0, 20).map((e) => (
+            editing === e.id ? <li key={e.id}><EntryEdit entry={e} onCancel={() => setEditing(null)} onSaved={(r) => { setT(r); setEditing(null); }} /></li> : (
             <li key={e.id} className="row small">
               <span className="grow">{e.running ? '● ' : ''}{e.user_name} · {dayOf(e.started_at)} · {e.running ? `running, ${formatMinutes(e.minutes)} so far` : formatMinutes(e.minutes)}{e.note ? ` · ${e.note}` : ''}</span>
+              {e.user_id === user.id && !e.running && <button type="button" className="icon-btn" aria-label={`Change ${formatMinutes(e.minutes)} on ${dayOf(e.started_at)}`} title="Change" onClick={() => setEditing(e.id)}><Icon name="edit" size={14} /></button>}
               {e.user_id === user.id && !e.running && <button type="button" className="icon-btn" aria-label={`Remove ${formatMinutes(e.minutes)} on ${dayOf(e.started_at)}`} onClick={() => act(() => del(`/tasks/time/${e.id}`))}><Icon name="close" size={14} /></button>}
-            </li>
+            </li>)
           ))}
         </ul>
       )}
@@ -929,6 +950,7 @@ function Timesheet({ onClose, onOpen }) {
   const [week, setWeek] = useState(monday);
   const [data, setData] = useState(null);
   const [adding, setAdding] = useState(null); // { task, day, duration }
+  const [editing, setEditing] = useState(null); // an entry's id, in the open cell
   const end = (() => { const d = new Date(week); d.setDate(d.getDate() + 7); return d.getTime(); })();
   const load = useCallback(() => get(`/tasks/time/mine?from=${week}&to=${end}&all=1`).then(setData).catch((e) => toast(e.message, 'error')), [week, end, toast]);
   useEffect(() => { setData(null); setAdding(null); load(); }, [load]);
@@ -984,9 +1006,10 @@ function Timesheet({ onClose, onOpen }) {
             const clock = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
             return here.length > 0 && (
               <ul className="plain-list" aria-label="Entries that day">
-                {here.map((e) => (
+                {here.map((e) => editing === e.id ? <li key={e.id}><EntryEdit entry={e} minutes={e.logged ? e.minutes : Math.round((e.end - e.start) / 60e3)} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} /></li> : (
                   <li key={e.id} className="row small" style={{ gap: 6 }}>
                     <span className="grow">{e.logged ? 'Added by hand' : e.running ? `${clock(e.start)} – now (running)` : `${clock(e.start)} – ${clock(e.end)}`} · {formatMinutes(e.minutes_here)}{e.note ? ` · ${e.note}` : ''}</span>
+                    {!e.running && <button type="button" className="icon-btn" aria-label={`Change ${formatMinutes(e.minutes_here)}${e.note ? ` (${e.note})` : ''}`} title="Change" onClick={() => setEditing(e.id)}><Icon name="edit" size={14} /></button>}
                     {!e.running && <button type="button" className="icon-btn" aria-label={`Remove ${formatMinutes(e.minutes_here)}${e.note ? ` (${e.note})` : ''}`} onClick={async () => {
                       try { await del(`/tasks/time/${e.id}`); toast('Time removed'); load(); } catch (err) { toast(err.message, 'error'); }
                     }}><Icon name="close" size={14} /></button>}

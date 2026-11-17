@@ -252,6 +252,24 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
     changed(list);
     res.status(201).json(timeOf(task.id));
   });
+  // Change one of your own entries: { duration } (a timer's end moves to match) and/or { note } ('' clears it).
+  // A timer still running can't be changed (stop it first).
+  r.patch('/time/:entry', (req, res) => {
+    const e = q('SELECT * FROM task_time WHERE id = ?').get(req.params.entry);
+    if (!e || e.user_id !== req.user.id) throw notFound('Time entry not found');
+    if (e.ended_at === null) throw bad('Stop the timer first');
+    const { list } = taskFor({ ...req, params: { id: e.task_id } });
+    let { minutes, ended_at: end, note } = e;
+    if (req.body?.duration != null) {
+      minutes = parseDuration(req.body.duration);
+      if (!minutes || minutes < 1 || minutes > MAX_MINUTES) throw bad('Enter how long, such as 45m, 1h 30m or 2:15 (a day at most)');
+      if (!e.manual) end = e.started_at + minutes * 60e3;
+    }
+    if (req.body?.note !== undefined) note = req.body.note ? str(req.body.note, { max: 300 }) : null;
+    q('UPDATE task_time SET minutes = ?, ended_at = ?, note = ? WHERE id = ?').run(minutes, end, note, e.id);
+    changed(list);
+    res.json(timeOf(e.task_id));
+  });
   r.delete('/time/:entry', (req, res) => {
     const e = q('SELECT * FROM task_time WHERE id = ?').get(req.params.entry);
     if (!e || e.user_id !== req.user.id) throw notFound('Time entry not found'); // only your own
