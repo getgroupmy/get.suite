@@ -15818,8 +15818,9 @@ test('docs: normal text in the OpenDocument (.odt) download', async () => {
 test('docs: an OpenDocument file’s normal text comes along when opened, and round-trips', async () => {
   const { odtFromDoc, pageOfOdt } = await import('../src/office/odt.js');
   const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
-  assert.deepEqual(await pageOfOdt(await odtFromDoc(doc, 'x', { page: { font: 'Verdana', fontSize: 10 } })), { font: 'Verdana', fontSize: 10 });
-  assert.deepEqual(await pageOfOdt(await odtFromDoc(doc, 'x')), { fontSize: 11 }, 'Liberation Sans isn’t offered; 11 pt is');
+  assert.deepEqual(await pageOfOdt(await odtFromDoc(doc, 'x', { page: { font: 'Verdana', fontSize: 10 } })), { size: 'a4', orientation: 'portrait', margin: 'normal', font: 'Verdana', fontSize: 10 });
+  assert.deepEqual(await pageOfOdt(await odtFromDoc(doc, 'x')), { size: 'a4', orientation: 'portrait', margin: 'normal', fontSize: 11 }, 'Liberation Sans isn’t offered; 11 pt is');
+  assert.deepEqual(await pageOfOdt(await odtFromDoc(doc, 'x', { page: { size: 'letter', orientation: 'landscape', margin: 'narrow', pageColor: '#fff2cc' } })), { size: 'letter', orientation: 'landscape', margin: 'narrow', pageColor: '#fff2cc', fontSize: 11 }, 'paper, orientation, margins and page colour too');
   assert.deepEqual(await pageOfOdt(Buffer.from('not a zip')), {});
   const buf = await odtFromDoc(doc, 'Odt in', { page: { font: 'Georgia', fontSize: 12 } });
   const up = (await owner('POST', '/api/files/upload?name=Odt%20in.odt', buf, { raw: true })).body;
@@ -15850,7 +15851,7 @@ test('previews of Word and OpenDocument files look like the file: normal text an
   const w = await officePreview(await wordFromDoc(doc, 'x', { page }), 'Letter.docx', 'u1');
   assert.deepEqual(w.look, { font: 'Georgia', fontSize: 12, pageColor: '#e8f0fe' });
   const o = await officePreview(await odtFromDoc(doc, 'x', { page }), 'Letter.odt', 'u1');
-  assert.deepEqual(o.look, { font: 'Georgia', fontSize: 12 }, 'an .odt download has no page colour');
+  assert.deepEqual(o.look, { font: 'Georgia', fontSize: 12, pageColor: '#e8f0fe' });
   const plain = await officePreview(Buffer.from('# Title\n\nText'), 'Notes.md', 'u1');
   assert.equal('look' in plain, false);
 });

@@ -95,6 +95,23 @@ await step('Drive’s preview of that Word file shows it in its normal text', as
   const css = await pv.evaluate((el) => `${getComputedStyle(el).fontFamily}|${getComputedStyle(el).fontSize}`);
   if (!/Georgia/.test(css) || !css.endsWith('16px')) throw new Error(css); // 12 pt
 });
+await step('an .odt download keeps the page: Letter, landscape, light yellow; and comes back', async () => {
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Odt page', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Wide and yellow' }] }] } })).body;
+  await api(page, 'PATCH', `/files/${d.id}`, { page_setup: { size: 'letter', orientation: 'landscape', pageColor: '#fff2cc' } });
+  const back = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Odt%20page.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, d.id);
+  await page.goto(`${B}/docs/${back.id}`);
+  await page.locator('.ProseMirror').getByText('Wide and yellow').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Page setup' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Page setup' });
+  if (!/^letter$/i.test(await dlg.getByLabel('Paper size').inputValue())) throw new Error('paper');
+  if ((await dlg.getByRole('radio', { name: 'Landscape' }).getAttribute('aria-checked')) !== 'true') throw new Error('orientation');
+  if ((await dlg.getByRole('radio', { name: 'Light yellow' }).getAttribute('aria-checked')) !== 'true') throw new Error('page colour');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

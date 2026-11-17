@@ -18,6 +18,18 @@ const odfText = (s) => x(s).replace(/\t/g, '<text:tab/>').replace(/\n/g, '<text:
 const COLOR = /^#[0-9a-f]{6}$/i;
 
 // ---- document → .odt ----
+/** The page: paper size and orientation, margins and page colour from Page setup (A4 portrait, 2 cm, white without one). */
+export function pageLayout(page) {
+  const PAPER = { a4: [210, 297], letter: [215.9, 279.4], legal: [215.9, 355.6], a5: [148, 210] }, MARGINS = { normal: 25.4, narrow: 12.7, wide: 38.1 };
+  let [w, h] = PAPER[page?.size] || PAPER.a4;
+  const landscape = page?.orientation === 'landscape';
+  if (landscape) [w, h] = [h, w];
+  const m = page?.margin ? MARGINS[page.margin] || 20 : 20;
+  const cm = (mm) => `${+(mm / 10).toFixed(3)}cm`;
+  const bg = /^#[0-9a-f]{6}$/i.test(page?.pageColor || '') ? ` fo:background-color="${page.pageColor.toLowerCase()}"` : '';
+  return `fo:page-width="${cm(w)}" fo:page-height="${cm(h)}" style:print-orientation="${landscape ? 'landscape' : 'portrait'}" fo:margin-top="${cm(m)}" fo:margin-bottom="${cm(m)}" fo:margin-left="${cm(m)}" fo:margin-right="${cm(m)}"${bg}`;
+}
+
 /** The paragraphs' default text: the document's Normal text (Page setup), else Liberation Sans 11 pt. */
 export function normalText(page) {
   const font = page?.font ? `fo:font-family="'${String(page.font).replace(/[^A-Za-z ]/g, '')}'"` : 'style:font-name="Liberation Sans" fo:font-family="\'Liberation Sans\', Arial, sans-serif"';
@@ -191,7 +203,7 @@ ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<styl
 <style:style style:name="Table_20_Heading" style:display-name="Table Heading" style:family="paragraph" style:parent-style-name="Table_20_Contents" style:class="extra"><style:text-properties fo:font-weight="bold"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:text-properties fo:font-size="9pt"/></style:style>
 <style:style style:name="Reference" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="1.27cm" fo:text-indent="-1.27cm"/></style:style>
-</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="21cm" fo:page-height="29.7cm" fo:margin-top="2cm" fo:margin-bottom="2cm" fo:margin-left="2cm" fo:margin-right="2cm"/></style:page-layout></office:automatic-styles>
+</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties ${pageLayout(page)}/></style:page-layout></office:automatic-styles>
 <office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>`;
   const meta = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-meta ${NS}><office:meta><dc:title>${x(title)}</dc:title><meta:generator>Workspace</meta:generator></office:meta></office:document-meta>`;
@@ -233,6 +245,21 @@ export async function pageOfOdt(buffer) {
     const family = String(pick(/fo:font-family="([^"]+)"/) || pick(/style:font-name="([^"]+)"/) || '').split(',')[0].replace(/['"&;]|apos|quot/g, '').trim();
     const size = Number((/^([\d.]+)pt$/.exec(pick(/fo:font-size="([^"]+)"/) || '') || [])[1]);
     const out = {};
+    // The page: the master page's layout (the first one), as Page setup knows it (nearest paper and margins).
+    const layout = /<style:page-layout-properties\b([^>]*)\/?>/.exec(styles)?.[1] || '';
+    const len = (name) => { const m = new RegExp(`${name}="([\\d.]+)(cm|mm|in|pt)"`).exec(layout); return m ? Number(m[1]) * { cm: 10, mm: 1, in: 25.4, pt: 25.4 / 72 }[m[2]] : null; };
+    const w = len('fo:page-width'), h = len('fo:page-height');
+    if (w && h) {
+      const PAPER = { a4: [210, 297], letter: [215.9, 279.4], legal: [215.9, 355.6], a5: [148, 210] };
+      out.orientation = w > h ? 'landscape' : 'portrait';
+      const [a, b] = [Math.min(w, h), Math.max(w, h)];
+      const best = Object.entries(PAPER).map(([k, [pw, ph]]) => [k, Math.abs(pw - a) + Math.abs(ph - b)]).sort((x, y) => x[1] - y[1])[0];
+      if (best[1] < 12) out.size = best[0];
+    }
+    const left = len('fo:margin-left');
+    if (left) out.margin = Object.entries({ normal: 25.4, narrow: 12.7, wide: 38.1 }).sort((x, y) => Math.abs(x[1] - left) - Math.abs(y[1] - left))[0][0];
+    const bg = /fo:background-color="(#[0-9a-fA-F]{6})"/.exec(layout)?.[1]?.toLowerCase();
+    if (bg && bg !== '#ffffff') out.pageColor = bg;
     const f = DOC_FONTS.find((n) => n.toLowerCase() === family.toLowerCase());
     if (f) out.font = f;
     if (DOC_FONT_SIZES.includes(size)) out.fontSize = size;
