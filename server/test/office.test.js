@@ -1984,3 +1984,23 @@ test('Word: code blocks and page breaks come back (also after LibreOffice saves 
     assert.deepEqual(shape((await docFromWord(fs.readFileSync(path.join(dir, 'out', 'c.docx')))).doc), want);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('OpenDocument: words’ fonts and sizes and horizontal lines come back; other fixed-width text stays code (also through LibreOffice, where installed)', async (t) => {
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const tx = (x, marks) => ({ type: 'text', text: x, ...(marks && { marks }) });
+  const ts = (attrs) => [{ type: 'textStyle', attrs }];
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [tx('plain '), tx('Georgia', ts({ fontFamily: 'Georgia, serif' })), tx(' '), tx('big', ts({ fontSize: '18pt' })), tx(' '), tx('mono', ts({ fontFamily: '"Courier New", Courier, monospace' })), tx(' '), tx('code', [{ type: 'code' }])] }, { type: 'horizontalRule' }, { type: 'paragraph', content: [tx('after')] }] };
+  const shape = (d) => [d.content.map((n) => n.type), d.content[0].content.filter((x) => x.marks).map((x) => [x.text, x.marks.map((m) => (m.type === 'code' ? 'code' : `${m.attrs.fontFamily || ''}|${m.attrs.fontSize || ''}`)).join()])];
+  const want = [['paragraph', 'horizontalRule', 'paragraph'], [['Georgia', 'Georgia, serif|'], ['big', '|18pt'], ['mono', '"Courier New", Courier, monospace|'], ['code', 'code']]];
+  const buf = await odtFromDoc(doc, 'x');
+  assert.deepEqual(shape((await docFromOdt(buf)).doc), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'f.odt'), buf); fs.mkdirSync(path.join(dir, 'out'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'out'), path.join(dir, 'f.odt')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(shape((await docFromOdt(fs.readFileSync(path.join(dir, 'out', 'f.odt')))).doc), want);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

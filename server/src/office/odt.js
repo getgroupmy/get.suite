@@ -11,6 +11,9 @@ import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
 import { docFromHtml } from './word.js';
 
+// The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
+const ODT_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
+const ODT_SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36];
 export const ODT_MIME = 'application/vnd.oasis.opendocument.text';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** Text as ODF wants it: runs of spaces as <text:s/>, tabs and line breaks as elements. */
@@ -107,6 +110,10 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       if (marks.has('subscript')) props.sub = 1;
       const ts = marks.get('textStyle')?.attrs || {};
       if (COLOR.test(ts.color || '')) props.color = ts.color;
+      const fam = String(ts.fontFamily || '').split(',')[0].trim().replace(/^["']|["']$/g, '');
+      if (fam && !/^(serif|sans-serif|monospace)$/i.test(fam)) props.font = fam.replace(/[^A-Za-z0-9 -]/g, '');
+      const pt = /^([\d.]+)(pt|px)$/.exec(String(ts.fontSize || '').trim());
+      if (pt) { const v = pt[2] === 'px' ? Number(pt[1]) * 0.75 : Number(pt[1]); if (v >= 4 && v <= 200) props.size = Math.round(v * 10) / 10; }
       const hl = marks.get('highlight')?.attrs?.color || ts.backgroundColor;
       if (COLOR.test(hl || '')) props.bg = hl;
       if (t === 'mention' || t === 'datechip' || t === 'filechip') props.color = '#1a73e8';
@@ -210,6 +217,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     p.code && 'style:font-name="Liberation Mono" fo:font-family="\'Liberation Mono\'"',
     p.sup && 'style:text-position="super 58%"', p.sub && 'style:text-position="sub 58%"',
     p.color && `fo:color="${p.color}"`, p.bg && `fo:background-color="${p.bg}"`,
+    p.font && `fo:font-family="'${p.font}'"`, p.size && `fo:font-size="${p.size}pt"`,
   ].filter(Boolean).join(' ');
   const auto = [...textStyles.values()].map((s) => `<style:style style:name="${s.name}" style:family="text"><style:text-properties ${textProps(s.props)}/></style:style>`).join('');
   const aligned = ['Standard', 'Quotations', 'Table_20_Contents', 'Table_20_Heading', ...[1, 2, 3, 4, 5, 6].map((l) => `Heading_20_${l}`)]
@@ -366,7 +374,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     pictureCache.set(href, id);
     return id;
   };
-  const wrap = (html, tp) => {
+  const wrap = (html, tp, span = false) => {
     let out = html;
     if (/bold|[6-9]00/.test(tp['fo:font-weight'] || '')) out = `<strong>${out}</strong>`;
     if (tp['fo:font-style'] === 'italic') out = `<em>${out}</em>`;
@@ -375,8 +383,14 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     const pos = tp['style:text-position'] || '';
     if (/^super|^\d/.test(pos) && !/^0/.test(pos)) out = `<sup>${out}</sup>`; else if (/^sub|^-/.test(pos)) out = `<sub>${out}</sub>`;
     const css = [COLOR.test(tp['fo:color'] || '') && !/^#000000$/i.test(tp['fo:color']) && `color: ${tp['fo:color']}`, COLOR.test(tp['fo:background-color'] || '') && `background-color: ${tp['fo:background-color']}`].filter(Boolean);
-    if (css.length) out = `<span style="${css.join('; ')}">${out}</span>`;
-    if (/mono|courier|consolas/i.test(`${tp['style:font-name'] || ''} ${tp['fo:font-family'] || ''}`)) out = `<code>${out}</code>`;
+    // A word's own font and size (a span's, not the paragraph's): those the Docs toolbar offers.
+    const family = String(tp['fo:font-family'] || tp['style:font-name'] || '').split(',')[0].replace(/['"]|&apos;|&quot;/g, '').trim();
+    const font = span && ODT_FONTS[family.toLowerCase()];
+    const size = span && Number((/^([\d.]+)pt$/.exec(tp['fo:font-size'] || '') || [])[1]);
+    if (font) css.push(`font-family: ${font}`);
+    if (span && ODT_SIZES.includes(size)) css.push(`font-size: ${size}pt`);
+    if (css.length) out = `<span style="${css.join('; ').replace(/"/g, '&quot;')}">${out}</span>`;
+    if (!font && /mono|courier|consolas/i.test(`${tp['style:font-name'] || ''} ${tp['fo:font-family'] || ''}`)) out = `<code>${out}</code>`; // other fixed-width fonts: code
     return out;
   };
   const inline = async (el) => {
@@ -388,7 +402,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         case 'text:s': out += '\u00a0'.repeat(Math.min(100, Number(c.attribs['text:c']) || 1)); break; // kept, not folded into one
         case 'text:tab': out += '\t'; break;
         case 'text:line-break': out += '<br>'; break;
-        case 'text:span': out += wrap(await inline(c), look(c.attribs['text:style-name']).tp); break;
+        case 'text:span': out += wrap(await inline(c), look(c.attribs['text:style-name']).tp, true); break;
         case 'text:a': { const href = c.attribs['xlink:href'] || ''; out += /^\s*javascript:/i.test(href) ? await inline(c) : `<a href="${h(href)}">${await inline(c)}</a>`; break; }
         case 'text:note': { const body = kids(c).find((k) => k.name === 'text:note-body'); out += `<sup data-footnote="" data-note="${h(textOf(body || {}).trim())}"></sup>`; break; }
         case 'draw:frame': {
@@ -417,6 +431,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const st = look(sn), named = (re) => st.names.some((n) => re.test(n));
         const raw = await inline(c);
         if (st.pp['fo:break-before'] === 'page' && out) { out += '<div data-page-break=""></div>'; if (!raw.trim()) continue; }
+        if (named(/^horizontal( |_20_|_)line$/) && !raw.replace(/<[^>]+>/g, '').trim()) { out += '<hr>'; continue; }
         if (named(/preformatted/)) { out += `<pre><code>${raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')}</code></pre>`; continue; }
         if (/^\s*(<img [^>]*>\s*)+$/.test(raw)) { out += raw; continue; } // a picture on its own line: no empty paragraph around it
         const lv = named(/^title$/) ? 1 : st.level;

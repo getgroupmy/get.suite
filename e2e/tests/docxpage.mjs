@@ -159,6 +159,19 @@ await step('a code block and a page break go out to Word and come back', async (
   if ((await pre.innerText()).trim() !== 'npm install\nnpm start') throw new Error(await pre.innerText());
   await page.locator('.ProseMirror [data-page-break]').waitFor();
 });
+await step('a word in Georgia and a horizontal line go out to .odt and come back', async () => {
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Odt words', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Plain, ' }, { type: 'text', text: 'in Georgia', marks: [{ type: 'textStyle', attrs: { fontFamily: 'Georgia, serif' } }] }] }, { type: 'horizontalRule' }, { type: 'paragraph', content: [{ type: 'text', text: 'Below the line' }] }] } })).body;
+  const back = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Odt%20words.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, d.id);
+  await page.goto(`${B}/docs/${back.id}`);
+  const word = page.locator('.ProseMirror span', { hasText: 'in Georgia' });
+  await word.waitFor();
+  if (!/Georgia/.test(await word.evaluate((el) => getComputedStyle(el).fontFamily))) throw new Error('font');
+  await page.locator('.ProseMirror hr').waitFor();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
