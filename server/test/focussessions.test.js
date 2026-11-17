@@ -67,3 +67,27 @@ test('your time on tasks this week (Home): minutes in all and the tasks with the
   assert.equal(t.tasks[0].title, 'Audit', 'the most first');
   assert.equal(t.tasks.find((k) => k.title === 'Invoice').minutes, 20);
 });
+
+test('colleagues see “Focusing” while a focus session runs, unless the person set a status of their own', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const me = (await a('GET', '/api/auth/me')).body.user.id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Deep work' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Write' })).body;
+  const statusOf = async () => (await a('GET', '/api/users/directory')).body.find((u) => u.id === me).status;
+  await a('POST', '/api/tasks/timer/stop').catch(() => {});
+  assert.equal((await statusOf())?.text ?? null, null);
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`, { minutes: 30 });
+  const s = await statusOf();
+  assert.equal(s.text, 'Focusing');
+  assert.ok(s.auto && s.until > Date.now() + 25 * 60e3);
+  await a('PUT', '/api/users/me/status', { emoji: '🏠', text: 'Working from home' });
+  assert.equal((await statusOf()).text, 'Working from home', 'your own status comes first');
+  await a('DELETE', '/api/users/me/status');
+  await a('POST', '/api/tasks/timer/stop');
+  assert.equal((await statusOf())?.text ?? null, null, 'gone when it stops');
+  // A plain timer isn't focus time.
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`);
+  assert.equal((await statusOf())?.text ?? null, null);
+  await a('POST', '/api/tasks/timer/stop');
+});

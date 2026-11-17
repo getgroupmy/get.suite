@@ -412,6 +412,11 @@ export function calendarStatus(userId, t = Date.now()) {
       if (!best || rank[kind] > rank[best.kind] || (rank[kind] === rank[best.kind] && o.end > best.until)) best = { kind, until: o.end };
     }
   }
+  // A focus session on a task (Tasks: ◎ Focus) counts as focus time, until it ends.
+  try {
+    const run = q('SELECT until FROM task_time WHERE user_id = ? AND ended_at IS NULL AND until > ?').get(userId, t);
+    if (run && (!best || rank.focus > rank[best.kind])) best = { kind: 'focus', until: run.until };
+  } catch { /* no task timers yet */ }
   if (!best) {
     // Nothing on the calendar right now, but their vacation reply (Mail) is on today: away, until its last day.
     const today = new Date(t).toISOString().slice(0, 10);
