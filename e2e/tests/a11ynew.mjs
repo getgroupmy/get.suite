@@ -181,6 +181,29 @@ await step('Drive: Starred folders in the sidebar', async () => {
   await page.getByRole('group', { name: 'Starred folders' }).getByRole('link', { name: 'Board papers' }).waitFor({ timeout: 10000 });
   await both('drive starred folders');
 });
+await step('Drive: Storage with its Empty folders', async () => {
+  const f = (await api(page, 'POST', '/files/folder', { name: 'Old drafts' })).body;
+  await api(page, 'POST', '/files/folder', { name: 'Inside', parent_id: f.id });
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Storage' }).click();
+  await page.getByRole('dialog', { name: 'Storage' }).getByRole('list', { name: 'Empty folders' }).waitFor({ timeout: 10000 });
+  await both('drive storage empty folders');
+});
+await step('Contacts: sorted by Last in touch', async () => {
+  const c = (await api(page, 'POST', '/contacts', { name: 'Rita Moreno', email: 'rita@example.org' })).body;
+  await api(page, 'POST', `/contacts/${c.id}/log`, { kind: 'call', text: 'Catch-up' });
+  await api(page, 'POST', '/contacts', { name: 'Sam Never' });
+  await page.goto(`${B}/contacts`);
+  await page.getByLabel('Sort contacts').selectOption({ label: 'Last in touch' });
+  await page.getByText('In touch today').first().waitFor({ timeout: 10000 });
+  await both('contacts last in touch');
+});
+await step('Calendar settings', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Calendar settings' }).click();
+  await page.getByRole('dialog', { name: 'Calendar settings' }).getByLabel('Default event length').waitFor();
+  await both('calendar settings');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
