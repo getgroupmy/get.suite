@@ -133,6 +133,28 @@ await step('a sprint carries on after reloading (back in focus mode), and × sto
   if (await page.getByRole('button', { name: 'Exit focus mode' }).count()) throw new Error('focus mode came back without a sprint');
   await page.evaluate(() => localStorage.removeItem('nw-sprint-seconds'));
 });
+await step('a sprint that ended while the document was closed is told on the next visit', async () => {
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const ended = (words) => page.evaluate(([k, w]) => localStorage.setItem(k, JSON.stringify({ ends: Date.now() - 60e3, words: w })), [`nw-sprint:${id}`, words]);
+  const told = async () => {
+    const note = page.getByText(/Your sprint ended while you were away: [+−]\d+ words/);
+    await note.waitFor({ timeout: 15000 });
+    const t = await note.innerText();
+    return (t.includes('−') ? -1 : 1) * Number(t.match(/(\d+) words/)[1]);
+  };
+  await ended(100);
+  await page.reload();
+  const a = await told();
+  await page.getByRole('toolbar', { name: 'Formatting' }).waitFor(); // not back in focus mode
+  await ended(90); // began 10 words earlier
+  await page.reload();
+  const b = await told();
+  if (b - a !== 10) throw new Error(`${a} then ${b}`);
+  await page.reload();
+  await page.getByRole('toolbar', { name: 'Formatting' }).waitFor();
+  await page.waitForTimeout(1000);
+  if (await page.getByText('Your sprint ended while you were away').count()) throw new Error('told twice');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

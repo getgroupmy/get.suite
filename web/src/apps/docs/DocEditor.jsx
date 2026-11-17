@@ -698,11 +698,21 @@ function SharedDoc({ file, setFile }) {
     return () => clearInterval(t);
   }, [sprint, editor, toast]);
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => { if (!focusMode && !resumingRef.current) setSprint(null); resumingRef.current = false; }, [focusMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!focusMode && !resumingRef.current && sprint) setSprint(null); resumingRef.current = false; }, [focusMode]); // (only a running one: one that ended while away is told below) // eslint-disable-line react-hooks/exhaustive-deps
   // A sprint carried over from before reloading: back in focus mode, where it shows.
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const resumingRef = useRef(!!sprint);
   // eslint-disable-next-line react-hooks/rules-of-hooks
+  // One that ended while the document was closed: said once, with what was written by then.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!editor) return;
+    let gone = null;
+    try { gone = JSON.parse(localStorage.getItem(sprintKey) || 'null'); } catch { gone = null; }
+    if (!gone || gone.ends > Date.now()) return;
+    try { localStorage.removeItem(sprintKey); } catch { /* fine */ }
+    toast(`Your sprint ended while you were away: ${sprintText(0, countWords(editor.state.doc).words - gone.words).split(' · ')[0]}`, 'info', { duration: 8000 });
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
   const reopenRef = useRef(!!sprint); // (its own flag: the effect above clears resumingRef first)
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => { if (reopenRef.current) { reopenRef.current = false; setFocusMode(true); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
