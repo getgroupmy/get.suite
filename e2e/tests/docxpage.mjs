@@ -172,6 +172,18 @@ await step('a word in Georgia and a horizontal line go out to .odt and come back
   if (!/Georgia/.test(await word.evaluate((el) => getComputedStyle(el).fontFamily))) throw new Error('font');
   await page.locator('.ProseMirror hr').waitFor();
 });
+await step('a horizontal line goes out to Word and comes back', async () => {
+  const p = (x) => ({ type: 'paragraph', content: [{ type: 'text', text: x }] });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Line', content: { type: 'doc', content: [p('Part one'), { type: 'horizontalRule' }, p('Part two')] } })).body;
+  const back = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Line.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, d.id);
+  await page.goto(`${B}/docs/${back.id}`);
+  await page.locator('.ProseMirror').getByText('Part two').waitFor();
+  await page.locator('.ProseMirror hr').waitFor();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

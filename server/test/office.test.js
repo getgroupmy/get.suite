@@ -2004,3 +2004,24 @@ test('OpenDocument: words’ fonts and sizes and horizontal lines come back; oth
     assert.deepEqual(shape((await docFromOdt(fs.readFileSync(path.join(dir, 'out', 'f.odt')))).doc), want);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Word: horizontal lines come back (also through LibreOffice, where installed); bordered text doesn’t become one', async (t) => {
+  const { wordFromDoc, docFromWord, markWordXml } = await import('../src/office/word.js');
+  const p = (x) => ({ type: 'paragraph', content: [{ type: 'text', text: x }] });
+  const doc = { type: 'doc', content: [p('Above'), { type: 'horizontalRule' }, p('Below')] };
+  const kinds = (d) => d.content.map((n) => n.type);
+  const buf = await wordFromDoc(doc, 'x');
+  assert.deepEqual(kinds((await docFromWord(buf)).doc), ['paragraph', 'horizontalRule', 'paragraph']);
+  // Only an empty paragraph with nothing but a bottom border counts.
+  assert.doesNotMatch(markWordXml('<w:p><w:pPr><w:pBdr><w:bottom w:val="single"/></w:pBdr></w:pPr><w:r><w:t>Text</w:t></w:r></w:p>'), /hr/);
+  assert.doesNotMatch(markWordXml('<w:p><w:pPr><w:pBdr><w:top w:val="single"/><w:bottom w:val="single"/></w:pBdr></w:pPr></w:p>'), /hr/);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'h.docx'), buf); fs.mkdirSync(path.join(dir, 'out'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'docx', '--outdir', path.join(dir, 'out'), path.join(dir, 'h.docx')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(kinds((await docFromWord(fs.readFileSync(path.join(dir, 'out', 'h.docx')))).doc), ['paragraph', 'horizontalRule', 'paragraph']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

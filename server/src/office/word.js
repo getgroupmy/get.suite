@@ -126,6 +126,9 @@ export function markWordXml(xml) {
     .replace(/<w:ins\b([^>]*[^/])>([\s\S]*?)<\/w:ins>/g, (m, attrs, inner) => `${marker(`i:${who(attrs)}`)}${inner}${marker('/i')}`)
     .replace(/<w:del\b([^>]*[^/])>([\s\S]*?)<\/w:del>/g, (m, attrs, inner) => `${marker(`d:${who(attrs)}`)}${inner.replace(/<w:delText\b/g, '<w:t').replace(/<\/w:delText>/g, '</w:t>')}${marker('/d')}`)
     // Comments: where each one's text starts and ends (its id kept, to find its words afterwards).
+    // A horizontal line: an empty paragraph with only a bottom border (as the download writes one, and Word's own
+    // "---" autoformat does): a marker, made a horizontal line afterwards.
+    .replace(/<w:p\b[^>]*>(<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*?<w:pBdr>(?:(?!<\/w:pBdr>)[\s\S])*?<w:bottom\b[^>]*\/>(?:(?!<\/w:pBdr>)[\s\S])*?<\/w:pBdr>(?:(?!<\/w:pPr>)[\s\S])*?<\/w:pPr>)((?:(?!<\/w:p>)[\s\S])*?)<\/w:p>/g, (m, ppr, rest) => (/<w:(top|left|right)\b/.test(ppr.replace(/<w:rPr>[\s\S]*?<\/w:rPr>/g, '')) || /<w:(t|tab|drawing|pict|object|instrText|br)\b/.test(rest) ? m : `<w:p>${ppr}<w:r><w:t xml:space="preserve">${MK}hr${MK_END}</w:t></w:r></w:p>`)) // no text in it (an empty run, as LibreOffice writes, is fine)
     // Page breaks (which the converter leaves out): a marker where each is, made a page break afterwards.
     .replace(/<w:br\b[^>]*w:type="page"[^>]*\/>/g, `<w:t xml:space="preserve">${MK}pb${MK_END}</w:t>`)
     .replace(/<w:commentRangeStart w:id="(\d+)"\/>/g, (m, id) => `${m}${marker(`k:${id}`)}`)
@@ -171,6 +174,7 @@ export function unmarkWordHtml(html, commentId = null) {
       return `<span style="${attr(css)}">`;
     })
     .replace(re('MK/END'), '</span>')
+    .replace(re('<p>(?:<[^>]+>)*MKhrEND(?:</[^p][^>]*>)*</p>'), '<hr>')
     // A page break alone in its paragraph (as the download writes it, and Word mostly does): the paragraph becomes one;
     // one in the middle of a paragraph ends it there.
     .replace(re('<p>(?:<[^>]+>)*MKpbEND(?:</[^p][^>]*>)*</p>'), '<div data-page-break></div>')
