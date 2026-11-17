@@ -229,7 +229,9 @@ export default function Chat() {
     setEditingId(null); setFiles([]); setThreadId(null);
     if (jumpTo) stick.current = false;
     Promise.all([
-      get(`/chat/channels/${channelId}/messages${jumpTo ? `?around=${encodeURIComponent(jumpTo)}` : ''}`),
+      // (Jumping to a message without a connection: the conversation as last seen here, which may hold it.)
+      get(`/chat/channels/${channelId}/messages${jumpTo ? `?around=${encodeURIComponent(jumpTo)}` : ''}`)
+        .catch((e) => (jumpTo && unreachable(e) ? get(`/chat/channels/${channelId}/messages`) : Promise.reject(e))),
       jumpTo ? null : get(`/chat/channels/${channelId}/read`).catch(() => null),
     ]).then(([list, read]) => {
       if (!live) return; // another conversation was opened meanwhile: this one's answer came late

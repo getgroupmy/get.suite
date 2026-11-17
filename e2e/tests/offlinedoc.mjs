@@ -620,6 +620,9 @@ await step('Chat threads: read offline, and a reply edited and another deleted t
   await reply('Not me').waitFor();
   await page.waitForTimeout(800);
   await ctx.setOffline(true);
+  // A link to the message (from search or a notification) opens the conversation as last seen here.
+  await page.goto(`${B}/chat/${ch}?msg=${top.id}`).catch(() => {});
+  await page.locator('.msg', { hasText: 'Who brings the map?' }).waitFor({ timeout: 20000 });
   await page.reload();
   await openThread();
   await reply('Not me').waitFor({ timeout: 20000 }); // the thread, from this device
