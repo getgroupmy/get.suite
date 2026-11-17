@@ -15855,3 +15855,18 @@ test('previews of Word and OpenDocument files look like the file: normal text an
   const plain = await officePreview(Buffer.from('# Title\n\nText'), 'Notes.md', 'u1');
   assert.equal('look' in plain, false);
 });
+
+test('docs: the .odt download keeps the header, footer and page numbers, and they come back', async () => {
+  const { odtFromDoc, pageOfOdt } = await import('../src/office/odt.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+  const buf = await odtFromDoc(doc, 'x', { page: { header: 'Acme & Co', footer: 'Private', numbers: true } });
+  const styles = await (await JSZip.loadAsync(buf)).file('styles.xml').async('string');
+  assert.match(styles, /<style:header><text:p[^>]*>Acme &amp; Co<\/text:p><\/style:header>/);
+  assert.match(styles, /<style:footer><text:p[^>]*>Private<text:s text:c="3"\/><text:page-number/);
+  const back = await pageOfOdt(buf);
+  assert.deepEqual([back.header, back.footer, back.numbers], ['Acme & Co', 'Private', true]);
+  const numbersOnly = await pageOfOdt(await odtFromDoc(doc, 'x', { page: { numbers: true } }));
+  assert.deepEqual([numbersOnly.footer, numbersOnly.numbers], ['', true]);
+  assert.equal('header' in (await pageOfOdt(await odtFromDoc(doc, 'x'))), false, 'none: none');
+});

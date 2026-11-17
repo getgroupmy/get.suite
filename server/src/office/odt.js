@@ -30,6 +30,14 @@ export function pageLayout(page) {
   return `fo:page-width="${cm(w)}" fo:page-height="${cm(h)}" style:print-orientation="${landscape ? 'landscape' : 'portrait'}" fo:margin-top="${cm(m)}" fo:margin-bottom="${cm(m)}" fo:margin-left="${cm(m)}" fo:margin-right="${cm(m)}"${bg}`;
 }
 
+const xmlEsc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/** The master page: Page setup's header, and footer with the page number ("Private   3"), centred. */
+export function masterPage(page) {
+  const header = String(page?.header || '').trim(), footer = String(page?.footer || '').trim(), numbers = !!page?.numbers;
+  const centred = (inner) => `<text:p text:style-name="HeaderFooter">${inner}</text:p>`;
+  return `<style:master-page style:name="Standard" style:page-layout-name="pm1">${header ? `<style:header>${centred(xmlEsc(header))}</style:header>` : ''}${footer || numbers ? `<style:footer>${centred(`${xmlEsc(footer)}${footer && numbers ? '<text:s text:c="3"/>' : ''}${numbers ? '<text:page-number text:select-page="current">1</text:page-number>' : ''}`)}</style:footer>` : ''}</style:master-page>`;
+}
+
 /** The paragraphs' default text: the document's Normal text (Page setup), else Liberation Sans 11 pt. */
 export function normalText(page) {
   const font = page?.font ? `fo:font-family="'${String(page.font).replace(/[^A-Za-z ]/g, '')}'"` : 'style:font-name="Liberation Sans" fo:font-family="\'Liberation Sans\', Arial, sans-serif"';
@@ -194,6 +202,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 <office:document-styles ${NS}><office:styles>
 <style:default-style style:family="paragraph"><style:paragraph-properties fo:margin-bottom="0.2cm"/><style:text-properties ${normalText(page)}/></style:default-style>
 <style:style style:name="Standard" style:family="paragraph" style:class="text"/>
+<style:style style:name="HeaderFooter" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="9pt" fo:color="#666666"/></style:style>
 <style:style style:name="Heading" style:family="paragraph" style:parent-style-name="Standard" style:next-style-name="Standard" style:class="text"><style:paragraph-properties fo:margin-top="0.42cm" fo:margin-bottom="0.21cm" fo:keep-with-next="always"/><style:text-properties fo:font-weight="bold"/></style:style>
 ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<style:style style:name="Heading_20_${l}" style:display-name="Heading ${l}" style:family="paragraph" style:parent-style-name="Heading" style:default-outline-level="${l}" style:class="text"><style:text-properties fo:font-size="${pt}pt"/></style:style>`).join('\n')}
 <style:style style:name="Quotations" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-left="1cm" fo:padding-left="0.2cm" fo:border-left="1.5pt solid #bbbbbb"/></style:style>
@@ -204,7 +213,7 @@ ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<styl
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:text-properties fo:font-size="9pt"/></style:style>
 <style:style style:name="Reference" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="1.27cm" fo:text-indent="-1.27cm"/></style:style>
 </office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties ${pageLayout(page)}/></style:page-layout></office:automatic-styles>
-<office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1"/></office:master-styles></office:document-styles>`;
+<office:master-styles>${masterPage(page)}</office:master-styles></office:document-styles>`;
   const meta = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-meta ${NS}><office:meta><dc:title>${x(title)}</dc:title><meta:generator>Workspace</meta:generator></office:meta></office:document-meta>`;
   const manifest = `<?xml version="1.0" encoding="UTF-8"?>
@@ -239,7 +248,9 @@ export async function pageOfOdt(buffer) {
     const zip = await JSZip.loadAsync(buffer);
     const styles = (await zip.file('styles.xml')?.async('string')) || '';
     const props = (xml) => /<style:text-properties\b([^>]*)\/?>/.exec(xml || '')?.[1] || '';
-    const standard = props(/<style:style\b[^>]*style:name="Standard"[^>]*>([\s\S]*?)<\/style:style>/.exec(styles)?.[1]);
+    // The Standard style's own text properties (none when it's an empty <style:style …/>: don't read on into the next style).
+    const std = /<style:style\b[^>]*style:name="Standard"[^>]*?(\/>|>([\s\S]*?)<\/style:style>)/.exec(styles);
+    const standard = props(std?.[1] === '/>' ? '' : std?.[2]);
     const defaults = props(/<style:default-style\b[^>]*style:family="paragraph"[^>]*>([\s\S]*?)<\/style:default-style>/.exec(styles)?.[1]);
     const pick = (re) => re.exec(standard)?.[1] ?? re.exec(defaults)?.[1];
     const family = String(pick(/fo:font-family="([^"]+)"/) || pick(/style:font-name="([^"]+)"/) || '').split(',')[0].replace(/['"&;]|apos|quot/g, '').trim();
@@ -258,6 +269,13 @@ export async function pageOfOdt(buffer) {
     }
     const left = len('fo:margin-left');
     if (left) out.margin = Object.entries({ normal: 25.4, narrow: 12.7, wide: 38.1 }).sort((x, y) => Math.abs(x[1] - left) - Math.abs(y[1] - left))[0][0];
+    // Header and footer: the first master page's text (a page-number field: page numbers on).
+    const master = /<style:master-page\b[^>]*?(?:\/>|>[\s\S]*?<\/style:master-page>)/.exec(styles)?.[0] || '';
+    const textIn = (xml) => (xml || '').replace(/<text:page-number\b[\s\S]*?<\/text:page-number>|<text:page-number\b[^>]*\/>/g, '').replace(/<text:s(?:\s[^>]*)?\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const head = /<style:header\b[^>]*>([\s\S]*?)<\/style:header>/.exec(master)?.[1];
+    const foot = /<style:footer\b[^>]*>([\s\S]*?)<\/style:footer>/.exec(master)?.[1];
+    if (head) out.header = textIn(head);
+    if (foot) { out.footer = textIn(foot); out.numbers = /<text:page-number\b/.test(foot); }
     const bg = /fo:background-color="(#[0-9a-fA-F]{6})"/.exec(layout)?.[1]?.toLowerCase();
     if (bg && bg !== '#ffffff') out.pageColor = bg;
     const f = DOC_FONTS.find((n) => n.toLowerCase() === family.toLowerCase());
