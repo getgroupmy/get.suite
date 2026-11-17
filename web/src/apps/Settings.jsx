@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { FONTS, FONT_SIZES, mailStyleCss } from './mail/richtext.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
@@ -67,6 +68,7 @@ export default function Settings() {
       <MailAdvance />
       <MailReply />
       <MailReadAfter />
+      <MailStyle />
       <MailTidy />
       <MailNudges />
       <MailAttachCheck />
@@ -664,6 +666,30 @@ function MailAdvance() {
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'newer'} onChange={() => set('newer')} /> Open the next newer message</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'older'} onChange={() => set('older')} /> Open the next older message</label>
       </div>
+    </section>
+  );
+}
+
+function MailStyle() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [font, setFont] = useState(user.mail_style?.font || 'Sans Serif');
+  const [size, setSize] = useState(user.mail_style?.size || 'Normal');
+  const css = mailStyleCss({ font, size });
+  const save = async () => {
+    try { const r = await put('/users/me/mail-style', { font, size }); setUser({ ...user, mail_style: r.style }); toast('Saved'); } catch (e) { toast(e.message, 'error'); }
+  };
+  const changed = font !== (user.mail_style?.font || 'Sans Serif') || size !== (user.mail_style?.size || 'Normal');
+  return (
+    <section className="card stack" aria-labelledby="mstyle-h">
+      <h2 id="mstyle-h">Default text style</h2>
+      <p className="muted small" style={{ margin: 0 }}>The font and size the emails you write start in, and are sent in. The toolbar can still change any of it.</p>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field"><span>Font</span><select value={font} onChange={(e) => setFont(e.target.value)}>{FONTS.map(([n, stack]) => <option key={n} value={n} style={stack ? { fontFamily: stack } : undefined}>{n}</option>)}</select></label>
+        <label className="field"><span>Size</span><select value={size} onChange={(e) => setSize(e.target.value)}>{FONT_SIZES.map(([n]) => <option key={n} value={n}>{n}</option>)}</select></label>
+      </div>
+      <p className="mail-style-sample" style={{ margin: 0, ...css }} aria-label="Sample of the text style">This is what your emails will look like.</p>
+      <div className="row"><button type="button" className="btn" disabled={!changed} onClick={save}>Save</button></div>
     </section>
   );
 }

@@ -88,3 +88,11 @@ test('link addresses: web addresses get https, email gets mailto, anything else 
     assert.equal(linkHref(k, v), null, `${k} ${v}`);
   }
 });
+
+test('the writer’s default text style wraps the email', async () => {
+  const { mailStyleCss } = await import('./richtext.js');
+  assert.deepEqual(mailStyleCss(null), { fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '14px' });
+  assert.deepEqual(mailStyleCss({ font: 'Georgia', size: 'Large' }), { fontFamily: 'Georgia, serif', fontSize: '18px' });
+  assert.match(emailHtml('<p>Hi</p>'), /^<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px;/);
+  assert.match(emailHtml('<p>Hi</p>', { font: 'Times New Roman', size: 'Small' }), /^<div style="font-family: 'Times New Roman', Times, serif; font-size: 12px;/);
+});

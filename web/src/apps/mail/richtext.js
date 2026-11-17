@@ -85,9 +85,26 @@ function emailPictures(html) {
   return html.replace(/<img\b[^>]*\bdata-align="(center|right)"[^>]*>/g, (img, al) => `<div align="${al}" style="text-align:${al}">${img}</div>`);
 }
 
-/** Wrap the editor's HTML so mail apps render it consistently. */
-export function emailHtml(bodyHtml) {
-  return `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #1f1f1f">${emailPictures(emailTables(bodyHtml))
+/** The fonts and sizes of Mail's toolbar (and of Settings → Default text style): a name, and the CSS (null: the usual). */
+export const FONTS = [
+  ['Sans Serif', null], ['Georgia', 'Georgia, serif'], ['Times New Roman', "'Times New Roman', Times, serif"], ['Garamond', 'Garamond, Georgia, serif'],
+  ['Courier New', "'Courier New', Courier, monospace"], ['Verdana', 'Verdana, sans-serif'], ['Tahoma', 'Tahoma, sans-serif'],
+  ['Trebuchet MS', "'Trebuchet MS', sans-serif"], ['Calibri', 'Calibri, Arial, sans-serif'], ['Comic Sans MS', "'Comic Sans MS', cursive"],
+];
+export const FONT_SIZES = [['Small', '12px'], ['Normal', null], ['Large', '18px'], ['Huge', '24px']];
+
+/** Someone's default text style ({ font, size } names, or null) as CSS: { fontFamily, fontSize }. */
+export function mailStyleCss(style) {
+  return {
+    fontFamily: FONTS.find(([n]) => n === style?.font)?.[1] || 'Arial, Helvetica, sans-serif',
+    fontSize: FONT_SIZES.find(([n]) => n === style?.size)?.[1] || '14px',
+  };
+}
+
+/** Wrap the editor's HTML so mail apps render it consistently, in the writer's default text style. */
+export function emailHtml(bodyHtml, style = null) {
+  const css = mailStyleCss(style);
+  return `<div style="font-family: ${css.fontFamily.replace(/"/g, "'")}; font-size: ${css.fontSize}; line-height: 1.5; color: #1f1f1f">${emailPictures(emailTables(bodyHtml))
     .replace(/<blockquote>/g, '<blockquote style="margin:0 0 0 .8ex; border-left:2px solid #ccc; padding-left:1ex; color:#555">')}</div>`;
   // (Pictures carry their own size and max-width style from the editor.)
 }

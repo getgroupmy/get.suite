@@ -367,6 +367,19 @@ export default function userRoutes() {
     res.json({ advance: a });
   });
 
+  // Mail: the default text style emails are written and sent in: { font, size } (names from Mail's toolbar), or null.
+  r.put('/me/mail-style', (req, res) => {
+    const FONTS = ['Sans Serif', 'Georgia', 'Times New Roman', 'Garamond', 'Courier New', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Calibri', 'Comic Sans MS'];
+    const SIZES = ['Small', 'Normal', 'Large', 'Huge'];
+    const b = req.body || {};
+    const font = b.font ?? 'Sans Serif', size = b.size ?? 'Normal';
+    if (!FONTS.includes(font)) throw bad('Pick one of the fonts offered');
+    if (!SIZES.includes(size)) throw bad('Small, Normal, Large or Huge');
+    const style = font === 'Sans Serif' && size === 'Normal' ? null : { font, size };
+    q('UPDATE users SET mail_style = ? WHERE id = ?').run(style ? JSON.stringify(style) : null, req.user.id);
+    res.json({ style });
+  });
+
   // Mail: when an opened email is marked read: { after: 0 (at once) | 5 | 20 (seconds) | -1 (never: only by hand) }.
   r.put('/me/mail-read-after', (req, res) => {
     const v = req.body?.after;

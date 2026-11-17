@@ -31,7 +31,7 @@ import { mailKey, stepMessage, afterRemoval } from './mailkeys.js';
 import { printMessage, printDocuments, printHtml } from './mailprint.js';
 import { previewKind, stepPreview } from '../../components/viewkind.js';
 import FileViewer from '../../components/FileViewer.jsx';
-import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
+import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref, FONTS, FONT_SIZES, mailStyleCss } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import { ForwardingDialog } from './Forwarding.jsx';
 import { MovePicker } from './MovePicker.jsx';
@@ -1782,7 +1782,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
-  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(outsideOk.current && { outsideConfirmed: true }), ...(followUp && { followUp: Number(followUp) }), ...(confidential && { confidential: { days: Number(confidential) } }) });
+  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html, user?.mail_style) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(outsideOk.current && { outsideConfirmed: true }), ...(followUp && { followUp: Number(followUp) }), ...(confidential && { confidential: { days: Number(confidential) } }) });
   const stopAutosave = async () => {
     closed.current = true;          // no more autosaves
     clearTimeout(timer.current);
@@ -1968,7 +1968,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           </div>
         )}
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
-        <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }}
+        <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }} textStyle={user.mail_style ? mailStyleCss(user.mail_style) : null}
           onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }} />
         {fwd?.asEml && (
           <ul className="att-list" aria-label="Forwarded message">
@@ -2138,7 +2138,7 @@ function VacationDialog({ onClose, onSaved }) {
 }
 
 /** Rich-text message body: bold, italic, underline, strike, lists, quotes, links. */
-function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message', placeholder = 'Write your message…' }) {
+function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message', placeholder = 'Write your message…', textStyle = null }) {
   const { user: me } = useAuth();
   const voiceOk = canVoiceType() && me?.voice_typing !== false; // the company may turn it off
   const [voice, setVoice] = useState(false);
@@ -2367,7 +2367,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           onChange={(e) => { insertImages(e.target.files); e.target.value = ''; }} />
       </div>
       {voice && voiceOk && <VoiceTypingBar editor={editor} onClose={() => { setVoice(false); refocus(); }} />}
-      <EditorContent editor={editor} />
+      {textStyle ? <div className="compose-style" style={textStyle}><EditorContent editor={editor} /></div> : <EditorContent editor={editor} />}
       {emojiType.list && createPortal(emojiType.list, document.body)}
       {/* Outside the Compose form, so the editor's buttons never submit (send) the message. */}
       {linking && createPortal(<LinkDialog initial={linking} onApply={applyLink} onRemove={linking.href ? removeLink : null}
@@ -2414,11 +2414,6 @@ const TEXT_COLORS = [
 ];
 // Fonts: the same font lists the server keeps when quoting mail, so quoted fonts show by name.
 // Each lists fallbacks for computers that don't have the font.
-const FONTS = [
-  ['Sans Serif', null], ['Georgia', 'Georgia, serif'], ['Times New Roman', "'Times New Roman', Times, serif"], ['Garamond', 'Garamond, Georgia, serif'],
-  ['Courier New', "'Courier New', Courier, monospace"], ['Verdana', 'Verdana, sans-serif'], ['Tahoma', 'Tahoma, sans-serif'],
-  ['Trebuchet MS', "'Trebuchet MS', sans-serif"], ['Calibri', 'Calibri, Arial, sans-serif'], ['Comic Sans MS', "'Comic Sans MS', cursive"],
-];
 const fontKey = (v) => String(v || '').replace(/['"\s]/g, '').toLowerCase();
 const fontName = (v) => (!v ? 'Sans Serif' : FONTS.find(([, stack]) => stack && fontKey(stack) === fontKey(v))?.[0] || 'Other font');
 
@@ -2549,7 +2544,6 @@ function AlignIcon({ to }) {
 }
 
 // Font sizes (as in most mail apps). "Normal" means no size of its own.
-const FONT_SIZES = [['Small', '12px'], ['Normal', null], ['Large', '18px'], ['Huge', '24px']];
 const sizeName = (v) => (!v ? 'Normal' : FONT_SIZES.find(([, px]) => px === String(v).replace(/\s/g, ''))?.[0] || 'Other');
 
 // Highlights: light enough that text stays readable on them (and on a white page).

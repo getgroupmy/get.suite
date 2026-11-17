@@ -15758,3 +15758,16 @@ test('calendar: event reminders by email — a setting, and each due reminder em
   const { sendDueReminderEmails } = await import('../src/pushreminders.js');
   assert.equal(await sendDueReminderEmails(), 0, 'nothing without email on the server');
 });
+
+test('mail: a default text style for the emails you write', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'mstyle', domain: 'acme.com', name: 'M Style', password: 'password123' })).status, 201);
+  await login(a, 'mstyle@acme.com');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_style, null);
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-style', { font: 'Georgia', size: 'Large' })).body, { style: { font: 'Georgia', size: 'Large' } });
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.mail_style, { font: 'Georgia', size: 'Large' });
+  assert.equal((await a('PUT', '/api/users/me/mail-style', { font: 'Wingdings' })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/mail-style', { size: '72px' })).status, 400);
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-style', { font: 'Sans Serif', size: 'Normal' })).body, { style: null }, 'the usual one is no setting');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_style, null);
+});

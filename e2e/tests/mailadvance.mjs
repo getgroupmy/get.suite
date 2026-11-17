@@ -127,6 +127,28 @@ await step('never: an opened email stays unread until marked by hand', async () 
   if (!(await unread('Echo note'))) throw new Error('was marked read');
   await api(page, 'PUT', '/users/me/mail-read-after', { after: 0 });
 });
+await step('default text style: chosen in Settings, shown while writing, and in the email sent', async () => {
+  await page.goto(`${B}/settings`);
+  const card = page.getByRole('region', { name: 'Default text style' });
+  await card.getByLabel('Font').selectOption('Georgia');
+  await card.getByLabel('Size').selectOption('Large');
+  await card.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').first().waitFor();
+  if ((await api(page, 'GET', '/auth/me')).body.user.mail_style?.font !== 'Georgia') throw new Error('not saved');
+  await page.goto(`${B}/mail`);
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('To', { exact: true }).fill('olivia@acme.com');
+  await page.getByLabel('Subject').fill('Styled note');
+  const box = page.getByRole('textbox', { name: 'Message' });
+  await box.click();
+  await page.keyboard.type('In my own style');
+  const css = await box.evaluate((el) => { const c = getComputedStyle(el); return `${c.fontFamily}|${c.fontSize}`; });
+  if (!/Georgia/.test(css) || !css.endsWith('18px')) throw new Error(css);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const msg = await until(async () => (((await api(page, 'GET', '/mail/messages?folder=INBOX')).body?.messages) || []).find((m) => m.subject === 'Styled note'), 60000);
+  const full = (await api(page, 'GET', `/mail/messages/${msg.uid}?folder=INBOX&peek=1`)).body;
+  if (!/font-family: Georgia, serif; font-size: 18px/.test(full.html || '')) throw new Error((full.html || '').slice(0, 200));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
