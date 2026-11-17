@@ -35,7 +35,7 @@ const formatHours = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m %
 export const lateOk = (e, now) => !e.all_day && e.my_status !== 'no' && now >= e.start - 30 * 60e3 && now <= e.end
   && ((e.guests?.length || 0) > 0 || e.my_status != null); // guests on yours, or you're a guest
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings', sharedwithyou: 'Shared with you', writing: 'Writing this week', tasktime: 'Time this week' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings', sharedwithyou: 'Shared with you', writing: 'Writing this week', tasktime: 'Time this week', kudos: 'Thanks' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -57,7 +57,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders, meetings, sharedNew, writing, taskTime] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders, meetings, sharedNew, writing, taskTime, kudos] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -78,6 +78,7 @@ export default function Home() {
       safe(get('/files/shared-recently'), []),
       safe(get('/users/me/writing'), { count: 0, files: [] }),
       safe(get('/tasks/time/mine'), { minutes: 0, tasks: [] }),
+      safe(get('/kudos?limit=5'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -105,6 +106,7 @@ export default function Home() {
       sharedNew: Array.isArray(sharedNew) ? sharedNew : [],
       writing, // Docs sprints in the last week
       taskTime, // time tracked on tasks in the last week
+      kudos: Array.isArray(kudos) ? kudos : [], // the company's latest thanks
       meetings: (Array.isArray(meetings) ? meetings : []).filter((m) => m.people > 0 || m.last_used >= Date.now() - 7 * 864e5).slice(0, 4),
     });
   }, [mail?.enabled]);
@@ -118,7 +120,7 @@ export default function Home() {
     } catch (e) { toast(e.message, 'error'); load(); }
   };
   useEffect(() => onLive((m) => {
-    if (['mail-followups', 'events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'comments-changed', 'chat-saved', 'chat-reminders', 'live-connected'].includes(m.type) || m.type === 'notification') load();
+    if (['mail-followups', 'events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'comments-changed', 'chat-saved', 'chat-reminders', 'kudos-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
   }), [load]);
   useEffect(() => { document.title = 'Home'; return () => { document.title = 'Workspace'; }; }, []);
 
@@ -444,6 +446,20 @@ export default function Home() {
             <ul className="plain-list">
               {data.taskTime.tasks.map((t) => <li key={t.id}><Link to={`/tasks/${t.list_id}?task=${t.id}`}>{t.title}</Link> <span className="muted small">{formatHours(t.minutes)}</span></li>)}
             </ul>
+          </section>
+          )}
+          {data.kudos.length > 0 && (
+          <section className="card home-card" aria-label="Thanks" {...cardProps('kudos')}>
+            <h2><span aria-hidden="true">🙌</span> Thanks</h2>
+            <ul className="plain-list kudos-list">
+              {data.kudos.map((k) => (
+                <li key={k.id}>
+                  <span className="kudos-emoji" aria-hidden="true">{k.emoji}</span>{' '}
+                  <strong>{k.from_name}</strong> thanked <strong>{k.to_name}</strong>: {k.message} <span className="muted small">{formatDate(k.created_at)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="muted small" style={{ margin: '6px 0 0' }}>Thank someone from their card: <Link to="/contacts">Contacts → Directory</Link>, or their name in Chat.</p>
           </section>
           )}
           {data.writing?.count > 0 && (

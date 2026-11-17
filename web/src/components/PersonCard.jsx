@@ -1,8 +1,8 @@
 // A colleague's card: who they are, their place in the org chart, how to reach them, whether it's
 // working time for them now and where they're working today. Opened from the Directory and the org chart.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post } from '../api.js';
+import { get, post, del, onLive, formatDate } from '../api.js';
 import { Avatar, Modal, useToast } from './ui.jsx';
 import { useAuth } from '../App.jsx';
 import WithPerson from './WithPerson.jsx';
@@ -12,6 +12,50 @@ import { placeText } from './workloc.js';
 import { scheduleWith } from './scheduleWith.js';
 
 const localTime = (tz) => new Date().toLocaleTimeString([], { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+
+const KUDOS_EMOJI = ['🙌', '🎉', '💪', '🌟', '🙏', '🚀', '❤️', '🏆'];
+
+/** Thanks they've had (the latest few), and "Say thanks" for colleagues. */
+function Thanks({ person, me }) {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState(null); // { emoji, message } while writing
+  const load = useCallback(() => get(`/kudos/for/${person.id}`).then(setData).catch(() => {}), [person.id]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => onLive((m) => { if (m.type === 'kudos-changed') load(); }), [load]);
+  const send = async (e) => {
+    e.preventDefault();
+    try { await post('/kudos', { to: person.id, ...form }); setForm(null); toast(`${form.emoji} Thanks sent to ${person.name}`); load(); } catch (err) { toast(err.message, 'error'); }
+  };
+  const takeBack = async (k) => { try { await del(`/kudos/${k.id}`); toast('Thanks taken back'); load(); } catch (err) { toast(err.message, 'error'); } };
+  return (
+    <section className="stack-tight person-thanks" aria-label="Thanks">
+      {person.id !== me && !form && <div><button type="button" className="btn" onClick={() => setForm({ emoji: KUDOS_EMOJI[0], message: '' })}>🙌 Say thanks</button></div>}
+      {form && (
+        <form className="stack-tight" aria-label={`Thank ${person.name}`} onSubmit={send}>
+          <div className="row wrap" role="radiogroup" aria-label="Emoji" style={{ gap: 4 }}>
+            {KUDOS_EMOJI.map((em) => <button key={em} type="button" role="radio" aria-checked={form.emoji === em} aria-label={em} className={`icon-btn kudos-pick ${form.emoji === em ? 'on' : ''}`} onClick={() => setForm({ ...form, emoji: em })}>{em}</button>)}
+          </div>
+          <textarea aria-label="What for" placeholder={`What are you thanking ${person.name.split(' ')[0]} for?`} rows={2} maxLength={280} required autoFocus value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+          <div className="row" style={{ gap: 6 }}><button className="btn primary small">Send thanks</button><button type="button" className="btn small" onClick={() => setForm(null)}>Cancel</button><span className="muted small">Everyone in the company can see it on Home.</span></div>
+        </form>
+      )}
+      {data?.count > 0 && (
+        <>
+          <strong className="small">Thanks received ({data.count})</strong>
+          <ul className="plain-list kudos-list" aria-label="Thanks received">
+            {data.latest.slice(0, 5).map((k) => (
+              <li key={k.id} className="row" style={{ gap: 6 }}>
+                <span className="grow"><span aria-hidden="true">{k.emoji}</span> {k.message} <span className="muted small">— {k.from_name}, {formatDate(k.created_at)}</span></span>
+                {k.mine && <button type="button" className="icon-btn" aria-label="Take back your thanks" title="Take back" onClick={() => takeBack(k)}><Icon name="close" size={14} /></button>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
 
 export default function PersonCard({ userId, onClose }) {
   const [id, setId] = useState(userId);
@@ -67,6 +111,7 @@ export default function PersonCard({ userId, onClose }) {
             <button type="button" className="btn" onClick={seeCalendar}><Icon name="calendar" size={16} /> See their calendar</button>
           </div>
         )}
+        <Thanks person={card} me={user.id} />
         {card.id !== user.id && <WithPerson email={card.email} onOpen={onClose} />}
       </div>
     </Modal>

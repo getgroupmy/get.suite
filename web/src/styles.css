@@ -3248,3 +3248,9 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 .timesheet .ts-cell { background: none; border: 0; padding: 2px 6px; min-width: 40px; border-radius: 4px; cursor: pointer; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
 .timesheet .ts-cell:hover:not(:disabled) { background: var(--surface-2); }
 .timesheet .ts-cell:disabled { cursor: default; opacity: .4; }
+
+/* Thanks (kudos): on a person's card and Home */
+.kudos-list li { padding: 3px 0; }
+.kudos-pick { font-size: 18px; border-radius: 8px; }
+.kudos-pick.on { background: var(--accent-soft, var(--surface-2)); outline: 2px solid var(--accent); }
+.person-thanks textarea { width: 100%; box-sizing: border-box; }

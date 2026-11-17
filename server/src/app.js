@@ -32,6 +32,7 @@ import approvalRoutes from './routes/approvals.js';
 import signatureRoutes, { publicSignRoutes } from './routes/signatures.js';
 import takeoutRoutes from './routes/takeout.js';
 import locationRoutes from './routes/location.js';
+import kudosRoutes from './routes/kudos.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
@@ -173,6 +174,7 @@ export function createApp({
   app.use('/api/signatures', requireAuth, signatureRoutes());
   app.use('/api/takeout', requireAuth, takeoutRoutes());
   app.use('/api/location', requireAuth, locationRoutes());
+  app.use('/api/kudos', requireAuth, kudosRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
   // Share-link pages: keep them out of search engines.
   app.use(['/s/', '/i/', '/f/', '/c/', '/u/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
