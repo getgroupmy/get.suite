@@ -8,10 +8,11 @@ import http from 'node:http';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-focus-'));
 process.env.DATA_DIR = dir;
-let server, base, endFocusNow;
+let server, base, endFocusNow, q;
 before(async () => {
   const { createApp } = await import('../src/app.js');
   ({ endFocusNow } = await import('../src/routes/tasks.js'));
+  ({ q } = await import('../src/db.js'));
   server = http.createServer(createApp());
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -125,4 +126,34 @@ test('time on tasks for a range (Calendar → Time insights): only entries start
   assert.equal((await a('GET', '/api/tasks/time/mine?days=7')).body.spans, undefined, 'only for a range');
   assert.equal((await a('GET', `/api/tasks/time/mine?from=${to}&to=${from}`)).status, 400);
   assert.equal((await a('GET', `/api/tasks/time/mine?from=0&to=${to}`)).status, 400, 'too long');
+});
+
+test('time away left out: stop a timer when you went away, and carry on or not', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Away' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Quarterly plan' })).body;
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`);
+  // As if it started 50 minutes ago and you went away 30 minutes ago.
+  const t = Date.now();
+  q('UPDATE task_time SET started_at = ? WHERE task_id = ? AND ended_at IS NULL').run(t - 50 * 60e3, task.id);
+  assert.equal((await a('POST', '/api/tasks/timer/stop', { at: t + 10 * 60e3 })).status, 400, 'not in the future');
+  const r = await a('POST', '/api/tasks/timer/stop', { at: t - 30 * 60e3, resume: true });
+  assert.equal(r.status, 200);
+  const rows = q('SELECT * FROM task_time WHERE task_id = ? ORDER BY started_at').all(task.id);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].minutes, 20, 'counted up to when you went away');
+  assert.equal(rows[1].ended_at, null, 'and carries on from now');
+  assert.ok(rows[1].started_at >= t - 1000);
+  const run = (await a('GET', '/api/tasks/timer')).body;
+  assert.equal(run.task_id, task.id);
+  // Stopping "before it started" counts nothing; without resume it stays stopped.
+  assert.equal((await a('POST', '/api/tasks/timer/stop', { at: 0 })).status, 200);
+  assert.equal((await a('GET', '/api/tasks/timer')).body, null);
+  assert.equal(q('SELECT minutes FROM task_time WHERE id = ?').get(rows[1].id).minutes, 0);
+  assert.equal((await a('POST', '/api/tasks/timer/stop', { at: Date.now() })).status, 404);
+  // A focus session isn't carried on.
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`, { minutes: 25 });
+  await a('POST', '/api/tasks/timer/stop', { at: Date.now(), resume: true });
+  assert.equal((await a('GET', '/api/tasks/timer')).body, null);
 });

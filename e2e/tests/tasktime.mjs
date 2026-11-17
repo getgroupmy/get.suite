@@ -219,6 +219,39 @@ await step('Time insights → the previous week shows the time logged then, on i
   await dlg.getByRole('button', { name: 'Next week' }).click();
   await dlg.getByRole('list', { name: 'Tasks you tracked time on' }).getByRole('link', { name: 'Design' }).waitFor({ timeout: 10000 });
 });
+await step('away from a running timer: coming back asks whether to count the time away', async () => {
+  await page.goto(`${B}/drive`);
+  await page.evaluate(() => localStorage.setItem('nw-away-seconds', '3'));
+  await api(page, 'POST', `/tasks/tasks/${design}/timer`);
+  await page.reload();
+  await page.getByRole('status', { name: /^Design: \d+ min$/ }).waitFor({ timeout: 10000 });
+  const before = (await api(page, 'GET', '/tasks/timer')).body;
+  await page.mouse.move(200, 300);
+  await page.waitForTimeout(6500); // away (nothing typed or moved); the test threshold is 3 s
+  await page.mouse.move(260, 340);
+  const dlg = page.getByRole('dialog', { name: 'You were away' });
+  await dlg.waitFor({ timeout: 5000 });
+  await dlg.getByText(/while the timer ran on Design/).waitFor();
+  await page.screenshot({ path: `${SP}/shots/timer-away.png` });
+  await dlg.getByRole('button', { name: 'Leave it out and carry on' }).click();
+  await page.getByText('Time away left out; the timer carries on').last().waitFor();
+  const after = (await api(page, 'GET', '/tasks/timer')).body;
+  if (!after || after.task_id !== design || after.since <= before.since) throw new Error(JSON.stringify({ before, after }));
+  // Away again: "Keep the time" changes nothing; then "Leave it out and stop" stops it.
+  await page.waitForTimeout(6500);
+  await page.mouse.move(300, 300);
+  await dlg.waitFor({ timeout: 5000 });
+  await dlg.getByRole('button', { name: 'Keep the time' }).click();
+  await dlg.waitFor({ state: 'detached' });
+  if ((await api(page, 'GET', '/tasks/timer')).body?.since !== after.since) throw new Error('kept time changed the timer');
+  await page.waitForTimeout(6500);
+  await page.keyboard.press('Shift');
+  await dlg.waitFor({ timeout: 5000 });
+  await dlg.getByRole('button', { name: 'Leave it out and stop' }).click();
+  await page.getByRole('status', { name: /^Design:/ }).waitFor({ state: 'detached', timeout: 5000 });
+  if ((await api(page, 'GET', '/tasks/timer')).body) throw new Error('still running');
+  await page.evaluate(() => localStorage.removeItem('nw-away-seconds'));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

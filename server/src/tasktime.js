@@ -159,11 +159,21 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
     if (stoppedOn && stoppedOn !== task.id) { const other = q('SELECT list_id FROM tasks WHERE id = ?').get(stoppedOn); if (other && other.list_id !== list.id) changed(loadList(other.list_id, req.user)); }
     res.status(201).json(timeOf(task.id));
   });
+  // { at } (ms) stops it earlier, when you went away (not before it started); { resume: true } then starts it again now,
+  // so the time away is left out but the timer carries on.
   r.post('/timer/stop', (req, res) => {
-    const wasFocus = !!q('SELECT 1 FROM task_time WHERE user_id = ? AND ended_at IS NULL AND until IS NOT NULL').get(req.user.id);
-    const taskId = stopTimer(req.user.id);
-    if (taskId && wasFocus) onFocus(req.user);
-    if (!taskId) throw notFound('No timer is running');
+    const run = q('SELECT * FROM task_time WHERE user_id = ? AND ended_at IS NULL').get(req.user.id);
+    if (!run) throw notFound('No timer is running');
+    let at = now();
+    if (req.body?.at != null) {
+      const want = Number(req.body.at);
+      if (!Number.isFinite(want) || want > at + 60e3) throw bad('Choose a time up to now');
+      at = Math.max(run.started_at, Math.min(want, at));
+    }
+    const resume = req.body?.resume === true && !run.until; // a focus session ends; it isn't carried on
+    const taskId = stopTimer(req.user.id, at);
+    if (resume) q('INSERT INTO task_time (id, task_id, user_id, started_at) VALUES (?, ?, ?, ?)').run(uid(), taskId, req.user.id, now());
+    if (run.until) onFocus(req.user);
     const listId = q('SELECT list_id FROM tasks WHERE id = ?').get(taskId)?.list_id;
     if (listId) changed(loadList(listId, req.user));
     res.json({ task_id: taskId, ...timeOf(taskId) });
