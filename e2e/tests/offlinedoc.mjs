@@ -409,6 +409,30 @@ await step('Drive: a new document made offline is written in here, kept after re
   const blocks = doc.content[0]?.type === 'docTab' ? doc.content[0].content : doc.content;
   if (blocks.length !== 1 || blocks[0]?.content?.[0]?.text !== 'Notes from the island') throw new Error(JSON.stringify(doc)); // no empty line with it
 });
+await step('Drive: a new spreadsheet made offline is filled in here and made in Drive, with one sheet, when back', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'New' }).waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByRole('menuitem', { name: 'Spreadsheet' }).click();
+  await page.waitForURL(/\/sheets\/off/);
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const cell = (k) => page.locator(`[data-k="${k}"]`);
+  await cell('A1').click({ timeout: 20000 });
+  await page.keyboard.type('Fuel');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await cell('A1').getByText('Fuel').waitFor({ timeout: 20000 }); // kept on the device
+  await page.goto(`${B}/drive`).catch(() => {});
+  await page.getByText('Untitled spreadsheet').first().waitFor({ timeout: 20000 });
+  await ctx.setOffline(false);
+  await page.getByText('Sent 1 change made offline').waitFor({ timeout: 30000 });
+  await until(async () => (await api(page, 'GET', `/files/${id}/content`)).body?.content?.sheets?.[0]?.cells?.A1 === 'Fuel', 30000);
+  const { sheets } = (await api(page, 'GET', `/files/${id}/content`)).body.content;
+  if (sheets.length !== 1) throw new Error(`${sheets.length} sheets: ${sheets.map((x) => x.name).join(', ')}`);
+});
 await step('Drive offline: a kept file renamed there gets the name when back; one can be taken off the device', async () => {
   await page.goto(`${B}/drive`);
   await page.waitForTimeout(800);

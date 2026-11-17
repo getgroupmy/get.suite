@@ -114,3 +114,22 @@ test('a document made offline: sent with its id it is made once (blank, so the o
   const plain = await olivia('POST', '/api/files/new', { kind: 'doc' });
   assert.notEqual(plain.body.id, id);
 });
+
+test('a spreadsheet started offline is made blank: its first sheet comes from the copy written offline', async () => {
+  const { sheetDocFromJson, jsonFromSheetDoc } = await import('../src/collabdoc.js');
+  assert.equal(sheetDocFromJson({ sheets: [], blank: true }).getArray('sheets').length, 0, 'no sheet of its own');
+  assert.equal(sheetDocFromJson({ sheets: [] }).getArray('sheets').length, 1, 'otherwise a Sheet1 as before');
+  const olivia = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const r = await olivia('POST', '/api/files/new', { kind: 'sheet', id: 'offSheet0123456789abcdef', blank: true });
+  assert.equal(r.status, 201);
+  assert.deepEqual((await olivia('GET', '/api/files/offSheet0123456789abcdef/content')).body.content.sheets, []);
+  // The copy made offline brings its sheet: one in all.
+  const Y = await import('yjs');
+  const server = sheetDocFromJson({ sheets: [], blank: true });
+  const offline = sheetDocFromJson({ sheets: [{ name: 'Sheet1', cells: { A1: 'Fuel' } }] });
+  Y.applyUpdate(server, Y.encodeStateAsUpdate(offline));
+  const out = jsonFromSheetDoc(server);
+  assert.equal(out.sheets.length, 1);
+  assert.equal(out.sheets[0].cells.A1, 'Fuel');
+});

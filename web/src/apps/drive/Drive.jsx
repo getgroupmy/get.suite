@@ -443,14 +443,20 @@ export default function Drive() {
       const f = await post('/files/new', { kind, parent_id: parentId, id });
       navigate(openPath(f));
     } catch (e) {
-      // No connection: a new document starts on this device (blank), is made in Drive when it's back, and what's
-      // written in it meanwhile goes in then. (Spreadsheets and presentations need the connection to start.)
-      if (unreachable(e) && kind === 'doc') {
-        const name = 'Untitled document', at = new Date().toISOString();
+      // No connection: a new document or spreadsheet starts on this device, is made in Drive (blank) when it's back,
+      // and what's written in it meanwhile goes in then. (A spreadsheet's first sheet comes with its copy, so the one
+      // made in Drive has none of its own.) Presentations need the connection to start.
+      if (unreachable(e) && (kind === 'doc' || kind === 'sheet')) {
+        const name = kind === 'doc' ? 'Untitled document' : 'Untitled spreadsheet', at = new Date().toISOString();
+        let state = new Uint8Array([0, 0]); // an empty document
+        if (kind === 'sheet') {
+          const [Y, { sheetDocFromJson }] = await Promise.all([import('yjs'), import('../collabsync.js')]);
+          state = Y.encodeStateAsUpdate(sheetDocFromJson({ sheets: [{ name: 'Sheet1' }] }));
+        }
         await changeAdd({ method: 'POST', url: '/files/new', body: { kind, parent_id: parentId || null, id, blank: true }, user: user.id, label: name });
-        await keepDoc(id, { gen: null, fresh: true, state: new Uint8Array([0, 0]), dirty: true, file: { id, name, kind, owner_id: user.id, owner_name: user.name, parent_id: parentId || null, role: 'owner', page_setup: null, created_at: at, updated_at: at } });
+        await keepDoc(id, { gen: null, fresh: true, state, dirty: true, file: { id, name, kind, owner_id: user.id, owner_name: user.name, parent_id: parentId || null, role: 'owner', page_setup: null, created_at: at, updated_at: at } });
         window.dispatchEvent(new Event('nw:changes'));
-        navigate(`/docs/${id}`);
+        navigate(`/${kind === 'doc' ? 'docs' : 'sheets'}/${id}`);
         return;
       }
       toast(e.message, 'error');

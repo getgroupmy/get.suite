@@ -11,6 +11,7 @@ const WHAT = [
 ];
 export function changeText(c) {
   let what = WHAT.find(([re, m]) => m === c.method && re.test(c.url))?.[2];
+  if (what === 'Make a document' && c.body?.kind === 'sheet') what = 'Make a spreadsheet';
   if (!what && c.method === 'POST' && c.url === '/mail/messages/flags') {
     const b = c.body || {};
     what = b.seen === true ? 'Mark mail read' : b.seen === false ? 'Mark mail unread' : b.flagged === true ? 'Star mail' : b.flagged === false ? 'Unstar mail' : 'Change mail';

@@ -851,7 +851,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const parentId = resolveParent(req.body.parent_id, req.user);
     const name = cleanName(req.body.name || { doc: 'Untitled document', sheet: 'Untitled spreadsheet', slides: 'Untitled presentation' }[kind]);
     // blank: nothing in it at all (its first words come from the copy written offline, so no empty line goes before them).
-    const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : req.body.blank && kind === 'doc' ? JSON.stringify({ type: 'doc', content: [] }) : EMPTY[kind]();
+    const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : req.body.blank && kind === 'doc' ? JSON.stringify({ type: 'doc', content: [] }) : req.body.blank && kind === 'sheet' ? JSON.stringify({ sheets: [], blank: true }) : EMPTY[kind]();
     const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content), ...(want && { id: want }) });
     notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));

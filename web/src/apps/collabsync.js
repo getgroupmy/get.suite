@@ -33,7 +33,8 @@ function sheetMap(sheet) {
 export function sheetDocFromJson(json) {
   const doc = new Y.Doc();
   doc.transact(() => {
-    doc.getArray('sheets').push((json?.sheets?.length ? json.sheets : [{ name: 'Sheet1' }]).map(sheetMap));
+    // (blank: made for a spreadsheet started offline, whose own first sheet comes with its copy)
+    doc.getArray('sheets').push((json?.sheets?.length ? json.sheets : json?.blank ? [] : [{ name: 'Sheet1' }]).map(sheetMap));
     if (json?.functions?.length) doc.getMap('book').set('functions', json.functions); // named functions, for the whole spreadsheet
   });
   return doc;
