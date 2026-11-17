@@ -22,6 +22,8 @@ q('CREATE INDEX IF NOT EXISTS task_time_task ON task_time(task_id)').run();
 q('CREATE INDEX IF NOT EXISTS task_time_user ON task_time(user_id, ended_at)').run();
 
 export const MAX_MINUTES = 24 * 60; // one entry: a day at most
+// How long a focus session's minute lasts: a minute, except in browser tests (FOCUS_SECONDS_PER_MINUTE=1 makes 5 minutes 5 seconds).
+const FOCUS_MINUTE_MS = Number(process.env.FOCUS_SECONDS_PER_MINUTE) * 1000 || 60e3;
 const TIMER_LIMIT = 12 * 60; // a timer left running longer than this counts as 12 hours (forgotten overnight)
 
 /** "1h 30m", "1.5h", "90", "90m", "1:30", "2 h" → minutes, or null when it isn't a duration. */
@@ -209,7 +211,7 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
   });
   r.get('/timer', (req, res) => {
     const run = q('SELECT e.*, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id WHERE e.user_id = ? AND e.ended_at IS NULL').get(req.user.id);
-    res.json(run ? { task_id: run.task_id, title: run.title, list_id: run.list_id, since: run.started_at, until: run.until || null } : null);
+    res.json(run ? { task_id: run.task_id, title: run.title, list_id: run.list_id, since: run.started_at, until: run.until || null, now: now() } : null); // now: the server's clock, so a browser whose clock is off still sees the end right
   });
   // { minutes } (5 to 180) makes it a focus session: it stops by itself then.
   r.post('/tasks/:id/timer', (req, res) => {
@@ -219,7 +221,7 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
     const wasFocus = !!q('SELECT 1 FROM task_time WHERE user_id = ? AND ended_at IS NULL AND until IS NOT NULL').get(req.user.id);
     const stoppedOn = stopTimer(req.user.id); // one timer at a time
     const t = now();
-    q('INSERT INTO task_time (id, task_id, user_id, started_at, until) VALUES (?, ?, ?, ?, ?)').run(uid(), task.id, req.user.id, t, focus ? t + focus * 60e3 : null);
+    q('INSERT INTO task_time (id, task_id, user_id, started_at, until) VALUES (?, ?, ?, ?, ?)').run(uid(), task.id, req.user.id, t, focus ? t + focus * FOCUS_MINUTE_MS : null);
     if (focus || wasFocus) onFocus(req.user); // colleagues see "Focusing" come (or go) at once
     changed(list);
     if (stoppedOn && stoppedOn !== task.id) { const other = q('SELECT list_id FROM tasks WHERE id = ?').get(stoppedOn); if (other && other.list_id !== list.id) changed(loadList(other.list_id, req.user)); }

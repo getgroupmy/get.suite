@@ -36,6 +36,7 @@ test('a focus session stops by itself at its end, counts just that long, and tel
   assert.equal((await a('POST', `/api/tasks/tasks/${task.id}/timer`, { minutes: 25 })).status, 201);
   const running = (await a('GET', '/api/tasks/timer')).body;
   assert.ok(running.until - running.since === 25 * 60e3, 'ends in 25 minutes');
+  assert.ok(Math.abs(running.now - Date.now()) < 5000, 'with the server’s clock, for browsers whose clock is off');
   assert.equal(endFocusNow(Date.now() + 10 * 60e3), 0, 'not yet');
   assert.equal(endFocusNow(Date.now() + 26 * 60e3), 1, 'its time is up');
   assert.equal((await a('GET', '/api/tasks/timer')).body, null, 'stopped');
