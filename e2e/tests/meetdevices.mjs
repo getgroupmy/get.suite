@@ -59,6 +59,18 @@ await step('the lobby lists cameras and microphones; picking one asks for it and
   if (saved.cam !== 'second-cam') throw new Error(JSON.stringify(saved));
   await page.getByLabel('Your camera').waitFor();
 });
+await step('Original sound: noise suppression, echo cancellation and automatic volume off, asked for and remembered', async () => {
+  const box = page.getByRole('checkbox', { name: /^Original sound/ });
+  await box.check();
+  await until(async () => { const a = await page.evaluate(() => window.__asks.at(-1)?.audio); return a && a.noiseSuppression === false && a.echoCancellation === false && a.autoGainControl === false; });
+  const settings = await page.evaluate(async () => { const s = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: false, echoCancellation: false } }); const t = s.getAudioTracks()[0].getSettings(); s.getTracks().forEach((x) => x.stop()); return t; });
+  if (settings.noiseSuppression !== false) throw new Error(`the browser kept noise suppression: ${JSON.stringify(settings)}`);
+  if (!(await page.evaluate(() => JSON.parse(localStorage.getItem('nw-meet-devices')).original))) throw new Error('not remembered');
+  await page.reload();
+  if (!(await page.getByRole('checkbox', { name: /^Original sound/ }).isChecked())) throw new Error('not kept after reloading');
+  await page.getByRole('checkbox', { name: /^Original sound/ }).uncheck(); // back to normal for the next steps
+  await until(async () => (await page.evaluate(() => window.__asks.at(-1)?.audio)) !== undefined && (await page.evaluate(() => window.__asks.at(-1)?.audio?.noiseSuppression)) === undefined);
+});
 await step('the lobby: the microphone meter moves (the fake microphone beeps); Test speaker plays on the chosen speaker', async () => {
   const meter = page.getByRole('meter', { name: 'Microphone level' });
   await until(async () => Number(await meter.getAttribute('aria-valuenow') ?? await meter.evaluate((m) => m.value)) > 0, 10000);

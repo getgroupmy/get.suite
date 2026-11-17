@@ -273,6 +273,7 @@ function DevicePicker({ stream, onPick, sink, onSpeaker }) {
   }, [stream]);
   const using = (kind) => stream?.[kind === 'mic' ? 'getAudioTracks' : 'getVideoTracks']()[0]?.getSettings?.().deviceId || '';
   const pick = (kind, id) => { const next = { ...savedDevices(), [kind]: id }; saveDevices(next); if (kind === 'spk') onSpeaker?.(id); else onPick(next); };
+  const [original, setOriginal] = useState(() => savedDevices().original); // sound as it is, for music
   return (
     <div className="stack meet-devices" style={{ gap: 6 }}>
       <label className="field"><span className="small">Camera</span>
@@ -285,6 +286,10 @@ function DevicePicker({ stream, onPick, sink, onSpeaker }) {
           {!lists.mics.length && <option value="">No microphone found</option>}
           {lists.mics.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
         </select></label>
+      <label className="row small" style={{ gap: 6 }} title="For music: an instrument or a singing lesson. Noise suppression, echo cancellation and automatic volume are turned off, so music isn’t cut out as noise. Wear headphones, or others hear themselves.">
+        <input type="checkbox" checked={original} onChange={(e) => { const next = { ...savedDevices(), original: e.target.checked }; setOriginal(next.original); saveDevices(next); onPick(next); }} />
+        Original sound (for music; use headphones)
+      </label>
       <MicMeter stream={stream} />
       {onSpeaker && canPickSpeaker() && lists.spks.length > 0 && <label className="field"><span className="small">Speaker</span>
         <select aria-label="Speaker" value={lists.spks.some((d) => d.id === sink) ? sink : lists.spks[0].id} onChange={(e) => pick('spk', e.target.value)}>

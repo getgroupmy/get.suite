@@ -6,11 +6,11 @@ const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? nu
 
 test('the choice is remembered; nothing saved means the defaults', () => {
   const s = mem();
-  assert.deepEqual(savedDevices(s), { mic: '', cam: '', spk: '' });
+  assert.deepEqual(savedDevices(s), { mic: '', cam: '', spk: '', original: false });
   saveDevices({ mic: 'm1', cam: 'c2', spk: 's3' }, s);
-  assert.deepEqual(savedDevices(s), { mic: 'm1', cam: 'c2', spk: 's3' });
+  assert.deepEqual(savedDevices(s), { mic: 'm1', cam: 'c2', spk: 's3', original: false });
   s.setItem('nw-meet-devices', 'not json');
-  assert.deepEqual(savedDevices(s), { mic: '', cam: '', spk: '' });
+  assert.deepEqual(savedDevices(s), { mic: '', cam: '', spk: '', original: false });
 });
 
 test('asks for the chosen devices as ideal, then less', () => {
@@ -26,4 +26,15 @@ test('lists cameras and microphones, naming those without a label', () => {
 test('the microphone meter: silence empty, speech most of it, never past full', async () => {
   const { meterPercent } = await import('./devices.js');
   assert.deepEqual([meterPercent(0), meterPercent(0.05), meterPercent(0.25), meterPercent(0.9), meterPercent(NaN)], [0, 20, 100, 100, 0]);
+});
+
+test('original sound: noise suppression, echo cancellation and automatic volume off; kept with the choice', () => {
+  assert.deepEqual(deviceAsks({ original: true })[0].audio, { noiseSuppression: false, echoCancellation: false, autoGainControl: false });
+  assert.deepEqual(deviceAsks({ mic: 'm1', original: true })[1].audio, { deviceId: { ideal: 'm1' }, noiseSuppression: false, echoCancellation: false, autoGainControl: false });
+  assert.equal(deviceAsks({})[0].audio, true, 'otherwise the browser’s usual processing');
+  const store = new Map(); const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  saveDevices({ mic: 'm1', original: true }, storage);
+  assert.equal(savedDevices(storage).original, true);
+  saveDevices({ mic: 'm1' }, storage);
+  assert.equal(savedDevices(storage).original, false);
 });
