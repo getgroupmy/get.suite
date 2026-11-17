@@ -137,6 +137,9 @@ await step('Team workload: each person across the shared lists you’re on', asy
   if (kim[0] !== '1' || kim[1] !== '3' || kim[2] !== '1') throw new Error(`Kim: ${kim}`); // 1 list, 3 open, 1 overdue
   if (await table.getByRole('row', { name: /^Not assigned/ }).count()) throw new Error('unassigned listed as a person');
   await both('team workload');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('dialog', { name: 'Team workload' }).getByRole('link', { name: 'Download (.csv)' }).click()]);
+  const csv = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
+  if (!/Person,Lists,Open,Overdue/.test(csv) || !/Kim Park,1,3,1,/.test(csv)) throw new Error(csv);
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

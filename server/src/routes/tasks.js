@@ -1,7 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
-import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf } from '../taskworkload.js';
+import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf, workloadCsv } from '../taskworkload.js';
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
@@ -629,6 +629,14 @@ export default function taskRoutes() {
   r.get('/workload', (req, res) => {
     const today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.today || '')) ? String(req.query.today) : new Date().toISOString().slice(0, 10);
     res.json({ today, ...teamWorkloadOf(req.user.id, today) });
+  });
+  const dayOf = (req) => (/^\d{4}-\d{2}-\d{2}$/.test(String(req.query.today || '')) ? String(req.query.today) : new Date().toISOString().slice(0, 10));
+  const sendCsv = (res, name, text) => { res.setHeader('Content-Type', 'text/csv; charset=utf-8'); res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`); res.send(text); };
+  r.get('/workload.csv', (req, res) => { const day = dayOf(req); sendCsv(res, `Team workload ${day}.csv`, workloadCsv(teamWorkloadOf(req.user.id, day).people, { team: true })); });
+  r.get('/lists/:id/workload.csv', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const day = dayOf(req);
+    sendCsv(res, `Workload ${list.name} ${day}.csv`, workloadCsv(workloadOf(list, day)));
   });
   // Workload: open tasks per person on the list, by when they're due (taskworkload.js). ?today=YYYY-MM-DD (the browser's day).
   r.get('/lists/:id/workload', (req, res) => {

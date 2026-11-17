@@ -1071,7 +1071,7 @@ function Workload({ list = null, onClose, onPick }) {
   const hours = (m) => (m ? (m >= 60 ? `${Math.round(m / 6) / 10} h` : `${m} min`) : '');
   const cols = [['overdue', 'Overdue'], ['this_week', 'This week'], ['next_week', 'Next week'], ['later', 'Later'], ['no_date', 'No date']];
   return (
-    <Modal wide title={list ? `Workload on “${list.name}”` : 'Team workload'} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+    <Modal wide title={list ? `Workload on “${list.name}”` : 'Team workload'} onClose={onClose} footer={<>{w?.people.length > 0 && <a className="btn" href={`/api/tasks/${list ? `lists/${list.id}/` : ''}workload.csv?today=${localToday()}`} download>Download (.csv)</a>}<button type="button" className="btn" onClick={onClose}>Close</button></>}>
       {error && <p className="error">{error}</p>}
       {!w && !error && <p className="muted">Loading…</p>}
       {w && !list && !w.people.length && <p className="muted">Nobody to show yet: share a list with colleagues and give them tasks.</p>}

@@ -15725,3 +15725,23 @@ test('tasks: team workload across every shared list you are on', async () => {
   assert.deepEqual(w.people.map((p) => [p.name, p.lists, p.open, p.overdue, p.this_week, p.no_date]),
     [['Tm Bob', 2, 2, 1, 1, 0], ['Tm Cal', 1, 1, 0, 0, 1], ['Tm Ann', 0, 0, 0, 0, 0]]);
 });
+
+test('tasks: workload as CSV, for a list and for the team', async () => {
+  const { workloadCsv } = await import('../src/taskworkload.js');
+  assert.equal(workloadCsv([{ name: '=Evil', open: 1, overdue: 0, this_week: 1, next_week: 0, later: 0, no_date: 0, estimate: 90 }]),
+    '﻿Person,Open,Overdue,This week,Next week,Later,No date,Estimated (hours)\r\n\'=Evil,1,0,1,0,0,0,1.5\r\n', 'a formula-like name is kept as text');
+  const a = client(); const b = client();
+  for (const [l, n] of [['wcsva', 'Csv Ann'], ['wcsvb', 'Csv Bob']]) assert.equal((await owner('POST', '/api/users', { local: l, domain: 'acme.com', name: n, password: 'password123' })).status, 201);
+  await login(a, 'wcsva@acme.com'); await login(b, 'wcsvb@acme.com');
+  const bob = (await b('GET', '/api/auth/me')).body.user.id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Fair' })).body;
+  await a('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [bob] });
+  await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Stand', due: '2026-11-01', assignee_id: bob });
+  const one = await a('GET', `/api/tasks/lists/${list.id}/workload.csv?today=2026-11-18`, undefined, { raw: true });
+  assert.equal(one.status, 200);
+  assert.match(String(one.body), /Csv Bob,1,1,0,0,0,0,/);
+  const team = await b('GET', '/api/tasks/workload.csv?today=2026-11-18', undefined, { raw: true });
+  assert.match(String(team.body), /^﻿?Person,Lists,Open/);
+  assert.match(String(team.body), /Csv Bob,1,1,1,/);
+  assert.equal((await owner('GET', `/api/tasks/lists/${list.id}/workload.csv`)).status, 404);
+});

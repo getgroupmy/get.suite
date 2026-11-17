@@ -2,6 +2,7 @@
 // overdue, this week (Monday to Sunday), next week, later, or with no date; and the time it's estimated
 // to take. Tasks nobody has been given count under "Not assigned".
 import { q } from './db.js';
+import { csvCell } from './tasktime.js';
 
 const ymd = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 
@@ -81,4 +82,11 @@ export function teamWorkloadOf(userId, today) {
     }
   }
   return { lists: lists.length, people: [...people.values()].sort((a, b) => b.overdue - a.overdue || b.open - a.open || a.name.localeCompare(b.name)) };
+}
+
+/** Workload as CSV (Excel opens it): one row per person, estimates in hours. `team` adds how many lists. */
+export function workloadCsv(people, { team = false } = {}) {
+  const head = ['Person', ...(team ? ['Lists'] : []), 'Open', 'Overdue', 'This week', 'Next week', 'Later', 'No date', 'Estimated (hours)'];
+  const rows = people.map((p) => [p.name, ...(team ? [p.lists] : []), p.open, p.overdue, p.this_week, p.next_week, p.later, p.no_date, p.estimate ? Math.round((p.estimate / 60) * 100) / 100 : '']);
+  return `\ufeff${[head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
