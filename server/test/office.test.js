@@ -2025,3 +2025,30 @@ test('Word: horizontal lines come back (also through LibreOffice, where installe
     assert.deepEqual(kinds((await docFromWord(fs.readFileSync(path.join(dir, 'out', 'h.docx')))).doc), ['paragraph', 'horizontalRule', 'paragraph']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Sheets: what LibreOffice keeps when it opens and saves our .xlsx and .ods (where it is installed)', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.skip('LibreOffice is not installed here'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { excelFromSheet, sheetFromExcel } = await import('../src/office/excel.js');
+  const { odsFromSheet, sheetFromOds } = await import('../src/office/ods.js');
+  const book = { sheets: [{ name: 'Sales', cells: { A1: 'Region', B1: 'Q1', C1: 'Q2', D1: 'Total', A2: 'North', B2: '1200.5', C2: '1300', D2: '=SUM(B2:C2)', B4: '0.25', A5: 'Merged title' },
+    formats: { A1: { b: 1, fill: '#e8f0fe' }, B1: { b: 1, align: 'center' }, D2: { num: 'currency', cur: 'USD', dp: 2 }, B4: { num: 'percent', dp: 0 }, A2: { color: '#c5221f', i: 1 } },
+    colWidths: { A: 140 }, merges: ['A5:D5'], frozen: { rows: 1, cols: 1 } }] };
+  // Vertical alignment is left out: LibreOffice writes "bottom" (how it shows them) on every cell.
+  const look = (f) => f && Object.fromEntries(Object.entries(f).filter(([k]) => k !== 'va'));
+  const kept = (b) => { const s = b.sheets[0]; return { cells: s.cells, formats: Object.fromEntries(Object.entries(s.formats || {}).map(([k, f]) => [k, look(f)]).filter(([, f]) => Object.keys(f).length)), merges: s.merges, wide: Math.abs((s.colWidths?.A || 0) - 140) < 5 }; };
+  const want = kept(book);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 's.xlsx'), await excelFromSheet(book));
+    fs.writeFileSync(path.join(dir, 's.ods'), await odsFromSheet(book));
+    fs.mkdirSync(path.join(dir, 'out'));
+    for (const [f, as] of [['s.xlsx', 'xlsx'], ['s.ods', 'ods']]) execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, 'out'), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 });
+    const x = await sheetFromExcel(fs.readFileSync(path.join(dir, 'out', 's.xlsx')));
+    assert.deepEqual(kept(x), want);
+    assert.deepEqual(x.sheets[0].frozen, { rows: 1, cols: 1 }, 'frozen panes, in the .xlsx');
+    // (A headless conversion writes no view settings to .ods, so frozen panes can't be checked that way.)
+    assert.deepEqual(kept(await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 's.ods')))), want);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
