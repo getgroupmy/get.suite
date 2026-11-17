@@ -11,6 +11,7 @@ import { uid, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { zoneOrUtc } from '../ics.js';
 import { hoursOf, withinHours, hoursText } from '../workhours.js';
+import { freeSlots as openSlots } from '../freeslots.js';
 import { expand } from '../calmath.js';
 import { seesDetails, sharesOf, setShares } from '../calshare.js';
 import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.js';
@@ -451,6 +452,23 @@ export function freeBusyRoutes() {
       out[id] = { name: u.name, details, busy: busyOf(id, from, to, details).sort((a, b) => a.start - b.start) };
     }
     res.json(out);
+  });
+
+  // Focus time to book: ?from&to (ms, up to 14 days), minutes (30–240, 90 if not said), count (1–10): the earliest free block of
+  // that length in each working day of yours (your working hours and time zone), one a day, soonest first.
+  r.get('/focus-slots', (req, res) => {
+    const from = Math.max(Number(req.query.from), Date.now()), to = Number(req.query.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 14 * DAY) throw bad('Give from and to, at most 14 days apart');
+    const minutes = Math.min(240, Math.max(30, Math.round(Number(req.query.minutes) || 90)));
+    const count = Math.min(10, Math.max(1, Math.round(Number(req.query.count) || 5)));
+    const hours = hoursOf(req.user.id, String(req.query.tz || 'UTC'));
+    const busy = busyOf(req.user.id, from, to, true).map((b) => [b.start, b.end]);
+    const slots = openSlots({ busy, from, to, minutes, tz: hours.tz, dayStart: Math.ceil(hours.start / 60), dayEnd: Math.floor(hours.end / 60), weekends: true, max: 200, step: 30 })
+      .filter((x) => withinHours(x.start, x.end, hours));
+    const day = (t) => new Intl.DateTimeFormat('en-CA', { timeZone: hours.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t));
+    const seen = new Set(), out = [];
+    for (const x of slots) { const d = day(x.start); if (seen.has(d)) continue; seen.add(d); out.push(x); if (out.length >= count) break; }
+    res.json({ minutes, tz: hours.tz, slots: out });
   });
 
   // Calendar sharing: { with: [people you share yours with], from: [people who share theirs with you] }.

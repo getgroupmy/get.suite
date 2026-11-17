@@ -15446,3 +15446,21 @@ test('Today’s note: one a day, made from the daily template, the same one agai
   assert.notEqual(fresh.id, today.body.id);
   assert.equal(fresh.made, true);
 });
+
+test('focus slots: one free block a working day, in working hours, around events', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fslot', domain: 'acme.com', name: 'F Slot', password: 'password123' })).status, 201);
+  await login(a, 'fslot@acme.com');
+  // The usual working hours (Mon–Fri 9–17, UTC here). Next Monday 00:00 UTC to Saturday: a meeting 9–11 on Monday.
+  const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7 || 7));
+  const mon = d.getTime(), h = 36e5;
+  await a('POST', '/api/events', { title: 'Standup and planning', start: mon + 9 * h, end: mon + 11 * h });
+  const r = (await a('GET', `/api/freebusy/focus-slots?from=${mon}&to=${mon + 5 * 24 * h}&minutes=90&count=3&tz=UTC`)).body;
+  assert.equal(r.minutes, 90);
+  assert.equal(r.slots.length, 3);
+  assert.equal(r.slots[0].start, mon + 11 * h, 'Monday: after the meeting');
+  assert.equal(r.slots[1].start, mon + 24 * h + 9 * h, 'Tuesday: first thing');
+  assert.ok(r.slots.every((x) => x.end - x.start === 90 * 60e3));
+  assert.equal(new Set(r.slots.map((x) => new Date(x.start).getUTCDate())).size, 3, 'one a day');
+  assert.equal((await a('GET', `/api/freebusy/focus-slots?from=${mon}&to=${mon + 30 * 24 * h}`)).status, 400);
+});

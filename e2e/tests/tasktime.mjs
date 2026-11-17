@@ -250,6 +250,23 @@ await step('Time insights → the previous week shows the time logged then, on i
   await bar.waitFor({ timeout: 10000 });
   await until(async () => (await bar.getAttribute('aria-valuetext')) === '2 h of 4 h');
   await page.screenshot({ path: `${SP}/shots/insights-goal.png` });
+  // Short of the goal: Book focus time… offers free blocks this week and books the ones picked.
+  await dlg.getByRole('button', { name: /^🎯 Book focus time…/ }).click();
+  const book = page.getByRole('dialog', { name: 'Book focus time' });
+  await book.getByText(/Looking…|No free time|AM|PM|:\d\d/).first().waitFor({ timeout: 10000 });
+  await page.waitForTimeout(500);
+  const offered = await book.getByRole('list', { name: 'Free times' }).getByRole('checkbox').count();
+  if (offered) {
+    await book.getByLabel('Each block').selectOption('60');
+    await book.getByRole('list', { name: 'Free times' }).getByRole('checkbox').first().waitFor();
+    await page.screenshot({ path: `${SP}/shots/book-focus.png` });
+    const n = await book.getByRole('list', { name: 'Free times' }).getByRole('checkbox').count();
+    await book.getByRole('button', { name: /^Book/ }).click();
+    await page.getByText(new RegExp(`^${n === 1 ? '1 focus block' : `${n} focus blocks`} booked$`)).last().waitFor({ timeout: 10000 });
+    const ev = (await api(page, 'GET', `/events?from=${Date.now() - 864e5}&to=${Date.now() + 8 * 864e5}`)).body.filter((e) => e.title === 'Focus time' && e.kind === 'focus');
+    if (ev.length !== n) throw new Error(`${ev.length} focus events booked, ${n} picked`);
+    await until(async () => Number((await bar.getAttribute('aria-valuenow'))) > 2, 10000); // the week's focus time went up
+  } else await book.getByText('No free time that long left in your working hours this week.').waitFor(); // late on a Friday
   await dlg.getByLabel('Weekly focus goal').selectOption('2');
   await dlg.getByText('🎯 Goal reached').waitFor();
   if ((await api(page, 'GET', '/auth/me')).body.user.cal_prefs.focusGoal !== 2) throw new Error('goal not saved');

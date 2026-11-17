@@ -112,6 +112,10 @@ await step('Calendar: Time insights with a focus goal', async () => {
   await page.getByRole('button', { name: /Time insights/ }).first().click();
   await page.getByRole('progressbar', { name: 'Focus goal' }).waitFor({ timeout: 10000 });
   await both('time insights');
+  await page.getByRole('button', { name: /^🎯 Book focus time…/ }).click();
+  await page.getByRole('dialog', { name: 'Book focus time' }).getByText(/Free times in your working hours/).waitFor();
+  await page.waitForTimeout(800);
+  await both('book focus time');
 });
 await step('top bar: the timer chip and the next meeting with Join', async () => {
   const now = Date.now();

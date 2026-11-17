@@ -647,6 +647,53 @@ function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
 }
 
 /** How a week's time was spent: meetings, focus time and the rest, each day, and who you meet with most. */
+/** Free blocks this week (in your working hours) to book as focus time, to make up the hours short of your goal. */
+function BookFocus({ week, short, onClose, onBooked }) {
+  const toast = useToast();
+  const [minutes, setMinutes] = useState(90);
+  const [slots, setSlots] = useState(null);
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const to = new Date(week); to.setDate(to.getDate() + 7);
+    const count = Math.min(5, Math.max(1, Math.ceil((short * 60) / minutes)));
+    setSlots(null);
+    get(`/freebusy/focus-slots?from=${Math.max(week, Date.now())}&to=${to.getTime()}&minutes=${minutes}&count=${count}&tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`)
+      .then((r) => { setSlots(r.slots); setPicked(new Set(r.slots.map((x) => x.start))); }).catch((e) => toast(e.message, 'error'));
+  }, [week, minutes, short, toast]);
+  const when = (x) => `${new Date(x.start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${new Date(x.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} – ${new Date(x.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  const book = async () => {
+    setBusy(true);
+    try {
+      const chosen = slots.filter((x) => picked.has(x.start));
+      for (const x of chosen) await post('/events', { title: 'Focus time', kind: 'focus', start: x.start, end: x.end });
+      toast(`${chosen.length === 1 ? '1 focus block' : `${chosen.length} focus blocks`} booked`); onBooked();
+    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title="Book focus time" onClose={onClose} footer={<>
+      <button type="button" className="btn" onClick={onClose}>Cancel</button>
+      <button type="button" className="btn primary" disabled={busy || !slots || !picked.size} onClick={book}>Book {picked.size || ''}</button>
+    </>}>
+      <div className="stack">
+        <p className="muted small" style={{ margin: 0 }}>Free times in your working hours this week, one a day, to make up {hoursText(Math.round(short * 10) / 10)} of focus time. Booked as focus time events: colleagues see you as busy then.</p>
+        <label className="row small" style={{ gap: 6 }}>Each block
+          <select value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>{[60, 90, 120].map((m) => <option key={m} value={m}>{hoursText(m / 60)}</option>)}</select>
+        </label>
+        {!slots ? <p className="muted">Looking…</p> : !slots.length ? <p className="muted">No free time that long left in your working hours this week.</p> : (
+          <ul className="plain-list stack-tight" aria-label="Free times">
+            {slots.map((x) => (
+              <li key={x.start}><label className="row" style={{ gap: 6 }}>
+                <input type="checkbox" checked={picked.has(x.start)} onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(x.start); else n.delete(x.start); return n; })} /> {when(x)}
+              </label></li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /** Under a Time insights tile: the change from the week before (↑ 2 h vs last week). */
 function Delta({ now, before }) {
   const t = before == null ? null : deltaText(now, before);
@@ -664,6 +711,8 @@ function TimeInsights({ anchor, onClose }) {
   const [week, setWeek] = useState(() => monday(anchor).getTime());
   const [data, setData] = useState(null);
   const [taskTime, setTaskTime] = useState(null); // time tracked on tasks that week (Tasks)
+  const [booking, setBooking] = useState(false); // the Book focus time window
+  const [reload, setReload] = useState(0); // after booking: load the week again
   const [sessions, setSessions] = useState(null); // focus sessions on tasks that ran to their end that week: { sessions, minutes }
   const [prev, setPrev] = useState(null); // the week before, to compare: { meetings, focus, other, tasks } in hours
   useEffect(() => {
@@ -677,7 +726,7 @@ function TimeInsights({ anchor, onClose }) {
     ]).then(([list, t]) => { const p = insights(expandAll(list, from.getTime(), week), from.getTime(), week, user.username); setPrev({ meetings: p.meetings, focus: p.focus, other: p.other, tasks: Math.round((t.minutes || 0) / 6) / 10 }); });
     get(`/tasks/time/mine?from=${week}&to=${to.getTime()}`).then(setTaskTime).catch(() => {});
     get(`/events?from=${week}&to=${to.getTime()}`).then((list) => setData(insights(expandAll(list, week, to.getTime()), week, to.getTime(), user.username))).catch(() => setData(insights([], week, to.getTime(), user.username)));
-  }, [week, user.username]);
+  }, [week, user.username, reload]);
   const step = (n) => { const d = new Date(week); d.setDate(d.getDate() + 7 * n); setWeek(d.getTime()); };
   const end = new Date(week); end.setDate(end.getDate() + 6);
   const range = `${new Date(week).toLocaleDateString([], { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}`;
@@ -731,6 +780,10 @@ function TimeInsights({ anchor, onClose }) {
               </ul>
             </div>
           )}
+          {goal > 0 && data.focus < goal && new Date(week).getTime() + 7 * 864e5 > Date.now() && (
+            <button type="button" className="btn small" onClick={() => setBooking(true)}>🎯 Book focus time… <span className="muted">({hoursText(Math.round((goal - data.focus) * 10) / 10)} to go)</span></button>
+          )}
+          {booking && <BookFocus week={week} short={goal - data.focus} onClose={() => setBooking(false)} onBooked={() => { setBooking(false); setReload((n) => n + 1); }} />}
           <label className="row small" style={{ gap: 6 }}>Weekly focus goal
             <select value={goal} onChange={(e) => setGoal(Number(e.target.value))}>
               <option value={0}>None</option>
