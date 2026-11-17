@@ -17,7 +17,7 @@ import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style';
+import { TextStyle, Color, BackgroundColor, FontFamily, FontSize } from '@tiptap/extension-text-style';
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
   Math as WordMath, MathRun, Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
@@ -89,7 +89,7 @@ const CommentMark = Mark.create({
 });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -110,6 +110,9 @@ function footnotesFromWord(html) {
 // turned into styles the Docs editor reads afterwards.
 const MK = '\uE000', MK_END = '\uE001';
 const HIGHLIGHTS = { yellow: 'ffff00', green: '00ff00', cyan: '00ffff', magenta: 'ff00ff', blue: '0000ff', red: 'ff0000', darkBlue: '000080', darkCyan: '008080', darkGreen: '008000', darkMagenta: '800080', darkRed: '800000', darkYellow: '808000', darkGray: '808080', lightGray: 'c0c0c0', black: '000000', white: 'ffffff' };
+// The Docs toolbar's fonts (Word's name → the editor's CSS) and sizes (pt), for runs in a Word file.
+const WORD_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
+const DOC_SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36];
 const WORD_ALIGN = { center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' };
 const marker = (text) => `<w:r><w:t xml:space="preserve">${MK}${text}${MK_END}</w:t></w:r>`;
 /** document.xml with markers before aligned paragraphs' text and around coloured or highlighted runs. */
@@ -132,7 +135,11 @@ export function markWordXml(xml) {
       if (!rpr) return m;
       const color = /<w:color\b[^>]*w:val="([0-9A-Fa-f]{6})"/.exec(rpr)?.[1]?.toLowerCase();
       const hl = HIGHLIGHTS[/<w:highlight w:val="([a-zA-Z]+)"\/>/.exec(rpr)?.[1]] || /<w:shd\b[^>]*w:fill="([0-9A-Fa-f]{6})"/.exec(rpr)?.[1]?.toLowerCase();
-      const style = [color && color !== '000000' && `c:${color}`, hl && hl !== 'ffffff' && `h:${hl}`].filter(Boolean).join(';');
+      // A font the Docs toolbar offers, and a size it offers (the run's own, not the document's normal text).
+      const font = WORD_FONTS[String(/<w:rFonts\b[^>]*w:ascii="([^"]+)"/.exec(rpr)?.[1] || '').toLowerCase()];
+      const half = Number(/<w:sz\b[^>]*w:val="(\d+)"/.exec(rpr)?.[1]);
+      const size = DOC_SIZES.includes(half / 2) ? half / 2 : null;
+      const style = [color && color !== '000000' && `c:${color}`, hl && hl !== 'ffffff' && `h:${hl}`, font && `f:${font}`, size && `z:${size}`].filter(Boolean).join(';');
       return style ? `${marker(`s:${style}`)}${m}${marker('/')}` : m;
     });
 }
@@ -156,8 +163,8 @@ export function unmarkWordHtml(html, commentId = null) {
     .replace(re('MK/k:(\\d+)END'), () => (commentId ? '</span>' : ''))
     .replace(re('<(p|h[1-6])>MKa:(center|right|justify)END'), (m, tag, a) => `<${tag} style="text-align:${a}">`)
     .replace(re('MKs:([^END]*)END'), (m, spec) => {
-      const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : '')).filter(Boolean).join(';');
-      return `<span style="${css}">`;
+      const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : x.startsWith('f:') ? `font-family:${x.slice(2).replace(/"/g, "'")}` : x.startsWith('z:') ? `font-size:${x.slice(2)}pt` : '')).filter(Boolean).join(';');
+      return `<span style="${attr(css)}">`;
     })
     .replace(re('MK/END'), '</span>')
     .replace(re('MK[^END]*END'), '');

@@ -1943,3 +1943,22 @@ test('Docs content survives LibreOffice opening and saving our .odt and .docx (w
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Word: the toolbar’s fonts and sizes come back (also after LibreOffice saves the file, where installed)', async (t) => {
+  const { wordFromDoc, docFromWord } = await import('../src/office/word.js');
+  const tx = (x, attrs) => ({ type: 'text', text: x, ...(attrs && { marks: [{ type: 'textStyle', attrs }] }) });
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [tx('plain '), tx('Georgia', { fontFamily: 'Georgia, serif' }), tx(' '), tx('big', { fontSize: '18pt' }), tx(' '), tx('both', { fontFamily: '"Courier New", Courier, monospace', fontSize: '12pt' })] }] };
+  const looks = (d) => d.content[0].content.filter((x) => x.marks).map((x) => [x.text, x.marks[0].attrs.fontFamily || '', x.marks[0].attrs.fontSize || '']);
+  const want = [['Georgia', 'Georgia, serif', ''], ['big', '', '18pt'], ['both', "'Courier New', Courier, monospace", '12pt']];
+  const buf = await wordFromDoc(doc, 'x');
+  assert.deepEqual(looks((await docFromWord(buf)).doc), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'f.docx'), buf); fs.mkdirSync(path.join(dir, 'out'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'docx', '--outdir', path.join(dir, 'out'), path.join(dir, 'f.docx')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(looks((await docFromWord(fs.readFileSync(path.join(dir, 'out', 'f.docx')))).doc), want);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

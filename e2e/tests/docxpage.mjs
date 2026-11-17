@@ -130,6 +130,21 @@ await step('a quote goes out to Word and comes back as a quote', async () => {
   await page.locator('.ProseMirror blockquote', { hasText: 'Ship it on Friday.' }).waitFor();
   if (await page.locator('.ProseMirror blockquote', { hasText: 'So we did.' }).count()) throw new Error('too much in the quote');
 });
+await step('text in a font and size of its own goes out to Word and comes back so', async () => {
+  const run = (text, attrs) => ({ type: 'text', text, marks: [{ type: 'textStyle', attrs }] });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Fonts', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Normal, ' }, run('in Georgia', { fontFamily: 'Georgia, serif' }), { type: 'text', text: ', ' }, run('at 18 pt', { fontSize: '18pt' })] }] } })).body;
+  const back = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Fonts.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, d.id);
+  await page.goto(`${B}/docs/${back.id}`);
+  const georgia = page.locator('.ProseMirror span', { hasText: 'in Georgia' });
+  await georgia.waitFor();
+  if (!/Georgia/.test(await georgia.evaluate((el) => getComputedStyle(el).fontFamily))) throw new Error('font');
+  const big = page.locator('.ProseMirror span', { hasText: 'at 18 pt' });
+  if ((await big.evaluate((el) => getComputedStyle(el).fontSize)) !== '24px') throw new Error('size'); // 18 pt
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
