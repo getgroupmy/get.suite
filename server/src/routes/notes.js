@@ -537,6 +537,13 @@ export default function noteRoutes() {
     }
     res.json(templateOut(q('SELECT * FROM note_templates WHERE id = ?').get(t.id)));
   });
+  // The day's note if there is one (Home's card), without making it: ?date=YYYY-MM-DD → the note, or null.
+  r.get('/daily', (req, res) => {
+    const date = String(req.query.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw bad('Which day?');
+    const n = q('SELECT * FROM notes WHERE owner_id = ? AND daily_date = ? AND trashed_at IS NULL ORDER BY created_at LIMIT 1').get(req.user.id, date);
+    res.json(n ? shape(n, req.user.id) : null);
+  });
   // Today's note: { date: 'YYYY-MM-DD' (the person's own day), title } → the note for that day, made if there isn't one
   // (from the daily template: its text or list, colour and labels; the title given). Kept in the trash? A new one is made.
   r.post('/daily', (req, res) => {

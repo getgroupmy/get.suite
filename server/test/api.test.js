@@ -15409,7 +15409,10 @@ test('Today’s note: one a day, made from the daily template, the same one agai
   assert.equal((await owner('POST', '/api/users', { local: 'dlya', domain: 'acme.com', name: 'Dly Ann', password: 'password123' })).status, 201);
   await login(a, 'dlya@acme.com');
   // Without a daily template: an empty note with the title given.
+  assert.equal((await a('GET', '/api/notes/daily?date=2026-11-16')).body, null, 'looking doesn’t make one');
   const plain = (await a('POST', '/api/notes/daily', { date: '2026-11-16', title: 'Monday 16 November' })).body;
+  assert.equal((await a('GET', '/api/notes/daily?date=2026-11-16')).body.id, plain.id);
+  assert.equal((await a('GET', '/api/notes/daily?date=x')).status, 400);
   assert.deepEqual([plain.title, plain.made, plain.items], ['Monday 16 November', true, null]);
   assert.equal((await a('POST', '/api/notes/daily', { date: 'soon' })).status, 400);
   // A template marked for it (only one is).

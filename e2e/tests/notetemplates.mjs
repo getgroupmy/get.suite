@@ -98,6 +98,16 @@ await step('Today’s note: from the template chosen for it, and the same note w
   await page.locator('article').filter({ hasText: title }).first().waitFor({ timeout: 10000 });
   await until(async () => (await page.locator('article').count()) === 1);
 });
+await step('Home: the Today’s note card shows the day’s list, and Open opens it', async () => {
+  await page.goto(`${B}/home`);
+  const card = page.getByRole('region', { name: 'Today’s note' });
+  await card.getByText('☐ Yesterday').waitFor({ timeout: 10000 });
+  await card.getByText('☐ Today').waitFor();
+  await page.screenshot({ path: `${SP}/shots/home-daily.png` });
+  await card.getByRole('link', { name: 'Open' }).click();
+  await page.waitForURL(/\/notes\?note=/);
+  await until(async () => (await page.getByRole('dialog').locator('input').evaluateAll((els) => els.map((e) => e.value)).catch(() => [])).includes('Yesterday'), 10000);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
