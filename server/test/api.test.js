@@ -15771,3 +15771,18 @@ test('mail: a default text style for the emails you write', async () => {
   assert.deepEqual((await a('PUT', '/api/users/me/mail-style', { font: 'Sans Serif', size: 'Normal' })).body, { style: null }, 'the usual one is no setting');
   assert.equal((await a('GET', '/api/auth/me')).body.user.mail_style, null);
 });
+
+test('docs: normal text for the whole document in page setup, and in the Word download', async () => {
+  const { readSetup } = await import('../src/pagesetup.js');
+  assert.deepEqual([readSetup({ font: 'Georgia', fontSize: 12 }).font, readSetup({ font: 'Georgia', fontSize: 12 }).fontSize], ['Georgia', 12]);
+  assert.equal('font' in readSetup({}), false);
+  assert.throws(() => readSetup({ font: 'Wingdings' }), /fonts offered/);
+  assert.throws(() => readSetup({ fontSize: 13 }), /text size/);
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Styled', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }] } })).body;
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { font: 'Georgia', fontSize: 12 } })).status, 200);
+  const JSZip = (await import('jszip')).default;
+  const docx = await owner('GET', `/api/files/${d.id}/export?format=docx`, undefined, { binary: true });
+  const zip = await JSZip.loadAsync(docx.body);
+  const styles = await zip.file('word/styles.xml').async('string');
+  assert.match(styles, /<w:docDefaults>[\s\S]*w:ascii="Georgia"[\s\S]*<w:sz w:val="24"\/>/);
+});

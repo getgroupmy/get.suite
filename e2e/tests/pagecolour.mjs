@@ -79,6 +79,19 @@ await step('a colour of your own, then back to white', async () => {
   await until(async () => (await api(page, 'GET', `/files/${docId}`)).body.page_setup.pageColor === undefined);
   if ((await paper(page)).startsWith('rgb(230, 244, 234)')) throw new Error('still green');
 });
+await step('Page setup → Normal text: Georgia, 12 pt, for everyone; Default again', async () => {
+  await setup(async (dlg) => {
+    await dlg.getByLabel('Normal text: font').selectOption('Georgia');
+    await dlg.getByLabel('Normal text: size').selectOption('12');
+  });
+  const text = (p) => p.locator('.paper .ProseMirror').evaluate((el) => { const c = getComputedStyle(el); return `${c.fontFamily}|${c.fontSize}`; });
+  await until(async () => /Georgia/.test(await text(page)) && (await text(page)).endsWith('16px')); // 12 pt
+  await until(async () => /Georgia/.test(await text(kim)), 10000);
+  const s = (await api(page, 'GET', `/files/${docId}`)).body.page_setup;
+  if (s.font !== 'Georgia' || s.fontSize !== 12) throw new Error(JSON.stringify(s));
+  await setup(async (dlg) => { await dlg.getByLabel('Normal text: font').selectOption(''); await dlg.getByLabel('Normal text: size').selectOption(''); });
+  await until(async () => !/Georgia/.test(await text(page)));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -23,7 +23,7 @@ import { get, post, patch, put, del, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal, withDataCheck } from '../../components/ui.jsx';
-import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf, PAGE_COLORS, pageColorOf } from './pagesetup.js';
+import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf, PAGE_COLORS, pageColorOf, DOC_FONTS, DOC_FONT_SIZES } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
@@ -1377,6 +1377,10 @@ function PageSetupDialog({ setup, onClose, onSave }) {
         </div>
         <div className="seg" role="radiogroup" aria-label="Orientation">
           {[['portrait', 'Portrait'], ['landscape', 'Landscape']].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={s.orientation === k} className={s.orientation === k ? 'on' : ''} onClick={() => setS({ ...s, orientation: k })}>{l}</button>)}
+        </div>
+        <div className="row wrap" style={{ gap: 12 }}>
+          <label className="field"><span>Normal text: font</span><select value={s.font || ''} onChange={(e) => setS({ ...s, font: e.target.value || null })}><option value="">Default</option>{DOC_FONTS.map(([n, css]) => <option key={n} value={n} style={{ fontFamily: css }}>{n}</option>)}</select></label>
+          <label className="field"><span>Normal text: size</span><select value={s.fontSize || ''} onChange={(e) => setS({ ...s, fontSize: e.target.value ? Number(e.target.value) : null })}><option value="">Default</option>{DOC_FONT_SIZES.map((n) => <option key={n} value={n}>{n} pt</option>)}</select></label>
         </div>
         <div className="row" style={{ gap: 8, alignItems: 'center' }}>
           <span className="small">Columns</span>

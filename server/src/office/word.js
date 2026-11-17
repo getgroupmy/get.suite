@@ -663,6 +663,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     })) } }),
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
+    ...((page?.font || page?.fontSize) && { styles: { default: { document: { run: { ...(page.font && { font: page.font }), ...(page.fontSize && { size: page.fontSize * 2 }) } } } } }), // Normal text: half-points
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });
   const buf = await Packer.toBuffer(file);

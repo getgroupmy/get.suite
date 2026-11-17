@@ -61,3 +61,10 @@ test('page colour: on the paper with readable text, and on printed pages', async
   assert.doesNotMatch(printCss({}), /background-color/);
   assert.match(printCss({ pageColor: '#fff2cc', watermark: 'DRAFT' }), /\.paper \{ background-image: none !important; \}/, 'the watermark keeps the colour');
 });
+
+test('normal text for the whole document: its font and size as the page’s CSS', async () => {
+  const { textVars, paperStyle } = await import('./pagesetup.js');
+  assert.deepEqual(textVars({ font: 'Georgia', fontSize: 12 }), { '--doc-font': 'Georgia, serif', '--doc-size': '12pt' });
+  assert.deepEqual(textVars({ font: 'Comic Sans', fontSize: 13 }), {}, 'unknown ones: the usual');
+  assert.equal(paperStyle({ font: 'Verdana' })['--doc-font'], 'Verdana, Geneva, sans-serif');
+});

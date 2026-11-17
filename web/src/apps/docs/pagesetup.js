@@ -6,6 +6,14 @@ export const MARGINS = { normal: [25.4, 'Normal (2.54 cm)'], narrow: [12.7, 'Nar
 export const DEFAULT_SETUP = { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '', pageless: false, columns: 1, lineNumbers: false, headingNumbers: false };
 /** Text in columns: how many (1 to 3) a setup asks for. */
 export const columnsOf = (setup) => (Number.isInteger(setup?.columns) && setup.columns >= 2 && setup.columns <= 3 ? setup.columns : 1);
+/** Normal text for the whole document: font names (as Word knows them) with their CSS, and sizes in pt. */
+export const DOC_FONTS = [['Arial', 'Arial, Helvetica, sans-serif'], ['Georgia', 'Georgia, serif'], ['Times New Roman', '"Times New Roman", Times, serif'], ['Verdana', 'Verdana, Geneva, sans-serif'], ['Trebuchet MS', '"Trebuchet MS", sans-serif'], ['Courier New', '"Courier New", Courier, monospace']];
+export const DOC_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18];
+/** The CSS custom properties the page's text takes its font and size from (none: the usual). */
+export function textVars(setup) {
+  const font = DOC_FONTS.find(([n]) => n === setup?.font)?.[1];
+  return { ...(font && { '--doc-font': font }), ...(DOC_FONT_SIZES.includes(setup?.fontSize) && { '--doc-size': `${setup.fontSize}pt` }) };
+}
 export const WATERMARKS = ['DRAFT', 'CONFIDENTIAL', 'DO NOT COPY', 'SAMPLE', 'INTERNAL'];
 
 const PX_PER_MM = 96 / 25.4;
@@ -31,7 +39,7 @@ export const PAGE_COLORS = [['#ffffff', 'White'], ['#fff8e1', 'Cream'], ['#fff2c
 /** The paper on screen: its width, height and margins in pixels, the page colour, and the watermark on every page's length of it. */
 export function paperStyle(setup) {
   const color = pageColorOf(setup);
-  const tint = color ? { backgroundColor: color, color: inkFor(color) } : {};
+  const tint = { ...(color ? { backgroundColor: color, color: inkFor(color) } : {}), ...textVars(setup) };
   if (setup?.pageless) return { maxWidth: 'none', minHeight: 0, padding: '40px clamp(16px, 6vw, 96px)', ...tint }; // one long sheet across the window
   const [w, h] = pageMm(setup);
   const m = (MARGINS[full(setup).margin] || MARGINS.normal)[0];

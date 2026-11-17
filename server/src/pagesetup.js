@@ -7,6 +7,9 @@ export const MARGINS = { normal: 25.4, narrow: 12.7, wide: 38.1 }; // mm, all fo
 export const DEFAULT_SETUP = { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '' };
 export const MAX_WATERMARK = 40;
 export const MAX_COLUMNS = 3;
+// Normal text for the whole document (Page setup): one of these fonts, at one of these sizes (pt).
+export const DOC_FONTS = ['Arial', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Courier New'];
+export const DOC_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18];
 
 /** A clean page setup from what was sent (unknown values refused). */
 export function readSetup(v) {
@@ -26,8 +29,11 @@ export function readSetup(v) {
   // pageColor: the page's background colour (#rrggbb; none for white), on screen, printed and in Word.
   const pageColor = s.pageColor === undefined || s.pageColor === null || s.pageColor === '' ? null : String(s.pageColor).toLowerCase();
   if (pageColor !== null && !/^#[0-9a-f]{6}$/.test(pageColor)) throw bad('A page colour is #rrggbb');
+  const font = s.font ?? null, fontSize = s.fontSize ?? null;
+  if (font !== null && !DOC_FONTS.includes(font)) throw bad('Pick one of the fonts offered');
+  if (fontSize !== null && !DOC_FONT_SIZES.includes(fontSize)) throw bad(`A text size is one of ${DOC_FONT_SIZES.join(', ')} pt`);
   // pageless: on screen the document is one long sheet as wide as the window (printing and Word still use the paper).
-  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark, ...(columns > 1 && { columns }), ...(s.lineNumbers === true && { lineNumbers: true }), ...(s.pageless === true && { pageless: true }), ...(s.headingNumbers === true && { headingNumbers: true }), ...(goal && { wordGoal: goal }), ...(pageColor && pageColor !== '#ffffff' && { pageColor }) };
+  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark, ...(columns > 1 && { columns }), ...(s.lineNumbers === true && { lineNumbers: true }), ...(s.pageless === true && { pageless: true }), ...(s.headingNumbers === true && { headingNumbers: true }), ...(goal && { wordGoal: goal }), ...(pageColor && pageColor !== '#ffffff' && { pageColor }), ...(font && { font }), ...(fontSize && { fontSize }) };
 }
 
 /** Page width and height (mm) for a setup, turned for landscape. */
