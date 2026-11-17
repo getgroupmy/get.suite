@@ -15805,3 +15805,12 @@ test('docs: your own page setup for new documents', async () => {
   assert.equal('page_setup' in (await a('GET', '/api/doc-prefs')).body, false);
   assert.equal((await a('POST', '/api/files/new', { kind: 'doc' })).body.page_setup ?? null, null);
 });
+
+test('docs: normal text in the OpenDocument (.odt) download', async () => {
+  const JSZip = (await import('jszip')).default;
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Odt styled', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] } })).body;
+  const stylesOf = async () => (await JSZip.loadAsync((await owner('GET', `/api/files/${d.id}/export?format=odt`, undefined, { binary: true })).body)).file('styles.xml').async('string');
+  assert.match(await stylesOf(), /<style:default-style style:family="paragraph">[\s\S]*?Liberation Sans[\s\S]*?fo:font-size="11pt"/, 'the usual');
+  await owner('PATCH', `/api/files/${d.id}`, { page_setup: { font: 'Times New Roman', fontSize: 14 } });
+  assert.match(await stylesOf(), /<style:default-style style:family="paragraph"><style:paragraph-properties[^>]*\/><style:text-properties fo:font-family="'Times New Roman'" fo:font-size="14pt"\/>/);
+});

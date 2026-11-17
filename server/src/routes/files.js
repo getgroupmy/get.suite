@@ -1852,7 +1852,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const numbered = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
     if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
-    if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData });
+    if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null });
     if (type === 'ods') return odsFromSheet(content);
     if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name });
     if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });

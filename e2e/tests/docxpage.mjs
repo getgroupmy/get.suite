@@ -57,7 +57,7 @@ await step('a Word file keeps its page setup: Letter, landscape, narrow margins,
   if (!(await dlg.getByRole('button', { name: 'Landscape' }).or(dlg.getByRole('radio', { name: 'Landscape' })).first().evaluate((el) => el.classList.contains('on') || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-pressed') === 'true'))) throw new Error('orientation');
   await page.screenshot({ path: `${SP}/shots/docx-page.png` });
 });
-await step('Normal text goes out to Word and comes back: Georgia, 12 pt', async () => {
+await step('Normal text goes out to Word and comes back: Georgia, 12 pt; and into the .odt download', async () => {
   const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Round trip', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'There and back' }] }] } })).body;
   await api(page, 'PATCH', `/files/${d.id}`, { page_setup: { font: 'Georgia', fontSize: 12 } });
   const back = await page.evaluate(async (id) => {
@@ -72,6 +72,11 @@ await step('Normal text goes out to Word and comes back: Georgia, 12 pt', async 
   const dlg = page.getByRole('dialog', { name: 'Page setup' });
   if ((await dlg.getByLabel('Normal text: font').inputValue()) !== 'Georgia') throw new Error('font ' + await dlg.getByLabel('Normal text: font').inputValue());
   if ((await dlg.getByLabel('Normal text: size').inputValue()) !== '12') throw new Error('size');
+  // The OpenDocument download carries it too.
+  const b64 = await page.evaluate(async (id) => { const b = new Uint8Array(await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s); }, back.id);
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const styles = await (await JSZip.loadAsync(Buffer.from(b64, 'base64'))).file('styles.xml').async('string');
+  if (!/fo:font-family="'Georgia'" fo:font-size="12pt"/.test(styles)) throw new Error('odt: ' + styles.slice(0, 300));
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();

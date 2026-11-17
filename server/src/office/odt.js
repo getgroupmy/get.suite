@@ -18,7 +18,14 @@ const odfText = (s) => x(s).replace(/\t/g, '<text:tab/>').replace(/\n/g, '<text:
 const COLOR = /^#[0-9a-f]{6}$/i;
 
 // ---- document → .odt ----
-export async function odtFromDoc(doc, title = 'Document', { pictureData } = {}) {
+/** The paragraphs' default text: the document's Normal text (Page setup), else Liberation Sans 11 pt. */
+export function normalText(page) {
+  const font = page?.font ? `fo:font-family="'${String(page.font).replace(/[^A-Za-z ]/g, '')}'"` : 'style:font-name="Liberation Sans" fo:font-family="\'Liberation Sans\', Arial, sans-serif"';
+  const size = Number.isInteger(page?.fontSize) ? page.fontSize : 11;
+  return `${font} fo:font-size="${size}pt"`;
+}
+
+export async function odtFromDoc(doc, title = 'Document', { pictureData, page = null } = {}) {
   doc = flattenTabs(doc);
   const textStyles = new Map(); // key → name
   const textStyle = (props) => {
@@ -173,7 +180,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData } = {}) 
 </office:automatic-styles><office:body><office:text>${body}</office:text></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles ${NS}><office:styles>
-<style:default-style style:family="paragraph"><style:paragraph-properties fo:margin-bottom="0.2cm"/><style:text-properties style:font-name="Liberation Sans" fo:font-family="'Liberation Sans', Arial, sans-serif" fo:font-size="11pt"/></style:default-style>
+<style:default-style style:family="paragraph"><style:paragraph-properties fo:margin-bottom="0.2cm"/><style:text-properties ${normalText(page)}/></style:default-style>
 <style:style style:name="Standard" style:family="paragraph" style:class="text"/>
 <style:style style:name="Heading" style:family="paragraph" style:parent-style-name="Standard" style:next-style-name="Standard" style:class="text"><style:paragraph-properties fo:margin-top="0.42cm" fo:margin-bottom="0.21cm" fo:keep-with-next="always"/><style:text-properties fo:font-weight="bold"/></style:style>
 ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<style:style style:name="Heading_20_${l}" style:display-name="Heading ${l}" style:family="paragraph" style:parent-style-name="Heading" style:default-outline-level="${l}" style:class="text"><style:text-properties fo:font-size="${pt}pt"/></style:style>`).join('\n')}
