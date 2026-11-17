@@ -165,7 +165,7 @@ test('time away left out: stop a timer when you went away, and carry on or not',
   // Stopping "before it started" counts nothing; without resume it stays stopped.
   assert.equal((await a('POST', '/api/tasks/timer/stop', { at: 0 })).status, 200);
   assert.equal((await a('GET', '/api/tasks/timer')).body, null);
-  assert.equal(q('SELECT minutes FROM task_time WHERE id = ?').get(rows[1].id).minutes, 0);
+  assert.equal(q('SELECT * FROM task_time WHERE id = ?').get(rows[1].id), undefined, 'nothing counted: no 0-minute entry kept');
   assert.equal((await a('POST', '/api/tasks/timer/stop', { at: Date.now() })).status, 404);
   // A focus session isn't carried on.
   await a('POST', `/api/tasks/tasks/${task.id}/timer`, { minutes: 25 });
@@ -189,10 +189,27 @@ test('a time entry changed: its length (a timer’s end moves too) and its note;
   // A timer entry: its end moves with its length.
   await a('POST', `/api/tasks/tasks/${task.id}/timer`);
   assert.equal((await a('PATCH', `/api/tasks/time/${(await a('GET', `/api/tasks/tasks/${task.id}/time`)).body.entries.find((x) => x.running).id}`, { duration: '5m' })).status, 400, 'not while running');
+  q('UPDATE task_time SET started_at = started_at - 10 * 60000 WHERE task_id = ? AND ended_at IS NULL').run(task.id); // ran 10 minutes
   await a('POST', '/api/tasks/timer/stop');
   const timed = (await a('GET', `/api/tasks/tasks/${task.id}/time`)).body.entries.find((x) => x.id !== id);
   await a('PATCH', `/api/tasks/time/${timed.id}`, { duration: '30m' });
   const row = q('SELECT * FROM task_time WHERE id = ?').get(timed.id);
   assert.deepEqual([row.minutes, row.ended_at - row.started_at], [30, 30 * 60e3]);
   assert.equal((await a('PATCH', '/api/tasks/time/nope', { duration: '5m' })).status, 404);
+});
+
+test('a timer stopped within half a minute leaves no entry', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Oops' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Started by mistake' })).body;
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`);
+  const r = (await a('POST', '/api/tasks/timer/stop')).body;
+  assert.deepEqual([r.total, r.entries.length], [0, 0]);
+  // Starting another timer stops this one the same way.
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`);
+  const other = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'The real one' })).body;
+  await a('POST', `/api/tasks/tasks/${other.id}/timer`);
+  assert.equal((await a('GET', `/api/tasks/tasks/${task.id}/time`)).body.entries.length, 0);
+  await a('POST', '/api/tasks/timer/stop');
 });

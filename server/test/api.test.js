@@ -3960,8 +3960,8 @@ test('task time: a timer per person, time added by hand, totals, a report and CS
   // The report: per person and task; CSV for Excel.
   const day = new Date().toISOString().slice(0, 10), since = new Date(Date.now() - 864e5).toISOString().slice(0, 10); // from yesterday: just after midnight, 25 minutes ago was yesterday
   const rep = (await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}`)).body;
-  assert.deepEqual(rep.lines.map((l) => [l.person, l.task, l.minutes]), [['Time Ann', 'Design', 25], ['Time Ann', 'Build', rep.lines[1].minutes], ['Time Ben', 'Design', 90]]);
-  assert.equal(rep.total, 115 + rep.lines[1].minutes);
+  assert.deepEqual(rep.lines.map((l) => [l.person, l.task, l.minutes]), [['Time Ann', 'Design', 25], ['Time Ben', 'Design', 90]], 'Build’s timer ran under half a minute: no line');
+  assert.equal(rep.total, 115);
   const csv = await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}&format=csv`);
   assert.match(csv.headers.get('content-type'), /text\/csv/);
   assert.match(csv.body, /Time Ben,Design,90,1\.50/);

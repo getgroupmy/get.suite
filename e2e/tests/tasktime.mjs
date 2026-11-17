@@ -61,6 +61,8 @@ await step('a timer on a task: started, shown on the list for everyone, stopped'
   await timeBox(page).getByRole('button', { name: /■ Stop timer/ }).click();
   await page.getByText('Timer stopped').waitFor();
   await until(async () => !(await row(kim, 'Design').locator('.pill.timing').count()));
+  // It ran a few seconds: nothing is kept (no “0 min” entry).
+  if (await timeBox(page).getByRole('list', { name: 'Time entries' }).count()) throw new Error('a 0-minute entry was kept');
 });
 await step('time added by hand, totals per person; only your own entries can be removed', async () => {
   await row(kim, 'Design').locator('.task-main').click();
@@ -99,10 +101,10 @@ await step('the time report: who spent how long on what, and a CSV download', as
   const dlg = page.getByRole('dialog', { name: 'Time on “Client work”' });
   const table = dlg.getByRole('table', { name: 'Time report' });
   await table.getByRole('row').filter({ hasText: 'Kim Park' }).filter({ hasText: '45 min' }).waitFor();
-  await table.getByRole('row').filter({ hasText: 'Olivia Owner' }).filter({ hasText: 'Design' }).waitFor();
+  if (await table.getByRole('row').filter({ hasText: 'Olivia Owner' }).count()) throw new Error('Olivia’s few seconds are in the report');
   const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('link', { name: 'Download CSV' }).click()]);
   const csv = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
-  if (!/Person,Task,Minutes,Hours/.test(csv) || !/Kim Park,Design,45,0\.75/.test(csv)) throw new Error(csv);
+  if (!/Person,Task,Minutes,Hours/.test(csv) || !/Kim Park,Design,45,0\.75/.test(csv) || /Olivia Owner/.test(csv)) throw new Error(csv);
 });
 await step('Focus (25 minutes): a timer that ends by itself, shown with the minutes left; stopped early it counts what ran', async () => {
   if (await page.getByRole('dialog').count()) await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).last().click(); // the report from the step before

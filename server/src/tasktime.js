@@ -48,7 +48,10 @@ export function stopTimer(userId, at = now()) {
   const run = q('SELECT * FROM task_time WHERE user_id = ? AND ended_at IS NULL').get(userId);
   if (!run) return null;
   const end = run.until ? Math.min(at, run.until) : at; // a focus session counts no further than its end
-  q('UPDATE task_time SET ended_at = ?, minutes = ? WHERE id = ?').run(end, minutesBetween(run.started_at, end), run.id);
+  const minutes = minutesBetween(run.started_at, end);
+  // Under half a minute (started by mistake, or all of it left out as time away) counts nothing: no "0 min" entry is kept.
+  if (minutes === 0) q('DELETE FROM task_time WHERE id = ?').run(run.id);
+  else q('UPDATE task_time SET ended_at = ?, minutes = ? WHERE id = ?').run(end, minutes, run.id);
   return run.task_id;
 }
 
