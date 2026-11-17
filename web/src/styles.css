@@ -3267,3 +3267,4 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .timer-chip-done .timer-chip-title { min-width: 90px; flex: 1 1 auto; }
 .timer-chip-done .btn { white-space: nowrap; flex: none; }
 .meet-talking { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); background: #188038; color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 14px; z-index: 5; }
+.meet-muted-hint { background: #3c4043; display: flex; align-items: center; gap: 10px; }

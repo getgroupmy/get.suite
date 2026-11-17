@@ -13,7 +13,7 @@ import { addCaption, shownCaptions, addTranscriptLine, transcriptDoc } from './m
 import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
 import { Attendance, KeptChat, useMeetPast } from '../../components/MeetHistory.jsx';
-import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker, meterPercent } from './devices.js';
+import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker, meterPercent, mutedTalkWatch } from './devices.js';
 import { meetKey } from './meetkeys.js';
 import { noPhotos } from '../../components/photos.js';
 
@@ -502,6 +502,29 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   // with captions on; everyone's show along the bottom. The browser's speech service does the hearing (as
   // for voice typing); nothing is kept.
   const micOn = phase === 'call' && !!mesh.current?.state.mic;
+  // Talking while muted: listened to on a copy of the microphone kept here (never sent); "You're muted" for a while.
+  const [mutedHint, setMutedHint] = useState(false);
+  useEffect(() => {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const src = local?.stream?.getAudioTracks()[0];
+    if (phase !== 'call' || micOn || !src || !AC) { setMutedHint(false); return undefined; }
+    let ctx, timer, hide, copy;
+    try {
+      copy = src.clone(); copy.enabled = true;
+      ctx = new AC();
+      const an = ctx.createAnalyser(); an.fftSize = 512;
+      ctx.createMediaStreamSource(new MediaStream([copy])).connect(an);
+      // Tests: "nw-muted-talk" = "level,ms" (the fake microphone is a faint tick, far below speech).
+      let tune = {};
+      try { const [loud, ms] = (localStorage.getItem('nw-muted-talk') || '').split(',').map(Number); if (loud) tune = { loud, ms: ms || 1200 }; } catch { /* private window */ }
+      const buf = new Uint8Array(an.fftSize), watch = mutedTalkWatch(tune);
+      timer = setInterval(() => {
+        an.getByteTimeDomainData(buf);
+        if (watch(meterPercent(loudness(buf)), performance.now())) { setMutedHint(true); clearTimeout(hide); hide = setTimeout(() => setMutedHint(false), 8000); }
+      }, 100);
+    } catch { /* no audio processing here: no hint */ }
+    return () => { clearInterval(timer); clearTimeout(hide); copy?.stop(); ctx?.close().catch(() => {}); };
+  }, [phase, micOn, local]);
   useEffect(() => {
     const R = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!cc || !micOn || !R) return undefined;
@@ -737,6 +760,12 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         </div>
       )}
       {talking && <div className="meet-talking" role="status">🎙 Talking — let go of Space to mute again</div>}
+      {mutedHint && !talking && (
+        <div className="meet-talking meet-muted-hint" role="status">
+          🔇 You’re muted. {isMac ? '⌘' : 'Ctrl+'}D unmutes, or hold Space to talk.
+          <button type="button" className="btn small" onClick={() => { setMutedHint(false); toggleMic(); }}>Unmute</button>
+        </div>
+      )}
       <footer className="meet-bar" role="toolbar" aria-label="Meeting controls">
         <button type="button" className={`meet-btn ${m.state.mic ? '' : 'off'}`} disabled={!hasAudio} aria-pressed={m.state.mic} aria-label={m.state.mic ? 'Turn off microphone' : 'Turn on microphone'} title={`${m.state.mic ? 'Turn off' : 'Turn on'} microphone (${isMac ? '⌘' : 'Ctrl+'}D; muted, hold Space to talk)`} onClick={toggleMic}>{m.state.mic ? '🎙' : '🔇'}</button>
         <button type="button" className={`meet-btn ${m.state.cam ? '' : 'off'}`} disabled={!hasVideo} aria-pressed={m.state.cam} aria-label={m.state.cam ? 'Turn off camera' : 'Turn on camera'} title={`${m.state.cam ? 'Turn off' : 'Turn on'} camera (${isMac ? '⌘' : 'Ctrl+'}E)`} onClick={toggleCam}>{m.state.cam ? '📷' : '🚫'}</button>

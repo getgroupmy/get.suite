@@ -33,3 +33,17 @@ export const canPickSpeaker = () => typeof HTMLMediaElement !== 'undefined' && '
 
 /** A microphone's loudness (RMS, 0–1) as a 0–100 level for the meter: speech fills most of it, silence none. */
 export const meterPercent = (rms) => Math.max(0, Math.min(100, Math.round((Number(rms) || 0) / 0.25 * 100)));
+
+/**
+ * Talking while muted: fed a microphone level (0–100, from a local copy never sent) every tenth of a second, says
+ * true once it's been above `loud` for `ms`; then not again for `quiet` ms. The meeting shows "You're muted".
+ */
+export function mutedTalkWatch({ loud = 12, ms = 1200, quiet = 30000 } = {}) {
+  let since = null, last = -Infinity;
+  return (level, t) => {
+    if (level < loud) { since = null; return false; }
+    if (since === null) since = t;
+    if (t - since >= ms && t - last >= quiet) { last = t; since = null; return true; }
+    return false;
+  };
+}

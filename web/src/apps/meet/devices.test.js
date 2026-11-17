@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { savedDevices, saveDevices, deviceAsks, deviceLists } from './devices.js';
+import { savedDevices, saveDevices, deviceAsks, deviceLists, mutedTalkWatch } from './devices.js';
 
 const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) }; };
 
@@ -37,4 +37,15 @@ test('original sound: noise suppression, echo cancellation and automatic volume 
   assert.equal(savedDevices(storage).original, true);
   saveDevices({ mic: 'm1' }, storage);
   assert.equal(savedDevices(storage).original, false);
+});
+
+test('talking while muted: loud for over a second, then not again for half a minute', () => {
+  const w = mutedTalkWatch();
+  const feed = (level, from, to) => { let hit = null; for (let t = from; t <= to; t += 100) if (w(level, t)) hit ??= t; return hit; };
+  assert.equal(feed(30, 0, 1000), null, 'a cough');
+  assert.equal(feed(2, 1100, 1500), null);
+  assert.equal(feed(30, 1600, 4000), 2800, 'speaking: after 1.2 s');
+  assert.equal(feed(30, 4100, 20000), null, 'not again straight away');
+  assert.equal(feed(2, 20100, 39900), null, 'quiet a while');
+  assert.equal(feed(30, 40000, 42000), 41200, 'talking again after half a minute: told again');
 });

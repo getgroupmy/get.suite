@@ -146,6 +146,20 @@ await step('keyboard in the meeting: Ctrl+D the microphone, Ctrl+E the camera, h
   await page.keyboard.press('Control+d'); // back on
   await bar.getByRole('button', { name: 'Turn off microphone' }).waitFor();
 });
+await step('talking while muted: “You’re muted” with Unmute (the fake microphone keeps sounding)', async () => {
+  await page.evaluate(() => localStorage.setItem('nw-muted-talk', '2,300')); // the fake microphone ticks at 2–8; speech is 30 and more
+  const bar = page.getByRole('toolbar', { name: 'Meeting controls' });
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('Control+d');
+  await bar.getByRole('button', { name: 'Turn on microphone' }).waitFor();
+  const hint = page.getByRole('status').filter({ hasText: 'You’re muted.' });
+  await hint.waitFor({ timeout: 15000 });
+  await page.screenshot({ path: `${SP}/shots/muted-hint.png` });
+  await hint.getByRole('button', { name: 'Unmute' }).click();
+  await bar.getByRole('button', { name: 'Turn off microphone' }).waitFor();
+  await hint.waitFor({ state: 'detached' });
+  await page.evaluate(() => localStorage.removeItem('nw-muted-talk'));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
