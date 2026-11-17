@@ -3967,6 +3967,25 @@ test('task time: a timer per person, time added by hand, totals, a report and CS
   assert.match(csv.body, /Time Ben,Design,90,1\.50/);
   assert.equal((await a('GET', `/api/tasks/lists/${list}/time-report?from=2026-12-01&to=2026-11-01`)).status, 400);
   assert.equal((await x('GET', `/api/tasks/lists/${list}/time-report?from=${day}&to=${day}`)).status, 404);
+  assert.equal(rep.rate, undefined, 'no rate, no amounts');
+  assert.equal(rep.can_bill, true);
+
+  // An hourly rate (the owner's to set): each line's amount, the total, and an Amount column in the CSV.
+  assert.equal((await b('PUT', `/api/tasks/lists/${list}/rate`, { rate: 80, currency: 'EUR' })).status, 400, 'only the owner');
+  assert.equal((await b('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}`)).body.can_bill, false);
+  assert.equal((await a('PUT', `/api/tasks/lists/${list}/rate`, { rate: -5, currency: 'EUR' })).status, 400);
+  assert.equal((await a('PUT', `/api/tasks/lists/${list}/rate`, { rate: 80, currency: 'euro' })).status, 400);
+  assert.deepEqual((await a('PUT', `/api/tasks/lists/${list}/rate`, { rate: '80.004', currency: 'eur' })).body, { rate: 80, currency: 'EUR' });
+  const billed = (await b('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}`)).body; // everyone on the list sees it
+  assert.deepEqual([billed.rate, billed.currency], [80, 'EUR']);
+  assert.equal(billed.lines.find((l) => l.person === 'Time Ben').amount, 120);
+  assert.equal(billed.lines.find((l) => l.task === 'Design' && l.person === 'Time Ann').amount, 33.33);
+  assert.equal(billed.amount, Math.round(billed.lines.reduce((n, l) => n + l.amount * 100, 0)) / 100);
+  const bcsv = (await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}&format=csv`)).body;
+  assert.match(bcsv, /Person,Task,Minutes,Hours,"Amount \(EUR, 80\.00\/h\)"/);
+  assert.match(bcsv, /Time Ben,Design,90,1\.50,120\.00/);
+  assert.deepEqual((await a('PUT', `/api/tasks/lists/${list}/rate`, { rate: null })).body, { rate: null, currency: null });
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}`)).body.amount, undefined, 'cleared');
   assert.equal((await b('DELETE', `/api/tasks/time/${bens.id}`)).body.total, 25);
 });
 

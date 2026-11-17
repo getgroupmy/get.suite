@@ -97,6 +97,8 @@ const changed = (list) => sendTo(new Set(peopleOn(list)), { type: 'tasks-changed
 
 // A shared list's own Chat channel (Chat with the list's people), once made.
 if (!q('PRAGMA table_info(task_lists)').all().some((c) => c.name === 'chat_channel_id')) q('ALTER TABLE task_lists ADD COLUMN chat_channel_id TEXT').run();
+// The time report's billing: an hourly rate (a number) and its currency (ISO code), set by the list's owner; null for none.
+for (const [col, type] of [['rate', 'REAL'], ['currency', 'TEXT']]) if (!q('PRAGMA table_info(task_lists)').all().some((c) => c.name === col)) q(`ALTER TABLE task_lists ADD COLUMN ${col} ${type}`).run();
 
 function loadList(id, user, { own = false } = {}) {
   const list = q('SELECT * FROM task_lists WHERE id = ?').get(id);

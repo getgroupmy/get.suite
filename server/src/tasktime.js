@@ -86,7 +86,7 @@ export function listTime(listId, at = now()) {
 }
 
 /** The time spent on a list's tasks between two days (YYYY-MM-DD, inclusive, in UTC): per person and task. */
-export function listReport(listId, from, to, at = now()) {
+export function listReport(listId, from, to, at = now(), billing = null) {
   const start = Date.parse(`${from}T00:00:00Z`), end = Date.parse(`${to}T00:00:00Z`) + 864e5;
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw bad('Choose a start and end date, the start first');
   const rows = q(`SELECT e.*, t.title, u.name AS user_name FROM task_time e JOIN tasks t ON t.id = e.task_id LEFT JOIN users u ON u.id = e.user_id
@@ -99,13 +99,30 @@ export function listReport(listId, from, to, at = now()) {
     lines.set(k, l);
   }
   const list = [...lines.values()].sort((a, b) => a.person.localeCompare(b.person) || b.minutes - a.minutes);
-  return { from, to, lines: list, total: list.reduce((n, l) => n + l.minutes, 0) };
+  const total = list.reduce((n, l) => n + l.minutes, 0);
+  if (!billing?.rate) return { from, to, lines: list, total };
+  // At the list's hourly rate: each line's amount to the cent, and the total of those.
+  const money = (m) => Math.round((m / 60) * billing.rate * 100) / 100;
+  for (const l of list) l.amount = money(l.minutes);
+  return { from, to, lines: list, total, rate: billing.rate, currency: billing.currency, amount: Math.round(list.reduce((n, l) => n + l.amount * 100, 0)) / 100 };
+}
+
+/** Validates { rate, currency } for a list: a rate above 0 (up to 100 000) and a three-letter currency; rate null clears. */
+export function billingOf(body) {
+  if (body?.rate == null || body.rate === '') return { rate: null, currency: null };
+  const rate = Number(body.rate), currency = String(body.currency || '').toUpperCase();
+  if (!Number.isFinite(rate) || rate <= 0 || rate > 100000) throw bad('Enter an hourly rate above 0');
+  if (!/^[A-Z]{3}$/.test(currency)) throw bad('Choose a currency, such as EUR or USD');
+  return { rate: Math.round(rate * 100) / 100, currency };
 }
 
 const csvCell = (v) => { const s = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
 /** The report as CSV (formula-looking text made plain, for Excel). */
 export function reportCsv(report) {
-  const rows = [['Person', 'Task', 'Minutes', 'Hours'], ...report.lines.map((l) => [l.person, l.task, l.minutes, (l.minutes / 60).toFixed(2)]), ['Total', '', report.total, (report.total / 60).toFixed(2)]];
+  const billed = report.rate != null, money = (x) => x.toFixed(2);
+  const rows = [['Person', 'Task', 'Minutes', 'Hours', ...(billed ? [`Amount (${report.currency}, ${money(report.rate)}/h)`] : [])],
+    ...report.lines.map((l) => [l.person, l.task, l.minutes, (l.minutes / 60).toFixed(2), ...(billed ? [money(l.amount)] : [])]),
+    ['Total', '', report.total, (report.total / 60).toFixed(2), ...(billed ? [money(report.amount)] : [])]];
   return `${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
 
@@ -202,13 +219,21 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
   r.get('/lists/:id/time', (req, res) => { const list = loadList(req.params.id, req.user); res.json(listTime(list.id)); });
   r.get('/lists/:id/time-report', (req, res) => {
     const list = loadList(req.params.id, req.user);
-    const report = listReport(list.id, String(req.query.from || ''), String(req.query.to || ''));
+    const report = listReport(list.id, String(req.query.from || ''), String(req.query.to || ''), now(), list.rate ? { rate: list.rate, currency: list.currency } : null);
     if (req.query.format === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${list.name} time ${report.from} to ${report.to}.csv`)}`);
       res.send(`﻿${reportCsv(report)}`);
       return;
     }
-    res.json({ ...report, list: list.name });
+    res.json({ ...report, list: list.name, can_bill: list.owner_id === req.user.id });
+  });
+  // The list's hourly rate for the time report (its owner only): { rate, currency }, or { rate: null } for none.
+  r.put('/lists/:id/rate', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    if (list.owner_id !== req.user.id) throw bad('Only the list’s owner can set its rate');
+    const b = billingOf(req.body);
+    q('UPDATE task_lists SET rate = ?, currency = ? WHERE id = ?').run(b.rate, b.currency, list.id);
+    res.json(b);
   });
 }

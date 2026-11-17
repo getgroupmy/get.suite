@@ -996,7 +996,14 @@ function TimeReport({ list, onClose }) {
   const [range, setRange] = useState({ from: `${today.slice(0, 8)}01`, to: today });
   const [rep, setRep] = useState(null);
   const [error, setError] = useState('');
-  useEffect(() => { setError(''); get(`/tasks/lists/${list.id}/time-report?from=${range.from}&to=${range.to}`).then(setRep).catch((e) => { setRep(null); setError(e.message); }); }, [list.id, range.from, range.to]);
+  const [billing, setBilling] = useState(null); // { rate, currency } while changing the rate
+  const toast = useToast();
+  const load = useCallback(() => get(`/tasks/lists/${list.id}/time-report?from=${range.from}&to=${range.to}`).then(setRep).catch((e) => { setRep(null); setError(e.message); }), [list.id, range.from, range.to]);
+  useEffect(() => { setError(''); load(); }, [load]);
+  const money = (x) => { try { return new Intl.NumberFormat([], { style: 'currency', currency: rep.currency }).format(x); } catch { return `${x.toFixed(2)} ${rep.currency}`; } };
+  const saveRate = async (body) => {
+    try { await put(`/tasks/lists/${list.id}/rate`, body); setBilling(null); toast(body.rate == null ? 'Rate removed' : 'Rate saved'); load(); } catch (e) { toast(e.message, 'error'); }
+  };
   return (
     <Modal wide title={`Time on “${list.name}”`} onClose={onClose} footer={<>
       <a className="btn" href={`/api/tasks/lists/${list.id}/time-report?from=${range.from}&to=${range.to}&format=csv`}><Icon name="download" size={18} /> Download CSV</a>
@@ -1007,11 +1014,27 @@ function TimeReport({ list, onClose }) {
           <label className="field"><span>To</span><input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></label>
         </div>
         {error && <p className="error" role="alert">{error}</p>}
+        {rep && (billing ? (
+          <form className="row wrap" style={{ gap: 6 }} aria-label="Hourly rate" onSubmit={(e) => { e.preventDefault(); saveRate(billing); }}>
+            <label className="field"><span>Hourly rate</span><input type="number" min="0.01" step="0.01" required autoFocus value={billing.rate} onChange={(e) => setBilling({ ...billing, rate: e.target.value })} /></label>
+            <label className="field"><span>Currency</span><select value={billing.currency} onChange={(e) => setBilling({ ...billing, currency: e.target.value })}>
+              {[...new Set([billing.currency, 'EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'INR', 'SEK', 'NOK', 'DKK', 'PLN'])].map((c) => <option key={c}>{c}</option>)}
+            </select></label>
+            <button className="btn small primary">Save rate</button>
+            {rep.rate != null && <button type="button" className="btn small" onClick={() => saveRate({ rate: null })}>Remove rate</button>}
+            <button type="button" className="btn small" onClick={() => setBilling(null)}>Cancel</button>
+          </form>
+        ) : (
+          <div className="row small" style={{ gap: 8 }}>
+            <span className="muted">{rep.rate != null ? `Billed at ${money(rep.rate)} an hour` : 'No hourly rate'}</span>
+            {rep.can_bill && <button type="button" className="link-btn small" onClick={() => setBilling({ rate: rep.rate ?? '', currency: rep.currency || 'EUR' })}>{rep.rate != null ? 'Change rate' : 'Set an hourly rate'}</button>}
+          </div>
+        ))}
         {rep && (rep.lines.length ? (
           <table className="data-table" aria-label="Time report">
-            <thead><tr><th scope="col">Person</th><th scope="col">Task</th><th scope="col" className="num">Time</th></tr></thead>
-            <tbody>{rep.lines.map((l, i) => <tr key={i}><td>{l.person}</td><td>{l.task}</td><td className="num">{formatMinutes(l.minutes)}</td></tr>)}</tbody>
-            <tfoot><tr><th scope="row" colSpan={2}>Total</th><td className="num"><strong>{formatMinutes(rep.total)}</strong></td></tr></tfoot>
+            <thead><tr><th scope="col">Person</th><th scope="col">Task</th><th scope="col" className="num">Time</th>{rep.rate != null && <th scope="col" className="num">Amount</th>}</tr></thead>
+            <tbody>{rep.lines.map((l, i) => <tr key={i}><td>{l.person}</td><td>{l.task}</td><td className="num">{formatMinutes(l.minutes)}</td>{rep.rate != null && <td className="num">{money(l.amount)}</td>}</tr>)}</tbody>
+            <tfoot><tr><th scope="row" colSpan={2}>Total</th><td className="num"><strong>{formatMinutes(rep.total)}</strong></td>{rep.rate != null && <td className="num" aria-label={`Total amount: ${money(rep.amount)}`}><strong>{money(rep.amount)}</strong></td>}</tr></tfoot>
           </table>
         ) : <p className="muted">No time recorded on this list in those dates.</p>)}
       </div>

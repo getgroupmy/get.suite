@@ -284,6 +284,35 @@ await step('Tasks → My timesheet: the week day by day; a day’s cell adds tim
   await table.getByRole('rowheader', { name: 'Last week’s report' }).getByRole('button').click();
   await page.waitForURL(/task=/);
 });
+await step('the time report at an hourly rate: amounts per line, a total, and in the CSV; removed again', async () => {
+  await page.goto(`${B}/tasks/${list}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Time report…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Time on “Client work”' });
+  await dlg.getByText('No hourly rate').waitFor({ timeout: 10000 });
+  await dlg.getByRole('button', { name: 'Set an hourly rate' }).click();
+  const form = dlg.getByRole('form', { name: 'Hourly rate' });
+  await form.getByLabel('Hourly rate').fill('80');
+  await form.getByLabel('Currency').selectOption('EUR');
+  await form.getByRole('button', { name: 'Save rate' }).click();
+  await dlg.getByText(/^Billed at €80\.00 an hour$/).waitFor({ timeout: 10000 });
+  const table = dlg.getByRole('table', { name: 'Time report' });
+  await table.getByRole('columnheader', { name: 'Amount' }).waitFor();
+  // Kim's 45 minutes on Design: €60.00.
+  await table.getByRole('row').filter({ hasText: 'Kim Park' }).filter({ hasText: '€60.00' }).first().waitFor();
+  await table.getByLabel(/^Total amount: €[\d,]+\.\d\d$/).waitFor();
+  await page.screenshot({ path: `${SP}/shots/report-rate.png` });
+  const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('link', { name: 'Download CSV' }).click()]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  if (!/Person,Task,Minutes,Hours,"Amount \(EUR, 80\.00\/h\)"/.test(csv) || !/Kim Park,Design,45,0\.75,60\.00/.test(csv)) throw new Error(csv);
+  // The colleague sees the amounts but can't change the rate.
+  const r = (await api(kim, 'PUT', `/tasks/lists/${list}/rate`, { rate: 1, currency: 'EUR' })).status;
+  if (r !== 400) throw new Error(`colleague set the rate: ${r}`);
+  await dlg.getByRole('button', { name: 'Change rate' }).click();
+  await form.getByRole('button', { name: 'Remove rate' }).click();
+  await dlg.getByText('No hourly rate').waitFor();
+  if (await table.getByRole('columnheader', { name: 'Amount' }).count()) throw new Error('amounts still shown');
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
