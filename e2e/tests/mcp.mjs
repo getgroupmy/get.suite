@@ -136,6 +136,16 @@ await step('an assistant thanks a colleague; it is on Home and in #general', asy
   const recent = (await rpc('tools/call', { name: 'recent_thanks', arguments: { person: 'kim@acme.com' } })).result.structuredContent.thanks;
   if (recent[0]?.message !== 'Thanks for the budget review') throw new Error(JSON.stringify(recent));
 });
+await step('an assistant adds to Today’s note; Notes → Today’s note opens it with that line', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const tz = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const r = (await rpc('tools/call', { name: 'add_to_todays_note', arguments: { text: 'Called the bank about the card', time_zone: tz } })).result;
+  if (r.isError || !r.structuredContent.made) throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/notes`);
+  await page.getByRole('button', { name: 'Today’s note' }).click();
+  await until(async () => (await page.getByRole('dialog').locator('textarea, [contenteditable="true"]').evaluateAll((els) => els.map((e) => e.value ?? e.textContent)).catch(() => [])).some((v) => v.includes('Called the bank about the card')), 10000);
+  await page.keyboard.press('Escape');
+});
 await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
   const crypto = await import('node:crypto');
   const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }) })).json();

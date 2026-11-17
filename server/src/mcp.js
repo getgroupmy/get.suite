@@ -1103,6 +1103,27 @@ export const TOOLS = [
     },
   },
   {
+    name: 'add_to_todays_note', title: 'Add to today’s note', readOnly: false,
+    description: 'Add a line to the person’s note for today (Notes → Today’s note: a journal or log, one note a day), making it if there isn’t one yet (from their daily template, if they chose one): an item at the end when it’s a checklist, otherwise a line at the end of its text.',
+    inputSchema: {
+      type: 'object', required: ['text'],
+      properties: { text: { type: 'string', maxLength: 1000 }, time_zone: { type: 'string', description: 'Their time zone, for which day it is (e.g. Europe/London; default UTC)' } },
+    },
+    async run(api, a) {
+      const text = String(a.text || '').trim();
+      if (!text) throw new ToolError('Say what to add');
+      let tz = 'UTC';
+      try { if (a.time_zone) { new Intl.DateTimeFormat('en', { timeZone: a.time_zone }); tz = a.time_zone; } } catch { throw new ToolError(`Unknown time zone ${a.time_zone}`); }
+      const now = new Date();
+      const date = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+      const title = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now);
+      const n = await api('POST', '/notes/daily', { date, title });
+      const body = n.items ? { items: [...n.items, { text }] } : { body: n.body ? `${n.body.replace(/\s+$/, '')}\n${text}` : text };
+      const out = await api('PATCH', `/notes/${n.id}`, body);
+      return { note: `note:${out.id}`, title: out.title, made: !!n.made, added: text, url: link(`/notes?note=${out.id}`) };
+    },
+  },
+  {
     name: 'thank_colleague', title: 'Say thanks', readOnly: false,
     description: 'Thank a colleague (by email address) for something, as the person: they’re told, and it shows on their card and on everyone’s Home in the company; optionally posted in a Chat channel (#name) too. Ask the person before thanking someone on their behalf, and use their words.',
     inputSchema: {
@@ -1147,7 +1168,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({
