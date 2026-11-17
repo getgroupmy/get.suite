@@ -39,11 +39,12 @@ await step('setup', async () => {
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
+let names;
 await step('sort contacts by last name, company and recently added; starred stay first; kept after a reload', async () => {
   for (const [name, company] of [['Zoe Adams', 'Beta'], ['Anna Young', ''], ['Bob Martin', 'Acme']]) await api(page, 'POST', '/contacts', { name, company });
   const bob = (await api(page, 'GET', '/contacts')).body.find((c) => c.name === 'Bob Martin');
   await page.goto(`${B}/contacts`);
-  const names = async () => (await page.locator('table.files tbody td.name').allInnerTexts()).map((t) => t.replace(/^[A-Z]{1,2}(?=[A-Z][a-z])/, '').split('\n').pop().replace(/ ·.*/, '').trim());
+  names = async () => (await page.locator('table.files tbody td.name').allInnerTexts()).map((t) => t.replace(/^[A-Z]{1,2}(?=[A-Z][a-z])/, '').split('\n').pop().replace(/ ·.*/, '').trim());
   await until(async () => (await names()).join('|') === 'Anna Young|Bob Martin|Zoe Adams');
   await page.getByLabel('Sort contacts').selectOption({ label: 'Last name' });
   await until(async () => (await names()).join('|') === 'Zoe Adams|Bob Martin|Anna Young');
@@ -57,6 +58,20 @@ await step('sort contacts by last name, company and recently added; starred stay
   await page.getByLabel('Sort contacts').selectOption({ label: 'Recently added' });
   await page.reload();
   await until(async () => (await names()).join('|') === 'Zoe Adams|Bob Martin|Anna Young', 10000);
+});
+await step('sort by last in touch: who you were in touch with most recently first, and when', async () => {
+  const all = (await api(page, 'GET', '/contacts')).body;
+  const id = (n) => all.find((c) => c.name === n).id;
+  await api(page, 'POST', `/contacts/${id('Bob Martin')}/log`, { kind: 'call', text: 'Quarterly call', at: Date.now() - 10 * 864e5 });
+  await api(page, 'POST', `/contacts/${id('Anna Young')}/log`, { kind: 'meeting', text: 'Lunch' });
+  await page.getByLabel('Sort contacts').selectOption({ label: 'Last in touch' });
+  await until(async () => (await names()).join('|') === 'Zoe Adams|Anna Young|Bob Martin', 10000); // Zoe is starred
+  const row = (n) => page.locator(`table.files tbody tr[aria-label="${n}"]`);
+  await row('Anna Young').getByText('In touch today').waitFor();
+  await row('Bob Martin').getByText('In touch 10 days ago').waitFor();
+  await row('Zoe Adams').getByText('Not in touch yet').waitFor();
+  await page.reload();
+  await until(async () => (await names()).join('|') === 'Zoe Adams|Anna Young|Bob Martin', 10000);
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

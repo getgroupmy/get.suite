@@ -15622,3 +15622,18 @@ test('digest: overdue tasks of others on lists you share, by person', async () =
   assert.deepEqual(overdueOnShared(bobId, day), [], 'only lists you own');
   assert.match(digestFor(annId).text, /Overdue on Stand build: Dg Bob 2/);
 });
+
+test('contacts: sorting by last in touch is a choice that’s kept; emailing someone counts', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'touchsort', domain: 'acme.com', name: 'Touch Sort', password: 'password123' })).status, 201);
+  await login(a, 'touchsort@acme.com');
+  assert.deepEqual((await a('PUT', '/api/contacts/view', { sort: 'touch' })).body, { sort: 'touch' });
+  assert.deepEqual((await a('GET', '/api/contacts/view')).body, { sort: 'touch' });
+  assert.equal((await a('PUT', '/api/contacts/view', { sort: 'nope' })).status, 400);
+  const c = (await a('POST', '/api/contacts', { name: 'Rita Moreno', email: 'rita@example.org' })).body;
+  assert.equal((await a('GET', '/api/contacts')).body.find((x) => x.id === c.id).last_contact ?? null, null);
+  const { recordSent } = await import('../src/othercontacts.js');
+  const me = (await a('GET', '/api/auth/me')).body.user;
+  recordSent({ id: me.id, org_id: me.org_id, username: me.username }, [{ address: 'Rita@Example.org' }]); // as sending mail does
+  assert.ok((await a('GET', '/api/contacts')).body.find((x) => x.id === c.id).last_contact > Date.now() - 60e3);
+});

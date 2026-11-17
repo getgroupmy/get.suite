@@ -20,7 +20,7 @@ import PersonCard from '../../components/PersonCard.jsx';
 import { photoBlob, photoUrl } from './photo.js';
 import QRCode from 'qrcode';
 import { sinceText } from '../home/dates.js';
-import { sortContacts, CONTACT_SORTS } from './sortcontacts.js';
+import { sortContacts, CONTACT_SORTS, touchAgo } from './sortcontacts.js';
 import { withFreeTime } from '../../components/scheduleWith.js';
 import { useBatches } from '../../components/useBatches.jsx';
 
@@ -256,7 +256,7 @@ export default function Contacts() {
             {batch.shown.map((c) => (
               <tr key={c.id} data-contact={c.id} tabIndex={-1} aria-label={c.name} className={picked.has(c.id) ? 'picked' : ''}>
                 {selecting && <td className="pick-col"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={() => pickOne(c.id)} /></td>}
-                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{c.offline && <> <NotSent /></>}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location"> · {placeText(whereToday[c.id])} {dayName(whereDay)}</span>}</span></td>
+                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{c.offline && <> <NotSent /></>}{tab === 'mine' && sort === 'touch' && <span className="muted small contact-touch"> · {touchAgo(c.last_contact)}</span>}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location"> · {placeText(whereToday[c.id])} {dayName(whereDay)}</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}
                   {c.more_emails?.map((m) => <div key={m.value} className="small"><a href={`mailto:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
                 <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}

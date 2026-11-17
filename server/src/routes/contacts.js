@@ -34,7 +34,7 @@ q(`CREATE TABLE IF NOT EXISTS contact_log (
 )`).run();
 export const LOG_KINDS = ['call', 'meeting', 'note'];
 // How each person sorts their contacts (starred ones first either way).
-export const CONTACT_SORTS = ['first', 'last', 'company', 'added'];
+export const CONTACT_SORTS = ['first', 'last', 'company', 'added', 'touch'];
 q(`CREATE TABLE IF NOT EXISTS contact_prefs (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   sort TEXT NOT NULL DEFAULT 'first'
@@ -376,7 +376,7 @@ export default function contactRoutes() {
   r.get('/view', (req, res) => res.json({ sort: q('SELECT sort FROM contact_prefs WHERE user_id = ?').get(req.user.id)?.sort || 'first' }));
   r.put('/view', (req, res) => {
     const sort = String(req.body?.sort || '');
-    if (!CONTACT_SORTS.includes(sort)) throw bad('First name, last name, company or recently added');
+    if (!CONTACT_SORTS.includes(sort)) throw bad('First name, last name, company, recently added or last in touch');
     q('INSERT INTO contact_prefs (user_id, sort) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET sort = excluded.sort').run(req.user.id, sort);
     res.json({ sort });
   });
