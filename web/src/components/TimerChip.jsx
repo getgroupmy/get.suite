@@ -68,9 +68,9 @@ export default function TimerChip() {
       <button type="button" className="icon-btn small" aria-label="Stop the timer" title="Stop" onClick={stop}>■</button>
       {away && (
         <Modal title="You were away" onClose={() => setAway(null)} footer={<>
-          <button type="button" onClick={() => setAway(null)}>Keep the time</button>
-          <button type="button" onClick={() => leaveOut(false)}>Leave it out and stop</button>
-          <button type="button" className="primary" onClick={() => leaveOut(true)}>Leave it out and carry on</button>
+          <button type="button" className="btn" onClick={() => setAway(null)}>Keep the time</button>
+          <button type="button" className="btn" onClick={() => leaveOut(false)}>Leave it out and stop</button>
+          <button type="button" className="btn primary" onClick={() => leaveOut(true)}>Leave it out and carry on</button>
         </>}>
           <p style={{ margin: 0 }}>Nothing happened here {awayText(away)} while the timer ran on <strong>{run.title}</strong>. Count that time?</p>
         </Modal>
