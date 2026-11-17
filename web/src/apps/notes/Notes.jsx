@@ -248,7 +248,7 @@ export default function Notes() {
           const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
           try {
             const n = await post('/notes/daily', { date, title: d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) });
-            if (n.made) toast(n.from_template ? `Today’s note, from “${n.from_template}”` : 'Today’s note');
+            if (n.made) toast(`${n.from_template ? `Today’s note, from “${n.from_template}”` : 'Today’s note'}${n.carried ? `, with ${n.carried === 1 ? '1 unticked item' : `${n.carried} unticked items`} from last time` : ''}`);
             setWhere({ archived: false, label: null, reminders: false }); await load(); setEditing(n.id);
           } catch (e) { toast(e.message, 'error'); }
         }}><Icon name="calendar" /><span className="grow">Today’s note</span></button>
@@ -515,12 +515,24 @@ function NoteTemplates({ onClose, onUse }) {
       {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">No templates yet. On a note, choose ⋮ → <strong>Save as template…</strong> to start new notes from it.</p> : (
         <ul className="plain-list stack-tight" aria-label="Templates">
           {list.map((t) => (
-            <li key={t.id} className="row" style={{ gap: 8 }}>
+            <li key={t.id} className="stack-tight">
+            <div className="row" style={{ gap: 8 }}>
               <span className="grow"><strong>{t.name}</strong>{t.daily && <span className="muted small"> · Today’s note</span>} <span className="muted small">{t.items ? `☑ ${t.items.length} item${t.items.length === 1 ? '' : 's'}` : (t.body || '').slice(0, 60)}</span></span>
               <button type="button" className={`btn small ${t.daily ? 'on' : ''}`} aria-pressed={t.daily} title="Today’s note (on the left) starts from this template"
                 onClick={async () => { try { await patch(`/notes/templates/${t.id}`, { daily: !t.daily }); toast(t.daily ? 'Today’s note starts empty' : `Today’s note starts from “${t.name}”`); load(); } catch (e) { toast(e.message, 'error'); } }}>{t.daily ? '✓ For Today’s note' : 'For Today’s note'}</button>
               <button type="button" className="btn small primary" onClick={() => onUse(t)}>Use</button>
               <button type="button" className="icon-btn" aria-label={`Delete the template ${t.name}`} onClick={async () => { try { await del(`/notes/templates/${t.id}`); toast('Template deleted'); load(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="trash" size={16} /></button>
+            </div>
+            {t.daily && t.items && (
+              <label className="row small" style={{ gap: 6 }}>
+                <input type="checkbox" checked={t.carry} onChange={async (e) => {
+                  const on = e.target.checked;
+                  setList((l) => l.map((x) => (x.id === t.id ? { ...x, carry: on } : x)));
+                  try { await patch(`/notes/templates/${t.id}`, { carry: on }); } catch (err) { toast(err.message, 'error'); load(); }
+                }} />
+                Carry over the unticked items from the last daily note
+              </label>
+            )}
             </li>
           ))}
         </ul>

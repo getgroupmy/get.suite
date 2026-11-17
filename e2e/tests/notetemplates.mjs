@@ -114,6 +114,24 @@ await step('Home: the Today’s note card shows the day’s list, and Open opens
   await page.waitForURL(/\/notes\?note=/);
   await until(async () => (await page.getByRole('dialog').locator('input').evaluateAll((els) => els.map((e) => e.value)).catch(() => [])).includes('Yesterday'), 10000);
 });
+await step('carry over: today’s note brings yesterday’s unticked items', async () => {
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const now = new Date(), y = new Date(now); y.setDate(y.getDate() - 1);
+  const todays = (await api(page, 'GET', `/notes/daily?date=${ymd(now)}`)).body;
+  await api(page, 'DELETE', `/notes/${todays.id}`); // start the day again
+  const yest = (await api(page, 'POST', '/notes/daily', { date: ymd(y), title: 'Yesterday’s note' })).body;
+  await api(page, 'PATCH', `/notes/${yest.id}`, { items: [{ text: 'Yesterday', done: true }, { text: 'Today' }, { text: 'Call the bank' }, { text: 'Sent the invoice', done: true }] });
+  await page.goto(`${B}/notes`);
+  await page.getByRole('button', { name: 'Templates' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Note templates' });
+  await dlg.getByLabel('Carry over the unticked items from the last daily note').check();
+  await until(async () => (await api(page, 'GET', '/notes/templates')).body.find((t) => t.daily)?.carry);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Today’s note' }).click();
+  await page.getByText('Today’s note, from “Stand-up”, with 1 unticked item from last time').last().waitFor({ timeout: 10000 });
+  await until(async () => { const v = await page.getByRole('dialog').locator('input').evaluateAll((els) => els.map((e) => e.value)).catch(() => []); return v.includes('Call the bank') && !v.includes('Sent the invoice'); }, 10000);
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

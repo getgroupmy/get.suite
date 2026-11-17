@@ -479,7 +479,9 @@ const MAX_TEMPLATES = 50;
 // Today's note: one note a day (YYYY-MM-DD in the person's own time), made from the template marked for it, if any.
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'daily_date')) q('ALTER TABLE notes ADD COLUMN daily_date TEXT').run();
 if (!q('PRAGMA table_info(note_templates)').all().some((c) => c.name === 'daily')) q('ALTER TABLE note_templates ADD COLUMN daily INTEGER NOT NULL DEFAULT 0').run();
-const templateOut = (t) => ({ id: t.id, name: t.name, daily: !!t.daily, ...JSON.parse(t.content) });
+// carry: Today's note also gets the unticked items of the last daily note (with the daily template; for a checklist).
+if (!q('PRAGMA table_info(note_templates)').all().some((c) => c.name === 'carry')) q('ALTER TABLE note_templates ADD COLUMN carry INTEGER NOT NULL DEFAULT 0').run();
+const templateOut = (t) => ({ id: t.id, name: t.name, daily: !!t.daily, carry: !!t.carry, ...JSON.parse(t.content) });
 
 /** Someone's note templates as JSON, for Download your data (null when they have none). */
 export function noteTemplatesJson(userId) {
@@ -535,6 +537,7 @@ export default function noteRoutes() {
       if (req.body.daily) q('UPDATE note_templates SET daily = 0 WHERE owner_id = ?').run(req.user.id);
       q('UPDATE note_templates SET daily = ? WHERE id = ?').run(req.body.daily ? 1 : 0, t.id);
     }
+    if (req.body?.carry !== undefined) q('UPDATE note_templates SET carry = ? WHERE id = ?').run(req.body.carry ? 1 : 0, t.id);
     res.json(templateOut(q('SELECT * FROM note_templates WHERE id = ?').get(t.id)));
   });
   // The day's note if there is one (Home's card), without making it: ?date=YYYY-MM-DD → the note, or null.
@@ -555,13 +558,27 @@ export default function noteRoutes() {
     const tpl = q('SELECT * FROM note_templates WHERE owner_id = ? AND daily = 1').get(req.user.id);
     const c = tpl ? JSON.parse(tpl.content) : {};
     const title = (str(req.body?.title, { max: 300 }) || date).trim();
-    const items = c.items ? cleanItems(c.items) : null;
+    let items = c.items ? cleanItems(c.items) : null;
+    let carried = 0;
+    if (tpl?.carry && items) {
+      // The unticked items of the last daily note before this day, after the template's own (none twice).
+      const last = q('SELECT items FROM notes WHERE owner_id = ? AND daily_date < ? AND trashed_at IS NULL AND items IS NOT NULL ORDER BY daily_date DESC LIMIT 1').get(req.user.id, date);
+      const have = new Set(items.map((i) => i.text.trim().toLowerCase()));
+      let prev = [];
+      try { prev = JSON.parse(last?.items || '[]'); } catch { prev = []; }
+      for (const it of prev) {
+        const k = String(it.text || '').trim().toLowerCase();
+        if (it.done || !k || have.has(k)) continue;
+        have.add(k); items.push({ text: it.text }); carried++;
+      }
+      items = cleanItems(items);
+    }
     const id = uid(), t = now();
     q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by, daily_date) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, title, c.body || '', items ? JSON.stringify(items) : null, c.color || null, JSON.stringify(cleanLabels(c.labels || [])), topFor(req.user.id), t, t, req.user.id, date);
     const n = q('SELECT * FROM notes WHERE id = ?').get(id);
     tell(n);
-    res.status(201).json({ ...shape(n, req.user.id), made: true, from_template: tpl?.name || null });
+    res.status(201).json({ ...shape(n, req.user.id), made: true, from_template: tpl?.name || null, carried });
   });
   r.delete('/templates/:id', (req, res) => {
     const t = q('SELECT * FROM note_templates WHERE id = ? AND owner_id = ?').get(String(req.params.id), req.user.id);

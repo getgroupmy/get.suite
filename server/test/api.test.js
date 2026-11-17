@@ -14119,7 +14119,7 @@ test('takeout: bringing data back in also brings mail filters, email templates a
   const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
   const JSZip = (await import('jszip')).default;
   const nt = JSON.parse(await (await JSZip.loadAsync(zip)).file('Note templates.json').async('string'));
-  assert.deepEqual(nt, [{ name: 'Retro', daily: false, title: 'Retro', body: '', items: [{ text: 'Went well' }, { text: 'To change' }], color: '#d4e4ed', labels: ['team'] }]);
+  assert.deepEqual(nt, [{ name: 'Retro', daily: false, carry: false, title: 'Retro', body: '', items: [{ text: 'Went well' }, { text: 'To change' }], color: '#d4e4ed', labels: ['team'] }]);
   const up = () => b('POST', '/api/takeout/restore?tz=UTC', zip, { raw: true, headers: { 'content-type': 'application/zip' } });
   const r = (await up()).body;
   assert.deepEqual(r.filters, { added: 1, skipped: 0 });
@@ -15434,6 +15434,12 @@ test('Today’s note: one a day, made from the daily template, the same one agai
   const daily = (await a('GET', '/api/notes?type=daily')).body;
   assert.deepEqual(daily.map((n) => n.daily_date), ['2026-11-17', '2026-11-16']);
   assert.ok(!(await a('GET', '/api/notes')).body.find((n) => n.title === 'Stand-up').daily_date);
+  // Carry over: the next day also gets the unticked items of the last daily note (not ticked ones, none twice).
+  assert.equal((await a('PATCH', `/api/notes/templates/${t1.id}`, { carry: true })).body.carry, true);
+  await a('PATCH', `/api/notes/${today.body.id}`, { items: [{ text: 'Yesterday', done: true }, { text: 'Today' }, { text: 'Blockers' }, { text: 'Call the bank' }, { text: 'Sent the invoice', done: true }] });
+  const next = (await a('POST', '/api/notes/daily', { date: '2026-11-18', title: 'Wednesday 18 November' })).body;
+  assert.equal(next.carried, 1);
+  assert.deepEqual(next.items.map((i) => [i.text, i.done]), [['Yesterday', false], ['Today', false], ['Blockers', false], ['Call the bank', false]]);
   // In the trash: a new one is made.
   await a('DELETE', `/api/notes/${today.body.id}`);
   const fresh = (await a('POST', '/api/notes/daily', { date: '2026-11-17', title: 'Tuesday 17 November' })).body;
