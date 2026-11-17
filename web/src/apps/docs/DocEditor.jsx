@@ -1,3 +1,4 @@
+import { sprintText, SPRINTS } from './sprint.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keptDoc, unreachable } from '../offlinedocs.js';
 import { useKeptCopy, renameFile, RebuiltNote } from '../KeptCopy.jsx';
@@ -28,7 +29,7 @@ import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
 import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
-import { FindReplace } from './findReplace.js';
+import { FindReplace, countWords } from './findReplace.js';
 import { ReadAloud, readKey, sentencesFrom } from './readaloud.js';
 import { LongSentences } from './longsentences.js';
 import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
@@ -674,6 +675,26 @@ function SharedDoc({ file, setFile }) {
     centre();
     return () => { editor.off('selectionUpdate', centre); editor.off('update', centre); };
   }, [editor, focusMode, typewriter]);
+  // A writing sprint (in focus mode): minutes to write in, with the words added since it began; told when it ends.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [sprint, setSprint] = useState(null); // { ends, words }
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [sprintNow, setSprintNow] = useState(Date.now());
+  const startSprint = (minutes) => {
+    let unit = 60e3; try { if (localStorage.getItem('nw-sprint-seconds') === '1') unit = 1e3; } catch { /* minutes */ } // (tests: seconds)
+    setSprintNow(Date.now()); setSprint({ ends: Date.now() + minutes * unit, words: countWords(editor.state.doc).words });
+  };
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!sprint) return undefined;
+    const t = setInterval(() => {
+      const now = Date.now(); setSprintNow(now);
+      if (now >= sprint.ends) { toast(`Sprint done: ${sprintText(0, countWords(editor.state.doc).words - sprint.words).split(' · ')[0]}`); setSprint(null); }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [sprint, editor, toast]);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => { if (!focusMode) setSprint(null); }, [focusMode]);
   // Dim: the block holding the caret (a paragraph, heading, list…: one directly in the page or tab) is decorated as
   // current (a decoration, so the editor keeps it as it redraws).
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -698,6 +719,10 @@ function SharedDoc({ file, setFile }) {
     <div className={`editor-page doc-page ${focusMode ? `doc-focus ${typewriter ? 'typewriter' : ''} ${dimOthers ? 'dim-others' : ''}` : ''}`}>
       {focusMode && (
         <div className="focus-exit row" style={{ gap: 6 }}>
+          {sprint ? <span className="btn small sprint-clock" role="timer" aria-label="Writing sprint">{sprintText(sprint.ends - sprintNow, countWords(editor.state.doc).words - sprint.words)}
+            <button type="button" className="link-btn small" aria-label="Stop the sprint" onClick={() => setSprint(null)}>×</button></span>
+            : <Menu trigger={(p) => <button type="button" className="btn small" {...p} title="Write for a set time, counting the words you add">Sprint</button>}
+              items={SPRINTS.map((m) => ({ label: `${m} minutes`, onClick: () => startSprint(m) }))} />}
           <button type="button" className={`btn small ${dimOthers ? 'primary' : ''}`} aria-pressed={dimOthers} onClick={() => setDimOthers(!dimOthers)} title="Fade all but the paragraph you're writing">Dim</button>
           <button type="button" className={`btn small ${typewriter ? 'primary' : ''}`} aria-pressed={typewriter} onClick={() => setTypewriter(!typewriter)} title="Keep the line you're writing in the middle of the screen">Typewriter</button>
           <button type="button" className="btn small" onClick={() => setFocusMode(false)} title="Esc">Exit focus mode</button>

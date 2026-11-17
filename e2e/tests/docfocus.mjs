@@ -92,6 +92,24 @@ await step('Dim (in focus mode) fades all but the paragraph being written', asyn
   await page.getByRole('button', { name: 'Exit focus mode' }).click();
   if ((await op('Line 3')) !== 1) throw new Error('still faded outside focus mode');
 });
+await step('a writing sprint counts the words added and says when the time is up', async () => {
+  await page.evaluate(() => localStorage.setItem('nw-sprint-seconds', '1')); // minutes as seconds, to see it end
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Focus mode' }).click();
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: '10 minutes' }).click();
+  const clock = page.getByRole('timer', { name: 'Writing sprint' });
+  await clock.getByText(/^\+0 words · 0:(10|09)/).waitFor();
+  const ed = page.locator('.ProseMirror').first();
+  await ed.getByText('Line 40', { exact: true }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' three more words');
+  await clock.getByText(/^\+3 words/).waitFor();
+  await page.getByText('Sprint done: +3 words').waitFor({ timeout: 15000 });
+  await clock.waitFor({ state: 'detached' });
+  await page.evaluate(() => localStorage.removeItem('nw-sprint-seconds'));
+  await page.getByRole('button', { name: 'Exit focus mode' }).click();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
