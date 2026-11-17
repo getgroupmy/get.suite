@@ -405,7 +405,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   // Keyboard: Ctrl/⌘+D the microphone, Ctrl/⌘+E the camera; hold Space to talk while muted (let go: muted again).
   const keys = useRef({});
   const [talking, setTalking] = useState(false);
-  keys.current = { toggleMic, toggleCam, hasAudio, hasVideo, micIsOn: () => (mesh.current ? !!mesh.current.state.mic : mic), setMicTo: (on) => { setMic(on); if (mesh.current) mesh.current.setMic(on); else local?.stream?.getAudioTracks().forEach((t) => { t.enabled = on; }); } };
+  keys.current = { toggleMic, toggleCam, hasAudio, hasVideo,
+    toggleHand: () => { const ms = mesh.current; if (ms) ms.setState({ hand: !ms.state.hand }); }, micIsOn: () => (mesh.current ? !!mesh.current.state.mic : mic), setMicTo: (on) => { setMic(on); if (mesh.current) mesh.current.setMic(on); else local?.stream?.getAudioTracks().forEach((t) => { t.enabled = on; }); } };
   useEffect(() => {
     if (phase !== 'call' && phase !== 'lobby') return undefined;
     let held = false;
@@ -413,6 +414,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       const k = meetKey(e), c = keys.current;
       if (k === 'mic' && c.hasAudio) { e.preventDefault(); c.toggleMic(); }
       else if (k === 'cam' && c.hasVideo) { e.preventDefault(); c.toggleCam(); }
+      else if (k === 'hand') { e.preventDefault(); c.toggleHand(); }
       else if (k === 'talk' && c.hasAudio && !c.micIsOn()) { e.preventDefault(); held = true; setTalking(true); c.setMicTo(true); }
       else if (held && (e.key === ' ' || e.code === 'Space')) e.preventDefault(); // held: no scrolling
     };

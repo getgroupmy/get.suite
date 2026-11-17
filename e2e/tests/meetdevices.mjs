@@ -145,6 +145,22 @@ await step('keyboard in the meeting: Ctrl+D the microphone, Ctrl+E the camera, h
   await page.getByText('🎙 Talking').waitFor({ state: 'detached' });
   await page.keyboard.press('Control+d'); // back on
   await bar.getByRole('button', { name: 'Turn off microphone' }).waitFor();
+  // Ctrl+Alt+H raises the hand (and lowers it); ? lists the shortcuts.
+  await page.keyboard.press('Control+Alt+h');
+  await bar.getByRole('button', { name: 'Lower hand' }).waitFor();
+  await page.keyboard.press('Control+Alt+h');
+  await bar.getByRole('button', { name: 'Raise hand' }).waitFor();
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('Shift+Slash');
+  const list = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await list.getByRole('heading', { name: 'Meet (in a meeting)' }).waitFor();
+  await list.getByText('Talk; let go to be muted again').waitFor();
+  if (await page.getByRole('dialog', { name: 'Keyboard shortcuts' }).count() !== 1) throw new Error('more than one list');
+  const first = await list.locator('.modal-body').getByRole('heading').first().innerText();
+  if (first !== 'Meet (in a meeting)') throw new Error(`first section: ${first}`);
+  await page.screenshot({ path: `${SP}/shots/meet-keys.png` });
+  await page.keyboard.press('Escape');
+  await list.waitFor({ state: 'detached' });
 });
 await step('talking while muted: “You’re muted” with Unmute (the fake microphone keeps sounding)', async () => {
   await page.evaluate(() => localStorage.setItem('nw-muted-talk', '2,300')); // the fake microphone ticks at 2–8; speech is 30 and more

@@ -57,6 +57,9 @@ export const SHORTCUTS = {
     ['↑ / ↓ (or J / K)', 'Next or previous file'], ['Home / End', 'First or last file'], ['Enter', 'Open it'], ['Space / X', 'Tick it (to act on several)'],
     ['S', 'Star or unstar'], ['F2', 'Rename'], ['Delete / #', 'Move to trash (with Undo)'], ['U', 'Up to the folder it’s in'],
   ] },
+  meet: { title: 'Meet (in a meeting)', keys: [
+    [`${mod}+D`, 'Microphone on or off'], [`${mod}+E`, 'Camera on or off'], ['Space (held, while muted)', 'Talk; let go to be muted again'], [`${mod}+${alt}+H`, 'Raise or lower your hand'],
+  ] },
   notes: { title: 'Notes', keys: [
     ['J / K', 'Next or previous note'], ['Enter', 'Open it'], ['F', 'Pin or unpin'], ['E', 'Archive (or unarchive)'], ['#', 'Delete it (with Undo)'], ['C', 'Take a new note'],
   ] },
@@ -71,7 +74,7 @@ export const SHORTCUTS = {
 };
 
 const appOf = (path) => (/^\/docs\//.test(path) ? 'docs' : /^\/sheets\//.test(path) ? 'sheets' : /^\/slides\//.test(path) ? 'slides'
-  : /^\/mail/.test(path) ? 'mail' : /^\/calendar/.test(path) ? 'calendar' : /^\/chat/.test(path) ? 'chat' : /^\/tasks/.test(path) ? 'tasks' : /^\/drive/.test(path) ? 'drive' : /^\/notes/.test(path) ? 'notes' : /^\/contacts/.test(path) ? 'contacts' : null);
+  : /^\/mail/.test(path) ? 'mail' : /^\/calendar/.test(path) ? 'calendar' : /^\/chat/.test(path) ? 'chat' : /^\/tasks/.test(path) ? 'tasks' : /^\/drive/.test(path) ? 'drive' : /^\/notes/.test(path) ? 'notes' : /^\/contacts/.test(path) ? 'contacts' : /^\/meet\//.test(path) ? 'meet' : null);
 
 export function ShortcutsHelp() {
   const { pathname } = useLocation();

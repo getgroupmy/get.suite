@@ -19,3 +19,9 @@ test('Meet keys', () => {
   assert.equal(typingIn({ isContentEditable: true }), true);
   assert.equal(typingIn(null), false);
 });
+
+test('hand', () => {
+  assert.equal(meetKey({ key: 'h', code: 'KeyH', ctrlKey: true, altKey: true, target: body }), 'hand');
+  assert.equal(meetKey({ key: '˙', code: 'KeyH', metaKey: true, altKey: true, target: body }), 'hand', 'a Mac’s ⌥ changes the letter');
+  assert.equal(meetKey({ key: '?', shiftKey: true, target: body }), null, '? is the app’s shortcuts list');
+});
