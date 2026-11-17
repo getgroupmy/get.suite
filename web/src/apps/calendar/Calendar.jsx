@@ -16,7 +16,7 @@ import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
-import { insights, hoursText } from './insights.js';
+import { insights, hoursText, taskHoursByDay } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { EVENT_KEY, DRAFT_KEY } from '../docs/blocks.js';
 import { eventEmail } from './eventemail.js';
@@ -662,7 +662,8 @@ function TimeInsights({ anchor, onClose }) {
   const step = (n) => { const d = new Date(week); d.setDate(d.getDate() + 7 * n); setWeek(d.getTime()); };
   const end = new Date(week); end.setDate(end.getDate() + 6);
   const range = `${new Date(week).toLocaleDateString([], { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}`;
-  const most = data ? Math.max(1, ...data.byDay.map((d) => d.meetings + d.focus + d.other)) : 1;
+  const onTasks = data ? taskHoursByDay(taskTime?.spans, data.byDay) : []; // hours tracked on tasks, each day
+  const most = data ? Math.max(1, ...data.byDay.map((d, i) => d.meetings + d.focus + d.other + (onTasks[i] || 0))) : 1;
   return (
     <Modal title="Time insights" onClose={onClose}>
       <div className="stack insights">
@@ -672,7 +673,7 @@ function TimeInsights({ anchor, onClose }) {
             <div role="listitem"><span className="insight-num">{hoursText(data.meetings)}</span><span className="muted small"><i className="ins-dot meetings" /> In meetings</span></div>
             <div role="listitem"><span className="insight-num">{hoursText(data.focus)}</span><span className="muted small"><i className="ins-dot focus" /> Focus time</span></div>
             <div role="listitem"><span className="insight-num">{hoursText(data.other)}</span><span className="muted small"><i className="ins-dot other" /> Other events</span></div>
-            {taskTime?.minutes > 0 && <div role="listitem"><span className="insight-num">{hoursText(Math.round(taskTime.minutes / 6) / 10)}</span><span className="muted small">⏱ On tasks</span></div>}
+            {taskTime?.minutes > 0 && <div role="listitem"><span className="insight-num">{hoursText(Math.round(taskTime.minutes / 6) / 10)}</span><span className="muted small"><i className="ins-dot tasks" /> ⏱ On tasks</span></div>}
           </div>
           {taskTime?.tasks?.length > 0 && (
             <div className="stack-tight">
@@ -683,16 +684,18 @@ function TimeInsights({ anchor, onClose }) {
             </div>
           )}
           <ul className="insight-days" aria-label="Each day">
-            {data.byDay.map((d) => {
+            {data.byDay.map((d, i) => {
               const label = new Date(d.day).toLocaleDateString([], { weekday: 'short' });
-              const sum = d.meetings + d.focus + d.other;
+              const sum = d.meetings + d.focus + d.other, tasks = onTasks[i] || 0;
+              const tasksText = tasks > 0 ? `, ${hoursText(tasks)} on tasks` : '';
               return (
-                <li key={d.day} title={`${label}: ${hoursText(d.meetings)} meetings, ${hoursText(d.focus)} focus, ${hoursText(d.other)} other`}>
+                <li key={d.day} title={`${label}: ${hoursText(d.meetings)} meetings, ${hoursText(d.focus)} focus, ${hoursText(d.other)} other${tasksText}`}>
                   <span className="insight-day">{label}</span>
-                  <span className="insight-bar" aria-label={`${label}: ${hoursText(Math.round(sum * 10) / 10)}`}>
+                  <span className="insight-bar" aria-label={`${label}: ${hoursText(Math.round(sum * 10) / 10)} in events${tasksText}`}>
                     {['meetings', 'focus', 'other'].map((k) => d[k] > 0 && <span key={k} className={`seg ${k}`} style={{ width: `${(d[k] / most) * 100}%` }} />)}
+                    {tasks > 0 && <span className="seg tasks" style={{ width: `${(tasks / most) * 100}%` }} />}
                   </span>
-                  <span className="muted small nowrap">{sum ? hoursText(Math.round(sum * 10) / 10) : '—'}</span>
+                  <span className="muted small nowrap">{sum ? hoursText(Math.round(sum * 10) / 10) : '—'}{tasks > 0 && <> · ⏱ {hoursText(tasks)}</>}</span>
                 </li>
               );
             })}

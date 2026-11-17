@@ -43,5 +43,20 @@ export function insights(events, from, to, me) {
   };
 }
 
+/** Hours tracked on tasks in each of `days` ([{ day }] from insights), from spans: [{ start, end }] (a timer, split at
+ *  midnight) or [{ start, minutes, logged }] (time logged by hand, all on the day it was logged for). */
+export function taskHoursByDay(spans, days) {
+  return days.map(({ day }) => {
+    const next = new Date(day); next.setDate(next.getDate() + 1);
+    let ms = 0;
+    for (const s of spans || []) {
+      if (s.logged) { if (s.start >= day && s.start < next.getTime()) ms += s.minutes * 60e3; continue; }
+      const a = Math.max(s.start, day), b = Math.min(s.end, next.getTime());
+      if (b > a) ms += b - a;
+    }
+    return Math.round((ms / HOUR) * 10) / 10;
+  });
+}
+
 /** "1.5 h", "45 min", "0 h". */
 export const hoursText = (h) => (h > 0 && h < 1 ? `${Math.round(h * 60)} min` : `${h} h`);

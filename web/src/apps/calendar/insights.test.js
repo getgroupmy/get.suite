@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { insights, hoursText } from './insights.js';
+import { insights, hoursText, taskHoursByDay } from './insights.js';
 
 const mon = new Date(2026, 10, 9).getTime(); // Monday
 const at = (day, h) => mon + day * 864e5 + h * 36e5;
@@ -32,4 +32,17 @@ test('hours text', () => {
   assert.equal(hoursText(0.5), '30 min');
   assert.equal(hoursText(2), '2 h');
   assert.equal(hoursText(0), '0 h');
+});
+
+test('time on tasks for each day: timers split at midnight, logged time on its day', () => {
+  const days = insights([], mon, mon + 7 * 864e5, 'me').byDay;
+  const tue = days[1].day, h = 36e5;
+  const spans = [
+    { start: tue + 23 * h, end: tue + 25 * h }, // 1 h Tuesday, 1 h Wednesday
+    { start: tue + 9 * h, end: tue + 9.5 * h },
+    { start: days[4].day + 12 * h, minutes: 90, logged: true }, // Friday
+    { start: mon - 5 * h, end: mon - 4 * h }, // the week before
+  ];
+  assert.deepEqual(taskHoursByDay(spans, days), [0, 1.5, 1, 0, 1.5, 0, 0]);
+  assert.deepEqual(taskHoursByDay(undefined, days), [0, 0, 0, 0, 0, 0, 0]);
 });

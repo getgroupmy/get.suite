@@ -201,7 +201,23 @@ await step('Calendar → Time insights shows the week’s time on tasks beside m
   const dlg = page.getByRole('dialog', { name: 'Time insights' });
   await dlg.getByText('⏱ On tasks').waitFor({ timeout: 10000 });
   await dlg.getByRole('list', { name: 'Tasks you tracked time on' }).getByRole('link', { name: 'Design' }).waitFor();
+  const today = new Date().toLocaleDateString([], { weekday: 'short' });
+  await dlg.getByRole('list', { name: 'Each day' }).getByLabel(new RegExp(`^${today}: .* on tasks$`)).waitFor({ timeout: 5000 });
+  if (!(await dlg.locator('.insight-bar .seg.tasks').count())) throw new Error('no task segment in the day bars');
   await page.screenshot({ path: `${SP}/shots/insights-tasks.png` });
+});
+await step('Time insights → the previous week shows the time logged then, on its day', async () => {
+  const d = new Date(); d.setDate(d.getDate() - 7);
+  const day = d.toISOString().slice(0, 10);
+  const t = (await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Last week’s report' })).body;
+  await api(page, 'POST', `/tasks/tasks/${t.id}/time`, { duration: '1h 30m', day });
+  const dlg = page.getByRole('dialog', { name: 'Time insights' });
+  await dlg.getByRole('button', { name: 'Previous week' }).click();
+  await dlg.getByRole('list', { name: 'Tasks you tracked time on' }).getByRole('link', { name: 'Last week’s report' }).waitFor({ timeout: 10000 });
+  const label = new Date(`${day}T12:00:00Z`).toLocaleDateString([], { weekday: 'short' });
+  await dlg.getByRole('list', { name: 'Each day' }).getByLabel(`${label}: 0 h in events, 1.5 h on tasks`).waitFor({ timeout: 5000 });
+  await dlg.getByRole('button', { name: 'Next week' }).click();
+  await dlg.getByRole('list', { name: 'Tasks you tracked time on' }).getByRole('link', { name: 'Design' }).waitFor({ timeout: 10000 });
 });
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();

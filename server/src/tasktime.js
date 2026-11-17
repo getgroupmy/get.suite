@@ -115,17 +115,19 @@ export function reportCsv(report) {
  */
 export function myTimeOf(userId, days = 7, at = now(), range = null) {
   const since = range ? range.from : at - days * 864e5, until = range ? range.to : Infinity;
-  const rows = q(`SELECT e.task_id, e.started_at, e.ended_at, e.minutes, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id
+  const rows = q(`SELECT e.task_id, e.started_at, e.ended_at, e.minutes, e.manual, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id
     WHERE e.user_id = ? AND ((e.started_at >= ? AND e.started_at < ?) OR (e.ended_at IS NULL AND ? >= ?))`).all(userId, since, until === Infinity ? 8.64e15 : until, until === Infinity ? 8.64e15 : until, at);
-  const byTask = new Map();
+  const byTask = new Map(), spans = [];
   let total = 0;
   for (const r of rows) {
     const m = r.ended_at === null ? minutesBetween(r.started_at, at) : r.minutes;
     total += m;
+    // For each day's bar in Time insights: a timed entry runs start → end; a logged one is `minutes` on its day.
+    if (range && m > 0) spans.push(r.manual ? { start: r.started_at, minutes: m, logged: true } : { start: r.started_at, end: r.ended_at ?? at });
     const x = byTask.get(r.task_id) || { id: r.task_id, title: r.title, list_id: r.list_id, minutes: 0 };
     x.minutes += m; byTask.set(r.task_id, x);
   }
-  return { days, ...(range && range), minutes: total, tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 5) };
+  return { days, ...(range && { ...range, spans: spans.sort((a, b) => a.start - b.start) }), minutes: total, tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 5) };
 }
 
 /** The routes, added to the tasks router: taskFor(req) → { task, list } (checks access), changed(list) tells the list's people. */

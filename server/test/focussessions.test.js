@@ -120,6 +120,9 @@ test('time on tasks for a range (Calendar → Time insights): only entries start
   const from = Date.parse(`${d(-3)}T00:00:00Z`), to = Date.parse(`${d(1)}T00:00:00Z`);
   const r = (await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}`)).body;
   assert.equal(r.tasks.find((x) => x.title === 'Bookkeeping').minutes, 45, 'the 2 h three weeks ago left out');
+  assert.deepEqual(r.spans.find((x) => x.minutes === 45), { start: Date.parse(`${d(-1)}T12:00:00Z`), minutes: 45, logged: true }, 'each entry, for the day bars');
+  assert.ok(r.spans.every((x) => x.start >= from && x.start < to && (x.logged || x.end > x.start)), JSON.stringify(r.spans));
+  assert.equal((await a('GET', '/api/tasks/time/mine?days=7')).body.spans, undefined, 'only for a range');
   assert.equal((await a('GET', `/api/tasks/time/mine?from=${to}&to=${from}`)).status, 400);
   assert.equal((await a('GET', `/api/tasks/time/mine?from=0&to=${to}`)).status, 400, 'too long');
 });
