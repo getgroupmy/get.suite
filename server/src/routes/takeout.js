@@ -2,7 +2,7 @@ import { keptChatsOf } from '../meet.js';
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
-import { notesZipEntries, importNotes } from './notes.js';
+import { notesZipEntries, importNotes, noteTemplatesJson, importNoteTemplates } from './notes.js';
 import { importContacts } from './contacts.js';
 import { allListsCsv, importTaskLists } from './tasks.js';
 import { historyTable } from '../taskhistory.js';
@@ -262,6 +262,8 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   if (sigs.length) out.signatures = importSignatures(user, sigs);
   const evTemplates = await json('Calendar templates.json');
   if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
+  const noteTemplates = await json('Note templates.json');
+  if (Array.isArray(noteTemplates) && noteTemplates.length) out.note_templates = tryImport(() => importNoteTemplates(user, noteTemplates));
   // Drive: the Drive/ folder comes in as one new folder ("From your data 2026-11-13") with its folders and files as they were
   // (documents as the Word, Excel or PowerPoint files they were saved as). Nothing already in your Drive is touched.
   // Email: Mail/<folder>.mbox files are kept in that Drive folder too ("Mail (.mbox)") and imported into your mailbox.
@@ -409,6 +411,7 @@ export default function takeoutRoutes() {
     zip.file('Calendar.ics', exportCalendar(me));
     const evTemplates = eventTemplatesJson(me);
     if (evTemplates) zip.file('Calendar templates.json', evTemplates);
+    { const nt = noteTemplatesJson(me); if (nt) zip.file('Note templates.json', nt); }
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
     { const h = historyTable(me); if (h.length > 1) zip.file('Task history.csv', `\ufeff${h.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`); }
@@ -466,7 +469,8 @@ export default function takeoutRoutes() {
       'Forms/        each of your forms: its questions, and its responses for a spreadsheet',
       'Meet chats/   the chat kept from meetings you started or were in (when its host kept it)',
       'Mail settings/ your filters (as Sieve, which most mail servers take), signatures, templates and vacation reply',
-      'Calendar templates.json  your event templates, if you have any', mailNote].join('\r\n'));
+      'Calendar templates.json  your event templates, if you have any',
+      'Note templates.json  your note templates, if you have any (Notes → Templates)', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');

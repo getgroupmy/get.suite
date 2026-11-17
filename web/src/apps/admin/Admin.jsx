@@ -290,7 +290,7 @@ function Users({ orgId, setOrgId }) {
       const parts = [r.drive?.files > 0 && `${n(r.drive.files, 'file', 'files')} in Drive`, r.mail?.started && n(r.mail.folders, 'mail folder', 'mail folders'), r.calendar && n(r.calendar.added, 'event', 'events'),
         r.contacts && n(r.contacts.added, 'contact', 'contacts'), r.tasks && n(r.tasks.lists, 'task list', 'task lists'), r.notes && n(r.notes.added, 'note', 'notes')].filter(Boolean);
       toast(`${u.name}: brought in ${parts.join(', ') || 'nothing new'}`);
-      for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error');
+      for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.note_templates, r.signatures]) if (x?.error) toast(x.error, 'error');
     } catch (e) { toast(e.message, 'error'); }
   };
   const { user: me } = useAuth();

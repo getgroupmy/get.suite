@@ -47,6 +47,8 @@ await step('some data', async () => {
   const kt = (await api(page, 'POST', `/tasks/lists/${kl}/tasks`, { title: 'Buy string' })).body.id;
   await api(page, 'PATCH', `/tasks/tasks/${kt}`, { due: '2026-12-05' });
   await api(page, 'POST', `/tasks/tasks/${kt}/time`, { duration: '40m', note: 'At the shop' });
+  const idea = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Idea');
+  await api(page, 'POST', '/notes/templates', { note_id: idea.id, name: 'Kite day' });
   const kim = (await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body;
   const th = await api(page, 'POST', '/kudos', { to: kim.id, message: 'Thanks for the kite tips', emoji: '🌟' });
   if (th.status !== 201) throw new Error(`thanks ${th.status} ${JSON.stringify(th.body)}`);
@@ -70,6 +72,8 @@ await step('Settings shows what is in it and downloads one zip', async () => {
   const chat = await zip.file('Chat/kite-club.txt')?.async('string');
   if (!(await zip.file('Calendar templates.json')?.async('string'))?.includes('Kite lesson')) throw new Error('no event template');
   if (!(await zip.file('Forms/Kite sizes - questions.md')?.async('string'))?.includes('Your size')) throw new Error('no form');
+  const nt = JSON.parse((await zip.file('Note templates.json')?.async('string')) || '[]');
+  if (nt[0]?.name !== 'Kite day' || nt[0]?.body !== 'Kites') throw new Error(`Note templates.json: ${JSON.stringify(nt)}`);
   const time = await zip.file('Time on tasks.csv')?.async('string');
   if (!/,40,Buy string,Kites,At the shop,added by hand/.test(time || '')) throw new Error(`Time on tasks.csv: ${time}`);
   const thanks = await zip.file('Thanks.csv')?.async('string');

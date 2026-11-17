@@ -14113,12 +14113,22 @@ test('takeout: bringing data back in also brings mail filters, email templates a
   q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('t1', aid, 'Thanks', 'Thanks & regards', '<p>Thank you!</p>', Date.now());
   q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('t2', aid, 'No subject', '', '<p>Hi</p>', Date.now());
   assert.equal((await a('POST', '/api/events/templates', { name: 'Standup', event: { title: 'Standup', minutes: 15 } })).status, 201);
+  const nn = (await a('POST', '/api/notes', { title: 'Retro', items: [{ text: 'Went well', done: true }, { text: 'To change' }], color: '#d4e4ed', labels: ['team'] })).body;
+  assert.equal((await a('POST', '/api/notes/templates', { note_id: nn.id, name: 'Retro' })).status, 201);
+  await b('POST', '/api/notes/templates', { note_id: (await b('POST', '/api/notes', { title: 'Mine', body: 'x' })).body.id, name: 'Retro' }); // a name b already uses
   const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const JSZip = (await import('jszip')).default;
+  const nt = JSON.parse(await (await JSZip.loadAsync(zip)).file('Note templates.json').async('string'));
+  assert.deepEqual(nt, [{ name: 'Retro', daily: false, title: 'Retro', body: '', items: [{ text: 'Went well' }, { text: 'To change' }], color: '#d4e4ed', labels: ['team'] }]);
   const up = () => b('POST', '/api/takeout/restore?tz=UTC', zip, { raw: true, headers: { 'content-type': 'application/zip' } });
   const r = (await up()).body;
   assert.deepEqual(r.filters, { added: 1, skipped: 0 });
   assert.deepEqual(r.templates, { added: 2, skipped: 0 });
   assert.deepEqual(r.event_templates, { added: 1, skipped: 0 });
+  assert.deepEqual(r.note_templates, { added: 1, skipped: 0 });
+  const bt = (await b('GET', '/api/notes/templates')).body;
+  assert.deepEqual(bt.map((t) => t.name).sort(), ['Retro', 'Retro (2)'], 'a name in use gets (2)');
+  assert.deepEqual(bt.find((t) => t.name === 'Retro (2)').items, [{ text: 'Went well' }, { text: 'To change' }]);
   const tpls = q('SELECT name, subject, html FROM mail_templates WHERE user_id = ?').all(bid);
   const thanks = tpls.find((t) => t.name === 'Thanks');
   assert.equal(thanks.subject, 'Thanks & regards');
@@ -14126,7 +14136,7 @@ test('takeout: bringing data back in also brings mail filters, email templates a
   assert.equal(tpls.find((t) => t.name === 'No subject').subject, '');
   assert.equal(JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(bid).rules)[0].name, 'Receipts');
   const again = (await up()).body;
-  assert.deepEqual([again.filters.added, again.templates.added, again.event_templates.added], [0, 0, 0], 'nothing twice');
+  assert.deepEqual([again.filters.added, again.templates.added, again.event_templates.added, again.note_templates.added], [0, 0, 0, 0], 'nothing twice');
 });
 
 test('takeout: bringing data back in sets your signature when you have none (to your address here); never replaces one', async () => {

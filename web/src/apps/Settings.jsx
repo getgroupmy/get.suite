@@ -1012,11 +1012,11 @@ function useBringIn(onDone = () => {}) {
         r.calendar && n(r.calendar.added, 'event', 'events'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
         r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
         r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'),
-        r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures')].filter(Boolean);
+        r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.note_templates?.added && n(r.note_templates.added, 'note template', 'note templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures')].filter(Boolean);
       toast(`${r.from ? `From ${r.from}: brought` : 'Brought'} in ${parts.join(', ') || 'nothing new'}`);
       if (r.left_out?.length) toast(`Left out (not part of Workspace): ${r.left_out.join(', ')}`);
       if (r.pst) toast('Outlook data files (.pst) can’t be read here: bring that mail in with Mail → Import mail instead', 'error');
-      for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.signatures]) if (x?.error) toast(x.error, 'error');
+      for (const x of [r.mail, r.filters, r.templates, r.event_templates, r.note_templates, r.signatures]) if (x?.error) toast(x.error, 'error');
       onDone(r);
     } catch (err) { toast(err.message, 'error'); } finally { setRestoring(false); setProgress(null); setStep(null); }
   };

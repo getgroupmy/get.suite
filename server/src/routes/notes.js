@@ -481,6 +481,30 @@ if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'daily_date')) q
 if (!q('PRAGMA table_info(note_templates)').all().some((c) => c.name === 'daily')) q('ALTER TABLE note_templates ADD COLUMN daily INTEGER NOT NULL DEFAULT 0').run();
 const templateOut = (t) => ({ id: t.id, name: t.name, daily: !!t.daily, ...JSON.parse(t.content) });
 
+/** Someone's note templates as JSON, for Download your data (null when they have none). */
+export function noteTemplatesJson(userId) {
+  const list = q('SELECT * FROM note_templates WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map(templateOut).map(({ id: _id, ...t }) => t);
+  return list.length ? JSON.stringify(list, null, 2) : null;
+}
+/** Note templates brought back from Download your data: one already here (the same content) is skipped; a name in use gets " (2)". */
+export function importNoteTemplates(user, list) {
+  let added = 0, skipped = 0;
+  for (const t of (Array.isArray(list) ? list : []).slice(0, MAX_TEMPLATES)) {
+    const name = String(t?.name || '').trim().slice(0, 80);
+    if (!name) continue;
+    const content = JSON.stringify({ title: String(t.title || '').slice(0, 300), body: String(t.body || '').slice(0, 20000),
+      items: Array.isArray(t.items) ? cleanItems(t.items).map((it) => ({ text: it.text, ...(it.indent && { indent: 1 }) })) : null,
+      color: COLORS.includes(t.color) ? t.color : null, labels: cleanLabels(Array.isArray(t.labels) ? t.labels : []) });
+    if (q('SELECT 1 FROM note_templates WHERE owner_id = ? AND content = ?').get(user.id, content)) { skipped++; continue; } // already here (maybe as "Name (2)")
+    if (q('SELECT COUNT(*) AS c FROM note_templates WHERE owner_id = ?').get(user.id).c >= MAX_TEMPLATES) break;
+    let nm = name, n = 1;
+    while (q('SELECT 1 FROM note_templates WHERE owner_id = ? AND name = ? COLLATE NOCASE').get(user.id, nm)) nm = `${name.slice(0, 74)} (${++n})`;
+    q('INSERT INTO note_templates (id, owner_id, name, content, created_at, daily) VALUES (?, ?, ?, ?, ?, 0)').run(uid(), user.id, nm, content, now());
+    added++;
+  }
+  return { added, skipped };
+}
+
 export default function noteRoutes() {
   const r = Router();
   r.get('/templates', (req, res) => {
