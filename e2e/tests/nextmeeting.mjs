@@ -58,6 +58,25 @@ await step('a meeting starting soon shows in the top bar with Join; one later, d
   await api(page, 'DELETE', `/events/${soon.id}`);
   await chip.waitFor({ state: 'detached', timeout: 10000 });
 });
+await step('running late, said from the top bar: the others on the meeting are told', async () => {
+  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
+  const now = Date.now();
+  const ev = (await api(page, 'POST', '/events', { title: 'Client call', start: now + 8 * 60e3, end: now + 38 * 60e3, guests: ['kim@acme.com'] })).body;
+  const chip = page.getByRole('status', { name: /Client call in \d+ min/ });
+  await page.goto(`${B}/drive`);
+  await chip.waitFor({ timeout: 10000 });
+  await chip.getByRole('button', { name: 'Running late' }).click();
+  await page.getByRole('menuitem', { name: '10 minutes late' }).click();
+  await page.getByText('Told the others you’re running 10 minutes late').waitFor();
+  const late = (await api(page, 'GET', `/events/${ev.id}/late`)).body;
+  if (!JSON.stringify(late).includes('10')) throw new Error(JSON.stringify(late));
+  // Alone on a meeting: nobody to tell, so no ⏱.
+  await api(page, 'DELETE', `/events/${ev.id}`);
+  await api(page, 'POST', '/events', { title: 'Solo work', start: now + 3 * 60e3, end: now + 30 * 60e3 });
+  const solo = page.getByRole('status', { name: /Solo work in \d+ min/ });
+  await solo.waitFor({ timeout: 10000 });
+  if (await solo.getByRole('button', { name: 'Running late' }).count()) throw new Error('running late shown with nobody to tell');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
