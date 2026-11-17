@@ -57,7 +57,8 @@ export function jsonFromSheetDoc(doc) {
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
     for (const k of ['rowHeights', 'formats', 'charts', 'notes', 'slicers', 'views']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
-  }), ...(doc.getMap('book').get('functions')?.length && { functions: doc.getMap('book').get('functions') }) };
+  }), ...(doc.getMap('book').get('functions')?.length && { functions: doc.getMap('book').get('functions') }),
+  ...(!doc.getArray('sheets').length && { blank: true }) }; // saved before its offline copy came: still no sheet of its own
 }
 
 /**
@@ -119,7 +120,7 @@ export function deckDocFromJson(json) {
   doc.transact(() => {
     doc.getMap('deck').set('theme', json?.theme || 'light');
     for (const k of DECK_KEYS) if (json?.[k]) doc.getMap('deck').set(k, json[k]);
-    const slides = json?.slides?.length ? json.slides : [{ id: 's1', items: [] }];
+    const slides = json?.slides?.length ? json.slides : json?.blank ? [] : [{ id: 's1', items: [] }]; // (blank: started offline, see sheetDocFromJson)
     doc.getArray('order').push(slides.map((s) => s.id));
     const all = doc.getMap('slides');
     for (const s of slides) all.set(s.id, slideMap(s));
@@ -139,6 +140,7 @@ export function jsonFromDeckDoc(doc) {
       for (const k of SLIDE_KEYS) if (m.get(k)) s[k] = m.get(k);
       return s;
     }),
+    ...(!doc.getArray('order').length && { blank: true }), // saved before its offline copy came
   };
 }
 

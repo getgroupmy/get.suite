@@ -445,18 +445,18 @@ export default function Drive() {
     } catch (e) {
       // No connection: a new document or spreadsheet starts on this device, is made in Drive (blank) when it's back,
       // and what's written in it meanwhile goes in then. (A spreadsheet's first sheet comes with its copy, so the one
-      // made in Drive has none of its own.) Presentations need the connection to start.
-      if (unreachable(e) && (kind === 'doc' || kind === 'sheet')) {
-        const name = kind === 'doc' ? 'Untitled document' : 'Untitled spreadsheet', at = new Date().toISOString();
+      // made in Drive has none of its own; a presentation's first slide likewise.)
+      if (unreachable(e) && ['doc', 'sheet', 'slides'].includes(kind)) {
+        const name = { doc: 'Untitled document', sheet: 'Untitled spreadsheet', slides: 'Untitled presentation' }[kind], at = new Date().toISOString();
         let state = new Uint8Array([0, 0]); // an empty document
-        if (kind === 'sheet') {
-          const [Y, { sheetDocFromJson }] = await Promise.all([import('yjs'), import('../collabsync.js')]);
-          state = Y.encodeStateAsUpdate(sheetDocFromJson({ sheets: [{ name: 'Sheet1' }] }));
+        if (kind !== 'doc') {
+          const [Y, { sheetDocFromJson, deckDocFromJson }] = await Promise.all([import('yjs'), import('../collabsync.js')]);
+          state = Y.encodeStateAsUpdate(kind === 'sheet' ? sheetDocFromJson({ sheets: [{ name: 'Sheet1' }] }) : deckDocFromJson({ theme: 'light', slides: [firstSlide()] }));
         }
         await changeAdd({ method: 'POST', url: '/files/new', body: { kind, parent_id: parentId || null, id, blank: true }, user: user.id, label: name });
         await keepDoc(id, { gen: null, fresh: true, state, dirty: true, file: { id, name, kind, owner_id: user.id, owner_name: user.name, parent_id: parentId || null, role: 'owner', page_setup: null, created_at: at, updated_at: at } });
         window.dispatchEvent(new Event('nw:changes'));
-        navigate(`/${kind === 'doc' ? 'docs' : 'sheets'}/${id}`);
+        navigate(`/${{ doc: 'docs', sheet: 'sheets', slides: 'slides' }[kind]}/${id}`);
         return;
       }
       toast(e.message, 'error');
@@ -2064,6 +2064,15 @@ function RequestLimitsModal({ link, onClose, onSaved }) {
 }
 
 /** Drive without a connection: the files kept on this device (opened here lately), which open and can be edited offline. */
+/** A new presentation's first slide, as Drive makes one (a title and a subtitle to fill in), for one started offline. */
+function firstSlide() {
+  const k = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return { id: k(), items: [
+    { id: k(), type: 'text', role: 'title', x: 8, y: 30, w: 84, h: 20, text: '', size: 44, bold: true, align: 'center' },
+    { id: k(), type: 'text', role: 'subtitle', x: 15, y: 54, w: 70, h: 12, text: '', size: 24, align: 'center' },
+  ] };
+}
+
 function OnThisDevice({ list, onChanged }) {
   const toast = useToast();
   const path = { doc: 'docs', sheet: 'sheets', slides: 'slides' };

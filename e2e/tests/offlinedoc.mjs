@@ -433,6 +433,27 @@ await step('Drive: a new spreadsheet made offline is filled in here and made in 
   const { sheets } = (await api(page, 'GET', `/files/${id}/content`)).body.content;
   if (sheets.length !== 1) throw new Error(`${sheets.length} sheets: ${sheets.map((x) => x.name).join(', ')}`);
 });
+await step('Drive: a new presentation made offline gets its title here and is made in Drive, with that one slide, when back', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'New' }).waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByRole('menuitem', { name: 'Presentation' }).click();
+  await page.waitForURL(/\/slides\/off/);
+  const id = new URL(page.url()).pathname.split('/').pop();
+  await page.getByText('Click to add title').dblclick({ timeout: 20000 });
+  await page.keyboard.type('Ferry plan');
+  await page.locator('.slide-stage').click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await page.locator('.slide-stage').getByText('Ferry plan').waitFor({ timeout: 20000 }); // kept on the device
+  await ctx.setOffline(false);
+  await page.getByText(/Sent 1 change made offline/).waitFor({ timeout: 30000 });
+  await until(async () => JSON.stringify((await api(page, 'GET', `/files/${id}/content`)).body?.content?.slides || []).includes('Ferry plan'), 30000);
+  const { slides } = (await api(page, 'GET', `/files/${id}/content`)).body.content;
+  if (slides.length !== 1) throw new Error(`${slides.length} slides`);
+});
 await step('Drive offline: a kept file renamed there gets the name when back; one can be taken off the device', async () => {
   await page.goto(`${B}/drive`);
   await page.waitForTimeout(800);

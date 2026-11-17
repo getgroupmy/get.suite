@@ -133,3 +133,23 @@ test('a spreadsheet started offline is made blank: its first sheet comes from th
   assert.equal(out.sheets.length, 1);
   assert.equal(out.sheets[0].cells.A1, 'Fuel');
 });
+
+test('blank stays blank when saved before the offline copy comes; a presentation started offline merges to its own slides', async () => {
+  const { sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc } = await import('../src/collabdoc.js');
+  const sheetSaved = jsonFromSheetDoc(sheetDocFromJson({ sheets: [], blank: true }));
+  assert.equal(sheetDocFromJson(sheetSaved).getArray('sheets').length, 0, 'reloaded: still no Sheet1 of its own');
+  assert.equal(jsonFromSheetDoc(sheetDocFromJson({ sheets: [{ name: 'A' }] })).blank, undefined);
+  const deckSaved = jsonFromDeckDoc(deckDocFromJson({ theme: 'light', slides: [], blank: true }));
+  assert.equal(deckDocFromJson(deckSaved).getArray('order').length, 0);
+  assert.equal(deckDocFromJson({}).getArray('order').length, 1, 'otherwise a first slide as before');
+  const Y = await import('yjs');
+  const server = deckDocFromJson({ theme: 'light', slides: [], blank: true });
+  Y.applyUpdate(server, Y.encodeStateAsUpdate(deckDocFromJson({ slides: [{ id: 'mine', items: [{ id: 't', type: 'text', text: 'Ferry plan' }] }] })));
+  const out = jsonFromDeckDoc(server);
+  assert.deepEqual(out.slides.map((x) => x.id), ['mine']);
+  assert.equal(out.blank, undefined);
+  const olivia = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await olivia('POST', '/api/files/new', { kind: 'slides', id: 'offDeck0123456789abcdefg', blank: true })).status, 201);
+  assert.deepEqual((await olivia('GET', '/api/files/offDeck0123456789abcdefg/content')).body.content.slides, []);
+});
