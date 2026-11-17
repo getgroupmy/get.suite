@@ -155,6 +155,20 @@ await step('T starts your timer on the task in view, and stops it', async () => 
   await page.getByText('Timer stopped on “Design”').waitFor();
   await until(async () => !(await api(page, 'GET', '/tasks/timer')).body);
 });
+await step('T works in My Day too', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const d = new Date(); const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  await api(page, 'POST', `/tasks/tasks/${design}/myday`, { today: local || today });
+  await page.goto(`${B}/tasks`);
+  await page.getByRole('link', { name: /My Day/ }).first().click().catch(() => page.getByText('My Day').first().click());
+  await row(page, 'Design').waitFor({ timeout: 10000 });
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('j');
+  await page.keyboard.press('t');
+  await page.getByText('Timer started on “Design”').waitFor();
+  await page.keyboard.press('t');
+  await page.getByText('Timer stopped on “Design”').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
