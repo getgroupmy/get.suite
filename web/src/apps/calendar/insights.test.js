@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { insights, hoursText, taskHoursByDay } from './insights.js';
+import { insights, hoursText, taskHoursByDay, deltaText } from './insights.js';
 
 const mon = new Date(2026, 10, 9).getTime(); // Monday
 const at = (day, h) => mon + day * 864e5 + h * 36e5;
@@ -45,4 +45,13 @@ test('time on tasks for each day: timers split at midnight, logged time on its d
   ];
   assert.deepEqual(taskHoursByDay(spans, days), [0, 1.5, 1, 0, 1.5, 0, 0]);
   assert.deepEqual(taskHoursByDay(undefined, days), [0, 0, 0, 0, 0, 0, 0]);
+});
+
+test('change from last week', () => {
+  assert.equal(deltaText(5, 3), '↑ 2 h');
+  assert.equal(deltaText(1, 1.5), '↓ 30 min');
+  assert.equal(deltaText(2, 2), 'same');
+  assert.equal(deltaText(0, 0), null);
+  assert.equal(deltaText(0, 4), '↓ 4 h');
+  assert.equal(deltaText(2.25, 2), '↑ 18 min', 'to a tenth of an hour, as the tiles show');
 });

@@ -58,5 +58,13 @@ export function taskHoursByDay(spans, days) {
   });
 }
 
+/** Change from last week, in words: "↑ 2 h", "↓ 30 min", "same", or null when there's nothing to compare (both 0). */
+export function deltaText(now, before) {
+  const d = Math.round((now - before) * 10) / 10;
+  if (!now && !before) return null;
+  if (Math.abs(d) < 0.1) return 'same';
+  return `${d > 0 ? '↑' : '↓'} ${hoursText(Math.abs(d))}`;
+}
+
 /** "1.5 h", "45 min", "0 h". */
 export const hoursText = (h) => (h > 0 && h < 1 ? `${Math.round(h * 60)} min` : `${h} h`);

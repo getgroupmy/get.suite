@@ -217,8 +217,15 @@ await step('Time insights → the previous week shows the time logged then, on i
   await dlg.getByRole('list', { name: 'Tasks you tracked time on' }).getByRole('link', { name: 'Last week’s report' }).waitFor({ timeout: 10000 });
   const label = new Date(`${day}T12:00:00Z`).toLocaleDateString([], { weekday: 'short' });
   await dlg.getByRole('list', { name: 'Each day' }).getByLabel(`${label}: 0 h in events, 1.5 h on tasks`).waitFor({ timeout: 5000 });
+  // This week against last week: 2 h of other events last week and none this week, and the time on tasks.
+  const lw = new Date(); lw.setDate(lw.getDate() - 7); lw.setHours(10, 0, 0, 0);
+  await api(page, 'POST', '/events', { title: 'Offsite prep', start: lw.getTime(), end: lw.getTime() + 2 * 36e5 });
   await dlg.getByRole('button', { name: 'Next week' }).click();
   await dlg.getByRole('list', { name: 'Tasks you tracked time on' }).getByRole('link', { name: 'Design' }).waitFor({ timeout: 10000 });
+  const tiles = dlg.getByRole('list', { name: 'This week' });
+  await tiles.getByRole('listitem').filter({ hasText: 'Other events' }).getByText('↓ 2 h vs last week').waitFor({ timeout: 10000 });
+  await tiles.getByRole('listitem').filter({ hasText: 'On tasks' }).getByText(/(↑|↓) .* vs last week|Same as last week/).waitFor();
+  await page.screenshot({ path: `${SP}/shots/insights-delta.png` });
 });
 await step('away from a running timer: coming back asks whether to count the time away', async () => {
   await page.goto(`${B}/drive`);

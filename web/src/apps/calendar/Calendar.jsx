@@ -16,7 +16,7 @@ import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
-import { insights, hoursText, taskHoursByDay } from './insights.js';
+import { insights, hoursText, taskHoursByDay, deltaText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { EVENT_KEY, DRAFT_KEY } from '../docs/blocks.js';
 import { eventEmail } from './eventemail.js';
@@ -647,15 +647,27 @@ function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
 }
 
 /** How a week's time was spent: meetings, focus time and the rest, each day, and who you meet with most. */
+/** Under a Time insights tile: the change from the week before (↑ 2 h vs last week). */
+function Delta({ now, before }) {
+  const t = before == null ? null : deltaText(now, before);
+  return t ? <span className="muted small insight-delta">{t === 'same' ? 'Same as last week' : `${t} vs last week`}</span> : null;
+}
+
 function TimeInsights({ anchor, onClose }) {
   const { user } = useAuth();
   const monday = (d) => { const x = startOfDay(new Date(d)); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
   const [week, setWeek] = useState(() => monday(anchor).getTime());
   const [data, setData] = useState(null);
   const [taskTime, setTaskTime] = useState(null); // time tracked on tasks that week (Tasks)
+  const [prev, setPrev] = useState(null); // the week before, to compare: { meetings, focus, other, tasks } in hours
   useEffect(() => {
     const to = new Date(week); to.setDate(to.getDate() + 7);
-    setData(null); setTaskTime(null);
+    const from = new Date(week); from.setDate(from.getDate() - 7);
+    setData(null); setTaskTime(null); setPrev(null);
+    Promise.all([
+      get(`/events?from=${from.getTime()}&to=${week}`).catch(() => []),
+      get(`/tasks/time/mine?from=${from.getTime()}&to=${week}`).catch(() => ({ minutes: 0 })),
+    ]).then(([list, t]) => { const p = insights(expandAll(list, from.getTime(), week), from.getTime(), week, user.username); setPrev({ meetings: p.meetings, focus: p.focus, other: p.other, tasks: Math.round((t.minutes || 0) / 6) / 10 }); });
     get(`/tasks/time/mine?from=${week}&to=${to.getTime()}`).then(setTaskTime).catch(() => {});
     get(`/events?from=${week}&to=${to.getTime()}`).then((list) => setData(insights(expandAll(list, week, to.getTime()), week, to.getTime(), user.username))).catch(() => setData(insights([], week, to.getTime(), user.username)));
   }, [week, user.username]);
@@ -670,10 +682,10 @@ function TimeInsights({ anchor, onClose }) {
         <div className="row"><button type="button" className="icon-btn" aria-label="Previous week" onClick={() => step(-1)}>‹</button><strong className="grow" style={{ textAlign: 'center' }}>{range}</strong><button type="button" className="icon-btn" aria-label="Next week" onClick={() => step(1)}>›</button></div>
         {!data ? <p className="muted">Loading…</p> : <>
           <div className="insight-tiles" role="list" aria-label="This week">
-            <div role="listitem"><span className="insight-num">{hoursText(data.meetings)}</span><span className="muted small"><i className="ins-dot meetings" /> In meetings</span></div>
-            <div role="listitem"><span className="insight-num">{hoursText(data.focus)}</span><span className="muted small"><i className="ins-dot focus" /> Focus time</span></div>
-            <div role="listitem"><span className="insight-num">{hoursText(data.other)}</span><span className="muted small"><i className="ins-dot other" /> Other events</span></div>
-            {taskTime?.minutes > 0 && <div role="listitem"><span className="insight-num">{hoursText(Math.round(taskTime.minutes / 6) / 10)}</span><span className="muted small"><i className="ins-dot tasks" /> ⏱ On tasks</span></div>}
+            <div role="listitem"><span className="insight-num">{hoursText(data.meetings)}</span><span className="muted small"><i className="ins-dot meetings" /> In meetings</span><Delta now={data.meetings} before={prev?.meetings} /></div>
+            <div role="listitem"><span className="insight-num">{hoursText(data.focus)}</span><span className="muted small"><i className="ins-dot focus" /> Focus time</span><Delta now={data.focus} before={prev?.focus} /></div>
+            <div role="listitem"><span className="insight-num">{hoursText(data.other)}</span><span className="muted small"><i className="ins-dot other" /> Other events</span><Delta now={data.other} before={prev?.other} /></div>
+            {taskTime?.minutes > 0 && <div role="listitem"><span className="insight-num">{hoursText(Math.round(taskTime.minutes / 6) / 10)}</span><span className="muted small"><i className="ins-dot tasks" /> ⏱ On tasks</span><Delta now={Math.round(taskTime.minutes / 6) / 10} before={prev?.tasks} /></div>}
           </div>
           {taskTime?.tasks?.length > 0 && (
             <div className="stack-tight">
