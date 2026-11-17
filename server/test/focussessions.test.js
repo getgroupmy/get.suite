@@ -231,4 +231,6 @@ test('focus sessions finished today: only ones that ran to their end', async () 
   assert.equal(r.sessions, before + 1);
   assert.ok(r.minutes >= 25);
   assert.equal((await a('GET', '/api/tasks/focus/done')).status, 400);
+  assert.equal((await a('GET', `/api/tasks/focus/done?since=${since}&until=${since + 60e3}`)).body.sessions, 0, 'ended after until: not in that span');
+  assert.equal((await a('GET', `/api/tasks/focus/done?since=${since}&until=${Date.now() + 864e5}`)).body.sessions, r.sessions);
 });

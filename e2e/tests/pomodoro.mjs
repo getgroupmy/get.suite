@@ -79,6 +79,15 @@ await step('a 5-minute break, counted down; when it’s over, back to the task',
   if (!(await api(page, 'GET', '/tasks/timer')).body) throw new Error('no session');
   await api(page, 'POST', '/tasks/timer/stop');
 });
+await step('Calendar → Time insights counts the week’s finished focus sessions', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: /Time insights/ }).first().click();
+  const tiles = page.getByRole('dialog', { name: 'Time insights' }).getByRole('list', { name: 'This week' });
+  const tile = tiles.getByRole('listitem').filter({ hasText: 'Focus sessions on tasks' });
+  await tile.waitFor({ timeout: 10000 });
+  const n = Number(await tile.locator('.insight-num').innerText());
+  if (n < 2) throw new Error(`${n} sessions`); // the two that ran to their end (the last was stopped early)
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

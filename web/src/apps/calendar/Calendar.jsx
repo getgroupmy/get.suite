@@ -664,11 +664,13 @@ function TimeInsights({ anchor, onClose }) {
   const [week, setWeek] = useState(() => monday(anchor).getTime());
   const [data, setData] = useState(null);
   const [taskTime, setTaskTime] = useState(null); // time tracked on tasks that week (Tasks)
+  const [sessions, setSessions] = useState(null); // focus sessions on tasks that ran to their end that week: { sessions, minutes }
   const [prev, setPrev] = useState(null); // the week before, to compare: { meetings, focus, other, tasks } in hours
   useEffect(() => {
     const to = new Date(week); to.setDate(to.getDate() + 7);
     const from = new Date(week); from.setDate(from.getDate() - 7);
-    setData(null); setTaskTime(null); setPrev(null);
+    setData(null); setTaskTime(null); setPrev(null); setSessions(null);
+    get(`/tasks/focus/done?since=${week}&until=${to.getTime()}`).then(setSessions).catch(() => {});
     Promise.all([
       get(`/events?from=${from.getTime()}&to=${week}`).catch(() => []),
       get(`/tasks/time/mine?from=${from.getTime()}&to=${week}`).catch(() => ({ minutes: 0 })),
@@ -694,6 +696,7 @@ function TimeInsights({ anchor, onClose }) {
               <Delta now={data.focus} before={prev?.focus} /></div>
             <div role="listitem"><span className="insight-num">{hoursText(data.other)}</span><span className="muted small"><i className="ins-dot other" /> Other events</span><Delta now={data.other} before={prev?.other} /></div>
             {taskTime?.minutes > 0 && <div role="listitem"><span className="insight-num">{hoursText(Math.round(taskTime.minutes / 6) / 10)}</span><span className="muted small"><i className="ins-dot tasks" /> ⏱ On tasks</span><Delta now={Math.round(taskTime.minutes / 6) / 10} before={prev?.tasks} /></div>}
+            {sessions?.sessions > 0 && <div role="listitem"><span className="insight-num">{sessions.sessions}</span><span className="muted small">🎯 Focus sessions on tasks · {hoursText(Math.round(sessions.minutes / 6) / 10)}</span></div>}
           </div>
           {taskTime?.tasks?.length > 0 && (
             <div className="stack-tight">

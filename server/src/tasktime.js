@@ -209,13 +209,13 @@ export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {
     }
     res.json(myTimeOf(req.user.id, Math.min(31, Math.max(1, Number(req.query.days) || 7))));
   });
-  // Focus sessions finished since a time (?since=ms, the browser's midnight): { sessions, minutes }. Ones stopped early don't count.
+  // Focus sessions finished since a time (?since=ms, the browser's midnight; ?until for a week): { sessions, minutes }. Ones stopped early don't count.
   r.get('/focus/done', (req, res) => {
-    const since = Number(req.query.since);
-    if (!Number.isFinite(since)) throw bad('Since when?');
+    const since = Number(req.query.since), until = req.query.until === undefined ? Infinity : Number(req.query.until); // ?until: a week's end (Time insights)
+    if (!Number.isFinite(since) || Number.isNaN(until)) throw bad('Since when?');
     const t = now(); // one whose time is up but not yet closed by the half-minute sweep counts too
     const row = q(`SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(minutes, ROUND((until - started_at) / 60000.0))), 0) AS m FROM task_time
-                   WHERE user_id = ? AND until IS NOT NULL AND until >= ? AND ((ended_at IS NOT NULL AND ended_at >= until) OR (ended_at IS NULL AND until <= ?))`).get(req.user.id, since, t + 2000); // a browser a moment ahead still counts the one just ended
+                   WHERE user_id = ? AND until IS NOT NULL AND until >= ? AND until < ? AND ((ended_at IS NOT NULL AND ended_at >= until) OR (ended_at IS NULL AND until <= ?))`).get(req.user.id, since, until === Infinity ? 8.64e15 : until, t + 2000); // a browser a moment ahead still counts the one just ended
     res.json({ sessions: row.n, minutes: row.m });
   });
   r.get('/timer', (req, res) => {
