@@ -110,6 +110,29 @@ await step('a writing sprint counts the words added and says when the time is up
   await page.evaluate(() => localStorage.removeItem('nw-sprint-seconds'));
   await page.getByRole('button', { name: 'Exit focus mode' }).click();
 });
+await step('a sprint carries on after reloading (back in focus mode), and × stops it', async () => {
+  await page.evaluate(() => localStorage.setItem('nw-sprint-seconds', '1'));
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Focus mode' }).click();
+  await page.getByRole('button', { name: 'Sprint' }).click();
+  await page.getByRole('menuitem', { name: '45 minutes' }).click(); // 45 seconds here
+  const ed = page.locator('.ProseMirror').first();
+  await ed.getByText('Line 39', { exact: true }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' two words');
+  const clock = page.getByRole('timer', { name: 'Writing sprint' });
+  await clock.getByText(/^\+2 words/).waitFor();
+  await page.waitForTimeout(1200);
+  await page.reload();
+  await clock.getByText(/^\+2 words · 0:[1-4]\d/).waitFor({ timeout: 15000 }); // the same sprint, counting from its start
+  await page.getByRole('button', { name: 'Exit focus mode' }).waitFor(); // in focus mode again
+  await clock.getByRole('button', { name: 'Stop the sprint' }).click();
+  await clock.waitFor({ state: 'detached' });
+  await page.reload();
+  await page.getByRole('toolbar', { name: 'Formatting' }).waitFor(); // stopped: an ordinary reload
+  if (await page.getByRole('button', { name: 'Exit focus mode' }).count()) throw new Error('focus mode came back without a sprint');
+  await page.evaluate(() => localStorage.removeItem('nw-sprint-seconds'));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -677,7 +677,11 @@ function SharedDoc({ file, setFile }) {
   }, [editor, focusMode, typewriter]);
   // A writing sprint (in focus mode): minutes to write in, with the words added since it began; told when it ends.
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const [sprint, setSprint] = useState(null); // { ends, words }
+  // (Kept in this browser for this document, so reloading in the middle of one carries on.)
+  const sprintKey = `nw-sprint:${file.id}`;
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [sprint, setSprintState] = useState(() => { try { const x = JSON.parse(localStorage.getItem(sprintKey) || 'null'); return x?.ends > Date.now() ? x : null; } catch { return null; } }); // { ends, words }
+  const setSprint = (x) => { setSprintState(x); try { if (x) localStorage.setItem(sprintKey, JSON.stringify(x)); else localStorage.removeItem(sprintKey); } catch { /* this tab only */ } };
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const [sprintNow, setSprintNow] = useState(Date.now());
   const startSprint = (minutes) => {
@@ -694,7 +698,14 @@ function SharedDoc({ file, setFile }) {
     return () => clearInterval(t);
   }, [sprint, editor, toast]);
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => { if (!focusMode) setSprint(null); }, [focusMode]);
+  useEffect(() => { if (!focusMode && !resumingRef.current) setSprint(null); resumingRef.current = false; }, [focusMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A sprint carried over from before reloading: back in focus mode, where it shows.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const resumingRef = useRef(!!sprint);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const reopenRef = useRef(!!sprint); // (its own flag: the effect above clears resumingRef first)
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => { if (reopenRef.current) { reopenRef.current = false; setFocusMode(true); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Dim: the block holding the caret (a paragraph, heading, list…: one directly in the page or tab) is decorated as
   // current (a decoration, so the editor keeps it as it redraws).
   // eslint-disable-next-line react-hooks/rules-of-hooks
