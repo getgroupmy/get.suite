@@ -133,6 +133,15 @@ await step('the running timer shows in the top bar in any app; stopped from ther
   await page.waitForURL(/\/tasks\/.*task=/);
   await api(page, 'POST', '/tasks/timer/stop');
 });
+await step('Home: Time this week, with the tasks most time went on', async () => {
+  await api(page, 'POST', `/tasks/tasks/${design}/time`, { duration: '30m' }); // (the timers above ran for seconds)
+  await page.goto(`${B}/home`);
+  const card = page.locator('section[aria-label="Time this week"]');
+  await card.waitFor({ timeout: 15000 });
+  await card.getByText(/on tasks in the last 7 days/).waitFor();
+  await card.getByRole('link', { name: 'Design' }).click();
+  await page.waitForURL(/\/tasks\/.*task=/);
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

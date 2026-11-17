@@ -15,9 +15,11 @@ export default function TimerChip() {
     const load = () => get('/tasks/timer').then((r) => { if (live) setRun(r); }).catch(() => {});
     load();
     const tick = setInterval(() => { setNow(Date.now()); }, 15e3);
+    // A focus session past its end: the server stops it within half a minute; asked again until it says so.
+    const due = setInterval(() => { setRun((r) => { if (r?.until && Date.now() >= r.until) load(); return r; }); }, 10e3);
     const again = setInterval(load, 60e3);
     const off = onLive((m) => { if (m.type === 'tasks-changed' || m.type === 'live-connected' || (m.type === 'notification' && m.kind === 'task')) load(); });
-    return () => { live = false; clearInterval(tick); clearInterval(again); off(); };
+    return () => { live = false; clearInterval(tick); clearInterval(due); clearInterval(again); off(); };
   }, []);
   if (!run) return null;
   const stop = async () => {

@@ -52,3 +52,18 @@ test('a focus session stops by itself at its end, counts just that long, and tel
   assert.equal(endFocusNow(Date.now() + 5 * 3600e3), 0);
   assert.equal((await a('GET', '/api/tasks/timer')).body.until, null);
 });
+
+test('your time on tasks this week (Home): minutes in all and the tasks with the most', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Clients' })).body.id;
+  const x = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Audit' })).body;
+  const y = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Invoice' })).body;
+  const before = (await a('GET', '/api/tasks/time/mine')).body.minutes;
+  await a('POST', `/api/tasks/tasks/${x.id}/time`, { duration: '1h 30m' });
+  await a('POST', `/api/tasks/tasks/${y.id}/time`, { duration: '20m' });
+  const t = (await a('GET', '/api/tasks/time/mine')).body;
+  assert.equal(t.minutes - before, 110);
+  assert.equal(t.tasks[0].title, 'Audit', 'the most first');
+  assert.equal(t.tasks.find((k) => k.title === 'Invoice').minutes, 20);
+});

@@ -109,8 +109,28 @@ export function reportCsv(report) {
   return `${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
 
+/**
+ * Your time on tasks in the last `days` (Home): minutes in all (running timers counted so far) and the tasks with
+ * the most, on lists you're still on.
+ */
+export function myTimeOf(userId, days = 7, at = now()) {
+  const since = at - days * 864e5;
+  const rows = q(`SELECT e.task_id, e.started_at, e.ended_at, e.minutes, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id
+    WHERE e.user_id = ? AND (e.started_at >= ? OR e.ended_at IS NULL)`).all(userId, since);
+  const byTask = new Map();
+  let total = 0;
+  for (const r of rows) {
+    const m = r.ended_at === null ? minutesBetween(r.started_at, at) : r.minutes;
+    total += m;
+    const x = byTask.get(r.task_id) || { id: r.task_id, title: r.title, list_id: r.list_id, minutes: 0 };
+    x.minutes += m; byTask.set(r.task_id, x);
+  }
+  return { days, minutes: total, tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 5) };
+}
+
 /** The routes, added to the tasks router: taskFor(req) → { task, list } (checks access), changed(list) tells the list's people. */
 export function addTimeRoutes(r, { taskFor, loadList, changed }) {
+  r.get('/time/mine', (req, res) => res.json(myTimeOf(req.user.id, Math.min(31, Math.max(1, Number(req.query.days) || 7)))));
   r.get('/timer', (req, res) => {
     const run = q('SELECT e.*, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id WHERE e.user_id = ? AND e.ended_at IS NULL').get(req.user.id);
     res.json(run ? { task_id: run.task_id, title: run.title, list_id: run.list_id, since: run.started_at, until: run.until || null } : null);
