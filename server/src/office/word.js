@@ -222,7 +222,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
         return { src: `pic:${id}`, alt: image.altText || '' };
       } catch { return { src: '', alt: '[picture]' }; }
     }),
-    styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'u => u'],
+    styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'p[style-name=\'Quote\'] => blockquote > p:fresh', 'p[style-name=\'Intense Quote\'] => blockquote > p:fresh', 'p[style-name=\'Quotations\'] => blockquote > p:fresh', 'u => u'],
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
   // Word's comments: each becomes a thread (a new id), on the words it was about.
@@ -613,7 +613,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
           paras.push(new Paragraph({ children: [box, ...runs(first?.type === 'paragraph' ? first.content : [])], indent: { left: 360 * (level + 1), hanging: 280 } }));
           walk(first?.type === 'paragraph' ? rest : li.content, { level });
         }
-      } else if (n.type === 'blockquote') walk(n.content, { ...ctx, para: { indent: { left: 720 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 8 } } } });
+      } else if (n.type === 'blockquote') walk(n.content, { ...ctx, para: { style: 'Quote', indent: { left: 720 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 8 } } } }); // Word's own Quote style: it comes back as a quote
       else if (n.type === 'codeBlock') for (const line of (n.content?.map((c) => c.text).join('') || '').split('\n')) paras.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas' })] }));
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));
       else if (n.type === 'image') paras.push(picture(n));
@@ -679,7 +679,10 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     })) } }),
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
-    ...((page?.font || page?.fontSize) && { styles: { default: { document: { run: { ...(page.font && { font: page.font }), ...(page.fontSize && { size: page.fontSize * 2 }) } } } } }), // Normal text: half-points
+    styles: {
+      ...((page?.font || page?.fontSize) && { default: { document: { run: { ...(page.font && { font: page.font }), ...(page.fontSize && { size: page.fontSize * 2 }) } } } }), // Normal text: half-points
+      paragraphStyles: [{ id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' } }], // quotes (blockquotes)
+    },
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });
   const buf = await Packer.toBuffer(file);

@@ -1896,3 +1896,50 @@ test('Word: LibreOffice keeps the page setup of our .docx when it saves it again
     for (const k of ['size', 'orientation', 'margin', 'header', 'footer', 'numbers', 'pageColor', 'font', 'fontSize']) assert.deepEqual(back[k], page[k], k);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Word: a quote goes out in Word’s Quote style and comes back as a quote', async () => {
+  const { wordFromDoc, docFromWord } = await import('../src/office/word.js');
+  const JSZip = (await import('jszip')).default;
+  const t = (x) => ({ type: 'text', text: x }); const p = (x) => ({ type: 'paragraph', content: [t(x)] });
+  const buf = await wordFromDoc({ type: 'doc', content: [p('Before'), { type: 'blockquote', content: [p('Quoted one'), p('Quoted two')] }, p('After')] }, 'x');
+  const zip = await JSZip.loadAsync(buf);
+  assert.match(await zip.file('word/document.xml').async('string'), /<w:pStyle w:val="Quote"\/>/);
+  assert.match(await zip.file('word/styles.xml').async('string'), /w:styleId="Quote"/);
+  const back = (await docFromWord(buf)).doc;
+  assert.deepEqual(back.content.map((n) => [n.type, (n.content || []).length]), [['paragraph', 1], ['blockquote', 2], ['paragraph', 1]]);
+});
+
+test('Docs content survives LibreOffice opening and saving our .odt and .docx (where it is installed)', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.skip('LibreOffice is not installed here'); return; }
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const { wordFromDoc, docFromWord } = await import('../src/office/word.js');
+  const tx = (text, marks) => ({ type: 'text', text, ...(marks && { marks }) });
+  const p = (...c) => ({ type: 'paragraph', content: c });
+  const doc = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 1 }, content: [tx('Quarterly report')] },
+    { type: 'heading', attrs: { level: 2 }, content: [tx('Sales')] },
+    p(tx('Plain, '), tx('bold', [{ type: 'bold' }]), tx(', '), tx('italic', [{ type: 'italic' }]), tx(', '), tx('underlined', [{ type: 'underline' }]), tx(', '), tx('struck', [{ type: 'strike' }]), tx(' and '), tx('a link', [{ type: 'link', attrs: { href: 'https://example.com/' } }])),
+    { type: 'bulletList', content: [{ type: 'listItem', content: [p(tx('First point'))] }] },
+    { type: 'orderedList', content: [{ type: 'listItem', content: [p(tx('Step one'))] }] },
+    { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: true }, content: [p(tx('Done thing'))] }, { type: 'taskItem', attrs: { checked: false }, content: [p(tx('Open thing'))] }] },
+    { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [p(tx('Region'))] }] }, { type: 'tableRow', content: [{ type: 'tableCell', content: [p(tx('North'))] }] }] },
+    { type: 'blockquote', content: [p(tx('A quote.'))] },
+  ] };
+  const kinds = (d) => d.content.map((n) => n.type + (n.attrs?.level || ''));
+  const marks = (d) => d.content.find((n) => n.type === 'paragraph').content.map((x) => (x.marks || []).map((m) => m.type).join('+'));
+  const ticks = (d) => d.content.find((n) => n.type === 'taskList')?.content.map((i) => !!i.attrs?.checked);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'r.odt'), await odtFromDoc(doc, 'x'));
+    fs.writeFileSync(path.join(dir, 'r.docx'), await wordFromDoc(doc, 'x'));
+    fs.mkdirSync(path.join(dir, 'out'));
+    for (const [f, as] of [['r.odt', 'odt'], ['r.docx', 'docx']]) execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, 'out'), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 });
+    for (const back of [(await docFromOdt(fs.readFileSync(path.join(dir, 'out', 'r.odt')))).doc, (await docFromWord(fs.readFileSync(path.join(dir, 'out', 'r.docx')))).doc]) {
+      assert.deepEqual(kinds(back), kinds(doc));
+      assert.deepEqual(marks(back), marks(doc));
+      assert.deepEqual(ticks(back), [true, false]);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

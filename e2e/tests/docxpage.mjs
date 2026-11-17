@@ -118,6 +118,18 @@ await step('an .odt download keeps the page: Letter, landscape, light yellow, he
   if (!(await dlg.getByLabel('Line numbers in the margin').isChecked())) throw new Error('line numbers');
   if ((await dlg.getByLabel('Watermark (faint, across every page)').inputValue()) !== 'DRAFT') throw new Error('watermark');
 });
+await step('a quote goes out to Word and comes back as a quote', async () => {
+  const p = (x) => ({ type: 'paragraph', content: [{ type: 'text', text: x }] });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Quoted', content: { type: 'doc', content: [p('He said:'), { type: 'blockquote', content: [p('Ship it on Friday.')] }, p('So we did.')] } })).body;
+  const back = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Quoted.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, d.id);
+  await page.goto(`${B}/docs/${back.id}`);
+  await page.locator('.ProseMirror blockquote', { hasText: 'Ship it on Friday.' }).waitFor();
+  if (await page.locator('.ProseMirror blockquote', { hasText: 'So we did.' }).count()) throw new Error('too much in the quote');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
