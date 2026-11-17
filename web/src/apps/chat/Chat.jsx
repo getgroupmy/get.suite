@@ -1105,11 +1105,29 @@ function Thread({ id, channelId, channel, user, onClose }) {
   }, [onClose]);
 
   const replace = (msg) => { if (msg.id === id) setParent(msg); else setReplies((list) => list.map((x) => (x.id === msg.id ? msg : x))); };
-  const react = (m, emoji) => post(`/chat/messages/${m.id}/reactions`, { emoji }).then(replace).catch((err) => toast(err.message, 'error'));
+  // Reacting, editing and deleting work offline here too, as in the conversation (kept, and made when it's back).
+  const react = (m, emoji) => post(`/chat/messages/${m.id}/reactions`, { emoji }).then(replace).catch(async (err) => {
+    if (!unreachable(err) || m.pending) { toast(err.message, 'error'); return; }
+    const reactions = toggleReaction(m.reactions, emoji, user);
+    await keepChange({ method: 'POST', url: `/chat/messages/${m.id}/reactions`, body: { emoji }, user: user.id, label: `${emoji} on a message`, id: m.id, shown: { reactions } });
+    replace({ ...m, reactions });
+  });
   async function saveEdit(m) {
     const body = editText.trim();
     if (body === m.body) { setEditingId(null); return; }
-    try { replace(await patch(`/chat/messages/${m.id}`, { body })); setEditingId(null); } catch (err) { toast(err.message, 'error'); }
+    try { replace(await patch(`/chat/messages/${m.id}`, { body })); setEditingId(null); } catch (err) {
+      if (!unreachable(err) || m.pending) { toast(err.message, 'error'); return; }
+      await keepChange({ method: 'PATCH', url: `/chat/messages/${m.id}`, body: { body }, user: user.id, label: 'a message in Chat', id: m.id });
+      replace({ ...m, body, offline: true }); setEditingId(null);
+    }
+  }
+  async function remove(m) {
+    try { await del(`/chat/messages/${m.id}`); if (m.id === id) onClose(); } catch (err) {
+      if (!unreachable(err) || m.pending) { toast(err.message, 'error'); return; }
+      await keepDelete({ url: `/chat/messages/${m.id}`, user: user.id, label: 'a message in Chat', id: m.id });
+      toast('Message deleted on this device: deleted for everyone when the connection is back');
+      if (m.id === id) onClose(); else setReplies((list) => list.filter((x) => x.id !== m.id));
+    }
   }
   async function send(e) {
     e.preventDefault();
@@ -1140,7 +1158,7 @@ function Thread({ id, channelId, channel, user, onClose }) {
   const item = (m, grouped) => (
     <Message key={m.id} m={m} grouped={grouped} user={user} editing={editingId === m.id} editText={editText} setEditText={setEditText}
       onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
-      onReact={(e) => react(m, e)} onDelete={() => del(`/chat/messages/${m.id}`).then(() => { if (m.id === id) onClose(); }).catch((err) => toast(err.message, 'error'))} />
+      onReact={(e) => react(m, e)} onDelete={() => remove(m)} />
   );
   return (
     <aside className="thread-panel" aria-label="Thread">

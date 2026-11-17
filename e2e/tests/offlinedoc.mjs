@@ -607,6 +607,41 @@ await step('Chat: a message edited and another deleted offline show so here (eve
   if (gone && !gone.deleted_at && gone.body === 'Bring snacks maybe') throw new Error('delete not made');
   if (list.find((m) => m.id === c.id)?.reactions?.length) throw new Error('reaction still there');
 });
+await step('Chat threads: read offline, and a reply edited and another deleted there are made when back', async () => {
+  const ch = (await api(page, 'POST', '/chat/channels', { name: 'harbour-thread' })).body.id;
+  const top = (await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Who brings the map?' })).body;
+  const r1 = (await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'I will', parent_id: top.id })).body;
+  const r2 = (await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Not me', parent_id: top.id })).body;
+  const panel = page.getByRole('complementary', { name: 'Thread' });
+  const reply = (text) => panel.locator('.msg', { hasText: text }).last();
+  const openThread = () => page.locator('.msg', { hasText: 'Who brings the map?' }).getByRole('button', { name: /2 replies/ }).click({ timeout: 20000 });
+  await page.goto(`${B}/chat/${ch}`);
+  await openThread();
+  await reply('Not me').waitFor();
+  await page.waitForTimeout(800);
+  await ctx.setOffline(true);
+  await page.reload();
+  await openThread();
+  await reply('Not me').waitFor({ timeout: 20000 }); // the thread, from this device
+  await reply('I will').hover();
+  await reply('I will').getByRole('button', { name: 'Edit message' }).click();
+  await panel.getByLabel('Change the message').fill('I will, the big one');
+  await page.keyboard.press('Enter');
+  await reply('I will, the big one').getByText('Not sent yet').waitFor({ timeout: 15000 });
+  await reply('Not me').hover();
+  await reply('Not me').getByRole('button', { name: 'Delete message' }).click();
+  await page.getByText('Message deleted on this device').waitFor({ timeout: 15000 });
+  await page.reload();
+  await page.locator('.msg', { hasText: 'Who brings the map?' }).getByRole('button', { name: /repl/ }).click({ timeout: 20000 });
+  await reply('I will, the big one').waitFor({ timeout: 20000 });
+  if (await panel.getByText('Not me').count()) throw new Error('deleted reply back after reloading');
+  await ctx.setOffline(false);
+  await page.getByText('Sent 2 changes made offline').waitFor({ timeout: 30000 });
+  const t = (await api(page, 'GET', `/chat/messages/${top.id}/replies`)).body;
+  if (t.replies.find((m) => m.id === r1.id)?.body !== 'I will, the big one') throw new Error('edit not made');
+  const gone = t.replies.find((m) => m.id === r2.id);
+  if (gone && !gone.deleted_at && gone.body === 'Not me') throw new Error('delete not made');
+});
 await step('Settings → This device: what is kept here, a warning about what is not sent yet, and removing it all', async () => {
   const me = (await api(page, 'GET', '/auth/me')).body.user.id;
   await page.goto(`${B}/settings`);

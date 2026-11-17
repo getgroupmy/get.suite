@@ -78,7 +78,7 @@ export async function keptList() {
 // without a connection (api.js). Cleared on signing out with the rest.
 export const OFFLINE_READS = [/^\/events(\?|$)/, /^\/tasks\/lists(\/[\w-]+\/tasks)?(\?|$)/, /^\/tasks\/(today|assigned|upcoming|myday|completed|important|planned|tags)(\?|$)/, /^\/contacts(\?|$)/, /^\/contacts\/groups$/, /^\/notes(\?|$)/, /^\/users\/directory$/, /^\/time-off(\?|$)/,
   // Mail: whether it's set up, the folders, the messages listed and those opened (the shared mailbox open is part of the key).
-  /^\/chat\/channels(\?|$)/, /^\/chat\/channels\/[\w-]+\/messages$/,
+  /^\/chat\/channels(\?|$)/, /^\/chat\/channels\/[\w-]+\/messages$/, /^\/chat\/messages\/[\w-]+\/replies$/,
   /^\/mail\/(status|folders|labels)(\?|$)/, /^\/mail\/messages\?folder=/, /^\/mail\/messages\/\d+\?folder=[^&]+$/, /^\/mail\/folder-state\?folder=/];
 /**
  * Lists and messages kept for reading offline: the last answer of each, the most recent 600 (older ones go as new ones
@@ -100,7 +100,7 @@ export async function trimAnswers(max = Number(globalThis.localStorage?.getItem(
   return extra.length;
 }
 /** Whether a kept answer shows something added or changed offline that isn't on the server yet. */
-export const holdsUnsent = (data) => Array.isArray(data) && data.some((x) => x?.offline || x?.pending);
+export const holdsUnsent = (data) => [...(Array.isArray(data) ? data : []), ...(Array.isArray(data?.replies) ? data.replies : [])].some((x) => x?.offline || x?.pending);
 /** The keys of [key, at] pairs beyond the `max` most recent. */
 export const oldestBeyond = (pairs, max) => [...pairs].sort((a, b) => b[1] - a[1]).slice(max).map(([k]) => k);
 export const keptAnswer = (url) => run('readonly', (s) => s.get(url), 'api').then((x) => x || null).catch(() => null);
@@ -134,10 +134,16 @@ export const changeRemove = (id) => run('readwrite', (s) => s.delete(id), 'chang
 export async function patchKeptItem(taskId, changes) {
   try {
     const hits = [];
-    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (Array.isArray(cur.value?.data) && cur.value.data.some((t) => t?.id === taskId)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
-    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: v.data.map((t) => (t?.id === taskId ? { ...t, ...changes } : t)) }, k); }, 'api');
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (keptHas(cur.value?.data, taskId)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
+    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: keptMap(v.data, (list) => list.map((t) => (t?.id === taskId ? { ...t, ...changes } : t)), (one) => (one?.id === taskId ? { ...one, ...changes } : one)) }, k); }, 'api');
   } catch { /* kept lists just show the old state */ }
 }
+/**
+ * The kept answers with items in them: a list, or a thread ({ message, replies }). keptHas: whether `id` is in it;
+ * keptMap: the answer with its list(s) changed by `list` and its single message by `one`.
+ */
+export const keptHas = (data, id) => (Array.isArray(data) ? data.some((t) => t?.id === id) : !!data && (data.message?.id === id || (Array.isArray(data.replies) && data.replies.some((t) => t?.id === id))));
+export const keptMap = (data, list, one = (x) => x) => (Array.isArray(data) ? list(data) : { ...data, ...(data.message && { message: one(data.message) }), ...(Array.isArray(data.replies) && { replies: list(data.replies) }) });
 export const patchKeptTask = patchKeptItem;
 
 /**
@@ -168,8 +174,8 @@ export async function patchKeptMail({ user, mailbox, folder, uids, change }) {
 export async function removeKeptItem(id) {
   try {
     const hits = [];
-    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (Array.isArray(cur.value?.data) && cur.value.data.some((t) => t?.id === id)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
-    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) s.put({ ...v, data: v.data.filter((t) => t?.id !== id) }, k); }, 'api');
+    await run('readonly', (s) => { const c = s.openCursor(); c.onsuccess = () => { const cur = c.result; if (cur) { if (keptHas(cur.value?.data, id)) hits.push([cur.key, cur.value]); cur.continue(); } }; return c; }, 'api');
+    if (hits.length) await run('readwrite', (s) => { for (const [k, v] of hits) { if (v.data?.message?.id === id) s.delete(k); else s.put({ ...v, data: keptMap(v.data, (list) => list.filter((t) => t?.id !== id)) }, k); } }, 'api'); // a thread whose first message goes: the kept thread goes
   } catch { /* kept lists still show it */ }
 }
 /** A delete that couldn't reach the server: made when the connection is back; gone from the kept lists meanwhile. */

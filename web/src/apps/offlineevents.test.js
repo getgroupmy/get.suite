@@ -49,3 +49,18 @@ test('a kept list showing something not sent yet isn’t trimmed', async () => {
   assert.equal(holdsUnsent({ messages: [] }), false);
   assert.equal(holdsUnsent(null), false);
 });
+
+test('kept threads ({ message, replies }) take changes made offline like kept lists', async () => {
+  const { keptHas, keptMap, OFFLINE_READS } = await import('./offlinedocs.js');
+  const thread = { message: { id: 'p', body: 'Plan?' }, replies: [{ id: 'r1', body: 'Yes' }, { id: 'r2', body: 'No' }], following: true };
+  assert.equal(keptHas(thread, 'r2'), true);
+  assert.equal(keptHas(thread, 'p'), true);
+  assert.equal(keptHas(thread, 'x'), false);
+  assert.equal(keptHas([{ id: 'a' }], 'a'), true);
+  const edited = keptMap(thread, (l) => l.map((t) => (t.id === 'r1' ? { ...t, body: 'Yes!' } : t)), (m) => ({ ...m, body: 'Plan!' }));
+  assert.deepEqual(edited.replies.map((t) => t.body), ['Yes!', 'No']);
+  assert.equal(edited.message.body, 'Plan!');
+  assert.equal(edited.following, true);
+  assert.deepEqual(keptMap(thread, (l) => l.filter((t) => t.id !== 'r2')).replies.map((t) => t.id), ['r1']);
+  assert.ok(OFFLINE_READS.some((re) => re.test('/chat/messages/abc/replies')), 'threads are kept for reading offline');
+});
