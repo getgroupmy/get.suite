@@ -91,3 +91,20 @@ test('colleagues see “Focusing” while a focus session runs, unless the perso
   assert.equal((await statusOf())?.text ?? null, null);
   await a('POST', '/api/tasks/timer/stop');
 });
+
+test('notifications held during a focus session, for those who ask (Settings → Quiet hours)', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Quiet' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Think' })).body;
+  await a('POST', `/api/tasks/tasks/${task.id}/timer`, { minutes: 20 });
+  assert.equal((await a('GET', '/api/users/me/pause')).body.paused_until, null, 'not unless asked');
+  assert.equal((await a('GET', '/api/users/me/quiet-hours')).body.focus, false);
+  assert.equal((await a('PUT', '/api/users/me/quiet-hours', { focus: true })).status, 200);
+  assert.equal((await a('GET', '/api/users/me/quiet-hours')).body.focus, true);
+  const p = (await a('GET', '/api/users/me/pause')).body;
+  assert.ok(p.paused_until > Date.now() + 15 * 60e3 && p.focus, JSON.stringify(p));
+  await a('POST', '/api/tasks/timer/stop');
+  assert.equal((await a('GET', '/api/users/me/pause')).body.paused_until, null, 'over when it stops');
+  await a('PUT', '/api/users/me/quiet-hours', { focus: false });
+});

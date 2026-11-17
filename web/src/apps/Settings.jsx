@@ -343,6 +343,11 @@ function QuietHours() {
         try { await put('/users/me/quiet-hours', { on }); await loadPause(); toast(on ? 'Notifications pause outside your working hours' : 'Quiet hours off'); } catch (err) { setQ({ ...q, on: !on }); toast(err.message, 'error'); }
       }} /> Pause notifications outside my working hours</label>
       <p className="muted small" style={{ margin: 0 }}>{q.hours ? `Your working hours: ${q.hours} (${q.tz}). Outside them, pop-up notes and desktop notifications wait, as with Pause notifications, and colleagues see 🔕. Everything still arrives in the bell.` : 'Set your working hours first, in Calendar → Working hours.'}</p>
+      <label className="check"><input type="checkbox" checked={!!q.focus} onChange={async (e) => {
+        const focus = e.target.checked;
+        setQ({ ...q, focus });
+        try { await put('/users/me/quiet-hours', { focus }); await loadPause(); toast(focus ? 'Notifications wait during focus sessions on tasks' : 'Notifications come during focus sessions'); } catch (err) { setQ({ ...q, focus: !focus }); toast(err.message, 'error'); }
+      }} /> Pause notifications during focus sessions on tasks (as during focus time in Calendar)</label>
     </section>
   );
 }

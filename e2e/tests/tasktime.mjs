@@ -180,6 +180,21 @@ await step('while Olivia is in a focus session, colleagues see “Focusing” by
   await api(page, 'POST', '/tasks/timer/stop');
   await olivia.getByText(/Focusing/).waitFor({ state: 'detached', timeout: 10000 });
 });
+await step('Settings: notifications can wait during focus sessions', async () => {
+  await page.goto(`${B}/settings`);
+  const box = page.getByLabel(/Pause notifications during focus sessions on tasks/);
+  await box.check();
+  await page.getByText('Notifications wait during focus sessions on tasks').waitFor();
+  await api(page, 'POST', `/tasks/tasks/${design}/timer`, { minutes: 15 });
+  const p = (await api(page, 'GET', '/users/me/pause')).body;
+  if (!p.paused_until || !p.focus) throw new Error(JSON.stringify(p));
+  await page.reload();
+  await page.getByRole('button', { name: /Notifications paused until|Resume/ }).first().waitFor({ timeout: 10000 }).catch(async () => {
+    await page.locator('.paused-mark').waitFor({ timeout: 5000 }); // 🔕 in the top bar
+  });
+  await api(page, 'POST', '/tasks/timer/stop');
+  await box.uncheck();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

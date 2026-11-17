@@ -471,12 +471,20 @@ export default function userRoutes() {
     res.json({ sent: true, ...(await sendDigest(req.user.id, Date.now(), base)) });
   });
 
+  if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'focus_quiet')) q('ALTER TABLE users ADD COLUMN focus_quiet INTEGER NOT NULL DEFAULT 0').run();
   // Quiet hours: pause notifications outside your working hours (set in Calendar → Working hours).
+  // ({ focus }: notifications held during focus sessions on tasks too, as during focus time in Calendar.)
   r.get('/me/quiet-hours', (req, res) => {
     const h = hoursOf(req.user.id);
-    res.json({ on: !!q('SELECT quiet_hours FROM users WHERE id = ?').get(req.user.id).quiet_hours, hours: h.own ? hoursText(h) : null, tz: h.own ? h.tz : null });
+    const u = q('SELECT quiet_hours, focus_quiet FROM users WHERE id = ?').get(req.user.id);
+    res.json({ on: !!u.quiet_hours, focus: !!u.focus_quiet, hours: h.own ? hoursText(h) : null, tz: h.own ? h.tz : null });
   });
   r.put('/me/quiet-hours', (req, res) => {
+    if (req.body && 'focus' in req.body) {
+      q('UPDATE users SET focus_quiet = ? WHERE id = ?').run(req.body.focus ? 1 : 0, req.user.id);
+      statusChanged(req.user);
+      if (!('on' in req.body)) return res.json({ focus: !!req.body.focus });
+    }
     const on = !!req.body?.on;
     if (on && !hoursOf(req.user.id).own) throw bad('Set your working hours first (Calendar → Working hours)');
     q('UPDATE users SET quiet_hours = ? WHERE id = ?').run(on ? 1 : 0, req.user.id);

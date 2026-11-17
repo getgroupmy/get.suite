@@ -436,6 +436,13 @@ export function focusUntil(userId, t = Date.now()) {
                   AND (end > ? OR (rrule IS NOT NULL AND (repeat_until IS NULL OR repeat_until > ?)))`).all(userId, t, t, t);
   let until = null;
   for (const r of rows) for (const o of expand(outEvent(r), t - 864e5, t + 1)) if (o.start <= t && o.end > t) until = Math.max(until ?? 0, o.end);
+  // A focus session on a task holds notifications too, for those who asked (Settings → Quiet hours).
+  try {
+    if (q('SELECT focus_quiet FROM users WHERE id = ?').get(userId)?.focus_quiet) {
+      const run = q('SELECT until FROM task_time WHERE user_id = ? AND ended_at IS NULL AND until > ?').get(userId, t);
+      if (run) until = Math.max(until ?? 0, run.until);
+    }
+  } catch { /* no task timers yet */ }
   return until;
 }
 
