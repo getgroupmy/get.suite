@@ -966,7 +966,7 @@ function SharedDoc({ file, setFile }) {
       {bookmarking && <BookmarksDialog editor={editor} canEdit={!readOnly} onClose={() => { setBookmarking(false); refocus(); }} />}
       {comparing?.content && <CompareDialog name={file.name} other={comparing} current={editor.getJSON()} onClose={() => { setComparing(null); refocus(); }} />}
       {sendingItems && <ActionItemsDialog fileId={file.id} doc={editor.getJSON()} onClose={() => setSendingItems(false)} />}
-      {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
+      {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} look={file.page_setup} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
       {citeEdit && <CiteDialog source={citeEdit.pos != null ? editor.state.doc.nodeAt(citeEdit.pos)?.attrs : null} known={sourcesOf(editor.getJSON())}
         onClose={() => { setCiteEdit(null); refocus(); }}
         onRemove={citeEdit.pos != null ? () => { const at = citeEdit.pos; setCiteEdit(null); editor.chain().deleteRange({ from: at, to: at + 1 }).run(); refocus(); } : null}

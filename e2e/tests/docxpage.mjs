@@ -87,6 +87,14 @@ await step('Normal text goes out to Word and comes back: Georgia, 12 pt; and thr
   await page.locator('.ProseMirror').getByText('There and back').waitFor();
   await until(async () => /Georgia/.test(await page.locator('.paper .ProseMirror').evaluate((el) => getComputedStyle(el).fontFamily)), 10000);
 });
+await step('Drive’s preview of that Word file shows it in its normal text', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByText('Round trip.docx', { exact: true }).first().dblclick();
+  const pv = page.locator('.office-preview .tiptap');
+  await pv.getByText('There and back').waitFor();
+  const css = await pv.evaluate((el) => `${getComputedStyle(el).fontFamily}|${getComputedStyle(el).fontSize}`);
+  if (!/Georgia/.test(css) || !css.endsWith('16px')) throw new Error(css); // 12 pt
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

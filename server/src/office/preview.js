@@ -3,8 +3,8 @@
 // for the person who asked only, behind a random token (/api/office-preview/<token>/pictures/<n>).
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { docFromWord } from './word.js';
-import { docFromOdt } from './odt.js';
+import { docFromWord, pageOfWord } from './word.js';
+import { docFromOdt, pageOfOdt } from './odt.js';
 import { sheetFromOds } from './ods.js';
 import { deckFromOdp } from './odp.js';
 import { sheetFromExcel } from './excel.js';
@@ -39,10 +39,12 @@ export async function officePreview(buf, filename, userId) {
   if (buf.length > MAX_PREVIEW) throw bad('This file is too large to preview (20 MB at most): download it instead');
   const pictures = new Map();
   const savePicture = async (_name, data, mime) => { const id = `p${pictures.size + 1}`; pictures.set(id, { data, mime }); return id; };
-  let kind, content;
+  let kind, content, look = null;
+  // A Word or OpenDocument file's normal text and page colour: the preview looks like the file.
+  const lookOf = (page) => { const l = Object.fromEntries(['font', 'fontSize', 'pageColor'].filter((k) => page?.[k]).map((k) => [k, page[k]])); return Object.keys(l).length ? l : null; };
   try {
-    if (type === 'docx') { kind = 'doc'; content = (await docFromWord(buf, { savePicture })).doc; }
-    else if (type === 'odt') { kind = 'doc'; content = (await docFromOdt(buf, { savePicture })).doc; }
+    if (type === 'docx') { kind = 'doc'; content = (await docFromWord(buf, { savePicture })).doc; look = lookOf(await pageOfWord(buf)); }
+    else if (type === 'odt') { kind = 'doc'; content = (await docFromOdt(buf, { savePicture })).doc; look = lookOf(await pageOfOdt(buf)); }
     else if (type === 'md') { kind = 'doc'; content = docFromMarkdown(buf.toString('utf8')); }
     else if (type === 'xlsx') { kind = 'sheet'; content = await sheetFromExcel(buf); }
     else if (type === 'ods') { kind = 'sheet'; content = await sheetFromOds(buf); }
@@ -52,7 +54,7 @@ export async function officePreview(buf, filename, userId) {
   forget();
   const token = crypto.randomBytes(18).toString('base64url');
   kept.set(token, { userId, pictures, at: Date.now() });
-  return { kind, content, token };
+  return { kind, content, token, ...(look && { look }) };
 }
 
 /** The pictures of previews, for the person they were made for. */

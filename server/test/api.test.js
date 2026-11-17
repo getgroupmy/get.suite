@@ -15840,3 +15840,17 @@ test('publish: a published document keeps its normal text and page colour', asyn
   const p2 = (await owner('PUT', `/api/publish/${plain.id}`, { on: true })).body;
   assert.equal('look' in (await client()('GET', `/api/public/pub/${p2.path.split('/').pop()}?peek=1`)).body, false);
 });
+
+test('previews of Word and OpenDocument files look like the file: normal text and page colour', async () => {
+  const { officePreview } = await import('../src/office/preview.js');
+  const { wordFromDoc } = await import('../src/office/word.js');
+  const { odtFromDoc } = await import('../src/office/odt.js');
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+  const page = { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '', font: 'Georgia', fontSize: 12, pageColor: '#e8f0fe' };
+  const w = await officePreview(await wordFromDoc(doc, 'x', { page }), 'Letter.docx', 'u1');
+  assert.deepEqual(w.look, { font: 'Georgia', fontSize: 12, pageColor: '#e8f0fe' });
+  const o = await officePreview(await odtFromDoc(doc, 'x', { page }), 'Letter.odt', 'u1');
+  assert.deepEqual(o.look, { font: 'Georgia', fontSize: 12 }, 'an .odt download has no page colour');
+  const plain = await officePreview(Buffer.from('# Title\n\nText'), 'Notes.md', 'u1');
+  assert.equal('look' in plain, false);
+});
