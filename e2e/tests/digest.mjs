@@ -154,6 +154,16 @@ await step('a list of yours shared with others: whose tasks there are overdue', 
   await card.getByRole('button', { name: 'Send me one now' }).click();
   await card.getByLabel('Summary preview').getByText('Overdue on Trade booth: Lee Lane 1').waitFor();
 });
+await step('a meeting with a contact that has ended counts as being in touch', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Carla Client', email: 'carla@client.example' });
+  const start = Date.now() - 3 * 36e5;
+  const r = await api(page, 'POST', '/events', { title: 'Contract review', start, end: start + 36e5, guests: ['carla@client.example'] });
+  if (r.status >= 300) throw new Error(JSON.stringify(r.body));
+  await page.goto(`${B}/contacts`);
+  await page.getByLabel('Sort contacts').selectOption({ label: 'Last in touch' });
+  const row = page.locator('table.files tbody tr[aria-label="Carla Client"]');
+  await row.getByText('In touch today').waitFor({ timeout: 10000 });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

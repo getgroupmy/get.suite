@@ -28,7 +28,7 @@ import { startShareExpiry } from './shareexpiry.js';
 import { purgeAudit } from './audit.js';
 import { emptyOldTrash } from './routes/files.js';
 import { purgeOldChat } from './routes/chat.js';
-import { notifyDueTouches } from './routes/contacts.js';
+import { notifyDueTouches, meetingsCountAsTouch } from './routes/contacts.js';
 import { releaseNoShows, askCheckIns } from './routes/rooms.js';
 import { refreshDueFeeds } from './calfeeds.js';
 import { sendDueDigests } from './digest.js';
@@ -57,7 +57,7 @@ if (restored) {
 }
 setInterval(() => purgeAuthLog(), 3600e3).unref();
 setInterval(() => { try { sendDateReminders(); } catch (e) { console.error('[contacts] dates:', e.message); } }, 10 * 60e3).unref(); // birthday and date reminders, each morning
-setInterval(() => { try { notifyDueTouches(); } catch (e) { console.error('[contacts] keep in touch:', e.message); } }, 3600e3).unref(); // contacts due to be in touch with
+setInterval(() => { try { meetingsCountAsTouch(); notifyDueTouches(); } catch (e) { console.error('[contacts] keep in touch:', e.message); } }, 3600e3).unref(); // contacts due to be in touch with
 setInterval(() => { try { askCheckIns(); releaseNoShows(); } catch (e) { console.error('[rooms] check-in:', e.message); } }, 60e3).unref(); // rooms nobody checked in to go back
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
 setInterval(() => { if (mailEnabled()) autoPracticeTick().catch((e) => console.error('[practice]', e.message)); }, 6 * 3600e3).unref(); // automatic phishing practice rounds

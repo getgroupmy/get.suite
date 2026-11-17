@@ -46,6 +46,19 @@ if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'touch_notifi
  * A bell notification, once, when someone you've been in touch with before is due again: one for each
  * person with any newly due ("Time to catch up with Rita Moreno", "… and 2 others"). Returns how many sent.
  */
+/**
+ * A meeting with a contact counts as being in touch: for events of yours that ended in the last `within` ms (one-off
+ * ones; not those the contact said No to), your contacts invited to them by email address were in touch when it
+ * ended. Runs with the keep-in-touch check (hourly), so a meeting counts within the hour.
+ */
+export function meetingsCountAsTouch(at = Date.now(), within = 2 * 864e5, ownerId = null) {
+  const met = q(`SELECT e.owner_id, LOWER(g.email) AS email, MAX(e.end) AS ended FROM events e JOIN event_outside_guests g ON g.event_id = e.id
+                 WHERE e.rrule IS NULL AND e.end <= ? AND e.end > ? AND g.status != 'no' AND (? IS NULL OR e.owner_id = ?) GROUP BY e.owner_id, LOWER(g.email)`).all(at, at - within, ownerId, ownerId);
+  let n = 0;
+  for (const m of met) n += q('UPDATE contacts SET last_contact = ? WHERE owner_id = ? AND LOWER(email) = ? AND (last_contact IS NULL OR last_contact < ?)').run(m.ended, m.owner_id, m.email, m.ended).changes;
+  return n;
+}
+
 export function notifyDueTouches(at = Date.now()) {
   const due = q('SELECT id, owner_id, name, touch_days, last_contact, touch_notified FROM contacts WHERE touch_days IS NOT NULL AND last_contact IS NOT NULL').all()
     .map((c) => ({ ...c, due: touchDue(c) })).filter((c) => c.due <= at && !(c.touch_notified >= c.due));
@@ -234,6 +247,7 @@ export default function contactRoutes() {
                          LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.shared = 1 AND u.org_id = ? ORDER BY c.name COLLATE NOCASE`).all(req.user.id, req.user.is_admin ? 1 : 0, req.user.org_id)
         .map((c) => withMore({ ...c, can_edit: !!c.can_edit })));
     }
+    try { meetingsCountAsTouch(Date.now(), 2 * 864e5, req.user.id); } catch { /* counted hourly anyway */ }
     res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.starred DESC, c.name COLLATE NOCASE').all(req.user.id).map((c) => withMore({ ...c, starred: !!c.starred })));
   });
 

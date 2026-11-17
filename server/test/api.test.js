@@ -15637,3 +15637,27 @@ test('contacts: sorting by last in touch is a choice that’s kept; emailing som
   recordSent({ id: me.id, org_id: me.org_id, username: me.username }, [{ address: 'Rita@Example.org' }]); // as sending mail does
   assert.ok((await a('GET', '/api/contacts')).body.find((x) => x.id === c.id).last_contact > Date.now() - 60e3);
 });
+
+test('contacts: a meeting with a contact counts as being in touch once it has ended', async () => {
+  const { db } = await import('../src/db.js');
+  const { meetingsCountAsTouch } = await import('../src/routes/contacts.js');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'metouch', domain: 'acme.com', name: 'Me Touch', password: 'password123' })).status, 201);
+  await login(a, 'metouch@acme.com');
+  const me = (await a('GET', '/api/auth/me')).body.user.id;
+  const rita = (await a('POST', '/api/contacts', { name: 'Rita Met', email: 'rita.met@example.org' })).body;
+  const sam = (await a('POST', '/api/contacts', { name: 'Sam Said No', email: 'sam.no@example.org' })).body;
+  const now = Date.now();
+  const ev = (id, start, end) => db.prepare('INSERT INTO events (id, owner_id, title, start, end) VALUES (?, ?, ?, ?, ?)').run(id, me, 'Review', start, end);
+  const guest = (id, email, status) => db.prepare('INSERT INTO event_outside_guests (event_id, email, status, token) VALUES (?, ?, ?, ?)').run(id, email, status, `t-${id}-${email}`);
+  ev('mt-past', now - 3 * 36e5, now - 2 * 36e5); guest('mt-past', 'Rita.Met@example.org', 'yes'); guest('mt-past', 'sam.no@example.org', 'no');
+  ev('mt-later', now + 36e5, now + 2 * 36e5); guest('mt-later', 'rita.met@example.org', 'yes');
+  meetingsCountAsTouch(now);
+  const got = Object.fromEntries((await a('GET', '/api/contacts')).body.map((c) => [c.id, c.last_contact ?? null]));
+  assert.equal(got[rita.id], now - 2 * 36e5, 'when the meeting ended (not the one still to come)');
+  assert.equal(got[sam.id], null, 'they said No');
+  await a('POST', `/api/contacts/${rita.id}/log`, { kind: 'call', text: 'Since' });
+  const later = (await a('GET', '/api/contacts')).body.find((c) => c.id === rita.id).last_contact;
+  meetingsCountAsTouch(now);
+  assert.equal((await a('GET', '/api/contacts')).body.find((c) => c.id === rita.id).last_contact, later, 'never moves it back');
+});
