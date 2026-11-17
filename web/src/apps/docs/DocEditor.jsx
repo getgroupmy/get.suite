@@ -175,6 +175,24 @@ function SharedDoc({ file, setFile }) {
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
   const [history, setHistory] = useState(false);
+  // Focus mode: only the page (no header, toolbar or panels), full screen where the browser allows; Esc, or leaving
+  // full screen, brings everything back.
+  const [focusMode, setFocusMode] = useState(false);
+  useEffect(() => {
+    if (!focusMode) return undefined;
+    const root = document.documentElement;
+    if (root.requestFullscreen && !document.fullscreenElement) root.requestFullscreen().catch(() => {});
+    let wasFull = false;
+    const onFull = () => { if (document.fullscreenElement) wasFull = true; else if (wasFull) setFocusMode(false); };
+    // (Before the editor, which keeps Esc for itself; not while a window, menu or suggestion list is open.)
+    const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.modal-backdrop, .menu, .suggest-list, [role="listbox"]')) setFocusMode(false); };
+    document.addEventListener('fullscreenchange', onFull);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFull); window.removeEventListener('keydown', onKey, true);
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    };
+  }, [focusMode]);
   const [bookmarking, setBookmarking] = useState(false);
   const [linking, setLinking] = useState(false); // the link box
   const paperRef = useRef(null);
@@ -639,7 +657,8 @@ function SharedDoc({ file, setFile }) {
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
 
   return (
-    <div className="editor-page doc-page">
+    <div className={`editor-page doc-page ${focusMode ? 'doc-focus' : ''}`}>
+      {focusMode && <button type="button" className="btn small focus-exit" onClick={() => setFocusMode(false)} title="Esc">Exit focus mode</button>}
       <EditorHeader
         icon="doc" file={file} status={fromDevice && status === 'connecting' ? 'offline' : status}
         onRename={async (name) => setFile(await renameFile(file, name))} // (offline too: given when the connection is back)
@@ -681,6 +700,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
+          { label: 'Focus mode', icon: 'doc', onClick: () => setFocusMode(true) },
           ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => startReadingRef.current() }] : []),
           ...(!readOnly && canVoiceType() && user?.voice_typing !== false ? [{ label: voiceTyping ? 'Stop voice typing' : 'Voice typing', icon: 'audio', onClick: () => setVoiceTyping((v) => !v) }] : []),
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
