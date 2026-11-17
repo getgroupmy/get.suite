@@ -65,6 +65,7 @@ export default function Settings() {
       <MailDelegates />
       <MailPane />
       <MailAdvance />
+      <MailReply />
       <MailTidy />
       <MailNudges />
       <MailAttachCheck />
@@ -661,6 +662,27 @@ function MailAdvance() {
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'list'} onChange={() => set('list')} /> Go back to the list</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'newer'} onChange={() => set('newer')} /> Open the next newer message</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'older'} onChange={() => set('older')} /> Open the next older message</label>
+      </div>
+    </section>
+  );
+}
+
+function MailReply() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [now, setNow] = useState(user.mail_reply || 'sender');
+  const set = async (reply) => {
+    const was = now;
+    setNow(reply);
+    try { await put('/users/me/mail-reply', { reply }); setUser({ ...user, mail_reply: reply }); toast('Saved'); } catch (e) { setNow(was); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="mreply-h">
+      <h2 id="mreply-h">Default reply</h2>
+      <p className="muted small" style={{ margin: 0 }}>Which reply comes first under a message, and what R does. The other is always one click away (A always replies to all).</p>
+      <div className="stack" role="radiogroup" aria-labelledby="mreply-h">
+        <label className="check"><input type="radio" name="mail-reply" checked={now === 'sender'} onChange={() => set('sender')} /> Reply to the sender</label>
+        <label className="check"><input type="radio" name="mail-reply" checked={now === 'all'} onChange={() => set('all')} /> Reply to everyone</label>
       </div>
     </section>
   );

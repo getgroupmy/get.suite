@@ -22,7 +22,8 @@ if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'ring_off')) q('
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'keys_off')) q('ALTER TABLE users ADD COLUMN keys_off INTEGER NOT NULL DEFAULT 0').run(); // single-key shortcuts (C, J/K, G then M, ?) turned off
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_tips_off')) q('ALTER TABLE users ADD COLUMN mail_tips_off INTEGER NOT NULL DEFAULT 0').run(); // Compose's notes (Include …?, after hours, away…) turned off
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'search_tips_off')) q('ALTER TABLE users ADD COLUMN search_tips_off INTEGER NOT NULL DEFAULT 0').run(); // the search box's "Type to make things" tips hidden
-if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_advance')) q('ALTER TABLE users ADD COLUMN mail_advance TEXT').run(); // after archiving or deleting the open message: 'newer', 'older' or null (back to the list)
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_advance')) q('ALTER TABLE users ADD COLUMN mail_advance TEXT').run();
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_reply')) q('ALTER TABLE users ADD COLUMN mail_reply TEXT').run(); // 'all': the main reply (and R) replies to everyone; null: just the sender // after archiving or deleting the open message: 'newer', 'older' or null (back to the list)
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_pane')) q('ALTER TABLE users ADD COLUMN mail_pane TEXT').run(); // Mail's reading pane: 'below', 'off', or null (beside the list)
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_list_width')) q('ALTER TABLE users ADD COLUMN mail_list_width INTEGER').run(); // Mail's list beside the reading pane, in pixels (null: the usual)
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_list')) q('ALTER TABLE users ADD COLUMN mail_list TEXT').run(); // Mail's list: JSON { pictures, compact }
@@ -138,7 +139,7 @@ export const idleOf = (req) => { const v = Number(req.get?.('x-user-idle')); ret
  */
 export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days, o.voice_off,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_reply, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days, o.voice_off,
                         o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.external_share_days, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
                         (COALESCE((SELECT enabled FROM two_factor t WHERE t.user_id = u.id), 0) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -164,7 +165,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
   return userOf(row);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days, o.voice_off,
+const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_reply, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.mail_tips_off, u.search_tips_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.pw_leaked, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days, o.voice_off,
   o.name AS org_name, o.allow_external, o.allow_links, o.link_max_days, o.link_password, o.external_share_days, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (COALESCE((SELECT enabled FROM two_factor t WHERE t.user_id = u.id), 0) OR EXISTS (SELECT 1 FROM passkeys pk WHERE pk.user_id = u.id)) AS tf_enabled`;
 
 /** The person an API token acts for (see apitokens.js), as requireAuth gives it, with req.apiToken set. */
@@ -203,6 +204,7 @@ function userOf(row) {
     second_tz: row.second_tz || null,
     world_clocks: (() => { try { return JSON.parse(row.world_clocks || '[]'); } catch { return []; } })(),
     mail_advance: row.mail_advance || 'list',
+    mail_reply: row.mail_reply === 'all' ? 'all' : 'sender',
     mail_pane: ['below', 'off'].includes(row.mail_pane) ? row.mail_pane : 'right',
     mail_list_width: row.mail_list_width || null,
     mail_list: (() => { try { const v = JSON.parse(row.mail_list || '{}'); return { pictures: !!v.pictures, compact: !!v.compact }; } catch { return { pictures: false, compact: false }; } })(),

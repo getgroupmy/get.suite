@@ -360,7 +360,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           if (!uids.length || st.special === '\\Drafts' || (action === 'labelAs' && (st.shared || !st.labels.length))) return;
           e.preventDefault(); st.setPicking({ kind: action === 'moveTo' ? 'move' : 'label', uids }); return;
         }
-        case 'reply': target = byText('Reply'); break;
+        case 'reply': target = button((b) => b.dataset.mainReply === 'true') || byText('Reply'); break; // Settings → Default reply may make it Reply all
         case 'replyAll': target = byText('Reply all') || byText('Reply'); break;
         case 'forward': target = byText('Forward'); break;
         case 'archive': target = byLabel('Archive'); break;
@@ -935,6 +935,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   const thread = { inReplyTo: m.messageId, references: m.references, replyTo: { folder, uid }, from: replyFrom };
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
   const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
+  const allFirst = user.mail_reply === 'all' && others.length > 0;
   // Done with it: back to the list, or (when it has gone from here) to the next one, by your setting.
   const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) (p === 'flags' ? onClose : onRemoved || onClose)(); };
   // Mute: replies in this conversation skip the Inbox from now on; this message goes to Archive.
@@ -1145,8 +1146,11 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       {original && <OriginalDialog uid={uid} folder={folder} onClose={() => setOriginal(false)} />}
       {risky && <RiskDialog risky={risky} onClose={() => setRisky(null)} />}
       <div className="row wrap reader-reply">
-        <button className="btn" onClick={async () => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
-        {others.length > 0 && <button className="btn" onClick={async () => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
+        {(() => { // Settings → Default reply: everyone first (and on R), when there's anyone else
+          const one = <button key="one" className="btn" data-main-reply={String(!allFirst)} onClick={async () => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>;
+          const all = others.length > 0 && <button key="all" className="btn" data-main-reply={String(allFirst)} onClick={async () => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>;
+          return allFirst ? [all, one] : [one, all];
+        })()}
         <button className="btn" onClick={() => onCompose({
           from: replyFrom, subject: reSubject('Fwd:'), html: '<p></p>',
           forwardOf: { folder, uid, asEml: true, attachments: [], eml: { filename: `${(m.subject || 'message').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'message'}.eml` } },

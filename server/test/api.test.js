@@ -15475,3 +15475,15 @@ test('focus slots: one free block a working day, in working hours, around events
   assert.equal(new Set(r.slots.map((x) => new Date(x.start).getUTCDate())).size, 3, 'one a day');
   assert.equal((await a('GET', `/api/freebusy/focus-slots?from=${mon}&to=${mon + 30 * 24 * h}`)).status, 400);
 });
+
+test('mail: default reply — the sender, or everyone', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'rply', domain: 'acme.com', name: 'R Ply', password: 'password123' })).status, 201);
+  await login(a, 'rply@acme.com');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_reply, 'sender');
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-reply', { reply: 'all' })).body, { reply: 'all' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_reply, 'all');
+  assert.equal((await a('PUT', '/api/users/me/mail-reply', { reply: 'everyone' })).status, 400);
+  await a('PUT', '/api/users/me/mail-reply', { reply: 'sender' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_reply, 'sender');
+});

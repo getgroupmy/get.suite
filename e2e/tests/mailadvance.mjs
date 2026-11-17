@@ -77,6 +77,31 @@ await step('back to the list (the default), chosen in Settings', async () => {
   await reader().getByRole('button', { name: 'Archive' }).click();
   await page.getByText('No message selected').waitFor();
 });
+await step('default reply: everyone first, and R replies to everyone', async () => {
+  await api(page, 'POST', '/users', { local: 'bob', domain: 'acme.com', name: 'Bob Builder', password: 'password123' });
+  for (let k = 0; k < 10; k++) { if ((await api(page, 'POST', '/mail/send', { to: 'olivia@acme.com', cc: 'bob@acme.com', subject: 'Group note', text: 'About Group note' })).status === 200) break; await page.waitForTimeout(1500); }
+  await page.goto(`${B}/settings`);
+  await page.getByLabel('Reply to everyone').check();
+  await page.getByText('Saved').first().waitFor();
+  if ((await api(page, 'GET', '/auth/me')).body.user.mail_reply !== 'all') throw new Error('not saved');
+  await page.goto(`${B}/mail`);
+  await row('Group note').click({ timeout: 40000 });
+  await reader().getByText('About Group note').waitFor();
+  const first = (await reader().locator('.reader-reply button').first().textContent()).trim();
+  if (first !== 'Reply all') throw new Error('first is ' + first);
+  await page.keyboard.press('r');
+  await until(async () => /bob@acme\.com/.test(await page.getByLabel('Cc', { exact: true }).inputValue().catch(() => '')));
+});
+await step('default reply: the sender again, Reply first', async () => {
+  await page.goto(`${B}/settings`);
+  await page.getByLabel('Reply to the sender').check();
+  await page.getByText('Saved').first().waitFor();
+  await page.goto(`${B}/mail`);
+  await row('Group note').click();
+  await reader().getByText('About Group note').waitFor();
+  const first = (await reader().locator('.reader-reply button').first().textContent()).trim();
+  if (first !== 'Reply') throw new Error('first is ' + first);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

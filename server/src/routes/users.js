@@ -367,6 +367,14 @@ export default function userRoutes() {
     res.json({ advance: a });
   });
 
+  // Mail: what Reply (and R) does by default: { reply: 'sender' | 'all' }.
+  r.put('/me/mail-reply', (req, res) => {
+    const v = req.body?.reply;
+    if (!['sender', 'all'].includes(v)) throw bad('Choose sender or all');
+    q('UPDATE users SET mail_reply = ? WHERE id = ?').run(v === 'all' ? 'all' : null, req.user.id);
+    res.json({ reply: v });
+  });
+
   // Mail's reading pane: { pane: 'right' | 'below' | 'off' } (beside the list, under it, or none: a message
   // you open takes the whole width, with a way back to the list).
   r.put('/me/mail-pane', (req, res) => {
