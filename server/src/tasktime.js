@@ -113,10 +113,10 @@ export function reportCsv(report) {
  * Your time on tasks in the last `days` (Home): minutes in all (running timers counted so far) and the tasks with
  * the most, on lists you're still on.
  */
-export function myTimeOf(userId, days = 7, at = now()) {
-  const since = at - days * 864e5;
+export function myTimeOf(userId, days = 7, at = now(), range = null) {
+  const since = range ? range.from : at - days * 864e5, until = range ? range.to : Infinity;
   const rows = q(`SELECT e.task_id, e.started_at, e.ended_at, e.minutes, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id
-    WHERE e.user_id = ? AND (e.started_at >= ? OR e.ended_at IS NULL)`).all(userId, since);
+    WHERE e.user_id = ? AND ((e.started_at >= ? AND e.started_at < ?) OR (e.ended_at IS NULL AND ? >= ?))`).all(userId, since, until === Infinity ? 8.64e15 : until, until === Infinity ? 8.64e15 : until, at);
   const byTask = new Map();
   let total = 0;
   for (const r of rows) {
@@ -125,12 +125,20 @@ export function myTimeOf(userId, days = 7, at = now()) {
     const x = byTask.get(r.task_id) || { id: r.task_id, title: r.title, list_id: r.list_id, minutes: 0 };
     x.minutes += m; byTask.set(r.task_id, x);
   }
-  return { days, minutes: total, tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 5) };
+  return { days, ...(range && range), minutes: total, tasks: [...byTask.values()].sort((a, b) => b.minutes - a.minutes).slice(0, 5) };
 }
 
 /** The routes, added to the tasks router: taskFor(req) → { task, list } (checks access), changed(list) tells the list's people. */
 export function addTimeRoutes(r, { taskFor, loadList, changed, onFocus = () => {} }) {
-  r.get('/time/mine', (req, res) => res.json(myTimeOf(req.user.id, Math.min(31, Math.max(1, Number(req.query.days) || 7)))));
+  // ?days=N (the last N days), or ?from=&to= (ms; a week in Calendar's Time insights, up to 62 days).
+  r.get('/time/mine', (req, res) => {
+    const from = Number(req.query.from), to = Number(req.query.to);
+    if (Number.isFinite(from) && Number.isFinite(to)) {
+      if (to <= from || to - from > 62 * 864e5) throw bad('Pick up to two months');
+      return res.json(myTimeOf(req.user.id, Math.round((to - from) / 864e5), now(), { from, to }));
+    }
+    res.json(myTimeOf(req.user.id, Math.min(31, Math.max(1, Number(req.query.days) || 7))));
+  });
   r.get('/timer', (req, res) => {
     const run = q('SELECT e.*, t.title, t.list_id FROM task_time e JOIN tasks t ON t.id = e.task_id WHERE e.user_id = ? AND e.ended_at IS NULL').get(req.user.id);
     res.json(run ? { task_id: run.task_id, title: run.title, list_id: run.list_id, since: run.started_at, until: run.until || null } : null);

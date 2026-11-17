@@ -108,3 +108,18 @@ test('notifications held during a focus session, for those who ask (Settings →
   assert.equal((await a('GET', '/api/users/me/pause')).body.paused_until, null, 'over when it stops');
   await a('PUT', '/api/users/me/quiet-hours', { focus: false });
 });
+
+test('time on tasks for a range (Calendar → Time insights): only entries started in it', async () => {
+  const a = client();
+  assert.equal((await a('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Weeks' })).body.id;
+  const task = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bookkeeping' })).body;
+  const d = (n) => { const x = new Date(); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  await a('POST', `/api/tasks/tasks/${task.id}/time`, { duration: '2h', day: d(-20) });
+  await a('POST', `/api/tasks/tasks/${task.id}/time`, { duration: '45m', day: d(-1) });
+  const from = Date.parse(`${d(-3)}T00:00:00Z`), to = Date.parse(`${d(1)}T00:00:00Z`);
+  const r = (await a('GET', `/api/tasks/time/mine?from=${from}&to=${to}`)).body;
+  assert.equal(r.tasks.find((x) => x.title === 'Bookkeeping').minutes, 45, 'the 2 h three weeks ago left out');
+  assert.equal((await a('GET', `/api/tasks/time/mine?from=${to}&to=${from}`)).status, 400);
+  assert.equal((await a('GET', `/api/tasks/time/mine?from=0&to=${to}`)).status, 400, 'too long');
+});

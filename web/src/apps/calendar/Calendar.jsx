@@ -652,9 +652,11 @@ function TimeInsights({ anchor, onClose }) {
   const monday = (d) => { const x = startOfDay(new Date(d)); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
   const [week, setWeek] = useState(() => monday(anchor).getTime());
   const [data, setData] = useState(null);
+  const [taskTime, setTaskTime] = useState(null); // time tracked on tasks that week (Tasks)
   useEffect(() => {
     const to = new Date(week); to.setDate(to.getDate() + 7);
-    setData(null);
+    setData(null); setTaskTime(null);
+    get(`/tasks/time/mine?from=${week}&to=${to.getTime()}`).then(setTaskTime).catch(() => {});
     get(`/events?from=${week}&to=${to.getTime()}`).then((list) => setData(insights(expandAll(list, week, to.getTime()), week, to.getTime(), user.username))).catch(() => setData(insights([], week, to.getTime(), user.username)));
   }, [week, user.username]);
   const step = (n) => { const d = new Date(week); d.setDate(d.getDate() + 7 * n); setWeek(d.getTime()); };
@@ -670,7 +672,16 @@ function TimeInsights({ anchor, onClose }) {
             <div role="listitem"><span className="insight-num">{hoursText(data.meetings)}</span><span className="muted small"><i className="ins-dot meetings" /> In meetings</span></div>
             <div role="listitem"><span className="insight-num">{hoursText(data.focus)}</span><span className="muted small"><i className="ins-dot focus" /> Focus time</span></div>
             <div role="listitem"><span className="insight-num">{hoursText(data.other)}</span><span className="muted small"><i className="ins-dot other" /> Other events</span></div>
+            {taskTime?.minutes > 0 && <div role="listitem"><span className="insight-num">{hoursText(Math.round(taskTime.minutes / 6) / 10)}</span><span className="muted small">⏱ On tasks</span></div>}
           </div>
+          {taskTime?.tasks?.length > 0 && (
+            <div className="stack-tight">
+              <strong className="small">Tasks you tracked time on</strong>
+              <ul className="insight-people" aria-label="Tasks you tracked time on">
+                {taskTime.tasks.map((t) => <li key={t.id} className="row"><Link className="grow" to={`/tasks/${t.list_id}?task=${t.id}`}>{t.title}</Link><span className="muted small">{hoursText(Math.round(t.minutes / 6) / 10)}</span></li>)}
+              </ul>
+            </div>
+          )}
           <ul className="insight-days" aria-label="Each day">
             {data.byDay.map((d) => {
               const label = new Date(d.day).toLocaleDateString([], { weekday: 'short' });

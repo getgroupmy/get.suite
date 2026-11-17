@@ -195,6 +195,14 @@ await step('Settings: notifications can wait during focus sessions', async () =>
   await api(page, 'POST', '/tasks/timer/stop');
   await box.uncheck();
 });
+await step('Calendar → Time insights shows the week’s time on tasks beside meetings', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: /Time insights/ }).first().click();
+  const dlg = page.getByRole('dialog', { name: 'Time insights' });
+  await dlg.getByText('⏱ On tasks').waitFor({ timeout: 10000 });
+  await dlg.getByRole('list', { name: 'Tasks you tracked time on' }).getByRole('link', { name: 'Design' }).waitFor();
+  await page.screenshot({ path: `${SP}/shots/insights-tasks.png` });
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
