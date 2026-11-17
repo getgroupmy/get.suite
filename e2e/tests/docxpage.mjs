@@ -57,6 +57,22 @@ await step('a Word file keeps its page setup: Letter, landscape, narrow margins,
   if (!(await dlg.getByRole('button', { name: 'Landscape' }).or(dlg.getByRole('radio', { name: 'Landscape' })).first().evaluate((el) => el.classList.contains('on') || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-pressed') === 'true'))) throw new Error('orientation');
   await page.screenshot({ path: `${SP}/shots/docx-page.png` });
 });
+await step('Normal text goes out to Word and comes back: Georgia, 12 pt', async () => {
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Round trip', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'There and back' }] }] } })).body;
+  await api(page, 'PATCH', `/files/${d.id}`, { page_setup: { font: 'Georgia', fontSize: 12 } });
+  const back = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Round%20trip.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, d.id);
+  await page.goto(`${B}/docs/${back.id}`);
+  await page.locator('.ProseMirror').getByText('There and back').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Page setup' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Page setup' });
+  if ((await dlg.getByLabel('Normal text: font').inputValue()) !== 'Georgia') throw new Error('font ' + await dlg.getByLabel('Normal text: font').inputValue());
+  if ((await dlg.getByLabel('Normal text: size').inputValue()) !== '12') throw new Error('size');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

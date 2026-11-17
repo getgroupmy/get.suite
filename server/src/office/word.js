@@ -24,7 +24,7 @@ import {
   Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun, CommentRangeStart, CommentRangeEnd, CommentReference, InsertedTextRun, DeletedTextRun,
 } from 'docx';
 import { Node, Mark } from '@tiptap/core';
-import { pageMm, MARGINS, PAPER } from '../pagesetup.js';
+import { pageMm, MARGINS, PAPER, DOC_FONTS, DOC_FONT_SIZES } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
 // the <img src="pic:ID"> that opening a Word file makes.
@@ -415,6 +415,20 @@ export async function layoutOfWord(buffer) {
  * nearest), portrait or landscape, margins (normal, narrow or wide, nearest), the default header's and
  * footer's text, and whether the footer has the page number. Read from its last section (the document's own).
  */
+/** { font, fontSize } of a Word file's normal text (styles.xml), when they're ones Page setup offers. */
+export function normalTextOfStyles(styles) {
+  const normal = /<w:style\b[^>]*w:styleId="Normal"[^>]*>([\s\S]*?)<\/w:style>/.exec(styles)?.[1] || '';
+  const defaults = /<w:rPrDefault>([\s\S]*?)<\/w:rPrDefault>/.exec(styles)?.[1] || '';
+  const pick = (re) => re.exec(normal)?.[1] ?? re.exec(defaults)?.[1];
+  const font = pick(/<w:rFonts\b[^>]*\bw:ascii="([^"]+)"/);
+  const half = Number(pick(/<w:sz\b[^>]*\bw:val="(\d+)"/));
+  const out = {};
+  const f = DOC_FONTS.find((n) => n.toLowerCase() === String(font || '').toLowerCase());
+  if (f) out.font = f;
+  if (DOC_FONT_SIZES.includes(half / 2)) out.fontSize = half / 2;
+  return out;
+}
+
 export async function pageOfWord(buffer) {
   const out = {};
   try {
@@ -453,6 +467,8 @@ export async function pageOfWord(buffer) {
     const fx = footer && (await zip.file(footer)?.async('string'));
     if (hx) out.header = textOf(hx);
     if (fx) { out.footer = textOf(fx); out.numbers = /w:instr="\s*PAGE\b|<w:instrText[^>]*>\s*PAGE\b/.test(fx); }
+    // Normal text: the Normal style's font and size, else the document defaults (as the Word download writes them).
+    Object.assign(out, normalTextOfStyles((await zip.file('word/styles.xml')?.async('string')) || ''));
   } catch { /* not a Word file we can read: the defaults */ }
   return out;
 }

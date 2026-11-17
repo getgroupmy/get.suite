@@ -1848,3 +1848,15 @@ test('page setup: a word count goal (a whole number, or none)', async () => {
   assert.equal(readSetup({}).wordGoal, undefined);
   for (const bad of [0, -5, 2.5, '100', 2000000]) assert.throws(() => readSetup({ wordGoal: bad }), /word count goal/);
 });
+
+test('Word: normal text comes back from a Word file, as the download writes it', async () => {
+  const { wordFromDoc, pageOfWord, normalTextOfStyles } = await import('../src/office/word.js');
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+  const buf = await wordFromDoc(doc, 'Styled', { page: { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '', font: 'Georgia', fontSize: 12 } });
+  const page = await pageOfWord(buf);
+  assert.deepEqual([page.font, page.fontSize], ['Georgia', 12]);
+  // Word's own: Calibri isn't offered (left out), 11 pt is; the Normal style wins over the defaults.
+  const styles = '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="Normal"><w:rPr><w:rFonts w:ascii="Times New Roman"/></w:rPr></w:style>';
+  assert.deepEqual(normalTextOfStyles(styles), { font: 'Times New Roman', fontSize: 11 });
+  assert.deepEqual(normalTextOfStyles('<w:sz w:val="27"/>'), {}, 'nothing offered: nothing');
+});
