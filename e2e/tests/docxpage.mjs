@@ -95,9 +95,9 @@ await step('Drive’s preview of that Word file shows it in its normal text', as
   const css = await pv.evaluate((el) => `${getComputedStyle(el).fontFamily}|${getComputedStyle(el).fontSize}`);
   if (!/Georgia/.test(css) || !css.endsWith('16px')) throw new Error(css); // 12 pt
 });
-await step('an .odt download keeps the page: Letter, landscape, light yellow, header, footer, page numbers; and comes back', async () => {
+await step('an .odt download keeps the page: Letter, landscape, light yellow, header, footer, page numbers, two columns, line numbers; and comes back', async () => {
   const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Odt page', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Wide and yellow' }] }] } })).body;
-  await api(page, 'PATCH', `/files/${d.id}`, { page_setup: { size: 'letter', orientation: 'landscape', pageColor: '#fff2cc', header: 'Acme & Co', footer: 'Private', numbers: true } });
+  await api(page, 'PATCH', `/files/${d.id}`, { page_setup: { size: 'letter', orientation: 'landscape', pageColor: '#fff2cc', header: 'Acme & Co', footer: 'Private', numbers: true, columns: 2, lineNumbers: true } });
   const back = await page.evaluate(async (id) => {
     const bytes = await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer();
     const up = await (await fetch('/api/files/upload?name=Odt%20page.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
@@ -114,6 +114,8 @@ await step('an .odt download keeps the page: Letter, landscape, light yellow, he
   if ((await dlg.getByLabel('Header (top of every page)').inputValue()) !== 'Acme & Co') throw new Error('header');
   if ((await dlg.getByLabel('Footer (bottom of every page)').inputValue()) !== 'Private') throw new Error('footer');
   if (!(await dlg.getByLabel('Page numbers in the footer').isChecked())) throw new Error('numbers');
+  if ((await dlg.getByRole('radio', { name: 'Two' }).getAttribute('aria-checked')) !== 'true') throw new Error('columns');
+  if (!(await dlg.getByLabel('Line numbers in the margin').isChecked())) throw new Error('line numbers');
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();

@@ -15870,3 +15870,17 @@ test('docs: the .odt download keeps the header, footer and page numbers, and the
   assert.deepEqual([numbersOnly.footer, numbersOnly.numbers], ['', true]);
   assert.equal('header' in (await pageOfOdt(await odtFromDoc(doc, 'x'))), false, 'none: none');
 });
+
+test('docs: columns and line numbers in the .odt download, and back', async () => {
+  const { odtFromDoc, pageOfOdt } = await import('../src/office/odt.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+  const buf = await odtFromDoc(doc, 'x', { page: { columns: 2, lineNumbers: true } });
+  const styles = await (await JSZip.loadAsync(buf)).file('styles.xml').async('string');
+  assert.match(styles, /<style:page-layout-properties [^>]*><style:columns fo:column-count="2"/);
+  assert.match(styles, /<text:linenumbering-configuration text:number-lines="true"/);
+  const back = await pageOfOdt(buf);
+  assert.deepEqual([back.columns, back.lineNumbers], [2, true]);
+  const plain = await pageOfOdt(await odtFromDoc(doc, 'x'));
+  assert.equal('columns' in plain || 'lineNumbers' in plain, false);
+});

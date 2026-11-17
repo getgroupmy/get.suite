@@ -30,6 +30,10 @@ export function pageLayout(page) {
   return `fo:page-width="${cm(w)}" fo:page-height="${cm(h)}" style:print-orientation="${landscape ? 'landscape' : 'portrait'}" fo:margin-top="${cm(m)}" fo:margin-bottom="${cm(m)}" fo:margin-left="${cm(m)}" fo:margin-right="${cm(m)}"${bg}`;
 }
 
+/** Text in 2 or 3 columns (Page setup), half a centimetre apart. */
+export const columnsXml = (page) => (page?.columns >= 2 && page.columns <= 3 ? `<style:columns fo:column-count="${page.columns}" fo:column-gap="0.5cm"/>` : '');
+/** Line numbers in the margin, every line, on through the document. */
+export const lineNumbersXml = (page) => (page?.lineNumbers ? '<text:linenumbering-configuration text:number-lines="true" text:increment="1" text:restart-on-page="false" style:num-format="1" text:number-position="left" text:offset="0.5cm"/>' : '');
 const xmlEsc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** The master page: Page setup's header, and footer with the page number ("Private   3"), centred. */
 export function masterPage(page) {
@@ -199,7 +203,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 <text:list-style style:name="LNum">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-number text:level="${l}" style:num-suffix="." style:num-format="${['1', 'a', 'i'][(l - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-number>`).join('')}</text:list-style>
 </office:automatic-styles><office:body><office:text>${body}</office:text></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-styles ${NS}><office:styles>
+<office:document-styles ${NS}><office:styles>${lineNumbersXml(page)}
 <style:default-style style:family="paragraph"><style:paragraph-properties fo:margin-bottom="0.2cm"/><style:text-properties ${normalText(page)}/></style:default-style>
 <style:style style:name="Standard" style:family="paragraph" style:class="text"/>
 <style:style style:name="HeaderFooter" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="9pt" fo:color="#666666"/></style:style>
@@ -212,7 +216,7 @@ ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<styl
 <style:style style:name="Table_20_Heading" style:display-name="Table Heading" style:family="paragraph" style:parent-style-name="Table_20_Contents" style:class="extra"><style:text-properties fo:font-weight="bold"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:text-properties fo:font-size="9pt"/></style:style>
 <style:style style:name="Reference" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="1.27cm" fo:text-indent="-1.27cm"/></style:style>
-</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties ${pageLayout(page)}/></style:page-layout></office:automatic-styles>
+</office:styles><office:automatic-styles><style:page-layout style:name="pm1"><style:page-layout-properties ${pageLayout(page)}>${columnsXml(page)}</style:page-layout-properties></style:page-layout></office:automatic-styles>
 <office:master-styles>${masterPage(page)}</office:master-styles></office:document-styles>`;
   const meta = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-meta ${NS}><office:meta><dc:title>${x(title)}</dc:title><meta:generator>Workspace</meta:generator></office:meta></office:document-meta>`;
@@ -269,6 +273,9 @@ export async function pageOfOdt(buffer) {
     }
     const left = len('fo:margin-left');
     if (left) out.margin = Object.entries({ normal: 25.4, narrow: 12.7, wide: 38.1 }).sort((x, y) => Math.abs(x[1] - left) - Math.abs(y[1] - left))[0][0];
+    const cols = Number(/<style:columns\b[^>]*fo:column-count="(\d+)"/.exec(styles)?.[1]);
+    if (cols >= 2 && cols <= 3) out.columns = cols;
+    if (/<text:linenumbering-configuration\b[^>]*text:number-lines="true"/.test(styles)) out.lineNumbers = true;
     // Header and footer: the first master page's text (a page-number field: page numbers on).
     const master = /<style:master-page\b[^>]*?(?:\/>|>[\s\S]*?<\/style:master-page>)/.exec(styles)?.[0] || '';
     const textIn = (xml) => (xml || '').replace(/<text:page-number\b[\s\S]*?<\/text:page-number>|<text:page-number\b[^>]*\/>/g, '').replace(/<text:s(?:\s[^>]*)?\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 200);
