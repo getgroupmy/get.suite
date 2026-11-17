@@ -3235,3 +3235,9 @@ body:has(.offline-bar) .modal { max-height: calc(100vh - 108px); }
 .doc-focus.typewriter .doc-scroll { padding-bottom: 50vh; padding-top: 40vh; } /* room to keep the first and last lines mid-screen */
 .doc-focus.dim-others .ProseMirror :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, figure, hr):not(.is-current):not(.is-current *) { opacity: .3; transition: opacity .15s; }
 .sprint-clock { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; cursor: default; }
+
+/* Top bar: your running task timer. */
+.timer-chip { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 260px; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--hover, rgba(0,0,0,.05)); }
+.timer-chip-title { display: inline-flex; gap: 4px; min-width: 0; white-space: nowrap; color: var(--text); text-decoration: none; }
+.timer-chip-title .ellipsis { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 700px) { .timer-chip-title .ellipsis { display: none; } }

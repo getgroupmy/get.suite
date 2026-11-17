@@ -114,6 +114,25 @@ await step('Focus for 50 minutes: the length chosen is the one kept', async () =
   await timeBox(page).getByRole('button', { name: /■ Stop focus/ }).click();
   await page.getByText('Timer stopped').last().waitFor();
 });
+await step('the running timer shows in the top bar in any app; stopped from there', async () => {
+  await timeBox(page).getByRole('button', { name: '◎ Focus' }).click();
+  await page.getByRole('menuitem', { name: '15 minutes' }).click();
+  await timeBox(page).getByRole('button', { name: /■ Stop focus/ }).waitFor();
+  await page.goto(`${B}/drive`);
+  const chip = page.getByRole('status', { name: /^Design: (15|14) min left$/ });
+  await chip.waitFor({ timeout: 10000 });
+  await chip.getByRole('button', { name: 'Stop the timer' }).click();
+  await chip.waitFor({ state: 'detached' });
+  if ((await api(page, 'GET', '/tasks/timer')).body) throw new Error('still running');
+  // A plain timer: the time so far; the name opens the task.
+  await api(page, 'POST', `/tasks/tasks/${design}/timer`);
+  await page.reload();
+  const plain = page.getByRole('status', { name: /^Design: \d+ min$/ });
+  await plain.waitFor({ timeout: 10000 });
+  await plain.getByRole('button', { name: /Design/ }).click();
+  await page.waitForURL(/\/tasks\/.*task=/);
+  await api(page, 'POST', '/tasks/timer/stop');
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

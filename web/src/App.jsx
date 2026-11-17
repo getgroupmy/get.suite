@@ -1,4 +1,5 @@
 import { unreachable, tryLater, forgetAll } from './apps/offlinedocs.js';
+import TimerChip from './components/TimerChip.jsx';
 import NextMeeting from './components/NextMeeting.jsx';
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useState } from 'react';
 import OAuthConsent from './apps/oauth/Consent.jsx';
@@ -357,6 +358,7 @@ function Shell() {
         </a>
         <GlobalSearch />
         {user.cal_prefs?.nextMeeting !== false && <NextMeeting />}
+        <TimerChip />
         {paused && (isQuietHours()
           ? <button type="button" className="icon-btn paused-mark" aria-label={`Quiet hours until ${whenText(paused)}. Settings`} title={`Quiet hours: notifications wait until ${whenText(paused)} (outside your working hours; change it in Settings)`} onClick={() => navigate('/settings')}>🔕</button>
           : <button type="button" className="icon-btn paused-mark" aria-label={`Notifications paused until ${whenText(paused)}. Resume`} title={`Notifications paused until ${whenText(paused)} (click to resume)`} onClick={() => setPause(null)}>🔕</button>)}
