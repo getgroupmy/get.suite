@@ -102,6 +102,19 @@ await step('× hides the meeting (also after reloading); the next one still show
   await coffee.waitFor({ timeout: 10000 });
   if (await page.getByRole('status', { name: /Solo work/ }).count()) throw new Error('hidden meeting back after reloading');
 });
+await step('Calendar settings can turn the next meeting off in the top bar', async () => {
+  await page.goto(`${B}/calendar`);
+  const chip = page.locator('.next-meeting');
+  await chip.waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: /Calendar settings/ }).first().click();
+  const dlg = page.getByRole('dialog', { name: 'Calendar settings' });
+  await dlg.getByLabel('Show my next meeting in the top bar').uncheck();
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await chip.waitFor({ state: 'detached' });
+  await page.reload();
+  await page.waitForTimeout(1500);
+  if (await chip.count()) throw new Error('shown again after reloading');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

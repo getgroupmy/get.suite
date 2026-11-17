@@ -829,6 +829,7 @@ function CalPrefsDialog({ onClose }) {
         <span className="small"><strong>Reminders</strong> on a new event (you can still change them on each one):</span>
         <RemindersField value={p.reminders} onChange={(reminders) => setP({ ...p, reminders })} />
         <ColorRulesField value={p.colorRules || []} onChange={(colorRules) => setP({ ...p, colorRules })} />
+        <label className="check"><input type="checkbox" checked={p.nextMeeting !== false} onChange={(e) => setP({ ...p, nextMeeting: e.target.checked })} /> Show my next meeting in the top bar</label>
       </div>
     </Modal>
   );
