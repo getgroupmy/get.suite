@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCode, columnsFor, whoIsHere, elapsed } from './meetmath.js';
+import { parseCode, columnsFor, whoIsHere, elapsed, endsText } from './meetmath.js';
 
 test('parseCode accepts codes, spaced codes and links', () => {
   assert.equal(parseCode('abc-defg-hij'), 'abc-defg-hij');
@@ -66,4 +66,16 @@ test('who is in a meeting now, in words', async () => {
   assert.equal(liveText(['Kim Park']), 'Kim Park is in it now');
   assert.equal(liveText(['Kim', 'Lee']), 'Kim and Lee are in it now');
   assert.equal(liveText(['Kim', 'Lee', 'Max']), 'Kim and 2 others are in it now');
+});
+
+test('the event’s end in words', () => {
+  const end = 1e12, min = 60e3;
+  assert.equal(endsText(null, end), null);
+  assert.equal(endsText(end, end - 10 * min), null, 'not yet');
+  assert.equal(endsText(end, end - 4.5 * min), 'Ends in 5 min');
+  assert.equal(endsText(end, end - 2 * min), 'Ends in 2 min');
+  assert.equal(endsText(end, end - 30e3), 'Ends in under a minute');
+  assert.equal(endsText(end, end + 30e3), 'Ends now');
+  assert.equal(endsText(end, end + 3.5 * min), '3 min over');
+  assert.equal(endsText(end, end + 200 * min), null, 'long over: not said');
 });

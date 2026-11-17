@@ -10,7 +10,7 @@ import { useAuth } from '../../App.jsx';
 import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
 import { addCaption, shownCaptions, addTranscriptLine, transcriptDoc } from './meetcaptions.js';
-import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
+import { columnsFor, whoIsHere, elapsed, endsText, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
 import { Attendance, KeptChat, useMeetPast } from '../../components/MeetHistory.jsx';
 import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker, meterPercent, mutedTalkWatch } from './devices.js';
@@ -686,6 +686,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         {m.host && (cd ? <button type="button" className="btn small meet-timer-btn" onClick={() => m.setTimer(0)}>{cd.up ? 'Clear timer' : 'Stop timer'}</button>
           : <select className="meet-timer-btn" aria-label="Start a timer for everyone" value="" onChange={(e) => { if (e.target.value) m.setTimer(Number(e.target.value)); }}>
             <option value="">⏱ Timer…</option>{TIMER_CHOICES.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>)}
+        {(() => { const t = endsText(calEvent?.end); return t && <span className={`meet-ends ${/over|now/.test(t) ? 'over' : ''}`} role="status" title={`The calendar event “${calEvent.title}” ends at ${new Date(calEvent.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}>⏰ {t}</span>; })()}
         <span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
       <div className="meet-body">
         {board && <MeetBoard m={m} title={info?.title || code} canSave={!guest} onClose={() => setBoard(false)} />}

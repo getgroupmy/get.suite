@@ -176,6 +176,13 @@ await step('talking while muted: “You’re muted” with Unmute (the fake micr
   await hint.waitFor({ state: 'detached' });
   await page.evaluate(() => localStorage.removeItem('nw-muted-talk'));
 });
+await step('a meeting for a calendar event: “Ends in 3 min” near its end', async () => {
+  const now = Date.now();
+  await api(page, 'POST', '/events', { title: 'Device check', start: now - 20 * 60e3, end: now + 3 * 60e3 - 5000, meet_code: code });
+  const chip = page.getByRole('status').filter({ hasText: /^⏰ Ends in (3|2) min$/ });
+  await chip.waitFor({ timeout: 15000 }); // the live update brings the event
+  await page.screenshot({ path: `${SP}/shots/meet-ends.png` });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -74,3 +74,14 @@ export function liveText(names = []) {
   if (names.length === 2) return `${names[0]} and ${names[1]} are in it now`;
   return `${names[0]} and ${names.length - 1} others are in it now`;
 }
+
+/** Near or past the end of the meeting's calendar event: "Ends in 4 min", "Ends now", "3 min over"; null otherwise (more than `soon` minutes to go, or no end). */
+export function endsText(end, now = Date.now(), soon = 5) {
+  if (!end) return null;
+  const left = end - now;
+  if (left > soon * 60e3) return null;
+  if (left > 60e3) return `Ends in ${Math.ceil(left / 60e3)} min`;
+  if (left > -60e3) return left > 0 ? 'Ends in under a minute' : 'Ends now';
+  const over = Math.floor(-left / 60e3);
+  return over >= 120 ? null : `${over} min over`;
+}

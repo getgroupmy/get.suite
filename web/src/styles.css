@@ -3268,3 +3268,5 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .timer-chip-done .btn { white-space: nowrap; flex: none; }
 .meet-talking { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); background: #188038; color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 14px; z-index: 5; }
 .meet-muted-hint { background: #3c4043; display: flex; align-items: center; gap: 10px; }
+.meet-ends { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #3c4043; color: #fff; margin-right: 8px; }
+.meet-ends.over { background: #c5221f; }

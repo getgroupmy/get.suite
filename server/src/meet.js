@@ -219,13 +219,17 @@ export function meetRoutes() {
   r.get('/:code/event', (req, res) => {
     const m = validCode(req.params.code) && q('SELECT code FROM meetings WHERE code = ?').get(req.params.code);
     if (!m) throw notFound();
-    const evs = q(`SELECT e.id, e.title, e.start, e.owner_id, e.notes_id FROM events e WHERE e.meet_code = ? AND (e.owner_id = ?
+    const evs = q(`SELECT e.id, e.title, e.start, e.end, e.rrule, e.all_day, e.owner_id, e.notes_id FROM events e WHERE e.meet_code = ? AND (e.owner_id = ?
                    OR EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id AND g.user_id = ? AND g.status != 'no'))`).all(m.code, req.user.id, req.user.id);
     if (!evs.length) return res.json(null);
     const t = Date.now();
     const ev = evs.sort((a, b) => Math.abs(a.start - t) - Math.abs(b.start - t))[0];
     const notes = ev.notes_id && q('SELECT id, name FROM files WHERE id = ? AND trashed = 0').get(ev.notes_id);
-    res.json({ id: ev.id, title: ev.title, organiser: ev.owner_id === req.user.id, notes: notes && roleFor(notes.id, req.user.id) ? { id: notes.id, name: notes.name } : null });
+    // Its end (for "Ends in 5 min"): a one-off, timed event's own; a repeating one's today, at the same time of day.
+    let end = null;
+    if (!ev.all_day && !ev.rrule) end = ev.end;
+    else if (!ev.all_day) { const len = ev.end - ev.start, day = 864e5; const today = ev.start + Math.round((t - ev.start) / day) * day; end = today + len; }
+    res.json({ id: ev.id, title: ev.title, organiser: ev.owner_id === req.user.id, notes: notes && roleFor(notes.id, req.user.id) ? { id: notes.id, name: notes.name } : null, end });
   });
 
   // For a meeting on a calendar event: who's invited (its organiser and guests, not those who said no) and isn't

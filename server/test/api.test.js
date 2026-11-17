@@ -14774,7 +14774,13 @@ test('meet: a meeting’s calendar event and its notes — for its organiser and
   const start = Date.now() + 5 * 60e3;
   const ev = (await a('POST', '/api/events', { title: 'Weekly review', start, end: start + 3600e3, meet_code: code, guests: ['mnot2@acme.com', 'mnot4@acme.com'] })).body;
   await d('POST', `/api/events/${ev.id}/rsvp`, { status: 'no' });
-  assert.deepEqual((await a('GET', `/api/meet/${code}/event`)).body, { id: ev.id, title: 'Weekly review', organiser: true, notes: null });
+  assert.deepEqual((await a('GET', `/api/meet/${code}/event`)).body, { id: ev.id, title: 'Weekly review', organiser: true, notes: null, end: start + 3600e3 }, 'with its end, for “Ends in 5 min”');
+  // A repeating one: today's end, at the same time of day.
+  const daily = (await a('POST', '/api/meet', { title: 'Standup' })).body.code;
+  const s0 = Date.now() - 7 * 864e5 + 60e3;
+  await a('POST', '/api/events', { title: 'Standup', start: s0, end: s0 + 15 * 60e3, meet_code: daily, rrule: { freq: 'daily' } });
+  const dEnd = (await a('GET', `/api/meet/${daily}/event`)).body.end;
+  assert.equal(dEnd, s0 + 7 * 864e5 + 15 * 60e3, 'today’s');
   assert.equal((await a('GET', `/api/meet/${plain}/event`)).body, null, 'a meeting without an event');
   const notes = (await a('POST', `/api/events/${ev.id}/notes`, { tz: 'UTC' })).body;
   const forB = (await b('GET', `/api/meet/${code}/event`)).body;
