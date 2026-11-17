@@ -14,6 +14,7 @@ import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPE
 import { MeetingRecorder } from './recorder.js';
 import { Attendance, KeptChat, useMeetPast } from '../../components/MeetHistory.jsx';
 import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker, meterPercent } from './devices.js';
+import { meetKey } from './meetkeys.js';
 import { noPhotos } from '../../components/photos.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
@@ -308,6 +309,7 @@ async function openDevices(choice = savedDevices()) {
   return { stream: null, error: 'No camera or microphone could be used. You can still join, see and hear others, and chat.' };
 }
 
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
 const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
 
 function Video({ stream, muted, mirror, label, sink }) {
@@ -400,6 +402,25 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const toggleCam = () => { const on = !cam; setCam(on); if (mesh.current) mesh.current.setCam(on); else local?.stream?.getVideoTracks().forEach((t) => { t.enabled = on; }); };
   const hasAudio = !!local?.stream?.getAudioTracks().length;
   const hasVideo = !!local?.stream?.getVideoTracks().length;
+  // Keyboard: Ctrl/⌘+D the microphone, Ctrl/⌘+E the camera; hold Space to talk while muted (let go: muted again).
+  const keys = useRef({});
+  const [talking, setTalking] = useState(false);
+  keys.current = { toggleMic, toggleCam, hasAudio, hasVideo, micIsOn: () => (mesh.current ? !!mesh.current.state.mic : mic), setMicTo: (on) => { setMic(on); if (mesh.current) mesh.current.setMic(on); else local?.stream?.getAudioTracks().forEach((t) => { t.enabled = on; }); } };
+  useEffect(() => {
+    if (phase !== 'call' && phase !== 'lobby') return undefined;
+    let held = false;
+    const down = (e) => {
+      const k = meetKey(e), c = keys.current;
+      if (k === 'mic' && c.hasAudio) { e.preventDefault(); c.toggleMic(); }
+      else if (k === 'cam' && c.hasVideo) { e.preventDefault(); c.toggleCam(); }
+      else if (k === 'talk' && c.hasAudio && !c.micIsOn()) { e.preventDefault(); held = true; setTalking(true); c.setMicTo(true); }
+      else if (held && (e.key === ' ' || e.code === 'Space')) e.preventDefault(); // held: no scrolling
+    };
+    const up = (e) => { if (held && (e.key === ' ' || e.code === 'Space')) { held = false; setTalking(false); keys.current.setMicTo(false); } };
+    const blur = () => { if (held) { held = false; setTalking(false); keys.current.setMicTo(false); } }; // switched away while holding it
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
+  }, [phase]);
   // Another camera or microphone: open it, and in the meeting send it in place of the old one.
   const changeDevices = async (choice) => {
     const d = await openDevices(choice);
@@ -715,9 +736,10 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           {shownCaptions(caps).map((c) => <p key={c.id}><strong>{c.name}:</strong> {c.text}</p>)}
         </div>
       )}
+      {talking && <div className="meet-talking" role="status">🎙 Talking — let go of Space to mute again</div>}
       <footer className="meet-bar" role="toolbar" aria-label="Meeting controls">
-        <button type="button" className={`meet-btn ${m.state.mic ? '' : 'off'}`} disabled={!hasAudio} aria-pressed={m.state.mic} aria-label={m.state.mic ? 'Turn off microphone' : 'Turn on microphone'} onClick={toggleMic}>{m.state.mic ? '🎙' : '🔇'}</button>
-        <button type="button" className={`meet-btn ${m.state.cam ? '' : 'off'}`} disabled={!hasVideo} aria-pressed={m.state.cam} aria-label={m.state.cam ? 'Turn off camera' : 'Turn on camera'} onClick={toggleCam}>{m.state.cam ? '📷' : '🚫'}</button>
+        <button type="button" className={`meet-btn ${m.state.mic ? '' : 'off'}`} disabled={!hasAudio} aria-pressed={m.state.mic} aria-label={m.state.mic ? 'Turn off microphone' : 'Turn on microphone'} title={`${m.state.mic ? 'Turn off' : 'Turn on'} microphone (${isMac ? '⌘' : 'Ctrl+'}D; muted, hold Space to talk)`} onClick={toggleMic}>{m.state.mic ? '🎙' : '🔇'}</button>
+        <button type="button" className={`meet-btn ${m.state.cam ? '' : 'off'}`} disabled={!hasVideo} aria-pressed={m.state.cam} aria-label={m.state.cam ? 'Turn off camera' : 'Turn on camera'} title={`${m.state.cam ? 'Turn off' : 'Turn on'} camera (${isMac ? '⌘' : 'Ctrl+'}E)`} onClick={toggleCam}>{m.state.cam ? '📷' : '🚫'}</button>
         {navigator.mediaDevices?.getDisplayMedia && <button type="button" className={`meet-btn ${sharing ? 'on' : ''}`} aria-pressed={!!sharing} aria-label={sharing ? 'Stop presenting' : 'Present your screen'}
           disabled={!sharing && !m.host && !!m.settings?.host_present} title={!sharing && !m.host && m.settings?.host_present ? 'Only the host can present in this meeting' : undefined}
           onClick={() => (sharing ? m.stopScreen() : m.shareScreen().catch(() => {}))}>🖥</button>}

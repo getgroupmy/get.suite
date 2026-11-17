@@ -123,6 +123,29 @@ await step('⚙ Speaker: the others are heard on the one chosen, remembered', as
   if (saved.spk !== pickId) throw new Error(JSON.stringify(saved));
   if (await page.getByLabel('Your camera').count() && await page.getByLabel('Video of Olivia Owner (you)').evaluate((v) => v.sinkId).catch(() => '') === pickId) throw new Error('your own (muted) video needs no speaker');
 });
+await step('keyboard in the meeting: Ctrl+D the microphone, Ctrl+E the camera, hold Space to talk while muted', async () => {
+  const bar = page.getByRole('toolbar', { name: 'Meeting controls' });
+  await bar.waitFor({ timeout: 15000 });
+  await page.evaluate(() => document.activeElement?.blur());
+  await bar.getByRole('button', { name: 'Turn off microphone' }).waitFor();
+  await page.keyboard.press('Control+d');
+  await bar.getByRole('button', { name: 'Turn on microphone' }).waitFor();
+  await page.keyboard.press('Control+e');
+  await bar.getByRole('button', { name: 'Turn on camera' }).waitFor();
+  await page.keyboard.press('Control+e');
+  await bar.getByRole('button', { name: 'Turn off camera' }).waitFor();
+  // Muted: holding Space talks; letting go mutes again.
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.down(' ');
+  await page.getByText('🎙 Talking — let go of Space to mute again').waitFor();
+  await bar.getByRole('button', { name: 'Turn off microphone' }).waitFor();
+  await page.screenshot({ path: `${SP}/shots/push-to-talk.png` });
+  await page.keyboard.up(' ');
+  await bar.getByRole('button', { name: 'Turn on microphone' }).waitFor();
+  await page.getByText('🎙 Talking').waitFor({ state: 'detached' });
+  await page.keyboard.press('Control+d'); // back on
+  await bar.getByRole('button', { name: 'Turn off microphone' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
