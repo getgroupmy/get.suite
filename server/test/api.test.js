@@ -15814,3 +15814,17 @@ test('docs: normal text in the OpenDocument (.odt) download', async () => {
   await owner('PATCH', `/api/files/${d.id}`, { page_setup: { font: 'Times New Roman', fontSize: 14 } });
   assert.match(await stylesOf(), /<style:default-style style:family="paragraph"><style:paragraph-properties[^>]*\/><style:text-properties fo:font-family="'Times New Roman'" fo:font-size="14pt"\/>/);
 });
+
+test('docs: an OpenDocument file’s normal text comes along when opened, and round-trips', async () => {
+  const { odtFromDoc, pageOfOdt } = await import('../src/office/odt.js');
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }] };
+  assert.deepEqual(await pageOfOdt(await odtFromDoc(doc, 'x', { page: { font: 'Verdana', fontSize: 10 } })), { font: 'Verdana', fontSize: 10 });
+  assert.deepEqual(await pageOfOdt(await odtFromDoc(doc, 'x')), { fontSize: 11 }, 'Liberation Sans isn’t offered; 11 pt is');
+  assert.deepEqual(await pageOfOdt(Buffer.from('not a zip')), {});
+  const buf = await odtFromDoc(doc, 'Odt in', { page: { font: 'Georgia', fontSize: 12 } });
+  const up = (await owner('POST', '/api/files/upload?name=Odt%20in.odt', buf, { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  const f = (await owner('GET', `/api/files/${opened.id}`)).body;
+  const ps = typeof f.page_setup === 'string' ? JSON.parse(f.page_setup) : f.page_setup;
+  assert.deepEqual([ps.font, ps.fontSize], ['Georgia', 12]);
+});

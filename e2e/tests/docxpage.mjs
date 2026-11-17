@@ -57,7 +57,7 @@ await step('a Word file keeps its page setup: Letter, landscape, narrow margins,
   if (!(await dlg.getByRole('button', { name: 'Landscape' }).or(dlg.getByRole('radio', { name: 'Landscape' })).first().evaluate((el) => el.classList.contains('on') || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-pressed') === 'true'))) throw new Error('orientation');
   await page.screenshot({ path: `${SP}/shots/docx-page.png` });
 });
-await step('Normal text goes out to Word and comes back: Georgia, 12 pt; and into the .odt download', async () => {
+await step('Normal text goes out to Word and comes back: Georgia, 12 pt; and through an .odt file', async () => {
   const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Round trip', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'There and back' }] }] } })).body;
   await api(page, 'PATCH', `/files/${d.id}`, { page_setup: { font: 'Georgia', fontSize: 12 } });
   const back = await page.evaluate(async (id) => {
@@ -77,6 +77,15 @@ await step('Normal text goes out to Word and comes back: Georgia, 12 pt; and int
   const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
   const styles = await (await JSZip.loadAsync(Buffer.from(b64, 'base64'))).file('styles.xml').async('string');
   if (!/fo:font-family="'Georgia'" fo:font-size="12pt"/.test(styles)) throw new Error('odt: ' + styles.slice(0, 300));
+  // ...and opening that .odt file brings it back.
+  const again = await page.evaluate(async (data) => {
+    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    const up = await (await fetch('/api/files/upload?name=Round%20trip.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, b64);
+  await page.goto(`${B}/docs/${again.id}`);
+  await page.locator('.ProseMirror').getByText('There and back').waitFor();
+  await until(async () => /Georgia/.test(await page.locator('.paper .ProseMirror').evaluate((el) => getComputedStyle(el).fontFamily)), 10000);
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();

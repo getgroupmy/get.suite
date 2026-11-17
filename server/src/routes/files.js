@@ -36,7 +36,7 @@ import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } f
 import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
-import { odtFromDoc, docFromOdt, ODT_MIME } from '../office/odt.js';
+import { odtFromDoc, docFromOdt, ODT_MIME, pageOfOdt } from '../office/odt.js';
 import { odsFromSheet, sheetFromOds, ODS_MIME } from '../office/ods.js';
 import { odpFromDeck, deckFromOdp, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
@@ -1787,7 +1787,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     try {
       if (type === 'docx') { const w = await docFromWord(buf, { savePicture }); content = w.doc; wordComments = w.comments || []; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
-      else if (type === 'odt') content = (await docFromOdt(buf, { savePicture })).doc;
+      else if (type === 'odt') { content = (await docFromOdt(buf, { savePicture })).doc; layout = { ...layout, ...(await pageOfOdt(buf)) }; }
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') { content = await sheetFromExcel(buf); sheetThreads = commentsOfBook(content); }
       else if (type === 'ods') content = await sheetFromOds(buf);
@@ -1823,7 +1823,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       for (const r of c.replies) q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)').run(uid(), id, tid, req.user.id, signedPpt(r), r.at || c.at || now());
     }
     // A Word file's page setup stays: paper, orientation, margins, header, footer, page numbers, watermark, columns, line numbers.
-    if (type === 'docx') {
+    if (type === 'docx' || type === 'odt') {
       const setup = readSetup({ watermark, ...layout });
       const plain = JSON.stringify(readSetup({}));
       if (JSON.stringify(setup) !== plain) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(setup), id);

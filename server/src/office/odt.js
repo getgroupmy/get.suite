@@ -219,6 +219,27 @@ const kids = (el) => el?.children || [];
 const textOf = (el) => (el.type === 'text' ? el.data : kids(el).map(textOf).join(''));
 
 /** Read an .odt file: { doc } (pictures saved with savePicture(name, data, mime) → file id, when given). */
+/** { font, fontSize } of an OpenDocument text file's normal text (the Standard style, else the paragraphs' default),
+ *  when they're ones Page setup offers. */
+export async function pageOfOdt(buffer) {
+  try {
+    const { DOC_FONTS, DOC_FONT_SIZES } = await import('../pagesetup.js');
+    const zip = await JSZip.loadAsync(buffer);
+    const styles = (await zip.file('styles.xml')?.async('string')) || '';
+    const props = (xml) => /<style:text-properties\b([^>]*)\/?>/.exec(xml || '')?.[1] || '';
+    const standard = props(/<style:style\b[^>]*style:name="Standard"[^>]*>([\s\S]*?)<\/style:style>/.exec(styles)?.[1]);
+    const defaults = props(/<style:default-style\b[^>]*style:family="paragraph"[^>]*>([\s\S]*?)<\/style:default-style>/.exec(styles)?.[1]);
+    const pick = (re) => re.exec(standard)?.[1] ?? re.exec(defaults)?.[1];
+    const family = String(pick(/fo:font-family="([^"]+)"/) || pick(/style:font-name="([^"]+)"/) || '').split(',')[0].replace(/['"&;]|apos|quot/g, '').trim();
+    const size = Number((/^([\d.]+)pt$/.exec(pick(/fo:font-size="([^"]+)"/) || '') || [])[1]);
+    const out = {};
+    const f = DOC_FONTS.find((n) => n.toLowerCase() === family.toLowerCase());
+    if (f) out.font = f;
+    if (DOC_FONT_SIZES.includes(size)) out.fontSize = size;
+    return out;
+  } catch { return {}; }
+}
+
 export async function docFromOdt(buffer, { savePicture } = {}) {
   const zip = await JSZip.loadAsync(buffer);
   const contentXml = await zip.file('content.xml')?.async('string');
