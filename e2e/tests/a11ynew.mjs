@@ -159,6 +159,28 @@ await step('Home: the Today’s note card with tick boxes', async () => {
   await page.getByRole('region', { name: 'Today’s note' }).getByRole('checkbox', { name: 'Reply to Kim' }).waitFor({ timeout: 10000 });
   await both('home today’s note');
 });
+await step('Settings: Default reply and Mark emails as read', async () => {
+  await page.goto(`${B}/settings`);
+  await page.getByRole('radiogroup', { name: 'Default reply' }).waitFor({ timeout: 10000 });
+  await page.getByRole('radiogroup', { name: 'Mark emails as read' }).getByLabel('After 5 seconds open').check();
+  await page.getByText('Saved').first().waitFor();
+  await page.getByRole('heading', { name: 'Mark emails as read' }).scrollIntoViewIfNeeded();
+  await both('settings mail reply and read');
+});
+await step('Forms: a form with sections and its progress bar, as filled in', async () => {
+  const f = (await api(page, 'POST', '/forms', { title: 'Visit survey' })).body;
+  const out = (await api(page, 'PUT', `/forms/${f.id}`, { audience: 'public', progress_bar: true, theme: { color: '#188038' }, questions: [{ id: 'a', type: 'short', title: 'Your name' }, { id: 's', type: 'section', title: 'Your visit' }, { id: 'b', type: 'short', title: 'What went well?' }] })).body;
+  await page.goto(`${B}/f/${out.token}`);
+  await page.getByRole('progressbar', { name: 'Progress through the form' }).waitFor({ timeout: 10000 });
+  await both('form progress bar');
+});
+await step('Drive: Starred folders in the sidebar', async () => {
+  const f = (await api(page, 'POST', '/files/folder', { name: 'Board papers' })).body;
+  await api(page, 'PUT', `/files/${f.id}/star`, { starred: true });
+  await page.goto(`${B}/drive`);
+  await page.getByRole('group', { name: 'Starred folders' }).getByRole('link', { name: 'Board papers' }).waitFor({ timeout: 10000 });
+  await both('drive starred folders');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
