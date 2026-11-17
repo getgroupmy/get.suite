@@ -1,4 +1,5 @@
 import { jsonFromDoc, jsonFromSheetDoc, jsonFromDeckDoc } from '../collabdoc.js';
+import { prefsOf } from './docprefs.js';
 import * as Y from 'yjs';
 import { announceFileState } from '../chatgone.js';
 import { withoutSuggestions } from '../office/suggestions.js';
@@ -903,6 +904,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     // blank: nothing in it at all (its first words come from the copy written offline, so no empty line goes before them).
     const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : req.body.blank && kind === 'doc' ? JSON.stringify({ type: 'doc', content: [] }) : req.body.blank && kind === 'sheet' ? JSON.stringify({ sheets: [], blank: true }) : req.body.blank && kind === 'slides' ? JSON.stringify({ theme: 'light', slides: [], blank: true }) : EMPTY[kind]();
     const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content), ...(want && { id: want }) });
+    // A new document starts with your own page setup, when you've set one (Page setup → Use for my new documents).
+    const mine = kind === 'doc' && prefsOf(req.user.id).page_setup;
+    if (mine) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(mine), id);
     notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });

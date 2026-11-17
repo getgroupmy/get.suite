@@ -15786,3 +15786,22 @@ test('docs: normal text for the whole document in page setup, and in the Word do
   const styles = await zip.file('word/styles.xml').async('string');
   assert.match(styles, /<w:docDefaults>[\s\S]*w:ascii="Georgia"[\s\S]*<w:sz w:val="24"\/>/);
 });
+
+test('docs: your own page setup for new documents', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'pgdef', domain: 'acme.com', name: 'Pg Def', password: 'password123' })).status, 201);
+  await login(a, 'pgdef@acme.com');
+  const plain = (await a('POST', '/api/files/new', { kind: 'doc' })).body;
+  assert.equal(plain.page_setup ?? null, null, 'nothing set: the usual');
+  const saved = (await a('PUT', '/api/doc-prefs', { page_setup: { size: 'letter', margin: 'narrow', font: 'Georgia', fontSize: 12, wordGoal: 500 } })).body;
+  assert.deepEqual([saved.page_setup.size, saved.page_setup.font, saved.page_setup.fontSize, 'wordGoal' in saved.page_setup], ['letter', 'Georgia', 12, false], 'a word goal is one document’s');
+  assert.equal((await a('PUT', '/api/doc-prefs', { page_setup: { size: 'tabloid' } })).status, 400);
+  const d = (await a('POST', '/api/files/new', { kind: 'doc' })).body;
+  const ps = typeof d.page_setup === 'string' ? JSON.parse(d.page_setup) : d.page_setup;
+  assert.deepEqual([ps.size, ps.margin, ps.font, ps.fontSize], ['letter', 'narrow', 'Georgia', 12]);
+  const sheet = (await a('POST', '/api/files/new', { kind: 'sheet' })).body;
+  assert.equal(sheet.page_setup ?? null, null, 'documents only');
+  await a('PUT', '/api/doc-prefs', { page_setup: null });
+  assert.equal('page_setup' in (await a('GET', '/api/doc-prefs')).body, false);
+  assert.equal((await a('POST', '/api/files/new', { kind: 'doc' })).body.page_setup ?? null, null);
+});

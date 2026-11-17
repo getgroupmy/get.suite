@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { q } from '../db.js';
 import { bad } from '../util.js';
+import { readSetup } from '../pagesetup.js';
 
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'doc_prefs')) q('ALTER TABLE users ADD COLUMN doc_prefs TEXT').run();
 
@@ -24,7 +25,13 @@ export function cleanPrefs(p) {
     if (subs.length >= MAX_SUBS) break;
   }
   const zoomOf = (v) => (ZOOMS.includes(Number(v)) ? Number(v) : 100);
-  return { autocorrect: p?.autocorrect !== false, subs, zoom: zoomOf(p?.zoom), spellcheck: p?.spellcheck !== false, sheet_zoom: zoomOf(p?.sheet_zoom) };
+  // page_setup: the page setup your new documents start with (Page setup → Use for my new documents), or none.
+  let setup = null;
+  if (p?.page_setup && typeof p.page_setup === 'object') {
+    const { wordGoal, ...rest } = readSetup(p.page_setup); // a word count goal is one document's
+    setup = rest;
+  }
+  return { autocorrect: p?.autocorrect !== false, subs, zoom: zoomOf(p?.zoom), spellcheck: p?.spellcheck !== false, sheet_zoom: zoomOf(p?.sheet_zoom), ...(setup && { page_setup: setup }) };
 }
 
 export const prefsOf = (userId) => {

@@ -92,6 +92,21 @@ await step('Page setup → Normal text: Georgia, 12 pt, for everyone; Default ag
   await setup(async (dlg) => { await dlg.getByLabel('Normal text: font').selectOption(''); await dlg.getByLabel('Normal text: size').selectOption(''); });
   await until(async () => !/Georgia/.test(await text(page)));
 });
+await step('Use for my new documents: a new document starts with that page setup', async () => {
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Page setup' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Page setup' });
+  await dlg.getByLabel('Normal text: font').selectOption('Verdana');
+  await dlg.getByLabel('Margins').selectOption('narrow');
+  await dlg.getByRole('button', { name: 'Use for my new documents' }).click();
+  await page.getByText('New documents you make will start with this page setup').waitFor();
+  await dlg.getByRole('button', { name: 'Cancel' }).click();
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Fresh one' })).body;
+  await page.goto(`${B}/docs/${d.id}`);
+  await until(async () => /Verdana/.test(await page.locator('.paper .ProseMirror').evaluate((el) => getComputedStyle(el).fontFamily)), 10000);
+  const ps = (await api(page, 'GET', `/files/${d.id}`)).body.page_setup;
+  if (ps.margin !== 'narrow') throw new Error(JSON.stringify(ps));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

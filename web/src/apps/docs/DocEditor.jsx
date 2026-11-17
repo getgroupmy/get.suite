@@ -1361,11 +1361,16 @@ function ChipDialog({ options, onSave, onClose }) {
 
 /** Paper size, orientation, margins, and a header and footer for printing and Word. */
 function PageSetupDialog({ setup, onClose, onSave }) {
+  const toast = useToast();
   const [s, setS] = useState({ ...DEFAULT_SETUP, ...(setup || {}) });
+  // Your own default: new documents you make start with this page setup (kept with your account).
+  const asDefault = async () => {
+    try { await put('/doc-prefs', { page_setup: s }); toast('New documents you make will start with this page setup'); } catch (e) { toast(e.message, 'error'); }
+  };
   const set = (k) => (e) => setS({ ...s, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   return (
     <Modal title="Page setup" onClose={onClose}
-      footer={<><button type="button" className="btn" onClick={() => onSave(null)}>Reset</button><span className="grow" /><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={() => onSave(s)}>Save</button></>}>
+      footer={<><button type="button" className="btn" onClick={() => onSave(null)}>Reset</button><button type="button" className="btn" title="New documents you make start with this page setup" onClick={asDefault}>Use for my new documents</button><span className="grow" /><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={() => onSave(s)}>Save</button></>}>
       <div className="stack">
         <div className="seg" role="radiogroup" aria-label="Format">
           {[[false, 'Pages'], [true, 'Pageless']].map(([k, l]) => <button key={l} type="button" role="radio" aria-checked={!!s.pageless === k} className={!!s.pageless === k ? 'on' : ''} onClick={() => setS({ ...s, pageless: k })}>{l}</button>)}
