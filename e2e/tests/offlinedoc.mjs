@@ -510,7 +510,7 @@ await step('lists and messages kept for offline don’t pile up: the oldest go b
   const count = () => page.evaluate(() => new Promise((res) => { const r = indexedDB.open('nw-offline'); r.onsuccess = () => { const c = r.result.transaction('api').objectStore('api').count(); c.onsuccess = () => { res(c.result); r.result.close(); }; }; }));
   const before = await count();
   if (before <= 30) throw new Error(`only ${before} kept: nothing to trim`);
-  const visit = async () => { for (let i = 0; i < 4; i++) for (const path of ['/calendar', '/tasks', '/contacts', '/notes']) { await page.goto(B + path); await page.waitForTimeout(400); } };
+  const visit = async () => { for (let i = 0; i < 2; i++) for (const path of ['/calendar', '/tasks', '/contacts', '/notes']) { await page.goto(B + path); await page.waitForTimeout(300); } }; // (each load trims on its first kept answer)
   await page.evaluate(() => localStorage.setItem('nw-api-keep', '5')); // a small limit, to see it work
   await visit();
   const after = await count();
