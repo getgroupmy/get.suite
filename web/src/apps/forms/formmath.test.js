@@ -91,3 +91,14 @@ test('a saved draft comes back as the form is now: answers that still fit, signa
   assert.deepEqual(draftFrom(qs, { s: 'javascript:x' }, [0, 3], 2), { answers: {}, trail: [0] });
   assert.deepEqual(draftFrom(qs, null, null, 1), { answers: {}, trail: [0] });
 });
+
+test('progress: pages so far, and those the answers lead to', async () => {
+  const { progressOf, sectionsOf } = await import('./formmath.js');
+  const pages = sectionsOf([{ id: 'a', type: 'radio', options: ['Yes', 'No'], goto: { No: 'submit' } }, { id: 's2', type: 'section' }, { id: 'b', type: 'text' }, { id: 's3', type: 'section' }, { id: 'c', type: 'text' }]);
+  assert.deepEqual(progressOf(pages, [0], {}), { at: 1, of: 3 });
+  assert.deepEqual(progressOf(pages, [0], { a: 'No' }), { at: 1, of: 1 }, 'No ends the form here');
+  assert.deepEqual(progressOf(pages, [0, 1], { a: 'Yes' }), { at: 2, of: 3 });
+  assert.deepEqual(progressOf(pages, [0, 1, 2], { a: 'Yes' }), { at: 3, of: 3 });
+  const jump = sectionsOf([{ id: 'x', type: 'text' }, { id: 's2', type: 'section', after: 's4' }, { id: 'y', type: 'text' }, { id: 's3', type: 'section' }, { id: 'z', type: 'text' }, { id: 's4', type: 'section' }, { id: 'w', type: 'text' }]);
+  assert.deepEqual(progressOf(jump, [0], {}), { at: 1, of: 3 }, 'section 2 skips section 3');
+});

@@ -3270,3 +3270,8 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .meet-muted-hint { background: #3c4043; display: flex; align-items: center; gap: 10px; }
 .meet-ends { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #3c4043; color: #fff; margin-right: 8px; }
 .meet-ends.over { background: #c5221f; }
+
+/* Forms: progress through a form with sections (Settings → Show a progress bar) */
+.form-progress { display: flex; align-items: center; gap: 10px; }
+.form-progress-bar { flex: 1; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 25%, transparent); overflow: hidden; }
+.form-progress-bar span { display: block; height: 100%; background: var(--form-accent, var(--accent)); transition: width .25s; }

@@ -15500,3 +15500,13 @@ test('mail: when an opened email is marked read — at once, after seconds, or n
   assert.equal((await a('PUT', '/api/users/me/mail-read-after', { after: 7 })).status, 400);
   assert.equal((await a('PUT', '/api/users/me/mail-read-after', { after: '5' })).status, 400);
 });
+
+test('forms: a progress bar is a setting, shown on the form page', async () => {
+  const made = (await owner('POST', '/api/forms', { title: 'Long survey' })).body;
+  assert.equal(made.progress_bar, false);
+  const f = (await owner('PUT', `/api/forms/${made.id}`, { audience: 'public', progress_bar: true, questions: [{ id: 'a', type: 'short', title: 'A' }, { id: 's', type: 'section', title: 'Two' }, { id: 'b', type: 'short', title: 'B' }] })).body;
+  assert.equal(f.progress_bar, true);
+  assert.equal((await client()('GET', `/api/public/forms/${f.token}`)).body.progress_bar, true);
+  assert.equal((await owner('PUT', `/api/forms/${made.id}`, { title: 'Long survey 2' })).body.progress_bar, true, 'kept when other things change');
+  assert.equal((await owner('PUT', `/api/forms/${made.id}`, { progress_bar: false })).body.progress_bar, false);
+});

@@ -92,6 +92,24 @@ await step('“After this section: Submit the form” ends it after “Your visi
   await v.getByRole('button', { name: 'Submit' }).waitFor();
   if (await v.getByRole('button', { name: 'Next' }).count()) throw new Error('should end here');
 });
+await step('progress bar: ticked in Settings, “Page 1 of 2” following where the answers lead', async () => {
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  await page.getByLabel('Show a progress bar (on forms with sections)').check();
+  await until(async () => (await api(page, 'GET', `/forms/${form.id}`)).body.progress_bar === true, 10000);
+  await v.goto(`${B}/f/${form.token}`);
+  const bar = v.getByRole('progressbar', { name: 'Progress through the form' });
+  await bar.waitFor();
+  if ((await bar.getAttribute('aria-valuetext')) !== 'Page 1 of 2') throw new Error(await bar.getAttribute('aria-valuetext'));
+  await v.getByLabel('Yes').check();
+  await v.getByRole('button', { name: 'Next' }).click();
+  await v.getByRole('heading', { name: 'Your visit' }).waitFor();
+  await v.getByText('Page 2 of 2').waitFor();
+  if ((await bar.getAttribute('aria-valuenow')) !== '2') throw new Error('not at 2');
+  if ((await bar.locator('span').getAttribute('style')) !== 'width: 100%;') throw new Error(await bar.locator('span').getAttribute('style'));
+  await v.waitForTimeout(400);
+  await v.screenshot({ path: `${SP}/shots/progress.png` });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -145,7 +145,7 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
 )`).run();
 // allow_edit: people can change their response afterwards, with the private link they get on sending it.
 // collect_email: "anyone with the link" forms ask for an email address; send_copy: people get their answers by email.
-for (const [col, type] of [['task_list', 'TEXT'], ['task_title', 'TEXT'], ['chat_channel', 'TEXT'], ['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT'], ['email_domains', 'TEXT']]) {
+for (const [col, type] of [['task_list', 'TEXT'], ['task_title', 'TEXT'], ['chat_channel', 'TEXT'], ['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1'], ['show_results', 'INTEGER NOT NULL DEFAULT 0'], ['results_key', 'TEXT'], ['email_domains', 'TEXT'], ['progress_bar', 'INTEGER NOT NULL DEFAULT 0']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -482,7 +482,7 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, show_results: !!f.show_results, collect_email: !!f.collect_email, send_copy: !!f.send_copy, auto_remind: !!f.auto_remind, theme: themeOf(f) });
+const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, show_results: !!f.show_results, collect_email: !!f.collect_email, send_copy: !!f.send_copy, progress_bar: !!f.progress_bar, auto_remind: !!f.auto_remind, theme: themeOf(f) });
 const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, r.email, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
   .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), ...(r.email && { email: r.email }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
@@ -742,6 +742,7 @@ export default function formRoutes() {
       show_results: 'show_results' in b ? !!b.show_results : f.show_results,
       collect_email: 'collect_email' in b ? !!b.collect_email : f.collect_email,
       send_copy: 'send_copy' in b ? !!b.send_copy : f.send_copy,
+      progress_bar: 'progress_bar' in b ? !!b.progress_bar : f.progress_bar,
       email_domains: 'email_domains' in b ? cleanDomains(b.email_domains).join(', ') || null : f.email_domains || null,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
       open_at: 'open_at' in b ? (b.open_at == null || b.open_at === '' ? null : Number(b.open_at)) : f.open_at,
@@ -767,6 +768,7 @@ export default function formRoutes() {
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
         next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, next.auto_remind ? 1 : 0,
         next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, next.show_results ? 1 : 0, next.email_domains, now(), f.id); // a new closing date: the automatic reminder can go again
+    if (next.progress_bar !== f.progress_bar) q('UPDATE forms SET progress_bar = ? WHERE id = ?').run(next.progress_bar ? 1 : 0, f.id);
     if (next.chat_channel !== (f.chat_channel || null)) q('UPDATE forms SET chat_channel = ? WHERE id = ?').run(next.chat_channel, f.id);
     if (next.task_list !== (f.task_list || null) || next.task_title !== (f.task_title || null)) q('UPDATE forms SET task_list = ?, task_title = ? WHERE id = ?').run(next.task_list, next.task_title, f.id);
     changed(f, req.user.id);
@@ -1100,7 +1102,7 @@ export function publicFormRoutes() {
     const team = !!user && teamOf(form).includes(user.id);
     res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, theme: form.theme, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, one_per_email: form.audience === 'public' && form.collect_email && form.one_per_person,
-      ...(form.audience === 'public' && form.collect_email && form.email_domains && { email_domains: cleanDomains(form.email_domains) }), send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
+      ...(form.audience === 'public' && form.collect_email && form.email_domains && { email_domains: cleanDomains(form.email_domains) }), send_copy: form.send_copy && mailEnabled(), progress_bar: form.progress_bar, ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team, can_save: !!user, show_results: form.show_results,
       // For a card when the link is pasted in Chat: whether you've sent a response, and (for its team) how many came.
       responded: !!user && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id),

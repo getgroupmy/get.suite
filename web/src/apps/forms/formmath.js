@@ -148,6 +148,16 @@ export function sectionsOf(questions) {
   return out[0].items.length || out.length === 1 ? out : out.slice(1);
 }
 
+/**
+ * How far through the form someone is: { at, of } pages, following the pages they've been through (trail) and,
+ * from where they are, the way the answers so far lead (jumps to later sections, or straight to the end).
+ */
+export function progressOf(pages, trail, answers) {
+  let n = 0;
+  for (let i = trail[trail.length - 1]; i < pages.length && n < pages.length; i = nextPage(pages, i, answers)) n++;
+  return { at: trail.length, of: trail.length - 1 + Math.max(n, 1) };
+}
+
 /** Where to go after page i, given the answers: a page index, or the number of pages (= submit). */
 export function nextPage(pages, i, answers) {
   let next = i + 1;

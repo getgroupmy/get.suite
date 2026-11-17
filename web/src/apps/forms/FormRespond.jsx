@@ -3,7 +3,7 @@
 import { requestSummary } from '../drive/requestkinds.js';
 import { checkProblem } from './formcheck.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { sectionsOf, nextPage, prefillFrom, shuffled, draftFrom } from './formmath.js';
+import { sectionsOf, nextPage, progressOf, prefillFrom, shuffled, draftFrom } from './formmath.js';
 import { themeStyle } from './formtheme.js';
 import FormResults, { resultsKey } from './FormResults.jsx';
 import { SignaturePad, textPicture, trimmed, SCRIPT_FONT } from '../../components/SignaturePad.jsx';
@@ -169,7 +169,12 @@ export default function FormRespond({ token, onSignIn }) {
           {restored && drafting && <p className="banner small" role="status" style={{ margin: 0 }}>Your answers from {new Date(restored).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} are back, as you left them. <button type="button" className="link-btn" onClick={() => { touched.current = true; setAnswers({}); setMissing([]); setTrail([0]); setCleared((n) => n + 1); setRestored(null); }}>Start over</button></p>}
           {editing && <p className="banner small" role="status" style={{ margin: 0 }}>You're changing the response you sent. Send it again to keep the changes.</p>}
           {form.questions.some((q) => q.required) && <p className="muted small" style={{ margin: 0 }}><span className="req">*</span> Required</p>}
-          {pages.length > 1 && <p className="muted small form-page-of" style={{ margin: 0 }}>Page {trail.length} · {pages.length} sections</p>}
+          {pages.length > 1 && (() => {
+            const pr = progressOf(pages, trail, answers); // jumps the answers make count: a form that ends early says so
+            return form.progress_bar
+              ? <div className="form-progress"><div className="form-progress-bar" role="progressbar" aria-label="Progress through the form" aria-valuemin={0} aria-valuemax={pr.of} aria-valuenow={pr.at} aria-valuetext={`Page ${pr.at} of ${pr.of}`}><span style={{ width: `${Math.round((pr.at / pr.of) * 100)}%` }} /></div><span className="muted small">Page {pr.at} of {pr.of}</span></div>
+              : <p className="muted small form-page-of" style={{ margin: 0 }}>Page {pr.at} of {pr.of}</p>;
+          })()}
           {pages[page]?.id && <div className="form-section-head"><h2>{pages[page].title || 'Untitled section'}</h2>{pages[page].help && <p className="muted" style={{ margin: 0 }}>{pages[page].help}</p>}</div>}
           {(pages[page]?.items || []).map((q) => (editing && q.type === 'file'
             ? <div key={q.id} className="form-fill-q"><span className="form-fill-title">{q.title || 'Untitled question'}</span><span className="muted small">{editing.files[q.id]?.length ? `Already sent: ${editing.files[q.id].join(', ')}` : 'No files were sent'} (files can't be changed)</span></div>
