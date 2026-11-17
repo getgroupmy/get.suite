@@ -1962,3 +1962,25 @@ test('Word: the toolbar’s fonts and sizes come back (also after LibreOffice sa
     assert.deepEqual(looks((await docFromWord(fs.readFileSync(path.join(dir, 'out', 'f.docx')))).doc), want);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Word: code blocks and page breaks come back (also after LibreOffice saves the file, where installed)', async (t) => {
+  const { wordFromDoc, docFromWord, markWordXml, unmarkWordHtml } = await import('../src/office/word.js');
+  const tx = (x) => ({ type: 'text', text: x }); const p = (x) => ({ type: 'paragraph', content: [tx(x)] });
+  const doc = { type: 'doc', content: [p('Before'), { type: 'codeBlock', content: [tx('let x = 1;\nlet y = 2;')] }, { type: 'pageBreak' }, p('After')] };
+  const shape = (d) => d.content.map((n) => (n.type === 'codeBlock' ? `code:${n.content[0].text}` : n.type === 'pageBreak' ? 'break' : n.content?.[0]?.text));
+  const want = ['Before', 'code:let x = 1;\nlet y = 2;', 'break', 'After'];
+  const buf = await wordFromDoc(doc, 'x');
+  assert.deepEqual(shape((await docFromWord(buf)).doc), want);
+  // A page break in the middle of a paragraph (as Word allows) ends the paragraph there.
+  const html = unmarkWordHtml(`<p>One${markWordXml('<w:br w:type="page"/>').replace(/<[^>]+>/g, '')}Two</p>`);
+  assert.equal(html, '<p>One</p><div data-page-break></div><p>Two</p>');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'c.docx'), buf); fs.mkdirSync(path.join(dir, 'out'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'docx', '--outdir', path.join(dir, 'out'), path.join(dir, 'c.docx')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(shape((await docFromWord(fs.readFileSync(path.join(dir, 'out', 'c.docx')))).doc), want);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -87,9 +87,11 @@ const CommentMark = Mark.create({
   parseHTML: () => [{ tag: 'span[data-comment]' }],
   renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 });
+// A page break, as in web/src/apps/docs/pagebreak.js.
+const PageBreakNode = Node.create({ name: 'pageBreak', group: 'block', atom: true, parseHTML: () => [{ tag: 'div[data-page-break]' }, { tag: 'hr[data-page-break]' }], renderHTML: () => ['div', { 'data-page-break': '' }] });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -124,6 +126,8 @@ export function markWordXml(xml) {
     .replace(/<w:ins\b([^>]*[^/])>([\s\S]*?)<\/w:ins>/g, (m, attrs, inner) => `${marker(`i:${who(attrs)}`)}${inner}${marker('/i')}`)
     .replace(/<w:del\b([^>]*[^/])>([\s\S]*?)<\/w:del>/g, (m, attrs, inner) => `${marker(`d:${who(attrs)}`)}${inner.replace(/<w:delText\b/g, '<w:t').replace(/<\/w:delText>/g, '</w:t>')}${marker('/d')}`)
     // Comments: where each one's text starts and ends (its id kept, to find its words afterwards).
+    // Page breaks (which the converter leaves out): a marker where each is, made a page break afterwards.
+    .replace(/<w:br\b[^>]*w:type="page"[^>]*\/>/g, `<w:t xml:space="preserve">${MK}pb${MK_END}</w:t>`)
     .replace(/<w:commentRangeStart w:id="(\d+)"\/>/g, (m, id) => `${m}${marker(`k:${id}`)}`)
     .replace(/<w:commentRangeEnd w:id="(\d+)"\/>/g, (m, id) => `${marker(`/k:${id}`)}${m}`)
     .replace(/(<w:pPr>[\s\S]*?<\/w:pPr>)/g, (m, ppr) => {
@@ -167,6 +171,10 @@ export function unmarkWordHtml(html, commentId = null) {
       return `<span style="${attr(css)}">`;
     })
     .replace(re('MK/END'), '</span>')
+    // A page break alone in its paragraph (as the download writes it, and Word mostly does): the paragraph becomes one;
+    // one in the middle of a paragraph ends it there.
+    .replace(re('<p>(?:<[^>]+>)*MKpbEND(?:</[^p][^>]*>)*</p>'), '<div data-page-break></div>')
+    .replace(re('MKpbEND'), '</p><div data-page-break></div><p>')
     .replace(re('MK[^END]*END'), '');
 }
 /** A Word file's comments: Map(Word's id → { author, text, at (ms, or null) }). */
@@ -229,7 +237,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
         return { src: `pic:${id}`, alt: image.altText || '' };
       } catch { return { src: '', alt: '[picture]' }; }
     }),
-    styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'p[style-name=\'Quote\'] => blockquote > p:fresh', 'p[style-name=\'Intense Quote\'] => blockquote > p:fresh', 'p[style-name=\'Quotations\'] => blockquote > p:fresh', 'u => u'],
+    styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'p[style-name=\'Quote\'] => blockquote > p:fresh', 'p[style-name=\'Intense Quote\'] => blockquote > p:fresh', 'p[style-name=\'Quotations\'] => blockquote > p:fresh', 'p[style-name=\'Code\'] => pre:separator(\'\\n\')', 'p[style-name=\'HTML Preformatted\'] => pre:separator(\'\\n\')', 'p[style-name=\'Preformatted Text\'] => pre:separator(\'\\n\')', 'u => u'],
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
   // Word's comments: each becomes a thread (a new id), on the words it was about.
@@ -621,7 +629,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
           walk(first?.type === 'paragraph' ? rest : li.content, { level });
         }
       } else if (n.type === 'blockquote') walk(n.content, { ...ctx, para: { style: 'Quote', indent: { left: 720 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 8 } } } }); // Word's own Quote style: it comes back as a quote
-      else if (n.type === 'codeBlock') for (const line of (n.content?.map((c) => c.text).join('') || '').split('\n')) paras.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas' })] }));
+      else if (n.type === 'codeBlock') for (const line of (n.content?.map((c) => c.text).join('') || '').split('\n')) paras.push(new Paragraph({ style: 'Code', children: [new TextRun({ text: line, font: 'Consolas' })] })); // its own style: it comes back as a code block
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));
       else if (n.type === 'image') paras.push(picture(n));
       else if (n.type === 'tableOfContents') paras.push(...contentsBlock());
@@ -688,7 +696,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
     styles: {
       ...((page?.font || page?.fontSize) && { default: { document: { run: { ...(page.font && { font: page.font }), ...(page.fontSize && { size: page.fontSize * 2 }) } } } }), // Normal text: half-points
-      paragraphStyles: [{ id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' } }], // quotes (blockquotes)
+      paragraphStyles: [{ id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' } }, { id: 'Code', name: 'Code', basedOn: 'Normal', next: 'Normal', run: { font: 'Consolas' }, paragraph: { spacing: { after: 0 } } }], // quotes (blockquotes); code blocks
     },
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });

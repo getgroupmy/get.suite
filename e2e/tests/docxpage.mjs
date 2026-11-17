@@ -145,6 +145,20 @@ await step('text in a font and size of its own goes out to Word and comes back s
   const big = page.locator('.ProseMirror span', { hasText: 'at 18 pt' });
   if ((await big.evaluate((el) => getComputedStyle(el).fontSize)) !== '24px') throw new Error('size'); // 18 pt
 });
+await step('a code block and a page break go out to Word and come back', async () => {
+  const tx = (x) => ({ type: 'text', text: x }); const p = (x) => ({ type: 'paragraph', content: [tx(x)] });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Code', content: { type: 'doc', content: [p('Setup:'), { type: 'codeBlock', content: [tx('npm install\nnpm start')] }, { type: 'pageBreak' }, p('Next page')] } })).body;
+  const back = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Code.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return (await fetch(`/api/files/${up.id}/open-as`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' } })).json();
+  }, d.id);
+  await page.goto(`${B}/docs/${back.id}`);
+  const pre = page.locator('.ProseMirror pre');
+  await pre.waitFor();
+  if ((await pre.innerText()).trim() !== 'npm install\nnpm start') throw new Error(await pre.innerText());
+  await page.locator('.ProseMirror [data-page-break]').waitFor();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
