@@ -306,6 +306,20 @@ export default function userRoutes() {
     res.json({ zones });
   });
 
+  // Your writing this week (Home): Docs sprints in the last `days` (7 by default, up to 31): how many, the words and
+  // minutes in all, and the documents written most in (ones still there).
+  r.get('/me/writing', (req, res) => {
+    const days = Math.min(31, Math.max(1, Number(req.query.days) || 7));
+    const since = Date.now() - days * 864e5;
+    let t = { n: 0, words: 0, minutes: 0 }, files = [];
+    try {
+      t = q('SELECT COUNT(*) AS n, COALESCE(SUM(words), 0) AS words, COALESCE(SUM(minutes), 0) AS minutes FROM doc_sprints WHERE user_id = ? AND started >= ?').get(req.user.id, since);
+      files = q(`SELECT f.id, f.name, SUM(s.words) AS words, COUNT(*) AS count FROM doc_sprints s JOIN files f ON f.id = s.file_id AND f.trashed = 0
+        WHERE s.user_id = ? AND s.started >= ? GROUP BY f.id ORDER BY SUM(s.words) DESC LIMIT 5`).all(req.user.id, since);
+    } catch { /* no sprints yet */ }
+    res.json({ days, count: t.n, words: t.words, minutes: t.minutes, files });
+  });
+
   // Calendar settings: { length, speedy, reminders } (calprefs.js); { reset: true } goes back to the defaults.
   r.put('/me/calendar-prefs', (req, res) => {
     // Only what's given changes (the sidebar sets one switch; the settings dialog sends them all).

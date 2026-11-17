@@ -242,6 +242,14 @@ await step('a sprint ended without a connection is kept, and reaches the history
   // The browser's own complaints about the lost connection aren't errors of the page.
   for (let i = errors.length - 1; i >= 0; i--) if (/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket/.test(errors[i])) errors.splice(i, 1);
 });
+await step('Home: Writing this week, from the sprints, with the document', async () => {
+  await page.goto(`${B}/home`);
+  const card = page.getByRole('region', { name: 'Writing this week' }).or(page.locator('section[aria-label="Writing this week"]'));
+  await card.waitFor({ timeout: 15000 });
+  await card.getByText(/words/).first().waitFor();
+  await card.getByRole('link', { name: 'Essay' }).click();
+  await page.waitForURL(/\/docs\//);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

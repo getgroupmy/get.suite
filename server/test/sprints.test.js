@@ -51,3 +51,20 @@ test('sprints are kept per person and document, with totals; others and bad ones
     assert.equal((await olivia('POST', `/api/files/${doc.id}/sprints`, bad)).status, 400, JSON.stringify(bad));
   }
 });
+
+test('your writing this week (Home): totals and the documents written most in, ones in the trash left out', async () => {
+  const olivia = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const a = (await olivia('POST', '/api/files/new', { kind: 'doc', name: 'Novel' })).body;
+  const b = (await olivia('POST', '/api/files/new', { kind: 'doc', name: 'Letter' })).body;
+  const before = (await olivia('GET', '/api/users/me/writing')).body;
+  const t = Date.now();
+  await olivia('POST', `/api/files/${a.id}/sprints`, { started: t - 7200e3, minutes: 25, words: 500 });
+  await olivia('POST', `/api/files/${b.id}/sprints`, { started: t - 3600e3, minutes: 10, words: 80 });
+  const w = (await olivia('GET', '/api/users/me/writing')).body;
+  assert.equal(w.count - before.count, 2);
+  assert.equal(w.words - before.words, 580);
+  assert.equal(w.files[0].name, 'Novel', 'the most words first');
+  await olivia('PATCH', `/api/files/${b.id}`, { trashed: true });
+  assert.ok(!(await olivia('GET', '/api/users/me/writing')).body.files.some((f) => f.name === 'Letter'));
+});
