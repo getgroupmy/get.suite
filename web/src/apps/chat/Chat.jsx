@@ -487,6 +487,14 @@ export default function Chat() {
         else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
         else if (slash.cmd === 'dnd') await pauseFrom(slash, toast);
         else if (slash.cmd === 'event') await eventFromSlash(slash, current, { user, navigate, toast });
+        else if (slash.cmd === 'thanks') {
+          // A thank-you (their card, Home, the bell), posted here: by the server in a channel, as a message in a direct one.
+          const who = (await get('/users/directory')).find((u) => u.username.toLowerCase() === slash.to);
+          if (!who) throw new Error(`${slash.to} isn’t a colleague here`);
+          const k = await post('/kudos', { to: who.id, message: slash.message, ...(slash.emoji && { emoji: slash.emoji }), ...(!current?.dm_key && { channel_id: channelId }) });
+          if (current?.dm_key) await post(`/chat/channels/${channelId}/messages`, { body: `${k.emoji} Thanks, ${who.name}: ${k.message}`, files: [] });
+          toast(`${k.emoji} Thanks sent to ${who.name}`);
+        }
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }
@@ -1172,6 +1180,13 @@ function Thread({ id, channelId, channel, user, onClose }) {
         else if (slash.cmd === 'status') await setStatusFrom(slash, toast);
         else if (slash.cmd === 'dnd') await pauseFrom(slash, toast);
         else if (slash.cmd === 'event') await eventFromSlash(slash, channel, { user, navigate, toast });
+        else if (slash.cmd === 'thanks') { // in a thread: the thank-you is a reply here
+          const who = (await get('/users/directory')).find((u) => u.username.toLowerCase() === slash.to);
+          if (!who) throw new Error(`${slash.to} isn’t a colleague here`);
+          const k = await post('/kudos', { to: who.id, message: slash.message, ...(slash.emoji && { emoji: slash.emoji }) });
+          added(await post(`/chat/channels/${channelId}/messages`, { body: `${k.emoji} Thanks, ${who.name}: ${k.message}`, parent_id: id }));
+          toast(`${k.emoji} Thanks sent to ${who.name}`);
+        }
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }

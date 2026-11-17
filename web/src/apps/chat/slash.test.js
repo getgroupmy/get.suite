@@ -20,10 +20,11 @@ test('not commands: text, a path, an unknown word', () => {
 });
 
 test('suggestions while typing', () => {
-  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'event', 'dnd', 'status']);
+  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'event', 'dnd', 'status', 'thanks']);
   assert.deepEqual(slashSuggestions('/p').map((s) => s.cmd), ['poll']);
   assert.deepEqual(slashSuggestions('/s').map((s) => s.cmd), ['status']);
   assert.deepEqual(slashSuggestions('/poll x'), []);
+  assert.deepEqual(slashSuggestions('/th').map((s) => s.cmd), ['thanks']);
   assert.deepEqual(slashSuggestions('hi'), []);
 });
 
@@ -61,4 +62,14 @@ test('/dnd: an hour, how long, tomorrow, or off', () => {
 test('/event: the words after it, read by Calendar quick add', () => {
   assert.deepEqual(parseSlash('/event'), { cmd: 'event', text: '' });
   assert.deepEqual(parseSlash('/event Planning friday 3pm'), { cmd: 'event', text: 'Planning friday 3pm' });
+});
+
+test('/thanks: a colleague (as the @ list writes them), an optional emoji, what for', () => {
+  assert.deepEqual(parseSlash('/thanks @Kim@Acme.com for the demo'), { cmd: 'thanks', to: 'kim@acme.com', message: 'for the demo' });
+  assert.deepEqual(parseSlash('/thanks @kim@acme.com 🎉 great launch'), { cmd: 'thanks', to: 'kim@acme.com', message: 'great launch', emoji: '🎉' });
+  assert.deepEqual(parseSlash('/thanks @kim@acme.com ❤️ you’re the best'), { cmd: 'thanks', to: 'kim@acme.com', message: 'you’re the best', emoji: '❤️' });
+  assert.equal(parseSlash('/thanks @kim@acme.com 🍕 lunch').emoji, undefined, 'only the thank-you emoji');
+  assert.match(parseSlash('/thanks kim for it').error, /\/thanks @someone/);
+  assert.match(parseSlash('/thanks @kim@acme.com').error, /what you’re thanking/);
+  assert.match(parseSlash(`/thanks @kim@acme.com ${'x'.repeat(281)}`).error, /280/);
 });

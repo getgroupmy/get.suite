@@ -133,6 +133,22 @@ await step('an admin removes someone else’s thank-you from Home; its giver is 
   await kim.getByText('An admin removed your thanks to Olivia Owner').first().waitFor({ timeout: 10000 });
   await kim.keyboard.press('Escape');
 });
+await step('/thanks in Chat: a thank-you for Kim, posted in the channel', async () => {
+  await page.goto(`${B}/chat`);
+  await page.getByRole('button', { name: /general/ }).first().click();
+  const box = page.getByLabel('Message', { exact: true });
+  await box.fill('/thanks @kim@acme.com 🏆 for fixing the build');
+  await page.keyboard.press('Enter');
+  await page.getByText('🏆 Thanks sent to Kim Park').last().waitFor({ timeout: 10000 });
+  await page.getByText('🏆 Thanks, Kim Park: for fixing the build').first().waitFor({ timeout: 10000 });
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const got = (await api(page, 'GET', `/kudos/for/${kimId}`)).body.latest[0];
+  if (got.message !== 'for fixing the build' || got.emoji !== '🏆') throw new Error(JSON.stringify(got));
+  // A mistake: refused, the text left to fix.
+  await box.fill('/thanks kim for it');
+  await page.keyboard.press('Enter');
+  await page.getByText('Write it as /thanks @someone what for').last().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

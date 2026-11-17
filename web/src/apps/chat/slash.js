@@ -1,4 +1,4 @@
-// Slash commands typed at the start of the message box: /meet, /poll Question | option | option, /task title, /status.
+// Slash commands typed at the start of the message box: /meet, /poll Question | option | option, /task title, /status, /thanks.
 // alone: complete with nothing after it, so Enter on exactly "/meet" or "/status" runs it rather than picking it from the list.
 export const SLASH = [
   { cmd: 'meet', alone: true, hint: '/meet', what: 'start a video meeting and share it here' },
@@ -7,7 +7,23 @@ export const SLASH = [
   { cmd: 'event', alone: true, hint: '/event Planning fri 3pm', what: 'a calendar event with the people here (alone: the first free time)' },
   { cmd: 'dnd', alone: true, hint: '/dnd 2h', what: 'pause notifications (an hour; /dnd off resumes them)' },
   { cmd: 'status', alone: true, hint: '/status 🍔 Lunch 1h', what: 'set your status (/status alone clears it)' },
+  { cmd: 'thanks', hint: '/thanks @someone 🎉 for the demo', what: 'thank a colleague (on their card and Home, and posted here)' },
 ];
+
+const KUDOS_EMOJI = ['🙌', '🎉', '💪', '🌟', '🙏', '🚀', '❤️', '🏆'];
+/** "/thanks @kim@acme.com [emoji] what for": { to: 'kim@acme.com', emoji, message }. */
+function parseThanks(rest) {
+  const m = /^@([\w.+-]+@[\w.-]+\.[a-z]{2,})\s*([\s\S]*)$/i.exec(rest);
+  if (!m) return { cmd: 'thanks', error: 'Write it as /thanks @someone what for' };
+  let message = m[2].trim(), emoji;
+  const e = EMOJI.exec(message);
+  const bare = (x) => x.replace(/\uFE0F/g, ''); // ❤️ with or without its variation selector
+  const found = e && KUDOS_EMOJI.find((k) => bare(k) === bare(e[1]));
+  if (found) { emoji = found; message = message.slice(e[0].length).trim(); }
+  if (!message) return { cmd: 'thanks', error: 'Say what you’re thanking them for' };
+  if (message.length > 280) return { cmd: 'thanks', error: 'A thank-you is at most 280 characters' };
+  return { cmd: 'thanks', to: m[1].toLowerCase(), message, ...(emoji && { emoji }) };
+}
 
 // A leading emoji (with skin tones, joiners and variation selectors), and how long a status lasts.
 const EMOJI = /^(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}\uFE0F?)*)\s*/u;
@@ -56,6 +72,7 @@ export function parseSlash(text) {
   if (cmd === 'status') return parseStatus(rest);
   if (cmd === 'dnd') return parseDnd(rest);
   if (cmd === 'event') return { cmd, text: rest.slice(0, 300) };
+  if (cmd === 'thanks') return parseThanks(rest);
   if (cmd === 'task') return rest ? { cmd, title: rest.slice(0, 500) } : { cmd, error: 'Write the task after /task' };
   if (cmd === 'poll') {
     const [question, ...opts] = rest.split('|').map((x) => x.trim());
