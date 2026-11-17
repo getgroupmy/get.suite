@@ -1102,6 +1102,44 @@ export const TOOLS = [
       };
     },
   },
+  {
+    name: 'thank_colleague', title: 'Say thanks', readOnly: false,
+    description: 'Thank a colleague (by email address) for something, as the person: they’re told, and it shows on their card and on everyone’s Home in the company; optionally posted in a Chat channel (#name) too. Ask the person before thanking someone on their behalf, and use their words.',
+    inputSchema: {
+      type: 'object', required: ['to', 'message'],
+      properties: {
+        to: { type: 'string', description: 'A colleague’s email address' }, message: { type: 'string', maxLength: 280, description: 'What for' },
+        emoji: { type: 'string', enum: ['🙌', '🎉', '💪', '🌟', '🙏', '🚀', '❤️', '🏆'], default: '🙌' }, channel: { type: 'string', description: '#channel-name to post it in too (optional)' },
+      },
+    },
+    async run(api, a) {
+      const who = (await api('GET', '/users/directory')).find((u) => u.username.toLowerCase() === String(a.to || '').trim().toLowerCase());
+      if (!who) throw new ToolError(`${a.to} isn’t a colleague in the person’s company`);
+      let channel;
+      if (a.channel) {
+        const name = String(a.channel).replace(/^#/, '').toLowerCase();
+        channel = ((await api('GET', '/chat/channels')).channels || []).find((c) => !c.dm_key && c.name.toLowerCase() === name);
+        if (!channel) throw new ToolError(`No channel #${name} that the person is in`);
+      }
+      const k = await api('POST', '/kudos', { to: who.id, message: a.message, ...(a.emoji && { emoji: a.emoji }), ...(channel && { channel_id: channel.id }) });
+      return { thanked: who.name, emoji: k.emoji, message: k.message, ...(channel && { posted_in: `#${channel.name}` }), url: link('/home') };
+    },
+  },
+  {
+    name: 'recent_thanks', title: 'Recent thanks', readOnly: true,
+    description: 'The latest thank-yous in the company (who thanked whom, for what, with 👏 counts), or those a colleague received (by email address).',
+    inputSchema: { type: 'object', properties: { person: { type: 'string', description: 'A colleague’s email address (default: everyone)' }, limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 } } },
+    async run(api, a) {
+      const limit = Math.min(50, Math.max(1, Number(a.limit) || 10));
+      let list;
+      if (a.person) {
+        const who = (await api('GET', '/users/directory')).find((u) => u.username.toLowerCase() === String(a.person).trim().toLowerCase());
+        if (!who) throw new ToolError(`${a.person} isn’t a colleague in the person’s company`);
+        list = (await api('GET', `/kudos/for/${who.id}`)).latest.slice(0, limit);
+      } else list = await api('GET', `/kudos?limit=${limit}`);
+      return { thanks: list.map((k) => ({ from: k.from_name, to: k.to_name, emoji: k.emoji, message: k.message, applause: k.claps, at: new Date(k.created_at).toISOString() })) };
+    },
+  },
 ];
 
 // How each tool that changes things behaves, for the hints assistants use to decide when to ask the person first
@@ -1109,9 +1147,9 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
-export const REACHES_OTHERS = new Set(['request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
+export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({
   title: t.title, readOnlyHint: t.readOnly,
   ...(!t.readOnly && { destructiveHint: !ADDITIVE.has(t.name), idempotentHint: REPEATABLE.has(t.name) }),

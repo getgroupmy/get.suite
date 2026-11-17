@@ -122,6 +122,20 @@ await step('an assistant asks for a day off; it is in Calendar’s Time off', as
   const listed = (await rpc('tools/call', { name: 'list_time_off', arguments: {} })).result.structuredContent;
   if (!listed.requests.some((x) => x.first_day === day && x.status === r.structuredContent.status)) throw new Error(JSON.stringify(listed));
 });
+await step('an assistant thanks a colleague; it is on Home and in #general', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  await page.evaluate(async () => fetch('/api/users', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' }) }));
+  const r = (await rpc('tools/call', { name: 'thank_colleague', arguments: { to: 'kim@acme.com', message: 'Thanks for the budget review', emoji: '🏆', channel: '#general' } })).result;
+  if (r.isError || r.structuredContent.posted_in !== '#general') throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/home`);
+  const home = page.getByRole('region', { name: 'Thanks' });
+  await home.getByText('Thanks for the budget review').waitFor({ timeout: 10000 });
+  await page.goto(`${B}/chat`);
+  await page.getByRole('button', { name: /general/ }).first().click();
+  await page.getByText('🏆 Thanks, Kim Park: Thanks for the budget review').first().waitFor({ timeout: 10000 });
+  const recent = (await rpc('tools/call', { name: 'recent_thanks', arguments: { person: 'kim@acme.com' } })).result.structuredContent.thanks;
+  if (recent[0]?.message !== 'Thanks for the budget review') throw new Error(JSON.stringify(recent));
+});
 await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
   const crypto = await import('node:crypto');
   const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }) })).json();

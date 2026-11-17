@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -794,4 +794,22 @@ test('time on tasks: a focus session, time added by hand, stopping, and the week
   const bad = await call(rw, 'track_time', { action: 'add', task: `task:${task.id}`, duration: 'a while' });
   assert.equal(bad.isError, true);
   assert.equal((await call(rw, 'track_time', { action: 'start' })).isError, true, 'no task');
+});
+
+test('thanks: an assistant thanks a colleague (also in a channel) and reads recent thanks', async () => {
+  const mate = (await owner('POST', '/api/users', { local: 'thanky', domain: 'acme.com', name: 'Thanky Mate', password: 'password123' })).body;
+  assert.equal((await call(ro, 'thank_colleague', { to: 'thanky@acme.com', message: 'x' })).isError, true, 'read-only tokens can’t');
+  assert.equal((await call(rw, 'thank_colleague', { to: 'nobody@else.com', message: 'Hi' })).isError, true);
+  assert.equal((await call(rw, 'thank_colleague', { to: 'thanky@acme.com', message: 'Hi', channel: '#no-such' })).isError, true);
+  const r = (await call(rw, 'thank_colleague', { to: 'thanky@acme.com', message: 'Thanks for the slides', emoji: '🌟', channel: '#general' })).structuredContent;
+  assert.deepEqual([r.thanked, r.emoji, r.posted_in], ['Thanky Mate', '🌟', '#general']);
+  const all = (await call(ro, 'recent_thanks', {})).structuredContent.thanks;
+  assert.equal(all[0].message, 'Thanks for the slides');
+  assert.equal(all[0].to, 'Thanky Mate');
+  const theirs = (await call(ro, 'recent_thanks', { person: 'thanky@acme.com' })).structuredContent.thanks;
+  assert.deepEqual(theirs.map((k) => k.message), ['Thanks for the slides']);
+  const tools = (await rpc(ro, 'tools/list')).body.result.tools;
+  const t = tools.find((x) => x.name === 'thank_colleague');
+  assert.deepEqual([t.annotations.readOnlyHint, t.annotations.destructiveHint, t.annotations.openWorldHint], [false, false, true]);
+  assert.ok(mate.id);
 });
