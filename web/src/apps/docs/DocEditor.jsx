@@ -712,9 +712,15 @@ function SharedDoc({ file, setFile }) {
         if (!now) { await put('/users/me/status', { emoji: '✍️', text: 'Writing', until: ends }); status = true; }
       } catch { /* the sprint goes on without */ }
     }
-    setSprintNow(Date.now()); setSprint({ ends, words: countWords(editor.state.doc).words, paused, status });
+    setSprintNow(Date.now()); setSprint({ started: Date.now(), ends, words: countWords(editor.state.doc).words, paused, status });
+  };
+  // Each sprint ended or stopped is kept (Word count shows them): when it began, how long it ran, the words added.
+  const recordSprint = (sp, words) => {
+    const started = sp.started || sp.ends - 60e3, ranMs = Math.min(Date.now(), sp.ends) - started;
+    post(`/files/${file.id}/sprints`, { started: Math.round(started), minutes: Math.max(0, Math.round(ranMs / 60e3)), words }).catch(() => {});
   };
   const stopSprint = () => {
+    if (sprint && editor) recordSprint(sprint, countWords(editor.state.doc).words - sprint.words);
     if (sprint?.paused && sprint.ends > Date.now() && pausedUntil() === sprint.ends) pauseUntil(null).catch(() => {});
     if (sprint?.status && sprint.ends > Date.now()) {
       get('/users/me/status').then((r) => (r.status?.text === 'Writing' && r.status?.until === sprint.ends ? del('/users/me/status') : null)).catch(() => {});
@@ -726,7 +732,7 @@ function SharedDoc({ file, setFile }) {
     if (!sprint) return undefined;
     const t = setInterval(() => {
       const now = Date.now(); setSprintNow(now);
-      if (now >= sprint.ends) { toast(`Sprint done: ${sprintText(0, countWords(editor.state.doc).words - sprint.words).split(' · ')[0]}`); setSprint(null); }
+      if (now >= sprint.ends) { const added = countWords(editor.state.doc).words - sprint.words; recordSprint(sprint, added); toast(`Sprint done: ${sprintText(0, added).split(' · ')[0]}`); setSprint(null); }
     }, 1000);
     return () => clearInterval(t);
   }, [sprint, editor, toast]);
@@ -744,7 +750,9 @@ function SharedDoc({ file, setFile }) {
     try { gone = JSON.parse(localStorage.getItem(sprintKey) || 'null'); } catch { gone = null; }
     if (!gone || gone.ends > Date.now()) return;
     try { localStorage.removeItem(sprintKey); } catch { /* fine */ }
-    toast(`Your sprint ended while you were away: ${sprintText(0, countWords(editor.state.doc).words - gone.words).split(' · ')[0]}`, 'info', { duration: 8000 });
+    const added = countWords(editor.state.doc).words - gone.words;
+    recordSprint(gone, added);
+    toast(`Your sprint ended while you were away: ${sprintText(0, added).split(' · ')[0]}`, 'info', { duration: 8000 });
   }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
   const reopenRef = useRef(!!sprint); // (its own flag: the effect above clears resumingRef first)
   // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -988,7 +996,7 @@ function SharedDoc({ file, setFile }) {
           refocus();
         }} />}
       {prefsOpen && <DocPrefsDialog prefs={prefsRef.current} onSaved={(p) => { prefsRef.current = p; setLook({ zoom: p.zoom || 100, spellcheck: p.spellcheck !== false }); }} onClose={() => { setPrefsOpen(false); editor.view.focus(); }} />}
-      {wordCount && <WordCountDialog editor={editor} live={liveCount} onLive={setLiveCount} onClose={() => { setWordCount(false); editor.view.focus(); }}
+      {wordCount && <WordCountDialog fileId={file.id} editor={editor} live={liveCount} onLive={setLiveCount} onClose={() => { setWordCount(false); editor.view.focus(); }}
         goal={file.page_setup?.wordGoal || null} onGoal={readOnly ? null : async (wordGoal) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: { ...(file.page_setup || {}), wordGoal } })); toast(wordGoal ? `Goal: ${wordGoal.toLocaleString('en-GB')} words` : 'Goal removed'); } catch (e) { toast(e.message, 'error'); } }} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}

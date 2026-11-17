@@ -1,6 +1,7 @@
 // The Word count window (⋮ menu or Ctrl+Shift+C), and the small counter shown while typing.
 import { useEffect, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
+import { get } from '../../api.js';
 import { longKey, rememberLong, LONG, VERY_LONG } from './longsentences.js';
 import { countText, textOfDoc, counterText, readingTime, speakingTime, countSentences, readability, goalProgress } from './wordcount.js';
 
@@ -30,8 +31,11 @@ function useCounts(editor) {
   return c;
 }
 
-export function WordCountDialog({ editor, live, onLive, onClose, goal = null, onGoal = null }) {
+export function WordCountDialog({ editor, live, onLive, onClose, goal = null, onGoal = null, fileId = null }) {
   const { all, part } = useCounts(editor);
+  // Your writing sprints in this document (Docs focus mode), if any.
+  const [sprints, setSprints] = useState(null);
+  useEffect(() => { if (fileId) get(`/files/${fileId}/sprints`).then(setSprints).catch(() => {}); }, [fileId]);
   const [g, setG] = useState(goal ? String(goal) : '');
   const n = (x) => x.toLocaleString('en-GB');
   const rows = [
@@ -58,6 +62,14 @@ export function WordCountDialog({ editor, live, onLive, onClose, goal = null, on
       <label className="check" style={{ marginTop: 12 }}>
         <input type="checkbox" checked={live} onChange={(e) => { remember(e.target.checked); onLive(e.target.checked); }} /> Display word count while typing
       </label>
+      {sprints?.count > 0 && (
+        <div className="small sprint-history" style={{ marginTop: 12 }} role="group" aria-label="Your sprints here">
+          <strong>Your sprints here:</strong> {sprints.count} · {sprints.words >= 0 ? '+' : '−'}{Math.abs(sprints.words).toLocaleString('en-GB')} words in {sprints.minutes} min
+          <ul className="plain-list muted">
+            {sprints.recent.slice(0, 5).map((x) => <li key={x.started}>{new Date(x.started).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}: {x.words >= 0 ? '+' : '−'}{Math.abs(x.words)} words in {x.minutes} min</li>)}
+          </ul>
+        </div>
+      )}
       {goal && <p className="small" style={{ margin: '8px 0 0' }}>Goal: {goalProgress(all.words, goal).text} ({goalProgress(all.words, goal).pct}%)</p>}
       {onGoal && (
         <form className="row wrap word-goal" style={{ gap: 8, marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); const v = Number(g); onGoal(g.trim() && v >= 1 ? Math.round(v) : null); }}>

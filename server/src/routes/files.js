@@ -857,6 +857,32 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
+  // Writing sprints in a document (Docs focus mode): each one ended or stopped is kept for the person who wrote it,
+  // so Word count can show their sprints there. { started, minutes (how long it ran), words (added; can be fewer) }.
+  q(`CREATE TABLE IF NOT EXISTS doc_sprints (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    started INTEGER NOT NULL,
+    minutes INTEGER NOT NULL,
+    words INTEGER NOT NULL,
+    PRIMARY KEY (user_id, file_id, started)
+  )`).run();
+  r.post('/:id/sprints', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'doc') throw bad('Sprints are for documents');
+    const started = Number(req.body?.started), minutes = Number(req.body?.minutes), words = Number(req.body?.words);
+    if (!Number.isInteger(started) || started > Date.now() + 60e3 || started < Date.now() - 2 * 864e5) throw bad('When did it start?');
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 240) throw bad('A sprint lasts up to 4 hours');
+    if (!Number.isInteger(words) || Math.abs(words) > 100000) throw bad('How many words?');
+    q(`INSERT INTO doc_sprints (user_id, file_id, started, minutes, words) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (user_id, file_id, started) DO UPDATE SET minutes = excluded.minutes, words = excluded.words`).run(req.user.id, f.id, started, minutes, words);
+    res.status(201).json(sprintsOf(req.user.id, f.id));
+  });
+  r.get('/:id/sprints', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    res.json(sprintsOf(req.user.id, f.id));
+  });
+
   q(`CREATE TABLE IF NOT EXISTS offline_copies (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
@@ -2261,4 +2287,10 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   return r;
+}
+
+/** Someone's sprints in a document: how many, the words they added in all, and the last 10 (newest first). */
+function sprintsOf(userId, fileId) {
+  const t = q('SELECT COUNT(*) AS n, COALESCE(SUM(words), 0) AS words, COALESCE(SUM(minutes), 0) AS minutes FROM doc_sprints WHERE user_id = ? AND file_id = ?').get(userId, fileId);
+  return { count: t.n, words: t.words, minutes: t.minutes, recent: q('SELECT started, minutes, words FROM doc_sprints WHERE user_id = ? AND file_id = ? ORDER BY started DESC LIMIT 10').all(userId, fileId) };
 }

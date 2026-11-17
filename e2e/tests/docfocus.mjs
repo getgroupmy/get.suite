@@ -210,6 +210,17 @@ await step('a sprint can show “✍️ Writing” as your status until it ends,
   await page.evaluate(() => { localStorage.removeItem('nw-sprint-seconds'); localStorage.removeItem('nw-sprint-status'); });
   await page.keyboard.press('Control+Shift+F');
 });
+await step('Word count lists your sprints in the document', async () => {
+  await page.locator('.ProseMirror').first().click();
+  await page.keyboard.press('Control+Shift+C');
+  const box = page.getByRole('group', { name: 'Your sprints here' });
+  await box.waitFor({ timeout: 10000 });
+  const n = Number((await box.innerText()).match(/Your sprints here:\s*(\d+)/)[1]);
+  if (n < 3) throw new Error(`${n} sprints`);
+  await box.getByText(/\+3 words in \d+ min/).first().waitFor(); // the first sprint (+3 words)
+  await page.screenshot({ path: `${SP}/shots/sprint-history.png` });
+  await page.getByRole('dialog', { name: 'Word count' }).getByRole('button', { name: 'OK' }).click();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
