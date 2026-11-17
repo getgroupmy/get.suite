@@ -1860,3 +1860,39 @@ test('Word: normal text comes back from a Word file, as the download writes it',
   assert.deepEqual(normalTextOfStyles(styles), { font: 'Times New Roman', fontSize: 11 });
   assert.deepEqual(normalTextOfStyles('<w:sz w:val="27"/>'), {}, 'nothing offered: nothing');
 });
+
+test('OpenDocument: LibreOffice keeps every page setting of our .odt when it saves it again (where it is installed)', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.skip('LibreOffice is not installed here'); return; }
+  const { odtFromDoc, pageOfOdt } = await import('../src/office/odt.js');
+  const page = { size: 'letter', orientation: 'landscape', margin: 'narrow', pageColor: '#fff2cc', header: 'Acme & Co', footer: 'Private', numbers: true, columns: 2, lineNumbers: true, watermark: 'DRAFT', font: 'Georgia', fontSize: 12 };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'in.odt'), await odtFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body' }] }] }, 'x', { page }));
+    fs.mkdirSync(path.join(dir, 'out'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'out'), path.join(dir, 'in.odt')], { stdio: 'ignore', timeout: 120000 });
+    const back = await pageOfOdt(fs.readFileSync(path.join(dir, 'out', 'in.odt')));
+    for (const k of Object.keys(page)) assert.deepEqual(back[k], page[k], k);
+    // And off stays off: a plain file has no line numbers after LibreOffice saves it.
+    fs.writeFileSync(path.join(dir, 'plain.odt'), await odtFromDoc({ type: 'doc', content: [] }, 'x'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'out'), path.join(dir, 'plain.odt')], { stdio: 'ignore', timeout: 120000 });
+    assert.equal((await pageOfOdt(fs.readFileSync(path.join(dir, 'out', 'plain.odt')))).lineNumbers, undefined);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Word: LibreOffice keeps the page setup of our .docx when it saves it again (where it is installed)', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.skip('LibreOffice is not installed here'); return; }
+  const { wordFromDoc, pageOfWord } = await import('../src/office/word.js');
+  const page = { size: 'letter', orientation: 'landscape', margin: 'narrow', header: 'Acme & Co', footer: 'Private', numbers: true, watermark: '', pageColor: '#fff2cc', font: 'Georgia', fontSize: 12 };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'in.docx'), await wordFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body' }] }] }, 'x', { page }));
+    fs.mkdirSync(path.join(dir, 'out'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'docx', '--outdir', path.join(dir, 'out'), path.join(dir, 'in.docx')], { stdio: 'ignore', timeout: 120000 });
+    const back = await pageOfWord(fs.readFileSync(path.join(dir, 'out', 'in.docx')));
+    for (const k of ['size', 'orientation', 'margin', 'header', 'footer', 'numbers', 'pageColor', 'font', 'fontSize']) assert.deepEqual(back[k], page[k], k);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

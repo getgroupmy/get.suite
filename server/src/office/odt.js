@@ -296,7 +296,9 @@ export async function pageOfOdt(buffer) {
     if (left) out.margin = Object.entries({ normal: 25.4, narrow: 12.7, wide: 38.1 }).sort((x, y) => Math.abs(x[1] - left) - Math.abs(y[1] - left))[0][0];
     const cols = Number(/<style:columns\b[^>]*fo:column-count="(\d+)"/.exec(styles)?.[1]);
     if (cols >= 2 && cols <= 3) out.columns = cols;
-    if (/<text:linenumbering-configuration\b[^>]*text:number-lines="true"/.test(styles)) out.lineNumbers = true;
+    // Line numbering is on unless it says otherwise (ODF's default is true; LibreOffice leaves it out then, and writes "false" when off).
+    const numbering = /<text:linenumbering-configuration\b[^>]*>/.exec(styles)?.[0];
+    if (numbering && !/text:number-lines="false"/.test(numbering)) out.lineNumbers = true;
     // Header and footer: the first master page's text (a page-number field: page numbers on).
     const master = /<style:master-page\b[^>]*?(?:\/>|>[\s\S]*?<\/style:master-page>)/.exec(styles)?.[0] || '';
     const textIn = (xml) => (xml || '').replace(/<text:page-number\b[\s\S]*?<\/text:page-number>|<text:page-number\b[^>]*\/>/g, '').replace(/<text:s(?:\s[^>]*)?\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 200);
