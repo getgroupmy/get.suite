@@ -15,7 +15,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 import { brokenProtections, mayEdit } from './sheetprotect.js';
@@ -176,6 +176,27 @@ export function changeSheet(fileId, fn, by = null) {
     return;
   }
   const f = q("SELECT content FROM files WHERE id = ? AND kind = 'sheet' AND trashed = 0").get(fileId);
+  if (!f) return;
+  const next = fn(JSON.parse(f.content || '{}'));
+  if (!next) return;
+  const json = JSON.stringify(next);
+  q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ?, updated_by = COALESCE(?, updated_by) WHERE id = ?')
+    .run(json, Buffer.byteLength(json), Date.now(), by, fileId);
+  indexSoon();
+  const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
+  sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
+}
+/** The same for a presentation: `fn` gets its content and gives the changed one (or nothing to leave it). */
+export function changeDeck(fileId, fn, by = null) {
+  const room = rooms.get(fileId);
+  if (room) {
+    const next = fn(jsonFromDeckDoc(room.doc));
+    if (!next) return;
+    applyDeckJson(room.doc, next); // sent to everyone in the room by its update handler
+    room.lastEditor = by || room.lastEditor;
+    return;
+  }
+  const f = q("SELECT content FROM files WHERE id = ? AND kind = 'slides' AND trashed = 0").get(fileId);
   if (!f) return;
   const next = fn(JSON.parse(f.content || '{}'));
   if (!next) return;

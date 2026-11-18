@@ -145,6 +145,17 @@ await step('an assistant makes a presentation: it opens in Slides, a slide per h
   if ((await page.getByLabel('Speaker notes').inputValue()) !== 'Mention the waiting list') throw new Error('notes missing');
   await page.screenshot({ path: `${SP}/shots/assistant-deck.png` });
 });
+await step('the presentation is open while an assistant adds a slide after the first: it appears live in the list', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude slides', scope: 'write', days: 30 })).body.token;
+  const id = page.url().split('/').pop().split('?')[0];
+  await page.evaluate(() => { window.__stayedDeck = true; });
+  const r = await mcp(token, 'add_slides', { file: `file:${id}`, slides: [{ title: 'Timeline', points: ['Beta in December', 'Launch in March'] }], after: 1 });
+  if (r.isError || r.structuredContent.first_new_slide !== 2) throw new Error(JSON.stringify(r));
+  await page.getByRole('button', { name: 'Slide 3', exact: true }).waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  await page.locator('.slide-stage').getByText('Launch in March').waitFor();
+  if (!(await page.evaluate(() => window.__stayedDeck))) throw new Error('the page reloaded');
+});
 await step('an assistant sets the person’s status: colleagues see it in the Directory; cleared, it goes', async () => {
   const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 6', scope: 'write', days: 30 })).body.token;
   const r = await mcp(token, 'set_status', { emoji: '🎧', text: 'Focusing', until: new Date(Date.now() + 3600e3).toISOString() });

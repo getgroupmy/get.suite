@@ -641,6 +641,24 @@ export const TOOLS = [
     },
   },
   {
+    name: 'add_slides', title: 'Add slides to a presentation', readOnly: false,
+    description: 'Add slides to an existing Workspace presentation from an outline, at the end or after a given slide: each a title with its points (bullets), or with no points a title slide (with an optional subtitle); notes are its speaker notes. Read it with fetch first to see what is there.',
+    inputSchema: {
+      type: 'object', required: ['file', 'slides'],
+      properties: {
+        file: { type: 'string', description: 'The presentation’s id (file:…, from search or list_files)' },
+        slides: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', properties: { title: { type: 'string' }, subtitle: { type: 'string' }, points: { type: 'array', maxItems: 20, items: { type: 'string' } }, notes: { type: 'string' } } } },
+        after: { type: 'integer', minimum: 0, description: 'Put them after this slide (1 = after the first; 0 = at the start); the end when left out' },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const r = await api('POST', `/files/${encodeURIComponent(id)}/slides`, { slides: a.slides, after: a.after ?? null });
+      const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+      return { added: r.added, first_new_slide: r.first, slides: r.slides, name: f.name, url: fileUrl({ ...f, kind: 'slides' }) };
+    },
+  },
+  {
     name: 'append_to_document', title: 'Add to a document', readOnly: false,
     description: 'Add text to the end of an existing Workspace document (e.g. today’s minutes to a running log). Lines become paragraphs; lines starting with #, ## or ### become headings. In a document with tabs, it goes at the end of the tab named (else the last tab).',
     inputSchema: {
@@ -1261,7 +1279,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({

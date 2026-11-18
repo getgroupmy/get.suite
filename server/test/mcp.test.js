@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -897,4 +897,23 @@ test('change words in a document: everywhere or first only, any case; read-only 
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Nowhere', replace: 'x' })).structuredContent.replaced, 0);
   assert.equal((await call(ro, 'replace_in_document', { file: `file:${doc.id}`, find: 'Beta', replace: 'x' })).isError, true);
   assert.match((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'a\nb', replace: 'x' })).content[0].text, /within one paragraph/);
+});
+
+test('add slides to a presentation: at the end or after a slide, in its theme; a read-only token can’t', async () => {
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Pitch', content: { theme: 'dark', slides: [{ id: 's1', items: [{ id: 't', type: 'text', role: 'title', text: 'Intro', x: 5, y: 5, w: 90, h: 10 }] }, { id: 's2', items: [{ id: 't', type: 'text', role: 'title', text: 'End', x: 5, y: 5, w: 90, h: 10 }] }] } })).body;
+  let r = await call(rw, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'Market', points: ['Big', 'Growing'], notes: 'Pause here' }], after: 1 });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.added, r.structuredContent.first_new_slide, r.structuredContent.slides, r.structuredContent.name], [1, 2, 3, 'Pitch']);
+  r = await call(rw, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'Thanks', subtitle: 'Questions?' }] });
+  assert.deepEqual([r.structuredContent.first_new_slide, r.structuredContent.slides], [4, 4]);
+  const c = (await owner('GET', `/api/files/${deck.id}/content`)).body.content;
+  const titles = c.slides.map((s) => s.items.find((it) => it.role === 'title')?.text);
+  assert.deepEqual(titles, ['Intro', 'Market', 'End', 'Thanks']);
+  assert.equal(c.theme, 'dark', 'the deck keeps its theme');
+  assert.equal(c.slides[1].notes, 'Pause here');
+  assert.match(c.slides[1].items.find((it) => it.role === 'body').text, /• Big\n• Growing/);
+  assert.match((await call(rw, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'x' }], after: 9 })).content[0].text, /after is a slide number from 0 to 4/);
+  assert.equal((await call(ro, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'x' }] })).isError, true);
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Not slides' })).body;
+  assert.match((await call(rw, 'add_slides', { file: `file:${doc.id}`, slides: [{ title: 'x' }] })).content[0].text, /only be added to a presentation/);
 });

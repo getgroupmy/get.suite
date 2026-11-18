@@ -29,9 +29,10 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow, changeSheet, appendToDocument, replaceInDocument } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument } from '../collab.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
+import { deckFromOutline } from '../decktext.js';
 import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
@@ -1545,6 +1546,29 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!out) throw bad('That spreadsheet couldn’t be changed');
     recordActivity(f.id, req.user.id, 'edit');
     res.json({ sheet: out.sheet, range: out.range, added: out.added });
+  });
+
+  // Add slides to a presentation from an outline (decktext.js): { slides: [{ title, points?, subtitle?, notes? }], after? }
+  // after slide `after` (1-based; the end when not given), live for anyone with it open, the version before kept.
+  r.post('/:id/slides', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'slides') throw bad('Slides can only be added to a presentation');
+    notLocked(f);
+    const made = deckFromOutline(req.body?.slides).slides;
+    saveNow(f.id);
+    const cur = q('SELECT updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
+    if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
+    let at = 0, total = 0;
+    changeDeck(f.id, (deck) => {
+      const slides = Array.isArray(deck.slides) ? deck.slides : [];
+      const after = req.body?.after === undefined || req.body?.after === null ? slides.length : Number(req.body.after);
+      if (!Number.isInteger(after) || after < 0 || after > slides.length) throw bad(`after is a slide number from 0 to ${slides.length}`);
+      if (slides.length + made.length > 500) throw bad('A presentation can have at most 500 slides');
+      at = after; total = slides.length + made.length;
+      return { ...deck, slides: [...slides.slice(0, after), ...made, ...slides.slice(after)] };
+    }, req.user.id);
+    recordActivity(f.id, req.user.id, 'edit');
+    res.json({ added: made.length, first: at + 1, slides: total });
   });
 
   // Change cells of a spreadsheet: { sheet?, cells?: { B4: value }, at?, rows? } (sheetrows.js), live and kept
