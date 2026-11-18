@@ -1760,6 +1760,25 @@ test('PowerPoint: animations go out as PowerPoint entrance effects and come back
   assert.deepEqual(animationsOf('<p:timing><p:cTn id="5" presetID="53" presetClass="entr"><p:spTgt spid="7"/></p:cTn></p:timing>'), [{ spid: '7', anim: 'fade' }]);
 });
 
+test('PowerPoint: exit animations (disappear, fade out) go out as exit effects and come back', async () => {
+  const { powerPointFromDeck, deckFromPowerPoint, animationsOf } = await import('../src/office/powerpoint.js');
+  const deck = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 'a', type: 'text', x: 5, y: 20, w: 60, h: 10, text: 'Comes in', anim: 'fade', animAt: 1 },
+    { id: 'b', type: 'text', x: 5, y: 35, w: 60, h: 10, text: 'Fades away', anim: 'fadeout', animAt: 2 },
+    { id: 'c', type: 'shape', shape: 'ellipse', fill: '#00ff00', x: 50, y: 50, w: 20, h: 20, anim: 'disappear', animAt: 3 },
+  ] }] };
+  const buf = await powerPointFromDeck(deck);
+  const xml = await (await JSZip.loadAsync(buf)).file('ppt/slides/slide1.xml').async('string');
+  assert.equal((xml.match(/presetClass="exit"/g) || []).length, 2);
+  assert.match(xml, /<p:animEffect transition="out" filter="fade">/);
+  assert.equal((xml.match(/<p:strVal val="hidden"\/>/g) || []).length, 2, 'both end hidden');
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => null });
+  const got = back.slides[0].items.filter((it) => it.anim).sort((a, b) => a.animAt - b.animAt).map((it) => [it.text || it.shape, it.anim, it.animAt]);
+  assert.deepEqual(got, [['Comes in', 'fade', 1], ['Fades away', 'fadeout', 2], ['ellipse', 'disappear', 3]]);
+  // Exit effects Slides doesn't have come in as a fade out.
+  assert.deepEqual(animationsOf('<p:timing><p:cTn id="5" presetID="42" presetClass="exit"><p:spTgt spid="7"/></p:cTn></p:timing>'), [{ spid: '7', anim: 'fadeout' }]);
+});
+
 test('Excel download: a named table keeps its name; structured references go as plain ranges', async () => {
   const JSZip = (await import('jszip')).default;
   const data = { sheets: [

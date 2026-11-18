@@ -198,7 +198,18 @@ export const setCell = (cells, r, c, text) => cells.map((row, i) => (i === r ? r
 
 // ---- animations: a box with { anim: 'appear' | 'fade' | 'fly', animAt: n } comes in on a click while
 // presenting, in the order they were given an animation (animAt).
-export const ANIMATIONS = [['', 'None'], ['appear', 'Appear'], ['fade', 'Fade in'], ['fly', 'Fly in']];
+export const ANIMATIONS = [['', 'None'], ['appear', 'Appear'], ['fade', 'Fade in'], ['fly', 'Fly in'], ['disappear', 'Disappear'], ['fadeout', 'Fade out']];
+/** Animations that take a box away (on their click) rather than bring it in. */
+export const isExit = (anim) => anim === 'disappear' || anim === 'fadeout';
+/**
+ * Presenting with `built` clicks done: is the box shown, and is it moving now? An entrance box shows from its click
+ * on; an exit box shows until its click (fading out on it).
+ */
+export function buildState(anim, at, built) {
+  if (built === undefined || !at) return { shown: true, moving: '' };
+  if (isExit(anim)) return { shown: at > built || (at === built && anim === 'fadeout'), moving: at === built && anim === 'fadeout' ? 'anim-fadeout' : '' };
+  return { shown: at <= built, moving: at === built ? `anim-${anim}` : '' };
+}
 /** The slide's animated boxes, in the order they come in. */
 /** Does slide i show its number? deck.numbers: true (every slide) or 'skip-first' (all but the title slide). Same as the server's. */
 export const numberShown = (deck, i) => !!deck?.numbers && !(deck.numbers === 'skip-first' && i === 0);

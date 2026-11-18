@@ -2032,8 +2032,11 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .slide-item.anim-fade { animation: slide-anim-fade 0.5s ease-out both; }
 .slide-item.anim-fly { animation: slide-anim-fly 0.5s ease-out both; }
 @keyframes slide-anim-fade { from { opacity: 0; } to { opacity: 1; } }
+.slide-item.anim-fadeout { animation: slide-anim-fadeout 0.5s ease-in both; }
+@keyframes slide-anim-fadeout { from { opacity: 1; } to { opacity: 0; visibility: hidden; } }
+.slide-item .anim-badge.exit { background: #b3261e; }
 @keyframes slide-anim-fly { from { opacity: 0; transform: translateY(40%); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .slide-item.anim-fade, .slide-item.anim-fly { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .slide-item.anim-fade, .slide-item.anim-fly { animation: none; } .slide-item.anim-fadeout { animation: none; visibility: hidden; } }
 .pv-builds { display: block; margin-top: 6px; }
 .sheet-changes ins, .slide-changes ins { background: color-mix(in srgb, #188038 18%, transparent); color: inherit; text-decoration: none; border-radius: 2px; }
 .sheet-changes del, .slide-changes del { background: color-mix(in srgb, #c5221f 14%, transparent); color: inherit; border-radius: 2px; }

@@ -126,15 +126,17 @@ const TRANSITION_XML = { fade: '<p:fade/>', push: '<p:push dir="u"/>', zoom: '<p
  */
 // ---- animations: PowerPoint's entrance effects ↔ Slides' (appear, fade, fly), one a click.
 const PRESETS = { 1: 'appear', 10: 'fade', 2: 'fly' };
+const EXIT_PRESETS = { 1: 'disappear', 10: 'fadeout' }; // (other exit effects come in as a fade out)
 /** A slide's entrance effects (main sequence), in order: [{ spid, anim }]. Effects Slides doesn't have come in as a fade. */
 export function animationsOf(slideXml) {
   const timing = /<p:timing>[\s\S]*<\/p:timing>/.exec(String(slideXml))?.[0];
   if (!timing) return [];
   const out = [];
-  const re = /<p:cTn\b([^>]*\bpresetClass="entr"[^>]*)>([\s\S]*?)<p:spTgt spid="(\d+)"/g;
+  const re = /<p:cTn\b([^>]*\bpresetClass="(entr|exit)"[^>]*)>([\s\S]*?)<p:spTgt spid="(\d+)"/g;
   for (let m; (m = re.exec(timing));) {
     const preset = Number(/presetID="(\d+)"/.exec(m[1])?.[1]);
-    if (!out.some((o) => o.spid === m[3])) out.push({ spid: m[3], anim: PRESETS[preset] || 'fade' });
+    const anim = m[2] === 'exit' ? EXIT_PRESETS[preset] || 'fadeout' : PRESETS[preset] || 'fade';
+    if (!out.some((o) => o.spid === m[4])) out.push({ spid: m[4], anim });
   }
   return out.slice(0, 100);
 }
@@ -142,19 +144,22 @@ let ctnId = 2;
 const ctn = () => ++ctnId;
 const tgt = (spid) => `<p:tgtEl><p:spTgt spid="${spid}"/></p:tgtEl>`;
 const showIt = (spid) => `<p:set><p:cBhvr><p:cTn id="${ctn()}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>${tgt(spid)}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set>`;
+const hideIt = (spid, delay = 0) => `<p:set><p:cBhvr><p:cTn id="${ctn()}" dur="1" fill="hold"><p:stCondLst><p:cond delay="${delay}"/></p:stCondLst></p:cTn>${tgt(spid)}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="hidden"/></p:to></p:set>`;
 const EFFECT = {
+  disappear: (spid) => hideIt(spid),
+  fadeout: (spid) => `<p:animEffect transition="out" filter="fade"><p:cBhvr><p:cTn id="${ctn()}" dur="500"/>${tgt(spid)}</p:cBhvr></p:animEffect>${hideIt(spid, 499)}`,
   appear: (spid) => showIt(spid),
   fade: (spid) => `${showIt(spid)}<p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="${ctn()}" dur="500"/>${tgt(spid)}</p:cBhvr></p:animEffect>`,
   fly: (spid) => `${showIt(spid)}${['ppt_x', 'ppt_y'].map((a) => `<p:anim calcmode="lin" valueType="num"><p:cBhvr additive="base"><p:cTn id="${ctn()}" dur="500" fill="hold"/>${tgt(spid)}<p:attrNameLst><p:attrName>${a}</p:attrName></p:attrNameLst></p:cBhvr><p:tavLst><p:tav tm="0"><p:val><p:strVal val="${a === 'ppt_x' ? '#ppt_x' : '1+#ppt_h/2'}"/></p:val></p:tav><p:tav tm="100000"><p:val><p:strVal val="#${a}"/></p:val></p:tav></p:tavLst></p:anim>`).join('')}`,
 };
-const PRESET_OF = { appear: [1, 0], fade: [10, 0], fly: [2, 4] }; // [presetID, presetSubtype (4: from the bottom)]
+const PRESET_OF = { appear: [1, 0], fade: [10, 0], fly: [2, 4], disappear: [1, 0], fadeout: [10, 0] }; // [presetID, presetSubtype (4: from the bottom)]
 /** A slide's animations as PowerPoint writes them: a click sequence of entrance effects. `builds`: [{ spid, anim, text }]. */
 export function timingXml(builds) {
   ctnId = 2;
   const clicks = builds.map((b) => {
     const [preset, sub] = PRESET_OF[b.anim] || PRESET_OF.fade;
     const outer = ctn(), mid = ctn(), eff = ctn();
-    return `<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${mid}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${eff}" presetID="${preset}" presetClass="entr" presetSubtype="${sub}" fill="hold" grpId="0" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>${(EFFECT[b.anim] || EFFECT.fade)(b.spid)}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>`;
+    return `<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${mid}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${eff}" presetID="${preset}" presetClass="${b.anim === 'disappear' || b.anim === 'fadeout' ? 'exit' : 'entr'}" presetSubtype="${sub}" fill="hold" grpId="0" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>${(EFFECT[b.anim] || EFFECT.fade)(b.spid)}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>`;
   }).join('');
   const bld = builds.filter((b) => b.text).map((b) => `<p:bldP spid="${b.spid}" grpId="0" animBg="1"/>`).join('');
   return `<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst>${bld ? `<p:bldLst>${bld}</p:bldLst>` : ''}</p:timing>`;

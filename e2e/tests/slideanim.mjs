@@ -104,6 +104,32 @@ await step('No animation takes it out of the order', async () => {
   await until(async () => (await page.locator('.slide-stage .anim-badge').count()) === 1);
   await page.locator('.slide-stage .anim-badge', { hasText: '1' }).waitFor();
 });
+await step('an exit animation: the box is there until its click, then fades out', async () => {
+  await page.locator('.slide-stage [aria-label^="Text: Second point"]').click();
+  await page.getByLabel('Animation').selectOption('fadeout');
+  await page.locator('.slide-stage .anim-badge.exit', { hasText: '2' }).waitFor();
+  await saved();
+  const it = (await content()).slides[0].items.find((x) => x.text === 'Second point');
+  if (it.anim !== 'fadeout' || it.animAt !== 2) throw new Error(JSON.stringify(it));
+  await page.getByRole('button', { name: 'Slide 1', exact: true }).click();
+  await page.getByRole('button', { name: 'Present' }).first().click();
+  const p = page.getByRole('dialog', { name: 'Presenting' });
+  await p.getByText('1 / 2').waitFor();
+  await p.getByText('Second point').waitFor(); // there from the start
+  if (!(await p.getByText('First point').isHidden())) throw new Error('first should wait');
+  await page.keyboard.press('ArrowRight');
+  await p.getByText('First point').waitFor();
+  await p.getByText('Second point').waitFor();
+  await page.keyboard.press('ArrowRight');
+  const name = await p.locator('.anim-fadeout').evaluate((el) => getComputedStyle(el).animationName);
+  if (name !== 'slide-anim-fadeout') throw new Error('animation ' + name);
+  await until(async () => p.getByText('Second point').isHidden());
+  await p.getByText('1 / 2').waitFor(); // still the same slide
+  await page.keyboard.press('ArrowLeft'); // back: it is there again
+  await p.getByText('Second point').waitFor();
+  await page.keyboard.press('Escape');
+  await p.waitFor({ state: 'detached' });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

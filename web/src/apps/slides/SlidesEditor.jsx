@@ -26,7 +26,7 @@ import {
   THEMES, themeOf, masterOn, THEME_FONTS, CORNERS, cleanCustom, cleanMaster, LAYOUTS, numberShown, newId, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
-  ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges, groupMembers, sharedGroup, groupItems, ungroupItems } from './slidemath.js';
+  ANIMATIONS, isExit, buildState, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges, groupMembers, sharedGroup, groupItems, ungroupItems } from './slidemath.js';
 import { cleanLink, linkTarget, linkLabel, slideTitle, dropLinksTo } from './slidelinks.js';
 import { PRINT_LAYOUTS, printPages, isPortrait } from './printlayout.js';
 import { slideFileName, zipStored } from './slideimages.js';
@@ -929,10 +929,10 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
             })();
         }
         const at = buildAt.get(it.id);
-        const notYet = built !== undefined && at && at > built;
-        const arriving = built !== undefined && at && at === built ? `anim-${it.anim}` : '';
+        const { shown: buildShown, moving: arriving } = buildState(it.anim, at, built);
+        const notYet = !buildShown;
         return (
-          <div key={it.id} className={`slide-item ${it.type} ${isSel || inGroup ? 'sel' : ''} ${inGroup ? 'in-group' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
+          <div key={it.id} className={`slide-item ${it.type} ${isSel || inGroup ? 'sel' : ''} ${inGroup ? 'in-group' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (at <= built ? 'yes' : 'no') : undefined}
             style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
             aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : boxShape(it) && it.text ? `Shape: ${it.text.slice(0, 40)}` : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'audio' ? `Sound: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
@@ -941,7 +941,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
             onDoubleClick={editable && (it.type === 'text' || it.type === 'table' || boxShape(it)) ? () => onEdit(it.id) : undefined}>
             {inner}
             {editable && it.link && <span className="link-badge" title="Has a link (followed when presenting)" aria-hidden="true">🔗</span>}
-            {editable && at && <span className="anim-badge" title={`Comes in on click ${at} (${it.anim})`} aria-hidden="true">{at}</span>}
+            {editable && at && <span className={`anim-badge ${isExit(it.anim) ? 'exit' : ''}`} title={`${isExit(it.anim) ? 'Goes' : 'Comes in'} on click ${at} (${it.anim})`} aria-hidden="true">{at}</span>}
             {isSel && editing !== it.id && HANDLES.map((h) => <span key={h} className={`handle ${h}`} aria-hidden="true" onPointerDown={(e) => startDrag(e, it, h)} />)}
             {isSel && editing !== it.id && <span className="handle rot" title="Drag to rotate (Shift: any angle)" aria-hidden="true" onPointerDown={(e) => startDrag(e, it, 'rot')} />}
           </div>
