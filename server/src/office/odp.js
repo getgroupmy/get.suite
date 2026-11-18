@@ -88,7 +88,24 @@ export function odpAnimationsOf(timing, tags) {
   return out.slice(0, 100);
 }
 
-export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } = {}) {
+/**
+ * A slide's comment threads as Impress keeps them: an annotation each, its replies right after it at the same
+ * place (Impress shows them as comments of their own) and named after it, so they come back as replies.
+ */
+function slideAnnotations(threads) {
+  const when = (t) => new Date(t || Date.now()).toISOString().slice(0, 19);
+  const note = (c, place, name) => `<officeooo:annotation ${place}${name}><dc:creator>${x(c.author || '')}</dc:creator><dc:date>${when(c.at)}</dc:date>${String(c.text || '').split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</officeooo:annotation>`;
+  return threads.map((t, k) => {
+    const place = `svg:x="0.5cm" svg:y="${(0.5 + k * 1.2).toFixed(1)}cm"`; // (each thread a place of its own: replies share it)
+    return note(t, place, '') + (t.replies || []).map((r) => note(r, place, '')).join('');
+  }).join('');
+}
+
+const odpComments = new WeakMap(); // deck → [{ slideId, author, text, at, replies: [{ author, text, at }] }]
+/** The comment threads a presentation read from an .odp file had, by slide (see deckFromOdp). */
+export const commentsOfOdpDeck = (deck) => odpComments.get(deck) || [];
+
+export async function odpFromDeck(deck, { pictureData, title = 'Presentation', comments = [] } = {}) {
   const theme = themeOfDeck(deck);
   const color = (v, fallback) => { const c = v === 'accent' ? theme.accent : v === 'text' ? theme.text : v === 'bg' ? theme.bg : v; return COLOR.test(c || '') ? c.toLowerCase() : fallback; };
   const font = theme.font || 'Liberation Sans';
@@ -213,9 +230,10 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
     }
     items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).flatMap((pc) => (pc.paraIds?.length ? pc.paraIds : [pc.animId]).map((id, n) => ({ id, anim: pc.it.anim, start: n ? null : pc.it.animStart || null }))));
     const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:class="notes" presentation:placeholder="false" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
-    pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}</draw:page>`;
+    const threads = (comments || []).filter((t) => t.slideId === s.id && t.text);
+    pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}${slideAnnotations(threads)}</draw:page>`;
   }
-  const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" office:version="1.3"';
+  const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" xmlns:officeooo="http://openoffice.org/2009/office" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content ${NS}><office:automatic-styles>${auto.join('')}</office:automatic-styles><office:body><office:presentation>${pages}</office:presentation></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
@@ -318,7 +336,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
   const paraText = (el) => tags(el).filter((k) => k.name === 'text:p' || k.name === 'text:h' || k.name === 'text:list').map((k) => (k.name === 'text:list' ? tags(k, 'text:list-item').map((li) => paraText(li)).join('\n') : textOf(k))).join('\n');
   const fillOf = (g) => (g['draw:fill'] === 'solid' || (g['draw:fill'] === undefined && g['draw:fill-color']) ? hex(g['draw:fill-color']) : null);
   const outlineOf = (g) => { if (g['draw:stroke'] !== 'solid' || !hex(g['svg:stroke-color'])) return {}; const pt = (toCm(g['svg:stroke-width']) || 0.0353) / 0.0353; return { outline: hex(g['svg:stroke-color']), outlineW: OUTLINES.reduce((a, b) => (Math.abs(b - pt) < Math.abs(a - pt) ? b : a)) }; };
-  const slides = [];
+  const slides = [], threads = [];
   const fresh = () => Math.random().toString(36).slice(2, 10);
   const pres = (function find(n) { for (const k of tags(n)) { if (k.name === 'office:presentation') return k; const f = find(k); if (f) return f; } return null; })(root);
   const pageLinks = new Map();
@@ -411,9 +429,23 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     const nf = notes && (tags(notes, 'draw:frame').find((f) => f.attribs['presentation:class'] === 'notes') || tags(notes, 'draw:frame').find((f) => tags(f, 'draw:text-box').length));
     const nt = nf ? paraText(tags(nf, 'draw:text-box')[0] || nf).trim() : '';
     if (nt) slide.notes = nt.slice(0, 20000);
+    // Its comments: each a thread, except one at the very place of the one before it (and not older), a reply to it.
+    let last = null;
+    for (const a of tags(page, 'officeooo:annotation').slice(0, 200)) {
+      const kid = (name) => textOf(tags(a, name)[0] || { children: [] }).trim();
+      const c = { author: kid('dc:creator').slice(0, 100), at: Date.parse(kid('dc:date') + (/(Z|[+-]\d\d:?\d\d)$/.test(kid('dc:date')) ? '' : 'Z')) || null, text: paraText(a).trim().slice(0, 5000) };
+      if (!c.text) continue;
+      const place = `${a.attribs['svg:x'] || ''}|${a.attribs['svg:y'] || ''}`;
+      if (last && last.place === place && (!c.at || !last.thread.at || c.at >= last.thread.at)) { last.thread.replies.push(c); continue; }
+      const thread = { slideId: slide.id, ...c, replies: [] };
+      threads.push(thread);
+      last = { place, thread };
+    }
     slides.push(slide);
   }
   // Links to another slide, now that every slide has its id.
   for (const s of slides) for (const it of s.items) if (it.link?.pageName) { const id = pageLinks.get(it.link.pageName); if (id) it.link = { slide: id }; else delete it.link; }
-  return { theme: 'light', slides: slides.length ? slides : [{ id: fresh(), items: [] }] };
+  const deck = { theme: 'light', slides: slides.length ? slides : [{ id: fresh(), items: [] }] };
+  odpComments.set(deck, threads);
+  return deck;
 }

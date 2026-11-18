@@ -38,7 +38,7 @@ import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../offic
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { odtFromDoc, docFromOdt, ODT_MIME, pageOfOdt } from '../office/odt.js';
 import { odsFromSheet, sheetFromOds, ODS_MIME } from '../office/ods.js';
-import { odpFromDeck, deckFromOdp, ODP_MIME } from '../office/odp.js';
+import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, EPUB_MIME } from '../office/epub.js';
 import { emlView } from '../mail/emlview.js';
@@ -1791,7 +1791,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') { content = await sheetFromExcel(buf); sheetThreads = commentsOfBook(content); }
       else if (type === 'ods') content = await sheetFromOds(buf);
-      else if (type === 'odp') content = await deckFromOdp(buf, { savePicture });
+      else if (type === 'odp') { content = await deckFromOdp(buf, { savePicture }); slideComments = commentsOfOdpDeck(content); }
       else { content = await deckFromPowerPoint(buf, { savePicture }); slideComments = commentsOfDeck(content); }
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'odt' ? 'an OpenDocument text file' : type === 'ods' ? 'an OpenDocument spreadsheet' : type === 'odp' ? 'an OpenDocument presentation' : type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
@@ -1815,12 +1815,12 @@ export default function fileRoutes({ maxUploadBytes }) {
       for (const r of c.replies) q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)').run(uid(), id, tid, req.user.id, signedXl(r), r.at || c.at || now());
     }
     // A PowerPoint file's comments: threads on their slides, with their replies (and resolved when they were).
-    const signedPpt = (c) => (c.author ? `${c.text}\n\n— ${c.author} (in the PowerPoint file)` : c.text);
-    for (const c of slideComments) {
+    const signedPpt = (c) => (c.author ? `${c.text}\n\n— ${c.author} (in the ${type === 'odp' ? 'OpenDocument' : 'PowerPoint'} file)` : c.text);
+    for (const c of slideComments || []) {
       const tid = uid();
       q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, resolved, resolved_by, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)')
         .run(tid, id, req.user.id, signedPpt(c), JSON.stringify({ slide: c.slideId }), c.resolved ? 1 : 0, c.resolved ? req.user.id : null, c.at || now());
-      for (const r of c.replies) q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)').run(uid(), id, tid, req.user.id, signedPpt(r), r.at || c.at || now());
+      for (const r of c.replies || []) q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)').run(uid(), id, tid, req.user.id, signedPpt(r), r.at || c.at || now());
     }
     // A Word file's page setup stays: paper, orientation, margins, header, footer, page numbers, watermark, columns, line numbers.
     if (type === 'docx' || type === 'odt') {
@@ -1854,7 +1854,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
     if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [] });
     if (type === 'ods') return odsFromSheet(content);
-    if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name });
+    if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name, comments: slideCommentsOf(f.id) });
     if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
     if (type === 'xlsx') return excelFromSheet(content, { comments: cellCommentsOf(f.id) });
     return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });

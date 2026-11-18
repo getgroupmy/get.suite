@@ -195,6 +195,36 @@ test('a text box coming in a paragraph at a time: .odp and .pptx both ways, also
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('.odp: comment threads on slides go out as Impress keeps them and come back with their replies, also through LibreOffice', async (t) => {
+  const { commentsOfOdpDeck } = await import('../src/office/odp.js');
+  const d = { theme: 'light', slides: [{ id: 's1', items: [{ id: 't', type: 'text', x: 5, y: 5, w: 60, h: 10, text: 'Hello' }] }, { id: 's2', items: [] }] };
+  const comments = [
+    { id: 'c1', slideId: 's1', author: 'Olivia Owner', at: Date.parse('2026-11-01T10:00:00Z'), text: 'Shorter title?', replies: [{ author: 'Kim Park', at: Date.parse('2026-11-02T10:00:00Z'), text: 'Done' }] },
+    { id: 'c3', slideId: 's1', author: 'Lee Wu', at: Date.parse('2026-11-01T11:00:00Z'), text: 'Another <one> & more', replies: [] },
+    { id: 'c2', slideId: 's2', author: 'Kim Park', at: Date.parse('2026-11-03T10:00:00Z'), text: 'Two\nlines', replies: [] },
+    { id: 'gone', slideId: 'nope', author: 'X', text: 'On a slide no longer there', replies: [] },
+  ];
+  const show = (deck) => commentsOfOdpDeck(deck).map((c) => [deck.slides.findIndex((s) => s.id === c.slideId), c.author, c.text, c.at, c.replies.map((r) => [r.author, r.text, r.at])]);
+  const want = [
+    [0, 'Olivia Owner', 'Shorter title?', Date.parse('2026-11-01T10:00:00Z'), [['Kim Park', 'Done', Date.parse('2026-11-02T10:00:00Z')]]],
+    [0, 'Lee Wu', 'Another <one> & more', Date.parse('2026-11-01T11:00:00Z'), []],
+    [1, 'Kim Park', 'Two\nlines', Date.parse('2026-11-03T10:00:00Z'), []],
+  ];
+  const buf = await odpFromDeck(d, { comments });
+  const xml = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  assert.equal((xml.match(/<officeooo:annotation /g) || []).length, 4);
+  assert.deepEqual(show(await deckFromOdp(buf)), want);
+  assert.deepEqual(commentsOfOdpDeck(await deckFromOdp(await odpFromDeck(d))), [], 'none: none');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'odpcomments-'));
+  fs.writeFileSync(path.join(dir, 'a.odp'), buf);
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odp', '--outdir', path.join(dir, 'o'), path.join(dir, 'a.odp')], { stdio: 'ignore', timeout: 120000 });
+  assert.deepEqual(show(await deckFromOdp(fs.readFileSync(path.join(dir, 'o', 'a.odp')))), want, 'saved again by LibreOffice');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('.odp: grouped boxes go out in one <draw:g> and come back grouped; a group of one is just a box', async () => {
   const grouped = { theme: 'light', slides: [{ id: 'a', items: [
     { id: 'a1', type: 'shape', shape: 'ellipse', x: 10, y: 10, w: 10, h: 10, fill: 'accent', group: 'g' },
