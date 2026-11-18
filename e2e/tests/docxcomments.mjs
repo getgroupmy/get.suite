@@ -73,6 +73,26 @@ await step('the .odt download keeps the comment thread: reopened, it is on the s
   if (threads.filter((c) => !c.thread_id).length !== 1 || threads.filter((c) => c.thread_id).length !== 1) throw new Error(JSON.stringify(threads.map((c) => [c.thread_id, c.body])));
   await page.screenshot({ path: `${SP}/shots/odt-comments.png` });
 });
+await step('a Word download saved again by LibreOffice keeps the reply as a reply', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore' }); } catch { console.log('(LibreOffice not installed: skipped)'); return; }
+  const bytes = await page.evaluate(async (id) => Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer())), docId);
+  const dir = fs.mkdtempSync(`${SP}/lo-`);
+  fs.writeFileSync(`${dir}/in.docx`, Buffer.from(bytes));
+  fs.mkdirSync(`${dir}/out`);
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'docx', '--outdir', `${dir}/out`, `${dir}/in.docx`], { stdio: 'ignore', timeout: 120000 });
+  const b64 = fs.readFileSync(`${dir}/out/in.docx`).toString('base64');
+  const up = await page.evaluate(async (data) => (await fetch('/api/files/upload?name=Review-LO.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: Uint8Array.from(atob(data), (c) => c.charCodeAt(0)) })).json(), b64);
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  const threads = (await api(page, 'GET', `/comments/${opened.body.id}`)).body;
+  if (threads.filter((c) => !c.thread_id).length !== 1 || !threads.some((c) => c.thread_id && c.body.includes('Checked: it is 12.'))) throw new Error(JSON.stringify(threads.map((c) => [c.thread_id, c.body])));
+  await page.goto(`${B}/docs/${opened.body.id}`);
+  const mark = page.locator('.ProseMirror [data-comment]');
+  await mark.waitFor();
+  await mark.click();
+  await page.getByText('Checked: it is 12.').first().waitFor();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -329,6 +329,19 @@ export async function commentsOfWord(buffer) {
       // A reply to a reply belongs to the same thread.
       for (const c of out.values()) { let p = c.parent; for (let k = 0; p && out.get(p)?.parent && k < 50; k++) p = out.get(p).parent; if (p) c.parent = p; }
     }
+    // Replies as LibreOffice writes them (no commentsExtended links): a comment with no words of its own, its reference
+    // right where its thread's words start.
+    const doc = await (await JSZip.loadAsync(buffer)).file('word/document.xml')?.async('string');
+    if (doc) {
+      const ranged = new Set([...doc.matchAll(/<w:commentRangeStart w:id="(\d+)"/g)].map((m) => m[1]));
+      for (const m of doc.matchAll(/<w:commentRangeStart w:id="(\d+)"\/>((?:\s*<w:r>\s*(?:<w:rPr>(?:(?!<\/w:rPr>)[\s\S])*<\/w:rPr>\s*)?<w:commentReference w:id="\d+"\/>\s*<\/w:r>)+)/g)) {
+        if (!out.has(m[1]) || out.get(m[1]).parent) continue;
+        for (const r of m[2].matchAll(/<w:commentReference w:id="(\d+)"/g)) {
+          const c = out.get(r[1]);
+          if (c && r[1] !== m[1] && !ranged.has(r[1]) && !c.parent) c.parent = m[1];
+        }
+      }
+    }
   } catch { /* none */ }
   for (const c of out.values()) delete c.paraId;
   return out;

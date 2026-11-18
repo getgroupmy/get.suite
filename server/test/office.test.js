@@ -1476,6 +1476,25 @@ test('Word: open comment threads go into the download as Word comments', async (
   assert.equal(zip.file('word/comments.xml'), null);
 });
 
+test('Word: replies in a LibreOffice-made file (no reply links) come back as replies', async () => {
+  // LibreOffice writes a reply as a comment with no words of its own, referenced where its thread's words start.
+  const body = '<w:p><w:r><w:t xml:space="preserve">The </w:t></w:r><w:commentRangeStart w:id="1"/><w:r><w:rPr><w:rStyle w:val="X"/></w:rPr><w:commentReference w:id="0"/></w:r><w:r><w:commentReference w:id="5"/></w:r>'
+    + '<w:r><w:t>budget</w:t></w:r><w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r><w:r><w:t xml:space="preserve"> is </w:t></w:r>'
+    + '<w:commentRangeStart w:id="3"/><w:r><w:t>ready</w:t></w:r><w:commentRangeEnd w:id="3"/><w:r><w:commentReference w:id="3"/></w:r></w:p>';
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  const cm = (id, author, t) => `<w:comment w:id="${id}" w:author="${author}" w:date="2026-11-0${Number(id) + 1}T10:00:00Z"><w:p><w:r><w:t>${t}</w:t></w:r></w:p></w:comment>`;
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('x')] }] })));
+  zip.file('word/document.xml', `<?xml version="1.0"?><w:document ${W}><w:body>${body}</w:body></w:document>`);
+  zip.file('word/comments.xml', `<?xml version="1.0"?><w:comments ${W}>${cm(0, 'Kim Park', 'Yes, signed off.')}${cm(1, 'Olivia Owner', 'Is this final?')}${cm(3, 'Lee Wu', 'Sure?')}${cm(5, 'Raj Patel', 'Me too')}</w:comments>`);
+  const rels = await zip.file('word/_rels/document.xml.rels').async('string');
+  zip.file('word/_rels/document.xml.rels', rels.replace('</Relationships>', '<Relationship Id="rIdC" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/></Relationships>'));
+  const { comments } = await docFromWord(await zip.generateAsync({ type: 'nodebuffer' }));
+  assert.deepEqual(comments.map((c) => [c.author, c.text, c.quote, c.replies.map((r) => r.author)]), [
+    ['Olivia Owner', 'Is this final?', 'budget', ['Kim Park', 'Raj Patel']],
+    ['Lee Wu', 'Sure?', 'ready', []],
+  ]);
+});
+
 /** A PowerPoint file with comments added to its slides (the kinds PowerPoint writes). */
 async function withPptComments(buf, { legacy, modern }) {
   const zip = await JSZip.loadAsync(buf);
