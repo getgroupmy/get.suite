@@ -165,6 +165,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
         {canUnlock && <button type="button" className="btn small" onClick={() => setLocked(false)}>Unlock</button>}
       </div>
     )}
+    {file?.id && file.role !== 'owner' && <SharedNote file={file} />}
     {file?.id && <ApprovalBanner fileId={file.id} />}
     {requesting && <RequestApproval file={file} onClose={() => setRequesting(false)} />}
     {file?.id && icon === 'doc' && <SignatureBanner fileId={file.id} me={user} onChanged={() => window.location.reload()} />}
@@ -220,6 +221,25 @@ export function ReadOnlyBanner({ file, commenter = 'You can comment, not edit.' 
     <div className="banner">
       {file.locked_at ? 'Locked.' : file.role === 'commenter' ? commenter : 'View only.'}{' '}
       {!file.locked_at && (asked ? `Asked ${file.owner_name} for edit access.` : <>Ask {file.owner_name} for edit access. <button type="button" className="btn small" onClick={ask}>Request edit access</button></>)}
+    </div>
+  );
+}
+
+/** The message a file was shared with you with, at the top until you close it (remembered per file in this browser). */
+function SharedNote({ file }) {
+  const key = `nw.sharedNote.${file.id}`;
+  const [note, setNote] = useState(null);
+  useEffect(() => {
+    let off = false;
+    try { if (localStorage.getItem(key)) return undefined; } catch { /* storage off: show it */ }
+    get(`/files/${file.id}`).then((f) => { if (!off && f.shared_note) setNote({ by: f.shared_by_name, text: f.shared_note }); }).catch(() => {});
+    return () => { off = true; };
+  }, [file.id, key]);
+  if (!note) return null;
+  return (
+    <div className="banner shared-note" role="note">
+      <span className="grow">{note.by || 'Someone'} shared it with you: “{note.text}”</span>
+      <button type="button" className="icon-btn" aria-label="Close the message" onClick={() => { setNote(null); try { localStorage.setItem(key, '1'); } catch { /* fine */ } }}><Icon name="close" size={16} /></button>
     </div>
   );
 }

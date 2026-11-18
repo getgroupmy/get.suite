@@ -65,6 +65,15 @@ await step('Kim is told, with the message', async () => {
   await k.getByRole('button', { name: 'Actions for Budget' }).click();
   await k.getByRole('menuitem', { name: 'Details' }).click();
   await k.getByRole('dialog').getByText('Olivia Owner shared it with you: “Please look at the rent”.').waitFor();
+  // Opening it shows the message at the top until she closes it.
+  await k.goto(`${B}/sheets/${sheet.id}`);
+  const note = k.getByRole('note').filter({ hasText: 'Olivia Owner shared it with you: “Please look at the rent”' });
+  await note.waitFor();
+  await note.getByRole('button', { name: 'Close the message' }).click();
+  await k.reload();
+  await k.locator('.grid').waitFor();
+  await k.waitForTimeout(800);
+  if (await k.getByRole('note').filter({ hasText: 'shared it with you' }).count()) throw new Error('shown again');
 });
 await step('Kim can comment on a cell but not change it', async () => {
   kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
