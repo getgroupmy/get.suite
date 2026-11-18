@@ -29,7 +29,7 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
 import { deckFromOutline } from '../decktext.js';
@@ -541,17 +541,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // still open), newest first, with who and when.
   // Your documents with suggestions from other people waiting for an answer, latest first:
   // [{ file: { id, name, kind }, count, from: [names], at, link }].
-  r.get('/suggestions/for-me', (req, res) => {
-    const docs = q(`SELECT id, name, kind FROM files WHERE owner_id = ? AND kind = 'doc' AND trashed = 0
-                    AND (content LIKE '%suggestInsert%' OR content LIKE '%suggestDelete%') LIMIT 200`).all(req.user.id);
-    const out = [];
-    for (const f of docs) {
-      const theirs = suggestionsOf(f.id).filter((x) => x.by !== req.user.id);
-      if (!theirs.length) continue;
-      out.push({ file: f, count: theirs.length, from: [...new Set(theirs.map((x) => x.name || 'Someone'))], at: Math.max(...theirs.map((x) => x.at || 0)), link: `/docs/${f.id}` });
-    }
-    res.json(out.sort((a, b) => b.at - a.at));
-  });
+  r.get('/suggestions/for-me', (req, res) => res.json(suggestionsWaitingFor(req.user.id)));
 
   r.get('/shared-recently', (req, res) => {
     const me = req.user.id;

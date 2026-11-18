@@ -12,6 +12,7 @@ import { smtpFor } from './mail/imap.js';
 import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
+import { suggestionsWaitingFor } from './collab.js';
 import { datesOn } from './contactreminders.js';
 import { myTimeOf } from './tasktime.js';
 
@@ -92,6 +93,14 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     if (comments.length > 6) lines.push(`  and ${comments.length - 6} more (Home → Comments for you)`);
     lines.push('');
   }
+  // (with comments: suggested edits waiting in your documents)
+  const suggestions = off.has('comments') ? [] : suggestionsWaitingFor(userId);
+  if (suggestions.length) {
+    lines.push(`Suggestions to review (${suggestions.reduce((n, x) => n + x.count, 0)}):`);
+    for (const x of suggestions.slice(0, 6)) lines.push(`  “${x.file.name}”: ${x.count} from ${x.from.join(', ')}${link(x.link)}`);
+    if (suggestions.length > 6) lines.push(`  and ${suggestions.length - 6} more documents (Home → Suggestions to review)`);
+    lines.push('');
+  }
   const drive = off.has('drive') ? [] : driveChanges(userId, t);
   if (drive.length) {
     lines.push(`Changed in Drive since yesterday (${drive.length} file${drive.length === 1 ? '' : 's'}):`);
@@ -114,9 +123,9 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     lines.push('');
   }
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
-  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length,
+  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length, suggestions: suggestions.length,
     // Nothing in the parts it has: no events, tasks, unread chat, comments or Drive changes.
-    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + dates.length + comments.length + drive.length + (week?.any ? 1 : 0)), dates: dates.length, week };
+    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + dates.length + comments.length + suggestions.length + drive.length + (week?.any ? 1 : 0)), dates: dates.length, week };
 }
 
 const hrs = (h) => { const r = Math.round(h * 10) / 10; return r > 0 && r < 1 ? `${Math.round(h * 60)} min` : `${r} h`; };

@@ -305,6 +305,18 @@ export function suggestionsOf(fileId) {
   const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc'").get(fileId);
   try { return f ? suggestionsInJson(JSON.parse(f.content || '{}')) : []; } catch { return []; }
 }
+/** Someone's documents with other people's suggestions waiting, latest first: [{ file: { id, name, kind }, count, from: [names], at, link }]. */
+export function suggestionsWaitingFor(userId) {
+  const docs = q(`SELECT id, name, kind FROM files WHERE owner_id = ? AND kind = 'doc' AND trashed = 0
+                  AND (content LIKE '%suggestInsert%' OR content LIKE '%suggestDelete%') LIMIT 200`).all(userId);
+  const out = [];
+  for (const f of docs) {
+    const theirs = suggestionsOf(f.id).filter((x) => x.by !== userId);
+    if (!theirs.length) continue;
+    out.push({ file: f, count: theirs.length, from: [...new Set(theirs.map((x) => x.name || 'Someone'))], at: Math.max(...theirs.map((x) => x.at || 0)), link: `/docs/${f.id}` });
+  }
+  return out.sort((a, b) => b.at - a.at);
+}
 /** Accept or reject the chosen suggestions, live for anyone editing: how many. */
 export function resolveSuggestions(fileId, pick, accept, by = null) {
   const room = rooms.get(fileId);

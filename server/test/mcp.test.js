@@ -990,6 +990,15 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   const waiting = (await sue('GET', '/api/files/suggestions/for-me')).body;
   assert.deepEqual(waiting.map((w) => [w.file.name, w.count, w.from, w.link]), [['Sue’s plan', 3, ['Olivia Owner'], `/docs/${doc.id}`]]);
   assert.deepEqual((await owner('GET', '/api/files/suggestions/for-me')).body.filter((w) => w.file.name === 'Sue’s plan'), [], 'not Olivia’s document');
+  // Sue's assistant sees them waiting too; her daily summary has them.
+  const sueToken = (await sue('POST', '/api/tokens', { password: 'password123', name: 'Sue’s assistant', scope: 'read', days: 30 })).body.token;
+  const forSue = (await call(sueToken, 'comments_for_me', {})).structuredContent;
+  assert.deepEqual(forSue.suggestions_to_review.map((x) => [x.file_name, x.suggestions, x.from]), [['Sue’s plan', 3, ['Olivia Owner']]]);
+  assert.equal((await call(sueToken, 'comments_for_me', { assigned_only: true })).structuredContent.suggestions_to_review, undefined);
+  const { digestFor } = await import('../src/digest.js');
+  const sueId = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'sue@acme.com').id;
+  const dg = digestFor(sueId);
+  assert.match(dg.text, /Suggestions to review \(3\):\n  “Sue’s plan”: 3 from Olivia Owner/);
   // Sue answers them: Olivia hears what became of hers; not Sue of her own.
   const pending = (await sue('POST', `/api/files/${doc.id}/suggestions`, { accept: true, ids: [] })).body;
   assert.equal(pending.resolved, 0);

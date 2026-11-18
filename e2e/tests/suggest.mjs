@@ -150,6 +150,12 @@ await step('the owner’s Home lists the document with suggestions to review; it
   await page.goto(`${B}/home`);
   const card = page.getByRole('region', { name: 'Suggestions to review' });
   await card.getByText('1 suggestion from Rae Reviewer').waitFor();
+  // The morning summary has it too (with comments).
+  await page.goto(`${B}/settings`);
+  const summary = page.getByRole('region', { name: 'Morning summary' });
+  await summary.getByRole('button', { name: 'Show what it would say' }).click();
+  await summary.getByLabel('Summary preview').getByText(/Suggestions to review \(1\):\s+“Review me”: 1 from Rae Reviewer/).waitFor();
+  await page.goto(`${B}/home`);
   await card.getByRole('link', { name: /Review me/ }).click();
   await page.waitForURL(new RegExp(`/docs/${doc.id}`));
   await pm(page).locator('ins.sugg-ins', { hasText: 'twelve' }).waitFor();
