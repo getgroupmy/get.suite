@@ -44,3 +44,34 @@ export async function delimitedFromSheet(data, index = 0, sep = ',') {
   }
   return out.join('\r\n') + (out.length ? '\r\n' : '');
 }
+
+/**
+ * A spreadsheet as text for reading (an assistant's fetch): each sheet under its name, its used cells as a
+ * tab-separated table of the values shown (row numbers and column letters given), then its formulas with what
+ * they give. Hidden sheets are marked as such.
+ */
+export async function sheetReadingText(data, { maxCells = 20000 } = {}) {
+  const { colName, parseRef } = await import('../sheetcalc/formula.js');
+  const out = [];
+  let budget = maxCells;
+  for (const [i, s] of (data?.sheets || []).entries()) {
+    const tsv = (await delimitedFromSheet(data, i, '\t')).replace(/\r\n$/, '').split('\r\n');
+    const width = Math.max(0, ...tsv.map((l) => l.split('\t').length));
+    out.push(`## Sheet: ${s.name}${s.hidden ? ' (hidden)' : ''}`);
+    if (!tsv[0] && tsv.length <= 1) { out.push('(empty)'); continue; }
+    out.push(['', ...Array.from({ length: width }, (_, c) => colName(c))].join('\t'));
+    for (const [r, line] of tsv.entries()) {
+      if (budget <= 0) { out.push('… (more rows left out)'); break; }
+      budget -= width;
+      if (line.replace(/\t/g, '')) out.push(`${r + 1}\t${line}`);
+    }
+    const results = formulaResults(data, i);
+    const formulas = Object.entries(s.cells || {}).filter(([k, v]) => typeof v === 'string' && v.startsWith('=') && parseRef(k)).slice(0, 500);
+    if (formulas.length) {
+      out.push('', 'Formulas:');
+      for (const [k, v] of formulas) { const r = results(k); const shown = !r ? '' : 'number' in r ? r.number : 'bool' in r ? (r.bool ? 'TRUE' : 'FALSE') : 'error' in r ? r.error : r.text; out.push(`${k}: ${v} → ${shown}`); }
+    }
+    out.push('');
+  }
+  return out.join('\n').trim();
+}

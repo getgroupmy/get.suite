@@ -253,6 +253,11 @@ test('add rows to a spreadsheet: after its table, lined up; a read-only token ca
   assert.deepEqual([cells.B3, cells.C3, cells.B4, cells.C4, cells.B2], ['Lunch', '18.5', 'Hotel', '240', 'Taxi']);
   // Read with fetch: the new rows are there.
   assert.match((await call(rw, 'fetch', { id: `file:${sheet.id}` })).structuredContent.text, /Hotel/);
+  // fetch reads a spreadsheet as tables of its values (rows numbered, columns lettered), formulas worked out.
+  const f2 = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Sums', content: { sheets: [{ name: 'Totals', cells: { A1: 'Item', B1: 'Cost', A2: 'Rent', B2: '900', A3: 'Total', B3: '=SUM(B2:B2)*2' } }] } })).body;
+  const read = (await call(rw, 'fetch', { id: `file:${f2.id}` })).structuredContent.text;
+  assert.match(read, /## Sheet: Totals\n\tA\tB\n1\tItem\tCost\n2\tRent\t900\n3\tTotal\t1800/);
+  assert.match(read, /B3: =SUM\(B2:B2\)\*2 → 1800/);
   // A read-only token, a sheet that isn't there, a document: refused, saying why.
   assert.equal((await call(ro, 'add_sheet_rows', { file: `file:${sheet.id}`, rows: [['x']] })).isError, true);
   assert.match((await call(rw, 'add_sheet_rows', { file: `file:${sheet.id}`, sheet: 'Nope', rows: [['x']] })).content[0].text, /No sheet called “Nope”/);

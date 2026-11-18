@@ -47,7 +47,7 @@ import { rtfFromDoc, docFromRtf } from '../office/rtf.js';
 import { pdfFromDoc } from '../office/pdfdoc.js';
 import { pdfFromDeck, notesPdfFromDeck } from '../office/slidepdf.js';
 import { pdfFromSheet } from '../office/sheetpdf.js';
-import { delimitedFromSheet } from '../office/sheetvalues.js';
+import { delimitedFromSheet, sheetReadingText } from '../office/sheetvalues.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -1487,7 +1487,10 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user);
     if (f.kind === 'folder') throw bad('A folder has no text');
     const full = q('SELECT * FROM files WHERE id = ?').get(f.id);
-    const text = String(await textOf(full) || '');
+    // (a spreadsheet: as a table of its values, formulas worked out, rather than its words for searching)
+    let sheetJson = null;
+    if (f.kind === 'sheet') { saveNow(f.id); try { sheetJson = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'); } catch { sheetJson = null; } }
+    const text = String((sheetJson ? await sheetReadingText(sheetJson) : await textOf(full)) || '');
     res.json({ file: publicFile(f), text: text.slice(0, 200000), truncated: text.length > 200000 });
   });
   r.get('/:id/content', (req, res) => {

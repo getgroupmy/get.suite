@@ -4,7 +4,7 @@ import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { excelFromSheet } from '../src/office/excel.js';
 import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
-import { delimitedFromSheet, formulaResults } from '../src/office/sheetvalues.js';
+import { delimitedFromSheet, formulaResults, sheetReadingText } from '../src/office/sheetvalues.js';
 
 const data = { sheets: [
   { name: 'S', cells: { A1: '2', A2: '3', A3: '=A1*A2', A4: '=A3>5', A5: '=1/0', A6: '=UPPER("hi")&" "&B1', B1: 'there', A7: '=Other!A1+1', A8: '=TODAY()', C1: '0.25', C2: '=C1*2' }, formats: { A8: { num: 'date' }, C2: { num: 'percent' } } },
@@ -45,4 +45,12 @@ test('a sheet as CSV or TSV: the values the page shows, quoted where needed', as
   assert.equal(await delimitedFromSheet(d, 0), 'Name,Note,\r\nAna,"says ""hi"", twice",\r\nSum,5,#DIV/0!\r\n,"$1,500.50",\r\n');
   assert.equal(await delimitedFromSheet(d, 0, '\t'), 'Name\tNote\t\r\nAna\tsays "hi", twice\t\r\nSum\t5\t#DIV/0!\r\n\t$1,500.50\t\r\n');
   assert.equal(await delimitedFromSheet({ sheets: [] }, 0), '');
+});
+
+test('a spreadsheet as reading text: a table of values a sheet, then its formulas and what they give', async () => {
+  const text = await sheetReadingText({ sheets: [
+    { name: 'Budget', cells: { A1: 'Item', B1: 'Cost', A2: 'Rent', B2: '900', A3: 'Staff', B3: '2400', A5: 'Total', B5: '=SUM(B2:B3)' }, formats: { B5: { num: 'currency', cur: 'USD' } } },
+    { name: 'Notes', hidden: true, cells: {} },
+  ] });
+  assert.equal(text, '## Sheet: Budget\n\tA\tB\n1\tItem\tCost\n2\tRent\t900\n3\tStaff\t2400\n5\tTotal\t$3,300.00\n\nFormulas:\nB5: =SUM(B2:B3) → 3300\n\n## Sheet: Notes (hidden)\n(empty)');
 });

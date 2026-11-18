@@ -108,6 +108,11 @@ await step('the Excel download carries the formulas\' results; the server CSV ha
   const lines = csv.replace(/^﻿/, '').split('\r\n');
   if (lines.length < 30 || !lines[29].split(',').includes('30')) throw new Error(lines.slice(0, 3).join('|'));
 });
+await step('read as text (what an assistant gets): a table of values, the formulas with what they give', async () => {
+  const id = page.url().split('/').pop().split('?')[0];
+  const text = (await api(page, 'GET', `/files/${id}/text`)).body.text;
+  if (!/## Sheet: Sheet1\n\tA\tB/.test(text) || !/\n30\t[^\n]*\t30(\t|\n|$)/.test(text) || !/G1: =SEQUENCE\(30\) → 1/.test(text)) throw new Error(text.slice(0, 600));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
