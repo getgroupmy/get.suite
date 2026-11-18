@@ -35,6 +35,11 @@ function ml(pieces = []) {
   return out;
 }
 
+/** LaTeX → a <math> element to put in a web page or an EPUB (its LaTeX as its alttext and annotation, for screen readers and copying). */
+export function latexToMathElement(latex) {
+  const l = String(latex || '');
+  return `<math xmlns="http://www.w3.org/1998/Math/MathML" alttext="${esc(l)}"><semantics>${mrow(parseLatex(l))}<annotation encoding="application/x-tex">${esc(l)}</annotation></semantics></math>`;
+}
 /** LaTeX → a MathML document (a formula object's content.xml), with the LaTeX kept as an annotation. */
 export function latexToMathml(latex) {
   const l = String(latex || '');

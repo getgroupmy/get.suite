@@ -59,6 +59,22 @@ await step('Download as e-book (.epub): chapters from the headings, readable', a
   await view.setContent(ch2.replace(/^<\?xml[^>]*>\s*<!DOCTYPE html>/, ''));
   await view.getByRole('heading', { name: 'Holidays' }).waitFor();
 });
+await step('equations in the e-book are MathML, which readers draw', async () => {
+  const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Maths' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Half is ' }, { type: 'math', attrs: { latex: '\\frac{1}{2}' } }, { type: 'text', text: ' of one.' }] }] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Maths book', content })).body;
+  const b64 = await page.evaluate(async (id) => btoa(Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/export?format=epub`)).arrayBuffer()), (c) => String.fromCharCode(c)).join('')), doc.id);
+  const zip = await JSZip.loadAsync(Buffer.from(b64, 'base64'));
+  const ch = await zip.file('OEBPS/chapter1.xhtml').async('string');
+  if (!/<math xmlns="http:\/\/www.w3.org\/1998\/Math\/MathML" alttext="\\frac\{1\}\{2\}">/.test(ch) || /\\frac\{1\}\{2\} of one/.test(ch)) throw new Error(ch);
+  const opf = await zip.file('OEBPS/content.opf').async('string');
+  if (!/<item id="c1" href="chapter1.xhtml" media-type="application\/xhtml\+xml" properties="mathml"\/>/.test(opf)) throw new Error(opf);
+  // Drawn as a fraction (one number above the other), as a reader with MathML shows it.
+  const view = await browser.newPage();
+  await view.setContent(ch.replace(/^<\?xml[^>]*>\s*<!DOCTYPE html>/, ''));
+  const [one, two] = await Promise.all(['mfrac > mrow:first-child', 'mfrac > mrow:last-child'].map((s) => view.locator(s).boundingBox()));
+  if (!one || !two || !(two.y > one.y + 2)) throw new Error(`not a fraction: ${JSON.stringify([one, two])}`);
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

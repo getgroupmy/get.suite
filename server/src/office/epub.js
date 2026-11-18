@@ -2,6 +2,7 @@
 // A chapter starts at each top-level heading (the first heading level used), with a table of contents;
 // paragraphs and their alignment, bold/italic/underline/strike/code, links, lists and checklists, quotes, code,
 // tables, pictures (in the book) and footnotes (as notes at the end of their chapter); chips as their text.
+import { latexToMathElement } from './mathml.js';
 import JSZip from 'jszip';
 import crypto from 'node:crypto';
 import { flattenTabs } from './doctabs.js';
@@ -37,6 +38,7 @@ export async function epubFromDoc(doc, title = 'Document', { pictureData, author
   const inline = (list = []) => list.map((n) => {
     if (n.type === 'hardBreak') return '<br/>';
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); const k = notes.length; return `<a epub:type="noteref" id="r${k}" href="#n${k}"><sup>${k}</sup></a>`; }
+    if (n.type === 'math' && String(n.attrs?.latex || '').trim()) return latexToMathElement(String(n.attrs.latex).trim()); // (MathML: EPUB 3 readers draw it)
     if (n.type === 'image') { const p = pictures.get(n.attrs?.fileId); return p ? `<img src="${p.path}" alt="${x(n.attrs?.alt || '')}"/>` : x(n.attrs?.alt ? `[${n.attrs.alt}]` : ''); }
     let t = n.type === 'text' ? n.text || '' : n.type === 'mention' ? `@${n.attrs?.name || ''}` : n.type === 'datechip' ? dateText(n.attrs?.date) : n.type === 'filechip' ? n.attrs?.name || ''
       : n.type === 'dropchip' ? chipText(n.attrs) : n.type === 'math' ? n.attrs?.latex || '' : n.type === 'citation' ? inText(n.attrs) : null;
@@ -96,7 +98,7 @@ ${body}
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="${x(lang)}">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">${id}</dc:identifier><dc:title>${x(title)}</dc:title><dc:language>${x(lang)}</dc:language>${author ? `<dc:creator>${x(author)}</dc:creator>` : ''}<meta property="dcterms:modified">${modified}</meta></metadata>
 <manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="style.css" media-type="text/css"/>
-${files.map((f, i) => `<item id="c${i + 1}" href="${f.path}" media-type="application/xhtml+xml"/>`).join('\n')}
+${files.map((f, i) => `<item id="c${i + 1}" href="${f.path}" media-type="application/xhtml+xml"${f.xml.includes('<math ') ? ' properties="mathml"' : ''}/>`).join('\n')}
 ${[...pictures.values()].map((p, i) => `<item id="img${i + 1}" href="${p.path}" media-type="${p.mime}"/>`).join('\n')}
 </manifest>
 <spine>${files.map((f, i) => `<itemref idref="c${i + 1}"/>`).join('')}</spine>

@@ -64,3 +64,14 @@ test('EPUB: a document without headings is one chapter under its title', async (
   assert.match(await zip.file('OEBPS/content.opf').async('string'), /<spine><itemref idref="c1"\/><\/spine>/);
   assert.match(await zip.file('OEBPS/chapter1.xhtml').async('string'), /<h1>Memo<\/h1><p>Just text<\/p>/);
 });
+
+test('equations go into the e-book as MathML (the chapter marked as having it)', async () => {
+  const d = { type: 'doc', content: [H(1, 'One'), P(T('Plain.')), H(1, 'Two'), P(T('Area '), { type: 'math', attrs: { latex: '\\pi r^2' } }, T('.'))] };
+  const zip = await JSZip.loadAsync(await epubFromDoc(d, 'Maths'));
+  const ch2 = await zip.file('OEBPS/chapter2.xhtml').async('string');
+  assert.match(ch2, /<p>Area <math xmlns="http:\/\/www.w3.org\/1998\/Math\/MathML" alttext="\\pi r\^2"><semantics><mrow><mi>π<\/mi><msup><mrow><mi>r<\/mi><\/mrow><mrow><mn>2<\/mn><\/mrow><\/msup><\/mrow><annotation encoding="application\/x-tex">\\pi r\^2<\/annotation><\/semantics><\/math>\.<\/p>/);
+  parseDocument(ch2, { xmlMode: true }); // (well-formed)
+  const opf = await zip.file('OEBPS/content.opf').async('string');
+  assert.match(opf, /<item id="c2" href="chapter2.xhtml" media-type="application\/xhtml\+xml" properties="mathml"\/>/);
+  assert.match(opf, /<item id="c1" href="chapter1.xhtml" media-type="application\/xhtml\+xml"\/>/, 'only chapters with equations say so');
+});
