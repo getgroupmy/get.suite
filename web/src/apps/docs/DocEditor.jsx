@@ -1,4 +1,4 @@
-import { emailPeopleWithAccess } from '../emailpeople.js';
+import { emailPeopleWithAccess, meetPeopleWithAccess } from '../emailpeople.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { isPaused, pausedUntil, pauseUntil } from '../../pause.js';
 import { sprintText, SPRINTS } from './sprint.js';
@@ -834,6 +834,7 @@ function SharedDoc({ file, setFile }) {
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }, { label: 'Add tab', icon: 'plus', onClick: () => { addTab(editor); setTabsPanel(true); } }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
           ...(mail?.enabled && ['owner', 'editor'].includes(file?.role) ? [{ label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(file, { navigate, toast }) }] : []),
+          ...(['owner', 'editor'].includes(file?.role) ? [{ label: 'Schedule a meeting with people with access', icon: 'calendar', onClick: () => meetPeopleWithAccess(file, { navigate, toast }) }] : []),
           { label: 'Compare documents', icon: 'doc', onClick: () => setComparing({ step: 'pick' }) },
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),

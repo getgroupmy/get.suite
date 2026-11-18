@@ -85,6 +85,32 @@ await step('Chat with people who have access: not yet shared says so; shared wit
   const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
   if (!(await api(kim, 'GET', '/chat/channels')).body.channels.some((c) => c.id === chanId)) throw new Error('Kim not in it');
 });
+await step('Schedule a meeting with people with access, from a spreadsheet: a new event with them as guests and the file attached', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const sheet = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Q4 budget' })).body;
+  await api(page, 'PUT', `/files/${sheet.id}/shares`, { shares: [{ user_id: kimId, role: 'commenter' }] });
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Schedule a meeting with people with access' }).click();
+  await page.waitForURL(/\/calendar/);
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  await dlg.waitFor();
+  if (await dlg.getByLabel('Title').inputValue() !== 'Q4 budget') throw new Error('title');
+  await dlg.getByText('kim@acme.com').first().waitFor().catch(async () => dlg.getByText('Kim Park').first().waitFor());
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await dlg.waitFor({ state: 'hidden' });
+  let ev;
+  for (let i = 0; i < 40 && !ev; i++) {
+    const now = Date.now();
+    ev = ((await api(page, 'GET', `/events?from=${now - 864e5}&to=${now + 3 * 864e5}`)).body || []).find((e) => e.title === 'Q4 budget');
+    if (!ev) await page.waitForTimeout(250);
+  }
+  if (!ev) throw new Error('not saved');
+  const full = (await api(page, 'GET', `/events/${ev.id}`)).body;
+  const guests = JSON.stringify(full.guests || ev.guests);
+  if (!/kim@acme\.com/.test(guests)) throw new Error(guests);
+  if (!JSON.stringify(full.attachments || ev.attachments || []).includes(sheet.id)) throw new Error('file not attached');
+});
 await step('its document goes to the trash: the channel says so and doesn’t link to it', async () => {
   const chan = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.about_kind === 'file' && c.about_title === 'Contract notes');
   const doc = (await api(page, 'GET', '/files?view=mine')).body.find((f) => f.name === 'Contract notes');
