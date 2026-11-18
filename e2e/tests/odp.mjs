@@ -85,6 +85,22 @@ await step('a presentation downloads as PDF: a page a slide, skipped ones left o
   try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
   if (text !== null && (!text.includes('Launch plan') || !text.includes('Press') || text.includes('Not shown'))) throw new Error(text);
 });
+await step('Download as PDF with speaker notes: A4 pages, a slide over its notes', async () => {
+  const content = { theme: 'light', slides: [{ id: 'a', notes: 'Remember to thank the team.', items: [{ id: 't', type: 'text', role: 'title', x: 5, y: 5, w: 90, h: 15, text: 'Team update' }] }] };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Update', content })).body.id;
+  await page.goto(`${B}/slides/${id}`);
+  await page.getByText('Team update').first().waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as PDF with speaker notes' }).click()]);
+  if (dl.suggestedFilename() !== 'Update (with notes).pdf') throw new Error(dl.suggestedFilename());
+  const buf = (await import('node:fs')).readFileSync(await dl.path());
+  const { PDFDocument } = (await import('module')).createRequire(`${ROOT}/server/package.json`)('pdf-lib');
+  const pdf = await PDFDocument.load(buf);
+  if (pdf.getPageCount() !== 1 || Math.round(pdf.getPage(0).getHeight()) !== 842) throw new Error(`${pdf.getPageCount()} pages, ${pdf.getPage(0).getHeight()} high`);
+  let text = null;
+  try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
+  if (text !== null && !/Team update[\s\S]*Remember to thank the team\./.test(text)) throw new Error(text);
+});
 await step('in Drive an .odp file shows as a presentation and opens as one, notes and all', async () => {
   await page.goto(`${B}/drive`);
   await page.getByText('Launch deck (Impress).odp').dblclick();

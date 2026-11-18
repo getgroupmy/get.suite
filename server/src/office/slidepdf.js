@@ -131,3 +131,42 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
   }
   return Buffer.from(await pdf.save());
 }
+
+/**
+ * The presentation with its speaker notes: an A4 page a slide (skipped ones left out), the slide as in the PDF
+ * above at the top, framed, its notes under it (going on to further pages when long).
+ */
+export async function notesPdfFromDeck(deck, title = 'Presentation', opts = {}) {
+  const slidesPdf = await PDFDocument.load(await pdfFromDeck(deck, title, opts));
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(`${title} (with notes)`);
+  pdf.setCreator('Workspace');
+  if (opts.author) pdf.setAuthor(opts.author);
+  pdf.setLanguage(opts.lang || 'en');
+  const font = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { font.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join('');
+  const PW = 595.28, PH = 841.89, M = 56, size = 11, lead = size * 1.45;
+  const shown = (deck?.slides || []).map((s, i) => ({ s, i })).filter(({ s }) => !s.skip);
+  const embedded = await pdf.embedPages(slidesPdf.getPages());
+  for (const [k, ep] of embedded.entries()) {
+    const { s, i } = shown[k] || { s: {}, i: k };
+    let page = pdf.addPage([PW, PH]);
+    const w = PW - 2 * M, h = w * (H / W);
+    page.drawText(`Slide ${i + 1}`, { x: M, y: PH - M + 10, size: 9, font: bold, color: rgb(0.4, 0.4, 0.4) });
+    page.drawPage(ep, { x: M, y: PH - M - h, width: w, height: h });
+    page.drawRectangle({ x: M, y: PH - M - h, width: w, height: h, borderColor: rgb(0.7, 0.7, 0.7), borderWidth: 0.75 });
+    let y = PH - M - h - 30;
+    const notes = String(s.notes || '').trim();
+    if (!notes) { page.drawText('No speaker notes', { x: M, y, size, font, color: rgb(0.55, 0.55, 0.55) }); continue; }
+    for (const para of safe(notes).split('\n')) {
+      let line = '';
+      const flush = () => { if (y < M) { page = pdf.addPage([PW, PH]); y = PH - M; } page.drawText(line.trimEnd(), { x: M, y, size, font, color: rgb(0.1, 0.1, 0.1) }); y -= lead; line = ''; };
+      for (const word of para.split(/(?<=\s)/)) {
+        if (line && font.widthOfTextAtSize((line + word).trimEnd(), size) > w) flush();
+        line += word;
+      }
+      flush();
+    }
+  }
+  return Buffer.from(await pdf.save());
+}

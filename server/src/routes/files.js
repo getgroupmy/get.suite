@@ -45,7 +45,7 @@ import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
 import { rtfFromDoc, docFromRtf } from '../office/rtf.js';
 import { pdfFromDoc } from '../office/pdfdoc.js';
-import { pdfFromDeck } from '../office/slidepdf.js';
+import { pdfFromDeck, notesPdfFromDeck } from '../office/slidepdf.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -1852,7 +1852,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   /** A document, spreadsheet or presentation as a file of the given type (docx, odt, md, xlsx, ods, pptx, odp), as it stands now. */
-  const exportedAs = async (f, type) => {
+  const exportedAs = async (f, type, { notes = false } = {}) => {
     saveNow(f.id); // what's being typed right now goes in too
     const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
     // Pending suggestions aren't in it yet; a Word download carries them as tracked changes.
@@ -1868,7 +1868,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
     if (type === 'html') return htmlFromDoc(numbered, f.name, { pictureData });
     if (type === 'rtf') return Buffer.from(rtfFromDoc(numbered), 'latin1');
-    if (type === 'pdf') { const author = q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || ''; return f.kind === 'slides' ? pdfFromDeck(content, f.name, { pictureData, author }) : pdfFromDoc(numbered, f.name, { pictureData, setup: setupOf(f), author }); }
+    if (type === 'pdf') { const author = q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || ''; return f.kind === 'slides' ? (notes ? notesPdfFromDeck : pdfFromDeck)(content, f.name, { pictureData, author }) : pdfFromDoc(numbered, f.name, { pictureData, setup: setupOf(f), author }); }
     if (type === 'txt') return Buffer.from(f.kind === 'slides' ? textFromDeck(content) : textFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
     if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [] });
@@ -1888,9 +1888,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     if (!EXPORT_AS[f.kind]) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     const type = exportType(f, req.query.format);
-    const buf = await exportedAs(f, type);
+    const buf = await exportedAs(f, type, { notes: req.query.notes === '1' });
     res.setHeader('Content-Type', { epub: EPUB_MIME, html: 'text/html; charset=utf-8', txt: 'text/plain; charset=utf-8', pdf: 'application/pdf' }[type] || OFFICE[type].mime); // (an e-book, web page or text only goes out: none is opened as a document)
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${type}`)}`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}${type === 'pdf' && f.kind === 'slides' && req.query.notes === '1' ? ' (with notes)' : ''}.${type}`)}`);
     res.send(buf);
   });
 

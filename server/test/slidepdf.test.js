@@ -40,3 +40,27 @@ test('a presentation as a PDF: a 16:9 page a slide, skipped ones left out, its w
   for (const w of ['Go', 'Item', 'Rent', '900', 'Sales', 'EU', 'Jan', '[Team photo]', 'Video: Demo.mp4']) assert.ok(text.includes(w), w);
   assert.match(text, /\b3\s*$/, 'slide 3 has its number (the first one has none)');
 });
+
+test('a presentation as a PDF with speaker notes: an A4 page a slide, the slide above its notes; long notes go on', async () => {
+  const { notesPdfFromDeck } = await import('../src/office/slidepdf.js');
+  const deck = { theme: 'light', slides: [
+    { id: 'a', notes: 'Welcome everyone.\nThank the sponsors.', items: [{ id: 't', type: 'text', role: 'title', x: 10, y: 30, w: 80, h: 20, text: 'Launch plan' }] },
+    { id: 'b', skip: true, notes: 'Hidden notes', items: [] },
+    { id: 'c', items: [{ id: 't', type: 'text', role: 'title', x: 10, y: 30, w: 80, h: 20, text: 'Budget' }] },
+    { id: 'd', notes: 'Long. '.repeat(1500), items: [{ id: 't', type: 'text', role: 'title', x: 10, y: 30, w: 80, h: 20, text: 'Details' }] },
+  ] };
+  const buf = await notesPdfFromDeck(deck, 'Launch', { author: 'Olivia Owner' });
+  const pdf = await PDFDocument.load(buf);
+  assert.equal(pdf.getTitle(), 'Launch (with notes)');
+  assert.ok(pdf.getPageCount() >= 4, 'three slides, the last notes going on');
+  assert.deepEqual(pdf.getPages().map((p) => [Math.round(p.getWidth()), Math.round(p.getHeight())])[0], [595, 842]);
+  const { execFileSync } = await import('node:child_process');
+  let text;
+  try { text = execFileSync('pdftotext', ['-layout', '-', '-'], { input: buf }).toString(); } catch { return; }
+  const pages = text.split('\f');
+  assert.match(pages[0], /Slide 1[\s\S]*Launch plan[\s\S]*Welcome everyone\.\s*\n\s*Thank the sponsors\./);
+  assert.match(pages[1], /Slide 3[\s\S]*Budget[\s\S]*No speaker notes/);
+  assert.match(pages[2], /Slide 4[\s\S]*Details[\s\S]*Long\./);
+  assert.match(pages[3], /Long\./, 'long notes go on to another page');
+  assert.doesNotMatch(text, /Hidden notes/);
+});
