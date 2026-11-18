@@ -55,6 +55,10 @@ await step('three files shared with her: one entry counting them, opening Shared
   }
   await panel.getByText('Olivia Owner shared 3 files with you').waitFor();
   await panel.getByText('The latest “Q3 report”').waitFor();
+  // Who did it: Olivia's picture beside it (decoration: her name is in the title).
+  const item = panel.locator('.bell-item', { hasText: 'Olivia Owner shared 3 files with you' });
+  if (!(await item.locator('.bell-who .avatar, .bell-who [class*="avatar"]').count())) throw new Error('no picture');
+  await kim.screenshot({ path: `${SP}/shots/bell-who.png` });
   await kim.getByRole('button', { name: 'Notifications, 1 new' }).waitFor();
   // Opened up: each file, the latest first, each opening itself.
   await panel.getByRole('button', { name: 'Show all 3' }).click();

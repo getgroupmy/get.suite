@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router';
 import { get, post, put, onLive } from '../api.js';
 import Icon from './Icon.jsx';
 import { setBadgePart } from '../appbadge.js';
-import { Modal, useToast } from './ui.jsx';
+import { Avatar, Modal, useToast } from './ui.jsx';
 
 const ICONS = { mention: 'chat', comment: 'chat', reply: 'reply', task: 'check', invite: 'calendar', share: 'share', link: 'link', booking: 'calendar', edit: 'edit', chat: 'chat', form: 'form' };
 
@@ -72,7 +72,8 @@ export default function Bell() {
               {data.items.map((n) => (
                 <li key={n.id} className={n.items?.length > 1 ? 'bell-group' : ''}>
                   <button type="button" className={`bell-item ${n.read ? '' : 'unread'}`} onClick={() => go(n)}>
-                    <Icon name={ICONS[n.kind] || 'bell'} size={18} />
+                    {/* who did it, where there's someone (their name is in the title, so the picture is decoration) */}
+                    {n.actor ? <span className="bell-who" aria-hidden="true"><Avatar name={n.actor} size={24} /><Icon name={ICONS[n.kind] || 'bell'} size={12} className="bell-kind" /></span> : <Icon name={ICONS[n.kind] || 'bell'} size={18} />}
                     <span className="grow"><span className="bell-title">{n.title}</span>{n.body && <span className="muted small bell-body">{n.body}</span>}</span>
                     <span className="muted small nowrap">{ago(n.created_at)}</span>
                   </button>

@@ -3306,3 +3306,7 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* Mail: high importance */
 .importance { color: var(--danger, #c5221f); font-weight: 700; }
 .importance-note { margin: 4px 0 8px; color: var(--muted); }
+
+/* The bell: who did it, with what kind of thing in a corner. */
+.bell-who { position: relative; display: inline-flex; flex: none; }
+.bell-who .bell-kind { position: absolute; right: -4px; bottom: -4px; background: var(--surface, #fff); border-radius: 50%; padding: 1px; color: var(--muted, #5f6368); }
