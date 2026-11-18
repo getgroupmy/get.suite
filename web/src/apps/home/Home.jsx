@@ -36,7 +36,7 @@ const formatHours = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m %
 export const lateOk = (e, now) => !e.all_day && e.my_status !== 'no' && now >= e.start - 30 * 60e3 && now <= e.end
   && ((e.guests?.length || 0) > 0 || e.my_status != null); // guests on yours, or you're a guest
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings', sharedwithyou: 'Shared with you', writing: 'Writing this week', tasktime: 'Time this week', kudos: 'Thanks', daily: 'Today’s note' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you', suggestions: 'Suggestions to review', saved: 'Saved in Chat', reminders: 'Chat reminders', notereminders: 'Note reminders', meetings: 'Recent video meetings', sharedwithyou: 'Shared with you', writing: 'Writing this week', tasktime: 'Time this week', kudos: 'Thanks', daily: 'Today’s note' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -58,7 +58,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, saved, reminders, noteReminders, meetings, sharedNew, writing, taskTime, kudos, dailyNote, noteTemplates] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments, suggestions, saved, reminders, noteReminders, meetings, sharedNew, writing, taskTime, kudos, dailyNote, noteTemplates] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -72,6 +72,7 @@ export default function Home() {
       mail?.enabled ? safe(get('/mail/nudges'), { items: [], total: 0 }) : Promise.resolve({ items: [], total: 0 }),
       mail?.enabled ? safe(get('/contacts/frequent'), []) : Promise.resolve([]),
       safe(get('/comments/for-me'), []),
+      safe(get('/files/suggestions/for-me'), []),
       safe(get('/chat/saved'), []),
       safe(get('/chat/reminders'), []),
       safe(get('/notes?reminders=1'), []),
@@ -102,6 +103,7 @@ export default function Home() {
       nudges: nudges.items, nudgesMore: Math.max(0, nudges.total - nudges.items.length),
       people: people.slice(0, 5),
       comments: comments.slice(0, 6), commentsMore: Math.max(0, comments.length - 6),
+      suggestions: suggestions.slice(0, 6), suggestionsMore: Math.max(0, suggestions.length - 6),
       saved: saved.slice(0, 5), savedMore: Math.max(0, saved.length - 5),
       reminders: reminders.slice(0, 5), remindersMore: Math.max(0, reminders.length - 5),
       noteReminders: noteReminders.filter((n) => n.remind_at).slice(0, 5), noteRemindersMore: Math.max(0, noteReminders.length - 5),
@@ -213,6 +215,19 @@ export default function Home() {
                     <span className="muted small nowrap">{formatDate(c.at)}</span></li>
                 ))}
                 {data.commentsMore > 0 && <li className="muted small">and {data.commentsMore} more</li>}
+              </ul>
+            </section>
+          )}
+          {data.suggestions.length > 0 && (
+            <section className="card home-card" aria-label="Suggestions to review" {...cardProps('suggestions')}>
+              <h2>💡 Suggestions to review</h2>
+              <ul className="home-list">
+                {data.suggestions.map((sg) => (
+                  <li key={sg.file.id}><Icon name="doc" size={16} />
+                    <Link className="grow home-item" to={sg.link}><strong>{sg.file.name}</strong> <span className="muted">· {sg.count} suggestion{sg.count === 1 ? '' : 's'} from {sg.from.length > 2 ? `${sg.from.slice(0, 2).join(', ')} and ${sg.from.length - 2} more` : sg.from.join(' and ')}</span></Link>
+                    <span className="muted small nowrap">{formatDate(sg.at)}</span></li>
+                ))}
+                {data.suggestionsMore > 0 && <li className="muted small">and {data.suggestionsMore} more</li>}
               </ul>
             </section>
           )}

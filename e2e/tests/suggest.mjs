@@ -146,6 +146,14 @@ await step('a commenter can’t change the text outright: bold and a new paragra
   const now = await stored();
   if (/"bold"/.test(now) || (now.match(/"paragraph"/g) || []).length !== 1 || !/twelve/.test(now)) throw new Error(now);
 }, { screenshot: (o) => (rae || page).screenshot(o) });
+await step('the owner’s Home lists the document with suggestions to review; it opens the document', async () => {
+  await page.goto(`${B}/home`);
+  const card = page.getByRole('region', { name: 'Suggestions to review' });
+  await card.getByText('1 suggestion from Rae Reviewer').waitFor();
+  await card.getByRole('link', { name: /Review me/ }).click();
+  await page.waitForURL(new RegExp(`/docs/${doc.id}`));
+  await pm(page).locator('ins.sugg-ins', { hasText: 'twelve' }).waitFor();
+});
 await step('the owner accepts the commenter’s suggestion', async () => {
   await page.getByRole('button', { name: /1 suggestions/ }).click();
   await page.getByRole('button', { name: 'Accept: Replace “ten” with “twelve”' }).click();
@@ -157,6 +165,10 @@ await step('the owner accepts the commenter’s suggestion', async () => {
   await rae.getByRole('button', { name: /^Notifications/ }).click();
   await rae.getByText('Olivia Owner accepted your suggestion in “Review me”').waitFor();
   await rae.getByText('Replace “ten” with “twelve”').first().waitFor();
+  await page.goto(`${B}/home`);
+  await page.getByRole('heading', { name: /Today|Good/ }).first().waitFor().catch(() => {});
+  await page.waitForTimeout(1000);
+  if (await page.getByRole('region', { name: 'Suggestions to review' }).count()) throw new Error('still listed once answered');
 }, { screenshot: (o) => (rae || page).screenshot(o) });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

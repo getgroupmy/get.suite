@@ -539,6 +539,20 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Home → Shared with you: what people shared with you directly in the last two weeks (that you can
   // still open), newest first, with who and when.
+  // Your documents with suggestions from other people waiting for an answer, latest first:
+  // [{ file: { id, name, kind }, count, from: [names], at, link }].
+  r.get('/suggestions/for-me', (req, res) => {
+    const docs = q(`SELECT id, name, kind FROM files WHERE owner_id = ? AND kind = 'doc' AND trashed = 0
+                    AND (content LIKE '%suggestInsert%' OR content LIKE '%suggestDelete%') LIMIT 200`).all(req.user.id);
+    const out = [];
+    for (const f of docs) {
+      const theirs = suggestionsOf(f.id).filter((x) => x.by !== req.user.id);
+      if (!theirs.length) continue;
+      out.push({ file: f, count: theirs.length, from: [...new Set(theirs.map((x) => x.name || 'Someone'))], at: Math.max(...theirs.map((x) => x.at || 0)), link: `/docs/${f.id}` });
+    }
+    res.json(out.sort((a, b) => b.at - a.at));
+  });
+
   r.get('/shared-recently', (req, res) => {
     const me = req.user.id;
     const rows = q(`SELECT f.id, f.name, f.kind, f.mime, s.role, s.shared_at, u.name AS by_name FROM shares s JOIN files f ON f.id = s.file_id

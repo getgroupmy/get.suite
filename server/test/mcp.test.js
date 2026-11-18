@@ -986,6 +986,10 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   await sue('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: olivia, role: 'commenter' }] });
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'people', replace: 'staff', suggest: true })).structuredContent.suggested, 1);
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Launch', replace: 'Start' })).isError, true);
+  // Waiting for Sue on her Home: the document, how many, from whom.
+  const waiting = (await sue('GET', '/api/files/suggestions/for-me')).body;
+  assert.deepEqual(waiting.map((w) => [w.file.name, w.count, w.from, w.link]), [['Sue’s plan', 3, ['Olivia Owner'], `/docs/${doc.id}`]]);
+  assert.deepEqual((await owner('GET', '/api/files/suggestions/for-me')).body.filter((w) => w.file.name === 'Sue’s plan'), [], 'not Olivia’s document');
   // Sue answers them: Olivia hears what became of hers; not Sue of her own.
   const pending = (await sue('POST', `/api/files/${doc.id}/suggestions`, { accept: true, ids: [] })).body;
   assert.equal(pending.resolved, 0);
@@ -996,6 +1000,7 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   const heard = (await owner('GET', '/api/notifications')).body.items.filter((x) => /your suggestion/.test(x.title)).map((x) => [x.title, x.body]);
   assert.deepEqual(heard, [['Sue Owner rejected your suggestion in “Sue’s plan”', 'Replace “people” with “staff”'], ['Sue Owner accepted 2 of your suggestions in “Sue’s plan”', 'Replace “May” with “June” · Replace “ten” with “twelve”']]);
   assert.equal((await sue('GET', '/api/notifications')).body.items.filter((x) => /your suggestion/.test(x.title)).length, 0);
+  assert.deepEqual((await sue('GET', '/api/files/suggestions/for-me')).body, [], 'all answered');
   // Changed outright (not suggested): no such notification; one's own document: none either.
   const mine = (await call(rw, 'create_document', { name: 'Mine', text: 'Alpha' })).structuredContent;
   await call(rw, 'replace_in_document', { file: mine.id, find: 'Alpha', replace: 'Beta', suggest: true });
