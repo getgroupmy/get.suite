@@ -241,7 +241,15 @@ function SharedNote({ file }) {
     <div className="banner shared-note" role="note">
       <span className="grow">{note.by || 'Someone'} shared it with you: “{note.text}”</span>
       {note.byId && <button type="button" className="btn small" onClick={async () => {
-        try { const { id } = await post('/chat/dm', { user_id: note.byId }); navigate(`/chat/${id}`); } catch { /* not reachable: stay */ }
+        try {
+          const { id } = await post('/chat/dm', { user_id: note.byId });
+          // The file's link in the message box (after anything already drafted there), as Send in Chat does.
+          const drafts = await get('/chat/drafts').catch(() => ({}));
+          const before = drafts[id]?.body?.trim();
+          const link = `${window.location.origin}${window.location.pathname}`;
+          if (!before?.includes(link)) await put(`/chat/channels/${id}/draft`, { body: before ? `${before}\n${link}` : link, client: 'send-in-chat' }).catch(() => {});
+          navigate(`/chat/${id}`);
+        } catch { /* not reachable: stay */ }
       }}>Reply in Chat</button>}
       <button type="button" className="icon-btn" aria-label="Close the message" onClick={() => { setNote(null); try { localStorage.setItem(key, '1'); } catch { /* fine */ } }}><Icon name="close" size={16} /></button>
     </div>

@@ -73,6 +73,8 @@ await step('Kim is told, with the message', async () => {
   await note.getByRole('button', { name: 'Reply in Chat' }).click();
   await k.waitForURL(/\/chat\/[\w-]+$/);
   await k.getByText('Olivia Owner').first().waitFor();
+  // The spreadsheet's link waits in the message box.
+  await until(async () => (await k.getByLabel(/^Message/).first().inputValue().catch(() => '')).includes(`/sheets/${sheet.id}`), 10000);
   await k.goto(`${B}/sheets/${sheet.id}`);
   await note.waitFor();
   await note.getByRole('button', { name: 'Close the message' }).click();
