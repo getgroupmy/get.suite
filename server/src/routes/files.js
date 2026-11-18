@@ -2512,7 +2512,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     const who = (id) => q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'someone';
     if (added.length || gone.length) recordActivity(f.id, req.user.id, 'share', { added: added.map((x) => `${who(x.user_id)} (${canDo(x.role)})`), removed: gone.map(who) });
     const untilText = (x) => (x.expires_at ? ` until ${new Date(Number(x.expires_at)).toISOString().slice(0, 10)}` : '');
-    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${x.role === 'editor' ? 'You can edit' : x.role === 'commenter' ? 'You can comment' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
+    // A message for the people added now, from the Share window: theirs to read with the notification.
+    const note = req.body?.message ? str(req.body.message, { max: 500, name: 'Message' }) : '';
+    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${note ? `“${note}” · ` : ''}${x.role === 'editor' ? 'You can edit' : x.role === 'commenter' ? 'You can comment' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name, ...(!note && { group: sharedGroup(req.user, f) }) }); // (with a message: its own, not folded into "shared 2 files with you")
     res.json({ ok: true });
   });
 

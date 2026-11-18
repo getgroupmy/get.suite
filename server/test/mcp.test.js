@@ -510,10 +510,11 @@ test('share a file with a colleague: as viewer, then editor; others kept; only c
   const fid = doc.id.replace('file:', '');
   const tia = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'tia@acme.com');
   await owner('PUT', `/api/files/${fid}/shares`, { shares: [{ user_id: tia.id, role: 'commenter' }] });
-  const r = await call(rw, 'share_file', { file: doc.id, with: 'Sam@acme.com', role: 'viewer' });
+  const r = await call(rw, 'share_file', { file: doc.id, with: 'Sam@acme.com', role: 'viewer', message: 'For Thursday’s review' });
   assert.ok(!r.isError, JSON.stringify(r));
   assert.deepEqual([r.structuredContent.with, r.structuredContent.role], ['Sam Share', 'viewer']);
   assert.equal((await sam('GET', `/api/files/${fid}`)).status, 200, 'Sam can open it');
+  assert.ok((await sam('GET', '/api/notifications')).body.items.some((n) => n.title === 'Olivia Owner shared “Q2 budget notes” with you' && n.body === '“For Thursday’s review” · You can view'), 'with the note');
   const up = (await call(rw, 'share_file', { file: doc.id, with: 'sam@acme.com', role: 'editor' })).structuredContent;
   assert.deepEqual([up.role, up.was], ['editor', 'viewer']);
   const shares = (await owner('GET', `/api/files/${fid}/shares`)).body.map((x) => [x.username, x.role]).sort();

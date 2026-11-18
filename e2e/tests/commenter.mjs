@@ -49,9 +49,16 @@ await step('share a spreadsheet with Kim as Commenter from the Share dialog', as
     await d.getByLabel('Access', { exact: true }).selectOption('commenter');
     await d.getByRole('button', { name: 'Add' }).click();
     if (await d.getByLabel('Access for Kim Park', { exact: true }).inputValue() !== 'commenter') throw new Error('role');
+    await d.getByLabel('Message to Kim Park (optional)').fill(`Please look at the ${name === 'Budget' ? 'rent' : 'price'}`);
     await d.getByRole('button', { name: 'Save' }).click();
     await page.getByText('Sharing updated').waitFor();
   }
+});
+await step('Kim is told, with the message', async () => {
+  const k = await mk('kim-bell'); await signIn(k, 'kim@acme.com');
+  await k.goto(`${B}/home`);
+  await k.getByRole('button', { name: /^Notifications/ }).click();
+  await k.getByText('“Please look at the rent” · You can comment').waitFor();
 });
 await step('Kim can comment on a cell but not change it', async () => {
   kim = await mk('kim'); await signIn(kim, 'kim@acme.com');

@@ -991,7 +991,7 @@ export const TOOLS = [
     description: 'Share a Drive file or folder the person owns (or manages) with a colleague in their company, by email address: as viewer, commenter or editor. They’re told, as when sharing in Drive. Only colleagues: sharing outside the company is left to Workspace itself. Ask the person before sharing on their behalf.',
     inputSchema: {
       type: 'object', required: ['file', 'with', 'role'],
-      properties: { file: { type: 'string', description: 'file:… from search or list_files' }, with: { type: 'string', description: 'A colleague’s email address' }, role: { type: 'string', enum: ['viewer', 'commenter', 'editor'] } },
+      properties: { file: { type: 'string', description: 'file:… from search or list_files' }, with: { type: 'string', description: 'A colleague’s email address' }, role: { type: 'string', enum: ['viewer', 'commenter', 'editor'] }, message: { type: 'string', description: 'A short note to them, shown with the notification that it’s shared' } },
     },
     async run(api, a) {
       const id = String(a.file || '').replace(/^file:/, '');
@@ -1002,7 +1002,7 @@ export const TOOLS = [
       const was = current.find((x) => x.user_id === who.id);
       const shares = [...current.filter((x) => x.user_id !== who.id).map((x) => ({ user_id: x.user_id, role: x.role, ...(x.expires_at && { expires_at: x.expires_at }) })),
         { user_id: who.id, role: a.role, ...(was?.expires_at && { expires_at: was.expires_at }) }];
-      await api('PUT', `/files/${encodeURIComponent(id)}/shares`, { shares });
+      await api('PUT', `/files/${encodeURIComponent(id)}/shares`, { shares, ...(a.message && { message: String(a.message).slice(0, 500) }) });
       const f = await api('GET', `/files/${encodeURIComponent(id)}`);
       return { file: f.name, with: who.name, role: a.role, ...(was && { was: was.role }), url: fileUrl(f) };
     },

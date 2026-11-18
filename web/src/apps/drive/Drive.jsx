@@ -1060,6 +1060,7 @@ export function ShareDialog({ file, onClose }) {
   const [people, setPeople] = useState([]);
   const [shares, setShares] = useState(null);
   const [address, setAddress] = useState('');
+  const [message, setMessage] = useState(''); // sent to the people added now, with the notification
   const [role, setRole] = useState('viewer');
   const [error, setError] = useState('');
   const [company, setCompany] = useState(file.org_role || '');
@@ -1096,14 +1097,14 @@ export function ShareDialog({ file, onClose }) {
       const person = colleague ? { ...colleague, org_name: user.org_name, external: false }
         : { ...(await get(`/users/lookup?email=${encodeURIComponent(a)}`)), external: true };
       if (taken(person.id)) return setError('That person already has access');
-      setShares([...shares, { user_id: person.id, name: person.name, username: person.username, org_name: person.org_name, external: person.external, role }]);
+      setShares([...shares, { user_id: person.id, name: person.name, username: person.username, org_name: person.org_name, external: person.external, role, added: true }]);
       setAddress('');
     } catch (err) { setError(err.message); }
   }
 
   async function save() {
     try {
-      const done = await checkData((more) => put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role, expires_at }) => ({ user_id, role, expires_at: expires_at || null })), ...more }));
+      const done = await checkData((more) => put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role, expires_at }) => ({ user_id, role, expires_at: expires_at || null })), ...(message.trim() && { message: message.trim() }), ...more }));
       if (!done) return;
       if (manages && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })) });
       toast('Sharing updated');
@@ -1181,6 +1182,10 @@ export function ShareDialog({ file, onClose }) {
           </li>
         ))}
       </ul>
+      {shares?.some((x) => x.added) && (
+        <label className="field"><span>Message to {shares.filter((x) => x.added).length === 1 ? shares.find((x) => x.added).name : 'the people you added'} (optional)</span>
+          <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you’re sharing it, what to look at…" /></label>
+      )}
       {mine && file.kind !== 'folder' && <NoDownload file={file} />}
       {shares?.length > 0 && <p className="muted small">A date beside someone ends their access after that day; leave it empty for no end.</p>}
       {external > 0 && <p className="muted small">{external === 1 ? '1 person' : `${external} people`} outside {user.org_name} can open this.</p>}
