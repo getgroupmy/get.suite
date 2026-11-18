@@ -493,7 +493,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
           const info = { author: textOf(kids(c).find((k) => k.name === 'dc:creator') || { children: [] }).trim(), at: Date.parse(textOf(kids(c).find((k) => k.name === 'dc:date') || { children: [] }).trim()) || null, text: body };
           if (parent && notes.has(parent)) { notes.get(parent).replies.push(info); break; }
           const id = crypto.randomBytes(8).toString('hex');
-          notes.set(c.attribs['office:name'] || id, { id, ...info, quote: '', replies: [] });
+          notes.set(c.attribs['office:name'] || id, { id, ...info, quote: '', replies: [], ...(c.attribs['loext:resolved'] === 'true' && { resolved: true }) }); // (resolved in LibreOffice)
           if (c.attribs['office:name']) openNotes.push(c.attribs['office:name']);
           break;
         }
@@ -626,6 +626,6 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const parts = html.split('<div data-page-break=""></div>');
   const docs = parts.map((p) => docFromHtml(p || '<p></p>'));
   const content = docs.flatMap((d, i) => [...(i ? [{ type: 'pageBreak' }] : []), ...(d.content || [])]);
-  const comments = [...notes.values()].map((c) => ({ id: c.id, author: c.author, text: c.text, at: c.at, quote: c.quote.slice(0, 500), replies: c.replies }));
+  const comments = [...notes.values()].map((c) => ({ id: c.id, author: c.author, text: c.text, at: c.at, quote: c.quote.slice(0, 500), ...(c.resolved && { resolved: true }), replies: c.replies }));
   return { doc: { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }, comments };
 }

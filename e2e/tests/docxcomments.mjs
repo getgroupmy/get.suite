@@ -93,6 +93,27 @@ await step('a Word download saved again by LibreOffice keeps the reply as a repl
   await mark.click();
   await page.getByText('Checked: it is 12.').first().waitFor();
 });
+await step('a comment resolved in LibreOffice comes in resolved (hidden until Show resolved)', async () => {
+  const JSZip = (await import('module')).createRequire(`${ROOT}/server/package.json`)('jszip');
+  const bytes = await page.evaluate(async (id) => Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer())), docId);
+  const zip = await JSZip.loadAsync(Buffer.from(bytes));
+  const xml = await zip.file('content.xml').async('string');
+  const marked = xml.replace(/<office:annotation (office:name="[^"]+")(?! loext:parent-name)/, '<office:annotation loext:resolved="true" $1'); // (the thread, not a reply)
+  if (marked === xml) throw new Error('no annotation: ' + xml.slice(0, 300));
+  zip.file('content.xml', marked);
+  const b64 = (await zip.generateAsync({ type: 'nodebuffer' })).toString('base64');
+  const up = await page.evaluate(async (data) => (await fetch('/api/files/upload?name=Resolved.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: Uint8Array.from(atob(data), (c) => c.charCodeAt(0)) })).json(), b64);
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  const threads = (await api(page, 'GET', `/comments/${opened.body.id}`)).body;
+  const root = threads.find((c) => !c.thread_id);
+  if (!root || !root.resolved) throw new Error(JSON.stringify(threads.map((c) => [c.thread_id, c.resolved, c.body.split('\n')[0]])));
+  await page.goto(`${B}/docs/${opened.body.id}`);
+  await page.locator('.ProseMirror').getByText('12 percent').waitFor();
+  await page.getByRole('button', { name: /Comments/ }).first().click();
+  if (await page.getByText(/^Can we check this figure\?/).count()) throw new Error('a resolved thread is hidden');
+  await page.getByLabel('Show resolved').check();
+  await page.getByText(/^Can we check this figure\?/).first().waitFor();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

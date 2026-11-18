@@ -174,6 +174,20 @@ test('.odt: a chart from a spreadsheet as a chart object, still linked to its sp
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('.odt: a comment resolved in LibreOffice (loext:resolved) comes in resolved', async () => {
+  const JSZip = (await import('jszip')).default;
+  const T = (text, ids = []) => ({ type: 'text', text, ...(ids.length && { marks: ids.map((id) => ({ type: 'comment', attrs: { id } })) }) });
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [T('The '), T('budget', ['t1']), T(' and '), T('plan', ['t2'])] }] };
+  const buf = await odtFromDoc(doc, 'T', { comments: [{ id: 't1', author: 'Olivia', at: 0, text: 'Done one', replies: [{ author: 'Kim', text: 'yes' }] }, { id: 't2', author: 'Kim', at: 0, text: 'Open one', replies: [] }] });
+  const zip = await JSZip.loadAsync(buf);
+  const xml = await zip.file('content.xml').async('string');
+  // (as LibreOffice writes them: on each annotation, replies too)
+  zip.file('content.xml', xml.replace('<office:annotation office:name="ct1"', '<office:annotation loext:resolved="true" office:name="ct1"').replace('<office:annotation office:name="ct2"', '<office:annotation loext:resolved="false" office:name="ct2"'));
+  const { comments } = await docFromOdt(await zip.generateAsync({ type: 'nodebuffer' }));
+  assert.deepEqual(comments.map((c) => [c.text, c.quote, !!c.resolved, c.replies.map((r) => r.text)]), [['Done one', 'budget', true, ['yes']], ['Open one', 'plan', false, []]]);
+  assert.equal('resolved' in comments[1], false);
+});
+
 test('.odt: comment threads as annotations on their words (replies as LibreOffice writes them), both ways and through LibreOffice', async (t) => {
   const { odtFromDoc: out, docFromOdt: back } = await import('../src/office/odt.js');
   const T = (text, ids = []) => ({ type: 'text', text, ...(ids.length && { marks: ids.map((id) => ({ type: 'comment', attrs: { id } })) }) });
