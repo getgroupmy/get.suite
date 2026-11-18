@@ -7,6 +7,7 @@ import Icon from './Icon.jsx';
 import { setBadgePart } from '../appbadge.js';
 import { Avatar, Modal, useToast } from './ui.jsx';
 import { snoozeTimes } from './snooze.js';
+import { byDay } from './bellday.js';
 
 const ICONS = { mention: 'chat', comment: 'chat', reply: 'reply', task: 'check', invite: 'calendar', share: 'share', link: 'link', booking: 'calendar', edit: 'edit', chat: 'chat', form: 'form' };
 
@@ -40,6 +41,14 @@ export default function Bell() {
     if (!d.removed?.length) return;
     toast(d.removed.length === 1 ? 'Notification removed' : `${d.removed.length} notifications removed`, 'info', { action: { label: 'Undo', onClick: () => post('/notifications/restore', { ids: d.removed }).then(setData).catch((e) => toast(e.message, 'error')) } });
   }).catch((e) => toast(e.message, 'error'));
+  // ↑ and ↓ move between notifications (Home and End to the first and last).
+  const arrows = (e) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key) || !e.target.classList?.contains('bell-item')) return;
+    const all = [...e.currentTarget.querySelectorAll('.bell-item')];
+    const i = all.indexOf(e.target);
+    const next = e.key === 'Home' ? all[0] : e.key === 'End' ? all.at(-1) : all[i + (e.key === 'ArrowDown' ? 1 : -1)];
+    if (next) { e.preventDefault(); next.focus(); }
+  };
   const act = (path, n, extra = {}) => post(path, { ids: [n.id], ...extra }).then(setData).catch((e) => toast(e.message, 'error'));
   const box = useRef();
   // A list asked for before a live notification arrived would drop it: each load is numbered, only the latest
@@ -90,8 +99,12 @@ export default function Bell() {
             </div>
           </div>
           {shown.length === 0 ? <p className="muted small bell-empty">{onlyUnread && data.items.length ? 'Nothing unread.' : 'Nothing yet. Mentions, tasks given to you, invitations and things shared with you will show here.'}</p> : (
-            <ul>
-              {shown.map((n) => (
+            <div className="bell-list" onKeyDown={arrows}>
+              {byDay(shown).map((g) => (
+                <section key={g.heading} aria-label={g.heading}>
+                  <h3 className="bell-day">{g.heading}</h3>
+                  <ul>
+              {g.items.map((n) => (
                 <li key={n.id} className={n.items?.length > 1 ? 'bell-group' : ''}>
                   <button type="button" className={`bell-item ${n.read ? '' : 'unread'}`} onClick={() => go(n)}>
                     {/* who did it, where there's someone (their name is in the title, so the picture is decoration) */}
@@ -130,7 +143,10 @@ export default function Bell() {
                   )}
                 </li>
               ))}
-            </ul>
+                  </ul>
+                </section>
+              ))}
+            </div>
           )}
           {/* Snoozed ones: when each comes back, and Unsnooze to have it back now. */}
           {data.snoozed?.length > 0 && (

@@ -167,6 +167,21 @@ await step('Clear read removes every read notification, with Undo', async () => 
   await kim.getByRole('button', { name: 'Undo' }).click();
   await panel.getByText(read).waitFor();
 }, kim);
+await step('under a Today heading; ↓ and ↑ move between notifications', async () => {
+  const panel = kim.getByRole('dialog', { name: 'Notifications' });
+  const today = panel.getByRole('region', { name: 'Today' });
+  await today.getByRole('heading', { name: 'Today' }).waitFor();
+  const items = today.locator('.bell-item');
+  if ((await items.count()) < 2) throw new Error('both under Today');
+  await items.nth(0).focus();
+  await kim.keyboard.press('ArrowDown');
+  if (!(await items.nth(1).evaluate((el) => el === document.activeElement))) throw new Error('↓ didn’t move');
+  await kim.keyboard.press('ArrowUp');
+  if (!(await items.nth(0).evaluate((el) => el === document.activeElement))) throw new Error('↑ didn’t move');
+  await kim.keyboard.press('End');
+  if (!(await items.nth((await items.count()) - 1).evaluate((el) => el === document.activeElement))) throw new Error('End');
+  await kim.screenshot({ path: `${SP}/shots/bell-days.png` });
+}, kim);
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

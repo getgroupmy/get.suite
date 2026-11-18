@@ -3327,3 +3327,7 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .bell-snoozed ul { padding: 4px 0 0; }
 .bell-snoozed li { gap: 8px; padding: 4px 0; }
 .bell-head .bell-tools { margin-top: 6px; gap: 12px; }
+/* The bell's list, under day headings (the list scrolls, not each day). */
+.bell-panel .bell-list { overflow: auto; min-height: 0; padding: 0 4px 4px; }
+.bell-panel .bell-list ul { overflow: visible; padding: 0; }
+.bell-day { margin: 0; padding: 10px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: none; position: sticky; top: 0; background: var(--surface); z-index: 1; }
