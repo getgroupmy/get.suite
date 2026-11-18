@@ -14,6 +14,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow } from '@tiptap/extension-table';
 import { DocTableCell as TableCell, DocTableHeader as TableHeader, CELL_COLORS } from './tablecells.js';
+import { listAt, cleanStart } from './listnumbers.js';
 import { TextStyle, Color, BackgroundColor, FontFamily, FontSize } from '@tiptap/extension-text-style';
 import { FONTS, SIZES, LINE_HEIGHTS, PARA_SPACE, spacingChoices, fontChoice, LineHeight } from './typography.js';
 import Collaboration from '@tiptap/extension-collaboration';
@@ -1160,6 +1161,19 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         <button type="button" className="tb labelled" aria-label="Alt text" title={editor.getAttributes('image').alt ? `Alt text: ${editor.getAttributes('image').alt}` : 'Describe the picture for screen readers'}
           onMouseDown={(e) => e.preventDefault()} onClick={() => setAltEdit({ pos: editor.state.selection.from, alt: editor.getAttributes('image').alt })}>Alt text</button>
       </>}
+      {editor.isActive('orderedList') && (() => {
+        // In a numbered list: the number it starts at, or carrying on from the numbered list before it.
+        const list = listAt(editor.state.selection.$from);
+        if (!list) return null;
+        const setStart = (n) => editor.chain().command(({ tr }) => { tr.setNodeMarkup(list.pos, null, { ...list.node.attrs, start: cleanStart(n) }); return true; }).run();
+        return <>
+          <label className="tb-num" title="The number this list starts at">Start at <input type="number" min="1" max="9999" aria-label="Numbering starts at" value={list.start}
+            onChange={(e) => e.target.value && setStart(e.target.value)} style={{ width: 56 }} /></label>
+          {list.next && list.next !== list.start && <button type="button" className="tb labelled" title={`Carry on from the numbered list before (${list.next}, …)`}
+            onMouseDown={(e) => e.preventDefault()} onClick={() => setStart(list.next)}>Continue numbering</button>}
+          {list.start !== 1 && <button type="button" className="tb labelled" title="Start this list at 1 again" onMouseDown={(e) => e.preventDefault()} onClick={() => setStart(1)}>Restart at 1</button>}
+        </>;
+      })()}
       {editor.isActive('table') && (() => {
         const bg = editor.getAttributes(editor.isActive('tableHeader') ? 'tableHeader' : 'tableCell').background || '';
         return <select aria-label="Cell colour" title="Colour of the selected cells" value={CELL_COLORS.some(([v]) => v === bg) ? bg : 'other'} style={{ background: bg || undefined }}

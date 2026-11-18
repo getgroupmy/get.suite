@@ -135,11 +135,54 @@ const DOC_SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36];
 const WORD_ALIGN = { center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' };
 const marker = (text) => `<w:r><w:t xml:space="preserve">${MK}${text}${MK_END}</w:t></w:r>`;
 /** document.xml with markers before aligned paragraphs' text and around coloured or highlighted runs. */
-export function markWordXml(xml) {
+/**
+ * Where each numbered list starts, as Word counts: numbers carry on through every paragraph of the same list
+ * definition (w:abstractNum) unless a w:num restarts it (w:startOverride); a level restarts under a new item above it.
+ * Gives a function: a numbered paragraph's (numId, ilvl) → its number, called in document order.
+ */
+export function wordListCounter(numberingXml = '') {
+  const abstracts = new Map(); // abstractNumId → { ilvl → { start, fmt } }
+  for (const [, id, body] of String(numberingXml).matchAll(/<w:abstractNum\b[^>]*w:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g)) {
+    const lv = {};
+    for (const [, il, lb] of body.matchAll(/<w:lvl\b[^>]*w:ilvl="(\d+)"[^>]*>([\s\S]*?)<\/w:lvl>/g)) lv[il] = { start: Number(/<w:start w:val="(\d+)"/.exec(lb)?.[1] ?? 1), fmt: /<w:numFmt w:val="(\w+)"/.exec(lb)?.[1] || 'decimal' };
+    abstracts.set(id, lv);
+  }
+  const nums = new Map(); // numId → { abs, overrides: { ilvl → start } }
+  for (const [, id, body] of String(numberingXml).matchAll(/<w:num\b[^>]*w:numId="(\d+)"[^>]*>([\s\S]*?)<\/w:num>/g)) {
+    const overrides = {};
+    for (const [, il, ob] of body.matchAll(/<w:lvlOverride w:ilvl="(\d+)">([\s\S]*?)<\/w:lvlOverride>/g)) { const st = /<w:startOverride w:val="(\d+)"/.exec(ob)?.[1]; if (st !== undefined) overrides[il] = Number(st); }
+    nums.set(id, { abs: /<w:abstractNumId w:val="(\d+)"/.exec(body)?.[1], overrides });
+  }
+  const counts = new Map(); // abstractNumId → { ilvl → last number }
+  const restarted = new Set(); // numId:ilvl whose own start was used
+  return (numId, ilvl) => {
+    const num = nums.get(String(numId)); const lv = num && abstracts.get(num.abs)?.[ilvl];
+    if (!lv || lv.fmt === 'bullet' || lv.fmt === 'none') return null;
+    const c = counts.get(num.abs) || {}; counts.set(num.abs, c);
+    for (const k of Object.keys(c)) if (Number(k) > Number(ilvl)) delete c[k]; // deeper levels start again under this item
+    const key = `${numId}:${ilvl}`;
+    if (num.overrides[ilvl] !== undefined && !restarted.has(key)) { restarted.add(key); c[ilvl] = num.overrides[ilvl]; }
+    else c[ilvl] = c[ilvl] === undefined ? lv.start : c[ilvl] + 1;
+    return c[ilvl];
+  };
+}
+export function markWordXml(xml, { numbering = '' } = {}) {
+  const count = wordListCounter(numbering);
   // Tracked changes (not the self-closing ones Word puts on paragraph marks): who and when, kept as markers;
   // deleted text (w:delText, which the converter leaves out) made ordinary text inside them.
   const who = (attrs) => encodeURIComponent(JSON.stringify({ id: /w:id="(\d+)"/.exec(attrs)?.[1] || '', name: /w:author="([^"]*)"/.exec(attrs)?.[1] || '', at: /w:date="([^"]*)"/.exec(attrs)?.[1] || '' }));
   return String(xml)
+    // Each numbered paragraph's number, as Word counts them: one that isn't 1 is marked, so a list that starts
+    // there (or carries on from an earlier one) keeps its first number.
+    .replace(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g, (para) => {
+      const np = /<w:numPr>([\s\S]*?)<\/w:numPr>/.exec(para)?.[1];
+      if (!np) return para;
+      const n = count(/<w:numId w:val="(\d+)"/.exec(np)?.[1], /<w:ilvl w:val="(\d+)"/.exec(np)?.[1] || '0');
+      return n && n !== 1 ? para.replace(/(<\/w:pPr>)/, `$1${marker(`ls:${n}`)}`) : para;
+    })
+    // Inline code (Consolas, as the download writes it), outside code blocks: marked, made code afterwards.
+    .replace(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g, (para) => (/<w:pStyle w:val="(?:Code|HTMLPreformatted|PreformattedText)"\/>/.test(para) ? para
+      : para.replace(/<w:r(?=[\s>])[^>]*>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>/g, (r) => (/<w:rFonts\b[^>]*w:ascii="Consolas"/.test(r) && /<w:t\b/.test(r) ? `${marker('cd')}${r}${marker('/cd')}` : r))))
     .replace(/<w:ins\b([^>]*[^/])>([\s\S]*?)<\/w:ins>/g, (m, attrs, inner) => `${marker(`i:${who(attrs)}`)}${inner}${marker('/i')}`)
     .replace(/<w:del\b([^>]*[^/])>([\s\S]*?)<\/w:del>/g, (m, attrs, inner) => `${marker(`d:${who(attrs)}`)}${inner.replace(/<w:delText\b/g, '<w:t').replace(/<\/w:delText>/g, '</w:t>')}${marker('/d')}`)
     // Comments: where each one's text starts and ends (its id kept, to find its words afterwards).
@@ -233,6 +276,9 @@ export function unmarkWordHtml(html, commentId = null) {
       return `<span style="${attr(css)}">`;
     })
     .replace(re('MK/END'), '</span>')
+    .replace(re('MKcdEND'), '<code>').replace(re('MK/cdEND'), '</code>')
+    .replace(re('<ol>((?:<li>)(?:<p>)?)MKls:(\\d+)END'), (m, open, n) => `<ol start="${n}">${open}`)
+    .replace(re('MKls:\\d+END'), '')
     .replace(re('<p>(?:<[^>]+>)*MKhrEND(?:</[^p][^>]*>)*</p>'), '<hr>')
     // A page break alone in its paragraph (as the download writes it, and Word mostly does): the paragraph becomes one;
     // one in the middle of a paragraph ends it there.
@@ -279,7 +325,7 @@ async function withMarks(buffer) {
     const zip = await JSZip.loadAsync(buffer);
     const f = zip.file('word/document.xml');
     if (!f) return buffer;
-    zip.file('word/document.xml', markWordXml(await f.async('string')));
+    zip.file('word/document.xml', markWordXml(await f.async('string'), { numbering: await zip.file('word/numbering.xml')?.async('string') }));
     return await zip.generateAsync({ type: 'nodebuffer' });
   } catch { return buffer; }
 }
@@ -642,6 +688,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   gather(doc || {});
   const top = Math.min(...contents.map((h) => h.level));
   let headingNo = 0;
+  let listNo = 0; const starts = new Set(); // numbered lists: one numbering instance each, and the first numbers they use
   const allLabels = headingLabels(levels);
   let headingAt = 0;
   const contentsBlock = () => [
@@ -714,7 +761,11 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       else if (n.type === 'heading') paras.push(new Paragraph({ children: (() => { const label = page?.headingNumbers ? allLabels[headingAt++] : null; const r = [...(label ? [new TextRun(`${label} `)] : []), ...runs(n.content)]; return textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: r })] : r; })(), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight, n.attrs?.spaceBefore, n.attrs?.spaceAfter), ...indent }));
       else if (n.type === 'bulletList' || n.type === 'orderedList') {
         const level = (ctx.level ?? -1) + 1;
-        for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering: { reference: 'numbers', level } } });
+        // Each numbered list counts on its own (from its own first number), not on from the one before.
+        const start = Math.max(1, Math.min(9999, Math.round(Number(n.attrs?.start) || 1)));
+        if (n.type === 'orderedList') starts.add(start);
+        const numbering = { reference: `numbers-${start}`, level, instance: ++listNo };
+        for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering } });
       } else if (n.type === 'taskList') {
         // A checklist: each item's first paragraph gets a box (☐, or ☑ when ticked); the rest follow indented.
         const level = (ctx.level ?? -1) + 1;
@@ -788,7 +839,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       ...(c.parentId !== undefined && { parentId: c.parentId }), ...(c.resolved && { resolved: true }),
       children: String(c.text || '').split('\n').map((line) => new Paragraph(line)),
     })) } }),
-    numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
+    numbering: { config: [...new Set([1, ...starts])].map((start) => ({ reference: `numbers-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) })) },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
     styles: {
       ...((page?.font || page?.fontSize) && { default: { document: { run: { ...(page.font && { font: page.font }), ...(page.fontSize && { size: page.fontSize * 2 }) } } } }), // Normal text: half-points

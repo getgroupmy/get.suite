@@ -2286,3 +2286,43 @@ test('Docs: merged table cells (across and down) out to Word and .odt and back',
     assert.equal(show(await docFromOdt(lo('d.docx', 'odt', 'c'))), want, 'Word saved as .odt');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Docs: each numbered list numbered on its own, from its own first number; inline code, in Word and .odt and back', async (t) => {
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const { wordListCounter } = await import('../src/office/word.js');
+  const P = (text, marks) => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks && { marks }) }] });
+  const OL = (start, items, nested) => ({ type: 'orderedList', attrs: { start }, content: items.map((x, i) => ({ type: 'listItem', content: [P(x), ...(nested && i === 0 ? [nested] : [])] })) });
+  const doc = { type: 'doc', content: [OL(1, ['One', 'Two'], OL(1, ['Sub a', 'Sub b'])), P('Between'), P('code here', [{ type: 'code' }]), OL(1, ['Again one', 'Again two']), P('Then'), OL(3, ['Three', 'Four'])] };
+  const want = 'OL1[One/OL1(2),Two] Between CODE:code here OL1[Again one,Again two] Then OL3[Three,Four]';
+  const show = (d) => (d.doc || d).content.map((n) => (n.type === 'orderedList' ? `OL${n.attrs?.start ?? 1}[${n.content.map((li) => li.content.map((c) => (c.type === 'orderedList' ? `OL${c.attrs?.start ?? 1}(${c.content.length})` : c.content?.[0]?.text)).join('/')).join(',')}]` : `${n.content?.[0]?.marks?.some((m) => m.type === 'code') ? 'CODE:' : ''}${(n.content?.[0]?.text ?? '').trim()}`)).join(' ');
+  const docx = await wordFromDoc(doc, 'T');
+  const zip = await JSZip.loadAsync(docx);
+  const xml = await zip.file('word/document.xml').async('string');
+  const numIds = [...xml.matchAll(/<w:ilvl w:val="0"\/><w:numId w:val="(\d+)"\/>/g)].map((m) => m[1]);
+  assert.equal(new Set(numIds).size, 3, 'three lists at the top: three numberings, not one running on');
+  assert.match(await zip.file('word/numbering.xml').async('string'), /<w:lvl w:ilvl="0"[^>]*><w:start w:val="3"\/>/);
+  assert.equal(show(await docFromWord(docx)), want, 'Word');
+  const odt = await odtFromDoc(doc, 'T');
+  assert.match(await (await JSZip.loadAsync(odt)).file('content.xml').async('string'), /<text:list-item text:start-value="3">/);
+  assert.equal(show(await docFromOdt(odt)), want, '.odt');
+  // Word's own counting: numbers carry on through one list definition unless a w:num restarts it; levels restart under a new item.
+  const count = wordListCounter(`<w:numbering><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/></w:lvl></w:abstractNum>
+    <w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/></w:lvl></w:abstractNum>
+    <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="0"/></w:num>
+    <w:num w:numId="3"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num><w:num w:numId="4"><w:abstractNumId w:val="1"/></w:num></w:numbering>`);
+  assert.deepEqual([count(1, '0'), count(1, '1'), count(1, '1'), count(1, '0'), count(1, '1'), count(2, '0'), count(3, '0'), count(3, '0'), count(4, '0')], [1, 1, 2, 2, 1, 3, 1, 2, null]);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as.split(':')[0]}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.docx'), docx); fs.writeFileSync(path.join(dir, 'd.odt'), odt);
+    assert.equal(show(await docFromWord(lo('d.docx', 'docx', 'a'))), want, 'Word → LibreOffice → Word');
+    assert.equal(show(await docFromOdt(lo('d.odt', 'odt', 'b'))), want, '.odt → LibreOffice → .odt');
+    assert.equal(show(await docFromOdt(lo('d.docx', 'odt', 'c'))), want, 'Word saved as .odt');
+    // What LibreOffice shows for the Word file: each list numbered on its own.
+    const text = lo('d.docx', 'txt:Text', 't').toString('utf8').replace(/\s+/g, ' ');
+    assert.match(text, /1\. One 1\. Sub a 2\. Sub b 2\. Two Between code here 1\. Again one 2\. Again two Then 3\. Three 4\. Four/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

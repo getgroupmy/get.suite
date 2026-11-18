@@ -178,7 +178,8 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       if (t === 'paragraph') out += para(n, ctx.style || 'Standard');
       else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); out += `<text:h text:style-name="${styleOf(`Heading_20_${lv}`, n.attrs)}" text:outline-level="${lv}">${inline(n.content)}</text:h>`; }
       else if (t === 'bulletList' || t === 'orderedList') {
-        out += `<text:list text:style-name="${t === 'orderedList' ? 'LNum' : 'LBul'}">${(n.content || []).map((li) => `<text:list-item>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
+        const start = t === 'orderedList' ? Math.max(1, Math.min(9999, Math.round(Number(n.attrs?.start) || 1))) : 1; // (a numbered list's first number)
+        out += `<text:list text:style-name="${t === 'orderedList' ? 'LNum' : 'LBul'}">${(n.content || []).map((li, i) => `<text:list-item${i === 0 && start > 1 ? ` text:start-value="${start}"` : ''}>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
       } else if (t === 'taskList') {
         for (const li of n.content || []) {
           const [first, ...rest] = li.content || [];
@@ -370,6 +371,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const root = parse(contentXml), stylesRoot = parse(stylesXml);
   // The styles: what each text style looks like, how each paragraph style is aligned, which lists are numbered.
   const styles = new Map(), numbered = new Map();
+  const numberedFrom = new Map(); // a list style's first number at each level
+  let lastNumbered = 0; // the last number of the latest numbered list at the top (for a list that carries on from it)
   const readStyles = (node) => {
     for (const el of kids(node)) {
       if (el.type !== 'tag') continue;
@@ -382,6 +385,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         styles.set(name, { parent: el.attribs['style:parent-style-name'], tp, pp, cp, colp, list: el.attribs['style:list-style-name'], level: Number(el.attribs['style:default-outline-level']) || 0 });
       } else if (el.name === 'text:list-style') {
         numbered.set(el.attribs['style:name'], kids(el).filter((c) => c.type === 'tag').map((c) => c.name === 'text:list-level-style-number'));
+        numberedFrom.set(el.attribs['style:name'], kids(el).filter((c) => c.type === 'tag').map((c) => Number(c.attribs?.['text:start-value']) || 1));
       }
       readStyles(el);
     }
@@ -504,8 +508,13 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const ls = sn || listStyle;
         const isNum = (numbered.get(ls) || [])[depth] ?? false;
         const items = [];
-        for (const li of kids(c).filter((k) => k.name === 'text:list-item' || k.name === 'text:list-header')) items.push(`<li>${await blocks(li, depth + 1, ls) || '<p></p>'}</li>`);
-        out += `<${isNum ? 'ol' : 'ul'}>${items.join('')}</${isNum ? 'ol' : 'ul'}>`;
+        const lis = kids(c).filter((k) => k.name === 'text:list-item' || k.name === 'text:list-header');
+        for (const li of lis) items.push(`<li>${await blocks(li, depth + 1, ls) || '<p></p>'}</li>`);
+        // Its first number: the first item's own, or carrying on from the list before (continue-numbering), or its style's.
+        const carries = c.attribs['text:continue-numbering'] === 'true' || !!c.attribs['text:continue-list'];
+        const start = Number(lis[0]?.attribs?.['text:start-value']) || (carries && depth === 0 && lastNumbered ? lastNumbered + 1 : (numberedFrom.get(ls) || [])[depth] || 1);
+        if (isNum && depth === 0) lastNumbered = start + lis.length - 1;
+        out += isNum ? `<ol${start > 1 ? ` start="${start}"` : ''}>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`;
       } else if (c.name === 'table:table') {
         const rows = [];
         const collect = (n) => { for (const k of kids(n)) { if (k.name === 'table:table-row') rows.push({ row: k, head: n.name === 'table:table-header-rows' }); else if (/^table:table-(header-)?rows$/.test(k.name)) collect(k); } };
