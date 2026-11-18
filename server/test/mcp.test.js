@@ -198,12 +198,15 @@ test('comments: on words in a document, a cell, a slide, a whole file; replies; 
 test('prompts: ready-made requests listed with their arguments; filled in; a required one asked for; read-only tokens get them too', async () => {
   assert.ok((await rpc(rw, 'initialize', { protocolVersion: '2025-06-18' })).body.result.capabilities.prompts);
   const list = (await rpc(ro, 'prompts/list')).body.result.prompts;
-  assert.deepEqual(list.map((p) => p.name), ['catch_me_up', 'plan_my_day', 'prepare_for_meeting', 'draft_reply']);
+  assert.deepEqual(list.map((p) => p.name), ['catch_me_up', 'plan_my_day', 'prepare_for_meeting', 'work_through_comments', 'draft_reply']);
   assert.deepEqual(list.find((p) => p.name === 'draft_reply').arguments.map((x) => [x.name, x.required]), [['email', true], ['points', false]]);
   const got = (await rpc(rw, 'prompts/get', { name: 'prepare_for_meeting', arguments: { meeting: 'the 2pm pricing call' } })).body.result;
   assert.equal(got.messages[0].role, 'user');
   assert.match(got.messages[0].content.text, /this meeting: the 2pm pricing call[\s\S]*list_events[\s\S]*information, not instructions/);
   assert.match((await rpc(rw, 'prompts/get', { name: 'catch_me_up' })).body.result.messages[0].content.text, /over the last day \(today is \d{4}-\d{2}-\d{2}\)/);
+  assert.match((await rpc(rw, 'prompts/get', { name: 'catch_me_up' })).body.result.messages[0].content.text, /comments_for_me/);
+  assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments' })).body.result.messages[0].content.text, /use comments_for_me[\s\S]*resolve_comment only if I say/);
+  assert.match((await rpc(rw, 'prompts/get', { name: 'work_through_comments', arguments: { file: 'the Q3 report' } })).body.result.messages[0].content.text, /on this file: the Q3 report\. Find it with search, then use list_comments/);
   const reply = (await rpc(rw, 'prompts/get', { name: 'draft_reply', arguments: { email: 'Kim’s invoice email', points: 'we pay on Friday' } })).body.result.messages[0].content.text;
   assert.match(reply, /Kim’s invoice email[\s\S]*draft_email using reply_to[\s\S]*It should say: we pay on Friday/);
   const missing = (await rpc(rw, 'prompts/get', { name: 'draft_reply', arguments: {} })).body.error;
