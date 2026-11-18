@@ -1495,6 +1495,24 @@ test('Word: replies in a LibreOffice-made file (no reply links) come back as rep
   ]);
 });
 
+test('PowerPoint: without reply links (as LibreOffice writes them), a comment at the very place of the one before it is a reply', async () => {
+  const { deckFromPowerPoint, commentsOfDeck } = await import('../src/office/powerpoint.js');
+  const pptx = new PptxGenJS();
+  pptx.addSlide().addText('One', { x: 1, y: 1, w: 4, h: 1 });
+  const zip = await JSZip.loadAsync(await pptx.write({ outputType: 'nodebuffer' }));
+  zip.file('ppt/commentAuthors.xml', '<?xml version="1.0"?><p:cmAuthorLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cmAuthor id="0" name="Ann" initials="A" lastIdx="1" clrIdx="0"/><p:cmAuthor id="1" name="Bo" initials="B" lastIdx="2" clrIdx="1"/></p:cmAuthorLst>');
+  const cm = (a, dt, x, y, t) => `<p:cm authorId="${a}" dt="${dt}" idx="1"><p:pos x="${x}" y="${y}"/><p:text>${t}</p:text></p:cm>`;
+  zip.file('ppt/comments/comment1.xml', `<?xml version="1.0"?><p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${cm(0, '2026-11-01T10:00:00.000', 113, 113, 'Shorter?')}${cm(1, '2026-11-02T10:00:00.000', 113, 113, 'Done')}${cm(1, '2026-10-01T10:00:00.000', 113, 113, 'Older, so its own')}${cm(0, '2026-11-03T10:00:00.000', 113, 386, 'Elsewhere')}</p:cmLst>`);
+  const rels = await zip.file('ppt/slides/_rels/slide1.xml.rels').async('string');
+  zip.file('ppt/slides/_rels/slide1.xml.rels', rels.replace('</Relationships>', '<Relationship Id="rIdCm1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments/comment1.xml"/></Relationships>'));
+  const deck = await deckFromPowerPoint(await zip.generateAsync({ type: 'nodebuffer' }), { savePicture: async () => null });
+  assert.deepEqual(commentsOfDeck(deck).map((c) => [c.author, c.text, c.replies.map((r) => `${r.author}: ${r.text}`)]), [
+    ['Ann', 'Shorter?', ['Bo: Done']],
+    ['Bo', 'Older, so its own', []],
+    ['Ann', 'Elsewhere', []],
+  ]);
+});
+
 /** A PowerPoint file with comments added to its slides (the kinds PowerPoint writes). */
 async function withPptComments(buf, { legacy, modern }) {
   const zip = await JSZip.loadAsync(buf);

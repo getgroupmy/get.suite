@@ -76,7 +76,18 @@ async function slideCommentsOf(zip, slideFile, authors) {
       key: `${/authorId="(\d+)"/.exec(cm[1])?.[1]}:${/idx="(\d+)"/.exec(cm[1])?.[1]}`,
       parent: (() => { const pm = /<p15:parentCm\b[^>]*authorId="(\d+)"[^>]*idx="(\d+)"/.exec(cm[2]); return pm ? `${pm[1]}:${pm[2]}` : null; })(),
       author: authors.get(/authorId="(\d+)"/.exec(cm[1])?.[1]) || '', text: unxml(/<p:text>([\s\S]*?)<\/p:text>/.exec(cm[2])?.[1] || '').trim(), at: when(/dt="([^"]+)"/.exec(cm[1])?.[1]),
+      pos: /<p:pos\b[^>]*\/>/.exec(cm[2])?.[0] || '',
     })).filter((c) => c.text);
+    // Without any reply links (as LibreOffice writes them): a comment at the very place of the one before it, and not
+    // older, is a reply in that thread.
+    if (!old.some((c) => c.parent)) {
+      old.forEach((c, i) => { c.key = `${c.key}#${i}`; }); // (each its own: a file may repeat an author's numbers)
+      for (let i = 1, top = old[0]; i < old.length; i++) {
+        const c = old[i], prev = old[i - 1];
+        if (c.pos && c.pos === prev.pos && c.key !== top.key && (!c.at || !top.at || c.at >= top.at)) c.parent = top.key;
+        else top = c;
+      }
+    }
     const tops = old.filter((c) => !c.parent || !old.some((o) => o.key === c.parent));
     for (const t of tops) out.push({ author: t.author, text: t.text, at: t.at, resolved: false, replies: old.filter((c) => c.parent === t.key).map((c) => ({ author: c.author, text: c.text, at: c.at })) });
   }

@@ -222,6 +222,14 @@ test('.odp: comment threads on slides go out as Impress keeps them and come back
   fs.writeFileSync(path.join(dir, 'a.odp'), buf);
   execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odp', '--outdir', path.join(dir, 'o'), path.join(dir, 'a.odp')], { stdio: 'ignore', timeout: 120000 });
   assert.deepEqual(show(await deckFromOdp(fs.readFileSync(path.join(dir, 'o', 'a.odp')))), want, 'saved again by LibreOffice');
+  // Saved as PowerPoint by LibreOffice (no reply links there): the replies still come back as replies.
+  const { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } = await import('../src/office/powerpoint.js');
+  const showPpt = (deck) => commentsOfDeck(deck).map((c) => [deck.slides.findIndex((s) => s.id === c.slideId), c.author, c.text, c.at, c.replies.map((r) => [r.author, r.text, r.at])]);
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'pptx', '--outdir', path.join(dir, 'p'), path.join(dir, 'a.odp')], { stdio: 'ignore', timeout: 120000 });
+  assert.deepEqual(showPpt(await deckFromPowerPoint(fs.readFileSync(path.join(dir, 'p', 'a.pptx')), { savePicture: async () => null })), want, '.odp saved as .pptx');
+  fs.writeFileSync(path.join(dir, 'b.pptx'), await powerPointFromDeck(d, { comments }));
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'pptx', '--outdir', path.join(dir, 'q'), path.join(dir, 'b.pptx')], { stdio: 'ignore', timeout: 120000 });
+  assert.deepEqual(showPpt(await deckFromPowerPoint(fs.readFileSync(path.join(dir, 'q', 'b.pptx')), { savePicture: async () => null })), want, 'our .pptx saved again by LibreOffice');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

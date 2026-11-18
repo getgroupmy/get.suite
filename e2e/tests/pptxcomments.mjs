@@ -80,6 +80,22 @@ await step('the .odp download keeps the slide comments and replies; reopened, th
   await page.getByText(/^Shortened it\./).first().waitFor();
   await page.getByText('— Olivia Owner (in the OpenDocument file)').first().waitFor();
 });
+await step('a PowerPoint download saved again by LibreOffice keeps the reply as a reply', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore' }); } catch { console.log('(LibreOffice not installed: skipped)'); return; }
+  const bytes = await page.evaluate(async (id) => Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/export?format=pptx`)).arrayBuffer())), deckId);
+  const dir = fs.mkdtempSync(`${SP}/lo-`);
+  fs.writeFileSync(`${dir}/in.pptx`, Buffer.from(bytes));
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'pptx', '--outdir', `${dir}/out`, `${dir}/in.pptx`], { stdio: 'ignore', timeout: 120000 });
+  const b64 = fs.readFileSync(`${dir}/out/in.pptx`).toString('base64');
+  const up = await page.evaluate(async (data) => (await fetch('/api/files/upload?name=Plan-LO.pptx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: Uint8Array.from(atob(data), (c) => c.charCodeAt(0)) })).json(), b64);
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  const back = (await api(page, 'GET', `/comments/${opened.body.id}`)).body;
+  const root = back.find((c) => !c.thread_id && c.body.startsWith('Make the title shorter'));
+  if (!root || !back.some((c) => c.thread_id === root.id && c.body.startsWith('Shortened it.'))) throw new Error(JSON.stringify(back.map((c) => [c.thread_id, c.body.split('\n')[0]])));
+  if (back.some((c) => !c.thread_id && c.body.startsWith('Shortened it.'))) throw new Error('the reply is also a thread');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
