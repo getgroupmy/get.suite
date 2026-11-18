@@ -75,6 +75,28 @@ await step('equations in the e-book are MathML, which readers draw', async () =>
   const [one, two] = await Promise.all(['mfrac > mrow:first-child', 'mfrac > mrow:last-child'].map((s) => view.locator(s).boundingBox()));
   if (!one || !two || !(two.y > one.y + 2)) throw new Error(`not a fraction: ${JSON.stringify([one, two])}`);
 });
+await step('Download as web page (.html) and as plain text (.txt)', async () => {
+  const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Notes' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Half is ' }, { type: 'math', attrs: { latex: '\\frac{1}{2}' } }, { type: 'footnote', attrs: { note: 'Roughly.' } }] },
+    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'One' }] }] }] }] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Short notes', content })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.locator('.ProseMirror').getByText('Half is').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as web page (.html)' }).click()]);
+  if (dl.suggestedFilename() !== 'Short notes.html') throw new Error(dl.suggestedFilename());
+  const html = fs.readFileSync(await dl.path(), 'utf8');
+  const view = await browser.newPage();
+  await view.setContent(html);
+  await view.getByRole('heading', { name: 'Notes' }).waitFor();
+  const [one, two] = await Promise.all(['mfrac > mrow:first-child', 'mfrac > mrow:last-child'].map((s) => view.locator(s).boundingBox()));
+  if (!(two.y > one.y + 2)) throw new Error('the equation is drawn');
+  await view.locator('#n1').getByText('Roughly.').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dt] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as plain text (.txt)' }).click()]);
+  const txt = fs.readFileSync(await dt.path(), 'utf8');
+  if (txt !== 'Notes\n\nHalf is \\frac{1}{2}[1]\n\n- One\n\n[1] Roughly.\n') throw new Error(JSON.stringify(txt));
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

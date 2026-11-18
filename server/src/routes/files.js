@@ -40,7 +40,7 @@ import { odtFromDoc, docFromOdt, ODT_MIME, pageOfOdt } from '../office/odt.js';
 import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/ods.js';
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
-import { epubFromDoc, EPUB_MIME } from '../office/epub.js';
+import { epubFromDoc, htmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -1851,6 +1851,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Numbered headings (page setup): written into the text where the format has no numbering of its own.
     const numbered = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
     if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
+    if (type === 'html') return htmlFromDoc(numbered, f.name, { pictureData });
+    if (type === 'txt') return Buffer.from(textFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
     if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [] });
     if (type === 'ods') return odsFromSheet(content, { comments: cellCommentsOf(f.id) });
@@ -1860,7 +1862,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
   };
   // Which types each kind can be had as (the first is the usual one).
-  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub'], sheet: ['xlsx', 'ods'], slides: ['pptx', 'odp'] };
+  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt'], sheet: ['xlsx', 'ods'], slides: ['pptx', 'odp'] };
   const exportType = (f, format) => (EXPORT_TYPES[f.kind]?.includes(format) ? format : EXPORT_AS[f.kind]);
 
   // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint (or OpenDocument, Markdown).
@@ -1870,7 +1872,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!EXPORT_AS[f.kind]) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     const type = exportType(f, req.query.format);
     const buf = await exportedAs(f, type);
-    res.setHeader('Content-Type', type === 'epub' ? EPUB_MIME : OFFICE[type].mime); // (an e-book only goes out: it isn't opened as a document)
+    res.setHeader('Content-Type', { epub: EPUB_MIME, html: 'text/html; charset=utf-8', txt: 'text/plain; charset=utf-8' }[type] || OFFICE[type].mime); // (an e-book, web page or text only goes out: none is opened as a document)
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${type}`)}`);
     res.send(buf);
   });
@@ -1888,7 +1890,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
     const storage = uid();
     fs.writeFileSync(path.join(FILES_DIR, storage), buf);
-    const name = cleanName(`${f.name}.${type}`), mime = (type === 'epub' ? EPUB_MIME : OFFICE[type].mime).split(';')[0];
+    const name = cleanName(`${f.name}.${type}`), mime = ({ epub: EPUB_MIME, html: 'text/html', txt: 'text/plain' }[type] || OFFICE[type].mime).split(';')[0];
     // Attached before: the same file, as it is now (the earlier copy kept as a version), so it keeps its name.
     const before = q("SELECT id FROM files WHERE owner_id = ? AND parent_id = ? AND kind = 'file' AND name = ? AND trashed = 0").get(req.user.id, folderId, name);
     let id = before?.id;

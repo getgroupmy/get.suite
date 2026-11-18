@@ -79,7 +79,7 @@ await step('it is saved, survives a reload, and the HTML download has working li
   await page.locator('.paper nav.doc-toc li').first().waitFor();
   if ((await tocItems()).join('|') !== 'Welcome|Holidays|Expenses and travel|Leaving soon') throw new Error((await tocItems()).join('|'));
   await page.getByRole('button', { name: 'More', exact: true }).click();
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as HTML' }).click()]);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as web page (.html)' }).click()]);
   const html = await (await import('node:fs')).promises.readFile(await dl.path(), 'utf8');
   if (!/<a href="#expenses-and-travel">Expenses and travel<\/a>/.test(html)) throw new Error(html.slice(0, 300));
   if (!/<h2[^>]* id="expenses-and-travel"/.test(html)) throw new Error('heading id');

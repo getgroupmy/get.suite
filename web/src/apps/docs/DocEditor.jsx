@@ -8,7 +8,7 @@ import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { TabbedDocument, DocTab, addTab, openTab, tabIdOfHash } from './doctabsext.js';
 import { DocTabs, useTabs } from './DocTabs.jsx';
-import { htmlWithTabTitles, tabsOf } from './doctabs.js';
+import { tabsOf } from './doctabs.js';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
@@ -49,14 +49,14 @@ import { FindBar } from './FindBar.jsx';
 import { Outline, goToHeading } from './Outline.jsx';
 import { headingsOf, headingForAnchor } from './outline.js';
 import { ActionItemsDialog } from './ActionItems.jsx';
-import { TableOfContents, htmlWithContents } from './toc.js';
+import { TableOfContents } from './toc.js';
 import { SheetChart } from './sheetchart.jsx';
 import { ChartPick } from '../ChartLink.jsx';
 import { SignedPrintPage } from './Signatures.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { captureFormat, applyFormat, wordAt } from './paintformat.js';
-import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
+import { Footnote, footnotesOf } from './footnote.js';
 import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { LinkDialog } from './LinkDialog.jsx';
@@ -72,7 +72,7 @@ import { FileChip, matchFiles, fileIcon, fileUrl } from './filechip.js';
 import { EmailDraft, matchBlocks } from './emaildraft.jsx';
 import { EventDraft } from './eventdraft.jsx';
 import { MathInline, mathHtml, mathError, MAX_LATEX } from './math.js';
-import { Citation, References, htmlWithReferences } from './citation.js';
+import { Citation, References } from './citation.js';
 import { CITE_FIELDS, cleanSource, inText, sourcesOf, sourceKey } from './cite.js';
 import { SYMBOL_GROUPS, findSymbols } from './symbols.js';
 import { diffDocs, changeCount } from './docdiff.js';
@@ -515,15 +515,6 @@ function SharedDoc({ file, setFile }) {
     return () => provider.off('sync', focusOnce);
   }, [editor, provider, readOnly]);
 
-  function exportHtml() {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithTabTitles(htmlWithFootnotes(htmlWithReferences(htmlWithContents(withoutSuggestionsHtml(editor.getHTML()), editor.state.doc), editor.getJSON())))}</body></html>`;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-    a.download = `${file.name}.html`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
   // ---- comments ----
   const [params] = useSearchParams();
   const { threads, fresh, seenAt, markSeen } = useComments(file.id);
@@ -843,7 +834,8 @@ function SharedDoc({ file, setFile }) {
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
-          { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
+          { label: 'Download as web page (.html)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=html`; } },
+          { label: 'Download as plain text (.txt)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=txt`; } },
           { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
           { label: 'Download as OpenDocument (.odt)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=odt`; } },
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
@@ -1007,16 +999,6 @@ function SharedDoc({ file, setFile }) {
     </div>
   );
 }
-
-/** HTML without pending suggestions: suggested insertions left out, suggested deletions kept as plain text. */
-function withoutSuggestionsHtml(html) {
-  const d = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
-  d.querySelectorAll('ins[data-sugg]').forEach((el) => el.remove());
-  d.querySelectorAll('del[data-sugg]').forEach((el) => el.replaceWith(...el.childNodes));
-  return d.body.innerHTML;
-}
-
-const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onLink, onChart, onDraw }) {
   const [altEdit, setAltEdit] = useState(null); // { pos, alt } of the picture being described
