@@ -1308,8 +1308,10 @@ function ShareList({ list, me, onClose, onSaved }) {
   const [filter, setFilter] = useState('');
   useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
   const shown = people.filter((p) => p.id !== me.id && `${p.name} ${p.username}`.toLowerCase().includes(filter.toLowerCase()));
+  const [message, setMessage] = useState(''); // for the people added now
+  const adding = [...chosen].filter((id) => !list.members.some((m) => m.id === id));
   async function save() {
-    try { await put(`/tasks/lists/${list.id}/members`, { user_ids: [...chosen] }); toast(chosen.size ? `Shared with ${chosen.size}` : 'Not shared any more'); onSaved(); }
+    try { await put(`/tasks/lists/${list.id}/members`, { user_ids: [...chosen], ...(message.trim() && { message: message.trim() }) }); toast(chosen.size ? `Shared with ${chosen.size}` : 'Not shared any more'); onSaved(); }
     catch (e) { toast(e.message, 'error'); }
   }
   return (
@@ -1325,6 +1327,10 @@ function ShareList({ list, me, onClose, onSaved }) {
           </label></li>
         ))}
       </ul>
+      {adding.length > 0 && (
+        <label className="field"><span>Message to {adding.length === 1 ? people.find((p) => p.id === adding[0])?.name || 'them' : 'the people you added'} (optional)</span>
+          <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="What you’d like them to pick up…" /></label>
+      )}
     </Modal>
   );
 }

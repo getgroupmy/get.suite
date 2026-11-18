@@ -530,6 +530,11 @@ export default function taskRoutes() {
       q(`UPDATE tasks SET assignee_id = NULL WHERE list_id = ? AND assignee_id IS NOT NULL AND assignee_id NOT IN (SELECT value FROM json_each(?))`).run(list.id, JSON.stringify([list.owner_id, ...ids]));
     });
     shareAttachments(list, q('SELECT attachments FROM tasks WHERE list_id = ? AND attachments IS NOT NULL').all(list.id)); // for the people added
+    // The people added are told (with a message, if one was written), as when sharing a file.
+    const added = ids.filter((id) => !before.includes(id));
+    const note = req.body?.message ? String(req.body.message).trim().slice(0, 500) : '';
+    const open = q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ? AND done_at IS NULL').get(list.id).n;
+    if (added.length) bell(added, { kind: 'share', title: `${req.user.name || req.user.username} shared the list “${list.name}” with you`, body: `${note ? `“${note}” · ` : ''}${open === 1 ? '1 task to do' : `${open} tasks to do`}`, link: `/tasks/${list.id}`, actor: req.user.name });
     sendTo(new Set([...before, ...ids]), { type: 'tasks-changed', list_id: list.id });
     res.json({ ok: true });
   });

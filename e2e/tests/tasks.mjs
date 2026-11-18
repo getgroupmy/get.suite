@@ -91,8 +91,14 @@ await step('a shared list: Kim sees it live, and a task given to her is under As
   for (const t of ['Pack the server room', 'Order boxes']) { await page.getByLabel('Add a task').fill(t); await page.keyboard.press('Enter'); await task(page, t).waitFor(); }
   await page.getByRole('button', { name: 'Share' }).click();
   await page.getByRole('dialog').getByLabel(/Kim Park/).check();
+  await page.getByRole('dialog').getByLabel('Message to Kim Park (optional)').fill('Take the boxes, please');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   await page.getByRole('button', { name: 'Shared with 1' }).waitFor();
+  // Kim is told, with the message, and the notification opens the list.
+  await kim.goto(`${B}/home`);
+  await kim.getByRole('button', { name: /^Notifications/ }).click();
+  await kim.getByText('Olivia Owner shared the list “Office move” with you').waitFor();
+  await kim.getByText(/“Take the boxes, please” · \d+ tasks? to do/).waitFor();
   await kim.goto(`${B}/tasks`);
   await kim.locator('.subnav-item', { hasText: 'Office move' }).click();
   await kim.getByText('Shared by Olivia Owner').waitFor();

@@ -1678,7 +1678,10 @@ test('tasks: lists, ordering, due dates, done, sharing and assigning', async () 
   assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { assignee_id: bid })).status, 400);
   // Shared with Ben: he sees it, can change it and be given tasks.
   assert.equal((await b('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [cid] })).status, 404, "only the owner shares");
-  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid], message: 'Grab the venue' });
+  // Ben is told, with the message and what's open, opening the list.
+  const sharedNote = (await b('GET', '/api/notifications')).body.items.find((n) => n.title === 'Task Ann shared the list “Launch” with you');
+  assert.deepEqual([sharedNote?.body, sharedNote?.link], ['“Grab the venue” · 3 tasks to do', `/tasks/${list}`]);
   const forBen = (await b('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list);
   assert.deepEqual([forBen.mine, forBen.owner_name], [false, 'Task Ann']);
   const given = (await a('PATCH', `/api/tasks/tasks/${t1.id}`, { assignee_id: bid, notes: 'Draft by Friday' })).body;
@@ -2142,14 +2145,15 @@ test('notifications: mentions, tasks, invitations and shares land in the bell; r
   await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
   await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] }); // a change, not a new share
   const n = await bell();
-  assert.deepEqual(n.items.map((x) => x.kind), ['share', 'invite', 'task', 'mention']);
-  assert.equal(n.unread, 4);
+  assert.deepEqual(n.items.map((x) => x.kind), ['share', 'invite', 'task', 'share', 'mention']); // (the list shared with him, then the file)
+  assert.equal(n.unread, 5);
   assert.equal(n.items[0].title, 'Bell Ann shared “Bell notes” with you');
   assert.equal(n.items[0].link, `/docs/${doc.id}`);
   assert.equal(n.items[2].link.startsWith(`/tasks/${list}?task=`), true);
-  assert.equal(n.items[3].link, `/chat/${ch}`);
+  assert.equal(n.items[3].title, 'Bell Ann shared the list “Bell list” with you');
+  assert.equal(n.items[4].link, `/chat/${ch}`);
   assert.equal((await a('GET', '/api/notifications')).body.unread, 0, 'nothing for the one who did it');
-  assert.equal((await b('POST', '/api/notifications/read', { ids: [n.items[0].id] })).body.unread, 3);
+  assert.equal((await b('POST', '/api/notifications/read', { ids: [n.items[0].id] })).body.unread, 4);
   assert.equal((await b('POST', '/api/notifications/read', { all: true })).body.unread, 0);
   assert.equal((await b('POST', '/api/notifications/read', {})).status, 400);
 });
@@ -3607,7 +3611,7 @@ test('notifications: several files shared, or several tasks given, by one person
   ]);
   assert.deepEqual(got[1].items.map((x) => x.label), ['Send invites', 'Order cake', 'Book venue']);
   assert.deepEqual(got[0].items.map((x) => x.label), ['Read CVs'], 'a single one: itself');
-  assert.equal((await b('GET', '/api/notifications')).body.unread, 3);
+  assert.equal((await b('GET', '/api/notifications')).body.unread, 5, '(and the two lists shared with him)');
 });
 
 test('calendar: copy a week to later weeks (one-off events of yours, by whole days in their zone; guests only if asked)', async () => {
