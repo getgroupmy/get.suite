@@ -10035,10 +10035,11 @@ test('sharing a calendar of your own: colleagues see its events, or change them 
   // Only the owner shares; only with people at the company.
   assert.equal((await b('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ids.shc }] })).status, 404);
   assert.equal((await a('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ginaId }] })).status, 400);
-  const shared = (await a('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ids.shb, can_edit: false }, { id: ids.shc, can_edit: true }] })).body;
+  const shared = (await a('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ids.shb, can_edit: false }, { id: ids.shc, can_edit: true }], message: 'For planning leave' })).body;
   assert.deepEqual(shared.members.map((m) => [m.email, m.can_edit]), [['shb@acme.com', false], ['shc@acme.com', true]]);
   const bell = (await b('GET', '/api/notifications')).body;
   assert.ok(JSON.stringify(bell).includes('shared the calendar “Team holidays” with you'));
+  assert.ok(bell.items.some((n) => /shared the calendar “Team holidays”/.test(n.title) && n.body === '“For planning leave” · It’s under My calendars → Shared with me'), 'with the message');
 
   // Ben sees it under his calendars and its events (not Ann's main calendar).
   const bens = (await b('GET', '/api/events/calendars')).body;

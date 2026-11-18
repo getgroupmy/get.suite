@@ -695,7 +695,8 @@ export default function calendarRoutes() {
       const u = userById(id);
       return !!u && !u.disabled && u.org_id === req.user.org_id;
     });
-    if (added.length) bell(added, { kind: 'invite', title: `${req.user.name} shared the calendar “${calendar.name}” with you`, body: 'It’s under My calendars → Shared with me', link: '/calendar', actor: req.user.name });
+    const note = req.body?.message ? String(req.body.message).trim().slice(0, 500) : ''; // a message for the people added now
+    if (added.length) bell(added, { kind: 'invite', title: `${req.user.name} shared the calendar “${calendar.name}” with you`, body: `${note ? `“${note}” · ` : ''}It’s under My calendars → Shared with me`, link: '/calendar', actor: req.user.name });
     touch([req.user.id, ...added, ...removed]);
     res.json(calendarsOf(req.user.id).find((c) => c.id === calendar.id));
   });

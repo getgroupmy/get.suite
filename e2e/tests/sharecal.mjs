@@ -50,6 +50,7 @@ await step('share it: Kim sees events, Lee can make changes', async () => {
   await page.getByRole('button', { name: 'Options for Team holidays' }).click();
   await page.getByRole('menuitem', { name: 'Share…' }).click();
   const d = page.getByRole('dialog', { name: 'Share “Team holidays”' });
+  await d.getByLabel('Message to the next person you add (optional)').fill('So you can plan around them');
   await d.getByLabel('Share with a colleague').selectOption({ label: 'Kim Park' });
   await d.getByLabel('What Kim Park can do').waitFor();
   await d.getByLabel('Share with a colleague').selectOption({ label: 'Lee Chan' });
@@ -57,6 +58,9 @@ await step('share it: Kim sees events, Lee can make changes', async () => {
   await until(async () => { const c = (await api(page, 'GET', '/events/calendars')).body[0]; return c.members.length === 2 && c.members.find((m) => m.name === 'Lee Chan')?.can_edit; });
   await page.screenshot({ path: `${SP}/shots/sharecal.png` });
   await d.getByRole('button', { name: 'Done' }).click();
+  // Kim's notification has the message (written before adding her).
+  const told = async (p, text) => JSON.stringify((await api(p, 'GET', '/notifications')).body.items).includes(text);
+  await until(() => told(kim, '“So you can plan around them”'), 10000);
 });
 await step('Kim finds it under Shared with me, sees its events (not Olivia\'s others), read-only', async () => {
   await monthView(kim);

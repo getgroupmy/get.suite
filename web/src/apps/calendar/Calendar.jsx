@@ -2060,11 +2060,15 @@ function MyCalendars({ calendars: all, me, people = [], onChanged, onImport, onT
 function ShareOneCalendar({ calendar, people, onClose, onChanged }) {
   const toast = useToast();
   const [members, setMembers] = useState(calendar.members || []);
-  const save = async (next) => {
+  const [message, setMessage] = useState(''); // for the next person added (sharing happens as you pick them)
+  const save = async (next, withMessage = false) => {
     const before = members;
     setMembers(next);
-    try { await put(`/events/calendars/${calendar.id}/members`, { members: next.map((m) => ({ id: m.id, can_edit: m.can_edit })) }); onChanged(); }
-    catch (e) { setMembers(before); toast(e.message, 'error'); }
+    try {
+      await put(`/events/calendars/${calendar.id}/members`, { members: next.map((m) => ({ id: m.id, can_edit: m.can_edit })), ...(withMessage && message.trim() && { message: message.trim() }) });
+      if (withMessage) setMessage('');
+      onChanged();
+    } catch (e) { setMembers(before); toast(e.message, 'error'); }
   };
   const left = people.filter((p) => !members.some((m) => m.id === p.id));
   return (
@@ -2085,7 +2089,11 @@ function ShareOneCalendar({ calendar, people, onClose, onChanged }) {
           </ul>
         ) : <p className="muted small" style={{ margin: 0 }}>Not shared with anyone yet.</p>}
         {left.length > 0 && (
-          <select className="dm-pick" value="" aria-label="Share with a colleague" onChange={(e) => { const p = people.find((x) => x.id === e.target.value); if (p) save([...members, { id: p.id, name: p.name, email: p.email || p.username || '', can_edit: false }]); }}>
+          <label className="field"><span>Message to the next person you add (optional)</span>
+            <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you’re sharing it…" /></label>
+        )}
+        {left.length > 0 && (
+          <select className="dm-pick" value="" aria-label="Share with a colleague" onChange={(e) => { const p = people.find((x) => x.id === e.target.value); if (p) save([...members, { id: p.id, name: p.name, email: p.email || p.username || '', can_edit: false }], true); }}>
             <option value="">+ Share with a colleague…</option>
             {left.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
