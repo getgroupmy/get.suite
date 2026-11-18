@@ -1106,7 +1106,7 @@ export function ShareDialog({ file, onClose }) {
     try {
       const done = await checkData((more) => put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role, expires_at }) => ({ user_id, role, expires_at: expires_at || null })), ...(message.trim() && { message: message.trim() }), ...more }));
       if (!done) return;
-      if (manages && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })) });
+      if (manages && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })), ...(message.trim() && { message: message.trim() }) });
       toast('Sharing updated');
       onClose();
     } catch (e) { toast(e.message, 'error'); }
@@ -1159,7 +1159,7 @@ export function ShareDialog({ file, onClose }) {
             <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
             <select className="grow" value="" aria-label="Share with a group" onChange={(e) => {
               const g = groups.find((x) => x.id === e.target.value);
-              if (g) setFileGroups([...fileGroups, { group_id: g.id, name: g.name, members: g.members.length, role }]);
+              if (g) setFileGroups([...fileGroups, { group_id: g.id, name: g.name, members: g.members.length, role, added: true }]);
             }}>
               <option value="">Share with a group…</option>
               {groups.filter((g) => !fileGroups.some((x) => x.group_id === g.id)).map((g) => <option key={g.id} value={g.id}>{g.name} ({g.members.length})</option>)}
@@ -1182,10 +1182,13 @@ export function ShareDialog({ file, onClose }) {
           </li>
         ))}
       </ul>
-      {shares?.some((x) => x.added) && (
-        <label className="field"><span>Message to {shares.filter((x) => x.added).length === 1 ? shares.find((x) => x.added).name : 'the people you added'} (optional)</span>
+      {(shares?.some((x) => x.added) || fileGroups?.some((x) => x.added)) && (() => {
+        const names = [...(shares || []).filter((x) => x.added).map((x) => x.name), ...(fileGroups || []).filter((x) => x.added).map((x) => `the group ${x.name}`)];
+        return (
+        <label className="field"><span>Message to {names.length === 1 ? names[0] : 'the people and groups you added'} (optional)</span>
           <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you’re sharing it, what to look at…" /></label>
-      )}
+        );
+      })()}
       {mine && file.kind !== 'folder' && <NoDownload file={file} />}
       {shares?.length > 0 && <p className="muted small">A date beside someone ends their access after that day; leave it empty for no end.</p>}
       {external > 0 && <p className="muted small">{external === 1 ? '1 person' : `${external} people`} outside {user.org_name} can open this.</p>}

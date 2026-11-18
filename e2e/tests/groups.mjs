@@ -59,6 +59,7 @@ await step('share the document with the group', async () => {
   await d.getByLabel('Access', { exact: true }).selectOption('editor');
   await d.getByLabel('Share with a group').selectOption({ label: 'Marketing (1)' });
   await d.getByLabel('Access for the group Marketing').waitFor();
+  await d.getByLabel('Message to the group Marketing (optional)').fill('Edit the launch section, please');
   await d.getByRole('button', { name: 'Save' }).click();
   await d.waitFor({ state: 'detached' });
   await until(async () => (await api(kim, 'GET', `/files/${doc.id}`)).body?.role === 'editor');
@@ -68,6 +69,7 @@ await step('the member sees it in Shared with me, with a notification', async ()
   await kim.getByText('Campaign plan').first().waitFor();
   await kim.getByRole('button', { name: /Notifications, \d+ new/ }).click();
   await kim.getByText('shared “Campaign plan” with the group Marketing').waitFor();
+  await kim.getByText('“Edit the launch section, please”').waitFor();
 });
 await step('Share window lists the group; people list stays separate', async () => {
   await page.getByRole('button', { name: 'Share' }).click();

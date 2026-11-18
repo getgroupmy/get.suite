@@ -2298,7 +2298,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       audit(req, 'file.share', { target: f.name, details: { groups: now.map((g) => `${g.name} (${g.role})`) } });
     }
     const fresh = gained.filter((id) => id !== req.user.id);
-    if (fresh.length) bell(fresh, { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with ${added.length === 1 ? `the group ${added[0].name}` : 'a group you are in'}`, link: openLink(f), actor: req.user.name });
+    const note = req.body?.message ? str(req.body.message, { max: 500, name: 'Message' }) : ''; // (from the Share window)
+    if (fresh.length) bell(fresh, { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with ${added.length === 1 ? `the group ${added[0].name}` : 'a group you are in'}`, ...(note && { body: `“${note}”` }), link: openLink(f), actor: req.user.name });
     res.json(now);
   });
 

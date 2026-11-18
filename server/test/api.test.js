@@ -5329,11 +5329,11 @@ test('groups: share with a group; joining and leaving it gives and takes access'
   const folder = (await own('POST', '/api/files/folder', { name: 'Campaigns' })).body;
   const doc = (await own('POST', '/api/files/new', { kind: 'doc', name: 'Plan', parent_id: folder.id })).body;
   assert.equal((await a('GET', `/api/files/${doc.id}`)).status, 404);
-  const set = await own('PUT', `/api/files/${folder.id}/groups`, { groups: [{ group_id: g.id, role: 'editor' }] });
+  const set = await own('PUT', `/api/files/${folder.id}/groups`, { groups: [{ group_id: g.id, role: 'editor' }], message: 'Q3 work goes here' });
   assert.equal(set.status, 200);
   assert.equal(set.body[0].name, 'Marketing');
   assert.equal((await a('GET', `/api/files/${doc.id}`)).body.role, 'editor', 'members get it, and what is inside');
-  assert.ok((await a('GET', '/api/notifications')).body.items.some((n) => /shared “Campaigns” with the group Marketing/.test(n.title)));
+  assert.ok((await a('GET', '/api/notifications')).body.items.some((n) => /shared “Campaigns” with the group Marketing/.test(n.title) && n.body === '“Q3 work goes here”'), 'with the message');
   assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404);
 
   // Joining gives access; it shows in Shared with me.
