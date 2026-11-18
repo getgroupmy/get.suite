@@ -77,6 +77,13 @@ await step('from Drive, Kim asks to edit it (Shared with me → Request edit acc
   const dlg = page.getByRole('dialog', { name: 'Access requests' });
   await dlg.getByText('(can view now)').waitFor();
   await dlg.getByText('asks to edit').waitFor();
+  // Declined: Kim is told it was edit access he didn't get, and keeps viewing.
+  await dlg.getByRole('button', { name: 'Decline' }).click();
+  await dlg.getByText('Nobody is waiting.').waitFor();
+  await kim.goto(`${B}/home`);
+  await kim.getByRole('button', { name: /^Notifications/ }).click();
+  await kim.getByText('Olivia Owner didn’t give you edit access to “Payroll”').waitFor();
+  await kim.getByText('You can still view it.').waitFor();
 }, kim);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

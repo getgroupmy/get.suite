@@ -2586,6 +2586,14 @@ test('drive: asking for access — the owner is told, approves (as asked or othe
   await a('POST', `/api/files/access-requests/${cat.id}`, { approve: false });
   assert.equal((await c('GET', `/api/files/${doc.id}`)).status, 404);
   assert.ok((await c('GET', '/api/notifications')).body.items.some((n) => n.title === 'Req Ann didn’t give you access to “Budget 2027”'));
+  // A viewer asking to edit and declined: told it was edit access, and that they can still view it.
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'reqc@acme.com').id, role: 'viewer' }, { user_id: (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'reqb@acme.com').id, role: 'editor' }] });
+  await c('POST', `/api/files/${doc.id}/request-access`, { role: 'editor' });
+  const ask = (await a('GET', '/api/files/access-requests')).body.find((r) => r.user_name === 'Req Cat');
+  await a('POST', `/api/files/access-requests/${ask.id}`, { approve: false });
+  const no = (await c('GET', '/api/notifications')).body.items.find((n) => /didn’t give you edit access/.test(n.title));
+  assert.deepEqual([no?.title, no?.body], ['Req Ann didn’t give you edit access to “Budget 2027”', 'You can still view it.']);
+  assert.equal((await c('GET', `/api/files/${doc.id}`)).body.role, 'viewer', 'kept');
   assert.deepEqual((await a('GET', '/api/files/access-requests')).body, []);
   assert.equal((await b('POST', `/api/files/${doc.id}/request-access`, {})).status, 400, 'Ben can open it now');
 });

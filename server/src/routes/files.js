@@ -1228,7 +1228,10 @@ export default function fileRoutes({ maxUploadBytes }) {
       bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
       sendTo([a.user_id], { type: 'files-changed', parent_id: null });
     } else {
-      bell([a.user_id], { kind: 'share', title: a.longer ? `${req.user.name || req.user.username} didn’t give you longer with “${f.name}”` : `${req.user.name || req.user.username} didn’t give you access to “${f.name}”`, body: null, link: null, actor: req.user.name });
+      // (someone who could already open it was asking for more: they keep what they have, and are told which they didn't get)
+      const has = !a.longer && roleFor(f.id, a.user_id);
+      const what = has ? `${a.role === 'editor' ? 'edit' : 'comment'} access to` : 'access to';
+      bell([a.user_id], { kind: 'share', title: a.longer ? `${req.user.name || req.user.username} didn’t give you longer with “${f.name}”` : `${req.user.name || req.user.username} didn’t give you ${what} “${f.name}”`, body: has ? `You can still ${has === 'commenter' ? 'comment on' : 'view'} it.` : null, link: has ? openLink(f) : null, actor: req.user.name });
     }
     q('DELETE FROM access_requests WHERE id = ?').run(a.id);
     sendTo([req.user.id], { type: 'access-requests' });
