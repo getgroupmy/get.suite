@@ -942,6 +942,25 @@ export const TOOLS = [
     },
   },
   {
+    name: 'request_access', title: 'Ask for edit or comment access', readOnly: false,
+    description: 'Ask a file’s owner to let the person edit it (or comment on it), when they can only view or comment (fetch says what they can do), with an optional note. The owner sees it among their access requests in Drive and answers; the person is told. Ask the person first.',
+    inputSchema: {
+      type: 'object', required: ['file'],
+      properties: {
+        file: { type: 'string', description: 'file:… from search or list_files' },
+        access: { type: 'string', enum: ['edit', 'comment'], default: 'edit' },
+        note: { type: 'string', description: 'A short note to the owner: why' },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+      const role = a.access === 'comment' ? 'commenter' : 'editor';
+      await api('POST', `/files/${encodeURIComponent(id)}/request-access`, { role, message: a.note ? String(a.note).slice(0, 500) : undefined });
+      return { asked: f.owner_name || 'the owner', access: a.access === 'comment' ? 'comment' : 'edit', file: f.name, note: 'The owner answers in Drive; the person is told either way.', url: fileUrl(f) };
+    },
+  },
+  {
     name: 'share_file', title: 'Share a file with a colleague', readOnly: false,
     description: 'Share a Drive file or folder the person owns (or manages) with a colleague in their company, by email address: as viewer, commenter or editor. They’re told, as when sharing in Drive. Only colleagues: sharing outside the company is left to Workspace itself. Ask the person before sharing on their behalf.',
     inputSchema: {
@@ -1428,7 +1447,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'request_access', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({

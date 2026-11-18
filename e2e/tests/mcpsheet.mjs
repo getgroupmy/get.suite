@@ -314,6 +314,21 @@ await step('an assistant sets up a meeting about a document: the file is attache
   await until(async () => { mine = ((await api(ava, 'GET', `/events?from=${at - 864e5}&to=${at + 864e5}`)).body || []).find((e) => e.title === 'Launch note review'); return mine; }, 15000);
   if (!(mine.attachments || []).some((x) => x.name === 'Launch note')) throw new Error(JSON.stringify(mine.attachments));
 });
+await step('an assistant asks a colleague for edit access to her document; she sees the request in Drive', async () => {
+  const oliviaId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username.startsWith('olivia@')).id;
+  const d = (await api(ava, 'POST', '/files/new', { kind: 'doc', name: 'Ava’s draft' })).body;
+  await api(ava, 'PUT', `/files/${d.id}/shares`, { shares: [{ user_id: oliviaId, role: 'viewer' }] });
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7g', scope: 'write', days: 30 })).body.token;
+  const read = (await mcp(token, 'fetch', { id: `file:${d.id}` })).structuredContent;
+  if (read.metadata.your_access !== 'can view only') throw new Error(JSON.stringify(read.metadata));
+  const r = await mcp(token, 'request_access', { file: `file:${d.id}`, note: 'To add the figures' });
+  if (r.isError || r.structuredContent.asked !== 'Ava Assignee') throw new Error(JSON.stringify(r));
+  await ava.goto(`${B}/drive`);
+  await ava.getByRole('button', { name: /^Access requests/ }).click();
+  const dlg = ava.getByRole('dialog', { name: 'Access requests' });
+  await dlg.getByText('To add the figures').waitFor();
+  await dlg.getByText('(can view now)').waitFor();
+}, { screenshot: (o) => ava.screenshot(o) });
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
   const gus = await mk('gus');

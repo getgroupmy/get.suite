@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'comment_on_file', 'resolve_comment', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'comment_on_file', 'resolve_comment', 'request_access', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -991,6 +991,14 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'people', replace: 'staff', suggest: true })).structuredContent.suggested, 1);
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Launch', replace: 'Start' })).isError, true);
   assert.equal((await call(rw, 'fetch', { id: `file:${doc.id}` })).structuredContent.metadata.your_access, 'can comment and suggest edits, not edit');
+  // As a commenter, the assistant asks Sue for edit access for her: Sue sees it, with the note.
+  const asked = await call(rw, 'request_access', { file: `file:${doc.id}`, note: 'To fix the dates' });
+  assert.deepEqual([asked.structuredContent.asked, asked.structuredContent.access], ['Sue Owner', 'edit']);
+  const reqs = (await sue('GET', '/api/files/access-requests')).body;
+  assert.deepEqual(reqs.map((r) => [r.user_name, r.role, r.message, r.has]), [['Olivia Owner', 'editor', 'To fix the dates', 'commenter']]);
+  assert.match((await call(rw, 'request_access', { file: `file:${doc.id}`, access: 'comment' })).content[0].text, /already comment/);
+  assert.equal((await call(ro, 'request_access', { file: `file:${doc.id}` })).isError, true);
+  await sue('POST', `/api/files/access-requests/${reqs[0].id}`, { approve: false }); // (answered, so later steps see no request)
   // Waiting for Sue on her Home: the document, how many, from whom.
   const waiting = (await sue('GET', '/api/files/suggestions/for-me')).body;
   assert.deepEqual(waiting.map((w) => [w.file.name, w.count, w.from, w.link]), [['Sue’s plan', 3, ['Olivia Owner'], `/docs/${doc.id}`]]);
