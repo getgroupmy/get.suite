@@ -118,6 +118,21 @@ await step('Excel keeps it as a range dropdown', async () => {
   const r = await page.evaluate(async (id) => { const x = await fetch(`/api/files/${id}/export?format=xlsx`); return { status: x.status, size: (await x.arrayBuffer()).byteLength }; }, sheetId);
   if (r.status !== 200 || r.size < 1000) throw new Error(JSON.stringify(r));
 });
+await step('OpenDocument (.ods) keeps it too: the reopened copy has the dropdown, its choices from the other tab', async () => {
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=ods`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Copy%20of%20tracker.ods', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, sheetId);
+  const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+  const sheets = (await api(page, 'GET', `/files/${opened.id}/content`)).body.content.sheets;
+  const v = sheets[0].validations?.[0];
+  if (!v || !/^'Q1 lists'!A\d+:A\d+$/.test(v.source || '')) throw new Error(JSON.stringify(sheets[0].validations));
+  await page.goto(`${B}/sheets/${opened.id}`);
+  await cell(page, 'B2').getByRole('button', { name: 'Choices for B2' }).click();
+  const names = await page.getByRole('listbox', { name: 'Choices' }).getByRole('option').allInnerTexts();
+  if (!names.includes('Open') || !names.some((n) => /Done/.test(n)) || !names.includes('Blocked')) throw new Error(names.join('|')); // (Done ticked: it's the cell's value)
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

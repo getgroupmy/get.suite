@@ -9,6 +9,40 @@ import { colName } from './sheetnames.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// ---- dropdowns (Sheets' list validations) as OpenDocument content validations, both ways
+const MULTI = 'Several choices', MULTI_STRICT = 'Several choices (only these)'; // as in excel.js: marks a several-choices dropdown
+const odsQuote = (name) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `'${String(name).replace(/'/g, "''")}'`);
+/** A dropdown as a content validation's condition: its choices written out, or the cells they come from. */
+export function validationCondition(v, sheetName) {
+  if (v.type === 'checkbox') return 'of:cell-content-is-in-list("TRUE";"FALSE")';
+  const src = /^(?:('(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_]*)!)?([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)$/i.exec(String(v.source || '').trim());
+  if (src) return `of:cell-content-is-in-list([$${src[1] || odsQuote(sheetName)}.$${src[2].toUpperCase()}$${src[3]}:.$${src[4].toUpperCase()}$${src[5]}])`;
+  const values = (v.values || []).map(String).filter(Boolean);
+  return values.length ? `of:cell-content-is-in-list(${values.map((t) => `"${t.replace(/"/g, '""')}"`).join(';')})` : null;
+}
+/** A content validation's condition (with whether only the choices are allowed, and its help title) as a dropdown, or null. */
+export function validationFromCondition(cond, { strict = false, title = '' } = {}, sheetName = '') {
+  const m = /^(?:of:|oooc:)?cell-content-is-in-list\(([\s\S]*)\)$/.exec(String(cond || '').trim());
+  if (!m) return null;
+  const arg = m[1].trim();
+  const multi = title === MULTI || title === MULTI_STRICT;
+  const only = multi ? title === MULTI_STRICT : strict;
+  const r = /^\[?\$?('(?:[^']|'')+'|[^.[\]'$]+)?\.\$?([A-Z]{1,3})\$?(\d+):(?:\$?(?:'(?:[^']|'')+'|[^.[\]'$]+))?\.\$?([A-Z]{1,3})\$?(\d+)\]?$/i.exec(arg);
+  if (r) {
+    const sheet = r[1] ? r[1].replace(/^'|'$/g, '').replace(/''/g, "'") : '';
+    const prefix = sheet && sheet !== sheetName ? `${odsQuote(sheet)}!` : '';
+    return { type: 'list', source: `${prefix}${r[2].toUpperCase()}${r[3]}:${r[4].toUpperCase()}${r[5]}`, strict: only, ...(multi && { multi: true }) };
+  }
+  const values = [];
+  const re = /"((?:[^"]|"")*)"/g;
+  let q;
+  while ((q = re.exec(arg))) values.push(q[1].replace(/""/g, '"').trim());
+  const list = [...new Set(values.filter(Boolean))].slice(0, 200);
+  if (!list.length) return null;
+  if (list.length === 2 && list.every((t) => /^(TRUE|FALSE)$/i.test(t)) && new Set(list.map((t) => t.toUpperCase())).size === 2) return { type: 'checkbox' };
+  return { type: 'list', values: list, strict: only, ...(multi && { multi: true }) };
+}
+
 const colIndex = (s) => [...s.toUpperCase()].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
 const COLOR = /^#[0-9a-f]{6}$/i;
 const CELL = /^([A-Z]{1,3})(\d+)$/;
@@ -99,6 +133,7 @@ export async function odsFromSheet(data) {
   const pxToCm = (px) => `${(Number(px) * 2.54 / 96).toFixed(3)}cm`;
   let tablesXml = '';
   const settings = [];
+  const validations = []; // content validations (dropdowns), for every sheet
   for (const s of sheets) {
     const cells = s.cells || {}, formats = s.formats || {};
     // Alternating colours: each cell's fill (its own fill wins), the heading row bold.
@@ -132,6 +167,21 @@ export async function odsFromSheet(data) {
       spans.set(`${colName(c1)}${r1}`, { cols: c2 - c1 + 1, rows: r2 - r1 + 1 });
       for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (r !== r1 || c !== c1) covered.add(`${colName(c)}${r}`);
     }
+    // Dropdowns: each a content validation, named on every cell of its range (up to 2000 rows).
+    const validationOf = new Map();
+    for (const v of s.validations || []) {
+      if (v.type !== 'list' && v.type !== 'checkbox') continue; // (rules aren't written)
+      const m = /^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/.exec(String(v.range || ''));
+      const sheetName = String(s.name || 'Sheet').slice(0, 100);
+      const cond = m && validationCondition(v, sheetName);
+      if (!cond) continue;
+      const [c1, r1] = [colIndex(m[1]), +m[2]];
+      const [c2, r2] = m[3] ? [Math.min(colIndex(m[3]), 1023), Math.min(+m[4], r1 + 1999)] : [c1, r1];
+      const vname = `val${validations.length + 1}`;
+      const help = v.multi ? `<table:help-message table:title="${v.strict ? MULTI_STRICT : MULTI}" table:display="true"><text:p>Pick one or more of the choices, separated by commas</text:p></table:help-message>` : '';
+      validations.push(`<table:content-validation table:name="${vname}" table:condition="${x(cond)}" table:allow-empty-cell="true" table:base-cell-address="${x(`${odsQuote(sheetName)}.${m[1]}${m[2]}`)}" table:display-list="unsorted">${help}<table:error-message table:display="${(v.strict && !v.multi) || v.type === 'checkbox'}" table:message-type="stop"/></table:content-validation>`);
+      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) { validationOf.set(`${colName(c)}${r}`, vname); maxR = Math.max(maxR, r); maxC = Math.max(maxC, c); }
+    }
     const hiddenRows = new Set(s.hide?.rows || []), hiddenCols = new Set(s.hide?.cols || []);
     let cols = '';
     for (let c = 0; c <= maxC; c++) {
@@ -149,6 +199,7 @@ export async function odsFromSheet(data) {
         const f = { ...(banded[key] || {}), ...(fmt(key) || {}) };
         const attrs = [];
         if (Object.keys(f).length) attrs.push(`table:style-name="${cellStyle(f)}"`);
+        if (validationOf.has(key)) attrs.push(`table:content-validation-name="${validationOf.get(key)}"`);
         const sp = spans.get(key);
         if (sp) attrs.push(`table:number-columns-spanned="${sp.cols}" table:number-rows-spanned="${sp.rows}"`);
         let inner = '';
@@ -190,7 +241,7 @@ export async function odsFromSheet(data) {
   }
   const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${tablesXml}</office:spreadsheet></office:body></office:document-content>`;
+<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}</office:spreadsheet></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles ${NS}><office:styles><style:default-style style:family="table-cell"><style:text-properties fo:font-size="10pt"/></style:default-style><style:style style:name="Default" style:family="table-cell"/></office:styles></office:document-styles>`;
   // Frozen rows and columns live in the view settings.
@@ -288,9 +339,16 @@ export async function sheetFromOds(buffer) {
 
   const out = [];
   const body = (function find(n) { for (const k of tags(n)) { if (k.name === 'office:spreadsheet') return k; const f = find(k); if (f) return f; } return null; })(root);
+  // Dropdowns: the content validations, by name (read for each sheet, as a reference to its own cells is relative to it).
+  const validationDefs = new Map();
+  for (const v of tags(tags(body, 'table:content-validations')[0] || { children: [] }, 'table:content-validation')) {
+    const err = tags(v, 'table:error-message')[0], help = tags(v, 'table:help-message')[0];
+    validationDefs.set(v.attribs['table:name'], { cond: v.attribs['table:condition'], strict: err?.attribs['table:display'] === 'true' && (err.attribs['table:message-type'] || 'stop') === 'stop', title: help?.attribs['table:title'] || '' });
+  }
   for (const t of tags(body, 'table:table')) {
     const name = String(t.attribs['table:name'] || `Sheet${out.length + 1}`).slice(0, 30);
     const cells = {}, formats = {}, notes = {}, colWidths = {}, rowHeights = {}, merges = [], hideRows = [], hideCols = [];
+    const validated = new Map(); // content validation name → the cells naming it ([col, row])
     // Columns: widths, hidden ones, and each one's default cell style.
     const colDefault = [];
     let c0 = 0;
@@ -324,6 +382,8 @@ export async function sheetFromOds(buffer) {
         for (const cell of cellsIn) {
           const crep = Number(cell.attribs['table:number-columns-repeated']) || 1;
           const has = kids(cell).length || cell.attribs['table:formula'] || cell.attribs['office:value-type'];
+          const vname = cell.attribs['table:content-validation-name'];
+          if (vname && validationDefs.has(vname)) for (let j = 0; j < Math.min(crep, 1024) && c + j < 702; j++) { if (!validated.has(vname)) validated.set(vname, []); validated.get(vname).push([c + j, r]); }
           if (!has && cell.attribs['table:style-name'] === undefined) { c += crep; continue; }
           for (let j = 0; j < Math.min(crep, has ? 1000 : 50) && c < 702; j++, c++) {
             if (cell.name === 'table:covered-table-cell') continue;
@@ -348,9 +408,26 @@ export async function sheetFromOds(buffer) {
         }
       }
     }
+    // Dropdowns: each validation's cells as ranges (one rectangle when they make one, else a run down each column).
+    const validations = [];
+    for (const [vname, at] of validated) {
+      const d = validationDefs.get(vname);
+      const def = validationFromCondition(d.cond, d, t.attribs['table:name']);
+      if (!def) continue;
+      const cs = at.map(([c]) => c), rs = at.map(([, r]) => r);
+      const [cmin, cmax, rmin, rmax] = [Math.min(...cs), Math.max(...cs), Math.min(...rs), Math.max(...rs)];
+      const ranges = [];
+      if (new Set(at.map(([c, r]) => `${c}:${r}`)).size === (cmax - cmin + 1) * (rmax - rmin + 1)) ranges.push(`${colName(cmin)}${rmin}:${colName(cmax)}${rmax}`);
+      else for (const c of [...new Set(cs)].sort((a, b) => a - b)) {
+        const rows = [...new Set(at.filter(([cc]) => cc === c).map(([, r]) => r))].sort((a, b) => a - b);
+        let start = rows[0], prev = rows[0];
+        for (const r of [...rows.slice(1), null]) { if (r === prev + 1) { prev = r; continue; } ranges.push(`${colName(c)}${start}:${colName(c)}${prev}`); start = prev = r; }
+      }
+      for (const range of ranges) if (validations.length < 500) validations.push({ id: `v${validations.length + 1}`, range, ...def });
+    }
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(validations.length && { validations }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
   }
   if (!out.length) out.push({ name: 'Sheet1', cells: {}, colWidths: {} });
   return { sheets: out };

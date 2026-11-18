@@ -85,3 +85,35 @@ test('.ods in: repeated cells and rows as LibreOffice writes them; tables named 
   assert.match(xml, /fo:background-color="#dddddd"[^/]*\/>(<style:paragraph-properties[^>]*\/>)?<style:text-properties fo:font-weight="bold"/);
   await assert.rejects(sheetFromOds(await new JSZip().file('a', 'b').generateAsync({ type: 'nodebuffer' })), /Not an OpenDocument spreadsheet/);
 });
+
+test('.ods: dropdowns as content validations both ways (choices, choices from cells, only these, several, tick boxes), and through LibreOffice', async (t) => {
+  const { validationCondition, validationFromCondition } = await import('../src/office/ods.js');
+  const JSZip = (await import('jszip')).default;
+  const book = { sheets: [{ name: 'My tasks', cells: { A1: 'Task', B1: 'Status', B2: 'Open', D2: 'Low', D3: 'High' }, colWidths: {},
+    validations: [{ id: 'v1', range: 'B2:B6', type: 'list', values: ['Open', 'Doing', 'Done "ok"'], strict: true }, { id: 'v2', range: 'C2:C6', type: 'checkbox' },
+      { id: 'v3', range: 'E2:E4', type: 'list', source: 'D2:D3', strict: false }, { id: 'v4', range: 'F2:G3', type: 'list', values: ['x', 'y'], multi: true, strict: true },
+      { id: 'v5', range: 'H2:H3', type: 'rule', rule: 'number', op: 'gt', a: '0' }] }] };
+  const want = JSON.stringify(book.sheets[0].validations.filter((v) => v.type !== 'rule').map(({ id, multi, ...v }) => ({ ...v, ...(multi && { multi: true }) })));
+  const show = (b) => JSON.stringify((b.sheets[0].validations || []).map(({ id, ...v }) => v));
+  const buf = await odsFromSheet(book);
+  const xml = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  assert.match(xml, /<table:content-validation table:name="val1" table:condition="of:cell-content-is-in-list\(&quot;Open&quot;;&quot;Doing&quot;;&quot;Done &quot;&quot;ok&quot;&quot;&quot;\)"[^>]*table:base-cell-address="'My tasks'.B2"/);
+  assert.match(xml, /table:condition="of:cell-content-is-in-list\(\[\$'My tasks'\.\$D\$2:\.\$D\$3\]\)"/, 'choices from cells: those cells');
+  assert.match(xml, /<table:table-cell table:content-validation-name="val1"\/?>/, 'an empty cell of the range carries it too');
+  assert.equal((xml.match(/content-validation-name="val4"/g) || []).length, 4, 'a two-column range: every cell');
+  assert.equal(show(await sheetFromOds(buf)), want, 'back the same (rules aren\'t written)');
+  // Other forms of the condition, as other programs write them.
+  assert.deepEqual(validationFromCondition('oooc:cell-content-is-in-list("a";"b")', { strict: false }), { type: 'list', values: ['a', 'b'], strict: false });
+  assert.deepEqual(validationFromCondition('of:cell-content-is-in-list([$Lists.$A$2:.$A$9])', {}, 'Main'), { type: 'list', source: 'Lists!A2:A9', strict: false });
+  assert.equal(validationFromCondition('of:cell-content-is-whole-number() and cell-content()>0'), null);
+  assert.equal(validationCondition({ type: 'list', values: [] }, 'S'), null);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 's.ods'), buf);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 's.ods')], { stdio: 'ignore', timeout: 120000 });
+    assert.equal(show(await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 's.ods')))), want, 'opened and saved by LibreOffice');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
