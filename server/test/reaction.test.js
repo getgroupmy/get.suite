@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { simpleParser } from 'mailparser';
-import { buildReaction, cleanEmoji, reactionOf, splitReaction } from '../src/mail/reaction.js';
+import { buildReaction, cleanEmoji, reactionOf, reactionPart, splitReaction } from '../src/mail/reaction.js';
 
 test('one emoji is a reaction; text, two emoji or nothing are not', () => {
   for (const e of ['👍', '❤️', '👍🏽', '👨‍👩‍👧', '🇬🇧', '🎉']) assert.equal(cleanEmoji(` ${e} `), e);
@@ -32,4 +32,14 @@ test('an ordinary reply, or a reaction part with words in it, is not a reaction'
   assert.equal(reactionOf(words), null);
   const noParent = await simpleParser(Buffer.from(['From: a@x.com', 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="b"', '', '--b', 'Content-Type: text/plain', 'Content-Disposition: reaction', '', '👍', '--b--', ''].join('\r\n')));
   assert.equal(reactionOf(noParent), null, 'not about any message');
+});
+
+test('the reaction part in a message structure, for the list', () => {
+  const tree = { type: 'multipart/alternative', childNodes: [
+    { part: '1', type: 'text/plain', disposition: 'reaction' }, { part: '2', type: 'text/plain' }, { part: '3', type: 'text/html' }] };
+  assert.equal(reactionPart(tree), '1');
+  assert.equal(reactionPart({ type: 'multipart/mixed', childNodes: [{ part: '1', type: 'text/plain' }, { part: '2', type: 'application/pdf', disposition: 'attachment' }] }), null);
+  assert.equal(reactionPart({ type: 'text/plain', disposition: 'REACTION' }), '1', 'a message that is only the reaction');
+  assert.equal(reactionPart({ type: 'image/png', disposition: 'reaction' }), null);
+  assert.equal(reactionPart(null), null);
 });

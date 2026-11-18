@@ -102,8 +102,9 @@ await step('the recipient reacts 🎉: it shows on the email as theirs', async (
   await kim.getByRole('group', { name: 'Reactions' }).locator('.reaction.mine', { hasText: '🎉' }).waitFor();
 }, kim);
 await step('the sender gets it as a reaction, and sees it on their sent email', async () => {
-  const row = inboxRow('Re: Contract signed?');
+  const row = page.locator('.mail-list').getByText(/Re: Contract signed\?$/); // (after its emoji)
   await refreshUntil(page, row);
+  await page.locator('.mail-list').getByLabel('Reaction 🎉:').waitFor(); // marked in the list, with its emoji
   await row.click();
   const note = page.getByRole('note').filter({ hasText: 'Kim Park reacted 🎉 to your email.' });
   await note.waitFor();

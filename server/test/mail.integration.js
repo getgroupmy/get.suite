@@ -1294,6 +1294,8 @@ test('emoji reactions (RFC 9078): sent as a short reply, shown on the message fo
   assert.deepEqual(mineNow.reactions.map((r) => [r.emoji, !!r.mine]), [['👍', true]]);
   // Olivia gets it as a reply: Workspace knows it's a reaction, and it has no attachment.
   const r = await eventually(async () => (await inbox(olivia, 'Lunch Friday?')).find((x) => x.subject === 'Re: Lunch Friday?'), 20000);
+  assert.equal(r.reaction, '👍', 'the list shows it as a reaction, with its emoji');
+  assert.equal((await inbox(olivia, 'Lunch Friday?')).find((x) => x.subject === 'Lunch Friday?')?.reaction, undefined);
   const got = (await olivia('GET', `/api/mail/messages/${r.uid}?folder=INBOX`)).body;
   assert.equal(got.reaction.emoji, '👍');
   assert.deepEqual(got.attachments, []);

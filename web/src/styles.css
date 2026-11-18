@@ -3340,3 +3340,4 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .mail-react-pick .icon-btn { font-size: 18px; width: 32px; height: 32px; }
 .mail-reaction-note { align-items: center; gap: 10px; }
 .mail-reaction-big { font-size: 28px; line-height: 1; }
+.mail-row-reaction { font-size: 15px; }

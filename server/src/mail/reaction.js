@@ -78,3 +78,11 @@ export function buildReaction(original, { from, to, emoji, host, now = new Date(
     '',
   ].join('\r\n');
 }
+
+/** The part number of a reaction part in a body structure (as imapflow gives it), or null. */
+export function reactionPart(node) {
+  if (!node) return null;
+  if (String(node.disposition || '').toLowerCase() === 'reaction' && /^text\/plain$/i.test(node.type || '')) return String(node.part || '1');
+  for (const c of node.childNodes || []) { const p = reactionPart(c); if (p) return p; }
+  return null;
+}

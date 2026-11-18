@@ -52,7 +52,7 @@ import { externalRoutes, askOutside, outsideRecipients, incomingWarning, replyTo
 import { mailStorage } from '../mail/storage.js';
 import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
-import { buildReaction, cleanEmoji, splitReaction, reactionOf, QUICK_REACTIONS } from '../mail/reaction.js';
+import { buildReaction, cleanEmoji, splitReaction, reactionOf, reactionPart, QUICK_REACTIONS } from '../mail/reaction.js';
 import { importanceOf, highImportanceHeaders } from '../mail/importance.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
@@ -1105,9 +1105,22 @@ export default function webmailRoutes() {
           ...filesOf(m.bodyStructure),
           size: m.size,
           messageId: env.messageId || null,
+          ...(reactionPart(m.bodyStructure) && { reactionPart: reactionPart(m.bodyStructure) }),
         });
       }
       messages.sort((a, b) => b.uid - a.uid);
+      // Emoji reactions (RFC 9078): their emoji, read from just that small part, for the list to show.
+      const reacting = messages.filter((m) => m.reactionPart);
+      for (const part of new Set(reacting.map((m) => m.reactionPart))) {
+        const uids = reacting.filter((m) => m.reactionPart === part).map((m) => m.uid);
+        for await (const f of client.fetch(uids.join(','), { uid: true, bodyParts: [part] }, { uid: true })) {
+          const m = reacting.find((x) => x.uid === f.uid);
+          const raw = f.bodyParts?.get(part);
+          const emoji = cleanEmoji(raw?.toString('utf8')) || cleanEmoji(raw && Buffer.from(raw.toString('ascii').trim(), 'base64').toString('utf8')); // as sent, or base64
+          if (m && emoji) m.reaction = emoji;
+        }
+      }
+      for (const m of reacting) delete m.reactionPart;
       // Senders imitating a colleague's name or a domain you know (external.js): marked in the list too.
       const seenFrom = new Map();
       for (const m of messages) {
