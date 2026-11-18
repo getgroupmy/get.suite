@@ -207,7 +207,7 @@ export const isExit = (anim) => anim === 'disappear' || anim === 'fadeout';
  */
 export function buildState(anim, at, built) {
   if (built === undefined || !at) return { shown: true, moving: '' };
-  if (isExit(anim)) return { shown: at > built || (at === built && anim === 'fadeout'), moving: at === built && anim === 'fadeout' ? 'anim-fadeout' : '' };
+  if (isExit(anim)) return { shown: at >= built, moving: at === built ? `anim-${anim}` : '' }; // (going on its click, maybe after a wait)
   return { shown: at <= built, moving: at === built ? `anim-${anim}` : '' };
 }
 /** The slide's animated boxes, in the order they come in. */
@@ -215,9 +215,26 @@ export function buildState(anim, at, built) {
 export const numberShown = (deck, i) => !!deck?.numbers && !(deck.numbers === 'skip-first' && i === 0);
 
 export const builds = (slide) => (slide?.items || []).filter((it) => it.anim).sort((a, b) => (a.animAt || 0) - (b.animAt || 0));
+/** When a box's animation starts: on its own click, with the one before it, or after the one before it (on the same click). */
+export const ANIM_STARTS = [['', 'On click'], ['with', 'With previous'], ['after', 'After previous']];
+/**
+ * Each animated box's click (1, 2…) and how long after that click it starts (seconds): boxes that start with or
+ * after the previous one share its click; each "after" waits for the one before (half a second each).
+ */
+export function buildSteps(slide) {
+  const out = new Map();
+  let step = 0, after = 0;
+  for (const it of builds(slide)) {
+    if (!it.animStart || step === 0) { step++; after = 0; } else if (it.animStart === 'after') after++;
+    out.set(it.id, { step, delay: after * 0.5 });
+  }
+  return out;
+}
+/** How many clicks the slide's animations take. */
+export const stepCount = (slide) => Math.max(0, ...[...buildSteps(slide).values()].map((s) => s.step));
 /** A box's animation change: a new one goes last in the order; none takes it out. */
 export function animChange(slide, item, anim) {
-  if (!anim) return { anim: undefined, animAt: undefined };
+  if (!anim) return { anim: undefined, animAt: undefined, animStart: undefined };
   if (item.anim) return { anim }; // a different effect keeps its place
   return { anim, animAt: Math.max(0, ...builds(slide).map((it) => it.animAt || 0)) + 1 };
 }
@@ -227,12 +244,12 @@ export function animChange(slide, item, anim) {
  * or goes to the previous slide with all its boxes in.
  */
 export function stepPresent(deck, at, dir) {
-  const n = builds(deck.slides[at.i]).length;
+  const n = stepCount(deck.slides[at.i]);
   if (dir > 0 && at.b < n) return { i: at.i, b: at.b + 1 };
   if (dir < 0 && at.b > 0) return { i: at.i, b: at.b - 1 };
   const j = stepSlide(deck, at.i, dir);
   if (j === at.i) return at;
-  return { i: j, b: dir > 0 ? 0 : builds(deck.slides[j]).length };
+  return { i: j, b: dir > 0 ? 0 : stepCount(deck.slides[j]) };
 }
 
 /** Choices for a slide moving on by itself: seconds (0: only when you move on). */

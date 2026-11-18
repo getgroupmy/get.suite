@@ -130,6 +130,27 @@ await step('an exit animation: the box is there until its click, then fades out'
   await page.keyboard.press('Escape');
   await p.waitFor({ state: 'detached' });
 });
+await step('Start: With previous puts a box on the same click as the one before', async () => {
+  // First point (fade, click 1), Second point (fade out, click 2): Second point now goes with First point's click.
+  await page.locator('.slide-stage [aria-label^="Text: Second point"]').click();
+  await page.getByLabel('Starts', { exact: true }).selectOption('with');
+  await until(async () => (await page.locator('.slide-stage .anim-badge').allInnerTexts()).join() === '1,1');
+  await saved();
+  const it = (await content()).slides[0].items.find((x) => x.text === 'Second point');
+  if (it.animStart !== 'with') throw new Error(JSON.stringify(it));
+  await page.getByRole('button', { name: 'Slide 1', exact: true }).click();
+  await page.getByRole('button', { name: 'Present' }).first().click();
+  const p = page.getByRole('dialog', { name: 'Presenting' });
+  await p.getByText('Second point').waitFor();
+  await page.keyboard.press('ArrowRight'); // one click: First point comes in as Second point fades out
+  await p.getByText('First point').waitFor();
+  await until(async () => p.getByText('Second point').isHidden());
+  await p.getByText('1 / 2').waitFor();
+  await page.keyboard.press('ArrowRight'); // and the next click is the next slide
+  await p.getByText('2 / 2').waitFor();
+  await page.keyboard.press('Escape');
+  await p.waitFor({ state: 'detached' });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

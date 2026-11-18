@@ -136,7 +136,9 @@ export function animationsOf(slideXml) {
   for (let m; (m = re.exec(timing));) {
     const preset = Number(/presetID="(\d+)"/.exec(m[1])?.[1]);
     const anim = m[2] === 'exit' ? EXIT_PRESETS[preset] || 'fadeout' : PRESETS[preset] || 'fade';
-    if (!out.some((o) => o.spid === m[4])) out.push({ spid: m[4], anim });
+    const node = /nodeType="(\w+)"/.exec(m[1])?.[1];
+    const start = out.length && node === 'withEffect' ? 'with' : out.length && node === 'afterEffect' ? 'after' : null; // (with or after the one before)
+    if (!out.some((o) => o.spid === m[4])) out.push({ spid: m[4], anim, ...(start && { start }) });
   }
   return out.slice(0, 100);
 }
@@ -156,10 +158,26 @@ const PRESET_OF = { appear: [1, 0], fade: [10, 0], fly: [2, 4], disappear: [1, 0
 /** A slide's animations as PowerPoint writes them: a click sequence of entrance effects. `builds`: [{ spid, anim, text }]. */
 export function timingXml(builds) {
   ctnId = 2;
-  const clicks = builds.map((b) => {
-    const [preset, sub] = PRESET_OF[b.anim] || PRESET_OF.fade;
-    const outer = ctn(), mid = ctn(), eff = ctn();
-    return `<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${mid}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${eff}" presetID="${preset}" presetClass="${b.anim === 'disappear' || b.anim === 'fadeout' ? 'exit' : 'entr'}" presetSubtype="${sub}" fill="hold" grpId="0" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>${(EFFECT[b.anim] || EFFECT.fade)(b.spid)}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>`;
+  // Clicks, each a run of steps (the first on the click, each "after" one a step later), each step its effects together.
+  const groups = [];
+  for (const b of builds) {
+    if (!b.start || !groups.length) groups.push([[b]]);
+    else if (b.start === 'after') groups[groups.length - 1].push([b]);
+    else groups[groups.length - 1][groups[groups.length - 1].length - 1].push(b);
+  }
+  const clicks = groups.map((steps) => {
+    const outer = ctn();
+    const inner = steps.map((effects, si) => {
+      const mid = ctn();
+      const pars = effects.map((b, bi) => {
+        const [preset, sub] = PRESET_OF[b.anim] || PRESET_OF.fade;
+        const eff = ctn();
+        const node = bi > 0 ? 'withEffect' : si > 0 ? 'afterEffect' : 'clickEffect';
+        return `<p:par><p:cTn id="${eff}" presetID="${preset}" presetClass="${b.anim === 'disappear' || b.anim === 'fadeout' ? 'exit' : 'entr'}" presetSubtype="${sub}" fill="hold" grpId="0" nodeType="${node}"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>${(EFFECT[b.anim] || EFFECT.fade)(b.spid)}</p:childTnLst></p:cTn></p:par>`;
+      }).join('');
+      return `<p:par><p:cTn id="${mid}" fill="hold"><p:stCondLst><p:cond delay="${si * 500}"/></p:stCondLst><p:childTnLst>${pars}</p:childTnLst></p:cTn></p:par>`;
+    }).join('');
+    return `<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>${inner}</p:childTnLst></p:cTn></p:par>`;
   }).join('');
   const bld = builds.filter((b) => b.text).map((b) => `<p:bldP spid="${b.spid}" grpId="0" animBg="1"/>`).join('');
   return `<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst>${bld ? `<p:bldLst>${bld}</p:bldLst>` : ''}</p:timing>`;
@@ -250,7 +268,7 @@ async function withShowSettings(buffer, deck, emitted = new Map()) {
       const xml = await zip.file(file)?.async('string');
       const shown = emitted.get(s) || [];
       const ids = [...String(xml || '').matchAll(/<p:cNvPr id="(\d+)" name="([^"]*)"/g)].filter((m) => m[1] !== '1' && !/Placeholder/.test(m[2])).map((m) => m[1]);
-      const builds = anims.map((it) => { const k = shown.indexOf(it); return k >= 0 && ids[k] ? { spid: ids[k], anim: it.anim, text: it.type === 'text' || !!it.text } : null; }).filter(Boolean);
+      const builds = anims.map((it) => { const k = shown.indexOf(it); return k >= 0 && ids[k] ? { spid: ids[k], anim: it.anim, start: it.animStart || null, text: it.type === 'text' || !!it.text } : null; }).filter(Boolean);
       if (xml && builds.length) {
         const timing = timingXml(builds);
         zip.file(file, /<p:extLst>(?![\s\S]*<p:cSld)/.test(xml.split('</p:cSld>')[1] || '') ? xml.replace(/(<\/p:cSld>[\s\S]*?)(<p:extLst>)/, `$1${timing}$2`) : xml.replace('</p:sld>', `${timing}</p:sld>`));
@@ -508,7 +526,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const effects = animationsOf(await zip.file(file)?.async('string') || '');
     effects.forEach((e, k) => {
       const item = items.find((it) => spidOf.get(it) === e.spid && !it.anim);
-      if (item) Object.assign(item, { anim: e.anim, animAt: k + 1 });
+      if (item) Object.assign(item, { anim: e.anim, animAt: k + 1, ...(e.start && { animStart: e.start }) });
     });
     const bgEl = deep(xml, P, 'bg')[0];
     let bg = colorIn(bgEl);

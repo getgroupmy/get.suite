@@ -126,6 +126,41 @@ test('.odp: animations (entrances and exits) go out as Impress keeps them and co
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('animations that start with or after the previous one: .odp and .pptx both ways, also through LibreOffice', async (t) => {
+  const { powerPointFromDeck, deckFromPowerPoint } = await import('../src/office/powerpoint.js');
+  const d = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 'a', type: 'text', x: 5, y: 20, w: 60, h: 10, text: 'One', anim: 'appear', animAt: 1 },
+    { id: 'b', type: 'text', x: 5, y: 35, w: 60, h: 10, text: 'Two', anim: 'fade', animAt: 2, animStart: 'with' },
+    { id: 'c', type: 'text', x: 5, y: 50, w: 60, h: 10, text: 'Three', anim: 'fly', animAt: 3, animStart: 'after' },
+    { id: 'e', type: 'shape', shape: 'star', fill: '#ffd666', x: 70, y: 50, w: 20, h: 20, anim: 'fadeout', animAt: 4, animStart: 'with' },
+    { id: 'f', type: 'text', x: 5, y: 65, w: 60, h: 10, text: 'Four', anim: 'fade', animAt: 5 },
+  ] }] };
+  const order = (deck) => deck.slides[0].items.filter((it) => it.anim).sort((p, q) => p.animAt - q.animAt).map((it) => `${it.text || it.shape}:${it.anim}:${it.animStart || 'click'}`);
+  const want = ['One:appear:click', 'Two:fade:with', 'Three:fly:after', 'star:fadeout:with', 'Four:fade:click'];
+  const odp = await odpFromDeck(d);
+  const xml = await (await JSZip.loadAsync(odp)).file('content.xml').async('string');
+  assert.equal((xml.match(/smil:begin="next"/g) || []).length, 2, 'two clicks');
+  assert.match(xml, /<anim:par smil:begin="0.5s" smil:fill="hold"><anim:par smil:begin="0s" smil:fill="hold" presentation:node-type="after-previous"/);
+  assert.deepEqual(order(await deckFromOdp(odp)), want);
+  const pptx = await powerPointFromDeck(d);
+  const sx = await (await JSZip.loadAsync(pptx)).file('ppt/slides/slide1.xml').async('string');
+  assert.deepEqual([...sx.matchAll(/nodeType="(\w+Effect)"/g)].map((m) => m[1]), ['clickEffect', 'withEffect', 'afterEffect', 'withEffect', 'clickEffect']);
+  assert.match(sx, /<p:cond delay="500"\/>/);
+  const fromPpt = (b) => deckFromPowerPoint(b, { savePicture: async () => null });
+  assert.deepEqual(order(await fromPpt(pptx)), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'animstart-'));
+  fs.writeFileSync(path.join(dir, 'a.odp'), odp);
+  fs.writeFileSync(path.join(dir, 'b.pptx'), pptx);
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  assert.deepEqual(order(await deckFromOdp(lo('a.odp', 'odp', 'o'))), want, '.odp saved again');
+  assert.deepEqual(order(await fromPpt(lo('a.odp', 'pptx', 'p'))), want, '.odp saved as .pptx');
+  assert.deepEqual(order(await deckFromOdp(lo('b.pptx', 'odp', 'q'))), want, '.pptx saved as .odp');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('.odp: grouped boxes go out in one <draw:g> and come back grouped; a group of one is just a box', async () => {
   const grouped = { theme: 'light', slides: [{ id: 'a', items: [
     { id: 'a1', type: 'shape', shape: 'ellipse', x: 10, y: 10, w: 10, h: 10, fill: 'accent', group: 'g' },

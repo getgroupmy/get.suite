@@ -26,7 +26,7 @@ import {
   THEMES, themeOf, masterOn, THEME_FONTS, CORNERS, cleanCustom, cleanMaster, LAYOUTS, numberShown, newId, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
-  ANIMATIONS, isExit, buildState, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges, groupMembers, sharedGroup, groupItems, ungroupItems } from './slidemath.js';
+  ANIMATIONS, ANIM_STARTS, isExit, buildState, buildSteps, stepCount, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges, groupMembers, sharedGroup, groupItems, ungroupItems } from './slidemath.js';
 import { cleanLink, linkTarget, linkLabel, slideTitle, dropLinksTo } from './slidelinks.js';
 import { PRINT_LAYOUTS, printPages, isPortrait } from './printlayout.js';
 import { slideFileName, zipStored } from './slideimages.js';
@@ -455,6 +455,12 @@ export default function SlidesEditor() {
               {ANIMATIONS.map(([v, n]) => <option key={v} value={v}>{v ? `Animation: ${n}` : 'No animation'}</option>)}
             </select>
           )}
+          {item?.anim && (
+            <select className="tb-select" aria-label="Starts" title="When it starts: on its own click, or together with the animation before it" value={item.animStart || ''}
+              onChange={(e) => setItem({ animStart: e.target.value || undefined })}>
+              {ANIM_STARTS.map(([v, n]) => <option key={v} value={v}>{`Start: ${n}`}</option>)}
+            </select>
+          )}
           {item?.type === 'audio' && (
             <label className="tb labelled" title="Start the sound by itself when this slide shows while presenting (it stops when the slide changes)">
               <input type="checkbox" checked={!!item.autoplay} onChange={(e) => setItem({ autoplay: e.target.checked || undefined })} /> Play by itself
@@ -787,7 +793,8 @@ function PrintDeck({ deck, theme, deckId, title, how }) {
 
 export function SlideView({ slide, theme, deckId, editable, selected, group = [], editing, onSelect, onEdit, onChange, onMoveMany, peers, built, number, pictureBase = null, playing = false }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
-  const buildAt = new Map(builds(slide).map((it, k) => [it.id, k + 1]));
+  const steps = buildSteps(slide);
+  const buildAt = new Map([...steps].map(([id, s]) => [id, s.step]));
   const ref = useRef();
   const [live, setLive] = useState(null); // { id, box } while dragging
 
@@ -933,7 +940,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
         const notYet = !buildShown;
         return (
           <div key={it.id} className={`slide-item ${it.type} ${isSel || inGroup ? 'sel' : ''} ${inGroup ? 'in-group' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (at <= built ? 'yes' : 'no') : undefined}
-            style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
+            style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }), ...(arriving && steps.get(it.id)?.delay && { animationDelay: `${steps.get(it.id).delay}s` }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
             aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : boxShape(it) && it.text ? `Shape: ${it.text.slice(0, 40)}` : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'audio' ? `Sound: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
             data-link={!editable && it.link ? '1' : undefined}
@@ -1080,7 +1087,7 @@ function Presenter({ deck, theme, deckId, start, onClose: done, rehearse = false
     return () => { ch.postMessage({ type: 'end' }); ch.close(); channel.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deckId]);
-  useEffect(() => { channel.current?.postMessage({ type: 'at', i, b: at.b, of: builds(deck.slides[i]).length }); }, [i, at.b]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { channel.current?.postMessage({ type: 'at', i, b: at.b, of: stepCount(deck.slides[i]) }); }, [i, at.b]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { channel.current?.postMessage({ type: 'deck', deck, theme: deck.theme, i: iRef.current }); }, [deck]);
   useEffect(() => {
     const el = ref.current;
@@ -1129,7 +1136,7 @@ function Presenter({ deck, theme, deckId, start, onClose: done, rehearse = false
       <div className="presenter-bar" onClick={(e) => e.stopPropagation()}>
         <button type="button" aria-label="Previous slide" disabled={stepSlide(deck, i, -1) === i && at.b === 0} onClick={() => step(-1)}>‹</button>
         <span aria-live="polite">{i + 1} / {deck.slides.length}</span>
-        <button type="button" aria-label="Next slide" disabled={!deck.loop && stepSlide(deck, i, 1) === i && at.b >= builds(deck.slides[i]).length} onClick={() => step(1)}>›</button>
+        <button type="button" aria-label="Next slide" disabled={!deck.loop && stepSlide(deck, i, 1) === i && at.b >= stepCount(deck.slides[i])} onClick={() => step(1)}>›</button>
         {wait > 0 && <button type="button" aria-label={paused ? 'Resume moving on by itself' : 'Pause moving on by itself'} aria-pressed={paused} title={`${paused ? 'Paused' : `Moves on after ${wait} s`} (P)`} onClick={() => setPaused((v) => !v)}>{paused ? '▶' : '⏸'}</button>}
         {deck.loop && <span className="muted small" title="Starts again after the last slide">⟳</span>}
         <button type="button" aria-label={laser ? 'Turn off the laser pointer' : 'Laser pointer'} aria-pressed={!!laser} title="Laser pointer (L)" onClick={() => setLaser((v) => (v ? null : { x: -100, y: -100 }))}>●</button>

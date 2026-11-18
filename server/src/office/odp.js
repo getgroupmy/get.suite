@@ -49,14 +49,22 @@ const ODP_EFFECT = {
   disappear: (t) => `<anim:set smil:begin="0s" smil:dur="0.001s" smil:fill="hold" smil:targetElement="${t}" smil:attributeName="visibility" smil:to="hidden"/>`,
   fadeout: (t) => `<anim:transitionFilter smil:dur="0.5s" smil:targetElement="${t}" smil:type="fade" smil:subtype="crossfade" smil:mode="out"/><anim:set smil:begin="0.499s" smil:dur="0.001s" smil:fill="hold" smil:targetElement="${t}" smil:attributeName="visibility" smil:to="hidden"/>`,
 };
-/** A slide's timing: a main sequence with a click for each animated box ([{ id, anim }], in order). */
+/** A slide's timing: a main sequence of clicks for the animated boxes ([{ id, anim, start }], in order; start: 'with' or 'after' the one before). */
 export function odpTiming(builds) {
   if (!builds.length) return '';
-  const clicks = builds.map(({ id, anim }) => {
+  // Clicks, each a run of steps (each "after" one half a second later), each step its effects together.
+  const groups = [];
+  for (const bd of builds) {
+    if (!bd.start || !groups.length) groups.push([[bd]]);
+    else if (bd.start === 'after') groups[groups.length - 1].push([bd]);
+    else groups[groups.length - 1][groups[groups.length - 1].length - 1].push(bd);
+  }
+  const clicks = groups.map((steps) => `<anim:par smil:begin="next" smil:fill="hold">${steps.map((effects, si) => `<anim:par smil:begin="${si * 0.5}s" smil:fill="hold">${effects.map(({ id, anim }, ei) => {
     const a = ODP_PRESET[anim] ? anim : 'fade';
     const exit = a === 'disappear' || a === 'fadeout';
-    return `<anim:par smil:begin="next" smil:fill="hold"><anim:par smil:begin="0s" smil:fill="hold"><anim:par smil:begin="0s" smil:fill="hold" presentation:node-type="on-click" presentation:preset-class="${exit ? 'exit' : 'entrance'}" presentation:preset-id="${ODP_PRESET[a]}"${a === 'fly' ? ' presentation:preset-sub-type="from-bottom"' : ''}>${ODP_EFFECT[a](id)}</anim:par></anim:par></anim:par>`;
-  }).join('');
+    const node = ei > 0 ? 'with-previous' : si > 0 ? 'after-previous' : 'on-click';
+    return `<anim:par smil:begin="0s" smil:fill="hold" presentation:node-type="${node}" presentation:preset-class="${exit ? 'exit' : 'entrance'}" presentation:preset-id="${ODP_PRESET[a]}"${a === 'fly' ? ' presentation:preset-sub-type="from-bottom"' : ''}>${ODP_EFFECT[a](id)}</anim:par>`;
+  }).join('')}</anim:par>`).join('')}</anim:par>`).join('');
   return `<anim:par smil:dur="indefinite" smil:restart="never" presentation:node-type="timing-root"><anim:seq smil:dur="indefinite" presentation:node-type="main-sequence">${clicks}</anim:seq></anim:par>`;
 }
 /** A slide's animations from its timing (an anim:par element): [{ target, anim }] in click order. Unknown entrances fade in, unknown exits fade out. */
@@ -69,7 +77,9 @@ export function odpAnimationsOf(timing, tags) {
         const target = (function first(e) { for (const c of tags(e)) { if (c.attribs?.['smil:targetElement']) return c.attribs['smil:targetElement']; const f = first(c); if (f) return f; } return null; })(k);
         const id = k.attribs['presentation:preset-id'] || '';
         const anim = cls === 'exit' ? (id === 'ooo-exit-disappear' ? 'disappear' : 'fadeout') : id === 'ooo-entrance-appear' ? 'appear' : id === 'ooo-entrance-fly-in' ? 'fly' : 'fade';
-        if (target && !out.some((o) => o.target === target)) out.push({ target, anim });
+        const node = k.attribs['presentation:node-type'];
+        const start = out.length && node === 'with-previous' ? 'with' : out.length && node === 'after-previous' ? 'after' : null;
+        if (target && !out.some((o) => o.target === target)) out.push({ target, anim, ...(start && { start }) });
         continue;
       }
       walk(k);
@@ -188,7 +198,7 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
       items = items.slice(0, at) + add + items.slice(at);
       for (const q of pieces) { if (q.start >= at) q.start += add.length; if (q.end >= at) q.end += add.length; }
     }
-    items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).map((pc) => ({ id: pc.animId, anim: pc.it.anim })));
+    items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).map((pc) => ({ id: pc.animId, anim: pc.it.anim, start: pc.it.animStart || null })));
     const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:class="notes" presentation:placeholder="false" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
     pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}</draw:page>`;
   }
@@ -372,7 +382,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     // Its animations, on the boxes they point at, in click order.
     const timing = tags(page).find((k) => k.name === 'anim:par' && k.attribs['presentation:node-type'] === 'timing-root');
     let k = 0;
-    if (timing) for (const a of odpAnimationsOf(timing, tags)) { const it = byAnimId.get(a.target); if (it && !it.anim) Object.assign(it, { anim: a.anim, animAt: ++k }); }
+    if (timing) for (const a of odpAnimationsOf(timing, tags)) { const it = byAnimId.get(a.target); if (it && !it.anim) Object.assign(it, { anim: a.anim, animAt: ++k, ...(a.start && { animStart: a.start }) }); }
     const notes = tags(page, 'presentation:notes')[0];
     const nf = notes && (tags(notes, 'draw:frame').find((f) => f.attribs['presentation:class'] === 'notes') || tags(notes, 'draw:frame').find((f) => tags(f, 'draw:text-box').length));
     const nt = nf ? paraText(tags(nf, 'draw:text-box')[0] || nf).trim() : '';
