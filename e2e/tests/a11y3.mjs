@@ -61,6 +61,21 @@ await step('a11y: Home with Comments for you', async () => {
   await kim.getByRole('region', { name: 'Comments for you' }).waitFor();
   await scan('Home comments card', kim);
 });
+await step('a11y: Home with Suggestions to review and Access requests; a view-only document with Request edit access', async () => {
+  const plan = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Fee note', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The fee is ten pounds.' }] }] } })).body;
+  const memo = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Read me' })).body;
+  await api(page, 'PUT', `/files/${plan.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  await api(page, 'PUT', `/files/${memo.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await api(kim, 'POST', `/files/${plan.id}/replace`, { find: 'ten', replace: 'twelve', suggest: true });
+  await api(kim, 'POST', `/files/${memo.id}/request-access`, { role: 'editor' });
+  await page.goto(`${B}/home`);
+  await page.getByRole('region', { name: 'Suggestions to review' }).waitFor();
+  await page.getByRole('region', { name: 'Access requests' }).waitFor();
+  await scan('Home suggestions and access requests', page);
+  await kim.goto(`${B}/docs/${memo.id}`);
+  await kim.getByRole('button', { name: 'Request edit access' }).waitFor();
+  await scan('View-only document banner', kim);
+});
 await step('a11y: Drive with new-comment badges', async () => {
   await kim.goto(`${B}/drive/shared`);
   await kim.locator('.new-comments-pill').first().waitFor();

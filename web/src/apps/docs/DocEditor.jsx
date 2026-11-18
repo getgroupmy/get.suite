@@ -879,7 +879,8 @@ function SharedDoc({ file, setFile }) {
           <select aria-label="Zoom" value={look.zoom} onChange={(e) => setZoom(Number(e.target.value))}>
             {ZOOMS.map((z) => <option key={z} value={z}>{z}%</option>)}
           </select></label>
-        <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
+        {/* (not editable: the page itself takes the keyboard, so it can be scrolled without a mouse) */}
+        <div className="doc-scroll" {...(readOnly && !suggestOnly && { tabIndex: 0, role: 'region', 'aria-label': `${file.name} (read only)` })} onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
           <div ref={paperRef} className={`paper with-tabs ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''} ${file.page_setup?.headingNumbers ? 'heading-numbers' : ''}`} style={{ ...(file.page_setup ? paperStyle(file.page_setup) : {}), ...(look.zoom !== 100 && { zoom: look.zoom / 100 }) }} spellCheck={look.spellcheck}>
             {file.page_setup?.lineNumbers && <LineNumbers editor={editor} paperRef={paperRef} layout={JSON.stringify(file.page_setup)} />}
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
