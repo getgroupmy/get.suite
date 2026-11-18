@@ -187,3 +187,30 @@ test('.ods: the filter as LibreOffice\'s AutoFilter (values to show worked out f
     assert.deepEqual((await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 'all.ods')))).sheets[0].filter.hidden, { A: ['Done', ''] }, 'nothing shown, through LibreOffice too');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('.ods: charts as chart objects drawing from the cells, every kind, both ways and through LibreOffice', async (t) => {
+  const cells = { A1: 'Month', B1: 'North', C1: 'South', A2: 'Jan', B2: '10', C2: '7', A3: 'Feb', B3: '12', C3: '9', A4: 'Mar', B4: '15', C4: '11' };
+  const types = ['column', 'stackedColumn', 'bar', 'stackedBar', 'line', 'area', 'pie', 'doughnut', 'scatter'];
+  const charts = Object.fromEntries(types.map((ty, i) => [`c${i}`, { type: ty, range: 'A1:C4', title: `A ${ty} chart`, x: 300 + (i % 3) * 420, y: 40 + Math.floor(i / 3) * 280, w: 400, h: 250 }]));
+  const show = (b) => Object.values(b.sheets[0].charts || {}).map((c) => `${c.type} ${c.range} "${c.title}" @${c.x},${c.y} ${c.w}x${c.h}`);
+  const want = show({ sheets: [{ charts }] });
+  const buf = await odsFromSheet({ sheets: [{ name: 'Sales data', cells, colWidths: {}, charts: { ...charts, bad: { type: 'column', range: 'nonsense' } } }] });
+  const zip = await JSZip.loadAsync(buf);
+  assert.equal(zip.file(/^Object \d+\/content\.xml$/).length, 9, 'a chart object each (one without usable cells left out)');
+  assert.match(await zip.file('META-INF/manifest.xml').async('string'), /manifest:full-path="Object 1\/" manifest:version="1.3" manifest:media-type="application\/vnd\.oasis\.opendocument\.chart"/);
+  const o1 = await zip.file('Object 1/content.xml').async('string');
+  assert.match(o1, /<chart:plot-area chart:style-name="pa1" table:cell-range-address="'Sales data'\.A1:'Sales data'\.C4" chart:data-source-has-labels="both">/);
+  assert.match(o1, /<chart:series chart:class="chart:bar" chart:values-cell-range-address="'Sales data'\.B2:'Sales data'\.B4" chart:label-cell-address="'Sales data'\.B1">/);
+  assert.match(await zip.file('Object 4/content.xml').async('string'), /chart:stacked="true" chart:vertical="true"/, 'stacked bars');
+  assert.match(await zip.file('content.xml').async('string'), /<table:table table:name="Sales data"><table:shapes><draw:frame [^>]*draw:name="Chart 1" svg:width="10\.583cm" svg:height="6\.615cm"[^>]*><draw:object draw:notify-on-update-of-ranges="'Sales data'\.A1:'Sales data'\.C4" xlink:href="\.\/Object 1"/);
+  assert.deepEqual(show(await sheetFromOds(buf)), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 's.ods'), buf);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 's.ods')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(show(await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 's.ods')))), want, 'opened and saved by LibreOffice (which splits the ranges)');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

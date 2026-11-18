@@ -42,8 +42,9 @@ const pixel = async (bytes, pts) => page.evaluate(async ([b64, pts]) => {
   let blue = 0; for (let i = 0; i < all.length; i += 4) if (all[i] === 0x2a && all[i + 1] === 0x78 && all[i + 2] === 0xd6) blue++;
   return { w: img.width, h: img.height, corner: [...g.getImageData(pts[0], pts[1], 1, 1).data].slice(0, 3), blue };
 }, [bytes.toString('base64'), pts]);
+let s;
 await step('a chart downloads as a 1200 × 700 picture in the light colours, even in dark mode', async () => {
-  const s = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Sales', content: { sheets: [{ name: 'Sheet1', colWidths: {}, cells: { A1: 'Month', B1: 'Sales', A2: 'Jan', B2: '10', A3: 'Feb', B3: '25', A4: 'Mar', B4: '18' },
+  s = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Sales', content: { sheets: [{ name: 'Sheet1', colWidths: {}, cells: { A1: 'Month', B1: 'Sales', A2: 'Jan', B2: '10', A3: 'Feb', B3: '25', A4: 'Mar', B4: '18' },
     charts: { c1: { id: 'c1', type: 'column', range: 'A1:B4', title: 'Sales by month', x: 300, y: 40, w: 420, h: 300 } } }] } })).body;
   await page.goto(`${B}/sheets/${s.id}`);
   await page.getByRole('region', { name: 'Chart: Sales by month' }).waitFor();
@@ -56,6 +57,18 @@ await step('a chart downloads as a 1200 × 700 picture in the light colours, eve
   if (p.w !== 1200 || p.h !== 700) throw new Error(`${p.w}×${p.h}`);
   if (p.corner.join() !== '255,255,255') throw new Error(`background ${p.corner}`);
   if (p.blue < 5000) throw new Error(`hardly any column colour: ${p.blue} pixels`);
+});
+await step('OpenDocument (.ods) keeps the chart: the reopened copy draws it from its cells, same kind, title and place', async () => {
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=ods`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Sales.ods', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, s.id);
+  const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+  const charts = Object.values((await api(page, 'GET', `/files/${opened.id}/content`)).body.content.sheets[0].charts || {});
+  const c = charts[0];
+  if (charts.length !== 1 || c.type !== 'column' || c.range !== 'A1:B4' || c.title !== 'Sales by month' || c.x !== 300 || c.y !== 40 || c.w !== 420 || c.h !== 300) throw new Error(JSON.stringify(charts));
+  await page.goto(`${B}/sheets/${opened.id}`);
+  await page.getByRole('region', { name: 'Chart: Sales by month' }).waitFor();
 });
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();

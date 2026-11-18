@@ -8,6 +8,7 @@ import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
 import { colName } from './sheetnames.js';
 import { CALCEXT_NS, rulesToCalcext, rulesFromCalcext } from './odscf.js';
 import { filterToOds, filterFromOds } from './odsfilter.js';
+import { chartObject, chartFrame, chartFromObject } from './odschart.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -138,6 +139,7 @@ export async function odsFromSheet(data) {
   const validations = []; // content validations (dropdowns), for every sheet
   const cfStyles = []; // the cell styles conditional formatting applies (named styles)
   const databaseRanges = []; // the sheets' filters
+  const chartObjects = []; // the charts' objects (Object 1, Object 2…)
   for (const s of sheets) {
     const cells = s.cells || {}, formats = s.formats || {};
     // Alternating colours: each cell's fill (its own fill wins), the heading row bold.
@@ -247,10 +249,18 @@ export async function odsFromSheet(data) {
     // Conditional formatting, as LibreOffice keeps it (its cell styles named for this sheet: CF1x1…).
     const cf = rulesToCalcext(s.rules, name, formulaToOds, `CF${sheets.indexOf(s) + 1}x`); // (letters and digits only: LibreOffice renames others)
     cfStyles.push(...cf.styles);
-    tablesXml += `<table:table table:name="${x(name)}">${cols}${rows}${cf.xml}</table:table>`;
+    // Charts: each an embedded chart object drawing from these cells, in a frame where it sits.
+    let frames = '';
+    for (const ch of Object.values(s.charts || {})) {
+      const obj = chartObject(ch, name, cells);
+      if (!obj) continue;
+      frames += chartFrame(ch, chartObjects.length, name);
+      chartObjects.push(obj);
+    }
+    tablesXml += `<table:table table:name="${x(name)}">${frames ? `<table:shapes>${frames}</table:shapes>` : ''}${cols}${rows}${cf.xml}</table:table>`;
     if (s.frozen?.rows || s.frozen?.cols) settings.push({ name, rows: s.frozen.rows || 0, cols: s.frozen.cols || 0 });
   }
-  const NS = `${CALCEXT_NS} ` + 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
+  const NS = `${CALCEXT_NS} xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" ` + 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}${databaseRanges.length ? `<table:database-ranges>${databaseRanges.join('')}</table:database-ranges>` : ''}</office:spreadsheet></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
@@ -265,6 +275,7 @@ export async function odsFromSheet(data) {
 <manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">
 <manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="${ODS_MIME}"/>
 ${['content.xml', 'styles.xml', 'meta.xml', 'settings.xml'].map((f) => `<manifest:file-entry manifest:full-path="${f}" manifest:media-type="text/xml"/>`).join('\n')}
+${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${k + 1}/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.chart"/><manifest:file-entry manifest:full-path="Object ${k + 1}/content.xml" manifest:media-type="text/xml"/>`).join('\n')}
 </manifest:manifest>`;
   const zip = new JSZip();
   zip.file('mimetype', ODS_MIME, { compression: 'STORE' });
@@ -272,6 +283,7 @@ ${['content.xml', 'styles.xml', 'meta.xml', 'settings.xml'].map((f) => `<manifes
   zip.file('styles.xml', styles);
   zip.file('meta.xml', meta);
   zip.file('settings.xml', settingsXml);
+  chartObjects.forEach((o, k) => zip.file(`Object ${k + 1}/content.xml`, o));
   zip.file('META-INF/manifest.xml', manifest);
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', mimeType: ODS_MIME });
 }
@@ -445,9 +457,20 @@ export async function sheetFromOds(buffer) {
     const rules = cfEl ? rulesFromCalcext(cfEl, { tags, formulaFromOds, look: (st) => { const f = formatOf(st); return { fill: f.fill, color: f.color, bold: !!f.b }; } }) : [];
     // The filter LibreOffice keeps for this sheet (an AutoFilter), with the values each column hides.
     const filter = filterFromOds(tags(tags(body, 'table:database-ranges')[0] || { children: [] }, 'table:database-range'), t.attribs['table:name'], cells, tags);
+    // Charts: the chart objects in frames on this sheet (in its shapes, or anchored in a cell), drawing from its cells.
+    const charts = {};
+    const framesIn = (n, acc = []) => { for (const k of tags(n)) { if (k.name === 'draw:frame' && tags(k, 'draw:object').length) acc.push(k); else if (k.name !== 'draw:frame') framesIn(k, acc); } return acc; };
+    for (const fr of framesIn(t).slice(0, 20)) {
+      const href = String(tags(fr, 'draw:object')[0].attribs['xlink:href'] || '').replace(/^\.\//, '').replace(/\/$/, '');
+      const objXml = href && await zip.file(`${href}/content.xml`)?.async('string');
+      if (!objXml) continue;
+      const find = (n, name) => { for (const k of tags(n)) { if (k.name === name) return k; const f = find(k, name); if (f) return f; } return null; };
+      const ch = chartFromObject(parse(objXml), fr, t.attribs['table:name'], { tags, textOf, find });
+      if (ch) charts[`o${Object.keys(charts).length + 1}`] = ch;
+    }
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
   }
   // The hidden sheet of dropdown choices our Excel download writes (here when such a file was saved as .ods):
   // its choices back in the dropdowns, and the sheet left out.
