@@ -79,7 +79,7 @@ test('.odp in: what Impress writes (a picture of a table beside it, notes marked
   </draw:page></office:presentation></office:body></office:document-content>`);
   const [s] = (await deckFromOdp(await zip.generateAsync({ type: 'nodebuffer' }))).slides;
   assert.deepEqual(noIds(s.items), [
-    { type: 'text', x: 10, y: 50, w: 50, h: 14, text: 'Hello  there', size: 61.1 }, // 44pt on a 25.4 cm slide
+    { type: 'text', x: 10, y: 50, w: 50, h: 14, text: 'Hello  there', size: 61 }, // 44pt on a 25.4 cm slide (61.1, a hair off a whole size)
     { type: 'table', x: 0, y: 0, w: 50, h: 50, cells: [['A']], size: 25 },
   ]);
   assert.equal(s.notes, 'Remember the date');

@@ -29,11 +29,14 @@ const COLOR = /^#[0-9a-f]{6}$/i;
 const W = 28, H = 15.75; // cm, 16:9 like Slides
 const cm = (n) => `${Number(n).toFixed(3)}cm`;
 const ODP_SHAPES = { rect: 'rectangle', round: 'round-rectangle', ellipse: 'ellipse', triangle: 'isosceles-triangle', diamond: 'diamond', arrowblock: 'right-arrow', chevron: 'chevron', star: 'star5', callout: 'round-rectangular-callout' };
-const OUR_SHAPES = Object.fromEntries(Object.entries(ODP_SHAPES).map(([a, b]) => [b, a]));
+const OUR_SHAPES = { ...Object.fromEntries(Object.entries(ODP_SHAPES).map(([a, b]) => [b, a])),
+  // shapes from a .pptx, as Impress names them when it saves one as .odp
+  'ooxml-rect': 'rect', 'ooxml-roundRect': 'round', 'ooxml-ellipse': 'ellipse', 'ooxml-triangle': 'triangle', 'ooxml-diamond': 'diamond', 'ooxml-rightArrow': 'arrowblock', 'ooxml-chevron': 'chevron', 'ooxml-star5': 'star', 'ooxml-wedgeRoundRectCallout': 'callout' };
 const OUTLINES = [1, 2, 4, 6];
 /** Font size in points for a box's size (Slides keeps it relative to the slide's width). */
 const ptOf = (size) => (size * (W / 2.54) * 72) / 1000;
-const sizeOf = (pt, widthCm = W) => Math.round(((pt * 1000) / ((widthCm / 2.54) * 72)) * 10) / 10;
+// (a size a hair off a whole one, from pt ↔ cm rounding in another app, is that whole one)
+const sizeOf = (pt, widthCm = W) => { const v = (pt * 1000) / ((widthCm / 2.54) * 72); return Math.abs(v - Math.round(v)) <= 0.35 ? Math.round(v) : Math.round(v * 10) / 10; };
 
 // ---- deck → .odp ----
 export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } = {}) {
@@ -89,7 +92,7 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
     let dp;
     if (bgPath) { const name = `bg${fillImages.length + 1}`; fillImages.push(`<draw:fill-image draw:name="${name}" xlink:href="${bgPath}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>`); dp = style('drawing-page', `<style:drawing-page-properties draw:fill="bitmap" draw:fill-image-name="${name}" style:repeat="stretch" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"/>`); }
     else dp = style('drawing-page', `<style:drawing-page-properties draw:fill="solid" draw:fill-color="${color(s.bg, theme.bg)}" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"/>`);
-    let items = '';
+    let items = '', titled = false;
     const pieces = []; // each box's own XML, so grouped ones can be wrapped in a <draw:g>
     for (const it of s.items || []) {
       if (pieces.length) pieces[pieces.length - 1].end = items.length;
@@ -97,7 +100,9 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
       const href = linkOf(it, slides);
       if (it.type === 'text') {
         const gs = graphic(it, { fill: it.fill ? color(it.fill, theme.accent) : null, stroke: outline(it), valign: 'top' });
-        items += `<draw:frame draw:style-name="${gs}" ${place(it)}><draw:text-box>${paras(it.text, textStyle(it, theme.text, 24), paraStyle(it.align), href)}</draw:text-box></draw:frame>`;
+        const title = it.role === 'title' && !titled && String(it.text || '').trim(); // the slide's title, as Impress marks it (once a slide; Impress drops the mark unless the style is named as a presentation one)
+        if (title) titled = true;
+        items += `<draw:frame ${title ? `presentation:style-name="${gs}" presentation:class="title" presentation:user-transformed="true"` : `draw:style-name="${gs}"`} ${place(it)}><draw:text-box>${paras(it.text, textStyle(it, theme.text, 24), paraStyle(it.align), href)}</draw:text-box></draw:frame>`;
       } else if (it.type === 'shape' && (it.shape === 'line' || it.shape === 'arrow')) {
         const xx = (it.x / 100) * W, yy = (it.y / 100) * H, w = (it.w / 100) * W, h = (it.h / 100) * H;
         const d = it.dir || 'h';
@@ -272,12 +277,14 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
             const text = paraText(box);
             if (!text.trim()) continue;
             const fill = fillOf(g);
-            slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text, ...textLook(box, 18), ...(fill && { fill }), ...outlineOf(g), ...(linkIn(box) || lk.link ? { link: linkIn(box) || lk.link } : {}) });
+            slide.items.push({ id: fresh(), type: 'text', ...(el.attribs['presentation:class'] === 'title' && { role: 'title' }), ...boxOf(el), text, ...textLook(box, 18), ...(fill && { fill }), ...outlineOf(g), ...(linkIn(box) || lk.link ? { link: linkIn(box) || lk.link } : {}) });
           }
         } else if (el.name === 'draw:custom-shape' || el.name === 'draw:rect' || el.name === 'draw:ellipse') {
           const geo = tags(el, 'draw:enhanced-geometry')[0]?.attribs['draw:type'];
           const shape = el.name === 'draw:ellipse' ? 'ellipse' : el.name === 'draw:rect' ? (el.attribs['draw:corner-radius'] ? 'round' : 'rect') : OUR_SHAPES[geo] || (/ellipse|circle/.test(geo || '') ? 'ellipse' : 'rect');
           const text = paraText(el);
+          // A plain box with words and no fill (how Impress keeps a .pptx text box) is a text box, not a shape.
+          if (shape === 'rect' && g['draw:fill'] === 'none' && text.trim()) { slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text, ...textLook(el, 18), ...outlineOf(g), ...(linkIn(el) || lk.link ? { link: linkIn(el) || lk.link } : {}) }); continue; }
           slide.items.push({ id: fresh(), type: 'shape', shape, ...boxOf(el), fill: fillOf(g) || 'accent', ...outlineOf(g), ...(text.trim() && { text, ...textLook(el, 18) }), ...lk });
         } else if (el.name === 'draw:line') {
           const [x1, y1, x2, y2] = ['svg:x1', 'svg:y1', 'svg:x2', 'svg:y2'].map((k) => toCm(el.attribs[k]) || 0);

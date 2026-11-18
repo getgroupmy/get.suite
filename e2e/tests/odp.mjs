@@ -65,6 +65,35 @@ await step('in Drive an .odp file shows as a presentation and opens as one, note
   if (c.slides.length !== 2 || c.slides[0].notes !== 'Open with the numbers' || c.slides[1].items[0].text !== 'Timeline') throw new Error(JSON.stringify(c).slice(0, 300));
   await page.screenshot({ path: `${SP}/shots/odp-opened.png` });
 });
+await step('a .pptx saved as .odp by LibreOffice opens with its title and plain text boxes, not coloured shapes', async () => {
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { console.log('(LibreOffice is not installed here: step skipped)'); return; }
+  const fs = await import('node:fs'); const path = await import('node:path');
+  await api(page, 'PUT', `/files/${deck.id}/content`, { version: (await api(page, 'GET', `/files/${deck.id}/content`)).body.file.version, content: { theme: 'light', slides: [
+    { id: 's1', items: [{ id: 't1', type: 'text', role: 'title', x: 10, y: 10, w: 80, h: 20, text: 'Roadmap 2027', size: 44, bold: true }, { id: 't2', type: 'text', role: 'body', x: 10, y: 40, w: 60, h: 30, text: 'Ship the mobile app', size: 24 }] },
+  ] } });
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByText('Roadmap 2027').first().waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Download as PowerPoint/ }).click()]);
+  const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+  fs.copyFileSync(await dl.path(), path.join(dir, 'Roadmap.pptx'));
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odp', '--outdir', path.join(dir, 'out'), path.join(dir, 'Roadmap.pptx')], { stdio: 'ignore', timeout: 120000 });
+  const bytes = fs.readFileSync(path.join(dir, 'out', 'Roadmap.odp'));
+  fs.rmSync(dir, { recursive: true, force: true });
+  await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch('/api/files/upload?name=Roadmap%20(from%20LibreOffice).odp', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, bytes.toString('base64'));
+  await page.goto(`${B}/drive`);
+  await page.getByText('Roadmap (from LibreOffice).odp').dblclick();
+  const pv = page.getByRole('dialog').filter({ hasText: 'Roadmap (from LibreOffice).odp' });
+  await pv.getByRole('button', { name: 'Open as presentation' }).click({ timeout: 20000 });
+  await page.waitForURL(/\/slides\//);
+  await page.getByText('Ship the mobile app').first().waitFor();
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const items = (await api(page, 'GET', `/files/${id}/content`)).body.content.slides[0].items;
+  const got = items.map((i) => `${i.type}:${i.role || ''}:${i.fill || ''}:${i.text}`).join(' | ');
+  if (got !== 'text:title::Roadmap 2027 | text:::Ship the mobile app') throw new Error(got);
+  await page.screenshot({ path: `${SP}/shots/odp-from-lo.png` });
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

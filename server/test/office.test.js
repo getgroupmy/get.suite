@@ -2052,3 +2052,66 @@ test('Sheets: what LibreOffice keeps when it opens and saves our .xlsx and .ods 
     assert.deepEqual(kept(await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 's.ods')))), want);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Slides: titles go out as the slide\'s title (.pptx and .odp); a .pptx text box saved as .odp by Impress stays a text box', async () => {
+  const JSZip = (await import('jszip')).default;
+  const { odpFromDeck, deckFromOdp } = await import('../src/office/odp.js');
+  const deck = { theme: 'light', slides: [{ id: 'a', items: [
+    { id: 't', type: 'text', role: 'title', text: 'Quarterly review', x: 10, y: 10, w: 80, h: 20, size: 44 },
+    { id: 'u', type: 'text', role: 'title', text: 'A second title box', x: 10, y: 80, w: 80, h: 10, size: 20 },
+    { id: 'b', type: 'text', role: 'body', text: 'Sales up', x: 10, y: 40, w: 50, h: 30, size: 24 },
+  ] }] };
+  const pptx = await powerPointFromDeck(deck, {});
+  const s1 = await (await JSZip.loadAsync(pptx)).file('ppt/slides/slide1.xml').async('string');
+  assert.equal((s1.match(/<p:ph type="title"\/>/g) || []).length, 1, 'one title a slide');
+  assert.match(s1, /<p:nvPr><p:ph type="title"\/><\/p:nvPr><\/p:nvSpPr><p:spPr><a:xfrm><a:off x="\d+" y="\d+"\/>/, 'kept where it is');
+  const roles = (d) => d.slides[0].items.filter((i) => i.type === 'text').map((i) => `${i.text}:${i.role || '-'}`);
+  assert.deepEqual(roles(await deckFromPowerPoint(pptx, { savePicture: async () => 'x' })), ['Quarterly review:title', 'A second title box:body', 'Sales up:body']);
+  const odp = await odpFromDeck(deck, {});
+  const c = await (await JSZip.loadAsync(odp)).file('content.xml').async('string');
+  assert.match(c, /<draw:frame presentation:style-name="\w+" presentation:class="title" presentation:user-transformed="true" [^>]*><draw:text-box>.*Quarterly review/);
+  assert.deepEqual(roles(await deckFromOdp(odp, {})), ['Quarterly review:title', 'A second title box:-', 'Sales up:-']);
+  // How Impress saves a .pptx as .odp: text boxes as unfilled ooxml-rect shapes, rounded boxes as ooxml-roundRect.
+  const shapes = (await deckFromOdp(await new JSZip().file('mimetype', 'application/vnd.oasis.opendocument.presentation').file('content.xml', `<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+<office:automatic-styles><style:style style:name="gr1" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none"/></style:style><style:style style:name="gr2" style:family="graphic"><style:graphic-properties draw:fill="solid" draw:fill-color="#ffd666"/></style:style><style:style style:name="gr3" style:family="graphic"><style:graphic-properties draw:fill="none"/></style:style></office:automatic-styles>
+<office:body><office:presentation><draw:page draw:name="p1">
+<draw:custom-shape draw:style-name="gr1" svg:x="2.8cm" svg:y="1.575cm" svg:width="22.4cm" svg:height="3.15cm"><text:p>Words</text:p><draw:enhanced-geometry draw:type="ooxml-rect"/></draw:custom-shape>
+<draw:custom-shape draw:style-name="gr2" svg:x="2.8cm" svg:y="6cm" svg:width="5cm" svg:height="3cm"><text:p>Win</text:p><draw:enhanced-geometry draw:type="ooxml-roundRect"/></draw:custom-shape>
+<draw:custom-shape draw:style-name="gr3" svg:x="10cm" svg:y="6cm" svg:width="5cm" svg:height="3cm"><draw:enhanced-geometry draw:type="ooxml-rect"/></draw:custom-shape>
+</draw:page></office:presentation></office:body></office:document-content>`).generateAsync({ type: 'nodebuffer' }), {})).slides[0].items;
+  assert.deepEqual(shapes.map((i) => [i.type, i.shape || i.text]), [['text', 'Words'], ['shape', 'round'], ['shape', 'rect']], 'an empty unfilled box is still a shape');
+});
+
+test('Slides: what LibreOffice keeps when it opens and saves our .pptx and .odp (where it is installed)', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.skip('LibreOffice is not installed here'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { odpFromDeck, deckFromOdp } = await import('../src/office/odp.js');
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const deck = { theme: 'light', slides: [
+    { id: 'a', notes: 'Say hello\nThen pause', bg: '#fff2cc', items: [
+      { id: 't1', type: 'text', role: 'title', x: 10, y: 10, w: 80, h: 20, text: 'Quarterly review', size: 44, bold: true, align: 'center', color: '#0b57d0' },
+      { id: 't2', type: 'text', role: 'body', x: 10, y: 40, w: 50, h: 30, text: 'Sales up\nCosts down', size: 24, italic: true },
+      { id: 's1', type: 'shape', shape: 'round', x: 65, y: 40, w: 25, h: 20, fill: '#ffd666', text: 'Win' },
+      { id: 'i1', type: 'image', fileId: 'p1', x: 70, y: 70, w: 10, h: 15, alt: 'A dot' },
+    ] },
+    { id: 'b', skip: true, items: [{ id: 't3', type: 'text', role: 'title', x: 10, y: 10, w: 80, h: 20, text: 'Backup', size: 30 }] },
+  ] };
+  const pd = { pictureData: async () => ({ data: PNG, mime: 'image/png' }) };
+  const save = { savePicture: async () => 'pic' };
+  // What should come back: each slide's background, notes, hidden or not, and its boxes' kind, words, look and place.
+  const kept = (d) => d.slides.map((s) => ({ bg: s.bg, notes: s.notes || '', skip: !!s.skip, items: s.items.map((i) => [i.type, i.role === 'title' ? 'title' : '', i.shape || '', i.text || i.alt || '', i.size || 0, !!i.bold, !!i.italic, i.fill || '', ...['x', 'y', 'w', 'h'].map((k) => Math.round(i[k]))]) }));
+  const want = [
+    { bg: '#fff2cc', notes: 'Say hello\nThen pause', skip: false, items: [['text', 'title', '', 'Quarterly review', 44, true, false, '', 10, 10, 80, 20], ['text', '', '', 'Sales up\nCosts down', 24, false, true, '', 10, 40, 50, 30], ['shape', '', 'round', 'Win', 20, false, false, '#ffd666', 65, 40, 25, 20], ['image', '', '', 'A dot', 0, false, false, '', 70, 70, 10, 15]] },
+    { bg: '#ffffff', notes: '', skip: true, items: [['text', 'title', '', 'Backup', 30, false, false, '', 10, 10, 80, 20]] },
+  ];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (file, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, file)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, file.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.pptx'), await powerPointFromDeck(deck, pd));
+    fs.writeFileSync(path.join(dir, 'd.odp'), await odpFromDeck(deck, pd));
+    assert.deepEqual(kept(await deckFromPowerPoint(lo('d.pptx', 'pptx', 'p'), save)), want, '.pptx → LibreOffice → .pptx');
+    assert.deepEqual(kept(await deckFromOdp(lo('d.odp', 'odp', 'o'), save)), want, '.odp → LibreOffice → .odp');
+    assert.deepEqual(kept(await deckFromOdp(lo('d.pptx', 'odp', 'x'), save)), want, 'our .pptx saved as .odp by LibreOffice');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

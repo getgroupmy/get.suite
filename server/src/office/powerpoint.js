@@ -291,10 +291,12 @@ export function treeChildren(xml) {
 /**
  * Grouped boxes become PowerPoint groups (<p:grpSp>), at the place of the group's first box, with the
  * group's frame round them (child space = slide space, so the boxes stay where they are).
+ * A slide's title box becomes its title placeholder, so PowerPoint, Impress and screen readers know the slide's title.
  */
 async function withGroups(buffer, deck, emitted, { Win, Hin }) {
   const slides = deck.slides || [];
-  if (!slides.some((s) => (s.items || []).some((it) => it.group))) return buffer;
+  const titled = (shown) => shown.findIndex((it) => it.type === 'text' && it.role === 'title' && String(it.text || '').trim());
+  if (!slides.some((s) => (s.items || []).some((it) => it.group) || titled(emitted.get(s) || []) >= 0)) return buffer;
   const zip = await JSZip.loadAsync(buffer);
   const EMU = 914400;
   for (let i = 0; i < slides.length; i++) {
@@ -302,7 +304,8 @@ async function withGroups(buffer, deck, emitted, { Win, Hin }) {
     const groups = new Map();
     shown.forEach((it, k) => { if (it.group) groups.set(it.group, [...(groups.get(it.group) || []), k]); });
     const real = [...groups.values()].filter((ks) => ks.length > 1);
-    if (!real.length) continue;
+    const t = titled(shown);
+    if (!real.length && t < 0) continue;
     const file = `ppt/slides/slide${i + 1}.xml`;
     const xml = await zip.file(file)?.async('string');
     if (!xml) continue;
@@ -311,6 +314,10 @@ async function withGroups(buffer, deck, emitted, { Win, Hin }) {
       .filter((p) => /^<p:(sp|pic|cxnSp|graphicFrame)\b/.test(p.text) && !/<p:cNvPr id="1"/.test(p.text) && !/name="[^"]*Placeholder/.test(p.text));
     let nextId = Math.max(1, ...[...xml.matchAll(/<p:cNvPr id="(\d+)"/g)].map((m) => Number(m[1]))) + 1;
     const replace = new Map(); // part → text to put there instead ('' takes it out)
+    if (t >= 0 && parts[t] && /^<p:sp\b/.test(parts[t].text)) {
+      parts[t].text = parts[t].text.replace(/<p:cNvSpPr txBox="1"(?:\/>|><\/p:cNvSpPr>)/, '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>').replace(/<p:nvPr(?:\/>|><\/p:nvPr>)/, '<p:nvPr><p:ph type="title"/></p:nvPr>');
+      replace.set(parts[t], parts[t].text);
+    }
     real.forEach((ks, n) => {
       const its = ks.map((k) => shown[k]);
       const own = ks.map((k) => parts[k]).filter(Boolean);
@@ -360,7 +367,8 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       if (!off || !ext) return null;
       let rot = Math.round(Number(attr(xf, 'rot')) / 60000) || 0; // turned (in 60000ths of a degree)
       rot = ((rot % 360) + 540) % 360 - 180; if (rot === -180) rot = 180;
-      return { x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100, ...(rot && { rot }) };
+      const r2 = (v) => Math.round(v * 100) / 100; // (EMU ↔ % leaves 10.000984…)
+      return { x: r2((Number(attr(off, 'x')) / W) * 100), y: r2((Number(attr(off, 'y')) / H) * 100), w: r2((Number(attr(ext, 'cx')) / W) * 100), h: r2((Number(attr(ext, 'cy')) / H) * 100), ...(rot && { rot }) };
     };
     const items = [];
     const raw = await rawRelsOf(zip, file);
