@@ -1551,7 +1551,7 @@ const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'html', 'inReplyTo
 const ATTACH_AS = {
   doc: [['docx', 'Word (.docx)'], ['odt', 'OpenDocument (.odt)'], ['md', 'Markdown (.md)'], ['epub', 'E-book (.epub)'], ['html', 'Web page (.html)'], ['txt', 'Plain text (.txt)']],
   sheet: [['xlsx', 'Excel (.xlsx)'], ['ods', 'OpenDocument (.ods)']],
-  slides: [['pptx', 'PowerPoint (.pptx)'], ['odp', 'OpenDocument (.odp)']],
+  slides: [['pptx', 'PowerPoint (.pptx)'], ['odp', 'OpenDocument (.odp)'], ['txt', 'Plain text (.txt)']],
 };
 /** "Show original": what the message's headers say (who sent it and how it was checked, the servers it passed through) and the headers themselves. */
 function OriginalDialog({ uid, folder, onClose }) {

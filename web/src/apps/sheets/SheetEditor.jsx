@@ -1035,7 +1035,7 @@ export default function SheetEditor() {
     writeCells(u);
   }
 
-  function exportCsv() {
+  function exportCsv(sep = ',') {
     let maxR = 0, maxC = 0;
     for (const k of [...Object.keys(cells), ...(evaluate.spilledKeys?.() || [])]) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
     const out = [];
@@ -1043,13 +1043,13 @@ export default function SheetEditor() {
       const row = [];
       for (let c = 0; c <= maxC; c++) {
         const v = display(evaluate(cellKey(c, r)));
-        row.push(/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+        row.push(sep === '\t' ? v.replace(/[\t\r\n]+/g, ' ') : /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v); // (tab-separated: no tabs or line breaks inside a value)
       }
-      out.push(row.join(','));
+      out.push(row.join(sep));
     }
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([out.join('\n')], { type: 'text/csv' }));
-    a.download = `${file.name} - ${sheet.name}.csv`;
+    a.href = URL.createObjectURL(new Blob([out.join('\n')], { type: sep === '\t' ? 'text/tab-separated-values' : 'text/csv' }));
+    a.download = `${file.name} - ${sheet.name}.${sep === '\t' ? 'tsv' : 'csv'}`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -1217,7 +1217,8 @@ export default function SheetEditor() {
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download as OpenDocument (.ods)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=ods`; } },
-          { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
+          { label: 'Download sheet as CSV', icon: 'download', onClick: () => exportCsv(',') },
+          { label: 'Download sheet as TSV (tab-separated)', icon: 'download', onClick: () => exportCsv('\t') },
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
         ]}
       />

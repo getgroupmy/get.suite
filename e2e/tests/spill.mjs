@@ -75,6 +75,15 @@ await step('the CSV download includes spilled cells', async () => {
   const csv = (await (await import('node:fs/promises')).readFile(await d.path(), 'utf8')).split('\n');
   if (csv.length < 30 || !csv[29].includes('30')) throw new Error(csv.slice(0, 3).join('|') + ' … ' + csv.length);
 });
+await step('the TSV download has the same cells, separated by tabs', async () => {
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: /More|⋮/ }).first().click();
+  await page.getByRole('menuitem', { name: 'Download sheet as TSV (tab-separated)' }).click();
+  const d = await dl;
+  if (!d.suggestedFilename().endsWith('.tsv')) throw new Error(d.suggestedFilename());
+  const tsv = (await (await import('node:fs/promises')).readFile(await d.path(), 'utf8')).split('\n');
+  if (tsv.length < 30 || !tsv[29].includes('30') || tsv.some((l) => l.includes(','))) throw new Error(tsv.slice(0, 3).join('|') + ' … ' + tsv.length);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

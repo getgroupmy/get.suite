@@ -41,6 +41,7 @@ import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/o
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
+import { textFromDeck } from '../office/slidetext.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -1852,7 +1853,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const numbered = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
     if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
     if (type === 'html') return htmlFromDoc(numbered, f.name, { pictureData });
-    if (type === 'txt') return Buffer.from(textFromDoc(numbered), 'utf8');
+    if (type === 'txt') return Buffer.from(f.kind === 'slides' ? textFromDeck(content) : textFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
     if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [] });
     if (type === 'ods') return odsFromSheet(content, { comments: cellCommentsOf(f.id) });
@@ -1862,7 +1863,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
   };
   // Which types each kind can be had as (the first is the usual one).
-  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt'], sheet: ['xlsx', 'ods'], slides: ['pptx', 'odp'] };
+  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt'], sheet: ['xlsx', 'ods'], slides: ['pptx', 'odp', 'txt'] };
   const exportType = (f, format) => (EXPORT_TYPES[f.kind]?.includes(format) ? format : EXPORT_AS[f.kind]);
 
   // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint (or OpenDocument, Markdown).

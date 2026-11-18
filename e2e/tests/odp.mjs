@@ -50,6 +50,20 @@ await step('a presentation downloads as OpenDocument (.odp)', async () => {
   if (bytes.subarray(30, 85).toString() !== 'mimetypeapplication/vnd.oasis.opendocument.presentation') throw new Error('not an .odp');
   await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch('/api/files/upload?name=Launch%20deck%20(Impress).odp', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, bytes.toString('base64'));
 });
+await step('a presentation downloads as plain text: each slide, its title and words, its notes', async () => {
+  const content = { theme: 'light', slides: [
+    { id: 'a', notes: 'Welcome everyone', items: [{ id: 't', type: 'text', role: 'title', x: 5, y: 5, w: 90, h: 15, text: 'Our plan' }, { id: 'b', type: 'text', x: 5, y: 30, w: 90, h: 40, text: '• Hire two people\n• Open a shop' }] },
+    { id: 'c', skip: true, items: [{ id: 'tb', type: 'table', x: 5, y: 5, w: 60, h: 30, cells: [['Item', 'Cost'], ['Rent', '900']] }] },
+  ] };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Plan text', content })).body.id;
+  await page.goto(`${B}/slides/${id}`);
+  await page.getByText('Our plan').first().waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as plain text (.txt)' }).click()]);
+  if (dl.suggestedFilename() !== 'Plan text.txt') throw new Error(dl.suggestedFilename());
+  const txt = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
+  if (txt !== 'Slide 1: Our plan\n\n• Hire two people\n• Open a shop\n\nNotes: Welcome everyone\n\n\nSlide 2 (skipped)\n\nItem\tCost\nRent\t900\n') throw new Error(JSON.stringify(txt));
+});
 await step('in Drive an .odp file shows as a presentation and opens as one, notes and all', async () => {
   await page.goto(`${B}/drive`);
   await page.getByText('Launch deck (Impress).odp').dblclick();
