@@ -169,6 +169,19 @@ await step('an assistant sets the person’s status: colleagues see it in the Di
   await page.locator('table tr').nth(1).waitFor();
   if (await page.getByText('🎧 Focusing').count()) throw new Error('not cleared');
 });
+await step('an assistant updates a contact: Contacts shows the new number and job, the note added', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude contact', scope: 'write', days: 30 })).body.token;
+  const c = (await mcp(token, 'create_contact', { name: 'Ana Silva', email: 'ana@client.example', phone: '+1 555 0100', notes: 'Met at the fair.' })).structuredContent;
+  const r = await mcp(token, 'update_contact', { contact: c.id, phone: '+1 555 0199', title: 'Head of Buying', add_to_notes: 'Prefers calls after 2pm.' });
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await page.goto(new URL(r.structuredContent.url, B).href);
+  const row = page.locator('tr', { hasText: 'Ana Silva' }).first();
+  await row.waitFor();
+  const text = (await row.innerText()).replace(/\s+/g, ' ');
+  if (!text.includes('+1 555 0199') || !text.includes('Head of Buying') || text.includes('0100')) throw new Error(text); // (the list wraps the number)
+  const there = (await api(page, 'GET', '/contacts')).body.find((x) => x.name === 'Ana Silva');
+  if (there.notes !== 'Met at the fair.\nPrefers calls after 2pm.') throw new Error(JSON.stringify(there.notes)); // (notes aren't in the list)
+});
 await step('an assistant comments on words in a document open in Docs: the words are highlighted live, the comment is in the panel', async () => {
   const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7', scope: 'write', days: 30 })).body.token;
   const d = (await mcp(token, 'create_document', { name: 'Launch note', text: 'The launch is on Friday.' })).structuredContent;

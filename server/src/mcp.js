@@ -580,6 +580,33 @@ export const TOOLS = [
     },
   },
   {
+    name: 'update_contact', title: 'Update a contact', readOnly: false,
+    description: 'Change details of someone in the person’s Contacts (e.g. a new phone number or job from an email signature): only what is given changes; an empty string clears a detail. add_to_notes adds a line to the notes, keeping what is there. Find the contact with search first (contact:…).',
+    inputSchema: {
+      type: 'object', required: ['contact'],
+      properties: {
+        contact: { type: 'string', description: 'The contact’s id (contact:…, from search or keep_in_touch)' },
+        name: { type: 'string' }, email: { type: 'string' }, phone: { type: 'string' }, company: { type: 'string' }, title: { type: 'string', description: 'Job title' }, address: { type: 'string' }, website: { type: 'string' },
+        notes: { type: 'string', description: 'Replaces the notes' }, add_to_notes: { type: 'string', description: 'A line added to the end of the notes' },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.contact || '').replace(/^contact:/, '');
+      if (!id) throw new ToolError('Give the contact’s id (contact:…)');
+      const body = Object.fromEntries(['name', 'email', 'phone', 'company', 'title', 'address', 'website', 'notes'].filter((k) => a[k] !== undefined && a[k] !== null).map((k) => [k, String(a[k]).trim()]));
+      if (body.name === '') throw new ToolError('A contact needs a name: give a new one, or leave name out');
+      if (a.add_to_notes) {
+        const cur = (await api('GET', '/contacts')).find((c) => String(c.id) === id);
+        if (!cur) throw new ToolError('No contact with that id that the person can see');
+        const base = body.notes !== undefined ? body.notes : String(cur.notes || '');
+        body.notes = [base.replace(/\s+$/, ''), String(a.add_to_notes).trim()].filter(Boolean).join('\n');
+      }
+      if (!Object.keys(body).length) throw new ToolError('Give at least one detail to change');
+      const c = await api('PATCH', `/contacts/${encodeURIComponent(id)}`, body);
+      return { id: `contact:${c.id}`, name: c.name, email: c.email || null, phone: c.phone || null, company: c.company || null, title: c.title || null, notes: c.notes || null, changed: Object.keys(body), url: link(`/contacts?q=${encodeURIComponent(c.email || c.name)}`) };
+    },
+  },
+  {
     name: 'create_document', title: 'Make a document', readOnly: false,
     description: 'Make a new Workspace document in the person’s Drive from plain text (lines starting with # become headings).',
     inputSchema: { type: 'object', required: ['name', 'text'], properties: { name: { type: 'string' }, text: { type: 'string' }, folder: FOLDER_ARG } },

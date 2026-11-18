@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -916,4 +916,18 @@ test('add slides to a presentation: at the end or after a slide, in its theme; a
   assert.equal((await call(ro, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'x' }] })).isError, true);
   const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Not slides' })).body;
   assert.match((await call(rw, 'add_slides', { file: `file:${doc.id}`, slides: [{ title: 'x' }] })).content[0].text, /only be added to a presentation/);
+});
+
+test('update a contact: only what is given changes; a line added to the notes; refusals explained', async () => {
+  const c = (await owner('POST', '/api/contacts', { name: 'Ana Silva', email: 'ana@client.example', phone: '+1 555 0100', company: 'Client Co', notes: 'Met at the fair.' })).body;
+  let r = await call(rw, 'update_contact', { contact: `contact:${c.id}`, phone: '+1 555 0199', title: 'Head of Buying', add_to_notes: 'Prefers calls after 2pm.' });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.phone, r.structuredContent.title, r.structuredContent.notes, r.structuredContent.email, r.structuredContent.company], ['+1 555 0199', 'Head of Buying', 'Met at the fair.\nPrefers calls after 2pm.', 'ana@client.example', 'Client Co']);
+  r = await call(rw, 'update_contact', { contact: `contact:${c.id}`, company: '' });
+  assert.equal(r.structuredContent.company, null, 'an empty string clears it');
+  const there = (await owner('GET', '/api/contacts')).body.find((x) => x.id === c.id);
+  assert.deepEqual([there.phone, there.title, there.company || null], ['+1 555 0199', 'Head of Buying', null]);
+  assert.match((await call(rw, 'update_contact', { contact: `contact:${c.id}`, name: '' })).content[0].text, /needs a name/);
+  assert.match((await call(rw, 'update_contact', { contact: `contact:${c.id}` })).content[0].text, /at least one detail/);
+  assert.equal((await call(ro, 'update_contact', { contact: `contact:${c.id}`, phone: '1' })).isError, true);
 });
