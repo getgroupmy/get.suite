@@ -1961,6 +1961,13 @@ test('new mail on phones: the mail server tells the app as it delivers, and the 
     assert.equal(msg.title, 'Pat Partner');
     assert.equal(msg.body, 'Contract signed');
     assert.match(msg.link, /^\/mail\/INBOX\/\d+$/);
+    // An emoji reaction to it (RFC 9078) reads as one on the phone.
+    const { buildReaction } = await import('../src/mail/reaction.js');
+    const orig = (await inbox(olivia, 'Contract signed')).find((x) => x.subject === 'Contract signed');
+    const raw = buildReaction({ messageId: orig.messageId, subject: 'Contract signed' }, { from: { name: 'Pat Partner', address: 'pat@acme.com' }, to: [{ address: 'olivia@acme.com' }], emoji: '👏', host: 'test.acme.com' });
+    await t.sendMail({ envelope: { from: 'pat@acme.com', to: ['olivia@acme.com'] }, raw });
+    const r = await eventually(() => got.map(open).find((m) => /^Reacted 👏/.test(m.body)), 20000);
+    assert.deepEqual([r.title, r.body], ['Pat Partner', 'Reacted 👏 to “Contract signed”']);
     // Turned off in notification settings: nothing more.
     await olivia('PUT', '/api/notifications/settings', { off: ['mail'] });
     await t.sendMail({ from: 'pat@acme.com', to: 'olivia@acme.com', subject: 'Second', text: 'x' });

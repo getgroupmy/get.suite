@@ -35,7 +35,9 @@ export function splitReaction(parsed) {
 }
 
 const line = (s) => String(s || '').replace(/[\r\n]+/g, ' ').trim();
-const addr = ({ name, address }) => (name ? `${encodeWord(line(name), 'Q', 52)} <${address}>` : `<${address}>`);
+// A name is written as it is when it's plain ASCII (quoted when it has to be), encoded otherwise.
+const nameOut = (n) => (/^[\x20-\x7e]*$/.test(n) ? (/^[\w .'-]*$/.test(n) ? n : `"${n.replace(/["\\]/g, '\\$&')}"`) : encodeWord(n, 'Q', 52));
+const addr = ({ name, address }) => (name ? `${nameOut(line(name))} <${address}>` : `<${address}>`);
 const reSubject = (s) => (/^\s*re:/i.test(s || '') ? line(s) : `Re: ${line(s) || '(no subject)'}`);
 
 /** The reaction, as a raw message: from, to ([{ name, address }]), the emoji, about the parsed original. */

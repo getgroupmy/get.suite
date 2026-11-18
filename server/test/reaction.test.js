@@ -12,6 +12,8 @@ test('a reaction email (RFC 9078): threaded to the original, the emoji in a reac
   const original = { messageId: '<orig-1@acme.com>', references: ['<root@acme.com>'], subject: 'Q3 numbers' };
   const raw = buildReaction(original, { from: { name: 'Kim Park', address: 'kim@acme.com' }, to: [{ name: 'Olivia Owner', address: 'olivia@acme.com' }], emoji: '🎉', host: 'mail.acme.com' });
   assert.match(raw, /^In-Reply-To: <orig-1@acme\.com>$/m);
+  assert.match(raw, /^From: Kim Park <kim@acme\.com>$/m, 'a plain name as it is');
+  assert.match(buildReaction(original, { from: { name: 'José', address: 'j@a.com' }, to: [{ name: 'Park, Kim', address: 'k@a.com' }], emoji: '👍', host: 'h' }), /^From: =\?UTF-8\?Q\?Jos=C3=A9\?= <j@a\.com>\r\nTo: "Park, Kim" <k@a\.com>$/m);
   assert.match(raw, /^References: <root@acme\.com> <orig-1@acme\.com>$/m);
   assert.match(raw, /^Subject: Re: Q3 numbers$/m);
   assert.match(raw, /Content-Disposition: reaction\r\n\r\n🎉\r\n/);

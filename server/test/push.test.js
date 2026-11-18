@@ -220,4 +220,37 @@ test('push: a company that keeps what’s written off lock screens: who or what 
     await pushTo('pu', { title: 'Board meeting: merger', body: 'In 10 minutes · Room 4', private: { title: 'Calendar reminder', body: 'In 10 minutes' } }, { force: true });
     assert.deepEqual([read(got[0]).title, read(got[0]).body], ['Calendar reminder', 'In 10 minutes']);
   } finally { q("UPDATE orgs SET push_private = 0 WHERE id = 'po'").run(); }
+  // An emoji reaction (RFC 9078) reads as one; only replies are looked into, and an ordinary one stays as it is.
+  const { handleMailNew } = await import('../src/mail/mailpush.js');
+  const asked = [];
+  const reactionsOf = async (user, folder, uids) => { asked.push([user.username, folder, uids]); return new Map([[9, '🎉']]); };
+  got = [];
+  await handleMailNew({ user: 'p@push.test', messages: [{ folder: 'INBOX', uid: 9, from: '"Kim Park" <kim@push.test>', subject: 'Re: Contract signed?' }] }, { reactionsOf });
+  assert.deepEqual([read(got[0]).title, read(got[0]).body], ['Kim Park', 'Reacted 🎉 to “Contract signed?”']);
+  assert.deepEqual(asked, [['p@push.test', 'INBOX', [9]]]);
+  got = [];
+  await handleMailNew({ user: 'p@push.test', messages: [{ folder: 'INBOX', uid: 9, from: 'kim@push.test', subject: 'Re: Contract signed?' }, { folder: 'INBOX', uid: 10, from: 'Ann <ann@push.test>', subject: 'Re: Lunch' }] }, { reactionsOf });
+  assert.equal(read(got[0]).body, 'kim@push.test: Reacted 🎉 to “Contract signed?”\nAnn: Re: Lunch');
+  asked.length = 0; got = [];
+  await handleMailNew({ user: 'p@push.test', messages: [{ folder: 'INBOX', uid: 11, from: 'Ann <ann@push.test>', subject: 'Budget' }] }, { reactionsOf });
+  assert.equal(read(got[0]).body, 'Budget');
+  assert.deepEqual(asked, [], 'not a reply: not looked into');
+  got = [];
+  await handleMailNew({ user: 'p@push.test', messages: [{ folder: 'INBOX', uid: 12, from: 'Ann <ann@push.test>', subject: 'Re: Budget' }] }, { reactionsOf: async () => { throw new Error('mail server away'); } });
+  assert.equal(read(got[0]).body, 'Re: Budget', 'sent anyway when it can’t look');
+  // Names and subjects come from the mail server as written: encoded words are decoded.
+  got = [];
+  await handleMailNew({ user: 'p@push.test', messages: [{ folder: 'INBOX', uid: 13, from: '=?UTF-8?Q?Jos=C3=A9_Garc=C3=ADa?= <jose@push.test>', subject: '=?utf-8?B?Q2Fmw6kgYXQgMTA/?=' }] }, { reactionsOf });
+  assert.deepEqual([read(got[0]).title, read(got[0]).body], ['José García', 'Café at 10?']);
+});
+
+test('MIME encoded words in headers (RFC 2047)', async () => {
+  const { decodeWords } = await import('../src/mail/mailpush.js');
+  assert.equal(decodeWords('=?UTF-8?Q?Pat_Partner?= <p@a.com>'), 'Pat Partner <p@a.com>');
+  assert.equal(decodeWords('=?utf-8?B?Sm9zw6k=?='), 'José');
+  assert.equal(decodeWords('=?UTF-8?Q?Bonne_?= =?UTF-8?Q?ann=C3=A9e?='), 'Bonne année', 'the space between two encoded words goes');
+  assert.equal(decodeWords('Re: =?iso-8859-1?q?caf=E9?= today'), 'Re: café today');
+  assert.equal(decodeWords('=?x-unknown?Q?zz?='), '=?x-unknown?Q?zz?=', 'an unknown character set is left alone');
+  assert.equal(decodeWords('Plain subject'), 'Plain subject');
+  assert.equal(decodeWords(undefined), '');
 });
