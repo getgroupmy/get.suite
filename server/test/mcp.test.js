@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'resolve_comment', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'comment_on_file', 'resolve_comment', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -483,8 +483,18 @@ test('a comment assigned to a colleague: a task on their list, shown in list_com
   };
   const t = await avasTask();
   assert.ok(t && !t.done_at, JSON.stringify(t));
+  // Ava's assistant finds it waiting for her, with a mention from Olivia too; only assigned ones if asked.
+  const avaToken = (await ava('POST', '/api/tokens', { password: 'password123', name: 'Ava’s assistant', scope: 'read', days: 30 })).body.token;
+  await call(rw, 'comment_on_file', { file: doc.id, quote: 'Prices', text: '@ava@acme.com can you look at these?' });
+  const mine = (await call(avaToken, 'comments_for_me', {})).structuredContent.threads;
+  assert.deepEqual(mine.map((x) => [x.text, x.why, x.file_name]).sort(), [['@ava@acme.com can you look at these?', 'mentions you', 'Pricing page'], ['Check the date with sales', 'assigned to you', 'Pricing page']]);
+  assert.equal(mine.find((x) => x.why === 'assigned to you').id, c.structuredContent.id);
+  assert.match(mine[0].url, /\/docs\/[^/]+\?comment=/);
+  assert.deepEqual((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.threads.map((x) => x.text), ['Check the date with sales']);
+  assert.deepEqual((await call(rw, 'comments_for_me', {})).structuredContent.threads.filter((x) => x.file_name === 'Pricing page'), [], 'not Olivia’s own');
   await call(rw, 'resolve_comment', { file: doc.id, thread: c.structuredContent.id, reply: 'Sales confirmed May.' });
   assert.ok((await avasTask()).done_at, 'ticked off when resolved');
+  assert.deepEqual((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.threads, [], 'resolved: no longer waiting');
 });
 
 test('share a file with a colleague: as viewer, then editor; others kept; only colleagues; only what the person manages', async () => {

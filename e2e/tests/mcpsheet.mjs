@@ -238,6 +238,13 @@ await step('an assistant assigns a comment to a colleague: it is on her task lis
   await task.locator('.task-title').click();
   await ava.getByRole('link', { name: /Comment on Launch note/ }).click();
   await ava.locator('.comment-thread', { hasText: 'Write the launch email' }).getByText('Assigned to Ava Assignee').waitFor();
+  // Her own assistant finds it waiting for her; its link opens the document at that comment.
+  const avaToken = (await api(ava, 'POST', '/tokens', { password: 'password123', name: 'Ava’s Claude', scope: 'read', days: 30 })).body.token;
+  const mine = (await mcp(avaToken, 'comments_for_me', {})).structuredContent.threads;
+  const t = mine.find((x) => x.text === 'Write the launch email');
+  if (!t || t.why !== 'assigned to you' || t.file_name !== 'Launch note') throw new Error(JSON.stringify(mine));
+  await ava.goto(new URL(t.url, B).href);
+  await ava.locator('.comment-thread.active', { hasText: 'Write the launch email' }).waitFor();
 }, { screenshot: (o) => (ava || page).screenshot(o) });
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
