@@ -1,4 +1,3 @@
-import { emailPeopleWithAccess, meetPeopleWithAccess } from '../emailpeople.js';
 import { pasteSpecial, PASTE_MODES } from './paste.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
@@ -1214,8 +1213,6 @@ export default function SheetEditor() {
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
-          ...(mail?.enabled && ['owner', 'editor'].includes(file?.role) ? [{ label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(file, { navigate, toast }) }] : []),
-          ...(['owner', 'editor'].includes(file?.role) ? [{ label: 'Schedule a meeting with people with access', icon: 'calendar', onClick: () => meetPeopleWithAccess(file, { navigate, toast }) }] : []),
           { label: 'Compare spreadsheets', icon: 'sheet', onClick: () => setDialog({ type: 'compare-pick' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },

@@ -1,7 +1,5 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
-import { emailPeopleWithAccess, meetPeopleWithAccess } from '../emailpeople.js';
-import { useMailStatus } from '../../mailStatus.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Captions, { canCaption } from './Captions.jsx';
 import { SlideFind } from './SlideFind.jsx';
@@ -51,7 +49,6 @@ export default function SlidesEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const mail = useMailStatus();
   const { user } = useAuth();
   const [file, setFile] = useState(null);
   const [deck, setDeck] = useState(null);
@@ -342,8 +339,6 @@ export default function SlidesEditor() {
           { label: 'Rehearse (time each slide)', icon: 'clock', onClick: () => { setRehearsing(true); setPresenting(firstShown(deck, 0)); } },
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding((f) => ({ replace: !readOnly, n: (f?.n || 0) + 1 })) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
-          ...(mail?.enabled && ['owner', 'editor'].includes(file?.role) ? [{ label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(file, { navigate, toast }) }] : []),
-          ...(['owner', 'editor'].includes(file?.role) ? [{ label: 'Schedule a meeting with people with access', icon: 'calendar', onClick: () => meetPeopleWithAccess(file, { navigate, toast }) }] : []),
           ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
           { label: 'Print or save as PDF…', icon: 'print', onClick: () => setPrinting(true) },
           { label: 'Download this slide as a picture (.png)', icon: 'image', onClick: () => setSnapping({ indexes: [slideIndex], all: false }) },

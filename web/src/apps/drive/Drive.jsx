@@ -1,3 +1,4 @@
+import { emailPeopleWithAccess, meetPeopleWithAccess } from '../emailpeople.js';
 import { keptList, unreachable, offlineId, changeAdd, keepDoc, forgetDoc } from '../offlinedocs.js';
 import { renameFile, keepOffline, unpinOffline } from '../KeptCopy.jsx';
 import { findClashes, clashQuestion, findFolderClashes } from './uploadclash.js';
@@ -514,6 +515,8 @@ export default function Drive() {
       f.owner_id === user.id && ['doc', 'sheet', 'slides'].includes(f.kind) && f.template !== 1 && { label: f.template === 2 ? 'Remove from my templates' : 'Use as my template', icon: 'copy',
         onClick: async () => { try { await put(`/files/${f.id}/my-template`, { template: f.template !== 2 }); toast(f.template === 2 ? 'Removed from your templates' : 'Added to your templates: New → From a template'); load(); } catch (e) { toast(e.message, 'error'); } } },
       { label: 'Chat with people who have access', icon: 'chat', onClick: () => chatAbout(f) },
+      mail?.enabled && f.kind !== 'folder' && ['owner', 'editor'].includes(f.role) && { label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(f, { navigate, toast }) },
+      f.kind !== 'folder' && ['owner', 'editor'].includes(f.role) && { label: 'Schedule a meeting with people with access', icon: 'calendar', onClick: () => meetPeopleWithAccess(f, { navigate, toast }) },
       { label: 'Labels…', icon: 'edit', onClick: () => setDialog({ type: 'labels', file: f }) },
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       { label: 'Change notifications on/off', icon: 'bell', onClick: async () => {

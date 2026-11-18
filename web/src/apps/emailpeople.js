@@ -6,11 +6,12 @@ import { DRAFT_KEY, EVENT_KEY } from './docs/blocks.js';
 import { formatAddress } from '../components/addresses.js';
 
 const APP = { doc: 'docs', sheet: 'sheets', slides: 'slides' };
+const linkTo = (file, origin) => (APP[file.kind] ? `${origin}/${APP[file.kind]}/${file.id}` : `${origin}/drive?file=${file.id}`);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 /** The message for these people about this file: { to, subject, html }. */
 export function messageAbout(file, people, origin) {
-  const url = `${origin}/${APP[file.kind] || 'drive'}/${file.id}`;
+  const url = linkTo(file, origin);
   return { to: people.map((p) => formatAddress({ name: p.name, email: p.username })).join(', '), subject: file.name, html: `<p><a href="${esc(url)}">${esc(file.name)}</a></p><p></p>` };
 }
 
@@ -24,7 +25,7 @@ export async function emailPeopleWithAccess(file, { navigate, toast }) {
 /** A new event about this file with these people as guests, at the next whole hour, an hour long. */
 export function meetingAbout(file, people, origin, now = Date.now()) {
   const start = new Date(now); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
-  const url = `${origin}/${APP[file.kind] || 'drive'}/${file.id}`;
+  const url = linkTo(file, origin);
   return {
     title: file.name, start: start.getTime(), end: start.getTime() + 3600e3, all_day: 0, location: '',
     guests: people.map((p) => ({ email: p.username })), description: `About “${file.name}”: ${url}`,

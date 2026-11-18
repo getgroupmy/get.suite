@@ -111,6 +111,19 @@ await step('Schedule a meeting with people with access, from a spreadsheet: a ne
   if (!/kim@acme\.com/.test(guests)) throw new Error(guests);
   if (!JSON.stringify(full.attachments || ev.attachments || []).includes(sheet.id)) throw new Error('file not attached');
 });
+await step('from Drive too, for any file: Schedule a meeting with people with access on an uploaded file', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const up = await page.evaluate(async () => (await fetch('/api/files/upload?name=Brief.txt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'The brief' })).json());
+  await api(page, 'PUT', `/files/${up.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Actions for Brief.txt').click();
+  await page.getByRole('menuitem', { name: 'Schedule a meeting with people with access' }).click();
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  await dlg.waitFor();
+  if (await dlg.getByLabel('Title').inputValue() !== 'Brief.txt') throw new Error('title');
+  await dlg.getByText(/kim@acme\.com|Kim Park/).first().waitFor();
+  await dlg.getByRole('button', { name: 'Cancel' }).click();
+});
 await step('its document goes to the trash: the channel says so and doesn’t link to it', async () => {
   const chan = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.about_kind === 'file' && c.about_title === 'Contract notes');
   const doc = (await api(page, 'GET', '/files?view=mine')).body.find((f) => f.name === 'Contract notes');

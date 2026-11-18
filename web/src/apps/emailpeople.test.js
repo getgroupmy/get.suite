@@ -19,3 +19,8 @@ test('a meeting with the people with access: them as guests, at the next whole h
   assert.equal(ev.description, 'About “Launch plan”: https://ws.example/docs/d1');
   assert.deepEqual(ev.attachments, [{ id: 'd1', name: 'Launch plan', kind: 'doc', mime: null }]);
 });
+
+test('a plain Drive file links to it in Drive', () => {
+  assert.equal(messageAbout({ id: 'p1', kind: 'file', name: 'Brief.pdf' }, [], 'https://ws.example').html, '<p><a href="https://ws.example/drive?file=p1">Brief.pdf</a></p><p></p>');
+  assert.equal(meetingAbout({ id: 'p1', kind: 'file', name: 'Brief.pdf' }, [], 'https://ws.example', 0).description, 'About “Brief.pdf”: https://ws.example/drive?file=p1');
+});
