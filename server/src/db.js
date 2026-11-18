@@ -11,7 +11,8 @@ for (const d of [DATA_DIR, FILES_DIR, TMP_DIR]) fs.mkdirSync(d, { recursive: tru
 
 // A snapshot asked to be put back (Admin → System) goes in place before the database is opened.
 export const restored = process.env.DB_PATH ? null : applyPendingRestore(DATA_DIR);
-export const db = new DatabaseSync(process.env.DB_PATH || path.join(DATA_DIR, 'workspace.db'));
+// (timeout: wait for another process holding the database, from the start: switching to WAL below needs it too)
+export const db = new DatabaseSync(process.env.DB_PATH || path.join(DATA_DIR, 'workspace.db'), { timeout: 5000 });
 db.exec(`
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

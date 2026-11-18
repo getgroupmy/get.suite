@@ -263,6 +263,25 @@ await step('an assistant suggests a change to a document open in Docs: it appear
   await until(async () => JSON.stringify((await api(page, 'GET', `/files/${d.id.replace('file:', '')}/content`)).body.content).includes('Prices rise in April.'), 15000);
   if (await page.locator('.ProseMirror .sugg-del, .ProseMirror .sugg-ins').count()) throw new Error('suggestion marks left');
 });
+await step('a suggestion typed in Docs: an assistant reads it apart from the text and accepts it, live', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7e', scope: 'write', days: 30 })).body.token;
+  const d = (await mcp(token, 'create_document', { name: 'Ship note', text: 'We ship today.' })).structuredContent;
+  await page.goto(new URL(d.url, B).href);
+  await page.locator('.ProseMirror').getByText('We ship today.').waitFor();
+  await page.getByLabel('Editing mode').selectOption('suggest');
+  await page.locator('.ProseMirror p', { hasText: 'We ship today.' }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowLeft'); // (before the full stop)
+  await page.keyboard.type(' at noon');
+  await page.locator('.ProseMirror ins.sugg-ins', { hasText: 'at noon' }).waitFor();
+  let read;
+  await until(async () => { read = (await mcp(token, 'fetch', { id: d.id })).structuredContent; return read.metadata.suggestions?.length === 1; }, 15000);
+  if (!read.text.includes('We ship today.') || read.metadata.suggestions[0].change !== 'Add “ at noon”' || read.metadata.suggestions[0].by !== 'Olivia Owner') throw new Error(JSON.stringify(read));
+  const r = await mcp(token, 'resolve_suggestions', { file: d.id, accept: true });
+  if (r.isError || r.structuredContent.accepted !== 1 || r.structuredContent.still_pending !== 0) throw new Error(JSON.stringify(r));
+  await until(async () => !(await page.locator('.ProseMirror .sugg-ins').count()));
+  await page.locator('.ProseMirror').getByText('We ship today at noon.').waitFor();
+});
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
   const gus = await mk('gus');

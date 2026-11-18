@@ -235,6 +235,86 @@ export function replaceInJson(json, find, replace, { all = true, matchCase = tru
   return { json: visit(json), count };
 }
 
+// ---- pending suggestions (Docs' suggesting mode): listed, and accepted or rejected, as the editor does. A suggestion is
+// the text marked suggestDelete and/or suggestInsert with one id; accepting removes what's struck through and keeps what's
+// added (unmarked), rejecting the opposite. `pick(suggestion)` chooses which.
+const SUGG = ['suggestDelete', 'suggestInsert'];
+
+/** The suggestions in a stored document, in order: [{ id, by, name, at, deleted, inserted }]. */
+export function suggestionsInJson(json) {
+  const out = new Map();
+  const visit = (n) => {
+    if (n?.type === 'text') {
+      for (const m of n.marks || []) {
+        if (!SUGG.includes(m.type) || !m.attrs?.id) continue;
+        if (!out.has(m.attrs.id)) out.set(m.attrs.id, { id: m.attrs.id, by: m.attrs.by || null, name: m.attrs.name || '', at: m.attrs.at || 0, deleted: '', inserted: '' });
+        out.get(m.attrs.id)[m.type === 'suggestDelete' ? 'deleted' : 'inserted'] += n.text || '';
+      }
+    }
+    (n?.content || []).forEach(visit);
+  };
+  visit(json);
+  return [...out.values()];
+}
+
+/** Accept (or reject) the chosen suggestions in a stored document: { json, count } (count: suggestions resolved). */
+export function resolveSuggestionsInJson(json, pick, accept) {
+  const chosen = new Set(suggestionsInJson(json).filter(pick).map((x) => x.id));
+  if (!chosen.size) return { json, count: 0 };
+  const gone = accept ? 'suggestDelete' : 'suggestInsert';
+  const visit = (n) => {
+    if (!Array.isArray(n.content)) return n;
+    const content = [];
+    for (const k of n.content) {
+      if (k.type === 'text') {
+        const marks = k.marks || [];
+        if (marks.some((m) => m.type === gone && chosen.has(m.attrs?.id))) continue; // (this text goes)
+        const kept = marks.filter((m) => !(SUGG.includes(m.type) && chosen.has(m.attrs?.id)));
+        const node = { ...k };
+        if (kept.length) node.marks = kept; else delete node.marks;
+        const prev = content[content.length - 1];
+        if (prev?.type === 'text' && JSON.stringify(prev.marks || []) === JSON.stringify(node.marks || [])) { prev.text += node.text; continue; }
+        content.push(node);
+      } else content.push(visit(k));
+    }
+    return { ...n, content };
+  };
+  return { json: visit(json), count: chosen.size };
+}
+
+/** The suggestions in a live document. */
+export function suggestionsInYDoc(doc, field = 'default') { return suggestionsInJson(jsonFromDoc(doc, field)); }
+
+/** Accept (or reject) the chosen suggestions in a live document: { count }. */
+export function resolveSuggestionsInYDoc(doc, pick, accept, field = 'default') {
+  const chosen = new Set(suggestionsInYDoc(doc, field).filter(pick).map((x) => x.id));
+  if (!chosen.size) return { count: 0 };
+  const gone = accept ? 'suggestDelete' : 'suggestInsert';
+  const walk = (node) => {
+    for (const child of node.toArray()) {
+      if (child instanceof Y.XmlText) {
+        const runs = []; let pos = 0;
+        for (const d of child.toDelta()) {
+          const len = typeof d.insert === 'string' ? d.insert.length : 1;
+          const a = d.attributes || {};
+          // (attribute keys are the mark's name, or name--hash for one of several)
+          const mine = Object.keys(a).filter((k) => SUGG.includes(k.split('--')[0]) && chosen.has(a[k]?.id));
+          if (mine.length) runs.push({ at: pos, len, drop: mine.some((k) => k.split('--')[0] === gone), unmark: mine });
+          pos += len;
+        }
+        if (runs.length) doc.transact(() => {
+          for (const r of [...runs].reverse()) {
+            if (r.drop) child.delete(r.at, r.len);
+            else child.format(r.at, r.len, Object.fromEntries(r.unmark.map((t) => [t, null])));
+          }
+        });
+      } else if (child instanceof Y.XmlElement) walk(child);
+    }
+  };
+  walk(doc.getXmlFragment(field));
+  return { count: chosen.size };
+}
+
 // ---- spreadsheets: a list of sheets, each with cells, column widths, formats and charts as maps, so two
 // people changing different cells at once both keep their change (the same cell: the later wins).
 const SHEET_MAPS = ['cells', 'colWidths', 'rowHeights', 'formats', 'charts', 'notes', 'slicers', 'views']; // charts: id → { type, range, title, x, y, w, h }; notes: cell → text; rowHeights: row number → pixels; views: id → filter view

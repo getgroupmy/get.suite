@@ -15,7 +15,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 import { brokenProtections, mayEdit } from './sheetprotect.js';
@@ -249,6 +249,28 @@ export function replaceInDocument(fileId, find, replace, opts = {}, by = null) {
   const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc' AND trashed = 0").get(fileId);
   if (!f) return 0;
   const out = replaceInJson(JSON.parse(f.content || '{}'), find, replace, opts);
+  if (!out.count) return 0;
+  const json = JSON.stringify(out.json);
+  q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ?, updated_by = COALESCE(?, updated_by) WHERE id = ?').run(json, Buffer.byteLength(json), Date.now(), by, fileId);
+  indexSoon();
+  const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
+  sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
+  return out.count;
+}
+/** A document's pending suggestions, as anyone editing it sees them now. */
+export function suggestionsOf(fileId) {
+  const room = rooms.get(fileId);
+  if (room) return suggestionsInYDoc(room.doc, FIELD);
+  const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc'").get(fileId);
+  try { return f ? suggestionsInJson(JSON.parse(f.content || '{}')) : []; } catch { return []; }
+}
+/** Accept or reject the chosen suggestions, live for anyone editing: how many. */
+export function resolveSuggestions(fileId, pick, accept, by = null) {
+  const room = rooms.get(fileId);
+  if (room) { const { count } = resolveSuggestionsInYDoc(room.doc, pick, accept, FIELD); if (count) room.lastEditor = by || room.lastEditor; return count; }
+  const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc' AND trashed = 0").get(fileId);
+  if (!f) return 0;
+  const out = resolveSuggestionsInJson(JSON.parse(f.content || '{}'), pick, accept);
   if (!out.count) return 0;
   const json = JSON.stringify(out.json);
   q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ?, updated_by = COALESCE(?, updated_by) WHERE id = ?').run(json, Buffer.byteLength(json), Date.now(), by, fileId);

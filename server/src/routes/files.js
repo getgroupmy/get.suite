@@ -29,7 +29,7 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions } from '../collab.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
 import { deckFromOutline } from '../decktext.js';
@@ -1491,8 +1491,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     // (a spreadsheet: as a table of its values, formulas worked out, rather than its words for searching)
     let sheetJson = null;
     if (f.kind === 'sheet') { saveNow(f.id); try { sheetJson = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'); } catch { sheetJson = null; } }
-    const text = String((sheetJson ? await sheetReadingText(sheetJson) : await textOf(full)) || '');
-    res.json({ file: publicFile(f), text: text.slice(0, 200000), truncated: text.length > 200000 });
+    // (a document: as it stands, pending suggestions left out and listed apart, so "March" struck through and "April" added don't read "MarchApril")
+    let docJson = null;
+    if (f.kind === 'doc') { saveNow(f.id); try { docJson = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'); } catch { docJson = null; } }
+    const text = String((sheetJson ? await sheetReadingText(sheetJson) : docJson ? docText(withoutSuggestions(docJson)) : await textOf(full)) || '');
+    const suggestions = docJson ? suggestionsOf(f.id).map(({ id, name, at, deleted, inserted }) => ({ id, by: name, at, deleted, inserted })) : undefined;
+    res.json({ file: publicFile(f), text: text.slice(0, 200000), truncated: text.length > 200000, ...(suggestions?.length && { suggestions }) });
   });
   r.get('/:id/content', (req, res) => {
     const f = loadFile(req.params.id, req.user);
@@ -1614,6 +1618,24 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Find and replace in a document's text: { find, replace, all?, match_case? }, live for anyone editing it; the
   // version before goes to its history as for adding text. Suggestions and comments on the words stay as marks.
+  // Accept or reject pending suggestions: { accept: true|false, ids?: [...], from?: "a name" } (all of them when neither is given).
+  r.post('/:id/suggestions', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'doc') throw bad('Only documents have suggestions');
+    notLocked(f);
+    if (typeof req.body?.accept !== 'boolean') throw bad('Say whether to accept or reject (accept: true or false)');
+    const ids = Array.isArray(req.body?.ids) ? new Set(req.body.ids.map(String)) : null;
+    const from = req.body?.from ? String(req.body.from).trim().toLowerCase() : null;
+    const pick = (sg) => (!ids || ids.has(sg.id)) && (!from || sg.name.toLowerCase() === from);
+    saveNow(f.id);
+    const matching = suggestionsOf(f.id).filter(pick);
+    if (!matching.length) return res.json({ resolved: 0, left: suggestionsOf(f.id).length });
+    snapshot(f.id);
+    const count = resolveSuggestions(f.id, pick, req.body.accept, req.user.id);
+    if (count) recordActivity(f.id, req.user.id, 'edit');
+    res.json({ resolved: count, left: suggestionsOf(f.id).length });
+  });
+
   r.post('/:id/replace', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.kind !== 'doc') throw bad('Text can only be replaced in a document');

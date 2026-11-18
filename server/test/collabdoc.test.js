@@ -204,7 +204,7 @@ test('a comment’s words marked: across formatting runs, only the first place, 
   assert.equal(markQuoteInYDoc(doc, 'nowhere', 'c3'), false);
 });
 
-import { replaceInYDoc, replaceInJson } from '../src/collabdoc.js';
+import { replaceInYDoc, replaceInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc } from '../src/collabdoc.js';
 test('find and replace in a document: live (Yjs) and stored alike; formatting of the first letter kept; first only, any case, not across objects', () => {
   const doc = { type: 'doc', content: [
     { type: 'paragraph', content: [{ type: 'text', text: 'The Acme ' }, { type: 'text', text: 'Corp', marks: [{ type: 'bold' }] }, { type: 'text', text: ' plan.' }] },
@@ -255,4 +255,32 @@ test('replace as suggestions: the words struck through, the new ones after them,
   assert.equal(replaceInYDoc(y, 'March', 'April', { suggest: who }).count, 1);
   // A deletion suggested: just struck through.
   assert.deepEqual(shape(replaceInJson(doc, ', not March', '', { suggest: who }).json).map((r) => r[2]), ['', '', 'suggestDelete:Olivia Owner', '']);
+});
+
+test('suggestions listed, accepted and rejected: chosen ones, one person\'s, live and stored alike', () => {
+  const ana = { by: 'a', name: 'Ana', at: 1 }, ben = { by: 'b', name: 'Ben', at: 2 };
+  let doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ship in ' }, { type: 'text', text: 'March', marks: [{ type: 'bold' }] }, { type: 'text', text: ' to Paris now.' }] }] };
+  doc = replaceInJson(doc, 'March', 'April', { suggest: ana }).json;
+  doc = replaceInJson(doc, 'Paris', 'Lyon', { suggest: ben }).json;
+  doc = replaceInJson(doc, ' now', '', { suggest: ben }).json;
+  const text = (json) => json.content[0].content.map((n) => n.text).join('');
+  const list = suggestionsInJson(doc);
+  assert.deepEqual(list.map((x) => [x.name, x.deleted, x.inserted]), [['Ana', 'March', 'April'], ['Ben', 'Paris', 'Lyon'], ['Ben', ' now', '']]);
+  // Accept Ben's: Lyon in, " now" gone; Ana's still pending.
+  const a = resolveSuggestionsInJson(doc, (x) => x.name === 'Ben', true);
+  assert.equal(a.count, 2);
+  assert.equal(text(a.json), 'Ship in MarchApril to Lyon.');
+  assert.deepEqual(suggestionsInJson(a.json).map((x) => x.name), ['Ana']);
+  // Reject Ana's: March kept (bold), April gone, no marks left.
+  const b = resolveSuggestionsInJson(a.json, () => true, false);
+  assert.deepEqual(b.json.content[0].content, [{ type: 'text', text: 'Ship in ' }, { type: 'text', text: 'March', marks: [{ type: 'bold' }] }, { type: 'text', text: ' to Lyon.' }]);
+  assert.equal(resolveSuggestionsInJson(b.json, () => true, true).count, 0);
+  // Live: the same
+  const y = docFromJson(doc);
+  assert.deepEqual(suggestionsInYDoc(y).map((x) => x.id), list.map((x) => x.id));
+  assert.equal(resolveSuggestionsInYDoc(y, (x) => x.name === 'Ben', true).count, 2);
+  assert.equal(text(jsonFromDoc(y)), 'Ship in MarchApril to Lyon.');
+  assert.equal(resolveSuggestionsInYDoc(y, (x) => x.id === list[0].id, true).count, 1);
+  assert.deepEqual(jsonFromDoc(y).content[0].content.map((n) => [n.text, (n.marks || []).map((m) => m.type).join()]), [['Ship in ', ''], ['April', 'bold'], [' to Lyon.', '']]);
+  assert.deepEqual(suggestionsInYDoc(y), []);
 });

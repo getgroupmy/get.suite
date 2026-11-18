@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'comment_on_file', 'resolve_comment', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'comment_on_file', 'resolve_comment', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -954,6 +954,19 @@ test('change words in a document: everywhere or first only, any case; read-only 
   assert.deepEqual([r.structuredContent.suggested, r.structuredContent.replaced], [1, undefined]);
   const after = (await owner('GET', `/api/files/${doc.id}/content`)).body.content.content[0].content;
   assert.deepEqual(after.slice(-3).map((n) => [n.text, (n.marks || []).map((m) => `${m.type}${m.attrs?.name ? `:${m.attrs.name}` : ''}`).join()]), [['again', 'suggestDelete:Olivia Owner'], ['once more', 'suggestInsert:Olivia Owner'], ['.', '']]);
+  // Read: the text as it stands, the suggestion listed after it.
+  const read = (await call(ro, 'fetch', { id: `file:${doc.id}` })).structuredContent;
+  assert.match(read.text, /Between Beta Ltd and Beta Ltd again\./);
+  assert.doesNotMatch(read.text, /againonce more/);
+  assert.match(read.text, /Pending suggestions, not yet in the text[\s\S]*- Replace “again” with “once more” \(by Olivia Owner; s\w+\)/);
+  assert.deepEqual(read.metadata.suggestions.map((x) => [x.by, x.change]), [['Olivia Owner', 'Replace “again” with “once more”']]);
+  // Rejected by someone else's name: nothing; accepted: the change goes in.
+  assert.deepEqual((await call(rw, 'resolve_suggestions', { file: `file:${doc.id}`, accept: true, from: 'Kim Park' })).structuredContent.accepted, 0);
+  assert.equal((await call(ro, 'resolve_suggestions', { file: `file:${doc.id}`, accept: true })).isError, true);
+  const acc = (await call(rw, 'resolve_suggestions', { file: `file:${doc.id}`, accept: true, ids: [read.metadata.suggestions[0].id] })).structuredContent;
+  assert.deepEqual([acc.accepted, acc.still_pending], [1, 0]);
+  assert.match((await call(ro, 'fetch', { id: `file:${doc.id}` })).structuredContent.text, /Beta Ltd once more\./);
+  assert.match((await call(rw, 'resolve_suggestions', { file: `file:${doc.id}` })).content[0].text, /Say accept/);
 });
 
 test('add slides to a presentation: at the end or after a slide, in its theme; a read-only token can’t', async () => {
