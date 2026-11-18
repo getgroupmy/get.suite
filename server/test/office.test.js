@@ -566,16 +566,17 @@ test('PowerPoint: a chart from a spreadsheet on a slide becomes a real chart wit
   assert.match(xml, /Feb/);
 });
 
-test('Docs: a chart from Sheets is its title and a table of its figures in Word and Markdown', async () => {
+test('Docs: a chart from Sheets is its title and a table of its figures in Markdown, and a Word chart of them in Word', async () => {
   const { markdownFromDoc } = await import('../src/office/markdown.js');
   const data = JSON.stringify({ categories: ['Jan', 'Feb'], series: [{ name: 'Sales', values: [10, null] }, { name: 'Costs|net', values: [4, 6] }] });
   const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] }, { type: 'sheetChart', attrs: { fileId: 'f', chartId: 'c', title: 'Sales by month', chartType: 'line', data } }] };
   const md = markdownFromDoc(doc);
   assert.match(md, /\*\*Sales by month\*\*\n\n\|  \| Sales \| Costs\\\|net \|\n\| --- \| --- \| --- \|\n\| Jan \| 10 \| 4 \|\n\| Feb \|  \| 6 \|/);
   const buf = await wordFromDoc(doc, 'Report');
-  const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml').async('string');
-  for (const t of ['Sales by month', 'Sales', 'Jan', 'Feb', '10', '6']) assert.ok(xml.includes(`>${t}<`), t);
-  assert.match(xml, /<w:tbl>/);
+  const zip = await JSZip.loadAsync(buf);
+  assert.match(await zip.file('word/document.xml').async('string'), /<c:chart [^>]*r:id="rIdWsChart1"\/>/, 'a Word chart');
+  const chart = await zip.file('word/charts/chart1.xml').async('string');
+  for (const t of ['Sales by month', 'Sales', 'Costs|net', 'Jan', 'Feb', '10', '6']) assert.ok(chart.includes(`>${t}<`), t);
 });
 
 test('Docs with tabs: Word and Markdown downloads have every tab, each under its name from a new page', async () => {
@@ -2363,5 +2364,43 @@ test('Excel: dropdown choices with commas or quotes (or too many to write out) o
     const ods = await sheetFromOds(lo('s.xlsx', 'ods', 'b'));
     assert.deepEqual(ods.sheets.map((s) => s.name), ['Tasks']);
     assert.equal(show(ods), want, 'saved by LibreOffice as .ods');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Docs: a chart from a spreadsheet as a real Word chart (with a workbook of its figures), still linked when it comes back; through LibreOffice', async (t) => {
+  const data = { categories: ['Jan', 'Feb', 'Mar'], series: [{ name: 'North', values: [10, 12, 15] }, { name: 'South', values: [7, null, 11] }] };
+  const kinds = ['line', 'column', 'stackedBar', 'pie', 'area'];
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
+    ...kinds.map((k, i) => ({ type: 'sheetChart', attrs: { fileId: 'f123', chartId: `c${i}`, title: `Sales ${k}`, chartType: k, data: JSON.stringify(data), height: 300 } })),
+    { type: 'sheetChart', attrs: { title: 'No figures yet', data: '' } },
+    { type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
+  ] };
+  // (a pie draws its first series: that's what comes back)
+  const want = doc.content.map((n) => (n.type === 'sheetChart' ? (n.attrs.data ? JSON.stringify({ ...n.attrs, data: n.attrs.chartType === 'pie' ? { ...data, series: data.series.slice(0, 1) } : data }) : 'No figures yet') : n.content[0].text));
+  const show = (d) => d.content.filter((n) => n.type !== 'table').map((n) => (n.type === 'sheetChart' ? JSON.stringify({ ...n.attrs, data: JSON.parse(n.attrs.data) }) : n.content?.[0]?.text));
+  const buf = await wordFromDoc(doc, 'T');
+  const zip = await JSZip.loadAsync(buf);
+  assert.equal(zip.file(/^word\/charts\/chart\d+\.xml$/).length, 5, 'five charts; the one without figures stays its title');
+  assert.match(await zip.file('[Content_Types].xml').async('string'), /<Override PartName="\/word\/charts\/chart1\.xml" ContentType="application\/vnd\.openxmlformats-officedocument\.drawingml\.chart\+xml"\/>/);
+  assert.match(await zip.file('word/charts/chart1.xml').async('string'), /<c:lineChart>[\s\S]*<c:externalData r:id="rId1">/);
+  assert.match(await zip.file('word/charts/_rels/chart1.xml.rels').async('string'), /Target="\.\.\/embeddings\/Microsoft_Excel_Worksheet1\.xlsx"/);
+  const book = await sheetFromExcel(await zip.file('word/embeddings/Microsoft_Excel_Worksheet1.xlsx').async('nodebuffer'));
+  assert.deepEqual(book.sheets[0].cells, { B1: 'North', C1: 'South', A2: 'Jan', B2: '10', C2: '7', A3: 'Feb', B3: '12', A4: 'Mar', B4: '15', C4: '11' }, 'its workbook: the figures, for "Edit data"');
+  const xml = await zip.file('word/document.xml').async('string');
+  assert.match(xml, /<wp:docPr id="\d+" name="sheetchart:f123:c0" descr="Sales line"\/>/);
+  assert.doesNotMatch(xml, //, 'no placeholder left');
+  assert.deepEqual(show((await docFromWord(buf)).doc), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { docFromOdt } = await import('../src/office/odt.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.docx'), buf);
+    const charts = (d) => show(d).filter((s) => typeof s === 'string' && s.startsWith('{'));
+    assert.deepEqual(charts((await docFromWord(lo('d.docx', 'docx', 'a'))).doc), want.filter((s) => s.startsWith('{')), 'opened and saved by LibreOffice');
+    assert.deepEqual(charts((await docFromOdt(lo('d.docx', 'odt', 'b'))).doc), want.filter((s) => s.startsWith('{')), 'and saved by it as .odt');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

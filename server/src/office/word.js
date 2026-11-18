@@ -25,6 +25,7 @@ import {
 } from 'docx';
 import { Node, Mark, Extension } from '@tiptap/core';
 import { latexToOmml, ommlToLatex } from './omml.js';
+import { chartPlaceholder, withWordCharts, markWordCharts, chartFigureHtml } from './docxchart.js';
 import { pageMm, MARGINS, PAPER, DOC_FONTS, DOC_FONT_SIZES } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
@@ -287,6 +288,7 @@ export function unmarkWordHtml(html, commentId = null) {
     })
     .replace(re('MK/END'), '</span>')
     .replace(re('MKeq:([^END]*)END'), (m, enc) => { let l = ''; try { l = decodeURIComponent(enc); } catch { /* none */ } return l ? `<span data-math="" data-latex="${attr(l)}"></span>` : ''; })
+    .replace(re('(?:<p[^>]*>)?MKch:([^END]*)END(?:</p>)?'), (m, enc) => chartFigureHtml(enc)) // a chart
     .replace(re('MKcdEND'), '<code>').replace(re('MK/cdEND'), '</code>')
     .replace(re('<ol>((?:<li>)(?:<p>)?)MKls:(\\d+)END'), (m, open, n) => `<ol start="${n}">${open}`)
     .replace(re('MKls:\\d+END'), '')
@@ -336,7 +338,9 @@ async function withMarks(buffer) {
     const zip = await JSZip.loadAsync(buffer);
     const f = zip.file('word/document.xml');
     if (!f) return buffer;
-    zip.file('word/document.xml', markWordXml(await f.async('string'), { numbering: await zip.file('word/numbering.xml')?.async('string') }));
+    // Charts first (their parts are read from the file): markers carrying each chart.
+    const withChartMarks = await markWordCharts(await f.async('string'), zip, (t) => `${MK}${t}${MK_END}`);
+    zip.file('word/document.xml', markWordXml(withChartMarks, { numbering: await zip.file('word/numbering.xml')?.async('string') }));
     return await zip.generateAsync({ type: 'nodebuffer' });
   } catch { return buffer; }
 }
@@ -804,7 +808,11 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         paras.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun('References')] }));
         for (const s of sourcesOf(doc)) paras.push(new Paragraph({ indent: { left: 720, hanging: 720 }, children: reference(s).map((p) => new TextRun({ text: p.text, italics: !!p.italic })) }));
       }
-      else if (n.type === 'sheetChart') { // a chart from Sheets: its title and its figures
+      else if (n.type === 'sheetChart' && (() => { let d = n.attrs?.data; if (typeof d === 'string') { try { d = JSON.parse(d); } catch { d = null; } } return d?.series?.length; })()) {
+        // A chart from Sheets with figures: a placeholder, made a real Word chart (with a workbook of its figures) once written.
+        const a = n.attrs || {};
+        paras.push(new Paragraph({ children: [new TextRun(chartPlaceholder({ title: a.title || '', chartType: a.chartType || 'column', data: typeof a.data === 'string' ? JSON.parse(a.data) : a.data, fileId: a.fileId || null, chartId: a.chartId || null, height: a.height || 320 }))] }));
+      } else if (n.type === 'sheetChart') { // a chart from Sheets without figures: its title (and an empty table)
         const { title, rows } = chartTable(n.attrs);
         paras.push(new Paragraph({ children: [new TextRun({ text: title, bold: true })] }));
         if (rows.length) {
@@ -867,7 +875,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     },
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });
-  const buf = await withEquations(await Packer.toBuffer(file));
+  const buf = await withWordCharts(await withEquations(await Packer.toBuffer(file)));
   return page?.watermark ? withWatermark(buf, page.watermark) : buf;
 }
 

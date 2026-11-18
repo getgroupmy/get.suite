@@ -76,11 +76,11 @@ await step('a reader without the spreadsheet still sees the chart; downloads hav
   const md = await kim.evaluate(async (id) => (await fetch(`/api/files/${id}/export?format=md`)).text(), doc.id);
   if (!md.includes('**Sales by month**') || !md.includes('| Jan | 50 |')) throw new Error(md);
 }, kim);
-await step('the .odt download has a real chart; reopened, it is a chart still linked to the spreadsheet', async () => {
-  const up = await page.evaluate(async (id) => {
-    const bytes = await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer();
-    return (await fetch('/api/files/upload?name=Report.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
-  }, doc.id);
+for (const format of ['docx', 'odt']) await step(`the ${format === 'docx' ? 'Word' : '.odt'} download has a real chart; reopened, it is a chart still linked to the spreadsheet`, async () => {
+  const up = await page.evaluate(async ([id, f]) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
+    return (await fetch(`/api/files/upload?name=Report.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, [doc.id, format]);
   const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
   const node = ((await api(page, 'GET', `/files/${opened.id}/content`)).body.content.content || []).find((n) => n.type === 'sheetChart');
   if (!node || node.attrs.fileId !== sheet.id || node.attrs.title !== 'Sales by month' || JSON.parse(node.attrs.data).series[0].values.join() !== '50,100') throw new Error(JSON.stringify(node));
