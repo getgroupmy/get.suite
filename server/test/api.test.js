@@ -4974,9 +4974,11 @@ test('forms: editors, closing date and response limit', async () => {
   const f = (await own('POST', '/api/forms', { title: 'Offsite', questions: [{ id: 'q', type: 'short', title: 'Ideas' }] })).body;
   assert.equal((await ed('GET', `/api/forms/${f.id}`)).status, 404);
   assert.equal((await own('POST', `/api/forms/${f.id}/editors`, { email: 'nobody@acme.com' })).status, 400);
-  const eds = (await own('POST', `/api/forms/${f.id}/editors`, { email: 'FEB@acme.com' })).body;
+  const eds = (await own('POST', `/api/forms/${f.id}/editors`, { email: 'FEB@acme.com', message: 'Add the travel questions' })).body;
   assert.deepEqual(eds.map((u) => u.name), ['Eddie Editor']);
-  assert.ok((await ed('GET', '/api/notifications')).body.items.some((n) => /added you to the form “Offsite”/.test(n.title)));
+  const added = (await ed('GET', '/api/notifications')).body.items.find((n) => /added you to the form “Offsite”/.test(n.title));
+  assert.deepEqual([added?.body, typeof added?.actor], ['“Add the travel questions”', 'string']);
+  assert.ok(!/^[0-9a-f-]{36}$/.test(added.actor), 'a name, not an id');
   const seen = (await ed('GET', '/api/forms')).body.find((x) => x.id === f.id);
   assert.equal(seen.owner_name, 'Fay Owner', 'shown as shared');
   const got = (await ed('GET', `/api/forms/${f.id}`)).body;

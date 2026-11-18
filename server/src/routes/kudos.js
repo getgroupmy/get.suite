@@ -83,7 +83,7 @@ export default function kudosRoutes() {
     const channel = req.body?.channel_id ? channelChoice(req.body.channel_id, req.user) : null;
     const id = uid();
     q('INSERT INTO kudos (id, org_id, from_id, to_id, emoji, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.user.org_id, req.user.id, to.id, emoji, message, now());
-    notify([to.id], { kind: 'kudos', title: `${emoji} ${req.user.name} thanked you`, body: message, link: '/home', actor: req.user.id });
+    notify([to.id], { kind: 'kudos', title: `${emoji} ${req.user.name} thanked you`, body: message, link: '/home', actor: req.user.name });
     tell(req.user.org_id);
     if (channel) postToChannel(channel.id, req.user, `${emoji} Thanks, ${to.name}: ${message}`);
     res.status(201).json(shape(q(`${SELECT} WHERE k.id = ?`).get(id), req.user.id));
@@ -106,7 +106,7 @@ export default function kudosRoutes() {
     if (k.from_id !== req.user.id) {
       const to = q('SELECT name FROM users WHERE id = ?').get(k.to_id)?.name || 'someone';
       audit(req, 'kudos.remove', { org: k.org_id, target: `${to}: ${k.message.slice(0, 80)}`, details: { from: k.from_id, to: k.to_id } });
-      notify([k.from_id], { kind: 'kudos', title: `An admin removed your thanks to ${to}`, body: k.message, link: '/home', actor: req.user.id });
+      notify([k.from_id], { kind: 'kudos', title: `An admin removed your thanks to ${to}`, body: k.message, link: '/home', actor: req.user.name });
     }
     tell(k.org_id);
     res.json({ ok: true });

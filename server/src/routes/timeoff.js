@@ -400,7 +400,7 @@ export default function timeOffRoutes() {
       }
     });
     if (approvers.length) {
-      notify(approvers, { kind: 'timeoff', title: `${req.user.name} asks for time off`, body: `${KINDS[kind]}: ${span(row)} (${daysText(daysOf(row, hol))})${note ? ` · ${note}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.id });
+      notify(approvers, { kind: 'timeoff', title: `${req.user.name} asks for time off`, body: `${KINDS[kind]}: ${span(row)} (${daysText(daysOf(row, hol))})${note ? ` · ${note}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.name });
     }
     res.status(201).json(out(q('SELECT * FROM time_off WHERE id = ?').get(row.id)));
   });
@@ -417,7 +417,7 @@ export default function timeOffRoutes() {
       const ev = approve ? addEvent(t) : null;
       q('UPDATE time_off SET status = ?, decided_by = ?, decided_at = ?, answer = ?, event_id = ? WHERE id = ?').run(approve ? 'approved' : 'declined', req.user.id, Date.now(), answer, ev, t.id);
     });
-    notify([t.user_id], { kind: 'timeoff', title: `${req.user.name} ${approve ? 'approved' : 'declined'} your time off`, body: `${KINDS[t.kind]}: ${span(t)}${answer ? ` · ${answer}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.id });
+    notify([t.user_id], { kind: 'timeoff', title: `${req.user.name} ${approve ? 'approved' : 'declined'} your time off`, body: `${KINDS[t.kind]}: ${span(t)}${answer ? ` · ${answer}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.name });
     res.json(out(q('SELECT * FROM time_off WHERE id = ?').get(t.id)));
   });
 
@@ -431,7 +431,7 @@ export default function timeOffRoutes() {
       q("UPDATE time_off SET status = 'cancelled', event_id = NULL WHERE id = ?").run(t.id);
     });
     const tell = t.status === 'approved' && t.decided_by ? [t.decided_by] : t.status === 'pending' ? approversOf(t.user_id) : [];
-    notify(tell, { kind: 'timeoff', title: `${req.user.name} cancelled time off`, body: `${KINDS[t.kind]}: ${span(t)}`, link: '/calendar?timeoff=1', actor: req.user.id });
+    notify(tell, { kind: 'timeoff', title: `${req.user.name} cancelled time off`, body: `${KINDS[t.kind]}: ${span(t)}`, link: '/calendar?timeoff=1', actor: req.user.name });
     res.json(out(q('SELECT * FROM time_off WHERE id = ?').get(t.id)));
   });
   return r;

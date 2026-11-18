@@ -887,7 +887,8 @@ export default function formRoutes() {
     if (u.id === f.owner_id) throw bad('That is the owner');
     if (f.editors.length >= MAX_EDITORS) throw bad(`A form can have up to ${MAX_EDITORS} editors`);
     if (q('INSERT OR IGNORE INTO form_editors (form_id, user_id, added_at) VALUES (?, ?, ?)').run(f.id, u.id, now()).changes) {
-      bell([u.id], { kind: 'share', title: `${req.user.name} added you to the form “${f.title}”`, link: `/forms/${f.id}`, actor: req.user.id });
+      const note = req.body?.message ? String(req.body.message).trim().slice(0, 500) : ''; // a message with it, if written
+      bell([u.id], { kind: 'share', title: `${req.user.name} added you to the form “${f.title}”`, ...(note && { body: `“${note}”` }), link: `/forms/${f.id}`, actor: req.user.name });
       changed(f, req.user.id);
     }
     res.json(editorsOf(f.id));

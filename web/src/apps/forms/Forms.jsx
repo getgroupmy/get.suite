@@ -612,11 +612,12 @@ function closedNote(form) {
 function Editors({ form, setForm }) {
   const toast = useToast();
   const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
   const [people, setPeople] = useState([]);
   useEffect(() => { if (form.role === 'owner') get('/users/directory').then(setPeople).catch(() => {}); }, [form.role]);
   const add = async (e) => {
     e.preventDefault();
-    try { const editors = await post(`/forms/${form.id}/editors`, { email }); setForm((f) => ({ ...f, editors })); setEmail(''); } catch (err) { toast(err.message, 'error'); }
+    try { const editors = await post(`/forms/${form.id}/editors`, { email, ...(message.trim() && { message: message.trim() }) }); setForm((f) => ({ ...f, editors })); setEmail(''); setMessage(''); } catch (err) { toast(err.message, 'error'); }
   };
   const remove = async (u) => {
     try { const editors = await del(`/forms/${form.id}/editors/${u.id}`); setForm((f) => ({ ...f, editors })); } catch (err) { toast(err.message, 'error'); }
@@ -639,6 +640,10 @@ function Editors({ form, setForm }) {
           <datalist id="form-people">{people.filter((p) => !taken.has(p.id)).map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}</datalist>
           <button className="btn">Add</button>
         </form>
+      )}
+      {form.role === 'owner' && email.trim() && (
+        <input type="text" maxLength={500} aria-label="Message to them (optional)" placeholder="Message to them (optional)" value={message} onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') add(e); }} />
       )}
     </section>
   );

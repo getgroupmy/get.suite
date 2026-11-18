@@ -46,6 +46,7 @@ await step('colleague and a form', async () => {
 });
 await step('owner adds an editor', async () => {
   await page.getByLabel('Add an editor').fill('eddie@acme.com');
+  await page.getByLabel('Message to them (optional)').fill('Please add the dietary question');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('region', { name: 'People who can edit' }).getByText('Eddie Editor').waitFor();
 });
@@ -54,6 +55,7 @@ await step('editor sees it shared, with a bell', async () => {
   await ed.goto(`${B}/forms`);
   await ed.getByRole('list', { name: 'Your forms' }).getByText('Shared by Olivia Owner').waitFor();
   await ed.getByRole('button', { name: /Notifications, 1 new/ }).click();
+  await ed.getByText('“Please add the dietary question”').waitFor();
   await ed.getByText('Olivia Owner added you to the form “Offsite ideas”').click();
   await ed.waitForURL(/\/forms\//);
   await ed.getByLabel('Question 1 title').waitFor();
