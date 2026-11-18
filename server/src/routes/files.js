@@ -133,8 +133,8 @@ if (!q('PRAGMA table_info(access_requests)').all().some((c) => c.name === 'longe
 const canDo = (role) => (role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view');
 /** Shared with you: who shared it, and the message they sent with it ({} for its owner, or when nobody did). */
 const sharedWith = (f, userId) => {
-  const s = f.owner_id !== userId && q('SELECT s.shared_note, u.name AS shared_by_name FROM shares s LEFT JOIN users u ON u.id = s.shared_by WHERE s.file_id = ? AND s.user_id = ?').get(f.id, userId);
-  return { ...(s?.shared_by_name && { shared_by_name: s.shared_by_name }), ...(s?.shared_note && { shared_note: s.shared_note }) };
+  const s = f.owner_id !== userId && q('SELECT s.shared_note, s.shared_by, u.name AS shared_by_name FROM shares s LEFT JOIN users u ON u.id = s.shared_by WHERE s.file_id = ? AND s.user_id = ?').get(f.id, userId);
+  return { ...(s?.shared_by_name && { shared_by: s.shared_by, shared_by_name: s.shared_by_name }), ...(s?.shared_note && { shared_note: s.shared_note }) };
 };
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 /** A spreadsheet's open comment threads on cells, for its Excel download: [{ sheet, cell, author, at, text, replies }]. */

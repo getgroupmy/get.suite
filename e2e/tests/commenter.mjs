@@ -69,6 +69,12 @@ await step('Kim is told, with the message', async () => {
   await k.goto(`${B}/sheets/${sheet.id}`);
   const note = k.getByRole('note').filter({ hasText: 'Olivia Owner shared it with you: “Please look at the rent”' });
   await note.waitFor();
+  // Reply in Chat opens a direct message with Olivia.
+  await note.getByRole('button', { name: 'Reply in Chat' }).click();
+  await k.waitForURL(/\/chat\/[\w-]+$/);
+  await k.getByText('Olivia Owner').first().waitFor();
+  await k.goto(`${B}/sheets/${sheet.id}`);
+  await note.waitFor();
   await note.getByRole('button', { name: 'Close the message' }).click();
   await k.reload();
   await k.locator('.grid').waitFor();
