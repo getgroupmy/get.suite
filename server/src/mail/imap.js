@@ -13,6 +13,7 @@ const TLS = { rejectUnauthorized: process.env.MAIL_TLS_VERIFY === 'true' };
 const IDLE_MS = 5 * 60e3;
 export const IMAP_SETTINGS = { ...IMAP, secure: true, tls: TLS };
 
+const CONNECT_RETRIES = 3, CONNECT_RETRY_MS = Number(process.env.MAIL_CONNECT_RETRY_MS || 400);
 const pool = new Map(); // userId -> { client, lastUsed, ready }
 
 function unavailable(e) {
@@ -38,19 +39,29 @@ export async function imapFor(user) {
     if (entry.client.usable) return entry.client;
     if (pool.get(poolKey(user)) === entry) pool.delete(poolKey(user));
   }
-  const client = new ImapFlow({
-    host: IMAP.host, port: IMAP.port, secure: true, tls: TLS,
-    auth: { user: `${user.username}*webmail`, pass: webmailSecret() },
-    logger: false, emitLogs: false, disableAutoIdle: true,
-  });
-  client.on('error', () => {});
-  client.on('close', () => { if (pool.get(poolKey(user))?.client === client) pool.delete(poolKey(user)); });
-  const ready = client.connect();
-  const e = { client, lastUsed: Date.now(), ready };
+  const e = { client: null, lastUsed: Date.now(), ready: null };
+  e.ready = (async () => {
+    // While the mail server reloads its accounts (after any change to them) its sign-in service restarts
+    // and drops a connection mid-sign-in: try again a few times, briefly, before giving up.
+    for (let attempt = 0; ; attempt++) {
+      const client = new ImapFlow({
+        host: IMAP.host, port: IMAP.port, secure: true, tls: TLS,
+        auth: { user: `${user.username}*webmail`, pass: webmailSecret() },
+        logger: false, emitLogs: false, disableAutoIdle: true,
+      });
+      client.on('error', () => {});
+      client.on('close', () => { if (pool.get(poolKey(user))?.client === client) pool.delete(poolKey(user)); });
+      e.client = client;
+      try { await client.connect(); return; } catch (err) {
+        if (err?.authenticationFailed || attempt >= CONNECT_RETRIES) throw err;
+        await new Promise((r) => setTimeout(r, CONNECT_RETRY_MS * (attempt + 1)));
+      }
+    }
+  })();
   pool.set(poolKey(user), e);
-  try { await ready; } catch (err) { if (pool.get(poolKey(user)) === e) pool.delete(poolKey(user)); throw unavailable(err); }
+  try { await e.ready; } catch (err) { if (pool.get(poolKey(user)) === e) pool.delete(poolKey(user)); throw unavailable(err); }
   e.ready = null;
-  return client;
+  return e.client;
 }
 
 const OP_TIMEOUT_MS = Number(process.env.MAIL_OP_TIMEOUT_MS || 45000);

@@ -469,6 +469,10 @@ export const TOOLS = [
         to: { type: 'string', description: 'Addresses, separated by commas (for a reply: who it went to, unless given)' }, cc: { type: 'string' },
         subject: { type: 'string', description: 'For a reply: "Re: " and the original subject, unless given' }, body: { type: 'string', description: 'The message, as plain text' },
         reply_to: { type: 'string', description: 'The id (mail:…) of the email being replied to' }, reply_all: { type: 'boolean', description: 'With reply_to: reply to everyone on it, not only the sender' },
+        attach: {
+          type: 'array', maxItems: 20, description: 'Drive files to attach (file:… ids from search or list_files). A document, spreadsheet or presentation is attached as a copy in the format given (as: pdf, docx, odt, xlsx, ods, pptx, odp, csv…; PDF when left out); other files as they are.',
+          items: { anyOf: [{ type: 'string' }, { type: 'object', required: ['file'], properties: { file: { type: 'string' }, as: { type: 'string' } } }] },
+        },
       },
     },
     async run(api, a) {
@@ -495,8 +499,24 @@ export const TOOLS = [
         };
       } else if (!draft.to) throw new ToolError('Give who it’s to (to), or the email it replies to (reply_to)');
       if (!draft.subject && !a.reply_to) throw new ToolError('Give the subject');
+      // Drive files attached: a document, spreadsheet or presentation as a copy in the format asked (PDF by default).
+      const attached = [];
+      for (const item of (Array.isArray(a.attach) ? a.attach : []).slice(0, 20)) {
+        const ref = typeof item === 'string' ? item : item?.file;
+        const id = String(ref || '').replace(/^file:/, '');
+        if (!id) throw new ToolError('Each attachment is a Drive file’s id (file:…)');
+        const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+        if (['doc', 'sheet', 'slides'].includes(f.kind)) {
+          const as = String((typeof item === 'object' && item?.as) || 'pdf').toLowerCase().replace(/^\./, '');
+          const copy = await api('POST', `/files/${encodeURIComponent(id)}/export-copy`, { format: as });
+          if (!copy.name.toLowerCase().endsWith(`.${as}`)) throw new ToolError(`“${f.name}” can’t be attached as .${as}`);
+          attached.push({ id: copy.id, name: copy.name });
+        } else if (f.kind === 'file') attached.push({ id: f.id, name: f.name });
+        else throw new ToolError(`“${f.name}” is a folder: attach the files in it`);
+      }
+      if (attached.length) draft.attachments = attached.map((x) => x.id);
       const r = await api('POST', '/mail/drafts', draft);
-      return { saved: true, folder: r.folder || 'Drafts', to: draft.to, ...(draft.cc && { cc: draft.cc }), subject: draft.subject, note: 'Saved in Drafts, not sent: open it in Workspace Mail to check and send.', url: link('/mail/Drafts') };
+      return { saved: true, folder: r.folder || 'Drafts', to: draft.to, ...(draft.cc && { cc: draft.cc }), subject: draft.subject, ...(attached.length && { attached: attached.map((x) => x.name) }), note: 'Saved in Drafts, not sent: open it in Workspace Mail to check and send.', url: link('/mail/Drafts') };
     },
   },
   {

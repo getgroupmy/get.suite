@@ -73,6 +73,21 @@ await step('an AI assistant turns the auto-reply off and on again (MCP); Mail sh
   await page.getByText(/Your vacation reply is on/).waitFor();
   if ((await api(page, 'GET', '/mail/vacation')).body.body !== 'Away at the trade fair this week.') throw new Error('wording not saved');
 });
+await step('an assistant drafts an email with a document attached as PDF and a file as it is; the draft opens with both', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude mail', scope: 'write', days: 30 })).body.token;
+  const mcp = async (name, args) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json()).result;
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Q3 report', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Sales grew.' }] }] } })).body;
+  const up = await page.evaluate(async () => (await fetch('/api/files/upload?name=notes.txt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'Some notes' })).json());
+  const folder = (await api(page, 'POST', '/files/folder', { name: 'A folder' })).body;
+  const bad = await mcp('draft_email', { to: 'kim@acme.com', subject: 'x', body: 'x', attach: [`file:${folder.id}`] });
+  if (!bad.isError || !/is a folder/.test(bad.content[0].text)) throw new Error(JSON.stringify(bad));
+  const r = await mcp('draft_email', { to: 'kim@acme.com', subject: 'Q3 report', body: 'Here it is.', attach: [`file:${doc.id}`, { file: `file:${up.id}` }, { file: `file:${doc.id}`, as: 'docx' }] });
+  if (r.isError || r.structuredContent.attached.join('|') !== 'Q3 report.pdf|notes.txt|Q3 report.docx') throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/mail/Drafts`);
+  await page.locator('.mail-list').getByText('Q3 report', { exact: true }).first().click();
+  const d = page.getByRole('dialog').filter({ hasText: 'Here it is.' }).first();
+  for (const name of ['Q3 report.pdf', 'notes.txt', 'Q3 report.docx']) await d.getByText(name).first().waitFor({ timeout: 15000 });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
