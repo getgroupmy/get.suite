@@ -1787,7 +1787,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     try {
       if (type === 'docx') { const w = await docFromWord(buf, { savePicture }); content = w.doc; wordComments = w.comments || []; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
-      else if (type === 'odt') { content = (await docFromOdt(buf, { savePicture })).doc; layout = { ...layout, ...(await pageOfOdt(buf)) }; }
+      else if (type === 'odt') { const o = await docFromOdt(buf, { savePicture }); content = o.doc; wordComments = o.comments || []; layout = { ...layout, ...(await pageOfOdt(buf)) }; }
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') { content = await sheetFromExcel(buf); sheetThreads = commentsOfBook(content); }
       else if (type === 'ods') content = await sheetFromOds(buf);
@@ -1796,8 +1796,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'odt' ? 'an OpenDocument text file' : type === 'ods' ? 'an OpenDocument spreadsheet' : type === 'odp' ? 'an OpenDocument presentation' : type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
-    // A Word file's comments: threads on the same words, by whoever opened it, naming who wrote them in Word.
-    const signed = (c) => (c.author ? `${c.text}\n\n— ${c.author} (in the Word file)` : c.text);
+    // A Word or .odt file's comments: threads on the same words, by whoever opened it, naming who wrote them there.
+    const signed = (c) => (c.author ? `${c.text}\n\n— ${c.author} (in the ${type === 'odt' ? 'OpenDocument' : 'Word'} file)` : c.text);
     for (const c of wordComments) {
       q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, resolved, resolved_by, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)')
         .run(c.id, id, req.user.id, signed(c), JSON.stringify({ quote: c.quote || '' }), c.resolved ? 1 : 0, c.resolved ? req.user.id : null, c.at || now());
@@ -1852,7 +1852,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const numbered = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
     if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
-    if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null });
+    if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [] });
     if (type === 'ods') return odsFromSheet(content);
     if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name });
     if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });

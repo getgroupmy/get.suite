@@ -34,6 +34,7 @@ await step('setup', async () => {
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
+let docId;
 await step('a Word file\'s comments open as comment threads on their words', async () => {
   const b64 = (await import('node:fs')).readFileSync(`${ROOT}/e2e/fixtures/office/review.docx`).toString('base64');
   const up = await page.evaluate(async (data) => {
@@ -42,6 +43,7 @@ await step('a Word file\'s comments open as comment threads on their words', asy
     return r.json();
   }, b64);
   const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  docId = opened.body.id;
   await page.goto(`${B}/docs/${opened.body.id}`);
   const mark = page.locator('.ProseMirror [data-comment]');
   await mark.waitFor();
@@ -50,6 +52,26 @@ await step('a Word file\'s comments open as comment threads on their words', asy
   await page.getByText('Can we check this figure?').first().waitFor();
   await page.getByText('— Jane Smith (in the Word file)').first().waitFor();
   await page.screenshot({ path: `${SP}/shots/docx-comments.png` });
+});
+await step('the .odt download keeps the comment thread: reopened, it is on the same words, with who wrote it', async () => {
+  const root = (await api(page, 'GET', `/comments/${docId}`)).body.find((c) => !c.thread_id);
+  if ((await api(page, 'POST', `/comments/${docId}`, { body: 'Checked: it is 12.', thread_id: root.id })).status !== 201) throw new Error('reply');
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Review.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, docId);
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  await page.goto(`${B}/docs/${opened.body.id}`);
+  const mark = page.locator('.ProseMirror [data-comment]');
+  await mark.waitFor();
+  if ((await mark.innerText()) !== '12 percent') throw new Error(await mark.innerText());
+  await mark.click();
+  await page.getByText('Can we check this figure?').first().waitFor();
+  await page.getByText(/— Olivia Owner \(in the OpenDocument file\)/).first().waitFor();
+  await page.getByText('Checked: it is 12.').first().waitFor(); // the reply, as a reply
+  const threads = (await api(page, 'GET', `/comments/${opened.body.id}`)).body;
+  if (threads.filter((c) => !c.thread_id).length !== 1 || threads.filter((c) => c.thread_id).length !== 1) throw new Error(JSON.stringify(threads.map((c) => [c.thread_id, c.body])));
+  await page.screenshot({ path: `${SP}/shots/odt-comments.png` });
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();

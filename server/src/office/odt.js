@@ -75,8 +75,16 @@ export function normalText(page) {
   return `${font} fo:font-size="${size}pt"`;
 }
 
-export async function odtFromDoc(doc, title = 'Document', { pictureData, page = null } = {}) {
+export async function odtFromDoc(doc, title = 'Document', { pictureData, page = null, comments = [] } = {}) {
   doc = flattenTabs(doc);
+  // Comment threads: each an annotation where its words start (its replies after it, as LibreOffice writes them),
+  // ended where its words end. The text nodes carrying each thread's mark, first and last.
+  const threads = new Map((comments || []).map((c) => [c.id, c]));
+  const firstOf = new Map(), lastOf = new Map();
+  (function scan(n) { if (n.type === 'text') for (const m of n.marks || []) if (m.type === 'comment' && threads.has(m.attrs?.id)) { if (!firstOf.has(m.attrs.id)) firstOf.set(m.attrs.id, n); lastOf.set(m.attrs.id, n); } (n.content || []).forEach(scan); })(doc);
+  const annoName = (id) => `c${String(id).replace(/[^A-Za-z0-9_-]/g, '')}`;
+  const note = (c, attrs = '') => `<office:annotation${attrs}><dc:creator>${x(c.author || '')}</dc:creator><dc:date>${new Date(c.at || Date.now()).toISOString().slice(0, 19)}</dc:date>${String(c.text || '').split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</office:annotation>`;
+  const startOf = (id) => { const c = threads.get(id); return note(c, ` office:name="${annoName(id)}"`) + (c.replies || []).map((r, k) => note(r, ` office:name="${annoName(id)}r${k + 1}" loext:parent-name="${annoName(id)}"`)).join(''); };
   const textStyles = new Map(); // key → name
   const textStyle = (props) => {
     const key = JSON.stringify(props);
@@ -128,6 +136,8 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       if (Object.keys(props).length) run = `<text:span text:style-name="${textStyle(props)}">${run}</text:span>`;
       const href = marks.get('link')?.attrs?.href;
       if (href && !/^\s*javascript:/i.test(href)) run = `<text:a xlink:type="simple" xlink:href="${x(String(href).replace(/^#bm-([a-z0-9]{6,16})$/, '#bm_$1'))}">${run}</text:a>`; // (a link to a bookmark: to its name)
+      for (const [id, first] of firstOf) if (first === n) run = startOf(id) + run;
+      for (const [id, last] of lastOf) if (last === n) run += `<office:annotation-end office:name="${annoName(id)}"/>`;
       out += run;
     }
     return out;
@@ -270,7 +280,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   const auto = [...textStyles.values()].map((s) => `<style:style style:name="${s.name}" style:family="text"><style:text-properties ${textProps(s.props)}/></style:style>`).join('');
   const aligned = ['Standard', 'Quotations', 'Table_20_Contents', 'Table_20_Heading', ...[1, 2, 3, 4, 5, 6].map((l) => `Heading_20_${l}`)]
     .flatMap((base) => Object.values(ALIGNS).map((al) => `<style:style style:name="${base}_${al}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties fo:text-align="${al}"/></style:style>`)).join('');
-  const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.3"';
+  const NS = 'xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0" xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content ${NS}><office:font-face-decls><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-pitch="fixed"/></office:font-face-decls><office:automatic-styles>${auto}${aligned}${spacedStyles()}${cellStyles()}${tableStyles.join('')}
 <style:style style:name="PageBreak" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:break-before="page"/></style:style>
@@ -453,7 +463,12 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const inline = async (el) => {
     let out = '';
     for (const c of kids(el)) {
-      if (c.type === 'text') { out += h(c.data); continue; }
+      if (c.type === 'text') {
+        // (inside a comment's words: marked with its thread, the innermost one)
+        const open = openNotes.length && notes.get(openNotes[openNotes.length - 1]);
+        if (open) { open.quote += c.data; out += `<span data-comment="${open.id}">${h(c.data)}</span>`; } else out += h(c.data);
+        continue;
+      }
       if (c.type !== 'tag') continue;
       switch (c.name) {
         case 'text:s': out += '\u00a0'.repeat(Math.min(100, Number(c.attribs['text:c']) || 1)); break; // kept, not folded into one
@@ -472,7 +487,18 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
           break;
         }
         case 'text:bookmark': case 'text:bookmark-start': { const id = bookmarkId(c.attribs['text:name']); if (id) out += `<span data-bookmark="${id}"></span>`; break; }
-        case 'text:bookmark-end': case 'office:annotation': case 'office:annotation-end': case 'text:soft-page-break': break;
+        case 'office:annotation': { // a comment: its thread (a reply when it names its parent), its words from here
+          const parent = c.attribs['loext:parent-name'];
+          const body = kids(c).filter((k) => k.name === 'text:p' || k.name === 'text:list').map(textOf).join('\n').trim();
+          const info = { author: textOf(kids(c).find((k) => k.name === 'dc:creator') || { children: [] }).trim(), at: Date.parse(textOf(kids(c).find((k) => k.name === 'dc:date') || { children: [] }).trim()) || null, text: body };
+          if (parent && notes.has(parent)) { notes.get(parent).replies.push(info); break; }
+          const id = crypto.randomBytes(8).toString('hex');
+          notes.set(c.attribs['office:name'] || id, { id, ...info, quote: '', replies: [] });
+          if (c.attribs['office:name']) openNotes.push(c.attribs['office:name']);
+          break;
+        }
+        case 'office:annotation-end': { const i = openNotes.lastIndexOf(c.attribs['office:name']); if (i >= 0) openNotes.splice(i, 1); break; }
+        case 'text:bookmark-end': case 'text:soft-page-break': break;
         default: out += await inline(c); // fields, changes, ruby…: their text
       }
     }
@@ -501,6 +527,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     const hPx = hm ? Math.round(Number(hm[1]) * { cm: 96 / 2.54, mm: 96 / 25.4, in: 96, pt: 4 / 3 }[hm[2]]) : 320;
     return `<figure data-sheet-chart=""${link ? ` data-file="${h(link[1])}" data-chart="${h(link[2])}"` : ''} data-title="${h(ch.title)}" data-type="${h(ch.chartType)}" data-figures="${h(JSON.stringify(ch.data))}" data-height="${hPx}"></figure>`;
   };
+  const notes = new Map(), openNotes = []; // comments (by their name), and those whose words we're in
   const bookmarkId = (name) => { const n = String(name || ''); if (!n || /^_/.test(n)) return null; const ours = /^bm_([a-z0-9]{6,16})$/.exec(n); return ours ? ours[1] : `o${crypto.createHash('sha1').update(n).digest('hex').slice(0, 9)}`; };
   const bookmarkHref = (href) => { const m = /^#(.+)$/.exec(href); if (!m) return href; let name = m[1]; try { name = decodeURIComponent(name); } catch { /* as is */ } const id = bookmarkId(name.replace(/\|.*$/, '')); return id && bookmarkNames.has(name.replace(/\|.*$/, '')) ? `#bm-${id}` : href; };
   const bookmarkNames = new Set([...String(contentXml).matchAll(/<text:bookmark(?:-start)? text:name="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')));
@@ -599,5 +626,6 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const parts = html.split('<div data-page-break=""></div>');
   const docs = parts.map((p) => docFromHtml(p || '<p></p>'));
   const content = docs.flatMap((d, i) => [...(i ? [{ type: 'pageBreak' }] : []), ...(d.content || [])]);
-  return { doc: { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] } };
+  const comments = [...notes.values()].map((c) => ({ id: c.id, author: c.author, text: c.text, at: c.at, quote: c.quote.slice(0, 500), replies: c.replies }));
+  return { doc: { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }, comments };
 }

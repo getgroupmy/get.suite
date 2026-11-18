@@ -173,3 +173,41 @@ test('.odt: a chart from a spreadsheet as a chart object, still linked to its sp
     assert.deepEqual(show((await back(fs.readFileSync(path.join(dir, 'o', 'c.odt')))).doc), show(doc), 'opened and saved by LibreOffice: a chart there, linked again here');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('.odt: comment threads as annotations on their words (replies as LibreOffice writes them), both ways and through LibreOffice', async (t) => {
+  const { odtFromDoc: out, docFromOdt: back } = await import('../src/office/odt.js');
+  const T = (text, ids = []) => ({ type: 'text', text, ...(ids.length && { marks: ids.map((id) => ({ type: 'comment', attrs: { id } })) }) });
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [T('The '), T('budget for March', ['t1']), T(' is ready.')] },
+    { type: 'paragraph', content: [T('Second '), T('para', ['t2'])] },
+    { type: 'paragraph', content: [T('and on', ['t2']), T(' to the end.')] },
+  ] };
+  const comments = [
+    { id: 't1', author: 'Olivia Owner', at: Date.parse('2026-11-01T10:00:00Z'), text: 'Is this final?', replies: [{ author: 'Kim Park', at: Date.parse('2026-11-02T09:30:00Z'), text: 'Yes, signed off.' }] },
+    { id: 't2', author: 'Kim Park', at: Date.parse('2026-11-03T12:00:00Z'), text: 'Two lines\nof comment', replies: [] },
+    { id: 'gone', author: 'Nobody', text: 'Its words were deleted', replies: [] },
+  ];
+  const want = [
+    { author: 'Olivia Owner', text: 'Is this final?', at: '2026-11-01T10:00', quote: 'budget for March', replies: ['Kim Park: Yes, signed off.'] },
+    { author: 'Kim Park', text: 'Two lines\nof comment', at: '2026-11-03T12:00', quote: 'paraand on', replies: [] },
+  ];
+  const show = (r) => (r.comments || []).map((c) => ({ author: c.author, text: c.text, at: new Date(c.at).toISOString().slice(0, 16), quote: c.quote, replies: (c.replies || []).map((x) => `${x.author}: ${x.text}`) }));
+  const buf = await out(doc, 'T', { comments });
+  const xml = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  assert.match(xml, /<office:annotation office:name="ct1"><dc:creator>Olivia Owner<\/dc:creator><dc:date>2026-11-01T10:00:00<\/dc:date><text:p>Is this final\?<\/text:p><\/office:annotation><office:annotation office:name="ct1r1" loext:parent-name="ct1">/);
+  assert.match(xml, /budget for March<office:annotation-end office:name="ct1"\/>/);
+  assert.doesNotMatch(xml, /Its words were deleted/, 'a thread whose words are gone isn\'t placed');
+  const r = await back(buf);
+  assert.deepEqual(show(r), want);
+  const marked = r.doc.content.map((p) => p.content.filter((n) => n.marks?.some((m) => m.type === 'comment')).map((n) => n.text));
+  assert.deepEqual(marked, [['budget for March'], ['para'], ['and on']], 'the words marked, across paragraphs');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'c.odt'), buf);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'o'), path.join(dir, 'c.odt')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(show(await back(fs.readFileSync(path.join(dir, 'o', 'c.odt')))), want, 'opened and saved by LibreOffice');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
