@@ -3,7 +3,7 @@
 // strike, links (blue, underlined, and clickable), lists and checklists, quotes, code, tables, pictures (PNG and
 // JPEG), page breaks; footnotes at the end. Equations and chips as their text. The standard fonts hold Western
 // European letters and the usual punctuation; other characters show as "?".
-import { PDFDocument, StandardFonts, rgb, PDFName, PDFString } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PDFHexString } from 'pdf-lib';
 import { flattenTabs } from './doctabs.js';
 import { chipText, dateText } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
@@ -23,11 +23,13 @@ export async function pdfFromDoc(doc, title = 'Document', opts = {}) {
   return Buffer.from(await pdf.save());
 }
 
-async function layout(doc, title, { pictureData, setup = null } = {}, knownPages) {
+async function layout(doc, title, { pictureData, setup = null, author = '', lang = 'en' } = {}, knownPages) {
   doc = flattenTabs(doc);
   const pdf = await PDFDocument.create();
   pdf.setTitle(title);
   pdf.setCreator('Workspace');
+  if (author) pdf.setAuthor(author);
+  pdf.setLanguage(lang);
   // The document's font (Page setup): Times for the serif ones, Courier for Courier New, Helvetica otherwise.
   const fam = /times|georgia/i.test(setup?.font || '') ? ['TimesRoman', 'TimesRomanBold', 'TimesRomanItalic', 'TimesRomanBoldItalic']
     : /courier/i.test(setup?.font || '') ? ['Courier', 'CourierBold', 'CourierOblique', 'CourierBoldOblique']
@@ -209,7 +211,7 @@ async function layout(doc, title, { pictureData, setup = null } = {}, knownPages
       const lh = Number(n.attrs?.lineHeight), sb = Number(n.attrs?.spaceBefore), sa = Number(n.attrs?.spaceAfter), ind = Math.min(8, Math.max(0, Number(n.attrs?.indent) || 0)) * 36;
       const look = { ...(lh >= 0.5 && lh <= 4 && { lead: lh * 1.2 }), ...(sb >= 0 && sb <= 200 && n.attrs?.spaceBefore != null && { gapBefore: sb }), ...(sa >= 0 && sa <= 200 && n.attrs?.spaceAfter != null && { gapAfter: sa }) };
       if (n.type === 'paragraph') paragraph(runsOf(n.content), { x: x + ind, w: w - ind, align, size: BASE, ...look });
-      else if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); heads.push({ level: lv, text: runsOf(n.content).map((r) => r.text || '').join('').trim(), page: null, y: null }); const hd = heads[heads.length - 1]; need(HEAD[lv] * 1.25 + (lv <= 2 ? 10 : 6)); hd.page = pages.length - 1; hd.y = y; paragraph(runsOf(n.content, { bold: true }), { x: x + ind, w: w - ind, align, size: HEAD[lv], gapBefore: lv <= 2 ? 10 : 6, gapAfter: 6, lead: 1.25, ...look }); }
+      else if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); heads.push({ level: lv, text: (function words(l) { return (l || []).map((c) => (c.type === 'text' ? c.text || '' : words(c.content))).join(''); })(n.content).trim(), page: null, y: null }); const hd = heads[heads.length - 1]; need(HEAD[lv] * 1.25 + (lv <= 2 ? 10 : 6)); hd.page = pages.length - 1; hd.y = y; paragraph(runsOf(n.content, { bold: true }), { x: x + ind, w: w - ind, align, size: HEAD[lv], gapBefore: lv <= 2 ? 10 : 6, gapAfter: 6, lead: 1.25, ...look }); }
       else if (n.type === 'bulletList' || n.type === 'orderedList' || n.type === 'taskList') {
         for (const [k, li] of (n.content || []).entries()) {
           const mark = n.type === 'bulletList' ? '•' : n.type === 'taskList' ? (li.attrs?.checked ? '[x]' : '[ ]') : `${(n.attrs?.start || 1) + k}.`;
@@ -282,7 +284,7 @@ async function layout(doc, title, { pictureData, setup = null } = {}, knownPages
     const build = (node, parentRef) => {
       const refs = node.kids.map(() => pdf.context.nextRef());
       node.kids.forEach((kid, i) => {
-        const dict = { Title: PDFString.of(safe(kid.text).slice(0, 200)), Parent: parentRef, Dest: [pages[kid.page].ref, PDFName.of('XYZ'), left, kid.y, null] };
+        const dict = { Title: PDFHexString.fromText(kid.text.slice(0, 200)), Parent: parentRef, Dest: [pages[kid.page].ref, PDFName.of('XYZ'), left, kid.y, null] };
         if (i > 0) dict.Prev = refs[i - 1];
         if (i < refs.length - 1) dict.Next = refs[i + 1];
         const sub = build(kid, refs[i]);

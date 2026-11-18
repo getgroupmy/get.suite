@@ -1868,7 +1868,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
     if (type === 'html') return htmlFromDoc(numbered, f.name, { pictureData });
     if (type === 'rtf') return Buffer.from(rtfFromDoc(numbered), 'latin1');
-    if (type === 'pdf') return f.kind === 'slides' ? pdfFromDeck(content, f.name, { pictureData }) : pdfFromDoc(numbered, f.name, { pictureData, setup: setupOf(f) });
+    if (type === 'pdf') { const author = q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || ''; return f.kind === 'slides' ? pdfFromDeck(content, f.name, { pictureData, author }) : pdfFromDoc(numbered, f.name, { pictureData, setup: setupOf(f), author }); }
     if (type === 'txt') return Buffer.from(f.kind === 'slides' ? textFromDeck(content) : textFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
     if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [] });

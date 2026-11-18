@@ -3,17 +3,20 @@
 // line breaks and wrapping), shapes (rectangles, rounded ones, ellipses, triangles, diamonds, lines and arrows,
 // others as rectangles) with their text, pictures (PNG and JPEG), tables and charts (as their figures), and the
 // slide number when the deck shows numbers. Turned boxes are drawn straight. Characters the standard fonts lack: "?".
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString } from 'pdf-lib';
 import { themeOfDeck } from './powerpoint.js';
 import { chartTable } from './sheetchart.js';
 
 const W = 960, H = 540;
 const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return null; const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
 
-export async function pdfFromDeck(deck, title = 'Presentation', { pictureData } = {}) {
+export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, author = '', lang = 'en' } = {}) {
   const pdf = await PDFDocument.create();
   pdf.setTitle(title);
   pdf.setCreator('Workspace');
+  if (author) pdf.setAuthor(author);
+  pdf.setLanguage(lang);
+  const marks = []; // [{ title, page }]: the PDF's bookmarks, a slide each
   const F = { r: await pdf.embedFont(StandardFonts.Helvetica), b: await pdf.embedFont(StandardFonts.HelveticaBold), i: await pdf.embedFont(StandardFonts.HelveticaOblique), bi: await pdf.embedFont(StandardFonts.HelveticaBoldOblique) };
   const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { F.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join(''); // (line breaks kept)
   const theme = themeOfDeck(deck);
@@ -55,6 +58,8 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData } 
   const slides = (deck?.slides || []).map((s, i) => ({ s, i })).filter(({ s }) => !s.skip);
   for (const { s, i } of slides.length ? slides : [{ s: { items: [] }, i: 0 }]) {
     const page = pdf.addPage([W, H]);
+    const titleBox = (s.items || []).find((it) => it.type === 'text' && it.role === 'title' && String(it.text || '').trim()) || (s.items || []).find((it) => it.type === 'text' && String(it.text || '').trim());
+    marks.push({ title: `${i + 1}. ${String(titleBox?.text || '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Slide'}`, page }); // (bookmarks are Unicode: any characters)
     page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: col(s.bg, theme.bg) });
     const bgImg = await image(s.bgImage);
     if (bgImg) page.drawImage(bgImg, { x: 0, y: 0, width: W, height: H });
@@ -115,6 +120,14 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData } 
       }
     }
     if (deck?.numbers && !(deck.numbers === 'skip-first' && i === 0)) { const t = `${i + 1}`; page.drawText(t, { x: W - 30 - F.r.widthOfTextAtSize(t, 12), y: 16, size: 12, font: F.r, color: col('text', theme.text) }); }
+  }
+  // Bookmarks: a slide each, by its title.
+  if (marks.length) {
+    const outlines = pdf.context.nextRef();
+    const refs = marks.map(() => pdf.context.nextRef());
+    marks.forEach((m, k) => pdf.context.assign(refs[k], pdf.context.obj({ Title: PDFHexString.fromText(m.title), Parent: outlines, Dest: [m.page.ref, PDFName.of('Fit')], ...(k > 0 && { Prev: refs[k - 1] }), ...(k < refs.length - 1 && { Next: refs[k + 1] }) })));
+    pdf.context.assign(outlines, pdf.context.obj({ Type: 'Outlines', First: refs[0], Last: refs[refs.length - 1], Count: refs.length }));
+    pdf.catalog.set(PDFName.of('Outlines'), outlines);
   }
   return Buffer.from(await pdf.save());
 }

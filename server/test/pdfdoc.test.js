@@ -24,6 +24,7 @@ test('a document as a PDF: the page setup\'s paper and orientation, pages as the
   assert.equal(buf.subarray(0, 5).toString(), '%PDF-');
   const pdf = await PDFDocument.load(buf);
   assert.equal(pdf.getTitle(), 'Plan');
+  assert.equal(String(pdf.catalog.get(PDFName.of('Lang'))), '(en)');
   const pages = pdf.getPages();
   assert.ok(pages.length >= 3, `${pages.length} pages`);
   const round = ({ width, height }) => ({ width: Math.round(width), height: Math.round(height) });
@@ -79,14 +80,14 @@ test('the PDF has bookmarks from the headings, and the table of contents lists t
   const H = (l, t) => ({ type: 'heading', attrs: { level: l }, content: [T(t)] });
   const P = (t) => ({ type: 'paragraph', content: [T(t)] });
   const long = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore. '.repeat(6);
-  const d = { type: 'doc', content: [{ type: 'tableOfContents' }, H(1, 'Introduction'), P(long), H(2, 'Scope'), ...Array(8).fill(P(long)), H(1, 'Costs'), H(3, 'Deep'), H(2, 'Travel'), ...Array(8).fill(P(long)), H(1, 'Summary'), P('End.')] };
+  const d = { type: 'doc', content: [{ type: 'tableOfContents' }, H(1, 'Introduction'), P(long), H(2, 'Scope'), ...Array(8).fill(P(long)), H(1, 'Costs'), H(3, 'Deep'), H(2, 'Travel'), ...Array(8).fill(P(long)), H(1, 'Summary — 日本'), P('End.')] };
   const buf = await pdfFromDoc(d, 'Handbook');
   const pdf = await PDFDocument.load(buf);
   const titles = [];
   const pageOf = new Map(pdf.getPages().map((p, i) => [p.ref.toString(), i + 1]));
   const walk = (ref, depth) => { for (let r = ref; r;) { const n = pdf.context.lookup(r); titles.push(`${'-'.repeat(depth)}${n.lookup(PDFName.of('Title')).decodeText()}@${pageOf.get(n.lookup(PDFName.of('Dest')).get(0).toString())}`); const f = n.get(PDFName.of('First')); if (f) walk(f, depth + 1); r = n.get(PDFName.of('Next')); } };
   walk(pdf.catalog.lookup(PDFName.of('Outlines')).get(PDFName.of('First')), 0);
-  assert.deepEqual(titles.map((t) => t.replace(/@\d+$/, '')), ['Introduction', '-Scope', 'Costs', '-Deep', '-Travel', 'Summary'], 'nested by level (a level 3 under a level 1 goes under it)');
+  assert.deepEqual(titles.map((t) => t.replace(/@\d+$/, '')), ['Introduction', '-Scope', 'Costs', '-Deep', '-Travel', 'Summary — 日本'], 'nested by level (bookmarks keep any characters) (a level 3 under a level 1 goes under it)');
   assert.equal(String(pdf.catalog.get(PDFName.of('PageMode'))), '/UseOutlines');
   // The contents' links go where the bookmarks do; its page numbers are those pages.
   const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'));
@@ -95,5 +96,5 @@ test('the PDF has bookmarks from the headings, and the table of contents lists t
   const { execFileSync } = await import('node:child_process');
   let text;
   try { text = execFileSync('pdftotext', ['-layout', '-l', '1', '-', '-'], { input: buf }).toString(); } catch { return; }
-  titles.forEach((t) => { const [name, pg] = t.replace(/^-+/, '').split('@'); assert.match(text, new RegExp(`${name} \\.+ ${pg}\\n`), `${name} on page ${pg}`); });
+  titles.forEach((t) => { const [name, pg] = t.replace(/^-+/, '').split('@'); assert.match(text, new RegExp(`${name.replace(/[^\x00-\xff—]/g, '?').replace(/\?/g, '\\?')} \\.+ ${pg}\\n`), `${name} on page ${pg}`); }); // (drawn: what the fonts lack is ?)
 });

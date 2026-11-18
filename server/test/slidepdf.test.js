@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
 import { pdfFromDeck } from '../src/office/slidepdf.js';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -20,10 +20,15 @@ test('a presentation as a PDF: a 16:9 page a slide, skipped ones left out, its w
       { id: 'v', type: 'video', name: 'Demo.mp4', x: 80, y: 45, w: 15, h: 12 },
     ] },
   ] };
-  const buf = await pdfFromDeck(deck, 'Review', { pictureData: async (id) => (id === 'p' ? { data: PNG, mime: 'image/png' } : null) });
+  const buf = await pdfFromDeck(deck, 'Review', { author: 'Olivia Owner', pictureData: async (id) => (id === 'p' ? { data: PNG, mime: 'image/png' } : null) });
   const pdf = await PDFDocument.load(buf);
   assert.equal(pdf.getTitle(), 'Review');
+  assert.equal(pdf.getAuthor(), 'Olivia Owner');
   assert.equal(pdf.getPageCount(), 2, 'the skipped slide is left out');
+  // A bookmark a slide, by its title (or its first words), numbered as in the deck.
+  const marks = [];
+  for (let r = pdf.catalog.lookup(PDFName.of('Outlines')).get(PDFName.of('First')); r;) { const n = pdf.context.lookup(r); marks.push(n.lookup(PDFName.of('Title')).decodeText()); r = n.get(PDFName.of('Next')); }
+  assert.deepEqual(marks, ['1. Quarterly review', '3. • Hire two people • Open the shop 日本']);
   assert.deepEqual(pdf.getPages().map((p) => [p.getWidth(), p.getHeight()]), [[960, 540], [960, 540]]);
   assert.equal((await PDFDocument.load(await pdfFromDeck({ slides: [] }))).getPageCount(), 1, 'an empty deck: one blank page');
   const { execFileSync } = await import('node:child_process');

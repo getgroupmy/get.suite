@@ -80,6 +80,7 @@ await step('a presentation downloads as PDF: a page a slide, skipped ones left o
   const { PDFDocument } = (await import('module')).createRequire(`${ROOT}/server/package.json`)('pdf-lib');
   const pdf = await PDFDocument.load(buf);
   if (pdf.getPageCount() !== 2 || pdf.getPage(0).getWidth() !== 960) throw new Error(`${pdf.getPageCount()} pages, ${pdf.getPage(0).getWidth()} wide`);
+  if (pdf.getAuthor() !== 'Olivia Owner') throw new Error('author ' + pdf.getAuthor());
   let text = null;
   try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
   if (text !== null && (!text.includes('Launch plan') || !text.includes('Press') || text.includes('Not shown'))) throw new Error(text);
