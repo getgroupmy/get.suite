@@ -16,5 +16,5 @@ test('with previous / after previous: boxes share a click; each "after" waits fo
   assert.deepEqual(stepPresent(deck, { i: 0, b: 2 }, 1), { i: 1, b: 0 });
   assert.deepEqual(stepPresent(deck, { i: 1, b: 0 }, -1), { i: 0, b: 2 });
   // No animation clears when it starts too.
-  assert.deepEqual(animChange(slide, slide.items[2], ''), { anim: undefined, animAt: undefined, animStart: undefined });
+  assert.deepEqual(animChange(slide, slide.items[2], ''), { anim: undefined, animAt: undefined, animStart: undefined, animBy: undefined });
 });

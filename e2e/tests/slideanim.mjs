@@ -151,6 +151,34 @@ await step('Start: With previous puts a box on the same click as the one before'
   await page.keyboard.press('Escape');
   await p.waitFor({ state: 'detached' });
 });
+await step('By paragraph: a list comes in a line a click', async () => {
+  const content = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 'l', type: 'text', x: 5, y: 20, w: 60, h: 40, text: 'Plan\nHire\nBuild', anim: 'fade', animAt: 1 },
+  ] }, { id: 's2', items: [] }] };
+  const id = (await page.evaluate(async (c) => (await (await fetch('/api/files/new', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'slides', name: 'List', content: c }) })).json()), content)).id;
+  await page.goto(`${B}/slides/${id}`);
+  await page.locator('.slide-stage [aria-label^="Text: Plan"]').click();
+  await page.getByLabel('By paragraph').check();
+  await until(async () => (await page.evaluate(async (f) => (await (await fetch(`/api/files/${f}/content`)).json()).content.slides[0].items[0].animBy, id)) === 'para');
+  await page.getByRole('button', { name: 'Present' }).first().click();
+  const p = page.getByRole('dialog', { name: 'Presenting' });
+  const lines = async () => p.locator('.slide-para[data-para-built="yes"]').allInnerTexts();
+  await p.getByText('1 / 2').waitFor();
+  if ((await lines()).length) throw new Error('nothing in yet');
+  for (const want of ['Plan', 'Plan,Hire', 'Plan,Hire,Build']) {
+    await page.keyboard.press('ArrowRight');
+    await until(async () => (await lines()).join() === want);
+    await p.getByText('1 / 2').waitFor();
+  }
+  if (!(await p.getByText('Build').isVisible()) || !(await p.locator('.slide-para.anim-fade').count())) throw new Error('the last line fades in');
+  await page.keyboard.press('ArrowLeft');
+  await until(async () => (await lines()).join() === 'Plan,Hire');
+  if (!(await p.getByText('Build').isHidden())) throw new Error('back takes the last line away');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await p.getByText('2 / 2').waitFor();
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

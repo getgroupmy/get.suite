@@ -132,19 +132,22 @@ export function animationsOf(slideXml) {
   const timing = /<p:timing>[\s\S]*<\/p:timing>/.exec(String(slideXml))?.[0];
   if (!timing) return [];
   const out = [];
-  const re = /<p:cTn\b([^>]*\bpresetClass="(entr|exit)"[^>]*)>([\s\S]*?)<p:spTgt spid="(\d+)"/g;
+  const re = /<p:cTn\b([^>]*\bpresetClass="(entr|exit)"[^>]*)>([\s\S]*?)<p:spTgt spid="(\d+)"(>\s*<p:txEl>\s*<p:pRg st="\d+")?/g;
   for (let m; (m = re.exec(timing));) {
     const preset = Number(/presetID="(\d+)"/.exec(m[1])?.[1]);
     const anim = m[2] === 'exit' ? EXIT_PRESETS[preset] || 'fadeout' : PRESETS[preset] || 'fade';
     const node = /nodeType="(\w+)"/.exec(m[1])?.[1];
     const start = out.length && node === 'withEffect' ? 'with' : out.length && node === 'afterEffect' ? 'after' : null; // (with or after the one before)
-    if (!out.some((o) => o.spid === m[4])) out.push({ spid: m[4], anim, ...(start && { start }) });
+    const known = out.find((o) => o.spid === m[4]);
+    if (known) { if (m[5] && known.para) known.byPara = true; continue; } // (more of its paragraphs)
+    out.push({ spid: m[4], anim, ...(start && { start }), ...(m[5] && { para: true }) });
   }
-  return out.slice(0, 100);
+  return out.slice(0, 100).map(({ para, ...o }) => o); // (by paragraph: when more than one paragraph comes in)
 }
 let ctnId = 2;
 const ctn = () => ++ctnId;
-const tgt = (spid) => `<p:tgtEl><p:spTgt spid="${spid}"/></p:tgtEl>`;
+// ("5#2": shape 5's third paragraph)
+const tgt = (spid) => { const [id, para] = String(spid).split('#'); return `<p:tgtEl><p:spTgt spid="${id}"${para === undefined ? '/>' : `><p:txEl><p:pRg st="${para}" end="${para}"/></p:txEl></p:spTgt>`}</p:tgtEl>`; };
 const showIt = (spid) => `<p:set><p:cBhvr><p:cTn id="${ctn()}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>${tgt(spid)}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set>`;
 const hideIt = (spid, delay = 0) => `<p:set><p:cBhvr><p:cTn id="${ctn()}" dur="1" fill="hold"><p:stCondLst><p:cond delay="${delay}"/></p:stCondLst></p:cTn>${tgt(spid)}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="hidden"/></p:to></p:set>`;
 const EFFECT = {
@@ -179,7 +182,7 @@ export function timingXml(builds) {
     }).join('');
     return `<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>${inner}</p:childTnLst></p:cTn></p:par>`;
   }).join('');
-  const bld = builds.filter((b) => b.text).map((b) => `<p:bldP spid="${b.spid}" grpId="0" animBg="1"/>`).join('');
+  const bld = [...new Map(builds.filter((b) => b.text).map((b) => [String(b.spid).split('#')[0], b])).entries()].map(([spid, b]) => `<p:bldP spid="${spid}" grpId="0"${b.para !== undefined ? ' build="p"' : ' animBg="1"'}/>`).join('');
   return `<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst>${bld ? `<p:bldLst>${bld}</p:bldLst>` : ''}</p:timing>`;
 }
 
@@ -268,7 +271,15 @@ async function withShowSettings(buffer, deck, emitted = new Map()) {
       const xml = await zip.file(file)?.async('string');
       const shown = emitted.get(s) || [];
       const ids = [...String(xml || '').matchAll(/<p:cNvPr id="(\d+)" name="([^"]*)"/g)].filter((m) => m[1] !== '1' && !/Placeholder/.test(m[2])).map((m) => m[1]);
-      const builds = anims.map((it) => { const k = shown.indexOf(it); return k >= 0 && ids[k] ? { spid: ids[k], anim: it.anim, start: it.animStart || null, text: it.type === 'text' || !!it.text } : null; }).filter(Boolean);
+      const builds = anims.flatMap((it) => {
+        const k = shown.indexOf(it);
+        if (k < 0 || !ids[k]) return [];
+        const b = { spid: ids[k], anim: it.anim, start: it.animStart || null, text: it.type === 'text' || !!it.text };
+        // By paragraph: an effect for each line with words, each on a click of its own after the first.
+        const lines = String(it.text || '').split('\n');
+        if (it.animBy !== 'para' || it.type !== 'text' || /^(disappear|fadeout)$/.test(it.anim) || lines.filter((l) => l.trim()).length < 2) return [b];
+        return lines.map((l, p) => (l.trim() ? p : -1)).filter((p) => p >= 0).map((p, n) => ({ ...b, spid: `${ids[k]}#${p}`, para: p, start: n ? null : b.start }));
+      });
       if (xml && builds.length) {
         const timing = timingXml(builds);
         zip.file(file, /<p:extLst>(?![\s\S]*<p:cSld)/.test(xml.split('</p:cSld>')[1] || '') ? xml.replace(/(<\/p:cSld>[\s\S]*?)(<p:extLst>)/, `$1${timing}$2`) : xml.replace('</p:sld>', `${timing}</p:sld>`));
@@ -526,7 +537,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const effects = animationsOf(await zip.file(file)?.async('string') || '');
     effects.forEach((e, k) => {
       const item = items.find((it) => spidOf.get(it) === e.spid && !it.anim);
-      if (item) Object.assign(item, { anim: e.anim, animAt: k + 1, ...(e.start && { animStart: e.start }) });
+      if (item) Object.assign(item, { anim: e.anim, animAt: k + 1, ...(e.start && { animStart: e.start }), ...(e.byPara && item.type === 'text' && { animBy: 'para' }) });
     });
     const bgEl = deep(xml, P, 'bg')[0];
     let bg = colorIn(bgEl);

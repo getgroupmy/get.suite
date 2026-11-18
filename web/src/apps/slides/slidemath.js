@@ -226,15 +226,24 @@ export function buildSteps(slide) {
   let step = 0, after = 0;
   for (const it of builds(slide)) {
     if (!it.animStart || step === 0) { step++; after = 0; } else if (it.animStart === 'after') after++;
-    out.set(it.id, { step, delay: after * 0.5 });
+    const b = { step, delay: after * 0.5 };
+    if (byParagraph(it)) {
+      // Each line with words on a click of its own (blank lines go with the line before them).
+      const lines = String(it.text || '').split('\n');
+      let first = true;
+      b.paras = lines.map((l) => { if (l.trim() && !first) { step++; after = 0; } if (l.trim()) first = false; return step; });
+    }
+    out.set(it.id, b);
   }
   return out;
 }
+/** Does a box come in a paragraph (line) a click? Text boxes with an entrance animation and more than one line. */
+export const byParagraph = (it) => it.animBy === 'para' && it.type === 'text' && !!it.anim && !isExit(it.anim) && String(it.text || '').split('\n').filter((l) => l.trim()).length > 1;
 /** How many clicks the slide's animations take. */
-export const stepCount = (slide) => Math.max(0, ...[...buildSteps(slide).values()].map((s) => s.step));
+export const stepCount = (slide) => Math.max(0, ...[...buildSteps(slide).values()].flatMap((s) => [s.step, ...(s.paras || [])]));
 /** A box's animation change: a new one goes last in the order; none takes it out. */
 export function animChange(slide, item, anim) {
-  if (!anim) return { anim: undefined, animAt: undefined, animStart: undefined };
+  if (!anim) return { anim: undefined, animAt: undefined, animStart: undefined, animBy: undefined };
   if (item.anim) return { anim }; // a different effect keeps its place
   return { anim, animAt: Math.max(0, ...builds(slide).map((it) => it.animAt || 0)) + 1 };
 }

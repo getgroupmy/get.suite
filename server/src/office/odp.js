@@ -197,8 +197,21 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
       const at = pc.start + m.index + m[0].length, add = ` xml:id="${pc.animId}" draw:id="${pc.animId}"`;
       items = items.slice(0, at) + add + items.slice(at);
       for (const q of pieces) { if (q.start >= at) q.start += add.length; if (q.end >= at) q.end += add.length; }
+      // By paragraph: an id on each paragraph with words instead (Impress points at those), last first.
+      const lines = String(pc.it.text || '').split('\n');
+      if (pc.it.animBy === 'para' && pc.it.type === 'text' && !/^(disappear|fadeout)$/.test(pc.it.anim) && lines.filter((l) => l.trim()).length > 1) {
+        const ps = [...items.slice(pc.start, pc.end).matchAll(/<text:p\b/g)].map((pm) => pc.start + pm.index + pm[0].length);
+        pc.paraIds = [];
+        for (let k = Math.min(ps.length, lines.length) - 1; k >= 0; k--) {
+          if (!lines[k].trim()) continue;
+          const pid = `${pc.animId}p${k}`, padd = ` xml:id="${pid}" text:id="${pid}"`;
+          pc.paraIds.unshift(pid);
+          items = items.slice(0, ps[k]) + padd + items.slice(ps[k]);
+          for (const q of pieces) { if (q.start >= ps[k]) q.start += padd.length; if (q.end >= ps[k]) q.end += padd.length; }
+        }
+      }
     }
-    items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).map((pc) => ({ id: pc.animId, anim: pc.it.anim, start: pc.it.animStart || null })));
+    items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).flatMap((pc) => (pc.paraIds?.length ? pc.paraIds : [pc.animId]).map((id, n) => ({ id, anim: pc.it.anim, start: n ? null : pc.it.animStart || null }))));
     const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:class="notes" presentation:placeholder="false" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
     pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}</draw:page>`;
   }
@@ -317,12 +330,16 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     else if (fillOf(d)) slide.bg = fillOf(d);
     if (d['presentation:visibility'] === 'hidden') slide.skip = true;
     const byAnimId = new Map(); // a drawing element's id → the box it became (for animations)
+    const byParaId = new Map(); // a paragraph's id → the box it is in (animations a paragraph at a time)
     const walk = async (nodes, link) => {
       for (const el of nodes) {
         const before = slide.items.length;
         await one(el, link);
         const eid = el.attribs?.['xml:id'] || el.attribs?.['draw:id'];
-        if (eid && slide.items.length > before) byAnimId.set(eid, slide.items[before]);
+        if (slide.items.length > before) {
+          if (eid) byAnimId.set(eid, slide.items[before]);
+          (function paraIds(n) { for (const k of tags(n)) { const pid = k.name === 'text:p' && (k.attribs['xml:id'] || k.attribs['text:id']); if (pid) byParaId.set(pid, slide.items[before]); paraIds(k); } })(el);
+        }
       }
     };
     const one = async (el, link) => {
@@ -382,7 +399,14 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     // Its animations, on the boxes they point at, in click order.
     const timing = tags(page).find((k) => k.name === 'anim:par' && k.attribs['presentation:node-type'] === 'timing-root');
     let k = 0;
-    if (timing) for (const a of odpAnimationsOf(timing, tags)) { const it = byAnimId.get(a.target); if (it && !it.anim) Object.assign(it, { anim: a.anim, animAt: ++k, ...(a.start && { animStart: a.start }) }); }
+    if (timing) {
+      for (const a of odpAnimationsOf(timing, tags)) {
+        const it = byAnimId.get(a.target) || byParaId.get(a.target);
+        if (!it) continue;
+        if (it.anim) { if (byParaId.get(a.target) === it && it.type === 'text') it.animBy = 'para'; continue; } // (its next paragraph)
+        Object.assign(it, { anim: a.anim, animAt: ++k, ...(a.start && { animStart: a.start }) });
+      }
+    }
     const notes = tags(page, 'presentation:notes')[0];
     const nf = notes && (tags(notes, 'draw:frame').find((f) => f.attribs['presentation:class'] === 'notes') || tags(notes, 'draw:frame').find((f) => tags(f, 'draw:text-box').length));
     const nt = nf ? paraText(tags(nf, 'draw:text-box')[0] || nf).trim() : '';

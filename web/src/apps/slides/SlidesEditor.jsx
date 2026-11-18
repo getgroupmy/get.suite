@@ -461,6 +461,11 @@ export default function SlidesEditor() {
               {ANIM_STARTS.map(([v, n]) => <option key={v} value={v}>{`Start: ${n}`}</option>)}
             </select>
           )}
+          {item?.anim && item.type === 'text' && !isExit(item.anim) && String(item.text || '').includes('\n') && (
+            <label className="tb labelled" title="Bring the text in a paragraph (line) at a time, one a click">
+              <input type="checkbox" checked={item.animBy === 'para'} onChange={(e) => setItem({ animBy: e.target.checked ? 'para' : undefined })} /> By paragraph
+            </label>
+          )}
           {item?.type === 'audio' && (
             <label className="tb labelled" title="Start the sound by itself when this slide shows while presenting (it stops when the slide changes)">
               <input type="checkbox" checked={!!item.autoplay} onChange={(e) => setItem({ autoplay: e.target.checked || undefined })} /> Play by itself
@@ -877,7 +882,14 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
                 onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.currentTarget.blur(); } }}
                 onChange={(e) => onChange(it.id, { text: e.target.value })} /* saved as you type */
                 onBlur={() => onEdit(null)} />
-            : <div className={`slide-text ${!it.text ? 'slide-placeholder' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
+            : built !== undefined && steps.get(it.id)?.paras
+              ? ( // presenting, a line a click: those not in yet keep their place
+                <div className="slide-text" style={style}>{String(it.text).split('\n').map((l, k) => {
+                  const at = steps.get(it.id).paras[k];
+                  return <div key={k} className={`slide-para ${at === built ? `anim-${it.anim}` : ''}`} data-para-built={at <= built ? 'yes' : 'no'}
+                    style={{ ...(at > built && { visibility: 'hidden' }), ...(at === built && k === steps.get(it.id).paras.indexOf(at) && steps.get(it.id).delay && at === steps.get(it.id).step && { animationDelay: `${steps.get(it.id).delay}s` }) }}>{l || '\u00a0'}</div>;
+                })}</div>)
+              : <div className={`slide-text ${!it.text ? 'slide-placeholder' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
         } else if (it.type === 'image') {
           // Through the deck (works for everyone who can open it, once saved); just after inserting,
           // before the save, the person who added it opens the picture file directly.
@@ -936,7 +948,8 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
             })();
         }
         const at = buildAt.get(it.id);
-        const { shown: buildShown, moving: arriving } = buildState(it.anim, at, built);
+        const { shown: buildShown, moving: itemMoving } = buildState(it.anim, at, built);
+        const arriving = steps.get(it.id)?.paras ? '' : itemMoving;
         const notYet = !buildShown;
         return (
           <div key={it.id} className={`slide-item ${it.type} ${isSel || inGroup ? 'sel' : ''} ${inGroup ? 'in-group' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (at <= built ? 'yes' : 'no') : undefined}
