@@ -52,6 +52,7 @@ import { externalRoutes, askOutside, outsideRecipients, incomingWarning, replyTo
 import { mailStorage } from '../mail/storage.js';
 import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
+import { buildReaction, cleanEmoji, splitReaction, reactionOf, QUICK_REACTIONS } from '../mail/reaction.js';
 import { importanceOf, highImportanceHeaders } from '../mail/importance.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
@@ -71,6 +72,14 @@ import { syncAwayEvent } from '../mail/vacation.js';
 import { pdfFromEmail } from '../mail/emailpdf.js';
 
 // Saved searches (Mail sidebar → Searches).
+// Emoji reactions you sent (to show them on the message; the reaction email itself isn't kept in Sent).
+q(`CREATE TABLE IF NOT EXISTS mail_reactions (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, message_id, emoji)
+)`).run();
 q(`CREATE TABLE IF NOT EXISTS mail_searches (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL, folder TEXT NOT NULL, query TEXT NOT NULL, position REAL NOT NULL, created_at INTEGER NOT NULL
@@ -1133,8 +1142,30 @@ export default function webmailRoutes() {
       const msg = await client.fetchOne(String(uid), { source: true, flags: true }, { uid: true });
       if (!msg) throw notFound('Message not found');
       if (markSeen && !msg.flags.has('\\Seen')) await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
-      return { parsed: await simpleParser(msg.source, parseOptions), flags: msg.flags };
+      const parsed = await simpleParser(msg.source, parseOptions);
+      parsed.reaction = splitReaction(parsed); // an emoji reaction's part isn't an attachment
+      return { parsed, flags: msg.flags };
     });
+  }
+
+  // Reactions others sent to a message (by its Message-ID): small replies to it in these folders
+  // carrying a reaction part, oldest first, one per person and emoji.
+  async function reactionsTo(user, messageId, folders) {
+    const found = [];
+    for (const f of [...new Set(folders)]) {
+      await withFolder(user, f, async (client) => {
+        const uids = ((await client.search({ header: { 'in-reply-to': messageId } }, { uid: true })) || []).slice(-50);
+        if (!uids.length) return;
+        for await (const m of client.fetch(uids.join(','), { uid: true, size: true, source: true }, { uid: true })) {
+          if (m.size > 64 * 1024) continue; // a reaction is small; a real reply isn't looked into
+          const p = await simpleParser(m.source);
+          const r = reactionOf(p);
+          if (r && r.to === messageId) found.push({ emoji: r.emoji, from: addrList(p.from)[0] || null, at: p.date?.valueOf() ?? null });
+        }
+      }).catch(() => {});
+    }
+    const seen = new Set();
+    return found.sort((a, b) => (a.at || 0) - (b.at || 0)).filter((x) => { const k = `${x.from?.address}|${x.emoji}`; return !seen.has(k) && seen.add(k); });
   }
 
   // Was a message I sent delivered? From the mail server's log, by its Message-ID (only mail sent from
@@ -1211,6 +1242,13 @@ export default function webmailRoutes() {
       // Replies would go to another site than the email came from (Reply-To), unless it's a mailing list.
       reply_elsewhere: replyToWarning(req.user, addrList(p.from)[0], addrList(p.replyTo), { list: p.headers.has('list') }),
       attachments: await attachmentList(p),
+      // This email is itself an emoji reaction (RFC 9078) to the message with that Message-ID.
+      reaction: p.reaction || null,
+      // Reactions to it: others' (replies carrying one) and your own.
+      reactions: !p.messageId || p.reaction ? [] : [
+        ...await reactionsTo(req.user, p.messageId, ['INBOX', folder]),
+        ...q('SELECT emoji, at FROM mail_reactions WHERE user_id = ? AND message_id = ? ORDER BY at').all(req.user.id, p.messageId).map((x) => ({ emoji: x.emoji, mine: true, at: x.at })),
+      ],
       invite: inviteFor(req.user, p),
       // Marked high (or low) importance by its sender.
       importance: importanceOf(p.headerLines?.map((l) => l.line).join('\n')),
@@ -1276,6 +1314,28 @@ export default function webmailRoutes() {
     }
     await withFolder(req.user, folder, (c) => c.messageFlagsAdd(String(uid), ['$MDNSent'], { uid: true }));
     res.json({ sent: !!req.body.send });
+  });
+
+  // React to a message with an emoji (RFC 9078): a short reply to its sender (Reply-To, else From).
+  // { folder, emoji } → { reactions: the message's reactions now }.
+  r.get('/reactions/quick', (req, res) => res.json({ emoji: QUICK_REACTIONS }));
+  r.post('/messages/:uid/react', async (req, res) => {
+    const folder = String(req.body?.folder || 'INBOX');
+    const emoji = cleanEmoji(req.body?.emoji);
+    if (!emoji) throw bad('Choose one emoji');
+    const { parsed: p } = await loadMessage(req.user, folder, Number(req.params.uid), false);
+    if (!p.messageId) throw bad('This email can’t be reacted to (it has no Message-ID)');
+    if (p.reaction) throw bad('That’s a reaction already');
+    const mine = new Set(identities(req.user).map((i) => i.address.toLowerCase()));
+    const to = (addrList(p.replyTo).length ? addrList(p.replyTo) : addrList(p.from)).filter((a) => a.address && !mine.has(a.address.toLowerCase()));
+    if (!to.length) throw bad('This email is from you: there’s no one to react to');
+    if (q('SELECT 1 FROM mail_reactions WHERE user_id = ? AND message_id = ? AND emoji = ?').get(req.user.id, p.messageId, emoji)) throw bad(`You reacted ${emoji} already`);
+    if (q('SELECT COUNT(*) AS n FROM mail_reactions WHERE user_id = ? AND message_id = ?').get(req.user.id, p.messageId).n >= 20) throw bad('That’s enough reactions to one email');
+    const raw = buildReaction(p, { from: { name: req.user.name, address: req.user.username }, to, emoji, host: MAIL_HOSTNAME || 'localhost' });
+    try { await smtpFor(req.user).sendMail({ envelope: { from: req.user.username, to: to.map((a) => a.address) }, raw }); }
+    catch (e) { throw new HttpError(e.responseCode && e.responseCode < 500 ? 503 : 400, `Sending the reaction failed: ${e.response || e.message}`); }
+    q('INSERT INTO mail_reactions (user_id, message_id, emoji, at) VALUES (?, ?, ?, ?)').run(req.user.id, p.messageId, emoji, Date.now());
+    res.json({ reactions: q('SELECT emoji, at FROM mail_reactions WHERE user_id = ? AND message_id = ? ORDER BY at').all(req.user.id, p.messageId).map((x) => ({ emoji: x.emoji, mine: true, at: x.at })) });
   });
 
   // The rest of a message's conversation: messages with the same subject (without Re:/Fwd:) that share

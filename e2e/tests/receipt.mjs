@@ -91,6 +91,30 @@ await step('the recipient is asked, and sends it', async () => {
 await step('the sender gets the receipt', async () => {
   await refreshUntil(page, inboxRow('Read: Contract signed?'));
 });
+await step('the recipient reacts 🎉: it shows on the email as theirs', async () => {
+  const reactions = kim.getByRole('group', { name: 'Reactions' });
+  await reactions.getByRole('button', { name: /React/ }).click();
+  await kim.getByRole('group', { name: 'Choose a reaction' }).getByRole('button', { name: 'React 🎉' }).click();
+  await kim.getByText(/^Reacted 🎉/).waitFor({ timeout: 20000 });
+  await reactions.locator('.reaction.mine', { hasText: '🎉' }).waitFor();
+  await kim.screenshot({ path: `${SP}/shots/mail-react.png` });
+  await kim.reload(); // kept
+  await kim.getByRole('group', { name: 'Reactions' }).locator('.reaction.mine', { hasText: '🎉' }).waitFor();
+}, kim);
+await step('the sender gets it as a reaction, and sees it on their sent email', async () => {
+  const row = inboxRow('Re: Contract signed?');
+  await refreshUntil(page, row);
+  await row.click();
+  const note = page.getByRole('note').filter({ hasText: 'Kim Park reacted 🎉 to your email.' });
+  await note.waitFor();
+  if (await page.locator('.reader').getByText(/^Attachments|reaction\.txt/).count()) throw new Error('shown as an attachment');
+  await page.screenshot({ path: `${SP}/shots/mail-reaction-got.png` });
+  await note.getByRole('link', { name: 'Open that email' }).click();
+  await page.waitForURL(/\/mail\/Sent\/\d+/);
+  await page.getByRole('group', { name: 'Reactions' }).getByLabel('🎉 from Kim Park').waitFor({ timeout: 20000 });
+  if (await page.getByRole('button', { name: /React/ }).count()) throw new Error('can’t react to your own sent email');
+  await page.screenshot({ path: `${SP}/shots/mail-reaction-on-sent.png` });
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

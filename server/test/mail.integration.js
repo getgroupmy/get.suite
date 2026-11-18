@@ -1283,6 +1283,30 @@ test('read receipts: asked for when sending, offered (not sent) when opened, sen
   assert.equal((await olivia('POST', `/api/mail/messages/${back.uid}/receipt`, { folder: 'INBOX', send: true })).status, 400);
 });
 
+test('emoji reactions (RFC 9078): sent as a short reply, shown on the message for both, never as an attachment', async () => {
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Lunch Friday?', text: 'Noodle bar at 12?' })).status, 200);
+  const m = await eventually(async () => (await inbox(gina, 'Lunch Friday?')).find((x) => x.subject === 'Lunch Friday?'), 20000);
+  assert.equal((await gina('POST', `/api/mail/messages/${m.uid}/react`, { folder: 'INBOX', emoji: 'yes' })).status, 400, 'one emoji only');
+  const reacted = (await gina('POST', `/api/mail/messages/${m.uid}/react`, { folder: 'INBOX', emoji: '👍' })).body;
+  assert.deepEqual(reacted.reactions.map((r) => [r.emoji, r.mine]), [['👍', true]]);
+  assert.equal((await gina('POST', `/api/mail/messages/${m.uid}/react`, { folder: 'INBOX', emoji: '👍' })).status, 400, 'not the same one twice');
+  const mineNow = (await gina('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.deepEqual(mineNow.reactions.map((r) => [r.emoji, !!r.mine]), [['👍', true]]);
+  // Olivia gets it as a reply: Workspace knows it's a reaction, and it has no attachment.
+  const r = await eventually(async () => (await inbox(olivia, 'Lunch Friday?')).find((x) => x.subject === 'Re: Lunch Friday?'), 20000);
+  const got = (await olivia('GET', `/api/mail/messages/${r.uid}?folder=INBOX`)).body;
+  assert.equal(got.reaction.emoji, '👍');
+  assert.deepEqual(got.attachments, []);
+  assert.match(got.text, /Gina .* reacted to your message with 👍|reacted to your message with 👍/);
+  assert.equal((await olivia('POST', `/api/mail/messages/${r.uid}/react`, { folder: 'INBOX', emoji: '🎉' })).status, 400, 'not a reaction to a reaction');
+  // On her own copy in Sent, Gina's reaction shows; she can't react to her own email.
+  const sent = (await olivia('GET', '/api/mail/messages?folder=Sent')).body;
+  const mine = (sent.messages || sent).find((x) => x.subject === 'Lunch Friday?');
+  const orig = (await olivia('GET', `/api/mail/messages/${mine.uid}?folder=Sent`)).body;
+  assert.deepEqual(orig.reactions.map((x) => [x.emoji, x.from?.address]), [['👍', 'gina@globex.com']]);
+  assert.equal((await olivia('POST', `/api/mail/messages/${mine.uid}/react`, { folder: 'Sent', emoji: '👍' })).status, 400, 'from you');
+});
+
 test('a group email address delivers to its members, who can send as it', async () => {
   const sam = client();
   const samId = (await olivia('POST', '/api/users', { local: 'samgrp', domain: 'acme.com', name: 'Sam Group', password: 'password123' })).body.id;

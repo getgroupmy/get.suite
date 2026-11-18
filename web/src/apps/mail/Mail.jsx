@@ -8,7 +8,7 @@ import { Children, cloneElement, useCallback, useEffect, useRef, useState } from
 import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { unreachable, outboxAdd, outboxList, outboxRemove, changeAdd, patchKeptMail, prefetchMail } from '../offlinedocs.js';
 import { api, get, post, put, del, postBlob, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
@@ -1143,6 +1143,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             title={wholeQuote ? 'Hide the earlier messages quoted in this one' : 'Show the earlier messages quoted in this one'} onClick={() => setWholeQuote(!wholeQuote)}>•••</button>
         )}</>;
       })()}
+      <MailReactions m={m} uid={uid} folder={folder} canReact={special !== '\\Sent' && special !== '\\Drafts'} onChange={(reactions) => setM({ ...m, reactions })} />
       {m.attachments.length > 0 && (
         <ul className="att-list">
           {m.attachments.map((a) => (
@@ -3468,4 +3469,54 @@ function Outbox() {
       </Modal>
     )}
   </>;
+}
+
+const QUICK = ['👍', '❤️', '😂', '🎉', '🙏', '😮'];
+/**
+ * Emoji reactions to an email (RFC 9078): the ones on it (others' and yours), and React, which sends one
+ * to its sender. An email that is itself a reaction says so, with a link to the one it's about.
+ */
+function MailReactions({ m, uid, folder, canReact, onChange }) {
+  const toast = useToast();
+  const [picking, setPicking] = useState(false);
+  if (m.reaction) {
+    return (
+      <div className="banner mail-reaction-note" role="note">
+        <span className="mail-reaction-big" aria-hidden="true">{m.reaction.emoji}</span>
+        <span className="grow">{m.from?.name || m.from?.address} reacted {m.reaction.emoji} to your email.</span>
+        <Link className="btn small" to={`/mail?open=${encodeURIComponent(m.reaction.to)}`}>Open that email</Link>
+      </div>
+    );
+  }
+  const all = m.reactions || [];
+  if (!all.length && !canReact) return null;
+  // One chip per emoji: how many, and who (hover).
+  const byEmoji = new Map();
+  for (const r of all) byEmoji.set(r.emoji, [...(byEmoji.get(r.emoji) || []), r.mine ? 'You' : (r.from?.name || r.from?.address || 'Someone')]);
+  const react = async (emoji) => {
+    setPicking(false);
+    try {
+      const r = await post(`/mail/messages/${uid}/react`, { folder, emoji });
+      onChange([...all.filter((x) => !x.mine), ...r.reactions]);
+      toast(`Reacted ${emoji}: ${m.from?.name || m.from?.address} gets it as a short reply`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const mineSet = new Set(all.filter((x) => x.mine).map((x) => x.emoji));
+  return (
+    <div className="mail-reactions" role="group" aria-label="Reactions">
+      {[...byEmoji].map(([emoji, who]) => (
+        <span key={emoji} className={`reaction${mineSet.has(emoji) ? ' mine' : ''}`} title={who.join(', ')} aria-label={`${emoji} from ${who.join(', ')}`}>{emoji} {who.length > 1 ? who.length : ''}</span>
+      ))}
+      {canReact && (
+        <span className="mail-react">
+          <button type="button" className="btn small" aria-expanded={picking} onClick={() => setPicking(!picking)} title="React with an emoji: the sender gets it as a short reply">☺︎ React</button>
+          {picking && (
+            <span className="mail-react-pick" role="group" aria-label="Choose a reaction">
+              {QUICK.map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React ${e}`} disabled={mineSet.has(e)} onClick={() => react(e)}>{e}</button>)}
+            </span>
+          )}
+        </span>
+      )}
+    </div>
+  );
 }
