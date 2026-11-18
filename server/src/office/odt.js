@@ -10,6 +10,7 @@ import { flattenTabs } from './doctabs.js';
 import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
+import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import { docFromHtml, columnWidthsOf } from './word.js';
 
 // The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
@@ -83,6 +84,8 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     return textStyles.get(key).name;
   };
   const pictures = []; // { path, data, mime }
+  const chartObjects = []; // charts from spreadsheets, as chart objects (Object 1, Object 2…)
+  const sheetChartObject = (n, w = 17, h = 8) => { let d = n.attrs?.data; if (typeof d === 'string') { try { d = JSON.parse(d); } catch { d = null; } } return d?.series?.length ? dataChartObject({ chartType: n.attrs?.chartType || 'column', title: n.attrs?.title || '', data: d }, w, h) : null; };
   let noteNo = 0;
   const inline = (nodes = []) => {
     let out = '';
@@ -227,6 +230,14 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
           if (headed && ri === 0) out += '</table:table-header-rows>';
         });
         out += '</table:table>';
+      } else if (t === 'sheetChart' && sheetChartObject(n)) {
+        // A chart from a spreadsheet: a chart object carrying its figures (Writer draws it as a chart), named with the
+        // spreadsheet and chart it comes from, so it stays linked when the file comes back.
+        const a = n.attrs || {};
+        const wCm = 17, hCm = Math.max(3, Math.min(20, (Number(a.height) || 320) * 2.54 / 96));
+        chartObjects.push(sheetChartObject(n, wCm, hCm));
+        const name = a.fileId && a.chartId ? `sheetchart:${a.fileId}:${a.chartId}` : `Chart ${chartObjects.length}`;
+        out += `<text:p text:style-name="Standard"><draw:frame draw:name="${x(name)}" text:anchor-type="as-char" svg:width="${wCm}cm" svg:height="${hCm.toFixed(2)}cm"><draw:object xlink:href="./Object ${chartObjects.length}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/><svg:title>${x(a.title || 'Chart')}</svg:title></draw:frame></text:p>`;
       } else if (t === 'sheetChart') {
         const { title: ct, rows } = chartTable(n.attrs);
         out += `<text:p text:style-name="Standard"><text:span text:style-name="${textStyle({ bold: 1 })}">${odfText(ct)}</text:span></text:p>`;
@@ -293,6 +304,7 @@ ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<styl
 <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
 <manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>
 ${pictures.map((p) => `<manifest:file-entry manifest:full-path="${x(p.path)}" manifest:media-type="${p.mime}"/>`).join('\n')}
+${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${k + 1}/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.chart"/><manifest:file-entry manifest:full-path="Object ${k + 1}/content.xml" manifest:media-type="text/xml"/>`).join('\n')}
 </manifest:manifest>`;
   const zip = new JSZip();
   zip.file('mimetype', ODT_MIME, { compression: 'STORE' }); // first, and not compressed: how apps recognise the file
@@ -301,6 +313,7 @@ ${pictures.map((p) => `<manifest:file-entry manifest:full-path="${x(p.path)}" ma
   zip.file('meta.xml', meta);
   zip.file('META-INF/manifest.xml', manifest);
   for (const p of pictures) zip.file(p.path, p.data);
+  chartObjects.forEach((o, k) => zip.file(`Object ${k + 1}/content.xml`, o));
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', mimeType: ODT_MIME });
 }
 
@@ -469,6 +482,25 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const cellBg = (name) => { for (let n = name, i = 0; n && i < 10; n = styles.get(n)?.parent, i++) { const v = styles.get(n)?.cp?.['fo:background-color']; if (v) return v; } return null; };
   // Bookmarks: ours (bm_…) keep their ids; others get one made from their name (LibreOffice's own __RefHeading…
   // and _Toc… are its housekeeping); links to them (#name) go to the bookmark.
+  // A paragraph holding just a chart object (the download's, or Writer's own): a document chart, its figures in it,
+  // linked again to the spreadsheet and chart its frame is named after (sheetchart:file:chart).
+  const chartIn = async (p) => {
+    const frames = (function all(n, acc = []) { for (const k of kids(n)) { if (k.type !== 'tag') continue; if (k.name === 'draw:frame') acc.push(k); else all(k, acc); } return acc; })(p);
+    const outside = (function all(n) { return kids(n).map((k) => (k.type === 'text' ? k.data : k.type === 'tag' && k.name !== 'draw:frame' ? all(k) : '')).join(''); })(p);
+    if (frames.length !== 1 || outside.trim()) return null; // (the frame's own title aside)
+    const obj = kids(frames[0]).find((k) => k.name === 'draw:object');
+    const href = String(obj?.attribs?.['xlink:href'] || '').replace(/^\.\//, '').replace(/\/$/, '');
+    const xml = href && await zip.file(`${href}/content.xml`)?.async('string');
+    if (!xml) return null;
+    const tagsOf = (n, name) => kids(n).filter((k) => k.type === 'tag' && (!name || k.name === name));
+    const find = (n, name) => { for (const k of tagsOf(n)) { if (k.name === name) return k; const f = find(k, name); if (f) return f; } return null; };
+    const ch = dataChartFromObject(parseDocument(xml, { xmlMode: true, decodeEntities: true }), { tags: tagsOf, textOf, find });
+    if (!ch) return null;
+    const link = /^sheetchart:([^:]+):(.+)$/.exec(frames[0].attribs['draw:name'] || '');
+    const hm = /^([\d.]+)(cm|mm|in|pt)$/.exec(String(frames[0].attribs['svg:height'] || ''));
+    const hPx = hm ? Math.round(Number(hm[1]) * { cm: 96 / 2.54, mm: 96 / 25.4, in: 96, pt: 4 / 3 }[hm[2]]) : 320;
+    return `<figure data-sheet-chart=""${link ? ` data-file="${h(link[1])}" data-chart="${h(link[2])}"` : ''} data-title="${h(ch.title)}" data-type="${h(ch.chartType)}" data-figures="${h(JSON.stringify(ch.data))}" data-height="${hPx}"></figure>`;
+  };
   const bookmarkId = (name) => { const n = String(name || ''); if (!n || /^_/.test(n)) return null; const ours = /^bm_([a-z0-9]{6,16})$/.exec(n); return ours ? ours[1] : `o${crypto.createHash('sha1').update(n).digest('hex').slice(0, 9)}`; };
   const bookmarkHref = (href) => { const m = /^#(.+)$/.exec(href); if (!m) return href; let name = m[1]; try { name = decodeURIComponent(name); } catch { /* as is */ } const id = bookmarkId(name.replace(/\|.*$/, '')); return id && bookmarkNames.has(name.replace(/\|.*$/, '')) ? `#bm-${id}` : href; };
   const bookmarkNames = new Set([...String(contentXml).matchAll(/<text:bookmark(?:-start)? text:name="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')));
@@ -496,6 +528,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
       if (c.type !== 'tag') continue;
       const sn = c.attribs['text:style-name'];
       if (c.name === 'text:p') {
+        const chartHtml = await chartIn(c);
+        if (chartHtml) { out += chartHtml; continue; }
         const st = look(sn), named = (re) => st.names.some((n) => re.test(n));
         const raw = await inline(c);
         if (st.pp['fo:break-before'] === 'page' && out) { out += '<div data-page-break=""></div>'; if (!raw.trim()) continue; }

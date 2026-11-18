@@ -145,3 +145,31 @@ test('.odt: bookmarks and links to them, ours and LibreOffice\'s', async (t) => 
     assert.equal(again[0].content.find((n) => n.marks)?.marks[0].attrs.href, '#bm-abc123');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('.odt: a chart from a spreadsheet as a chart object, still linked to its spreadsheet when it comes back; through LibreOffice', async (t) => {
+  const { odtFromDoc: out, docFromOdt: back } = await import('../src/office/odt.js');
+  const data = { categories: ['Jan', 'Feb', 'Mar'], series: [{ name: 'North', values: [10, 12, 15] }, { name: 'South', values: [7, null, 11] }] };
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
+    { type: 'sheetChart', attrs: { fileId: 'f123', chartId: 'c9', title: 'Sales by month', chartType: 'line', data: JSON.stringify(data), height: 300 } },
+    { type: 'paragraph', content: [{ type: 'text', text: 'After' }] },
+  ] };
+  const show = (d) => d.content.map((n) => (n.type === 'sheetChart' ? JSON.stringify({ ...n.attrs, data: JSON.parse(n.attrs.data) }) : n.content?.[0]?.text));
+  const buf = await out(doc, 'T');
+  const zip = await JSZip.loadAsync(buf);
+  assert.match(await zip.file('content.xml').async('string'), /<draw:frame draw:name="sheetchart:f123:c9" text:anchor-type="as-char" svg:width="17cm" svg:height="7\.94cm"><draw:object xlink:href="\.\/Object 1"[^>]*\/><svg:title>Sales by month<\/svg:title><\/draw:frame>/);
+  assert.match(await zip.file('Object 1/content.xml').async('string'), /<chart:chart chart:class="chart:line"/);
+  assert.deepEqual(show((await back(buf)).doc), show(doc));
+  // A chart with no figures stays the title and table it was.
+  const empty = await out({ type: 'doc', content: [{ type: 'sheetChart', attrs: { title: 'Nothing yet', data: '' } }] }, 'T');
+  assert.equal((await JSZip.loadAsync(empty)).file('Object 1/content.xml'), null);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'c.odt'), buf);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'o'), path.join(dir, 'c.odt')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(show((await back(fs.readFileSync(path.join(dir, 'o', 'c.odt')))).doc), show(doc), 'opened and saved by LibreOffice: a chart there, linked again here');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -76,6 +76,20 @@ await step('a reader without the spreadsheet still sees the chart; downloads hav
   const md = await kim.evaluate(async (id) => (await fetch(`/api/files/${id}/export?format=md`)).text(), doc.id);
   if (!md.includes('**Sales by month**') || !md.includes('| Jan | 50 |')) throw new Error(md);
 }, kim);
+await step('the .odt download has a real chart; reopened, it is a chart still linked to the spreadsheet', async () => {
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Report.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, doc.id);
+  const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+  const node = ((await api(page, 'GET', `/files/${opened.id}/content`)).body.content.content || []).find((n) => n.type === 'sheetChart');
+  if (!node || node.attrs.fileId !== sheet.id || node.attrs.title !== 'Sales by month' || JSON.parse(node.attrs.data).series[0].values.join() !== '50,100') throw new Error(JSON.stringify(node));
+  await page.goto(`${B}/docs/${opened.id}`);
+  const fig = page.locator('.ProseMirror .doc-chart');
+  await fig.locator('svg').first().waitFor();
+  await fig.locator('.slide-chart-title').click();
+  await page.locator('.doc-chart-bar').getByText('Up to date').waitFor(); // linked: checked against the spreadsheet
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -107,11 +107,15 @@ const cellColor = (v) => { const s = String(v || '').trim().toLowerCase(); const
 const cellBackground = { background: { default: null, parseHTML: (el) => cellColor(el.getAttribute('data-bg') || el.style.backgroundColor), renderHTML: (a) => (a.background ? { 'data-bg': a.background, style: `background-color: ${a.background}` } : {}) } };
 const DocTableCell = TableCell.extend({ addAttributes() { return { ...this.parent?.(), ...cellBackground }; } });
 const DocTableHeader = TableHeader.extend({ addAttributes() { return { ...this.parent?.(), ...cellBackground }; } });
+// A chart from a spreadsheet, as in web/src/apps/docs/sheetchart.jsx (its link and a copy of its figures).
+const SheetChartNode = Node.create({ name: 'sheetChart', group: 'block', atom: true,
+  addAttributes: () => Object.fromEntries([['fileId', 'data-file'], ['chartId', 'data-chart'], ['title', 'data-title'], ['chartType', 'data-type'], ['data', 'data-figures'], ['height', 'data-height']].map(([k, a]) => [k, { default: null, parseHTML: (el) => (k === 'height' ? Number(el.getAttribute(a)) || null : el.getAttribute(a)) }])),
+  parseHTML: () => [{ tag: 'figure[data-sheet-chart]' }], renderHTML: () => ['figure', { 'data-sheet-chart': '' }] });
 // An equation, as in web/src/apps/docs/math.js (its LaTeX).
 const MathNode = Node.create({ name: 'math', group: 'inline', inline: true, atom: true, addAttributes: () => ({ latex: { default: '', parseHTML: (el) => el.getAttribute('data-latex') || '' } }), parseHTML: () => [{ tag: 'span[data-math]' }], renderHTML: ({ HTMLAttributes }) => ['span', { 'data-math': '', 'data-latex': HTMLAttributes.latex }] });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, MathNode, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
+  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, MathNode, SheetChartNode, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
