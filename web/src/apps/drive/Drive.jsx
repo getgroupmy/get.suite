@@ -501,6 +501,9 @@ export default function Drive() {
       { label: 'Open', icon: fileIcon(f), onClick: () => open(f) },
       officeAs(f) && { label: `Open as ${officeAs(f).what}`, icon: officeAs(f).icon, onClick: () => openAs(f) },
       f.kind === 'file' && !viewOnly(f) && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
+      ['doc', 'sheet', 'slides'].includes(f.kind) && !viewOnly(f) && { label: 'Save a PDF copy here', icon: 'copy', onClick: async () => {
+        try { const c = await post(`/files/${f.id}/pdf-copy`, {}); toast(c.replaced ? `${c.name} updated` : `${c.name} saved${c.parent_id === f.parent_id ? ' beside it' : ' in My Drive'}`); load(); } catch (e) { toast(e.message, 'error'); }
+      } },
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
       mail?.enabled && f.kind !== 'folder' && !viewOnly(f) && { label: 'Email as attachment', icon: 'mail', onClick: () => emailFile(f) },
       { label: 'Copy link', icon: 'link', onClick: () => copyLinks([f]) },

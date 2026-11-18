@@ -143,6 +143,18 @@ await step('the PDF has bookmarks from the headings and a table of contents link
   const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'));
   if (!annots || annots.size() !== 3) throw new Error('contents links: ' + (annots && annots.size()));
 });
+await step('Drive: Save a PDF copy here puts Name.pdf beside the file; again, it is updated, not doubled', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Budget 2027', content: { sheets: [{ name: 'S', cells: { A1: 'Rent', B1: '900' } }] } });
+  await page.goto(B + '/drive');
+  for (let n = 0; n < 2; n++) {
+    await page.getByLabel('Actions for Budget 2027', { exact: true }).click(); // (not the PDF's)
+    await page.getByRole('menuitem', { name: 'Save a PDF copy here' }).click();
+    await page.getByText(n ? 'Budget 2027.pdf updated' : 'Budget 2027.pdf saved beside it').waitFor();
+  }
+  await page.getByText('Budget 2027.pdf', { exact: true }).first().waitFor();
+  const all = (await api(page, 'GET', '/files')).body;
+  if ((Array.isArray(all) ? all : all.files).filter((f) => f.name === 'Budget 2027.pdf').length !== 1) throw new Error('doubled');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

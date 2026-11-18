@@ -1992,6 +1992,30 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
+  // A PDF copy of a document, spreadsheet or presentation beside it (where you can add files there; else in My Drive):
+  // "<name>.pdf", made again over the earlier one (kept as a version) when there is one.
+  r.post('/:id/pdf-copy', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    if (!EXPORT_AS[f.kind]) throw bad('Only documents, spreadsheets and presentations have a PDF copy');
+    const buf = await exportedAs(f, 'pdf');
+    checkQuota(req.user.org_id, buf.length, req.user.id);
+    const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
+    const name = cleanName(`${f.name}.pdf`);
+    const storage = uid();
+    fs.writeFileSync(path.join(FILES_DIR, storage), buf);
+    const before = q(`SELECT id FROM files WHERE ${parentId ? 'parent_id = ?' : 'parent_id IS NULL AND owner_id = ?'} AND kind = 'file' AND name = ? AND trashed = 0`).get(parentId || req.user.id, name);
+    let id = before && atLeast(roleFor(before.id, req.user.id), 'editor') ? before.id : null;
+    if (id) {
+      tx(() => {
+        snapshot(id);
+        q('UPDATE files SET storage = ?, size = ?, mime = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?').run(storage, buf.length, 'application/pdf', now(), req.user.id, id);
+      });
+    } else id = insertFile({ owner: req.user.id, parentId, name, kind: 'file', mime: 'application/pdf', size: buf.length, storage, activity: { action: 'copy', details: { from: f.name } } });
+    notify(parentId || id, { type: 'files-changed', parent_id: parentId });
+    res.status(201).json({ ...publicFile(loadFile(id, req.user)), replaced: !!before && !!id && id === before.id });
+  });
+
   // ---- version history ----
   const versionOf = (f, vid) => {
     const v = q('SELECT * FROM file_versions WHERE id = ? AND file_id = ?').get(vid, f.id);

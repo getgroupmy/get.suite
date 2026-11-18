@@ -15898,3 +15898,20 @@ test('docs: the watermark in the .odt download (as LibreOffice makes one), and b
   const only = await pageOfOdt(await odtFromDoc(doc, 'x', { page: { watermark: 'CONFIDENTIAL' } }));
   assert.deepEqual([only.watermark, only.header], ['CONFIDENTIAL', undefined]);
 });
+
+test('a PDF copy beside a document, spreadsheet or presentation: made again over the earlier one (kept as a version)', async () => {
+  const folder = (await owner('POST', '/api/files/folder', { name: 'Reports' })).body;
+  const d = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Q3 figures', parent_id: folder.id, content: { sheets: [{ name: 'S', cells: { A1: 'Total', B1: '=2+3' } }] } })).body;
+  const first = await owner('POST', `/api/files/${d.id}/pdf-copy`, {});
+  assert.equal(first.status, 201);
+  assert.deepEqual([first.body.name, first.body.mime, first.body.parent_id, first.body.replaced], ['Q3 figures.pdf', 'application/pdf', folder.id, false]);
+  const raw = await owner('GET', `/api/files/${first.body.id}/raw`, undefined, { binary: true });
+  assert.equal(Buffer.from(raw.body).subarray(0, 5).toString(), '%PDF-');
+  const again = (await owner('POST', `/api/files/${d.id}/pdf-copy`, {})).body;
+  assert.deepEqual([again.id, again.replaced], [first.body.id, true], 'the same file, updated');
+  assert.ok((await owner('GET', `/api/files/${again.id}/versions`)).body.length >= 1, 'the earlier copy is a version');
+  const inFolder = (await owner('GET', `/api/files?parent=${folder.id}`)).body;
+  assert.equal((Array.isArray(inFolder) ? inFolder : inFolder.files).filter((f) => f.name === 'Q3 figures.pdf').length, 1);
+  // Not for a folder or an ordinary file.
+  assert.equal((await owner('POST', `/api/files/${folder.id}/pdf-copy`, {})).status, 400);
+});
