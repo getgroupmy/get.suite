@@ -89,6 +89,43 @@ test('.odp in: what Impress writes (a picture of a table beside it, notes marked
   assert.equal(s.notes, 'Remember the date');
 });
 
+test('.odp: animations (entrances and exits) go out as Impress keeps them and come back, also through LibreOffice', async (t) => {
+  const { odpAnimationsOf } = await import('../src/office/odp.js');
+  const animDeck = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 't', type: 'text', x: 5, y: 5, w: 60, h: 10, text: 'Title' },
+    { id: 'a', type: 'text', x: 5, y: 20, w: 60, h: 10, text: 'Comes in', anim: 'appear', animAt: 2 },
+    { id: 'b', type: 'text', x: 5, y: 35, w: 60, h: 10, text: 'Fades in', anim: 'fade', animAt: 1 },
+    { id: 'c', type: 'text', x: 5, y: 50, w: 60, h: 10, text: 'Flies', anim: 'fly', animAt: 3, link: { url: 'https://example.com' } },
+    { id: 'd', type: 'shape', shape: 'ellipse', fill: '#00ff00', x: 50, y: 50, w: 20, h: 20, anim: 'disappear', animAt: 4 },
+    { id: 'e', type: 'text', x: 5, y: 65, w: 60, h: 10, text: 'Fades away', anim: 'fadeout', animAt: 5 },
+  ] }, { id: 's2', items: [{ id: 'x', type: 'text', x: 5, y: 5, w: 60, h: 10, text: 'Still' }] }] };
+  const order = (d) => d.slides[0].items.filter((it) => it.anim).sort((p, q) => p.animAt - q.animAt).map((it) => [it.text || it.shape, it.anim, it.animAt]);
+  const want = [['Fades in', 'fade', 1], ['Comes in', 'appear', 2], ['Flies', 'fly', 3], ['ellipse', 'disappear', 4], ['Fades away', 'fadeout', 5]];
+  const buf = await odpFromDeck(animDeck);
+  const xml = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  assert.equal((xml.match(/presentation:node-type="timing-root"/g) || []).length, 1, 'only the slide with animations has a timing');
+  assert.match(xml, /presentation:preset-class="exit" presentation:preset-id="ooo-exit-fade-out"/);
+  const back = await deckFromOdp(buf);
+  assert.deepEqual(order(back), want);
+  assert.equal(back.slides[0].items.find((it) => it.text === 'Title').anim, undefined);
+  // Effects Slides doesn't have: entrances fade in, exits fade out.
+  const tags = (n, name) => (n.children || []).filter((k) => k.type === 'tag' && (!name || k.name === name));
+  const el = (name, attribs, children = []) => ({ type: 'tag', name, attribs, children });
+  const timing = el('anim:par', {}, [el('anim:par', { 'presentation:preset-class': 'entrance', 'presentation:preset-id': 'ooo-entrance-spiral-in' }, [el('anim:set', { 'smil:targetElement': 'id7' })]), el('anim:par', { 'presentation:preset-class': 'exit', 'presentation:preset-id': 'ooo-exit-dissolve' }, [el('anim:set', { 'smil:targetElement': 'id8' })])]);
+  assert.deepEqual(odpAnimationsOf(timing, tags), [{ target: 'id7', anim: 'fade' }, { target: 'id8', anim: 'fadeout' }]);
+  // Through LibreOffice: saved again as .odp, and as .pptx.
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'odpanim-'));
+  fs.writeFileSync(path.join(dir, 'a.odp'), buf);
+  const lo = (as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, 'a.odp')], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, `a.${as}`)); };
+  assert.deepEqual(order(await deckFromOdp(lo('odp', 'o'))), want);
+  const { deckFromPowerPoint } = await import('../src/office/powerpoint.js');
+  assert.deepEqual(order(await deckFromPowerPoint(lo('pptx', 'p'), { savePicture: async () => null })), want);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('.odp: grouped boxes go out in one <draw:g> and come back grouped; a group of one is just a box', async () => {
   const grouped = { theme: 'light', slides: [{ id: 'a', items: [
     { id: 'a1', type: 'shape', shape: 'ellipse', x: 10, y: 10, w: 10, h: 10, fill: 'accent', group: 'g' },

@@ -70,6 +70,29 @@ await step('the file opens back in Slides with the same animations, in order', a
   await until(async () => (await sel.inputValue()) === 'fly');
   await page.screenshot({ path: `${SP}/shots/pptx-anim-in.png` });
 });
+await step('the .odp download keeps entrance and exit animations; reopened, they are the same, in order', async () => {
+  const content = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 'a', type: 'text', x: 5, y: 25, w: 60, h: 10, text: 'Hire two people', anim: 'fly', animAt: 1 },
+    { id: 'b', type: 'text', x: 5, y: 40, w: 60, h: 10, text: 'Old plan', anim: 'fadeout', animAt: 2 },
+    { id: 'c', type: 'shape', shape: 'star', fill: '#ffd666', x: 70, y: 40, w: 20, h: 20, anim: 'disappear', animAt: 3 },
+  ] }] };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Spring odp', content })).body.id;
+  const res = await page.evaluate(async (fid) => {
+    const bytes = await (await fetch(`/api/files/${fid}/export?format=odp`)).arrayBuffer();
+    const up = await (await fetch('/api/files/upload?name=Spring.odp', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return { up, b64: btoa(String.fromCharCode(...new Uint8Array(bytes))) };
+  }, id);
+  const xml = await (await JSZip.loadAsync(Buffer.from(res.b64, 'base64'))).file('content.xml').async('string');
+  if (!xml.includes('presentation:preset-id="ooo-entrance-fly-in"') || !xml.includes('presentation:preset-id="ooo-exit-fade-out"') || !xml.includes('presentation:preset-id="ooo-exit-disappear"')) throw new Error(xml.slice(xml.indexOf('<anim:par'), xml.indexOf('<anim:par') + 400));
+  const opened = await api(page, 'POST', `/files/${res.up.id}/open-as`);
+  if (opened.status >= 300) throw new Error(JSON.stringify(opened));
+  const got = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.slides[0].items.filter((it) => it.anim).sort((p, q) => p.animAt - q.animAt).map((it) => `${it.text || it.shape}:${it.anim}`).join(',');
+  if (got !== 'Hire two people:fly,Old plan:fadeout,star:disappear') throw new Error(got);
+  await page.goto(`${B}/slides/${opened.body.id}`);
+  await page.locator('.slide-stage .anim-badge.exit').nth(1).waitFor();
+  await page.locator('.slide-stage [aria-label^="Text: Old plan"]').click();
+  await until(async () => (await page.getByLabel('Animation').inputValue()) === 'fadeout');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

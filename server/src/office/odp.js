@@ -40,6 +40,44 @@ const ptOf = (size) => (size * (W / 2.54) * 72) / 1000;
 const sizeOf = (pt, widthCm = W) => { const v = (pt * 1000) / ((widthCm / 2.54) * 72); return Math.abs(v - Math.round(v)) <= 0.35 ? Math.round(v) : Math.round(v * 10) / 10; };
 
 // ---- deck → .odp ----
+// ---- animations: Slides' (appear, fade, fly in; disappear, fade out) as Impress keeps them, one a click.
+const ODP_PRESET = { appear: 'ooo-entrance-appear', fade: 'ooo-entrance-fade-in', fly: 'ooo-entrance-fly-in', disappear: 'ooo-exit-disappear', fadeout: 'ooo-exit-fade-out' };
+const ODP_EFFECT = {
+  appear: (t) => `<anim:set smil:begin="0s" smil:dur="0.001s" smil:fill="hold" smil:targetElement="${t}" smil:attributeName="visibility" smil:to="visible"/>`,
+  fade: (t) => `${ODP_EFFECT.appear(t)}<anim:transitionFilter smil:dur="0.5s" smil:targetElement="${t}" smil:type="fade" smil:subtype="crossfade"/>`,
+  fly: (t) => `${ODP_EFFECT.appear(t)}<anim:animate smil:dur="0.5s" smil:fill="hold" smil:targetElement="${t}" smil:attributeName="x" smil:values="x;x" smil:keyTimes="0;1"/><anim:animate smil:dur="0.5s" smil:fill="hold" smil:targetElement="${t}" smil:attributeName="y" smil:values="1+height/2;y" smil:keyTimes="0;1"/>`,
+  disappear: (t) => `<anim:set smil:begin="0s" smil:dur="0.001s" smil:fill="hold" smil:targetElement="${t}" smil:attributeName="visibility" smil:to="hidden"/>`,
+  fadeout: (t) => `<anim:transitionFilter smil:dur="0.5s" smil:targetElement="${t}" smil:type="fade" smil:subtype="crossfade" smil:mode="out"/><anim:set smil:begin="0.499s" smil:dur="0.001s" smil:fill="hold" smil:targetElement="${t}" smil:attributeName="visibility" smil:to="hidden"/>`,
+};
+/** A slide's timing: a main sequence with a click for each animated box ([{ id, anim }], in order). */
+export function odpTiming(builds) {
+  if (!builds.length) return '';
+  const clicks = builds.map(({ id, anim }) => {
+    const a = ODP_PRESET[anim] ? anim : 'fade';
+    const exit = a === 'disappear' || a === 'fadeout';
+    return `<anim:par smil:begin="next" smil:fill="hold"><anim:par smil:begin="0s" smil:fill="hold"><anim:par smil:begin="0s" smil:fill="hold" presentation:node-type="on-click" presentation:preset-class="${exit ? 'exit' : 'entrance'}" presentation:preset-id="${ODP_PRESET[a]}"${a === 'fly' ? ' presentation:preset-sub-type="from-bottom"' : ''}>${ODP_EFFECT[a](id)}</anim:par></anim:par></anim:par>`;
+  }).join('');
+  return `<anim:par smil:dur="indefinite" smil:restart="never" presentation:node-type="timing-root"><anim:seq smil:dur="indefinite" presentation:node-type="main-sequence">${clicks}</anim:seq></anim:par>`;
+}
+/** A slide's animations from its timing (an anim:par element): [{ target, anim }] in click order. Unknown entrances fade in, unknown exits fade out. */
+export function odpAnimationsOf(timing, tags) {
+  const out = [];
+  (function walk(n) {
+    for (const k of tags(n)) {
+      const cls = k.attribs?.['presentation:preset-class'];
+      if (k.name === 'anim:par' && (cls === 'entrance' || cls === 'exit')) {
+        const target = (function first(e) { for (const c of tags(e)) { if (c.attribs?.['smil:targetElement']) return c.attribs['smil:targetElement']; const f = first(c); if (f) return f; } return null; })(k);
+        const id = k.attribs['presentation:preset-id'] || '';
+        const anim = cls === 'exit' ? (id === 'ooo-exit-disappear' ? 'disappear' : 'fadeout') : id === 'ooo-entrance-appear' ? 'appear' : id === 'ooo-entrance-fly-in' ? 'fly' : 'fade';
+        if (target && !out.some((o) => o.target === target)) out.push({ target, anim });
+        continue;
+      }
+      walk(k);
+    }
+  })(timing);
+  return out.slice(0, 100);
+}
+
 export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } = {}) {
   const theme = themeOfDeck(deck);
   const color = (v, fallback) => { const c = v === 'accent' ? theme.accent : v === 'text' ? theme.text : v === 'bg' ? theme.bg : v; return COLOR.test(c || '') ? c.toLowerCase() : fallback; };
@@ -140,11 +178,21 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
       }
     }
     if (pieces.length) pieces[pieces.length - 1].end = items.length;
-    items = groupedXml(items, pieces);
+    // Animated boxes: an id on each (its first drawing element), for the slide's timing to point at.
+    const animated = pieces.filter((pc) => pc.it.anim).sort((a, b) => (a.it.animAt || 0) - (b.it.animAt || 0));
+    for (const pc of [...animated].sort((a, b) => b.start - a.start)) {
+      const m = /<draw:(?:frame|custom-shape|rect|ellipse|line)\b/.exec(items.slice(pc.start, pc.end));
+      if (!m) { pc.animId = null; continue; }
+      pc.animId = `anim${pieces.indexOf(pc) + 1}`;
+      const at = pc.start + m.index + m[0].length, add = ` xml:id="${pc.animId}" draw:id="${pc.animId}"`;
+      items = items.slice(0, at) + add + items.slice(at);
+      for (const q of pieces) { if (q.start >= at) q.start += add.length; if (q.end >= at) q.end += add.length; }
+    }
+    items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).map((pc) => ({ id: pc.animId, anim: pc.it.anim })));
     const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:class="notes" presentation:placeholder="false" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
     pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}</draw:page>`;
   }
-  const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.3"';
+  const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content ${NS}><office:automatic-styles>${auto.join('')}</office:automatic-styles><office:body><office:presentation>${pages}</office:presentation></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
@@ -258,18 +306,26 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     if (d['draw:fill'] === 'bitmap' && d['draw:fill-image-name']) { const id = await pictureFor(fillImages.get(d['draw:fill-image-name'])); if (id) slide.bgImage = id; }
     else if (fillOf(d)) slide.bg = fillOf(d);
     if (d['presentation:visibility'] === 'hidden') slide.skip = true;
+    const byAnimId = new Map(); // a drawing element's id → the box it became (for animations)
     const walk = async (nodes, link) => {
       for (const el of nodes) {
+        const before = slide.items.length;
+        await one(el, link);
+        const eid = el.attribs?.['xml:id'] || el.attribs?.['draw:id'];
+        if (eid && slide.items.length > before) byAnimId.set(eid, slide.items[before]);
+      }
+    };
+    const one = async (el, link) => {
         if (el.name === 'draw:g') { // a group: its boxes keep a group id (the outermost group's; a group of one is just a box)
           const from = slide.items.length;
           await walk(tags(el), link);
           const added = slide.items.slice(from);
           const gid = fresh();
           if (added.length > 1) for (const it of added) if (!it.group) it.group = gid;
-          continue;
+          return;
         }
-        if (el.name === 'draw:a') { await walk(tags(el), el.attribs['xlink:href']); continue; }
-        if (el.attribs?.['presentation:placeholder'] === 'true' && !textOf(el).trim()) continue; // an empty placeholder (Impress marks some with text in them too)
+        if (el.name === 'draw:a') { await walk(tags(el), el.attribs['xlink:href']); return; }
+        if (el.attribs?.['presentation:placeholder'] === 'true' && !textOf(el).trim()) return; // an empty placeholder (Impress marks some with text in them too)
         const g = look(el.attribs?.['draw:style-name'] || el.attribs?.['presentation:style-name'], 'g');
         const lk = link && /^(https?:|mailto:)/i.test(link) ? { link: { url: link } } : link?.startsWith('#') ? { link: { pageName: link.slice(1) } } : {};
         if (el.name === 'draw:frame') {
@@ -279,7 +335,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
           if (objXml) {
             const find = (n, name) => { for (const k of tags(n)) { if (k.name === name) return k; const f = find(k, name); if (f) return f; } return null; };
             const ch = dataChartFromObject(parse(objXml), { tags, textOf, find });
-            if (ch) { slide.items.push({ id: fresh(), type: 'chart', ...boxOf(el), ...ch }); continue; }
+            if (ch) { slide.items.push({ id: fresh(), type: 'chart', ...boxOf(el), ...ch }); return; }
           }
           const img = tags(el, 'draw:image')[0], box = tags(el, 'draw:text-box')[0], tbl = tags(el, 'table:table')[0];
           const alt = textOf(tags(el, 'svg:title')[0] || tags(el, 'svg:desc')[0] || { children: [] }).trim();
@@ -290,7 +346,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
           } else if (img) { const id = await pictureFor(img.attribs['xlink:href']); if (id) slide.items.push({ id: fresh(), type: 'image', ...boxOf(el), fileId: id, ...(alt && { alt }), ...lk }); }
           else if (box) {
             const text = paraText(box);
-            if (!text.trim()) continue;
+            if (!text.trim()) return;
             const fill = fillOf(g);
             slide.items.push({ id: fresh(), type: 'text', ...(el.attribs['presentation:class'] === 'title' && { role: 'title' }), ...boxOf(el), text, ...textLook(box, 18), ...(fill && { fill }), ...outlineOf(g), ...(linkIn(box) || lk.link ? { link: linkIn(box) || lk.link } : {}) });
           }
@@ -299,7 +355,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
           const shape = el.name === 'draw:ellipse' ? 'ellipse' : el.name === 'draw:rect' ? (el.attribs['draw:corner-radius'] ? 'round' : 'rect') : OUR_SHAPES[geo] || (/ellipse|circle/.test(geo || '') ? 'ellipse' : 'rect');
           const text = paraText(el);
           // A plain box with words and no fill (how Impress keeps a .pptx text box) is a text box, not a shape.
-          if (shape === 'rect' && g['draw:fill'] === 'none' && text.trim()) { slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text, ...textLook(el, 18), ...outlineOf(g), ...(linkIn(el) || lk.link ? { link: linkIn(el) || lk.link } : {}) }); continue; }
+          if (shape === 'rect' && g['draw:fill'] === 'none' && text.trim()) { slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text, ...textLook(el, 18), ...outlineOf(g), ...(linkIn(el) || lk.link ? { link: linkIn(el) || lk.link } : {}) }); return; }
           slide.items.push({ id: fresh(), type: 'shape', shape, ...boxOf(el), fill: fillOf(g) || 'accent', ...outlineOf(g), ...(text.trim() && { text, ...textLook(el, 18) }), ...lk });
         } else if (el.name === 'draw:line') {
           const [x1, y1, x2, y2] = ['svg:x1', 'svg:y1', 'svg:x2', 'svg:y2'].map((k) => toCm(el.attribs[k]) || 0);
@@ -311,9 +367,12 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
             x: pct(`${left - (dir === 'v' || dir === 'vr' ? w / 2 : 0)}cm`, pw), y: pct(`${top - (dir === 'h' || dir === 'hr' ? h / 2 : 0)}cm`, ph), w: pct(`${w}cm`, pw), h: pct(`${h}cm`, ph),
             ...(hex(g['svg:stroke-color']) && { fill: hex(g['svg:stroke-color']) }) });
         }
-      }
     };
     await walk(tags(page));
+    // Its animations, on the boxes they point at, in click order.
+    const timing = tags(page).find((k) => k.name === 'anim:par' && k.attribs['presentation:node-type'] === 'timing-root');
+    let k = 0;
+    if (timing) for (const a of odpAnimationsOf(timing, tags)) { const it = byAnimId.get(a.target); if (it && !it.anim) Object.assign(it, { anim: a.anim, animAt: ++k }); }
     const notes = tags(page, 'presentation:notes')[0];
     const nf = notes && (tags(notes, 'draw:frame').find((f) => f.attribs['presentation:class'] === 'notes') || tags(notes, 'draw:frame').find((f) => tags(f, 'draw:text-box').length));
     const nt = nf ? paraText(tags(nf, 'draw:text-box')[0] || nf).trim() : '';
