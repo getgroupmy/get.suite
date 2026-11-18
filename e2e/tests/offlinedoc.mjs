@@ -289,10 +289,12 @@ await step('Contacts: someone added offline is in the list (even after reloading
 });
 await step('an event and a contact changed offline show the change here (even after reloading) and on the server once back', async () => {
   await page.goto(`${B}/calendar`);
-  await page.getByText('Site visit').first().waitFor();
+  // (in the calendar itself: after 3 pm the top bar's "Site visit started … ago" matches too)
+  const visit = page.locator('.cal-main').getByText('Site visit').first();
+  await visit.waitFor();
   await page.waitForTimeout(800);
   await ctx.setOffline(true);
-  await page.getByText('Site visit').first().click();
+  await visit.click();
   const dlg = page.getByRole('dialog', { name: 'Edit event' });
   await dlg.getByLabel('Title').fill('Site visit with the surveyor');
   await dlg.getByRole('button', { name: 'Save' }).click();
