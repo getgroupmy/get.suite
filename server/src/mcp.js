@@ -737,7 +737,7 @@ export const TOOLS = [
         find: { type: 'string' }, replace: { type: 'string', description: 'The new text ("" deletes what was found)' },
         all: { type: 'boolean', default: true, description: 'Every place (true) or only the first (false)' },
         match_case: { type: 'boolean', default: true },
-        suggest: { type: 'boolean', default: false, description: 'As suggestions instead (like track changes): the old words struck through and the new ones beside them, in the person’s name, for them or others to accept or reject in Docs. Best when proposing changes to someone else’s document, or when asked to suggest.' },
+        suggest: { type: 'boolean', default: false, description: 'As suggestions instead (like track changes): the old words struck through and the new ones beside them, in the person’s name, for them or others to accept or reject in Docs. Best when proposing changes to someone else’s document, or when asked to suggest; with comment access only, this is the only way.' },
       },
     },
     async run(api, a) {

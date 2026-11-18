@@ -70,7 +70,7 @@ await step('Kim can comment on a cell but not change it', async () => {
 });
 await step('in a document too: select text, Comment', async () => {
   await kim.goto(`${B}/docs/${doc.id}`);
-  await kim.getByText('You can comment, not edit.').waitFor();
+  await kim.getByText('You can comment and suggest edits').waitFor();
   const p = kim.locator('.ProseMirror p', { hasText: 'The price is ten thousand.' });
   await p.waitFor();
   await p.evaluate((el) => { const t = el.firstChild; const r = document.createRange(); r.setStart(t, 4); r.setEnd(t, 9); const s = getSelection(); s.removeAllRanges(); s.addRange(r); });
@@ -90,7 +90,7 @@ await step('everyone at the company as Commenter, from the Share dialog', async 
   await d.getByLabel('Access for everyone at Acme Trading').selectOption('commenter');
   await page.getByText('Everyone at Acme Trading can comment on it').waitFor();
   await kim.goto(`${B}/docs/${d2.id}`);
-  await kim.getByText('You can comment, not edit.').waitFor();
+  await kim.getByText('You can comment and suggest edits').waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

@@ -7,6 +7,7 @@
 // tested without a browser; SuggestMode wires them to the keyboard, typing, pasting and cutting.
 import { Mark, Extension } from '@tiptap/core';
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
+import { ySyncPluginKey } from '@tiptap/y-tiptap';
 
 const attrs = () => ({
   id: { default: null, parseHTML: (el) => el.getAttribute('data-sugg'), renderHTML: (a) => ({ 'data-sugg': a.id }) },
@@ -172,26 +173,36 @@ export function describeSuggestion(s, max = 60) {
 
 export const suggestKey = new PluginKey('suggestMode');
 
-/** While storage.on is true, typing, deleting, pasting and cutting become suggestions by storage.who. */
+/**
+ * While storage.on is true, typing, deleting, pasting and cutting become suggestions by storage.who. With storage.only
+ * (someone who may comment but not edit), nothing else changes the document: formatting, new paragraphs, undo and the
+ * like are held back, as the server would refuse them (changes arriving from others still come in).
+ */
+export const isSuggestion = (tr) => tr.setMeta('suggestion', true);
+export function onlySuggestionsAllowed(tr) {
+  return !tr.docChanged || !!tr.getMeta('suggestion') || !!tr.getMeta(ySyncPluginKey);
+}
 export const SuggestMode = Extension.create({
   name: 'suggestMode',
-  addStorage: () => ({ on: false, who: null }),
+  addStorage: () => ({ on: false, who: null, only: false }),
   addProseMirrorPlugins() {
     const store = this.storage;
     const active = (view) => store.on && store.who && view.editable;
+    const dispatch = (view, tr) => view.dispatch(isSuggestion(tr));
     return [new Plugin({
       key: suggestKey,
+      filterTransaction: (tr) => !store.only || onlySuggestionsAllowed(tr),
       props: {
         handleTextInput(view, from, to, text) {
           if (!active(view)) return false;
-          view.dispatch(suggestText(view.state, from, to, text, store.who));
+          dispatch(view, suggestText(view.state, from, to, text, store.who));
           return true;
         },
         handleKeyDown(view, event) {
           if (!active(view) || (event.key !== 'Backspace' && event.key !== 'Delete') || event.altKey) return false;
           const tr = suggestDeleteKey(view.state, event.key === 'Backspace' ? -1 : 1, store.who);
           if (!tr) return false;
-          view.dispatch(tr.scrollIntoView());
+          dispatch(view, tr.scrollIntoView());
           event.preventDefault();
           return true;
         },
@@ -200,7 +211,7 @@ export const SuggestMode = Extension.create({
           const text = event.clipboardData?.getData('text/plain');
           if (!text) return false;
           const { from, to } = view.state.selection;
-          view.dispatch(suggestText(view.state, from, to, text.replace(/\r?\n+/g, ' '), store.who).scrollIntoView());
+          dispatch(view, suggestText(view.state, from, to, text.replace(/\r?\n+/g, ' '), store.who).scrollIntoView());
           event.preventDefault();
           return true;
         },
@@ -210,7 +221,7 @@ export const SuggestMode = Extension.create({
             const { from, to } = view.state.selection;
             event.clipboardData?.setData('text/plain', view.state.doc.textBetween(from, to, '\n'));
             event.preventDefault();
-            view.dispatch(suggestDeleteKey(view.state, -1, store.who));
+            dispatch(view, suggestDeleteKey(view.state, -1, store.who));
             return true;
           },
           drop(view, event) { return active(view) ? (event.preventDefault(), true) : false; }, // moving text around isn't tracked

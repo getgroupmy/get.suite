@@ -6,7 +6,7 @@ import Paragraph from '@tiptap/extension-paragraph';
 import Text from '@tiptap/extension-text';
 import Bold from '@tiptap/extension-bold';
 import { EditorState, TextSelection } from '@tiptap/pm/state';
-import { SuggestInsert, SuggestDelete, suggestText, suggestDeleteKey, listSuggestions, resolveSuggestion, describeSuggestion } from './suggest.js';
+import { SuggestInsert, SuggestDelete, suggestText, suggestDeleteKey, listSuggestions, resolveSuggestion, describeSuggestion, isSuggestion, onlySuggestionsAllowed } from './suggest.js';
 
 const schema = getSchema([Document, Paragraph, Text, Bold, SuggestInsert, SuggestDelete]);
 const ann = { id: 'u1', name: 'Ann' };
@@ -107,4 +107,13 @@ test('a run of typing is one piece of text, not a mark per letter', () => {
   s.doc.descendants((n) => { if (n.isText && n.marks.length) pieces++; });
   assert.equal(pieces, 1);
   assert.equal(listSuggestions(s.doc)[0].at, 1000, 'dated from when it started');
+});
+
+test('suggest-only (commenters): suggestions go through; other changes are held back; selection moves are fine', () => {
+  const s = make('Hello world');
+  assert.equal(onlySuggestionsAllowed(isSuggestion(suggestText(s, 6, 6, 'big ', ann))), true);
+  assert.equal(onlySuggestionsAllowed(s.tr.insertText('x', 1)), false, 'typed outright');
+  assert.equal(onlySuggestionsAllowed(s.tr.addMark(1, 3, schema.marks.bold.create())), false, 'formatting');
+  assert.equal(onlySuggestionsAllowed(s.tr.split(3)), false, 'a new paragraph');
+  assert.equal(onlySuggestionsAllowed(s.tr.setSelection(TextSelection.create(s.doc, 3))), true);
 });

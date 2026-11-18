@@ -982,6 +982,10 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   assert.deepEqual(n.map((x) => [x.title, x.body, x.link]), [['Olivia Owner suggested edits in “Sue’s plan”', 'Replace “May” with “June”', `/docs/${doc.id}`]]);
   await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'ten', replace: 'twelve', suggest: true });
   assert.equal((await told()).length, 1, 'not again for the next one');
+  // As a commenter: suggesting is fine, changing outright isn't.
+  await sue('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: olivia, role: 'commenter' }] });
+  assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'people', replace: 'staff', suggest: true })).structuredContent.suggested, 1);
+  assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Launch', replace: 'Start' })).isError, true);
   // Changed outright (not suggested): no such notification; one's own document: none either.
   const mine = (await call(rw, 'create_document', { name: 'Mine', text: 'Alpha' })).structuredContent;
   await call(rw, 'replace_in_document', { file: mine.id, find: 'Alpha', replace: 'Beta', suggest: true });

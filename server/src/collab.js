@@ -15,7 +15,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc, onlyOwnSuggestions } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 import { notify } from './notifications.js';
@@ -153,6 +153,21 @@ function breaksProtection(room, c, data) {
   const after = jsonFromSheetDoc(trial);
   trial.destroy();
   return brokenProtections(before, after, c.userId, c.ownerId).length > 0;
+}
+
+/** A commenter's sync message (step 2 or an update): true if it only adds or changes their own suggestions. */
+function suggestsOnly(room, c, data) {
+  const dec = decoding.createDecoder(new Uint8Array(data));
+  decoding.readVarUint(dec); // message type
+  decoding.readVarUint(dec); // sync step 2 or update
+  const update = decoding.readVarUint8Array(dec);
+  const trial = new Y.Doc();
+  Y.applyUpdate(trial, Y.encodeStateAsUpdate(room.doc));
+  Y.applyUpdate(trial, update);
+  const ok = onlyOwnSuggestions(jsonFromDoc(room.doc, FIELD), jsonFromDoc(trial, FIELD), c.userId);
+  trial.destroy();
+  if (!ok) console.warn('[collab] ignored a change by a commenter that was more than suggestions', c.userId);
+  return ok;
 }
 
 function send(room, ws, msg) {
@@ -321,7 +336,7 @@ export function handleCollabUpgrade(req, socket, head, user) {
     const room = getRoom(f.id, f.kind);
     // A kept copy of an older generation: not merged (see genOf).
     if (knownGen && knownGen !== genOf(room.doc)) { try { ws.close(4001, 'rebuilt'); } catch {} return; }
-    room.conns.set(ws, { userId: user.id, ownerId: f.owner_id, canEdit: atLeast(role, 'editor') && !f.locked_at, clients: new Set() });
+    room.conns.set(ws, { userId: user.id, ownerId: f.owner_id, canEdit: atLeast(role, 'editor') && !f.locked_at, canSuggest: f.kind === 'doc' && role === 'commenter' && !f.locked_at, clients: new Set() });
     ws.binaryType = 'arraybuffer';
     ws.on('message', (data) => {
       try {
@@ -334,7 +349,8 @@ export function handleCollabUpgrade(req, socket, head, user) {
           encoding.writeVarUint(enc, MESSAGE_SYNC);
           // Viewers may ask for the document (step 1) but their changes (step 2, updates) are ignored.
           const sub = decoding.peekVarUint(dec);
-          if (sub !== syncProtocol.messageYjsSyncStep1 && !c.canEdit) return;
+          // Commenters on a document may suggest edits: their change is taken only if it's nothing but their own suggestions.
+          if (sub !== syncProtocol.messageYjsSyncStep1 && !c.canEdit && !(c.canSuggest && suggestsOnly(room, c, data))) return;
           // Protected sheet ranges: a change to cells this person may not edit is refused, and
           // their editor starts again from what's stored (the browser normally stops it first).
           if (sub !== syncProtocol.messageYjsSyncStep1 && room.kind === 'sheet' && breaksProtection(room, c, data)) {

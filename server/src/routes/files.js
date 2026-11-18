@@ -1637,7 +1637,8 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   r.post('/:id/replace', (req, res) => {
-    const f = loadFile(req.params.id, req.user, 'editor');
+    // Commenters may suggest (as in Docs), not change outright.
+    const f = loadFile(req.params.id, req.user, req.body?.suggest ? 'commenter' : 'editor');
     if (f.kind !== 'doc') throw bad('Text can only be replaced in a document');
     notLocked(f);
     const find = String(req.body?.find ?? ''), replace = String(req.body?.replace ?? '');

@@ -204,7 +204,7 @@ test('a comment’s words marked: across formatting runs, only the first place, 
   assert.equal(markQuoteInYDoc(doc, 'nowhere', 'c3'), false);
 });
 
-import { replaceInYDoc, replaceInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc } from '../src/collabdoc.js';
+import { replaceInYDoc, replaceInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc, onlyOwnSuggestions } from '../src/collabdoc.js';
 test('find and replace in a document: live (Yjs) and stored alike; formatting of the first letter kept; first only, any case, not across objects', () => {
   const doc = { type: 'doc', content: [
     { type: 'paragraph', content: [{ type: 'text', text: 'The Acme ' }, { type: 'text', text: 'Corp', marks: [{ type: 'bold' }] }, { type: 'text', text: ' plan.' }] },
@@ -283,4 +283,31 @@ test('suggestions listed, accepted and rejected: chosen ones, one person\'s, liv
   assert.equal(resolveSuggestionsInYDoc(y, (x) => x.id === list[0].id, true).count, 1);
   assert.deepEqual(jsonFromDoc(y).content[0].content.map((n) => [n.text, (n.marks || []).map((m) => m.type).join()]), [['Ship in ', ''], ['April', 'bold'], [' to Lyon.', '']]);
   assert.deepEqual(suggestionsInYDoc(y), []);
+});
+
+test('a commenter’s change is only their own suggestions: text, formatting and others’ suggestions untouched', () => {
+  const kim = { by: 'kim', name: 'Kim', at: 1 }, ana = { by: 'ana', name: 'Ana', at: 2 };
+  const base = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ship in March to Paris.' }] }] };
+  const withAna = replaceInJson(base, 'Paris', 'Lyon', { suggest: ana }).json;
+  // Kim suggests: fine.
+  const kims = replaceInJson(withAna, 'March', 'April', { suggest: kim }).json;
+  assert.equal(onlyOwnSuggestions(withAna, kims, 'kim'), true);
+  assert.equal(onlyOwnSuggestions(withAna, kims, 'ana'), false, 'not as someone else');
+  // Kim changes her own suggestion (April → May): fine; takes it back: fine.
+  assert.equal(onlyOwnSuggestions(kims, replaceInJson(kims, 'April', 'May').json, 'kim'), true);
+  assert.equal(onlyOwnSuggestions(kims, resolveSuggestionsInJson(kims, (x) => x.name === 'Kim', false).json, 'kim'), true);
+  // Changing the text outright, accepting or rejecting Ana's, or bold: refused.
+  assert.equal(onlyOwnSuggestions(withAna, replaceInJson(withAna, 'March', 'April').json, 'kim'), false);
+  assert.equal(onlyOwnSuggestions(withAna, resolveSuggestionsInJson(withAna, () => true, true).json, 'kim'), false);
+  assert.equal(onlyOwnSuggestions(withAna, resolveSuggestionsInJson(withAna, () => true, false).json, 'kim'), false);
+  const bold = JSON.parse(JSON.stringify(withAna)); bold.content[0].content[0].marks = [{ type: 'bold' }];
+  assert.equal(onlyOwnSuggestions(withAna, bold, 'kim'), false);
+  const para = { ...withAna, content: [...withAna.content, { type: 'paragraph' }] };
+  assert.equal(onlyOwnSuggestions(withAna, para, 'kim'), false, 'a new paragraph');
+  assert.equal(onlyOwnSuggestions(withAna, withAna, 'kim'), true, 'nothing changed');
+  // The editor writing a paragraph's default settings isn't a change; a real setting is.
+  const touched = JSON.parse(JSON.stringify(kims)); touched.content[0].attrs = { indent: 0, align: null };
+  assert.equal(onlyOwnSuggestions(withAna, touched, 'kim'), true);
+  const indented = JSON.parse(JSON.stringify(kims)); indented.content[0].attrs = { indent: 2 };
+  assert.equal(onlyOwnSuggestions(withAna, indented, 'kim'), false);
 });

@@ -99,6 +99,59 @@ await step('back to editing: changes go straight in', async () => {
   try { await until(async () => (await pm(page).innerText()).includes('We will deliver in April. Done')); } catch (e) { console.log('DBG', JSON.stringify((await pm(page).innerText()).slice(-60)), JSON.stringify((await pm(kim).innerText()).slice(-60))); throw e; }
   if (await pm(page).locator('ins.sugg-ins').count()) throw new Error('tracked in editing mode');
 });
+// Select these words in the editor (the first text node holding them), as a drag would.
+const selectWords = (p, words) => pm(p).evaluate((el, w) => {
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    const at = n.data.indexOf(w);
+    if (at < 0) continue;
+    const r = document.createRange(); r.setStart(n, at); r.setEnd(n, at + w.length);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); return true;
+  }
+  throw new Error(`no “${w}”`);
+}, words);
+let rae;
+const stored = async () => JSON.stringify((await api(page, 'GET', `/files/${doc.id}/content`)).body.content);
+await step('a commenter suggests edits: what they type is their suggestion, live for the owner', async () => {
+  const raeId = (await api(page, 'POST', '/users', { local: 'rae', domain: 'acme.com', name: 'Rae Reviewer', password: 'password123' })).body.id;
+  doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Review me', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The fee is ten pounds.' }] }] } })).body;
+  await api(page, 'PUT', `/files/${doc.id}/shares`, { shares: [{ user_id: raeId, role: 'commenter' }] });
+  rae = await mk('rae'); await signIn(rae, 'rae@acme.com');
+  await rae.goto(`${B}/docs/${doc.id}`);
+  await rae.getByText('You can comment and suggest edits').waitFor();
+  await page.goto(`${B}/docs/${doc.id}`);
+  await pm(page).getByText('The fee is ten pounds.').waitFor();
+  // Rae selects "ten" and types over it: a suggested replacement in her name.
+  await pm(rae).getByText('The fee is ten pounds.').waitFor();
+  await rae.waitForTimeout(800);
+  await selectWords(rae, 'ten');
+  await rae.keyboard.type('twelve');
+  await pm(rae).locator('ins.sugg-ins', { hasText: 'twelve' }).waitFor();
+  await pm(rae).locator('del.sugg-del', { hasText: 'ten' }).waitFor();
+  // Olivia sees it live, by Rae; the server keeps it.
+  const ins = pm(page).locator('ins.sugg-ins', { hasText: 'twelve' });
+  await ins.waitFor({ timeout: 15000 });
+  if (await ins.getAttribute('title') !== 'Suggested by Rae Reviewer') throw new Error(await ins.getAttribute('title'));
+  await until(async () => /twelve/.test(await stored()), 15000);
+}, { screenshot: (o) => (rae || page).screenshot(o) });
+await step('a commenter can’t change the text outright: bold and a new paragraph are held back', async () => {
+  await selectWords(rae, 'The');
+  await rae.keyboard.press('Control+b');
+  await rae.keyboard.press('End');
+  await rae.keyboard.press('Enter');
+  await rae.waitForTimeout(1500);
+  if (await pm(rae).locator('strong').count()) throw new Error('bold went in');
+  if (await pm(rae).locator('p').count() !== 1) throw new Error('a paragraph went in');
+  const now = await stored();
+  if (/"bold"/.test(now) || (now.match(/"paragraph"/g) || []).length !== 1 || !/twelve/.test(now)) throw new Error(now);
+}, { screenshot: (o) => (rae || page).screenshot(o) });
+await step('the owner accepts the commenter’s suggestion', async () => {
+  await page.getByRole('button', { name: /1 suggestions/ }).click();
+  await page.getByRole('button', { name: 'Accept: Replace “ten” with “twelve”' }).click();
+  await pm(page).getByText('The fee is twelve pounds.').waitFor();
+  await pm(rae).getByText('The fee is twelve pounds.').waitFor();
+  if (await pm(rae).locator('.sugg-ins, .sugg-del').count()) throw new Error('marks left');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -238,6 +238,8 @@ function SharedDoc({ file, setFile }) {
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
   const canComment = !!file && file.role !== 'viewer'; // commenters too, and on locked files
+  // Commenters suggest edits: what they type becomes their suggestions; nothing else changes (the server holds to it too).
+  const suggestOnly = file?.role === 'commenter' && !file?.locked_at;
 
   // One shared document per open editor; the provider keeps it in step with the server.
   const { ydoc, provider } = useMemo(() => {
@@ -303,7 +305,7 @@ function SharedDoc({ file, setFile }) {
       SuggestInsert, SuggestDelete, SuggestMode,
       PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, EmailDraft, EventDraft.configure({ doc: () => docRef.current }), MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
-    editable: !readOnly,
+    editable: !readOnly || suggestOnly,
     editorProps: {
       // What screen readers call the page you type in.
       attributes: { role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Document text' },
@@ -532,7 +534,7 @@ function SharedDoc({ file, setFile }) {
     editor.on('update', update);
     return () => editor.off('update', update);
   }, [editor, user.id, user.name]);
-  useEffect(() => { if (editor) editor.storage.suggestMode.on = suggesting && !readOnly; }, [editor, suggesting, readOnly]);
+  useEffect(() => { if (editor) { editor.storage.suggestMode.on = (suggesting && !readOnly) || suggestOnly; editor.storage.suggestMode.only = suggestOnly; } }, [editor, suggesting, readOnly, suggestOnly]);
   const resolve = (id, accept) => {
     const tr = resolveSuggestion(editor.state, id, accept);
     if (tr) editor.view.dispatch(tr);
@@ -855,7 +857,7 @@ function SharedDoc({ file, setFile }) {
       <style>{highlight}</style>
       <style>{printCss(file.page_setup)}</style>
       {rebuilt ? <RebuiltNote rebuilt={rebuilt} path="docs" /> : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep typing: your changes are kept on this device and sync when the connection is back.</div>}
-      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment and suggest edits: what you type shows as your suggestions.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {voiceTyping && !readOnly && <VoiceTypingBar editor={editor} onClose={() => { setVoiceTyping(false); editor.view.focus(); }} />}
       {reading && <ReadAloudBar key={reading.key} sentences={reading.list} onClose={() => { setReading(null); editor.view.focus(); }}
         onSentence={(s) => {

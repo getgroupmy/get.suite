@@ -2,6 +2,7 @@
 // editors co-edit, the same way TipTap's Yjs bridge (y-tiptap) does: elements carry their non-null
 // attributes, runs of text become one XmlText with marks as formatting attributes.
 import * as Y from 'yjs';
+import { withoutSuggestions as acceptedText } from './office/suggestions.js';
 
 function fill(parent, nodes) {
   const out = [];
@@ -313,6 +314,36 @@ export function resolveSuggestionsInYDoc(doc, pick, accept, field = 'default') {
   };
   walk(doc.getXmlFragment(field));
   return { count: chosen.size };
+}
+
+// (The editor writes a node's default settings, e.g. a paragraph's indent 0, once it has touched it: an absent setting
+// and an empty one are the same here.)
+const plainOf = (n) => {
+  if (Array.isArray(n)) return n.map(plainOf);
+  if (!n || typeof n !== 'object') return n;
+  const out = {};
+  for (const [k, v] of Object.entries(n)) {
+    if (k === 'attrs' && v && typeof v === 'object') {
+      const kept = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null && x !== undefined && x !== 0 && x !== false && x !== ''));
+      if (Object.keys(kept).length) out.attrs = plainOf(kept);
+    } else out[k] = plainOf(v);
+  }
+  return out;
+};
+
+/**
+ * Whether a change (before → after, stored JSON) by someone who may only suggest touches nothing but their own
+ * suggestions: the text as it stands is the same, everyone else's suggestions are as they were, and any new or
+ * changed suggestion is theirs. (Commenters suggest edits this way.)
+ */
+export function onlyOwnSuggestions(before, after, userId) {
+  if (JSON.stringify(plainOf(acceptedText(before))) !== JSON.stringify(plainOf(acceptedText(after)))) return false;
+  const was = new Map(suggestionsInJson(before).map((x) => [x.id, x]));
+  const now = new Map(suggestionsInJson(after).map((x) => [x.id, x]));
+  const same = (a, b) => a && b && a.deleted === b.deleted && a.inserted === b.inserted && a.by === b.by;
+  for (const [id, x] of was) if (x.by !== userId && !same(x, now.get(id))) return false; // someone else's: untouched
+  for (const [id, x] of now) if (!same(x, was.get(id)) && x.by !== userId) return false; // new or changed: theirs
+  return true;
 }
 
 // ---- spreadsheets: a list of sheets, each with cells, column widths, formats and charts as maps, so two
