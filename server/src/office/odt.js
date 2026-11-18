@@ -3,6 +3,7 @@
 // quotes, code blocks, tables, pictures, footnotes, page breaks, and chips as their text. In: the same,
 // read from the file's content.xml (its automatic styles say which text is bold, which list numbered…).
 import JSZip from 'jszip';
+import crypto from 'node:crypto';
 import { parseDocument } from 'htmlparser2';
 import { imageSize } from 'image-size';
 import { flattenTabs } from './doctabs.js';
@@ -88,6 +89,8 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     for (const n of nodes) {
       const t = n.type;
       if (t === 'hardBreak') { out += '<text:line-break/>'; continue; }
+      // A bookmark: one LibreOffice keeps (bm_…, as in the Word download), which links in the document go to.
+      if (t === 'bookmark') { if (/^[a-z0-9]{6,16}$/.test(n.attrs?.id || '')) out += `<text:bookmark text:name="bm_${n.attrs.id}"/>`; continue; }
       if (t === 'footnote') { noteNo++; out += `<text:note text:id="ftn${noteNo}" text:note-class="footnote"><text:note-citation>${noteNo}</text:note-citation><text:note-body><text:p text:style-name="Footnote">${odfText(n.attrs?.note || '')}</text:p></text:note-body></text:note>`; continue; }
       let text = null;
       if (t === 'mention') text = `@${n.attrs?.name || ''}`;
@@ -121,7 +124,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       let run = odfText(text);
       if (Object.keys(props).length) run = `<text:span text:style-name="${textStyle(props)}">${run}</text:span>`;
       const href = marks.get('link')?.attrs?.href;
-      if (href && !/^\s*javascript:/i.test(href)) run = `<text:a xlink:type="simple" xlink:href="${x(href)}">${run}</text:a>`;
+      if (href && !/^\s*javascript:/i.test(href)) run = `<text:a xlink:type="simple" xlink:href="${x(String(href).replace(/^#bm-([a-z0-9]{6,16})$/, '#bm_$1'))}">${run}</text:a>`; // (a link to a bookmark: to its name)
       out += run;
     }
     return out;
@@ -444,7 +447,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         case 'text:tab': out += '\t'; break;
         case 'text:line-break': out += '<br>'; break;
         case 'text:span': out += wrap(await inline(c), look(c.attribs['text:style-name']).tp, true); break;
-        case 'text:a': { const href = c.attribs['xlink:href'] || ''; out += /^\s*javascript:/i.test(href) ? await inline(c) : `<a href="${h(href)}">${await inline(c)}</a>`; break; }
+        case 'text:a': { const href = bookmarkHref(c.attribs['xlink:href'] || ''); out += /^\s*javascript:/i.test(href) ? await inline(c) : `<a href="${h(href)}">${await inline(c)}</a>`; break; }
         case 'text:note': { const body = kids(c).find((k) => k.name === 'text:note-body'); out += `<sup data-footnote="" data-note="${h(textOf(body || {}).trim())}"></sup>`; break; }
         case 'draw:frame': {
           const img = kids(c).find((k) => k.name === 'draw:image');
@@ -455,7 +458,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
           else out += '<em>[picture]</em>';
           break;
         }
-        case 'text:bookmark': case 'text:bookmark-start': case 'text:bookmark-end': case 'office:annotation': case 'office:annotation-end': case 'text:soft-page-break': break;
+        case 'text:bookmark': case 'text:bookmark-start': { const id = bookmarkId(c.attribs['text:name']); if (id) out += `<span data-bookmark="${id}"></span>`; break; }
+        case 'text:bookmark-end': case 'office:annotation': case 'office:annotation-end': case 'text:soft-page-break': break;
         default: out += await inline(c); // fields, changes, ruby…: their text
       }
     }
@@ -463,6 +467,11 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   };
   /** A table cell's background colour (its style's, or what that comes from). */
   const cellBg = (name) => { for (let n = name, i = 0; n && i < 10; n = styles.get(n)?.parent, i++) { const v = styles.get(n)?.cp?.['fo:background-color']; if (v) return v; } return null; };
+  // Bookmarks: ours (bm_…) keep their ids; others get one made from their name (LibreOffice's own __RefHeading…
+  // and _Toc… are its housekeeping); links to them (#name) go to the bookmark.
+  const bookmarkId = (name) => { const n = String(name || ''); if (!n || /^_/.test(n)) return null; const ours = /^bm_([a-z0-9]{6,16})$/.exec(n); return ours ? ours[1] : `o${crypto.createHash('sha1').update(n).digest('hex').slice(0, 9)}`; };
+  const bookmarkHref = (href) => { const m = /^#(.+)$/.exec(href); if (!m) return href; let name = m[1]; try { name = decodeURIComponent(name); } catch { /* as is */ } const id = bookmarkId(name.replace(/\|.*$/, '')); return id && bookmarkNames.has(name.replace(/\|.*$/, '')) ? `#bm-${id}` : href; };
+  const bookmarkNames = new Set([...String(contentXml).matchAll(/<text:bookmark(?:-start)? text:name="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')));
   const ALIGN = { center: 'center', end: 'right', right: 'right', justify: 'justify' };
   const ptOf = (v, max = 72) => { const m = /^(-?[\d.]+)(pt|cm|mm|in)$/.exec(String(v || '')); if (!m) return null; const n = Number(m[1]) * { pt: 1, cm: 72 / 2.54, mm: 72 / 25.4, in: 72 }[m[2]]; return n > 0.05 && n <= max ? Math.round(n * 10) / 10 : null; };
   // A paragraph's alignment (from its style, and those it comes from), and its own line spacing and space before

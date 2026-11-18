@@ -105,3 +105,43 @@ test('OpenDocument text in: styles LibreOffice writes (a heading by its style, c
   assert.equal(back.content[5].content[0].text, 'Tricky <b> & "quotes"');
   await assert.rejects(docFromOdt(await new JSZip().file('x.txt', 'no').generateAsync({ type: 'nodebuffer' })), /Not an OpenDocument/);
 });
+
+test('.odt: bookmarks and links to them, ours and LibreOffice\'s', async (t) => {
+  const { odtFromDoc: out, docFromOdt: back } = await import('../src/office/odt.js');
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'See ' }, { type: 'text', text: 'the terms', marks: [{ type: 'link', attrs: { href: '#bm-abc123' } }] }] },
+    { type: 'paragraph', content: [{ type: 'bookmark', attrs: { id: 'abc123' } }, { type: 'text', text: 'Terms' }] },
+  ] };
+  const buf = await out(doc, 'T');
+  const xml = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  assert.match(xml, /<text:bookmark text:name="bm_abc123"\/>Terms/);
+  assert.match(xml, /<text:a xlink:type="simple" xlink:href="#bm_abc123">the terms<\/text:a>/);
+  const nodes = (await back(buf)).doc.content;
+  assert.equal(JSON.stringify(nodes[1].content[0]), JSON.stringify({ type: 'bookmark', attrs: { id: 'abc123' } }));
+  assert.equal(nodes[0].content[1].marks[0].attrs.href, '#bm-abc123');
+  // LibreOffice's own: a named bookmark (start and end) with a link to it; its housekeeping ones aside; links elsewhere left alone.
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/vnd.oasis.opendocument.text');
+  zip.file('content.xml', `<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:xlink="http://www.w3.org/1999/xlink"><office:body><office:text>
+<text:p>Read <text:a xlink:type="simple" xlink:href="#Prices%20section">the prices</text:a> or <text:a xlink:type="simple" xlink:href="#Nowhere">this</text:a> or <text:a xlink:type="simple" xlink:href="https://acme.example/#x">that</text:a>.</text:p>
+<text:p><text:bookmark-start text:name="Prices section"/>Prices<text:bookmark-end text:name="Prices section"/><text:bookmark text:name="__RefHeading___Toc1"/></text:p>
+</office:text></office:body></office:document-content>`);
+  const lo = (await back(await zip.generateAsync({ type: 'nodebuffer' }))).doc.content;
+  const bm = lo[1].content.filter((n) => n.type === 'bookmark');
+  assert.equal(bm.length, 1, 'housekeeping bookmarks aside');
+  assert.match(bm[0].attrs.id, /^o[0-9a-f]{9}$/);
+  const hrefs = lo[0].content.filter((n) => n.marks).map((n) => n.marks[0].attrs.href);
+  assert.deepEqual(hrefs, [`#bm-${bm[0].attrs.id}`, '#Nowhere', 'https://acme.example/#x']);
+  // Ours, opened and saved by LibreOffice (where it is installed): the bookmark and the link to it come back.
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'b.odt'), buf);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'out'), path.join(dir, 'b.odt')], { stdio: 'ignore', timeout: 120000 });
+    const again = (await back(fs.readFileSync(path.join(dir, 'out', 'b.odt')))).doc.content;
+    assert.equal(JSON.stringify(again[1].content.find((n) => n.type === 'bookmark')), JSON.stringify({ type: 'bookmark', attrs: { id: 'abc123' } }));
+    assert.equal(again[0].content.find((n) => n.marks)?.marks[0].attrs.href, '#bm-abc123');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

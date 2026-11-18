@@ -91,6 +91,27 @@ await step('Go to from the list, and a link to it within the document', async ()
   await page.evaluate((href) => { location.hash = new URL(href).hash; }, link);
   await until(() => inView(page));
 });
+await step('the .odt and Word downloads keep the bookmark: the reopened copy goes to it', async () => {
+  await page.waitForTimeout(2500); // saved
+  const id = /"type":"bookmark","attrs":\{"id":"([a-z0-9]+)"/.exec(await content())?.[1];
+  if (!id) throw new Error('no bookmark saved');
+  for (const format of ['odt', 'docx']) {
+    const up = await page.evaluate(async ([doc, f]) => {
+      const bytes = await (await fetch(`/api/files/${doc}/export?format=${f}`)).arrayBuffer();
+      return (await fetch(`/api/files/upload?name=Contract%20copy.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    }, [docId, format]);
+    const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+    const back = JSON.stringify((await api(page, 'GET', `/files/${opened.id}/content`)).body.content);
+    if (!back.includes(`"type":"bookmark","attrs":{"id":"${id}"}`)) throw new Error(`${format}: bookmark lost`);
+    if (format === 'odt') {
+      await page.goto(`${B}/docs/${opened.id}#bm-${id}`);
+      await page.getByText('Payment terms: thirty days.').waitFor();
+      await until(() => inView(page));
+    }
+  }
+  await page.goto(`${B}/docs/${docId}`);
+  await page.getByText('Payment terms: thirty days.').waitFor();
+});
 await step('Remove it', async () => {
   await page.getByRole('button', { name: 'More', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Bookmarks' }).click();
