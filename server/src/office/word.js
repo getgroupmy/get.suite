@@ -23,7 +23,7 @@ import {
   Math as WordMath, MathRun, Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
   Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun, CommentRangeStart, CommentRangeEnd, CommentReference, InsertedTextRun, DeletedTextRun,
 } from 'docx';
-import { Node, Mark } from '@tiptap/core';
+import { Node, Mark, Extension } from '@tiptap/core';
 import { pageMm, MARGINS, PAPER, DOC_FONTS, DOC_FONT_SIZES } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
@@ -89,9 +89,19 @@ const CommentMark = Mark.create({
 });
 // A page break, as in web/src/apps/docs/pagebreak.js.
 const PageBreakNode = Node.create({ name: 'pageBreak', group: 'block', atom: true, parseHTML: () => [{ tag: 'div[data-page-break]' }, { tag: 'hr[data-page-break]' }], renderHTML: () => ['div', { 'data-page-break': '' }] });
+// Line spacing and the space before and after a paragraph, as in web/src/apps/docs/typography.js.
+const ptOf = (v) => { const m = /^([\d.]+)pt$/.exec(String(v || '').trim()); const n = m ? Number(m[1]) : NaN; return n > 0 && n <= 72 ? Math.round(n * 10) / 10 : null; };
+const ParagraphSpacing = Extension.create({
+  name: 'lineHeight',
+  addGlobalAttributes: () => [{ types: ['paragraph', 'heading'], attributes: {
+    lineHeight: { default: null, parseHTML: (el) => { const v = el.style.lineHeight; return /^[\d.]+$/.test(v) ? v : null; }, renderHTML: (a) => (a.lineHeight ? { style: `line-height: ${a.lineHeight}` } : {}) },
+    spaceBefore: { default: null, parseHTML: (el) => ptOf(el.style.marginTop), renderHTML: (a) => (a.spaceBefore ? { style: `margin-top: ${a.spaceBefore}pt` } : {}) },
+    spaceAfter: { default: null, parseHTML: (el) => ptOf(el.style.marginBottom), renderHTML: (a) => (a.spaceAfter ? { style: `margin-bottom: ${a.spaceAfter}pt` } : {}) },
+  } }],
+});
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -133,9 +143,17 @@ export function markWordXml(xml) {
     .replace(/<w:br\b[^>]*w:type="page"[^>]*\/>/g, `<w:t xml:space="preserve">${MK}pb${MK_END}</w:t>`)
     .replace(/<w:commentRangeStart w:id="(\d+)"\/>/g, (m, id) => `${m}${marker(`k:${id}`)}`)
     .replace(/<w:commentRangeEnd w:id="(\d+)"\/>/g, (m, id) => `${marker(`/k:${id}`)}${m}`)
+    // A paragraph's own alignment, line spacing and space before and after (not its style's).
     .replace(/(<w:pPr>[\s\S]*?<\/w:pPr>)/g, (m, ppr) => {
-      const jc = /<w:jc w:val="([a-zA-Z]+)"\/>/.exec(ppr.replace(/<w:rPr>[\s\S]*?<\/w:rPr>/g, ''))?.[1];
-      return WORD_ALIGN[jc] ? `${ppr}${marker(`a:${WORD_ALIGN[jc]}`)}` : ppr;
+      const own = ppr.replace(/<w:rPr>[\s\S]*?<\/w:rPr>/g, '');
+      const jc = /<w:jc w:val="([a-zA-Z]+)"\/>/.exec(own)?.[1];
+      const sp = /<w:spacing\b([^>]*)\/>/.exec(own)?.[1] || '';
+      const num = (k) => Number(new RegExp(`w:${k}="(\\d+)"`).exec(sp)?.[1]);
+      const rule = /w:lineRule="(\w+)"/.exec(sp)?.[1] || 'auto';
+      const lh = rule === 'auto' && num('line') ? Math.round((num('line') / 240) * 100) / 100 : null;
+      const pt = (k) => { const v = num(k) / 20; return v > 0 && v <= 72 && !new RegExp(`w:${k}Autospacing="(1|true)"`).test(sp) ? Math.round(v * 10) / 10 : null; };
+      const spec = [WORD_ALIGN[jc] && `al=${WORD_ALIGN[jc]}`, lh >= 0.5 && lh <= 4 && `lh=${lh}`, pt('before') && `sb=${pt('before')}`, pt('after') && `sa=${pt('after')}`].filter(Boolean).join(';');
+      return spec ? `${ppr}${marker(`p:${spec}`)}` : ppr;
     })
     .replace(/<w:r(?=[\s>])([^>]*)>((?:(?!<\/w:r>)[\s\S])*?)<\/w:r>/g, (m, attrs, inner) => {
       const rpr = /^\s*<w:rPr>([\s\S]*?)<\/w:rPr>/.exec(inner)?.[1];
@@ -168,7 +186,11 @@ export function unmarkWordHtml(html, commentId = null) {
     .replace(re('MK/dEND'), '</del>')
     .replace(re('MKk:(\\d+)END'), (m, id) => { if (!commentId) return ''; const c = commentId(id); return c ? `<span data-comment="${c}">` : '<span>'; })
     .replace(re('MK/k:(\\d+)END'), () => (commentId ? '</span>' : ''))
-    .replace(re('<(p|h[1-6])>MKa:(center|right|justify)END'), (m, tag, a) => `<${tag} style="text-align:${a}">`)
+    .replace(re('<(p|h[1-6])>MKp:([^END]*)END'), (m, tag, spec) => {
+      const css = { al: 'text-align:', lh: 'line-height:', sb: 'margin-top:', sa: 'margin-bottom:' };
+      const style = spec.split(';').map((kv) => { const [k, v] = kv.split('='); return css[k] && /^[\w.]+$/.test(v) ? `${css[k]}${v}${k === 'sb' || k === 'sa' ? 'pt' : ''}` : ''; }).filter(Boolean).join(';');
+      return style ? `<${tag} style="${style}">` : `<${tag}>`;
+    })
     .replace(re('MKs:([^END]*)END'), (m, spec) => {
       const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : x.startsWith('f:') ? `font-family:${x.slice(2).replace(/"/g, "'")}` : x.startsWith('z:') ? `font-size:${x.slice(2)}pt` : '')).filter(Boolean).join(';');
       return `<span style="${attr(css)}">`;
@@ -311,7 +333,12 @@ const fontName = (stack) => { const f = String(stack || '').split(',')[0].trim()
 /** A CSS size ("14pt", "18px") in Word's half-points. */
 const halfPoints = (v) => { const m = /^([\d.]+)(pt|px)$/.exec(String(v || '').trim()); if (!m) return null; const pt = m[2] === 'px' ? Number(m[1]) * 0.75 : Number(m[1]); return pt >= 4 && pt <= 200 ? Math.round(pt * 2) : null; };
 /** Line spacing (a multiple, such as 1.5) as Word paragraph spacing. */
-const spacing = (lh) => { const n = Number(lh); return n >= 0.5 && n <= 4 ? { spacing: { line: Math.round(240 * n), lineRule: LineRuleType.AUTO } } : {}; };
+/** A paragraph's line spacing and space before and after (pt), as Word's own paragraph spacing. */
+const spacing = (lh, before, after) => {
+  const n = Number(lh), b = Number(before), a = Number(after);
+  const sp = { ...(n >= 0.5 && n <= 4 && { line: Math.round(240 * n), lineRule: LineRuleType.AUTO }), ...(b > 0 && b <= 72 && { before: Math.round(b * 20) }), ...(a > 0 && a <= 72 && { after: Math.round(a * 20) }) };
+  return Object.keys(sp).length ? { spacing: sp } : {};
+};
 
 // Dropdown chips' colours, as shading behind their text.
 const CHIP_FILLS = { grey: 'E8EAED', blue: 'D3E3FD', green: 'C4EED0', yellow: 'FFE8A3', red: 'FAD2CF', purple: 'E9D7FE' };
@@ -618,8 +645,8 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       const align = ALIGN[n.attrs?.textAlign];
       // Indented paragraphs: half an inch (720 twentieths of a point) a step, as in Docs.
       const indent = Number(n.attrs?.indent) > 0 ? { indent: { left: 720 * Math.min(8, Math.round(n.attrs.indent)) } } : {};
-      if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...spacing(n.attrs?.lineHeight), ...indent, ...ctx.para }));
-      else if (n.type === 'heading') paras.push(new Paragraph({ children: (() => { const label = page?.headingNumbers ? allLabels[headingAt++] : null; const r = [...(label ? [new TextRun(`${label} `)] : []), ...runs(n.content)]; return textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: r })] : r; })(), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight), ...indent }));
+      if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...spacing(n.attrs?.lineHeight, n.attrs?.spaceBefore, n.attrs?.spaceAfter), ...indent, ...ctx.para }));
+      else if (n.type === 'heading') paras.push(new Paragraph({ children: (() => { const label = page?.headingNumbers ? allLabels[headingAt++] : null; const r = [...(label ? [new TextRun(`${label} `)] : []), ...runs(n.content)]; return textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: r })] : r; })(), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight, n.attrs?.spaceBefore, n.attrs?.spaceAfter), ...indent }));
       else if (n.type === 'bulletList' || n.type === 'orderedList') {
         const level = (ctx.level ?? -1) + 1;
         for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering: { reference: 'numbers', level } } });

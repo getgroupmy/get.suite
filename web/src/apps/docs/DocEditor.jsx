@@ -14,7 +14,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { TextStyle, Color, BackgroundColor, FontFamily, FontSize } from '@tiptap/extension-text-style';
-import { FONTS, SIZES, LINE_HEIGHTS, fontChoice, LineHeight } from './typography.js';
+import { FONTS, SIZES, LINE_HEIGHTS, PARA_SPACE, spacingChoices, fontChoice, LineHeight } from './typography.js';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import * as Y from 'yjs';
@@ -1081,7 +1081,8 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
       {(() => {
         const ts = editor.getAttributes('textStyle');
         const font = fontChoice(ts.fontFamily);
-        const lh = editor.getAttributes(editor.isActive('heading') ? 'heading' : 'paragraph').lineHeight || '';
+        const pAttrs = editor.getAttributes(editor.isActive('heading') ? 'heading' : 'paragraph');
+        const lh = pAttrs.lineHeight || '';
         return <>
           <select aria-label="Font" title="Font" value={font} style={{ fontFamily: ts.fontFamily || undefined }} onChange={(e) => (e.target.value ? c().setFontFamily(e.target.value).run() : c().unsetFontFamily().run())}>
             {font === 'other' && <option value="other" disabled>{String(ts.fontFamily).split(',')[0].replace(/["']/g, '')}</option>}
@@ -1091,8 +1092,12 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
             {!SIZES.includes(ts.fontSize || '') && <option value="other" disabled>{ts.fontSize}</option>}
             {SIZES.map((v) => <option key={v} value={v}>{v ? v.replace('pt', '') : 'Size'}</option>)}
           </select>
-          <select aria-label="Line spacing" title="Line spacing" value={lh} onChange={(e) => c().setLineHeight(e.target.value || null).run()}>
-            {LINE_HEIGHTS.map(([v, n]) => <option key={n} value={v}>{v ? `↕ ${n}` : '↕ Spacing'}</option>)}
+          <select aria-label="Line spacing" title="Line and paragraph spacing" value={lh} onChange={(e) => {
+            const [side, on] = e.target.value.split('-');
+            if (on) c().setParagraphSpace(side, on === 'on' ? PARA_SPACE : null).run();
+            else c().setLineHeight(e.target.value || null).run();
+          }}>
+            {spacingChoices(pAttrs).map(([v, n], i) => <option key={v || 'default'} value={v} style={i === LINE_HEIGHTS.length ? { borderTop: '1px solid' } : undefined}>{n}</option>)}
           </select>
           <select aria-label="Sort lines" title="Sort the selected paragraphs or list items" value="" disabled={editor.state.selection.empty}
             onChange={(e) => { const tr = e.target.value && sortTransaction(editor.state, e.target.value === 'desc'); if (tr) editor.view.dispatch(tr); editor.view.focus(); }}>

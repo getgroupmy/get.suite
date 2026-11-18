@@ -69,6 +69,40 @@ await step('kept after reopening, and in the Word download', async () => {
   const size = await page.evaluate(async (id) => (await (await fetch(`/api/files/${id}/export`)).arrayBuffer()).byteLength, docId);
   if (size < 3000) throw new Error('no Word file');
 });
+await step('Add space before / after a paragraph; the other editor sees it; Word and .odt keep it', async () => {
+  const para = (p) => p.locator('.paper .tiptap p', { hasText: 'Second paragraph' }).first();
+  const gaps = (p) => para(p).evaluate((el) => `${getComputedStyle(el).marginTop} ${getComputedStyle(el).marginBottom}`);
+  const inSecond = () => page.evaluate(() => document.querySelector('.paper .tiptap').editor.state.selection.$from.parent.textContent.startsWith('Second'));
+  await until(async () => { await para(page).click(); return inSecond(); }); // (the editor may still be starting after the reload)
+  const menu = page.getByLabel('Line spacing');
+  await menu.selectOption({ label: 'Add space before paragraph' });
+  await menu.selectOption({ label: 'Add space after paragraph' });
+  await until(async () => (await gaps(page)) === '16px 16px'); // 12 pt each
+  // The menu now offers to take them off again, and still shows the line spacing.
+  const labels = await menu.locator('option').allTextContents();
+  if (!labels.includes('Remove space before paragraph') || !labels.includes('Remove space after paragraph')) throw new Error(labels.join(','));
+  if ((await menu.inputValue()) !== '') throw new Error(`menu shows ${await menu.inputValue()}`);
+  await until(async () => (await gaps(kim)) === '16px 16px');
+  if ((await style(page, 'Letter to the board')).lh !== '2') throw new Error('the other paragraph changed');
+  await page.waitForTimeout(2500); // saved
+  for (const format of ['docx', 'odt']) {
+    const up = await page.evaluate(async ([id, f]) => {
+      const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
+      return (await fetch(`/api/files/upload?name=Styled%20copy.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    }, [docId, format]);
+    const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+    if (opened.status >= 300) throw new Error(JSON.stringify(opened));
+    const nodes = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.content;
+    const second = nodes.find((n) => JSON.stringify(n).includes('Second paragraph'));
+    const first = nodes.find((n) => JSON.stringify(n).includes('Letter to the board'));
+    if (second?.attrs?.spaceBefore !== 12 || second?.attrs?.spaceAfter !== 12 || String(first?.attrs?.lineHeight) !== '2') throw new Error(`${format}: ${JSON.stringify([first?.attrs, second?.attrs])}`);
+  }
+  // Taking one off again.
+  await para(page).click();
+  await menu.selectOption({ label: 'Remove space before paragraph' });
+  await until(async () => (await gaps(page)).endsWith(' 16px') && !(await gaps(page)).startsWith('16px'));
+  await page.screenshot({ path: `${SP}/shots/paragraph-spacing.png` });
+});
 await step('Default puts it back', async () => {
   await page.locator('.paper .tiptap p', { hasText: 'Letter to the board' }).click({ clickCount: 3 });
   await page.waitForTimeout(250);

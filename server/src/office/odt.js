@@ -151,16 +151,26 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   }
 
   const ALIGNS = { center: 'center', right: 'end', justify: 'justify' };
-  const para = (n, style = 'Standard') => {
-    const al = ALIGNS[n.attrs?.textAlign];
-    return `<text:p text:style-name="${al ? `${style}_${al}` : style}">${inline(n.content)}</text:p>`;
+  // A paragraph's style: its base, aligned (Standard_center…), or one of its own when it has line spacing or
+  // space before or after (Standard_s1…, as LibreOffice's own direct formatting).
+  const spaced = new Map(); // what a style says → its name
+  const styleOf = (base, attrs = {}) => {
+    const al = ALIGNS[attrs.textAlign];
+    const lh = Number(attrs.lineHeight), sb = Number(attrs.spaceBefore), sa = Number(attrs.spaceAfter);
+    const props = [al && `fo:text-align="${al}"`, lh >= 0.5 && lh <= 4 && `fo:line-height="${Math.round(lh * 100)}%"`, sb > 0 && sb <= 72 && `fo:margin-top="${sb}pt"`, sa > 0 && sa <= 72 && `fo:margin-bottom="${sa}pt"`].filter(Boolean);
+    if (props.length <= (al ? 1 : 0)) return al ? `${base}_${al}` : base;
+    const key = `${base}|${props.join(' ')}`;
+    if (!spaced.has(key)) spaced.set(key, `${base}_s${spaced.size + 1}`);
+    return spaced.get(key);
   };
+  const spacedStyles = () => [...spaced].map(([key, name]) => { const [base, props] = key.split('|'); return `<style:style style:name="${name}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties ${props}/></style:style>`; }).join('');
+  const para = (n, style = 'Standard') => `<text:p text:style-name="${styleOf(style, n.attrs)}">${inline(n.content)}</text:p>`;
   const blocks = (nodes = [], ctx = {}) => {
     let out = '';
     for (const n of nodes) {
       const t = n.type;
       if (t === 'paragraph') out += para(n, ctx.style || 'Standard');
-      else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); const al = ALIGNS[n.attrs?.textAlign]; out += `<text:h text:style-name="Heading_20_${lv}${al ? `_${al}` : ''}" text:outline-level="${lv}">${inline(n.content)}</text:h>`; }
+      else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); out += `<text:h text:style-name="${styleOf(`Heading_20_${lv}`, n.attrs)}" text:outline-level="${lv}">${inline(n.content)}</text:h>`; }
       else if (t === 'bulletList' || t === 'orderedList') {
         out += `<text:list text:style-name="${t === 'orderedList' ? 'LNum' : 'LBul'}">${(n.content || []).map((li) => `<text:list-item>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
       } else if (t === 'taskList') {
@@ -224,7 +234,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     .flatMap((base) => Object.values(ALIGNS).map((al) => `<style:style style:name="${base}_${al}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties fo:text-align="${al}"/></style:style>`)).join('');
   const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:font-face-decls><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-pitch="fixed"/></office:font-face-decls><office:automatic-styles>${auto}${aligned}
+<office:document-content ${NS}><office:font-face-decls><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-pitch="fixed"/></office:font-face-decls><office:automatic-styles>${auto}${aligned}${spacedStyles()}
 <style:style style:name="PageBreak" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:break-before="page"/></style:style>
 <style:style style:name="Tbl" style:family="table"><style:table-properties style:width="17cm" table:align="margins"/></style:style>
 <style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999"/></style:style>
@@ -352,6 +362,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     }
   };
   readStyles(stylesRoot); readStyles(root);
+  // The document's default paragraph look (what every paragraph has unless it says otherwise).
+  const defaultPP = /<style:default-style\b[^>]*style:family="paragraph"[^>]*>[\s\S]*?<style:paragraph-properties\b([^>]*?)\/?>/.exec(stylesXml)?.[1]?.match(/[\w:-]+="[^"]*"/g)?.reduce((o, a) => { const [k, v] = a.split('='); o[k] = v.slice(1, -1); return o; }, {}) || {};
   const look = (name) => { // a style with what it inherits: its look, the names it comes from, and a heading level
     const out = { tp: {}, pp: {}, names: [], level: 0 };
     const chain = [];
@@ -421,7 +433,20 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     return out;
   };
   const ALIGN = { center: 'center', end: 'right', right: 'right', justify: 'justify' };
-  const alignAttr = (styleName) => { const a = ALIGN[look(styleName).pp['fo:text-align']]; return a ? ` style="text-align: ${a}"` : ''; };
+  const ptOf = (v) => { const m = /^(-?[\d.]+)(pt|cm|mm|in)$/.exec(String(v || '')); if (!m) return null; const n = Number(m[1]) * { pt: 1, cm: 72 / 2.54, mm: 72 / 25.4, in: 72 }[m[2]]; return n > 0.05 && n <= 72 ? Math.round(n * 10) / 10 : null; };
+  // A paragraph's alignment (from its style, and those it comes from), and its own line spacing and space before
+  // and after (its own direct formatting only: what a named style like "Text Body" says is that style's look).
+  const alignAttr = (styleName) => {
+    const a = ALIGN[look(styleName).pp['fo:text-align']];
+    // (LibreOffice writes both margins when one changes: the other, as the style it comes from has it, is no change.)
+    const inherited = { ...defaultPP, ...(styles.get(styleName)?.parent ? look(styles.get(styleName).parent).pp : {}) };
+    const same = (k, v) => inherited[k] === v || (/^fo:margin/.test(k) && Math.abs((ptOf(v) || 0) - (ptOf(inherited[k]) || 0)) < 0.2);
+    const own = Object.fromEntries(Object.entries(styles.get(styleName)?.pp || {}).filter(([k, v]) => !same(k, v)));
+    const lh = /^(\d+(?:\.\d+)?)%$/.exec(own['fo:line-height'] || '')?.[1];
+    const css = [a && `text-align: ${a}`, lh && Number(lh) >= 50 && Number(lh) <= 400 && `line-height: ${Math.round(Number(lh)) / 100}`,
+      ptOf(own['fo:margin-top']) && `margin-top: ${ptOf(own['fo:margin-top'])}pt`, ptOf(own['fo:margin-bottom']) && `margin-bottom: ${ptOf(own['fo:margin-bottom'])}pt`].filter(Boolean);
+    return css.length ? ` style="${css.join('; ')}"` : '';
+  };
   const blocks = async (el, depth = 0, listStyle = null) => {
     let out = '';
     for (const c of kids(el)) {

@@ -4,7 +4,7 @@
 
 export const FORMAT_MARKS = ['bold', 'italic', 'underline', 'strike', 'code', 'textStyle', 'highlight', 'subscript', 'superscript'];
 const BLOCKS = ['paragraph', 'heading'];
-const BLOCK_ATTRS = ['level', 'textAlign', 'lineHeight', 'indent'];
+const BLOCK_ATTRS = ['level', 'textAlign', 'lineHeight', 'spaceBefore', 'spaceAfter', 'indent'];
 
 /** The formatting at the start of the selection: { marks: [{ type, attrs }], block: { type, attrs } }. */
 export function captureFormat(state) {

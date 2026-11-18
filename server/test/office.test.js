@@ -2115,3 +2115,46 @@ test('Slides: what LibreOffice keeps when it opens and saves our .pptx and .odp 
     assert.deepEqual(kept(await deckFromOdp(lo('d.pptx', 'odp', 'x'), save)), want, 'our .pptx saved as .odp by LibreOffice');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Docs: line spacing and space before / after a paragraph, out to Word and .odt and back (and from Word\'s own XML)', async (t) => {
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const { markWordXml, unmarkWordHtml } = await import('../src/office/word.js');
+  const P = (text, attrs) => ({ type: 'paragraph', attrs, content: [{ type: 'text', text }] });
+  const doc = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 1, spaceBefore: 24, spaceAfter: 12 }, content: [{ type: 'text', text: 'Title' }] },
+    P('Double, space after', { lineHeight: '2', spaceAfter: 12 }),
+    P('Centred, 1.5, space before', { textAlign: 'center', lineHeight: '1.5', spaceBefore: 12 }),
+    P('Plain'),
+  ] };
+  const want = ['Title: - - 24 12', 'Double, space after: - 2 - 12', 'Centred, 1.5, space before: center 1.5 12 -', 'Plain: - - - -'];
+  const show = (d) => d.content.filter((n) => /paragraph|heading/.test(n.type)).map((n) => `${(n.content || []).map((c) => c.text || '').join('')}: ${['textAlign', 'lineHeight', 'spaceBefore', 'spaceAfter'].map((k) => n.attrs?.[k] ?? '-').join(' ')}`);
+  const docx = await wordFromDoc(doc, 'T');
+  const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:spacing w:after="240" w:line="480" w:lineRule="auto"\/>/);
+  assert.match(xml, /<w:spacing w:before="240" w:line="360" w:lineRule="auto"\/>/);
+  assert.match(xml, /<w:pStyle w:val="Heading1"\/><w:spacing w:after="240" w:before="480"\/>/);
+  assert.deepEqual(show((await docFromWord(docx)).doc), want, 'Word');
+  const odt = await odtFromDoc(doc, 'T');
+  const c = await (await JSZip.loadAsync(odt)).file('content.xml').async('string');
+  assert.match(c, /<style:style style:name="Standard_s\d" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:line-height="150%" fo:margin-top="12pt"\/>/);
+  assert.match(c, /<text:h text:style-name="Heading_20_1_s\d" text:outline-level="1">Title/);
+  assert.match(c, /<text:p text:style-name="Standard">Plain/, 'a plain paragraph keeps the plain style');
+  assert.deepEqual(show((await docFromOdt(odt)).doc), want, '.odt');
+  // Word's own: only a paragraph's direct spacing counts; 0 and "auto" spacing are none; lines in other rules are left alone.
+  const html = (x) => unmarkWordHtml(markWordXml(x).replace(/<w:p>(<w:pPr>[\s\S]*?<\/w:pPr>)((?:<w:r>[\s\S]*?<\/w:r>)+)<\/w:p>/g, (m, ppr, runs) => `<p>${runs.replace(/<[^>]+>/g, '')}</p>`));
+  assert.equal(html('<w:p><w:pPr><w:spacing w:before="0" w:after="160" w:line="259" w:lineRule="auto"/></w:pPr><w:r><w:t>A</w:t></w:r></w:p>'), '<p style="line-height:1.08;margin-bottom:8pt">A</p>');
+  assert.equal(html('<w:p><w:pPr><w:spacing w:beforeAutospacing="1" w:before="100" w:line="300" w:lineRule="exact"/></w:pPr><w:r><w:t>B</w:t></w:r></w:p>'), '<p>B</p>');
+  assert.equal(html('<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="2000"/></w:pPr><w:r><w:t>C</w:t></w:r></w:p>'), '<p style="text-align:center">C</p>', 'more than 72pt is left out');
+  // Through LibreOffice, where it is installed: its own direct formatting comes back the same.
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.docx'), docx); fs.writeFileSync(path.join(dir, 'd.odt'), odt);
+    assert.deepEqual(show((await docFromWord(lo('d.docx', 'docx', 'a'))).doc), want, 'Word → LibreOffice → Word');
+    assert.deepEqual(show((await docFromOdt(lo('d.odt', 'odt', 'b'))).doc), want, '.odt → LibreOffice → .odt (it writes both margins when one changes)');
+    assert.deepEqual(show((await docFromOdt(lo('d.docx', 'odt', 'c'))).doc), want, 'Word saved as .odt');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
