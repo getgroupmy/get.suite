@@ -89,6 +89,19 @@ await step('Enter with nothing picked searches Drive; Escape closes', async () =
   await box().press('Enter');
   await page.waitForURL(/\/drive\/search\?q=launch/);
 });
+await step('a word suggested in a document is found; the snippet reads the text as it stands', async () => {
+  const sg = { id: 'sabc123', by: null, name: 'Kim Zephyr', at: Date.now() };
+  await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Venue note', content: { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'The offsite is in ' }, { type: 'text', text: 'Porto', marks: [{ type: 'suggestDelete', attrs: sg }] }, { type: 'text', text: 'Valencia', marks: [{ type: 'suggestInsert', attrs: sg }] }, { type: 'text', text: ' this year.' }] }] } });
+  await page.goto(`${B}/home`);
+  const opt = () => results().getByRole('option', { name: /Venue note/ });
+  await until(async () => { await box().fill(''); await box().fill('Valencia'); await page.waitForTimeout(700); return (await opt().count()) > 0; }, 20000);
+  await box().fill('');
+  await box().fill('Porto');
+  await opt().waitFor();
+  const text = await opt().innerText();
+  if (/PortoValencia/.test(text)) throw new Error(`snippet runs the words together: ${text}`);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

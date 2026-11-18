@@ -78,3 +78,11 @@ test('filename: narrows to mail with attachments, and names are checked afterwar
   assert.deepEqual(f.left, []);
   assert.deepEqual(f.rule.conditions.slice(1), [{ field: 'filename', op: 'contains', value: 'pdf' }, { field: 'filename', op: 'not_contains', value: 'draft' }]);
 });
+
+test('a document with pending suggestions is searched as it stands, and by the words suggested: no "MarchApril"', async () => {
+  const { docSearchText } = await import('../src/search.js');
+  const { replaceInJson } = await import('../src/collabdoc.js');
+  const doc = replaceInJson({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ship in March to Paris.' }] }] }, 'March', 'April', { suggest: { by: 'u', name: 'Kim' } }).json;
+  assert.equal(docSearchText(doc), 'Ship in March to Paris.\nApril');
+  assert.equal(docSearchText({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Plain.' }] }] }), 'Plain.');
+});

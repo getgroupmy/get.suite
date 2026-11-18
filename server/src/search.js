@@ -2,6 +2,8 @@
 // Word/Excel/PowerPoint uploads, in a full-text index (SQLite FTS5, accents ignored). A background
 // indexer picks up every file whose version changed, however it changed (an editor saving,
 // an upload, WebDAV, a restored version), so nothing else has to remember to update it.
+import { withoutSuggestions } from './office/suggestions.js';
+import { suggestionsInJson } from './collabdoc.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import mammoth from 'mammoth';
@@ -12,6 +14,10 @@ import { chipText, dateText, eventLines } from './office/chiptext.js';
 
 q("CREATE VIRTUAL TABLE IF NOT EXISTS file_text USING fts5(file_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
 q('CREATE TABLE IF NOT EXISTS file_text_state (file_id TEXT PRIMARY KEY, version INTEGER NOT NULL)').run();
+// When how a kind of file is read for searching changes, the files concerned are indexed again, once.
+q('CREATE TABLE IF NOT EXISTS file_text_redone (name TEXT PRIMARY KEY)').run();
+const redoOnce = (name, where) => { if (q('SELECT 1 FROM file_text_redone WHERE name = ?').get(name)) return; q(`DELETE FROM file_text_state WHERE file_id IN (SELECT id FROM files WHERE ${where})`).run(); q('INSERT INTO file_text_redone (name) VALUES (?)').run(name); };
+redoOnce('doc-suggestions', "kind = 'doc' AND content LIKE '%suggestInsert%'"); // (pending suggestions were run into the text: "MarchApril")
 
 const MAX_TEXT = 200_000; // characters kept per file
 const MAX_READ = 20 * 1024 * 1024; // larger uploads aren't read
@@ -40,6 +46,16 @@ export function docText(doc) {
   return out.join('').replace(/\n{2,}/g, '\n').trim();
 }
 
+/**
+ * A document's words for searching: its text as it stands (pending suggestions left out, so a suggested
+ * replacement doesn't run "March" and "April" into one word, "MarchApril"), then the words suggested for it,
+ * each on its own line, so they're found too.
+ */
+export function docSearchText(json) {
+  const suggested = suggestionsInJson(json).map((x) => x.inserted).filter((t) => t.trim());
+  return [docText(withoutSuggestions(json)), ...suggested].join('\n');
+}
+
 /** A spreadsheet's sheet names and cell entries (formulas are left out: they aren't words people look for). */
 export function sheetText(json) {
   return (json?.sheets || []).map((s) => [s.name, ...Object.values(s.cells || {}).filter((v) => typeof v === 'string' && !v.startsWith('=')), ...Object.values(s.charts || {}).map((c) => c.title || ''), ...Object.values(s.notes || {})].join('\n')).join('\n');
@@ -57,7 +73,7 @@ export async function textOf(f) {
   if (f.kind === 'doc' || f.kind === 'sheet' || f.kind === 'slides') {
     let json;
     try { json = JSON.parse(f.content || '{}'); } catch { return ''; }
-    return f.kind === 'doc' ? docText(json) : f.kind === 'sheet' ? sheetText(json) : slidesText(json);
+    return f.kind === 'doc' ? docSearchText(json) : f.kind === 'sheet' ? sheetText(json) : slidesText(json);
   }
   if (f.kind !== 'file' || !f.storage || f.size > MAX_READ) return '';
   const file = path.join(FILES_DIR, f.storage);
