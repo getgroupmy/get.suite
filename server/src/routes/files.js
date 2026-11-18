@@ -26,7 +26,7 @@ import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { keepIfHeld, onHold } from '../hold.js';
 import { newCommentCounts } from './comments.js';
-import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
+import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway, accessRequestsFor } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
@@ -1188,12 +1188,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Requests for your files, newest first.
-  r.get('/access-requests', (req, res) => {
-    res.json(q(`SELECT a.id, a.user_id, a.role, a.message, a.created_at, a.longer, (SELECT expires_at FROM shares WHERE file_id = a.file_id AND user_id = a.user_id) AS ends_at, f.id AS file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name, u.username AS user_email
-                FROM access_requests a JOIN files f ON f.id = a.file_id JOIN users u ON u.id = a.user_id
-                WHERE f.owner_id = ? AND f.trashed = 0 ORDER BY a.created_at DESC`).all(req.user.id)
-      .map((a) => ({ ...a, has: roleFor(a.file_id, a.user_id) || null }))); // has: what they can do now (asking for more), or null
-  });
+  r.get('/access-requests', (req, res) => res.json(accessRequestsFor(req.user.id)));
 
   // Answer one: { approve, role } — yes shares the file with them (as asked, or as you choose); no just says so.
   r.post('/access-requests/:rid', (req, res) => {

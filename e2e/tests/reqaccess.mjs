@@ -72,8 +72,11 @@ await step('from Drive, Kim asks to edit it (Shared with me → Request edit acc
   await kim.getByLabel('Actions for Payroll').click();
   await kim.getByRole('menuitem', { name: 'Request edit access' }).click();
   await kim.getByText('Asked Olivia Owner for edit access').waitFor();
-  await page.goto(`${B}/drive`);
-  await page.getByRole('button', { name: /^Access requests/ }).click();
+  // Olivia's Home shows it waiting; it opens Drive's Access requests.
+  await page.goto(`${B}/home`);
+  const card = page.getByRole('region', { name: 'Access requests' });
+  await card.getByText('asks to edit Payroll (can view now)').waitFor();
+  await card.getByRole('link', { name: /Kim Park/ }).click();
   const dlg = page.getByRole('dialog', { name: 'Access requests' });
   await dlg.getByText('(can view now)').waitFor();
   await dlg.getByText('asks to edit').waitFor();

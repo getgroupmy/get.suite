@@ -2579,6 +2579,10 @@ test('drive: asking for access — the owner is told, approves (as asked or othe
   assert.deepEqual((await b('POST', `/api/files/${doc.id}/request-access`, { role: 'editor' })).body, { ok: true });
   const up = (await a('GET', '/api/files/access-requests')).body.find((r) => r.user_name === 'Req Ben');
   assert.deepEqual([up.role, up.has], ['editor', 'viewer']);
+  // Ann's morning summary lists it, with what Ben can do now.
+  const { digestFor } = await import('../src/digest.js');
+  const annId = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'reqa@acme.com').id;
+  assert.match(digestFor(annId).text, /Access requests waiting for you \(2\):.*\n  Req Ben asks to edit “Budget 2027” \(can view now\)\n  Req Cat asks to view “Budget 2027”\n/); // (Cat's is still waiting too)
   await a('POST', `/api/files/access-requests/${up.id}`, { approve: true });
   assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'editor');
   assert.ok((await b('GET', '/api/notifications')).body.items.some((n) => n.title === 'Req Ann gave you edit access to “Budget 2027”' && n.body === 'You can edit it now'));

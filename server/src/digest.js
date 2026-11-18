@@ -13,6 +13,7 @@ import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
 import { commentsFor } from './routes/comments.js';
 import { suggestionsWaitingFor } from './collab.js';
+import { accessRequestsFor, accessRequestText } from './access.js';
 import { datesOn } from './contactreminders.js';
 import { myTimeOf } from './tasktime.js';
 
@@ -108,6 +109,14 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     if (drive.length > 8) lines.push(`  and ${drive.length - 8} more (Drive → Activity)${link('/drive/activity')}`);
     lines.push('');
   }
+  // (with Drive: people asking for access to your files, waiting for your answer)
+  const asking = off.has('drive') ? [] : accessRequestsFor(userId);
+  if (asking.length) {
+    lines.push(`Access requests waiting for you (${asking.length}):${link('/drive?requests=1')}`);
+    for (const a of asking.slice(0, 6)) lines.push(`  ${accessRequestText(a)}`);
+    if (asking.length > 6) lines.push(`  and ${asking.length - 6} more (Drive → Access requests)`);
+    lines.push('');
+  }
   // Mondays: a look back at last week (Monday to Sunday, in their time zone).
   const week = !off.has('week') && new Date(`${date}T12:00:00Z`).getUTCDay() === 1 ? lastWeek(userId, from, tz, y, m, d) : null;
   if (week) {
@@ -123,9 +132,9 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     lines.push('');
   }
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
-  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length, suggestions: suggestions.length,
+  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length, suggestions: suggestions.length, access_requests: asking.length,
     // Nothing in the parts it has: no events, tasks, unread chat, comments or Drive changes.
-    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + dates.length + comments.length + suggestions.length + drive.length + (week?.any ? 1 : 0)), dates: dates.length, week };
+    empty: !((off.has('events') ? 0 : events.length) + (off.has('tasks') ? 0 : tasks.length) + (off.has('chat') ? 0 : unread) + dates.length + comments.length + suggestions.length + asking.length + drive.length + (week?.any ? 1 : 0)), dates: dates.length, week };
 }
 
 const hrs = (h) => { const r = Math.round(h * 10) / 10; return r > 0 && r < 1 ? `${Math.round(h * 60)} min` : `${r} h`; };

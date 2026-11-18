@@ -68,3 +68,17 @@ export function subtreeIds(fileId) {
  * take the file's content away (download, export, copy, sync)? Editors and the owner always can.
  */
 export const mayTakeAway = (file, role) => !file?.no_download || atLeast(role || '', 'editor');
+
+/**
+ * Requests for access to someone's files, newest first (Drive's Access requests, Home, the morning summary):
+ * [{ id, user_id, role, message, created_at, longer, ends_at, file_id, file_name, file_kind, user_name, user_email, has }],
+ * has: what they can do now (asking for more), or null.
+ */
+export function accessRequestsFor(ownerId) {
+  return q(`SELECT a.id, a.user_id, a.role, a.message, a.created_at, a.longer, (SELECT expires_at FROM shares WHERE file_id = a.file_id AND user_id = a.user_id) AS ends_at, f.id AS file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name, u.username AS user_email
+            FROM access_requests a JOIN files f ON f.id = a.file_id JOIN users u ON u.id = a.user_id
+            WHERE f.owner_id = ? AND f.trashed = 0 ORDER BY a.created_at DESC`).all(ownerId)
+    .map((a) => ({ ...a, has: roleFor(a.file_id, a.user_id) || null }));
+}
+/** "Kim Park asks to edit “Budget”" (or to keep it longer). */
+export const accessRequestText = (a) => `${a.user_name} asks ${a.longer ? 'to keep' : `to ${a.role === 'editor' ? 'edit' : a.role === 'commenter' ? 'comment on' : 'view'}`} “${a.file_name}”${a.has && !a.longer ? ` (can ${a.has === 'commenter' ? 'comment' : 'view'} now)` : ''}${a.longer ? ' longer' : ''}`;
