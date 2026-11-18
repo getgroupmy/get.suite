@@ -723,6 +723,14 @@ const FUNCS = {
   },
   JOIN: ([sep, ...a]) => flat(a).map(toStr).join(toStr(sep)),
   CLEAN: ([t]) => toStr(t).replace(/[\u0000-\u001f]/g, ''),
+  // DOLLAR(value, [places]): as money text, $1,234.57 (negative in brackets, as spreadsheets show it); places below 0 round to tens, hundreds…
+  DOLLAR: ([v, places]) => {
+    const d = places === undefined ? 2 : Math.trunc(toNum(places));
+    const n = roundTo(toNum(v), d, Math.round);
+    const [w, f] = Math.abs(n).toFixed(Math.max(0, d)).split('.');
+    const txt = `$${w.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${f !== undefined ? `.${f}` : ''}`;
+    return n < 0 ? `(${txt})` : txt;
+  },
   FIXED: ([v, places, noCommas]) => { const d = places === undefined ? 2 : toNum(places); const n = roundTo(v, d, Math.round); const txt = Math.abs(n).toFixed(Math.max(0, d)); const [w, f] = txt.split('.'); return `${n < 0 ? '-' : ''}${toBool(noCommas ?? false) ? w : w.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${f !== undefined ? `.${f}` : ''}`; },
   COUNTUNIQUE: (a) => new Set(flat(a).filter((v) => v !== null && v !== '' && v !== undefined).map((v) => (typeof v === 'string' ? `s:${v.toLowerCase()}` : `${typeof v}:${v}`))).size,
   // Choosing and finding.
@@ -863,6 +871,12 @@ const FUNCS = {
   PROPER: ([v]) => toStr(v).toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()),
   REPT: ([v, n]) => { const k = toNum(n); if (k < 0) err('#VALUE!'); return toStr(v).repeat(Math.min(k, 10000)); },
   EXACT: ([a, b]) => toStr(a) === toStr(b),
+  // ISBETWEEN(value, lower, upper, [lower_inclusive], [upper_inclusive]): numbers, dates or text (compared as text).
+  ISBETWEEN: ([v, lo, hi, loIn, hiIn]) => {
+    const text = [v, lo, hi].some((x) => typeof x === 'string' && x !== '' && Number.isNaN(Number(x)));
+    const [x, a, b] = text ? [v, lo, hi].map((y) => toStr(y).toLowerCase()) : [v, lo, hi].map(toNum);
+    return (toBool(loIn ?? true) ? x >= a : x > a) && (toBool(hiIn ?? true) ? x <= b : x < b);
+  },
   TEXTJOIN: ([sep, skipEmpty, ...a]) => flat(a).map(toStr).filter((x) => !toBool(skipEmpty) || x !== '').join(toStr(sep)),
   ISBLANK: ([v]) => v === null || v === undefined || v === '',
   ISNUMBER: ([v]) => typeof v === 'number',
@@ -1299,7 +1313,7 @@ const LAZY = {
 // =LEN(A2:A9), =IF(B2:B9>100, "big", "small"), =ROUND(C2:C9*1.2, 2), =VLOOKUP(A2:A9, Prices!A:B, 2, FALSE).
 // null: every argument; otherwise which ones (VLOOKUP's table stays a table).
 const LIFT = Object.fromEntries([
-  ...('LEN UPPER LOWER PROPER TRIM CLEAN LEFT RIGHT MID FIND SEARCH SUBSTITUTE REPT EXACT VALUE TEXT CHAR CODE FIXED REGEXMATCH REGEXREPLACE UNICODE UNICHAR '
+  ...('LEN UPPER LOWER PROPER TRIM CLEAN LEFT RIGHT MID FIND SEARCH SUBSTITUTE REPT EXACT VALUE TEXT CHAR CODE FIXED REGEXMATCH REGEXREPLACE UNICODE UNICHAR DOLLAR ISBETWEEN '
     + 'ABS SIGN SQRT POWER MOD INT ROUND ROUNDUP ROUNDDOWN MROUND CEILING FLOOR EVEN ODD EXP LN LOG LOG10 TRUNC ISODD ISEVEN QUOTIENT FACT '
     + 'YEAR MONTH DAY WEEKDAY WEEKNUM ISOWEEKNUM HOUR MINUTE SECOND DATE TIME DAYS EDATE EOMONTH DATEDIF DATEVALUE TIMEVALUE TO_DATE YEARFRAC '
     + 'ISBLANK ISNUMBER ISTEXT ISURL ISEMAIL NOT ENCODEURL ROMAN ARABIC DEC2BIN DEC2HEX DEC2OCT BIN2DEC HEX2DEC OCT2DEC BASE DECIMAL '

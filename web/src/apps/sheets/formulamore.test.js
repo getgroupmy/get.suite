@@ -254,3 +254,25 @@ test('functions of one value work cell by cell over ranges, and fill as many cel
   const c = ev({ A1: '3', A2: '7', A3: '12', C1: '>5', C2: '>10', B1: '=COUNTIF(A1:A3, C1:C2)' });
   assert.deepEqual([c('B1'), c('B2')], [2, 1], 'COUNTIF with several conditions counts for each');
 });
+
+test('ISBETWEEN: numbers, dates and text, each end included unless told not to; cell by cell over a range', () => {
+  assert.equal(one('=ISBETWEEN(5, 1, 10)'), true);
+  assert.equal(one('=ISBETWEEN(10, 1, 10)'), true);
+  assert.equal(one('=ISBETWEEN(10, 1, 10, TRUE, FALSE)'), false);
+  assert.equal(one('=ISBETWEEN(1, 1, 10, FALSE)'), false);
+  assert.equal(one('=ISBETWEEN(11, 1, 10)'), false);
+  assert.equal(one('=ISBETWEEN(DATE(2026,11,18), DATE(2026,11,1), DATE(2026,11,30))'), true);
+  assert.equal(one('=ISBETWEEN("m", "a", "z")'), true);
+  assert.equal(one('=ISBETWEEN("Mango", "apple", "pear")'), true, 'text, ignoring case');
+  assert.equal(one('=ISBETWEEN("zebra", "apple", "pear")'), false);
+  assert.equal(ev({ A1: 1, A2: 5, A3: 20, B1: '=SUM(--ISBETWEEN(A1:A3, 2, 10))' })('B1'), 1);
+});
+
+test('DOLLAR: money text with thousands separators, negatives in brackets, places rounding', () => {
+  assert.equal(one('=DOLLAR(1234.567)'), '$1,234.57');
+  assert.equal(one('=DOLLAR(1234.567, 0)'), '$1,235');
+  assert.equal(one('=DOLLAR(-1234.5, 1)'), '($1,234.5)');
+  assert.equal(one('=DOLLAR(1234.567, -2)'), '$1,200');
+  assert.equal(one('=DOLLAR(0.5)'), '$0.50');
+  assert.equal(one('=DOLLAR(1000000)'), '$1,000,000.00');
+});

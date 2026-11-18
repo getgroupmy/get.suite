@@ -65,6 +65,18 @@ await step('the function help knows QUERY', async () => {
   await page.getByText(/Picks, filters, groups and sorts/).first().waitFor();
   await page.keyboard.press('Escape');
 });
+await step('ISBETWEEN and DOLLAR work in cells, and the function help knows them', async () => {
+  await typeIn('J1', '=ISBETWEEN(C5, 100, 1000)');
+  await until(async () => (await cell('J1').innerText()).trim() === 'TRUE');
+  await typeIn('J2', '=DOLLAR(C5*2.5)');
+  await until(async () => (await cell('J2').innerText()).trim() === '$1,250.00');
+  await typeIn('J3', '=DOLLAR(-C5, 0)');
+  await until(async () => (await cell('J3').innerText()).trim() === '($500)');
+  await cell('J4').click();
+  await page.keyboard.type('=ISBET');
+  await page.getByText(/TRUE if a value is between two others/).first().waitFor();
+  await page.keyboard.press('Escape');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
