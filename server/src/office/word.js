@@ -101,9 +101,14 @@ const ParagraphSpacing = Extension.create({
     indent: { default: 0, parseHTML: (el) => Math.max(0, Math.min(8, Math.round(Number(el.getAttribute('data-indent')) || 0))), renderHTML: (a) => (a.indent ? { 'data-indent': a.indent } : {}) },
   } }],
 });
+// Table cells with a colour of their own, as in web/src/apps/docs/tablecells.js.
+const cellColor = (v) => { const s = String(v || '').trim().toLowerCase(); const m = /^#([0-9a-f]{6})$/.exec(s) || /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(s); if (!m) return null; const hex = m.length === 2 ? `#${m[1]}` : `#${m.slice(1, 4).map((n) => Math.min(255, Number(n)).toString(16).padStart(2, '0')).join('')}`; return hex === '#ffffff' ? null : hex; };
+const cellBackground = { background: { default: null, parseHTML: (el) => cellColor(el.getAttribute('data-bg') || el.style.backgroundColor), renderHTML: (a) => (a.background ? { 'data-bg': a.background, style: `background-color: ${a.background}` } : {}) } };
+const DocTableCell = TableCell.extend({ addAttributes() { return { ...this.parent?.(), ...cellBackground }; } });
+const DocTableHeader = TableHeader.extend({ addAttributes() { return { ...this.parent?.(), ...cellBackground }; } });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
+  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -145,6 +150,11 @@ export function markWordXml(xml) {
     .replace(/<w:br\b[^>]*w:type="page"[^>]*\/>/g, `<w:t xml:space="preserve">${MK}pb${MK_END}</w:t>`)
     .replace(/<w:commentRangeStart w:id="(\d+)"\/>/g, (m, id) => `${m}${marker(`k:${id}`)}`)
     .replace(/<w:commentRangeEnd w:id="(\d+)"\/>/g, (m, id) => `${marker(`/k:${id}`)}${m}`)
+    // A table cell's own colour (not the heading row's grey the download gives it): a marker at the start of its first paragraph.
+    .replace(/<w:tc>(<w:tcPr>(?:(?!<\/w:tcPr>)[\s\S])*<\/w:tcPr>)(\s*<w:p\b[^>]*>(?:<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*<\/w:pPr>)?)/g, (m, tcpr, p) => {
+      const fill = /<w:shd\b[^>]*w:fill="([0-9A-Fa-f]{6})"/.exec(tcpr)?.[1]?.toLowerCase();
+      return fill && fill !== 'ffffff' && fill !== 'f1f3f4' ? `<w:tc>${tcpr}${p}${marker(`cb:${fill}`)}` : m;
+    })
     // A paragraph's own alignment, line spacing and space before and after (not its style's).
     .replace(/(<w:pPr>[\s\S]*?<\/w:pPr>)/g, (m, ppr) => {
       const own = ppr.replace(/<w:rPr>[\s\S]*?<\/w:rPr>/g, '');
@@ -199,6 +209,7 @@ export function unmarkWordHtml(html, commentId = null) {
       const steps = Number(/(?:^|;)in=(\d)/.exec(spec)?.[1]) || 0;
       return `<${tag}${style ? ` style="${style}"` : ''}${steps ? ` data-indent="${steps}"` : ''}>`;
     })
+    .replace(re('<(td|th)([^>]*)>((?:<p[^>]*>)?)MKcb:([0-9a-f]{6})END'), (m, tag, attrs, p, hex) => `<${tag}${attrs} style="background-color:#${hex}">${p}`)
     .replace(re('MKs:([^END]*)END'), (m, spec) => {
       const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : x.startsWith('f:') ? `font-family:${x.slice(2).replace(/"/g, "'")}` : x.startsWith('z:') ? `font-size:${x.slice(2)}pt` : '')).filter(Boolean).join(';');
       return `<span style="${attr(css)}">`;
@@ -632,13 +643,13 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       rows: rows.map((r) => {
         const header = (r.content || []).every((c) => c.type === 'tableHeader');
         return new WordRow({
-          tableHeader: header,
+          ...(header && { tableHeader: true }), // (tableHeader: false writes <w:tblHeader w:val="off"/>, which readers take as a heading row)
           children: (r.content || []).map((c) => {
             const inner = block(c.content);
             return new WordCell({
               columnSpan: c.attrs?.colspan > 1 ? c.attrs.colspan : undefined,
               rowSpan: c.attrs?.rowspan > 1 ? c.attrs.rowspan : undefined,
-              ...(c.type === 'tableHeader' && { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'F1F3F4' } }),
+              ...((c.attrs?.background || c.type === 'tableHeader') && { shading: { type: ShadingType.CLEAR, color: 'auto', fill: /^#[0-9a-f]{6}$/i.test(c.attrs?.background || '') ? c.attrs.background.slice(1).toUpperCase() : 'F1F3F4' } }),
               children: inner.length ? inner : [new Paragraph('')],
             });
           }),
@@ -681,7 +692,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         paras.push(new Paragraph({ children: [new TextRun({ text: title, bold: true })] }));
         if (rows.length) {
           paras.push(new WordTable({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: rows[0].map(() => Math.floor(9000 / rows[0].length)),
-            rows: rows.map((r, ri) => new WordRow({ tableHeader: ri === 0, children: r.map((t) => new WordCell({ ...(ri === 0 && { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'F1F3F4' } }), children: [new Paragraph({ children: [new TextRun({ text: t, bold: ri === 0 })] })] })) })) }));
+            rows: rows.map((r, ri) => new WordRow({ ...(ri === 0 && { tableHeader: true }), children: r.map((t) => new WordCell({ ...(ri === 0 && { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'F1F3F4' } }), children: [new Paragraph({ children: [new TextRun({ text: t, bold: ri === 0 })] })] })) })) }));
         }
         paras.push(new Paragraph(''));
       }

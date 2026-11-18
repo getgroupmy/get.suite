@@ -12,7 +12,8 @@ import { htmlWithTabTitles, tabsOf } from './doctabs.js';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
-import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
+import { Table, TableRow } from '@tiptap/extension-table';
+import { DocTableCell as TableCell, DocTableHeader as TableHeader, CELL_COLORS } from './tablecells.js';
 import { TextStyle, Color, BackgroundColor, FontFamily, FontSize } from '@tiptap/extension-text-style';
 import { FONTS, SIZES, LINE_HEIGHTS, PARA_SPACE, spacingChoices, fontChoice, LineHeight } from './typography.js';
 import Collaboration from '@tiptap/extension-collaboration';
@@ -1159,6 +1160,14 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         <button type="button" className="tb labelled" aria-label="Alt text" title={editor.getAttributes('image').alt ? `Alt text: ${editor.getAttributes('image').alt}` : 'Describe the picture for screen readers'}
           onMouseDown={(e) => e.preventDefault()} onClick={() => setAltEdit({ pos: editor.state.selection.from, alt: editor.getAttributes('image').alt })}>Alt text</button>
       </>}
+      {editor.isActive('table') && (() => {
+        const bg = editor.getAttributes(editor.isActive('tableHeader') ? 'tableHeader' : 'tableCell').background || '';
+        return <select aria-label="Cell colour" title="Colour of the selected cells" value={CELL_COLORS.some(([v]) => v === bg) ? bg : 'other'} style={{ background: bg || undefined }}
+          onChange={(e) => c().setCellAttribute('background', e.target.value || null).run()}>
+          {!CELL_COLORS.some(([v]) => v === bg) && <option value="other" disabled>Own colour</option>}
+          {CELL_COLORS.map(([v, n]) => <option key={n} value={v} style={{ background: v || undefined }}>{v ? `▦ ${n}` : '▦ Cell colour'}</option>)}
+        </select>;
+      })()}
       <Menu align="left" trigger={(p) => <button type="button" className="tb labelled" title="Table" aria-label="Table" onMouseDown={(e) => e.preventDefault()} {...p}><TableGlyph /> Table</button>} items={[
         { label: 'Insert table (3 × 3)', onClick: () => c().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(), disabled: editor.isActive('table') },
         '-',

@@ -95,6 +95,32 @@ await step('a table: insert, type in cells, add a row; the others see it', async
   await until(async () => (await kim.locator('.paper table tr').first().locator('th').count()) === 2);
 });
 
+await step('a cell colour from the toolbar: the others see it; Word and .odt downloads keep it', async () => {
+  if (await page.getByLabel('Cell colour').count()) { await page.getByText('Costs are rising').click(); }
+  await page.locator('.paper table td', { hasText: 'Paper' }).click();
+  const pick = page.getByLabel('Cell colour');
+  await pick.selectOption({ label: '▦ Light yellow' });
+  const bg = (p) => p.locator('.paper table td', { hasText: 'Paper' }).evaluate((el) => getComputedStyle(el).backgroundColor);
+  await until(async () => (await bg(page)) === 'rgb(254, 247, 224)');
+  await until(async () => (await bg(kim)) === 'rgb(254, 247, 224)');
+  if ((await pick.inputValue()) !== '#fef7e0') throw new Error('the menu shows the cell’s colour');
+  // Outside a table there's no cell colour to pick.
+  await page.getByText('Costs are rising').click();
+  await until(async () => (await page.getByLabel('Cell colour').count()) === 0);
+  await page.screenshot({ path: `${SP}/shots/cell-colour.png` });
+  await page.waitForTimeout(2500); // saved
+  for (const format of ['docx', 'odt']) {
+    const up = await page.evaluate(async ([id, f]) => {
+      const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
+      return (await fetch(`/api/files/upload?name=Report%20copy.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    }, [docId, format]);
+    const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+    if (opened.status >= 300) throw new Error(JSON.stringify(opened));
+    const table = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.content.find((n) => n.type === 'table');
+    const cells = table.content.map((r) => r.content.map((c) => `${c.type === 'tableHeader' ? 'H' : ''}${c.attrs?.background || '-'}`).join(' ')).join(' | ');
+    if (cells !== 'H- H- | #fef7e0 - | - - | - -') throw new Error(`${format}: ${cells}`);
+  }
+});
 await step('a picture: put in from a file, made smaller and centred; a viewer sees it', async () => {
   await cursorAfter(page, 'rising');
   await page.keyboard.press('Enter');

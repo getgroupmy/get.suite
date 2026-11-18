@@ -164,6 +164,10 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     if (!spaced.has(key)) spaced.set(key, `${base}_s${spaced.size + 1}`);
     return spaced.get(key);
   };
+  // A cell with a colour of its own: a cell style for each colour used (Cell_fef7e0…).
+  const cellColours = new Set();
+  const cellStyle = (bg) => { const hex = /^#([0-9a-f]{6})$/i.exec(bg || '')?.[1]?.toLowerCase(); if (!hex) return 'Cell'; cellColours.add(hex); return `Cell_${hex}`; };
+  const cellStyles = () => [...cellColours].map((hex) => `<style:style style:name="Cell_${hex}" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999" fo:background-color="#${hex}"/></style:style>`).join('');
   const spacedStyles = () => [...spaced].map(([key, name]) => { const [base, props] = key.split('|'); return `<style:style style:name="${name}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties ${props}/></style:style>`; }).join('');
   const para = (n, style = 'Standard') => `<text:p text:style-name="${styleOf(style, n.attrs)}">${inline(n.content)}</text:p>`;
   const blocks = (nodes = [], ctx = {}) => {
@@ -194,7 +198,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
           out += '<table:table-row>';
           for (const c of r.content || []) {
             const span = c.attrs?.colspan > 1 ? ` table:number-columns-spanned="${c.attrs.colspan}"` : '';
-            out += `<table:table-cell table:style-name="Cell" office:value-type="string"${span}>${blocks(c.content, { style: c.type === 'tableHeader' ? 'Table_20_Heading' : 'Table_20_Contents' }) || '<text:p/>'}</table:table-cell>`;
+            out += `<table:table-cell table:style-name="${cellStyle(c.attrs?.background)}" office:value-type="string"${span}>${blocks(c.content, { style: c.type === 'tableHeader' ? 'Table_20_Heading' : 'Table_20_Contents' }) || '<text:p/>'}</table:table-cell>`;
             for (let k = 1; k < (c.attrs?.colspan || 1); k++) out += '<table:covered-table-cell/>';
           }
           out += '</table:table-row>';
@@ -235,7 +239,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     .flatMap((base) => Object.values(ALIGNS).map((al) => `<style:style style:name="${base}_${al}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties fo:text-align="${al}"/></style:style>`)).join('');
   const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:font-face-decls><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-pitch="fixed"/></office:font-face-decls><office:automatic-styles>${auto}${aligned}${spacedStyles()}
+<office:document-content ${NS}><office:font-face-decls><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-pitch="fixed"/></office:font-face-decls><office:automatic-styles>${auto}${aligned}${spacedStyles()}${cellStyles()}
 <style:style style:name="PageBreak" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:break-before="page"/></style:style>
 <style:style style:name="Tbl" style:family="table"><style:table-properties style:width="17cm" table:align="margins"/></style:style>
 <style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999"/></style:style>
@@ -355,7 +359,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const name = el.attribs['style:name'];
         const tp = kids(el).find((c) => c.name === 'style:text-properties')?.attribs || {};
         const pp = kids(el).find((c) => c.name === 'style:paragraph-properties')?.attribs || {};
-        styles.set(name, { parent: el.attribs['style:parent-style-name'], tp, pp, list: el.attribs['style:list-style-name'], level: Number(el.attribs['style:default-outline-level']) || 0 });
+        const cp = kids(el).find((c) => c.name === 'style:table-cell-properties')?.attribs || {};
+        styles.set(name, { parent: el.attribs['style:parent-style-name'], tp, pp, cp, list: el.attribs['style:list-style-name'], level: Number(el.attribs['style:default-outline-level']) || 0 });
       } else if (el.name === 'text:list-style') {
         numbered.set(el.attribs['style:name'], kids(el).filter((c) => c.type === 'tag').map((c) => c.name === 'text:list-level-style-number'));
       }
@@ -433,6 +438,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     }
     return out;
   };
+  /** A table cell's background colour (its style's, or what that comes from). */
+  const cellBg = (name) => { for (let n = name, i = 0; n && i < 10; n = styles.get(n)?.parent, i++) { const v = styles.get(n)?.cp?.['fo:background-color']; if (v) return v; } return null; };
   const ALIGN = { center: 'center', end: 'right', right: 'right', justify: 'justify' };
   const ptOf = (v, max = 72) => { const m = /^(-?[\d.]+)(pt|cm|mm|in)$/.exec(String(v || '')); if (!m) return null; const n = Number(m[1]) * { pt: 1, cm: 72 / 2.54, mm: 72 / 25.4, in: 72 }[m[2]]; return n > 0.05 && n <= max ? Math.round(n * 10) / 10 : null; };
   // A paragraph's alignment (from its style, and those it comes from), and its own line spacing and space before
@@ -492,7 +499,9 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
             const tag = head ? 'th' : 'td';
             const rep = Math.min(50, Number(cell.attribs['table:number-columns-repeated']) || 1);
             const inner = await blocks(cell, depth) || '<p></p>';
-            for (let i = 0; i < rep; i++) html += `<${tag}${span}>${inner}</${tag}>`;
+            const bg = /^#[0-9a-f]{6}$/i.test(cellBg(cell.attribs['table:style-name']) || '') ? cellBg(cell.attribs['table:style-name']).toLowerCase() : '';
+            const bgAttr = bg && bg !== '#ffffff' && bg !== '#f1f3f4' ? ` style="background-color:${bg}"` : ''; // (not white, nor the heading row's grey a Word download gives it)
+            for (let i = 0; i < rep; i++) html += `<${tag}${span}${bgAttr}>${inner}</${tag}>`;
           }
           html += '</tr>';
         }

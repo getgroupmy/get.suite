@@ -2167,3 +2167,42 @@ test('Docs: line spacing, space before / after and indents of paragraphs, out to
     assert.deepEqual(show((await docFromOdt(lo('d.docx', 'odt', 'c'))).doc), want, 'Word saved as .odt');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Docs: table cell colours out to Word and .odt and back; only the heading row is a heading row', async (t) => {
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const cell = (type, text, bg) => ({ type, attrs: bg ? { background: bg } : {}, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+  const doc = { type: 'doc', content: [{ type: 'table', content: [
+    { type: 'tableRow', content: [cell('tableHeader', 'Item'), cell('tableHeader', 'Status', '#e8f0fe')] },
+    { type: 'tableRow', content: [cell('tableCell', 'Pens', '#fef7e0'), cell('tableCell', 'Late', '#fce8e6')] },
+    { type: 'tableRow', content: [cell('tableCell', 'Ink'), cell('tableCell', 'OK')] },
+  ] }] };
+  const want = 'H:Item H:Status=#e8f0fe | Pens=#fef7e0 Late=#fce8e6 | Ink OK';
+  const show = (d) => { const tb = (d.doc || d).content.find((n) => n.type === 'table'); return tb.content.map((r) => r.content.map((c) => `${c.type === 'tableHeader' ? 'H:' : ''}${c.content?.[0]?.content?.[0]?.text}${c.attrs?.background ? `=${c.attrs.background}` : ''}`).join(' ')).join(' | '); };
+  const docx = await wordFromDoc(doc, 'T');
+  const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:shd w:fill="FEF7E0" w:color="auto" w:val="clear"\/>/);
+  assert.doesNotMatch(xml, /w:tblHeader w:val="off"/, 'an ordinary row is not marked as a heading row (Word readers take any mark as one)');
+  assert.equal(show(await docFromWord(docx)), want, 'Word');
+  const odt = await odtFromDoc(doc, 'T');
+  const c = await (await JSZip.loadAsync(odt)).file('content.xml').async('string');
+  assert.match(c, /<style:style style:name="Cell_fef7e0" style:family="table-cell"><style:table-cell-properties [^>]*fo:background-color="#fef7e0"\/>/);
+  assert.match(c, /<table:table-cell table:style-name="Cell" office:value-type="string"><text:p[^>]*>Ink/, 'no colour: the plain cell style');
+  assert.equal(show(await docFromOdt(odt)), want, '.odt');
+  // Word's own cell shading: white and the download's heading grey aren't colours; a run's shading isn't the cell's.
+  const { markWordXml, unmarkWordHtml } = await import('../src/office/word.js');
+  const html = (x) => unmarkWordHtml(markWordXml(x).replace(/<w:tc>[\s\S]*?<w:p>([\s\S]*?)<\/w:p><\/w:tc>/g, (m, inner) => `<td><p>${inner.replace(/<w:pPr>[\s\S]*?<\/w:pPr>/g, '').replace(/<[^>]+>/g, '')}</p></td>`));
+  assert.equal(html('<w:tc><w:tcPr><w:shd w:val="clear" w:fill="E6F4EA"/></w:tcPr><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>'), '<td style="background-color:#e6f4ea"><p>A</p></td>');
+  assert.equal(html('<w:tc><w:tcPr><w:shd w:val="clear" w:fill="FFFFFF"/></w:tcPr><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>'), '<td><p>B</p></td>');
+  assert.equal(html('<w:tc><w:tcPr><w:tcW w:w="100"/></w:tcPr><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>'), '<td><p>C</p></td>');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.docx'), docx); fs.writeFileSync(path.join(dir, 'd.odt'), odt);
+    assert.equal(show(await docFromWord(lo('d.docx', 'docx', 'a'))), want, 'Word → LibreOffice → Word');
+    assert.equal(show(await docFromOdt(lo('d.odt', 'odt', 'b'))), want, '.odt → LibreOffice → .odt');
+    assert.equal(show(await docFromOdt(lo('d.docx', 'odt', 'c'))), want, 'Word saved as .odt (the heading grey is not a colour)');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
