@@ -1369,7 +1369,7 @@ function ShortcutRow({ f, me, selected, onSelect, onOpen, menu }) {
 export function officeAs(f) {
   if (f.kind !== 'file') return null;
   const ext = (/\.([a-z]+)$/i.exec(f.name) || [])[1]?.toLowerCase();
-  return { docx: { what: 'document', icon: 'doc' }, odt: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, txt: { what: 'document', icon: 'doc' }, html: { what: 'document', icon: 'doc' }, htm: { what: 'document', icon: 'doc' }, csv: { what: 'spreadsheet', icon: 'sheet' }, tsv: { what: 'spreadsheet', icon: 'sheet' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, ods: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' }, odp: { what: 'presentation', icon: 'slides' } }[ext] || null;
+  return { docx: { what: 'document', icon: 'doc' }, odt: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, txt: { what: 'document', icon: 'doc' }, rtf: { what: 'document', icon: 'doc' }, html: { what: 'document', icon: 'doc' }, htm: { what: 'document', icon: 'doc' }, csv: { what: 'spreadsheet', icon: 'sheet' }, tsv: { what: 'spreadsheet', icon: 'sheet' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, ods: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' }, odp: { what: 'presentation', icon: 'slides' } }[ext] || null;
 }
 
 function Preview({ file, onClose, onOpenAs, comment = null }) {

@@ -72,6 +72,26 @@ await step('a web page downloaded from here opens as a document again: formattin
   const json = JSON.stringify((await api(page, 'GET', `/files/${id}/content`)).body.content);
   if (!json.includes('"type":"footnote"') || !json.includes('Roughly.') || !json.includes('\\\\frac{1}{2}')) throw new Error(json.slice(0, 500));
 });
+await step('Download as Rich Text (.rtf), and the .rtf opens as a document again', async () => {
+  const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Memo' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Café ', marks: [{ type: 'italic' }] }, { type: 'text', text: 'opens', marks: [{ type: 'bold' }] }, { type: 'text', text: ' at 9.' }] },
+    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Coffee' }] }] }] }] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Memo', content })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.locator('.ProseMirror').getByText('opens').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as Rich Text (.rtf)' }).click()]);
+  if (dl.suggestedFilename() !== 'Memo.rtf') throw new Error(dl.suggestedFilename());
+  const rtf = fs.readFileSync(await dl.path(), 'latin1');
+  if (!rtf.startsWith('{\\rtf1') || !rtf.includes('Caf\\u233?')) throw new Error(rtf.slice(0, 300));
+  await upload('Memo copy.rtf', rtf);
+  await openFromDrive('Memo copy.rtf', 'document');
+  await page.waitForURL(/\/docs\//);
+  await page.getByRole('heading', { name: 'Memo' }).waitFor();
+  await page.locator('.paper strong', { hasText: 'opens' }).waitFor();
+  await page.locator('.paper em', { hasText: 'Café' }).waitFor();
+  await page.locator('.paper ul li', { hasText: 'Coffee' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
