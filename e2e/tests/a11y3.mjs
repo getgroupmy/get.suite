@@ -65,7 +65,7 @@ await step('a11y: Home with Suggestions to review and Access requests; a view-on
   const plan = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Fee note', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The fee is ten pounds.' }] }] } })).body;
   const memo = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Read me' })).body;
   await api(page, 'PUT', `/files/${plan.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
-  await api(page, 'PUT', `/files/${memo.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await api(page, 'PUT', `/files/${memo.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }], message: 'Read this before the meeting' });
   await api(kim, 'POST', `/files/${plan.id}/replace`, { find: 'ten', replace: 'twelve', suggest: true });
   await api(kim, 'POST', `/files/${memo.id}/request-access`, { role: 'editor' });
   await page.goto(`${B}/home`);
@@ -74,7 +74,11 @@ await step('a11y: Home with Suggestions to review and Access requests; a view-on
   await scan('Home suggestions and access requests', page);
   await kim.goto(`${B}/docs/${memo.id}`);
   await kim.getByRole('button', { name: 'Request edit access' }).waitFor();
+  await kim.getByRole('note').filter({ hasText: 'Read this before the meeting' }).waitFor();
   await scan('View-only document banner', kim);
+  await kim.goto(`${B}/drive/shared`);
+  await kim.getByText('“Read this before the meeting”').waitFor();
+  await scan('Shared with me with a message', kim);
 });
 await step('a11y: a view-only spreadsheet and presentation, with Request edit access', async () => {
   const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Read-only figures', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Month', B1: 'Sales', A2: 'Jan', B2: '10' } }] } })).body;
