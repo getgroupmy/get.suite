@@ -98,6 +98,33 @@ await step('two tasks given on one list: grouped; opened up, one opens that task
   await inside.getByRole('button', { name: 'Book venue' }).click();
   await kim.waitForURL(new RegExp(`/tasks/${list}\\?task=${t1.id}`));
 });
+await step('a notification back to unread, filtered to unread only, and removed', async () => {
+  await kim.goto(`${B}/drive`);
+  await kim.getByRole('button', { name: /^Notifications/ }).click();
+  const panel = kim.getByRole('dialog', { name: 'Notifications' });
+  await panel.getByRole('button', { name: 'Mark all read' }).click(); // (the list shared with her is still unread)
+  await kim.getByRole('button', { name: 'Notifications' }).waitFor();
+  const title = 'Olivia Owner gave you 2 tasks';
+  await panel.getByText(title).hover();
+  await panel.getByRole('button', { name: `Mark as unread: ${title}` }).click();
+  await kim.getByRole('button', { name: 'Notifications, 1 new' }).waitFor();
+  await panel.getByRole('button', { name: 'Unread only', pressed: false }).click();
+  await panel.getByRole('button', { name: 'Unread only', pressed: true }).waitFor();
+  await panel.getByText(title).waitFor();
+  if (await panel.getByText('Olivia Owner shared 3 files with you').count()) throw new Error('read one shown under Unread only');
+  await panel.getByText(title).hover();
+  await kim.screenshot({ path: `${SP}/shots/bell-actions.png` });
+  await panel.getByRole('button', { name: `Mark as read: ${title}` }).click();
+  await panel.getByText('Nothing unread.').waitFor();
+  await panel.getByRole('button', { name: 'Unread only' }).click();
+  await panel.getByText(title).hover();
+  await panel.getByRole('button', { name: `Remove: ${title}` }).click();
+  await panel.getByText(title).waitFor({ state: 'detached' });
+  await kim.reload();
+  await kim.getByRole('button', { name: /^Notifications/ }).click();
+  await panel.getByText('Olivia Owner shared 3 files with you').waitFor();
+  if (await panel.getByText(title).count()) throw new Error('back after reload');
+}, kim);
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

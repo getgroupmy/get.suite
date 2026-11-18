@@ -3310,3 +3310,10 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* The bell: who did it, with what kind of thing in a corner. */
 .bell-who { position: relative; display: inline-flex; flex: none; }
 .bell-who .bell-kind { position: absolute; right: -4px; bottom: -4px; background: var(--surface, #fff); border-radius: 50%; padding: 1px; color: var(--muted, #5f6368); }
+
+/* A notification's own buttons (unread/read, remove): over its time on hover or focus; always on touch screens. */
+.bell-panel li { position: relative; }
+.bell-acts { position: absolute; top: 6px; right: 6px; display: none; gap: 2px; background: var(--surface); border-radius: 8px; box-shadow: var(--shadow); }
+.bell-acts .icon-btn { width: 28px; height: 28px; }
+.bell-panel li:hover > .bell-acts, .bell-panel li:focus-within > .bell-acts { display: inline-flex; }
+@media (hover: none) { .bell-acts { display: inline-flex; position: static; float: right; box-shadow: none; margin: -4px 4px 4px 0; } }

@@ -2156,6 +2156,17 @@ test('notifications: mentions, tasks, invitations and shares land in the bell; r
   assert.equal((await b('POST', '/api/notifications/read', { ids: [n.items[0].id] })).body.unread, 4);
   assert.equal((await b('POST', '/api/notifications/read', { all: true })).body.unread, 0);
   assert.equal((await b('POST', '/api/notifications/read', {})).status, 400);
+  // Back to unread, and removed: only one's own.
+  const back = (await b('POST', '/api/notifications/unread', { ids: [n.items[1].id] })).body;
+  assert.equal(back.unread, 1);
+  assert.equal(back.items.find((x) => x.id === n.items[1].id).read, false);
+  assert.equal((await a('POST', '/api/notifications/remove', { ids: [n.items[1].id] })).status, 200);
+  assert.equal((await bell()).items.length, 5, 'someone else can’t remove yours');
+  const gone = (await b('POST', '/api/notifications/remove', { ids: [n.items[1].id, n.items[2].id] })).body;
+  assert.deepEqual(gone.items.map((x) => x.kind), ['share', 'share', 'mention']);
+  assert.equal(gone.unread, 0);
+  assert.equal((await b('POST', '/api/notifications/unread', {})).status, 400);
+  assert.equal((await b('POST', '/api/notifications/remove', { ids: [] })).status, 400);
 });
 
 test('named versions: name the current state, name or un-name an earlier one, see its content', async () => {

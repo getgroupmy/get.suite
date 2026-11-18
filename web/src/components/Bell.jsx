@@ -26,6 +26,10 @@ export default function Bell() {
   useEffect(() => { setBadgePart('bell', data.unread); }, [data.unread]); // on the app's icon, with unread mail
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const shown = onlyUnread ? data.items.filter((n) => !n.read) : data.items;
+  const toast = useToast();
+  const act = (path, n) => post(path, { ids: [n.id] }).then(setData).catch((e) => toast(e.message, 'error'));
   const box = useRef();
   // A list asked for before a live notification arrived would drop it: each load is numbered, only the latest
   // one asked for is shown, and one asked for before live news came is asked for again.
@@ -65,11 +69,12 @@ export default function Bell() {
       {open && (
         <div className="bell-panel" role="dialog" aria-label="Notifications">
           <div className="row bell-head"><strong className="grow">Notifications</strong>
+            <button type="button" className={`btn small ${onlyUnread ? 'primary' : ''}`} aria-pressed={onlyUnread} onClick={() => setOnlyUnread(!onlyUnread)}>Unread only</button>
             {data.unread > 0 && <button type="button" className="link-btn small" onClick={() => post('/notifications/read', { all: true }).then(setData)}>Mark all read</button>}
             <button type="button" className="icon-btn" aria-label="Notification settings" title="Choose what you're notified about" onClick={() => { setOpen(false); setSettings(true); }}><Icon name="settings" size={18} /></button></div>
-          {data.items.length === 0 ? <p className="muted small bell-empty">Nothing yet. Mentions, tasks given to you, invitations and things shared with you will show here.</p> : (
+          {shown.length === 0 ? <p className="muted small bell-empty">{onlyUnread && data.items.length ? 'Nothing unread.' : 'Nothing yet. Mentions, tasks given to you, invitations and things shared with you will show here.'}</p> : (
             <ul>
-              {data.items.map((n) => (
+              {shown.map((n) => (
                 <li key={n.id} className={n.items?.length > 1 ? 'bell-group' : ''}>
                   <button type="button" className={`bell-item ${n.read ? '' : 'unread'}`} onClick={() => go(n)}>
                     {/* who did it, where there's someone (their name is in the title, so the picture is decoration) */}
@@ -77,6 +82,12 @@ export default function Bell() {
                     <span className="grow"><span className="bell-title">{n.title}</span>{n.body && <span className="muted small bell-body">{n.body}</span>}</span>
                     <span className="muted small nowrap">{ago(n.created_at)}</span>
                   </button>
+                  {/* On hover or focus (always on touch screens): back to unread or read, and remove. */}
+                  <span className="bell-acts">
+                    <button type="button" className="icon-btn" aria-label={`${n.read ? 'Mark as unread' : 'Mark as read'}: ${n.title}`} title={n.read ? 'Mark as unread' : 'Mark as read'}
+                      onClick={() => act(n.read ? '/notifications/unread' : '/notifications/read', n)}><Icon name={n.read ? 'markunread' : 'check'} size={16} /></button>
+                    <button type="button" className="icon-btn" aria-label={`Remove: ${n.title}`} title="Remove" onClick={() => act('/notifications/remove', n)}><Icon name="close" size={16} /></button>
+                  </span>
                   {/* A grouped one: open it up for each of them, each going to its own place. */}
                   {n.items?.length > 1 && (
                     <>

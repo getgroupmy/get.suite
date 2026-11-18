@@ -1,7 +1,7 @@
-// The bell: GET the latest notifications and how many are unread; mark some (or all) read.
+// The bell: GET the latest notifications and how many are unread; mark some (or all) read, some unread again, or remove some.
 import { Router } from 'express';
 import { bad } from '../util.js';
-import { listFor, markRead, KINDS, offFor, setOff } from '../notifications.js';
+import { listFor, markRead, markUnread, removeNotifications, KINDS, offFor, setOff } from '../notifications.js';
 
 export default function notificationRoutes() {
   const r = Router();
@@ -20,5 +20,11 @@ export default function notificationRoutes() {
     markRead(req.user.id, ids);
     res.json(listFor(req.user.id));
   });
+  const someIds = (body) => {
+    if (!Array.isArray(body?.ids) || !body.ids.length) throw bad('Say which');
+    return body.ids.map(String).slice(0, 500);
+  };
+  r.post('/unread', (req, res) => { markUnread(req.user.id, someIds(req.body)); res.json(listFor(req.user.id)); });
+  r.post('/remove', (req, res) => { removeNotifications(req.user.id, someIds(req.body)); res.json(listFor(req.user.id)); });
   return r;
 }

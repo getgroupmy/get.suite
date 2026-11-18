@@ -93,3 +93,15 @@ export function markRead(userId, ids) {
   else q(`UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND id IN (SELECT value FROM json_each(?))`).run(at, userId, JSON.stringify(ids));
   sendTo([userId], { type: 'notifications-read' });
 }
+
+/** Back to unread (to come back to it later). */
+export function markUnread(userId, ids) {
+  q(`UPDATE notifications SET read_at = NULL WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`).run(userId, JSON.stringify(ids));
+  sendTo([userId], { type: 'notifications-read' });
+}
+
+/** Take some out of the bell for good. */
+export function removeNotifications(userId, ids) {
+  q(`DELETE FROM notifications WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`).run(userId, JSON.stringify(ids));
+  sendTo([userId], { type: 'notifications-read' });
+}
