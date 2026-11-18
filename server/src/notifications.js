@@ -26,7 +26,7 @@ const itemsOf = (row) => { try { return JSON.parse(row?.group_items || '[]'); } 
 const KEEP = 200;
 // Kinds someone can turn off (each person's choice; all on to begin with).
 export const KINDS = [
-  ['mention', 'Mentions in Chat and in documents'], ['comment', 'Mentions in comments on files'], ['reply', 'Replies in comment threads you’re in, and new comments and suggested edits on your files'], ['task', 'Tasks given to you, and comments on tasks'],
+  ['mention', 'Mentions in Chat and in documents'], ['comment', 'Mentions in comments on files'], ['reply', 'Replies in comment threads you’re in, new comments and suggested edits on your files, and what became of your suggestions'], ['task', 'Tasks given to you, and comments on tasks'],
   ['invite', 'Calendar invitations, answers and proposed times'], ['share', 'Files shared with you and access requests'], ['link', 'Your share links: opened, ending soon, files sent through a request, stopped by an admin'],
   ['edit', 'Changes to files you follow'], ['chat', 'Chat reminders and scheduled messages'], ['booking', 'Booking page appointments'], ['timeoff', 'Time off requests and answers'],
   ['form', 'Responses to your forms'], ['kudos', 'Thanks from colleagues'], ['note', 'Note reminders'], ['touch', 'Contacts you’re due to keep in touch with'], ['dates', 'Contacts’ birthdays and dates'], ['followup', 'Emails that got no reply'], ['mailfull', 'Your mailbox filling up'], ['assign', 'Shared mailbox emails given to you'], ['security', 'Security alerts (admins)'], ['system', 'Server health (platform owner)'], ['signin', 'Your account’s security: new sign-ins, passkeys, a recovery email to add'], ['company', 'Reminders from your company’s admins (such as bringing your things over)'],

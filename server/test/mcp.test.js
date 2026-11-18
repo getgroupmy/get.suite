@@ -986,6 +986,16 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   await sue('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: olivia, role: 'commenter' }] });
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'people', replace: 'staff', suggest: true })).structuredContent.suggested, 1);
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Launch', replace: 'Start' })).isError, true);
+  // Sue answers them: Olivia hears what became of hers; not Sue of her own.
+  const pending = (await sue('POST', `/api/files/${doc.id}/suggestions`, { accept: true, ids: [] })).body;
+  assert.equal(pending.resolved, 0);
+  const all = (await call(rw, 'fetch', { id: `file:${doc.id}` })).structuredContent.metadata.suggestions;
+  assert.equal(all.length, 3);
+  assert.equal((await sue('POST', `/api/files/${doc.id}/suggestions`, { accept: true, ids: all.slice(0, 2).map((x) => x.id) })).body.resolved, 2);
+  assert.equal((await sue('POST', `/api/files/${doc.id}/suggestions`, { accept: false })).body.resolved, 1);
+  const heard = (await owner('GET', '/api/notifications')).body.items.filter((x) => /your suggestion/.test(x.title)).map((x) => [x.title, x.body]);
+  assert.deepEqual(heard, [['Sue Owner rejected your suggestion in “Sue’s plan”', 'Replace “people” with “staff”'], ['Sue Owner accepted 2 of your suggestions in “Sue’s plan”', 'Replace “May” with “June” · Replace “ten” with “twelve”']]);
+  assert.equal((await sue('GET', '/api/notifications')).body.items.filter((x) => /your suggestion/.test(x.title)).length, 0);
   // Changed outright (not suggested): no such notification; one's own document: none either.
   const mine = (await call(rw, 'create_document', { name: 'Mine', text: 'Alpha' })).structuredContent;
   await call(rw, 'replace_in_document', { file: mine.id, find: 'Alpha', replace: 'Beta', suggest: true });

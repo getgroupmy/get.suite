@@ -88,8 +88,9 @@ await step('Olivia accepts one, rejects another; everyone sees the result', asyn
   await panel.getByRole('button', { name: 'Reject: Add “ Costs are fixed.”' }).click();
   await panel.getByRole('button', { name: 'Reject: Delete “We”' }).click();
   await until(async () => (await pm(kim).innerText()).trim() === 'We will deliver in April.');
-  if (await pm(page).locator('ins.sugg-ins, del.sugg-del').count()) throw new Error('marks left');
-  if (await page.getByRole('button', { name: /suggestions/ }).count()) throw new Error('button should go');
+  // (answered on the server: here too, live, a moment later)
+  await until(async () => !(await pm(page).locator('ins.sugg-ins, del.sugg-del').count()), 10000).catch(() => { throw new Error('marks left'); });
+  await until(async () => !(await page.getByRole('button', { name: /suggestions/ }).count()), 10000).catch(() => { throw new Error('button should go'); });
 });
 await step('back to editing: changes go straight in', async () => {
   await kim.getByLabel('Editing mode').selectOption('edit');
@@ -151,7 +152,12 @@ await step('the owner accepts the commenter’s suggestion', async () => {
   await pm(page).getByText('The fee is twelve pounds.').waitFor();
   await pm(rae).getByText('The fee is twelve pounds.').waitFor();
   if (await pm(rae).locator('.sugg-ins, .sugg-del').count()) throw new Error('marks left');
-});
+  // Rae hears of it in her bell (in the top bar, outside the editor).
+  await rae.goto(`${B}/home`);
+  await rae.getByRole('button', { name: /^Notifications/ }).click();
+  await rae.getByText('Olivia Owner accepted your suggestion in “Review me”').waitFor();
+  await rae.getByText('Replace “ten” with “twelve”').first().waitFor();
+}, { screenshot: (o) => (rae || page).screenshot(o) });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

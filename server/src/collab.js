@@ -71,7 +71,7 @@ export function loadDoc(fileId, kind) {
 // person and document every 10 minutes however many they make.
 const SUGGEST_TELL_MS = 10 * 60e3;
 const toldOfSuggestions = new Map(); // `${fileId}:${userId}` → when
-const describeSuggestion = (x) => { const qq = (t) => `“${t.length > 60 ? `${t.slice(0, 60)}…` : t}”`; return x.inserted && x.deleted ? `Replace ${qq(x.deleted)} with ${qq(x.inserted)}` : x.inserted ? `Add ${qq(x.inserted)}` : `Delete ${qq(x.deleted)}`; };
+export const describeSuggestion = (x) => { const qq = (t) => `“${t.length > 60 ? `${t.slice(0, 60)}…` : t}”`; return x.inserted && x.deleted ? `Replace ${qq(x.deleted)} with ${qq(x.inserted)}` : x.inserted ? `Add ${qq(x.inserted)}` : `Delete ${qq(x.deleted)}`; };
 export function tellOfSuggestions(fileId, before, after) {
   const known = new Set((before || []).map((x) => x.id));
   const fresh = (after || []).filter((x) => !known.has(x.id) && x.by);

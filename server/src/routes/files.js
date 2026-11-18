@@ -29,7 +29,7 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion } from '../collab.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
 import { deckFromOutline } from '../decktext.js';
@@ -1633,6 +1633,14 @@ export default function fileRoutes({ maxUploadBytes }) {
     snapshot(f.id);
     const count = resolveSuggestions(f.id, pick, req.body.accept, req.user.id);
     if (count) recordActivity(f.id, req.user.id, 'edit');
+    // Whoever made them hears what became of them (not someone answering their own).
+    const verb = req.body.accept ? 'accepted' : 'rejected';
+    for (const by of new Set(matching.map((x) => x.by).filter((u) => u && u !== req.user.id))) {
+      if (!roleFor(f.id, by)) continue; // (no longer has the file)
+      const theirs = matching.filter((x) => x.by === by);
+      bell([by], { kind: 'reply', title: `${req.user.name} ${verb} ${theirs.length === 1 ? 'your suggestion' : `${theirs.length} of your suggestions`} in “${f.name}”`,
+        body: theirs.slice(0, 3).map(describeSuggestion).join(' · '), link: `/docs/${f.id}`, actor: req.user.name });
+    }
     res.json({ resolved: count, left: suggestionsOf(f.id).length });
   });
 

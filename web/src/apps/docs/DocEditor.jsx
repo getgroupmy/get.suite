@@ -535,9 +535,12 @@ function SharedDoc({ file, setFile }) {
     return () => editor.off('update', update);
   }, [editor, user.id, user.name]);
   useEffect(() => { if (editor) { editor.storage.suggestMode.on = (suggesting && !readOnly) || suggestOnly; editor.storage.suggestMode.only = suggestOnly; } }, [editor, suggesting, readOnly, suggestOnly]);
-  const resolve = (id, accept) => {
-    const tr = resolveSuggestion(editor.state, id, accept);
-    if (tr) editor.view.dispatch(tr);
+  // Accept or reject on the server, so whoever made the suggestion hears of it (the change arrives here live);
+  // done here instead if the server doesn't have it yet (just made, not yet sent), or can't be reached.
+  const resolve = async (id, accept) => {
+    const ids = id ? [id] : suggestions.map((sg) => sg.id);
+    const here = () => { const tr = resolveSuggestion(editor.state, id, accept); if (tr) editor.view.dispatch(tr); };
+    try { const r = await post(`/files/${file.id}/suggestions`, { accept, ids }); if (!r.resolved) here(); } catch { here(); }
   };
   const showSuggestion = (sg) => editor.chain().setTextSelection({ from: sg.from, to: sg.to }).scrollIntoView().run();
   const [active, setActive] = useState(params.get('comment'));
