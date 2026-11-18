@@ -182,9 +182,11 @@ await step('an assistant updates a contact: Contacts shows the new number and jo
   const there = (await api(page, 'GET', '/contacts')).body.find((x) => x.name === 'Ana Silva');
   if (there.notes !== 'Met at the fair.\nPrefers calls after 2pm.') throw new Error(JSON.stringify(there.notes)); // (notes aren't in the list)
 });
+let launchDoc;
 await step('an assistant comments on words in a document open in Docs: the words are highlighted live, the comment is in the panel', async () => {
   const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7', scope: 'write', days: 30 })).body.token;
   const d = (await mcp(token, 'create_document', { name: 'Launch note', text: 'The launch is on Friday.' })).structuredContent;
+  launchDoc = d;
   await page.goto(new URL(d.url, B).href);
   await page.locator('.ProseMirror').getByText('The launch is on Friday.').waitFor();
   await page.waitForTimeout(800); // joined the live session
@@ -199,6 +201,24 @@ await step('an assistant comments on words in a document open in Docs: the words
   await page.getByRole('button', { name: /1\s*Comments/ }).click();
   await page.getByText('Is Friday still right?').waitFor();
   await page.screenshot({ path: `${SP}/shots/assistant-comment.png` });
+});
+await step('an assistant resolves the thread with a last reply: it leaves the open comments; shown resolved, with the reply', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7b', scope: 'write', days: 30 })).body.token;
+  const d = launchDoc;
+  const thread = (await mcp(token, 'list_comments', { file: d.id })).structuredContent.threads[0];
+  const r = await mcp(token, 'resolve_comment', { file: d.id, thread: thread.id, reply: 'Confirmed with ops: Friday.' });
+  if (r.isError || !r.structuredContent.resolved) throw new Error(JSON.stringify(r));
+  await page.reload();
+  await page.locator('.ProseMirror').getByText('The launch is on Friday.').waitFor();
+  await page.getByRole('button', { name: /^Comments$/ }).click(); // (no open threads: no count)
+  await page.getByText('Show resolved').waitFor();
+  if (await page.getByText('Is Friday still right?').count()) throw new Error('still open');
+  await page.getByLabel('Show resolved').check();
+  const t = page.locator('.comment-thread.resolved', { hasText: 'Is Friday still right?' });
+  await t.getByText('Confirmed with ops: Friday.').waitFor();
+  await t.getByText('Resolved by Olivia Owner').waitFor();
+  const bg = await page.locator('.ProseMirror .comment-mark').first().evaluate((el) => getComputedStyle(el).backgroundColor); // (the words keep their mark, for reopening; only open threads are lit)
+  if (/251, 188, 4/.test(bg)) throw new Error(`still highlighted: ${bg}`);
 });
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });

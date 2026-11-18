@@ -840,6 +840,32 @@ export const TOOLS = [
     },
   },
   {
+    name: 'resolve_comment', title: 'Resolve or reopen a comment thread', readOnly: false,
+    description: 'Mark a comment thread on a Drive file as resolved (done: hidden from the file’s open comments, and a task it was assigned as is ticked off), or reopen it (reopen: true). Optionally with a last reply first (reply), e.g. saying what was changed. The thread is an id from list_comments. Needs at least comment access. Resolve only what the person asked to, or what was plainly dealt with.',
+    inputSchema: {
+      type: 'object', required: ['file', 'thread'],
+      properties: {
+        file: { type: 'string', description: 'file:… from search or list_files' },
+        thread: { type: 'string', description: 'A thread’s id from list_comments' },
+        reply: { type: 'string', description: 'A reply to post in the thread first' },
+        reopen: { type: 'boolean', description: 'Reopen a resolved thread instead' },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const [f, list] = await Promise.all([api('GET', `/files/${encodeURIComponent(id)}`), api('GET', `/comments/${encodeURIComponent(id)}`)]);
+      const c = list.find((x) => x.id === String(a.thread || ''));
+      if (!c) throw new ToolError('No such comment thread on this file: use an id from list_comments');
+      const root = c.thread_id ? list.find((x) => x.id === c.thread_id) : c; // (a reply's id: its thread)
+      const resolved = !a.reopen;
+      const reply = String(a.reply || '').trim();
+      // A reply reopens a thread, so it goes first; then the thread is resolved (or reopened).
+      if (reply) await api('POST', `/comments/${encodeURIComponent(id)}`, { body: reply, thread_id: root.id });
+      if (!reply || resolved) await api('PATCH', `/comments/${encodeURIComponent(id)}/${encodeURIComponent(root.id)}`, { resolved });
+      return { id: root.id, file: f.name, about: root.anchor?.quote ? `“${root.anchor.quote}”` : undefined, resolved, ...(reply && { replied: true }), was_resolved: !!root.resolved, url: fileUrl(f) };
+    },
+  },
+  {
     name: 'share_file', title: 'Share a file with a colleague', readOnly: false,
     description: 'Share a Drive file or folder the person owns (or manages) with a colleague in their company, by email address: as viewer, commenter or editor. They’re told, as when sharing in Drive. Only colleagues: sharing outside the company is left to Workspace itself. Ask the person before sharing on their behalf.',
     inputSchema: {
@@ -1326,7 +1352,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({
