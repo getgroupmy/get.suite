@@ -1390,7 +1390,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   const [active, setActive] = useState(comment);
   const [pending, setPending] = useState(null);
   const [pinning, setPinning] = useState(false);
-  const canEdit = file.role !== 'viewer';
+  const canComment = file.role !== 'viewer'; // commenters, editors and the owner
   const isPicture = /^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m);
   const isZip = /\.zip$/i.test(file.name);
   const navigate = useNavigate();
@@ -1439,13 +1439,13 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
         <div className="preview">{body}</div>
         {panel && (
           <div className="preview-comments stack-tight">
-            {canEdit && !pending && (
+            {canComment && !pending && (
               <div className="row wrap">
                 <button type="button" className="btn small" onClick={() => newComment({}, 'the whole file')}>Comment on the file</button>
                 {isPicture && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} onClick={() => setPinning(!pinning)}>{pinning ? 'Click a spot on the picture…' : 'Comment on a spot'}</button>}
               </div>
             )}
-            <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canEdit} active={active} setActive={setActive} pending={pending}
+            <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
               onShow={(t) => setActive(t.id)} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
           </div>
         )}

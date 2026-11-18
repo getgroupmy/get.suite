@@ -1618,7 +1618,7 @@ function FileCards({ text }) {
         return (
           <Link key={l.id} className="file-card" to={OPEN[f.kind]?.(f.id) || `/drive?preview=${f.id}`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}`}>
             <Icon name={f.kind === 'folder' ? 'folder' : f.kind} size={22} className={`ft ft-${f.kind}`} />
-            <span className="grow"><strong>{f.name}</strong><span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
+            <span className="grow"><strong>{f.name}</strong><span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'commenter' ? ' · you can comment' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
           </Link>
         );
       })}

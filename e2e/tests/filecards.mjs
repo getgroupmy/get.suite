@@ -52,6 +52,11 @@ await step('a link to a document shared with Kim shows as a card; one not shared
   await card.getByText('Spreadsheet · Olivia Owner · you can edit').waitFor();
   await msg.getByRole('link', { name: /A file you can’t open/ }).waitFor();
   if (await msg.getByText('Salary review').count()) throw new Error('name leaked');
+  // A document Kim can comment on says so.
+  const review = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'For review' })).body;
+  await api(page, 'PUT', `/files/${review.id}/shares`, { shares: [{ user_id: kimId, role: 'commenter' }] });
+  await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: `Please look at /docs/${review.id}` });
+  await kim.locator('.msg', { hasText: 'Please look at' }).getByRole('link', { name: 'Document: For review' }).getByText('Document · Olivia Owner · you can comment').waitFor();
   await kim.screenshot({ path: `${SP}/shots/file-cards.png` });
   // Olivia sees both by name.
   await page.locator('.msg', { hasText: 'Numbers are in' }).getByRole('link', { name: 'Document: Salary review' }).waitFor();
