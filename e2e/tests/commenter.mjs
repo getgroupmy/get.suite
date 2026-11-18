@@ -100,6 +100,7 @@ await step('a commenter asks for edit access from the banner; the owner gives it
   await page.getByRole('button', { name: /^Access requests/ }).click();
   const dlg = page.getByRole('dialog', { name: 'Access requests' });
   await dlg.getByText('asks to edit').waitFor();
+  await dlg.getByText('(can comment now)').waitFor();
   await dlg.getByRole('button', { name: 'Share' }).click();
   await dlg.getByText('Nobody is waiting.').waitFor();
   await kim.goto(`${B}/docs/${doc.id}`);

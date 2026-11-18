@@ -1631,7 +1631,7 @@ function AccessRequests({ list, onClose, onChanged }) {
           {list.map((r) => (
             <li key={r.id}>
               <div className="grow">
-                <div><strong>{r.user_name}</strong> <span className="muted small">{r.user_email}</span> {r.longer ? <>asks to keep <strong>{r.file_name}</strong>{r.ends_at ? ` after ${formatDate(r.ends_at)}` : ''}</> : <>asks to {r.role === 'editor' ? 'edit' : 'view'} <strong>{r.file_name}</strong></>}</div>
+                <div><strong>{r.user_name}</strong> <span className="muted small">{r.user_email}</span> {r.longer ? <>asks to keep <strong>{r.file_name}</strong>{r.ends_at ? ` after ${formatDate(r.ends_at)}` : ''}</> : <>asks to {r.role === 'editor' ? 'edit' : r.role === 'commenter' ? 'comment on' : 'view'} <strong>{r.file_name}</strong>{r.has && <span className="muted small"> (can {r.has === 'commenter' ? 'comment' : 'view'} now)</span>}</>}</div>
                 {r.message && <div className="muted small">“{r.message}”</div>}
               </div>
               {!r.longer && <select value={roles[r.id] || r.role} onChange={(e) => setRoles({ ...roles, [r.id]: e.target.value })} aria-label={`Access for ${r.user_name}`}>

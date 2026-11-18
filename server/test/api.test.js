@@ -2566,7 +2566,7 @@ test('drive: asking for access — the owner is told, approves (as asked or othe
   assert.ok(bell.some((n) => n.title === 'Req Ben asks to edit “Budget 2027”' && n.body === 'For the board pack'));
   await c('POST', `/api/files/${doc.id}/request-access`, {});
   let reqs = (await a('GET', '/api/files/access-requests')).body;
-  assert.deepEqual(reqs.map((r) => [r.user_name, r.role, r.file_name]), [['Req Cat', 'viewer', 'Budget 2027'], ['Req Ben', 'editor', 'Budget 2027']]);
+  assert.deepEqual(reqs.map((r) => [r.user_name, r.role, r.file_name, r.has]), [['Req Cat', 'viewer', 'Budget 2027', null], ['Req Ben', 'editor', 'Budget 2027', null]]);
   assert.deepEqual((await b('GET', '/api/files/access-requests')).body, [], 'only the owner sees them');
   const ben = reqs.find((r) => r.user_name === 'Req Ben');
   assert.equal((await b('POST', `/api/files/access-requests/${ben.id}`, { approve: true })).status, 404, 'only the owner answers');
@@ -2578,7 +2578,7 @@ test('drive: asking for access — the owner is told, approves (as asked or othe
   assert.match((await b('POST', `/api/files/${doc.id}/request-access`, {})).body.error, /already open/);
   assert.deepEqual((await b('POST', `/api/files/${doc.id}/request-access`, { role: 'editor' })).body, { ok: true });
   const up = (await a('GET', '/api/files/access-requests')).body.find((r) => r.user_name === 'Req Ben');
-  assert.equal(up.role, 'editor');
+  assert.deepEqual([up.role, up.has], ['editor', 'viewer']);
   await a('POST', `/api/files/access-requests/${up.id}`, { approve: true });
   assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'editor');
   assert.match((await b('POST', `/api/files/${doc.id}/request-access`, { role: 'editor' })).body.error, /already edit/);
