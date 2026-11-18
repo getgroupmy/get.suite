@@ -282,6 +282,29 @@ await step('a suggestion typed in Docs: an assistant reads it apart from the tex
   await until(async () => !(await page.locator('.ProseMirror .sugg-ins').count()));
   await page.locator('.ProseMirror').getByText('We ship today at noon.').waitFor();
 });
+await step('a colleague suggests edits in Docs: the owner’s bell says so and opens the document', async () => {
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Team plan', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Offsite in Lisbon.' }] }] } })).body;
+  const avaId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'ava@acme.com').id;
+  await api(page, 'PUT', `/files/${d.id}/shares`, { shares: [{ user_id: avaId, role: 'editor' }] });
+  await ava.goto(`${B}/docs/${d.id}`);
+  await ava.locator('.ProseMirror').getByText('Offsite in Lisbon.').waitFor();
+  await ava.getByLabel('Editing mode').selectOption('suggest');
+  await ava.locator('.ProseMirror p', { hasText: 'Offsite in Lisbon.' }).click();
+  await ava.keyboard.press('End');
+  await ava.keyboard.press('ArrowLeft');
+  await ava.keyboard.type(' in June');
+  await ava.locator('.ProseMirror ins.sugg-ins', { hasText: 'in June' }).waitFor();
+  await page.goto(`${B}/home`);
+  await until(async () => JSON.stringify((await api(page, 'GET', '/notifications')).body.items).includes('Ava Assignee suggested edits in “Team plan”'), 30000);
+  await page.reload();
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  const item = page.getByText('Ava Assignee suggested edits in “Team plan”');
+  await item.waitFor();
+  await page.getByText('Add “ in June”').first().waitFor();
+  await item.click();
+  await page.waitForURL(new RegExp(`/docs/${d.id}`));
+  await page.locator('.ProseMirror ins.sugg-ins', { hasText: 'in June' }).waitFor();
+}, { screenshot: (o) => page.screenshot(o) });
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
   const gus = await mk('gus');

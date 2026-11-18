@@ -18,6 +18,7 @@ import { roleFor, atLeast, audienceFor } from './access.js';
 import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
+import { notify } from './notifications.js';
 import { brokenProtections, mayEdit } from './sheetprotect.js';
 
 const MESSAGE_SYNC = 0, MESSAGE_AWARENESS = 1;
@@ -66,12 +67,34 @@ export function loadDoc(fileId, kind) {
   return doc;
 }
 
+// Suggested edits by someone other than the owner: the owner is told (as for a new comment on their file), once per
+// person and document every 10 minutes however many they make.
+const SUGGEST_TELL_MS = 10 * 60e3;
+const toldOfSuggestions = new Map(); // `${fileId}:${userId}` → when
+const describeSuggestion = (x) => { const qq = (t) => `“${t.length > 60 ? `${t.slice(0, 60)}…` : t}”`; return x.inserted && x.deleted ? `Replace ${qq(x.deleted)} with ${qq(x.inserted)}` : x.inserted ? `Add ${qq(x.inserted)}` : `Delete ${qq(x.deleted)}`; };
+export function tellOfSuggestions(fileId, before, after) {
+  const known = new Set((before || []).map((x) => x.id));
+  const fresh = (after || []).filter((x) => !known.has(x.id) && x.by);
+  if (!fresh.length) return;
+  const f = q('SELECT id, name, owner_id FROM files WHERE id = ?').get(fileId);
+  if (!f?.owner_id) return;
+  for (const by of new Set(fresh.map((x) => x.by))) {
+    if (by === f.owner_id) continue;
+    const key = `${fileId}:${by}`;
+    if (Date.now() - (toldOfSuggestions.get(key) || 0) < SUGGEST_TELL_MS) continue;
+    toldOfSuggestions.set(key, Date.now());
+    const theirs = fresh.filter((x) => x.by === by), name = theirs[0].name || q('SELECT name FROM users WHERE id = ?').get(by)?.name || 'Someone';
+    notify([f.owner_id], { kind: 'reply', title: `${name} suggested edits in “${f.name}”`, body: theirs.slice(0, 3).map(describeSuggestion).join(' · '), link: `/docs/${f.id}`, actor: name });
+  }
+}
+
 function save(room) {
   if (!room.dirty) return;
   room.dirty = false;
   clearTimeout(room.timer);
   const json = JSON.stringify(KINDS[room.kind].toJson(room.doc));
   const by = room.lastEditor;
+  if (room.kind === 'doc') { const now = suggestionsInJson(JSON.parse(json)); tellOfSuggestions(room.fileId, room.suggestions, now); room.suggestions = now; }
   snapshotIfNewSession(room.fileId, by);
   q('UPDATE files SET content = ?, size = ?, ydoc = ?, ydoc_of = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
     .run(json, Buffer.byteLength(json), Buffer.from(Y.encodeStateAsUpdate(room.doc)), fingerprint(json), Date.now(), by, room.fileId);
@@ -87,6 +110,7 @@ function getRoom(fileId, kind) {
   if (room) return room;
   const doc = loadDoc(fileId, kind);
   room = { fileId, kind, doc, awareness: new awarenessProtocol.Awareness(doc), conns: new Map(), dirty: false, timer: null, lastEditor: null };
+  if (kind === 'doc') room.suggestions = suggestionsInYDoc(doc, FIELD); // (those already there aren't news)
   room.awareness.setLocalState(null); // the server isn't a participant
   doc.on('update', (update, origin) => {
     const enc = encoding.createEncoder();
@@ -248,8 +272,10 @@ export function replaceInDocument(fileId, find, replace, opts = {}, by = null) {
   if (room) { const { count } = replaceInYDoc(room.doc, find, replace, { ...opts, field: FIELD }); if (count) room.lastEditor = by || room.lastEditor; return count; }
   const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc' AND trashed = 0").get(fileId);
   if (!f) return 0;
-  const out = replaceInJson(JSON.parse(f.content || '{}'), find, replace, opts);
+  const before = JSON.parse(f.content || '{}');
+  const out = replaceInJson(before, find, replace, opts);
   if (!out.count) return 0;
+  if (opts.suggest) tellOfSuggestions(fileId, suggestionsInJson(before), suggestionsInJson(out.json));
   const json = JSON.stringify(out.json);
   q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ?, updated_by = COALESCE(?, updated_by) WHERE id = ?').run(json, Buffer.byteLength(json), Date.now(), by, fileId);
   indexSoon();

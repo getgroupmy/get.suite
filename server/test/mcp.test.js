@@ -969,6 +969,25 @@ test('change words in a document: everywhere or first only, any case; read-only 
   assert.match((await call(rw, 'resolve_suggestions', { file: `file:${doc.id}` })).content[0].text, /Say accept/);
 });
 
+test('suggestions in a colleague’s document: the owner is told who suggested edits, once for several', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'sue', domain: 'acme.com', name: 'Sue Owner', password: 'password123' })).status, 201);
+  const sue = client();
+  await sue('POST', '/api/auth/login', { username: 'sue@acme.com', password: 'password123' });
+  const doc = (await sue('POST', '/api/files/new', { kind: 'doc', name: 'Sue’s plan', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Launch in May with ten people.' }] }] } })).body;
+  const olivia = (await owner('GET', '/api/users/directory')).body.find((u) => u.username.startsWith('olivia@')).id;
+  await sue('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: olivia, role: 'editor' }] });
+  const told = async () => (await sue('GET', '/api/notifications')).body.items.filter((n) => /suggested edits/.test(n.title));
+  assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'May', replace: 'June', suggest: true })).structuredContent.suggested, 1);
+  let n = await told();
+  assert.deepEqual(n.map((x) => [x.title, x.body, x.link]), [['Olivia Owner suggested edits in “Sue’s plan”', 'Replace “May” with “June”', `/docs/${doc.id}`]]);
+  await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'ten', replace: 'twelve', suggest: true });
+  assert.equal((await told()).length, 1, 'not again for the next one');
+  // Changed outright (not suggested): no such notification; one's own document: none either.
+  const mine = (await call(rw, 'create_document', { name: 'Mine', text: 'Alpha' })).structuredContent;
+  await call(rw, 'replace_in_document', { file: mine.id, find: 'Alpha', replace: 'Beta', suggest: true });
+  assert.equal((await owner('GET', '/api/notifications')).body.items.filter((x) => /suggested edits in “Mine”/.test(x.title)).length, 0);
+});
+
 test('add slides to a presentation: at the end or after a slide, in its theme; a read-only token can’t', async () => {
   const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Pitch', content: { theme: 'dark', slides: [{ id: 's1', items: [{ id: 't', type: 'text', role: 'title', text: 'Intro', x: 5, y: 5, w: 90, h: 10 }] }, { id: 's2', items: [{ id: 't', type: 'text', role: 'title', text: 'End', x: 5, y: 5, w: 90, h: 10 }] }] } })).body;
   let r = await call(rw, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'Market', points: ['Big', 'Growing'], notes: 'Pause here' }], after: 1 });
