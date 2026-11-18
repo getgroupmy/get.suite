@@ -11,7 +11,7 @@ import { useAuth } from '../../App.jsx';
 import { useToast, PromptModal, ConfirmModal, Menu, Avatar, ContextMenu, Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
-import { EditorHeader } from '../editorCommon.jsx';
+import { EditorHeader, ReadOnlyBanner } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
@@ -1224,7 +1224,7 @@ export default function SheetEditor() {
         ]}
       />
       {rebuilt ? <RebuiltNote rebuilt={rebuilt} path="sheets" /> : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep editing: your changes are kept on this device and sync when the connection is back.</div>}
-      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {readOnly && <ReadOnlyBanner file={file} />}
       {fillOffer && (
         <div className="banner smartfill-offer" role="region" aria-label="Smart fill suggestion">
           <span className="grow">✨ <strong>Smart fill:</strong> fill {fillOffer.plan.fills.length} more cell{fillOffer.plan.fills.length === 1 ? '' : 's'} in column {fillOffer.col} like your examples (<em>{fillOffer.plan.fills[0].v}</em>{fillOffer.plan.fills.length > 1 ? `, ${fillOffer.plan.fills[1].v}` : ''}{fillOffer.plan.fills.length > 2 ? '…' : ''})?</span>

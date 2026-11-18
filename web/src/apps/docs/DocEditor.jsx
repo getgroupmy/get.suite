@@ -27,7 +27,7 @@ import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal, withDataCheck } from '../../components/ui.jsx';
 import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf, PAGE_COLORS, pageColorOf, DOC_FONTS, DOC_FONT_SIZES, textVars, inkFor } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
-import { EditorHeader } from '../editorCommon.jsx';
+import { EditorHeader, ReadOnlyBanner } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
 import DrawPad from '../../components/DrawPad.jsx';
@@ -860,7 +860,7 @@ function SharedDoc({ file, setFile }) {
       <style>{highlight}</style>
       <style>{printCss(file.page_setup)}</style>
       {rebuilt ? <RebuiltNote rebuilt={rebuilt} path="docs" /> : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep typing: your changes are kept on this device and sync when the connection is back.</div>}
-      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment and suggest edits: what you type shows as your suggestions.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {readOnly && <ReadOnlyBanner file={file} commenter="You can comment and suggest edits: what you type shows as your suggestions." />}
       {voiceTyping && !readOnly && <VoiceTypingBar editor={editor} onClose={() => { setVoiceTyping(false); editor.view.focus(); }} />}
       {reading && <ReadAloudBar key={reading.key} sentences={reading.list} onClose={() => { setReading(null); editor.view.focus(); }}
         onSentence={(s) => {

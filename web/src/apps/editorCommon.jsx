@@ -205,6 +205,25 @@ function PublishDialog({ file, onClose }) {
 }
 
 /** HTML to put a public page (a published file, a form) into another website, with Copy. */
+/**
+ * The banner over a file someone can only view or comment on (or that's locked), with **Request edit access**:
+ * the owner gets the request among Drive's access requests, as for someone without access.
+ */
+export function ReadOnlyBanner({ file, commenter = 'You can comment, not edit.' }) {
+  const toast = useToast();
+  const [asked, setAsked] = useState(false);
+  const ask = async () => {
+    try { await post(`/files/${file.id}/request-access`, { role: 'editor' }); setAsked(true); toast(`Asked ${file.owner_name || 'the owner'} for edit access`); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <div className="banner">
+      {file.locked_at ? 'Locked.' : file.role === 'commenter' ? commenter : 'View only.'}{' '}
+      {!file.locked_at && (asked ? `Asked ${file.owner_name} for edit access.` : <>Ask {file.owner_name} for edit access. <button type="button" className="btn small" onClick={ask}>Request edit access</button></>)}
+    </div>
+  );
+}
+
 export function EmbedCode({ url, height = 600 }) {
   const toast = useToast();
   const code = `<iframe src="${url}?embed=1" width="100%" height="${height}" style="border:0" loading="lazy"></iframe>`;

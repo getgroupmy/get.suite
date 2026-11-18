@@ -2574,6 +2574,14 @@ test('drive: asking for access — the owner is told, approves (as asked or othe
   await a('POST', `/api/files/access-requests/${ben.id}`, { approve: true, role: 'viewer' });
   assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'viewer');
   assert.ok((await b('GET', '/api/notifications')).body.items.some((n) => n.title === 'Req Ann shared “Budget 2027” with you'));
+  // Able to view, Ben asks again to edit: allowed (not to view, which he has); once given, he can edit.
+  assert.match((await b('POST', `/api/files/${doc.id}/request-access`, {})).body.error, /already open/);
+  assert.deepEqual((await b('POST', `/api/files/${doc.id}/request-access`, { role: 'editor' })).body, { ok: true });
+  const up = (await a('GET', '/api/files/access-requests')).body.find((r) => r.user_name === 'Req Ben');
+  assert.equal(up.role, 'editor');
+  await a('POST', `/api/files/access-requests/${up.id}`, { approve: true });
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'editor');
+  assert.match((await b('POST', `/api/files/${doc.id}/request-access`, { role: 'editor' })).body.error, /already edit/);
   const cat = (await a('GET', '/api/files/access-requests')).body[0];
   await a('POST', `/api/files/access-requests/${cat.id}`, { approve: false });
   assert.equal((await c('GET', `/api/files/${doc.id}`)).status, 404);

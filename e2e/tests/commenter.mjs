@@ -92,6 +92,20 @@ await step('everyone at the company as Commenter, from the Share dialog', async 
   await kim.goto(`${B}/docs/${d2.id}`);
   await kim.getByText('You can comment and suggest edits').waitFor();
 });
+await step('a commenter asks for edit access from the banner; the owner gives it in Drive; the document opens editable', async () => {
+  await kim.goto(`${B}/docs/${doc.id}`);
+  await kim.getByRole('button', { name: 'Request edit access' }).click();
+  await kim.getByText('Asked Olivia Owner for edit access.').first().waitFor();
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: /^Access requests/ }).click();
+  const dlg = page.getByRole('dialog', { name: 'Access requests' });
+  await dlg.getByText('asks to edit').waitFor();
+  await dlg.getByRole('button', { name: 'Share' }).click();
+  await dlg.getByText('Nobody is waiting.').waitFor();
+  await kim.goto(`${B}/docs/${doc.id}`);
+  await kim.locator('.ProseMirror[contenteditable="true"]').waitFor();
+  if (await kim.getByRole('button', { name: 'Request edit access' }).count()) throw new Error('still asks');
+}, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

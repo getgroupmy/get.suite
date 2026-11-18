@@ -20,7 +20,7 @@ import Icon from '../../components/Icon.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
-import { EditorHeader } from '../editorCommon.jsx';
+import { EditorHeader, ReadOnlyBanner } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
   THEMES, themeOf, masterOn, THEME_FONTS, CORNERS, cleanCustom, cleanMaster, LAYOUTS, numberShown, newId, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
@@ -354,7 +354,7 @@ export default function SlidesEditor() {
         ]}
       />
       {rebuilt ? <RebuiltNote rebuilt={rebuilt} path="slides" /> : (status === 'offline' || (fromDevice && status === 'connecting')) && <div className="banner warn">You're offline{fromDevice ? ' (opened from this device)' : ''}. Keep editing: your changes are kept on this device and sync when the connection is back.</div>}
-      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {readOnly && <ReadOnlyBanner file={file} />}
       {!readOnly && (
         <div className={`slides-toolbar foldable ${toolsOpen ? 'open' : ''}`} role="toolbar" aria-label="Slide tools">
           <button type="button" className="tb tb-fold" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}>{toolsOpen ? 'Hide tools ▴' : 'Tools ▾'}</button>

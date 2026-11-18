@@ -1154,7 +1154,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     const role = ['editor', 'commenter'].includes(req.body.role) ? req.body.role : 'viewer';
     const message = str(req.body.message ?? '', { max: 500, name: 'Message' }) || null;
     const f = q('SELECT id, name, kind, owner_id, trashed FROM files WHERE id = ?').get(String(req.params.id));
-    if (f && roleFor(f.id, req.user.id)) throw bad('You can already open this');
+    // Someone who can already open it may ask for more (a viewer to comment or edit, a commenter to edit), not for what they have.
+    const has = f && roleFor(f.id, req.user.id);
+    if (has && atLeast(has, role)) throw bad(role === 'viewer' ? 'You can already open this' : `You can already ${role === 'editor' ? 'edit' : 'comment on'} this`);
     if (q('SELECT COUNT(*) AS n FROM access_requests WHERE user_id = ?').get(req.user.id).n >= 50) throw bad('You have asked for too many files; wait for answers first');
     // Sent (or quietly not, for a file that isn't there or an owner they can't reach): the answer is the same.
     if (f && !f.trashed && f.owner_id !== req.user.id && canReach(req.user, f.owner_id)) {
@@ -1162,7 +1164,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       q(`INSERT INTO access_requests (id, file_id, user_id, role, message, created_at) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(file_id, user_id) DO UPDATE SET role = excluded.role, message = excluded.message, created_at = excluded.created_at`)
         .run(uid(), f.id, req.user.id, role, message, now());
-      if (!had) bell([f.owner_id], { kind: 'share', title: `${req.user.name || req.user.username} asks to ${role === 'editor' ? 'edit' : 'view'} “${f.name}”`, body: message || 'Open the request to answer', link: '/drive?requests=1', actor: req.user.name });
+      if (!had) bell([f.owner_id], { kind: 'share', title: `${req.user.name || req.user.username} asks to ${role === 'editor' ? 'edit' : role === 'commenter' ? 'comment on' : 'view'} “${f.name}”`, body: message || 'Open the request to answer', link: '/drive?requests=1', actor: req.user.name });
       sendTo([f.owner_id], { type: 'access-requests' });
     }
     res.json({ ok: true });
