@@ -54,6 +54,14 @@ export default function Home() {
   const mail = useMailStatus();
   const [data, setData] = useState(null);
   const [meetOpen, setMeetOpen] = useState(null); // { m, what: 'people' | 'chat' }: a recent meeting's Who joined or chat
+  // An access request answered here (as asked), as in Drive's Access requests; the card then refreshes.
+  const answerAccess = async (a, yes) => {
+    try {
+      await post(`/files/access-requests/${a.id}`, { approve: yes });
+      toast(yes ? `${a.user_name} can now ${a.role === 'editor' ? 'edit' : a.role === 'commenter' ? 'comment on' : 'view'} ${a.file_name}` : `Declined: ${a.user_name} is told`);
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const load = useCallback(async () => {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
@@ -227,6 +235,10 @@ export default function Home() {
                 {data.accessRequests.map((a) => (
                   <li key={a.id}><Avatar name={a.user_name} userId={a.user_id} size={20} />
                     <Link className="grow home-item" to="/drive?requests=1"><strong>{a.user_name}</strong> <span className="muted">asks {a.longer ? 'to keep' : `to ${a.role === 'editor' ? 'edit' : a.role === 'commenter' ? 'comment on' : 'view'}`} {a.file_name}{a.longer ? ' longer' : ''}{a.has && !a.longer ? ` (can ${a.has === 'commenter' ? 'comment' : 'view'} now)` : ''}</span></Link>
+                    {!a.longer && <span className="row nowrap">
+                      <button type="button" className="btn small primary" aria-label={`Share ${a.file_name} with ${a.user_name}`} onClick={() => answerAccess(a, true)}>Share</button>
+                      <button type="button" className="btn small" aria-label={`Decline ${a.user_name}’s request`} onClick={() => answerAccess(a, false)}>Decline</button>
+                    </span>}
                     <span className="muted small nowrap">{formatDate(a.created_at)}</span></li>
                 ))}
                 {data.accessRequestsMore > 0 && <li className="muted small">and {data.accessRequestsMore} more</li>}

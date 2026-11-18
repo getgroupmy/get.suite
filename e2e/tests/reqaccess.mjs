@@ -87,6 +87,13 @@ await step('from Drive, Kim asks to edit it (Shared with me → Request edit acc
   await kim.getByRole('button', { name: /^Notifications/ }).click();
   await kim.getByText('Olivia Owner didn’t give you edit access to “Payroll”').waitFor();
   await kim.getByText('You can still view it.').waitFor();
+  // He asks again; this time Olivia shares it straight from Home's card: he can edit.
+  await api(kim, 'POST', `/files/${doc.id}/request-access`, { role: 'editor' });
+  await page.goto(`${B}/home`);
+  await page.getByRole('button', { name: 'Share Payroll with Kim Park' }).click();
+  await page.getByText('Kim Park can now edit Payroll').waitFor();
+  await page.getByRole('region', { name: 'Access requests' }).waitFor({ state: 'detached' });
+  if ((await api(kim, 'GET', `/files/${doc.id}`)).body.role !== 'editor') throw new Error('not editor');
 }, kim);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
