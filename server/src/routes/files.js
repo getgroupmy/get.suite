@@ -1625,7 +1625,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     saveNow(f.id);
     const cur = q('SELECT updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
     if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
-    const count = replaceInDocument(f.id, find, replace.replace(/[\r\n]+/g, ' '), { all: req.body?.all !== false, matchCase: req.body?.match_case !== false }, req.user.id);
+    // suggest: as suggestions in the person's name (Docs' suggesting mode), to accept or reject, instead of changed outright.
+    const suggest = req.body?.suggest ? { by: req.user.id, name: req.user.name, at: now() } : null;
+    const count = replaceInDocument(f.id, find, replace.replace(/[\r\n]+/g, ' '), { all: req.body?.all !== false, matchCase: req.body?.match_case !== false, suggest }, req.user.id);
     if (count) recordActivity(f.id, req.user.id, 'edit');
     res.json({ replaced: count });
   });

@@ -142,18 +142,24 @@ export function markQuoteInJson(json, quote, commentId) {
 
 // ---- find and replace in a document's text (an assistant's "change X to Y"): a paragraph's text at a time, so a match
 // may cross formatting; the replacement takes the formatting of the match's first letter. At most `limit` places.
-const occurrences = (plain, find, matchCase, all) => {
+const occurrences = (plain, find, matchCase, all, taken = null) => {
   const hay = matchCase ? plain : plain.toLowerCase(), needle = matchCase ? find : find.toLowerCase();
   const out = [];
   for (let at = hay.indexOf(needle); at >= 0 && needle; at = hay.indexOf(needle, at + needle.length)) {
+    if (taken && taken(at, at + needle.length)) continue; // (suggesting: not words already in a suggestion)
     if (!/￼/.test(plain.slice(at, at + needle.length))) out.push(at); // (not across a picture, chip or other object)
     if (!all && out.length) break;
   }
   return out;
 };
 
-/** Replace in a live document: { count }. */
-export function replaceInYDoc(doc, find, replace, { all = true, matchCase = true, limit = 1000, field = 'default' } = {}) {
+// Suggesting ("track changes"), as Docs' suggesting mode marks it: who, when, and an id shared by a replacement's two halves.
+const suggestionMark = (who) => ({ id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, by: who.by || null, name: who.name || '', at: who.at || Date.now() });
+const withoutSuggestions = (a) => { const { suggestDelete, suggestInsert, ...rest } = a || {}; return rest; };
+const SUGGEST_MARKS = new Set(['suggestDelete', 'suggestInsert']);
+
+/** Replace in a live document: { count }. With suggest ({ by, name }), as suggestions to accept or reject instead. */
+export function replaceInYDoc(doc, find, replace, { all = true, matchCase = true, limit = 1000, field = 'default', suggest = null } = {}) {
   let count = 0;
   const walk = (node) => {
     for (const child of node.toArray()) {
@@ -161,10 +167,20 @@ export function replaceInYDoc(doc, find, replace, { all = true, matchCase = true
       if (child instanceof Y.XmlText) {
         const delta = child.toDelta();
         const plain = delta.map((d) => (typeof d.insert === 'string' ? d.insert : '￼')).join('');
-        const hits = occurrences(plain, find, matchCase, all).slice(0, limit - count);
+        const suggested = (from, to) => { let p = 0; for (const d of delta) { const len = typeof d.insert === 'string' ? d.insert.length : 1; if (p < to && p + len > from && (d.attributes?.suggestDelete || d.attributes?.suggestInsert)) return true; p += len; } return false; };
+        const hits = occurrences(plain, find, matchCase, all, suggest ? suggested : null).slice(0, limit - count);
         if (!hits.length) continue;
         const attrsAt = (pos) => { let p = 0; for (const d of delta) { const len = typeof d.insert === 'string' ? d.insert.length : 1; if (pos < p + len) return d.attributes || {}; p += len; } return {}; };
-        doc.transact(() => { for (const at of [...hits].reverse()) { const a = attrsAt(at); child.delete(at, find.length); if (replace) child.insert(at, replace, a); } });
+        doc.transact(() => {
+          for (const at of [...hits].reverse()) {
+            const a = attrsAt(at);
+            if (suggest) { // (a suggestion: the words struck through, the new ones after them, one id for both)
+              const mark = suggestionMark(suggest);
+              child.format(at, find.length, { suggestDelete: mark });
+              if (replace) child.insert(at + find.length, replace, { ...withoutSuggestions(a), suggestInsert: mark });
+            } else { child.delete(at, find.length); if (replace) child.insert(at, replace, a); }
+          }
+        });
         count += hits.length;
       } else if (child instanceof Y.XmlElement) walk(child);
     }
@@ -174,7 +190,7 @@ export function replaceInYDoc(doc, find, replace, { all = true, matchCase = true
 }
 
 /** The same for a stored document: { json, count }. */
-export function replaceInJson(json, find, replace, { all = true, matchCase = true, limit = 1000 } = {}) {
+export function replaceInJson(json, find, replace, { all = true, matchCase = true, limit = 1000, suggest = null } = {}) {
   let count = 0;
   const visit = (node) => {
     if (!Array.isArray(node.content) || count >= limit || (!all && count)) return node;
@@ -185,12 +201,24 @@ export function replaceInJson(json, find, replace, { all = true, matchCase = tru
     // (positions in UTF-16 units, as indexOf counts them)
     const units = []; chars.forEach((c, i) => { for (let u = 0; u < c.ch.length; u++) units.push(i); });
     const plain = chars.map((c) => c.ch).join('');
-    const hits = occurrences(plain, find, matchCase, all).slice(0, limit - count);
+    const suggested = (a, b) => { for (let u = a; u < b; u++) if ((chars[units[u]].k.marks || []).some((m) => SUGGEST_MARKS.has(m.type))) return true; return false; };
+    const hits = occurrences(plain, find, matchCase, all, suggest ? suggested : null).slice(0, limit - count);
     if (!hits.length) return { ...node, content: kids.map(visit) };
     let out = [...chars];
     for (const at of [...hits].reverse()) {
       const from = units[at], to = units[at + find.length - 1] + 1;
       const k = out[from].k;
+      if (suggest) { // (struck through where they are, the new words after them)
+        const mark = suggestionMark(suggest), copies = new Map();
+        const struck = out.slice(from, to).map((c) => {
+          if (c.k.type !== 'text') return c;
+          if (!copies.has(c.k)) copies.set(c.k, { ...c.k, marks: [...(c.k.marks || []), { type: 'suggestDelete', attrs: mark }] });
+          return { ch: c.ch, k: copies.get(c.k) };
+        });
+        const ins = { ...k, marks: [...(k.marks || []).filter((m) => !SUGGEST_MARKS.has(m.type)), { type: 'suggestInsert', attrs: mark }] };
+        out.splice(from, to - from, ...struck, ...[...replace].map((ch) => ({ ch, k: ins })));
+        continue;
+      }
       out.splice(from, to - from, ...[...replace].map((ch) => ({ ch, k })));
     }
     count += hits.length;

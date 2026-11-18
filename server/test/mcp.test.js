@@ -949,6 +949,11 @@ test('change words in a document: everywhere or first only, any case; read-only 
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Nowhere', replace: 'x' })).structuredContent.replaced, 0);
   assert.equal((await call(ro, 'replace_in_document', { file: `file:${doc.id}`, find: 'Beta', replace: 'x' })).isError, true);
   assert.match((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'a\nb', replace: 'x' })).content[0].text, /within one paragraph/);
+  // As a suggestion: struck through and added in the person's name, for them to accept or reject; the text otherwise unchanged.
+  r = await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'again', replace: 'once more', suggest: true });
+  assert.deepEqual([r.structuredContent.suggested, r.structuredContent.replaced], [1, undefined]);
+  const after = (await owner('GET', `/api/files/${doc.id}/content`)).body.content.content[0].content;
+  assert.deepEqual(after.slice(-3).map((n) => [n.text, (n.marks || []).map((m) => `${m.type}${m.attrs?.name ? `:${m.attrs.name}` : ''}`).join()]), [['again', 'suggestDelete:Olivia Owner'], ['once more', 'suggestInsert:Olivia Owner'], ['.', '']]);
 });
 
 test('add slides to a presentation: at the end or after a slide, in its theme; a read-only token can’t', async () => {

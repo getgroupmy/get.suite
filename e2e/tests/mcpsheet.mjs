@@ -246,6 +246,23 @@ await step('an assistant assigns a comment to a colleague: it is on her task lis
   await ava.goto(new URL(t.url, B).href);
   await ava.locator('.comment-thread.active', { hasText: 'Write the launch email' }).waitFor();
 }, { screenshot: (o) => (ava || page).screenshot(o) });
+await step('an assistant suggests a change to a document open in Docs: it appears live as a suggestion; accepted, it goes in', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7d', scope: 'write', days: 30 })).body.token;
+  const d = (await mcp(token, 'create_document', { name: 'Price note', text: 'Prices rise in March.' })).structuredContent;
+  await page.goto(new URL(d.url, B).href);
+  await page.locator('.ProseMirror').getByText('Prices rise in March.').waitFor();
+  await page.waitForTimeout(800); // joined the live session
+  const r = await mcp(token, 'replace_in_document', { file: d.id, find: 'March', replace: 'April', suggest: true });
+  if (r.isError || r.structuredContent.suggested !== 1) throw new Error(JSON.stringify(r));
+  await page.locator('.ProseMirror del.sugg-del', { hasText: 'March' }).waitFor();
+  await page.locator('.ProseMirror ins.sugg-ins', { hasText: 'April' }).waitFor();
+  if (await page.locator('.ProseMirror ins.sugg-ins').getAttribute('title') !== 'Suggested by Olivia Owner') throw new Error('not in her name');
+  await page.getByRole('button', { name: /1 suggestions/ }).click();
+  await page.getByRole('button', { name: 'Accept: Replace “March” with “April”' }).click();
+  await page.locator('.ProseMirror').getByText('Prices rise in April.').waitFor();
+  await until(async () => JSON.stringify((await api(page, 'GET', `/files/${d.id.replace('file:', '')}/content`)).body.content).includes('Prices rise in April.'), 15000);
+  if (await page.locator('.ProseMirror .sugg-del, .ProseMirror .sugg-ins').count()) throw new Error('suggestion marks left');
+});
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
   const gus = await mk('gus');

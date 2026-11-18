@@ -721,7 +721,7 @@ export const TOOLS = [
   },
   {
     name: 'replace_in_document', title: 'Change words in a document', readOnly: false,
-    description: 'Find and replace text in an existing Workspace document (e.g. a name that changed, a figure corrected), everywhere or only the first place. Read it with fetch first. The text to find is within one paragraph; the new text takes the formatting of the words it replaces. Says how many places changed (0: not found).',
+    description: 'Find and replace text in an existing Workspace document (e.g. a name that changed, a figure corrected), everywhere or only the first place. Read it with fetch first. The text to find is within one paragraph; the new text takes the formatting of the words it replaces. Says how many places changed (0: not found). With suggest, the changes are suggestions to accept or reject rather than made outright.',
     inputSchema: {
       type: 'object', required: ['file', 'find', 'replace'],
       properties: {
@@ -729,13 +729,14 @@ export const TOOLS = [
         find: { type: 'string' }, replace: { type: 'string', description: 'The new text ("" deletes what was found)' },
         all: { type: 'boolean', default: true, description: 'Every place (true) or only the first (false)' },
         match_case: { type: 'boolean', default: true },
+        suggest: { type: 'boolean', default: false, description: 'As suggestions instead (like track changes): the old words struck through and the new ones beside them, in the person’s name, for them or others to accept or reject in Docs. Best when proposing changes to someone else’s document, or when asked to suggest.' },
       },
     },
     async run(api, a) {
       const id = String(a.file || '').replace(/^file:/, '');
-      const r = await api('POST', `/files/${encodeURIComponent(id)}/replace`, { find: a.find, replace: a.replace ?? '', all: a.all !== false, match_case: a.match_case !== false });
+      const r = await api('POST', `/files/${encodeURIComponent(id)}/replace`, { find: a.find, replace: a.replace ?? '', all: a.all !== false, match_case: a.match_case !== false, suggest: !!a.suggest });
       const f = await api('GET', `/files/${encodeURIComponent(id)}`);
-      return { replaced: r.replaced, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+      return { [a.suggest ? 'suggested' : 'replaced']: r.replaced, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
     },
   },
   {

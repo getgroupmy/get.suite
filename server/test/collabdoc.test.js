@@ -226,3 +226,33 @@ test('find and replace in a document: live (Yjs) and stored alike; formatting of
   assert.equal(replaceInYDoc(y2, 'ACME CORP', '', { matchCase: false }).count, 3);
   assert.deepEqual(words(jsonFromDoc(y2)), ['The  plan.', ', {italic}| 😀 Acme|[mention]|Corp']);
 });
+
+test('replace as suggestions: the words struck through, the new ones after them, one id and who for both; live and stored alike; not twice', () => {
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Due in ' }, { type: 'text', text: 'March', marks: [{ type: 'bold' }] }, { type: 'text', text: ', not March.' }] }] };
+  const who = { by: 'u1', name: 'Olivia Owner', at: 1700000000000 };
+  const shape = (json) => json.content[0].content.map((n) => {
+    const s = (n.marks || []).find((m) => m.type.startsWith('suggest'));
+    return [n.text, (n.marks || []).filter((m) => !m.type.startsWith('suggest')).map((m) => m.type).join(), s ? `${s.type}:${s.attrs.name}` : ''];
+  });
+  const ids = (json) => json.content[0].content.flatMap((n) => (n.marks || []).filter((m) => m.type.startsWith('suggest')).map((m) => m.attrs.id));
+  const a = replaceInJson(doc, 'March', 'April', { suggest: who, all: false });
+  assert.equal(a.count, 1);
+  const want = [['Due in ', '', ''], ['March', 'bold', 'suggestDelete:Olivia Owner'], ['April', 'bold', 'suggestInsert:Olivia Owner'], [', not March.', '', '']];
+  assert.deepEqual(shape(a.json), want);
+  const [d, i] = ids(a.json);
+  assert.ok(d && d === i, 'one suggestion: a replacement');
+  assert.equal(a.json.content[0].content[1].marks.find((m) => m.type === 'suggestDelete').attrs.by, 'u1');
+  // Again, everywhere: only the March not already in a suggestion.
+  const b = replaceInJson(a.json, 'March', 'April', { suggest: who });
+  assert.equal(b.count, 1);
+  assert.equal(new Set(ids(b.json)).size, 2, 'its own suggestion');
+  // Live: the same
+  const y = docFromJson(doc);
+  assert.equal(replaceInYDoc(y, 'March', 'April', { suggest: who, all: false }).count, 1);
+  const live = jsonFromDoc(y);
+  assert.deepEqual(shape(live), want);
+  assert.equal(new Set(ids(live)).size, 1);
+  assert.equal(replaceInYDoc(y, 'March', 'April', { suggest: who }).count, 1);
+  // A deletion suggested: just struck through.
+  assert.deepEqual(shape(replaceInJson(doc, ', not March', '', { suggest: who }).json).map((r) => r[2]), ['', '', 'suggestDelete:Olivia Owner', '']);
+});
