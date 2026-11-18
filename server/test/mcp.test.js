@@ -91,6 +91,7 @@ test('organize Drive: make folders, make files in them, move and rename; nothing
   const inside = (await call(rw, 'list_files', { folder: proj.id })).structuredContent.files.map((f) => f.name).sort();
   assert.deepEqual(inside, ['Atlas budget', 'Notes']);
   assert.deepEqual((await call(rw, 'list_files', { folder: sub.id })).structuredContent.files.map((f) => f.name), ['Kickoff']);
+  assert.deepEqual((await call(rw, 'list_files', { folder: sub.id })).structuredContent.files.map((f) => f.your_access), ['owner (can edit and share)']);
   // Move the document up a level and rename it.
   const m = await call(rw, 'move_file', { file: doc.id, folder: proj.id, name: 'Kickoff notes' });
   assert.ok(!m.isError, JSON.stringify(m));
@@ -956,6 +957,7 @@ test('change words in a document: everywhere or first only, any case; read-only 
   assert.deepEqual(after.slice(-3).map((n) => [n.text, (n.marks || []).map((m) => `${m.type}${m.attrs?.name ? `:${m.attrs.name}` : ''}`).join()]), [['again', 'suggestDelete:Olivia Owner'], ['once more', 'suggestInsert:Olivia Owner'], ['.', '']]);
   // Read: the text as it stands, the suggestion listed after it.
   const read = (await call(ro, 'fetch', { id: `file:${doc.id}` })).structuredContent;
+  assert.equal(read.metadata.your_access, 'owner (can edit and share)');
   assert.match(read.text, /Between Beta Ltd and Beta Ltd again\./);
   assert.doesNotMatch(read.text, /againonce more/);
   assert.match(read.text, /Pending suggestions, not yet in the text[\s\S]*- Replace “again” with “once more” \(by Olivia Owner; s\w+\)/);
@@ -982,10 +984,13 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   assert.deepEqual(n.map((x) => [x.title, x.body, x.link]), [['Olivia Owner suggested edits in “Sue’s plan”', 'Replace “May” with “June”', `/docs/${doc.id}`]]);
   await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'ten', replace: 'twelve', suggest: true });
   assert.equal((await told()).length, 1, 'not again for the next one');
+  // What the assistant is told it can do: as an editor, then as a commenter.
+  assert.equal((await call(rw, 'fetch', { id: `file:${doc.id}` })).structuredContent.metadata.your_access, 'can edit');
   // As a commenter: suggesting is fine, changing outright isn't.
   await sue('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: olivia, role: 'commenter' }] });
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'people', replace: 'staff', suggest: true })).structuredContent.suggested, 1);
   assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Launch', replace: 'Start' })).isError, true);
+  assert.equal((await call(rw, 'fetch', { id: `file:${doc.id}` })).structuredContent.metadata.your_access, 'can comment and suggest edits, not edit');
   // Waiting for Sue on her Home: the document, how many, from whom.
   const waiting = (await sue('GET', '/api/files/suggestions/for-me')).body;
   assert.deepEqual(waiting.map((w) => [w.file.name, w.count, w.from, w.link]), [['Sue’s plan', 3, ['Olivia Owner'], `/docs/${doc.id}`]]);

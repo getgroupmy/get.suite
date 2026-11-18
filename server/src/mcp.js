@@ -79,6 +79,8 @@ const describeSuggestion = (x, max = 80) => {
   const qq = (t) => `“${t.length > max ? `${t.slice(0, max)}…` : t}”`;
   return x.inserted && x.deleted ? `Replace ${qq(x.deleted)} with ${qq(x.inserted)}` : x.inserted ? `Add ${qq(x.inserted)}` : `Delete ${qq(x.deleted)}`;
 };
+// What the person can do with a file, in words an assistant can act on (edit only with owner or editor; comment with commenter).
+const ACCESS = { owner: 'owner (can edit and share)', editor: 'can edit', commenter: 'can comment and suggest edits, not edit', viewer: 'can view only' };
 const fileUrl = (f) => link((FILE_PATH[f.kind] || ((x) => `/drive?file=${x.id}`))(f));
 
 // ---- the tools ----
@@ -125,7 +127,7 @@ export const TOOLS = [
         // A document's pending suggestions: not in its text until accepted, listed after it.
         const sugg = (r.suggestions || []).map((x) => ({ id: x.id, by: x.by, at: iso(x.at), change: describeSuggestion(x) }));
         const pending = sugg.length ? `\n\nPending suggestions, not yet in the text (resolve_suggestions accepts or rejects them):\n${sugg.map((x) => `- ${x.change} (by ${x.by || 'someone'}; ${x.id})`).join('\n')}` : '';
-        return { id, title: r.file.name, text: `${warn}${contentMarkers('file', r.text || '(no text in this file)')}${pending}`, url: fileUrl(r.file), metadata: { kind: r.file.kind, updated_at: iso(r.file.updated_at), truncated: r.truncated, ...(sugg.length && { suggestions: sugg }), ...(ai && { warnings: ['It contains text written to instruct AI assistants.'] }) } };
+        return { id, title: r.file.name, text: `${warn}${contentMarkers('file', r.text || '(no text in this file)')}${pending}`, url: fileUrl(r.file), metadata: { kind: r.file.kind, updated_at: iso(r.file.updated_at), truncated: r.truncated, ...(r.file.role && { your_access: ACCESS[r.file.role] || r.file.role }), ...(sugg.length && { suggestions: sugg }), ...(ai && { warnings: ['It contains text written to instruct AI assistants.'] }) } };
       }
       if (kind === 'mail') {
         const uid = String(id).split(':').pop(), folder = String(id).slice(5, -(uid.length + 1));
@@ -1041,7 +1043,7 @@ export const TOOLS = [
     async run(api, a) {
       const id = a.folder ? String(a.folder).replace(/^file:/, '') : null;
       const rows = await api('GET', id ? `/files?parent=${encodeURIComponent(id)}` : '/files');
-      return { files: (Array.isArray(rows) ? rows : rows.files || []).slice(0, 200).map((f) => ({ id: `file:${f.id}`, name: f.name, kind: f.kind, size: f.size ?? null, updated_at: iso(f.updated_at), url: fileUrl(f) })) };
+      return { files: (Array.isArray(rows) ? rows : rows.files || []).slice(0, 200).map((f) => ({ id: `file:${f.id}`, name: f.name, kind: f.kind, size: f.size ?? null, updated_at: iso(f.updated_at), ...(f.role && { your_access: ACCESS[f.role] || f.role }), url: fileUrl(f) })) };
     },
   },
   {
