@@ -13,7 +13,17 @@ import { PAPER, MARGINS } from '../pagesetup.js';
 const MM = 72 / 25.4;
 const HEAD = { 1: 22, 2: 17, 3: 14, 4: 12.5, 5: 12, 6: 11 };
 
-export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup = null } = {}) {
+/**
+ * Made twice: the first time to learn which page each heading lands on, the second with those pages in the
+ * table of contents (it takes the same room both times). The PDF's bookmarks follow the headings.
+ */
+export async function pdfFromDoc(doc, title = 'Document', opts = {}) {
+  const first = await layout(doc, title, opts, null);
+  const { pdf } = await layout(doc, title, opts, first.heads.map((hd) => hd.page));
+  return Buffer.from(await pdf.save());
+}
+
+async function layout(doc, title, { pictureData, setup = null } = {}, knownPages) {
   doc = flattenTabs(doc);
   const pdf = await PDFDocument.create();
   pdf.setTitle(title);
@@ -55,6 +65,7 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
 
   // ---- runs → lines
   const notes = [];
+  const heads = [], tocLinks = []; // headings (their page and place), contents lines to link
   const runsOf = (list = [], base = {}) => list.flatMap((n) => {
     if (n.type === 'hardBreak') return [{ br: true }];
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); return [{ text: `[${notes.length}]`, ...base, size: base.size, sup: true }]; }
@@ -198,7 +209,7 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
       const lh = Number(n.attrs?.lineHeight), sb = Number(n.attrs?.spaceBefore), sa = Number(n.attrs?.spaceAfter), ind = Math.min(8, Math.max(0, Number(n.attrs?.indent) || 0)) * 36;
       const look = { ...(lh >= 0.5 && lh <= 4 && { lead: lh * 1.2 }), ...(sb >= 0 && sb <= 200 && n.attrs?.spaceBefore != null && { gapBefore: sb }), ...(sa >= 0 && sa <= 200 && n.attrs?.spaceAfter != null && { gapAfter: sa }) };
       if (n.type === 'paragraph') paragraph(runsOf(n.content), { x: x + ind, w: w - ind, align, size: BASE, ...look });
-      else if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); paragraph(runsOf(n.content, { bold: true }), { x: x + ind, w: w - ind, align, size: HEAD[lv], gapBefore: lv <= 2 ? 10 : 6, gapAfter: 6, lead: 1.25, ...look }); }
+      else if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); heads.push({ level: lv, text: runsOf(n.content).map((r) => r.text || '').join('').trim(), page: null, y: null }); const hd = heads[heads.length - 1]; need(HEAD[lv] * 1.25 + (lv <= 2 ? 10 : 6)); hd.page = pages.length - 1; hd.y = y; paragraph(runsOf(n.content, { bold: true }), { x: x + ind, w: w - ind, align, size: HEAD[lv], gapBefore: lv <= 2 ? 10 : 6, gapAfter: 6, lead: 1.25, ...look }); }
       else if (n.type === 'bulletList' || n.type === 'orderedList' || n.type === 'taskList') {
         for (const [k, li] of (n.content || []).entries()) {
           const mark = n.type === 'bulletList' ? '•' : n.type === 'taskList' ? (li.attrs?.checked ? '[x]' : '[ ]') : `${(n.attrs?.start || 1) + k}.`;
@@ -220,11 +231,72 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
       else if (n.type === 'sheetChart') { const { title: ct, rows } = chartTable(n.attrs); paragraph([{ text: safe(ct), bold: true }], { x, w }); if (rows.length) table(rows.map((r, i) => r.map((v) => ({ text: safe(v), head: i === 0 }))), x, w); }
       else if (n.type === 'references') { paragraph([{ text: 'References', bold: true }], { x, w, size: HEAD[2], gapBefore: 10 }); for (const s of sourcesOf(doc)) paragraph(reference(s).map((p) => ({ text: safe(p.text), italic: !!p.italic })), { x, w }); }
       else if (n.type === 'pageBreak') { if (y < top) newPage(); }
-      else if (n.type === 'tableOfContents') continue;
+      else if (n.type === 'tableOfContents') {
+        // Contents: each heading, indented by level, its page on the right, the line a link to it.
+        const list = (function all(l, acc = []) { for (const m of l || []) { if (m.type === 'heading') acc.push(m); else if (m.content && m.type !== 'table') all(m.content, acc); } return acc; })(doc?.content);
+        if (!list.length) continue;
+        paragraph([{ text: 'Contents', bold: true }], { x, w, size: HEAD[3], gapAfter: 4 });
+        list.forEach((hd, k) => {
+          const lv = Math.min(6, hd.attrs?.level || 1), dx = (lv - 1) * 14, size = BASE;
+          need(size * 1.5);
+          y -= size;
+          const num = knownPages?.[k] != null ? String(knownPages[k] + 1) : '';
+          const nw = F.r.widthOfTextAtSize(num, size);
+          let label = safe(runsOf(hd.content).map((r) => r.text || '').join('').trim());
+          while (label.length > 1 && F.r.widthOfTextAtSize(`${label} …`, size) > w - dx - nw - 20) label = label.slice(0, -1);
+          if (label !== safe(runsOf(hd.content).map((r) => r.text || '').join('').trim())) label += '…';
+          page.drawText(label, { x: x + dx, y, size, font: F.r, color: rgb(0.1, 0.1, 0.1) });
+          const lw = F.r.widthOfTextAtSize(label, size);
+          const dots = '.'.repeat(Math.max(0, Math.floor((w - dx - lw - nw - 12) / F.r.widthOfTextAtSize('.', size))));
+          page.drawText(dots, { x: x + dx + lw + 6, y, size, font: F.r, color: rgb(0.6, 0.6, 0.6) });
+          page.drawText(num, { x: x + w - nw, y, size, font: F.r, color: rgb(0.1, 0.1, 0.1) });
+          tocLinks.push({ page, rect: [x + dx, y - 2, x + w, y + size], k });
+          y -= size * 0.5;
+        });
+        y -= 8;
+      }
       else if (n.content) await blocks(n.content, indent);
     }
   };
   await blocks(doc?.content || []);
+  // Contents lines: links to their headings' places.
+  for (const t of tocLinks) {
+    const hd = heads[t.k];
+    if (!hd || hd.page == null) continue;
+    const annot = pdf.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: t.rect, Border: [0, 0, 0], Dest: [pages[hd.page].ref, PDFName.of('XYZ'), left, hd.y, null] });
+    const ref = pdf.context.register(annot);
+    const annots = t.page.node.lookup(PDFName.of('Annots'));
+    if (annots) annots.push(ref); else t.page.node.set(PDFName.of('Annots'), pdf.context.obj([ref]));
+  }
+  // Bookmarks: the headings, nested by level.
+  const placed = heads.filter((hd) => hd.page != null && hd.text);
+  if (placed.length) {
+    const root = { kids: [], level: 0 }, stack = [root];
+    for (const hd of placed) {
+      while (stack.length > 1 && stack[stack.length - 1].level >= hd.level) stack.pop();
+      const node = { ...hd, kids: [] };
+      stack[stack.length - 1].kids.push(node);
+      stack.push(node);
+    }
+    const outlinesRef = pdf.context.nextRef();
+    const build = (node, parentRef) => {
+      const refs = node.kids.map(() => pdf.context.nextRef());
+      node.kids.forEach((kid, i) => {
+        const dict = { Title: PDFString.of(safe(kid.text).slice(0, 200)), Parent: parentRef, Dest: [pages[kid.page].ref, PDFName.of('XYZ'), left, kid.y, null] };
+        if (i > 0) dict.Prev = refs[i - 1];
+        if (i < refs.length - 1) dict.Next = refs[i + 1];
+        const sub = build(kid, refs[i]);
+        if (sub.count) Object.assign(dict, { First: sub.first, Last: sub.last, Count: sub.count });
+        pdf.context.assign(refs[i], pdf.context.obj(dict));
+      });
+      return { first: refs[0], last: refs[refs.length - 1], count: node.kids.reduce((a, k) => a + 1 + countOf(k), 0) };
+    };
+    const countOf = (n) => n.kids.reduce((a, k) => a + 1 + countOf(k), 0);
+    const top = build(root, outlinesRef);
+    pdf.context.assign(outlinesRef, pdf.context.obj({ Type: 'Outlines', First: top.first, Last: top.last, Count: top.count }));
+    pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
+    pdf.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+  }
   if (notes.length) {
     need(30); y -= 8; page.drawLine({ start: { x: left, y }, end: { x: left + 120, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) }); y -= 4;
     notes.forEach((t, k) => paragraph([{ text: `${k + 1}. ${safe(t)}` }], { size: 9, gapAfter: 2 }));
@@ -237,5 +309,5 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
     if (setup?.footer) p.drawText(safe(setup.footer).slice(0, 200), { x: left, y: margin / 2, size: small, font: F.r, color: c });
     if (setup?.numbers) { const t = `${k + 1}`; p.drawText(t, { x: right - F.r.widthOfTextAtSize(t, small), y: margin / 2, size: small, font: F.r, color: c }); }
   });
-  return Buffer.from(await pdf.save());
+  return { pdf, heads };
 }

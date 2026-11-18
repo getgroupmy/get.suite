@@ -127,6 +127,22 @@ await step('the PDF follows Page setup: its font, watermark and paper', async ()
   try { fonts = execFileSync('pdffonts', [f]).toString(); text = execFileSync('pdftotext', [f, '-']).toString(); } catch { /* not installed */ }
   if (fonts !== null && (!/Times-Roman/.test(fonts) || !text.replace(/\s+/g, '').includes('DRAFT') || !text.includes('Terms of the offer.'))) throw new Error(fonts + text);
 });
+await step('the PDF has bookmarks from the headings and a table of contents linking to them', async () => {
+  const H = (l, t) => ({ type: 'heading', attrs: { level: l }, content: [{ type: 'text', text: t }] });
+  const content = { type: 'doc', content: [{ type: 'tableOfContents' }, H(1, 'Welcome'), { type: 'paragraph', content: [{ type: 'text', text: 'Hello.' }] }, H(2, 'Holidays'), { type: 'pageBreak' }, H(1, 'Expenses')] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Handbook PDF', content })).body;
+  const b64 = await page.evaluate(async (id) => btoa(Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/export?format=pdf`)).arrayBuffer()), (c) => String.fromCharCode(c)).join('')), doc.id);
+  const { PDFDocument, PDFName } = (await import('module')).createRequire(`${ROOT}/server/package.json`)('pdf-lib');
+  const pdf = await PDFDocument.load(Buffer.from(b64, 'base64'));
+  const outline = pdf.catalog.lookup(PDFName.of('Outlines'));
+  if (!outline) throw new Error('no bookmarks');
+  const titles = [];
+  for (let r = outline.get(PDFName.of('First')); r;) { const n = pdf.context.lookup(r); titles.push(n.lookup(PDFName.of('Title')).decodeText()); r = n.get(PDFName.of('Next')); }
+  if (titles.join('|') !== 'Welcome|Expenses') throw new Error(titles.join('|'));
+  if (pdf.getPageCount() !== 2) throw new Error(`${pdf.getPageCount()} pages`);
+  const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'));
+  if (!annots || annots.size() !== 3) throw new Error('contents links: ' + (annots && annots.size()));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

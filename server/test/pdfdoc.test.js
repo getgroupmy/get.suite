@@ -73,3 +73,27 @@ test('the PDF follows the document\'s look: its font, sizes, colours and highlig
   const hOf = (word) => { const m = new RegExp(`yMin="([\\d.]+)" xMax="[\\d.]+" yMax="([\\d.]+)">${word}<`).exec(bbox); return m ? Number(m[2]) - Number(m[1]) : 0; };
   assert.ok(hOf('big') > hOf('and') * 1.4, `${hOf('big')} vs ${hOf('and')}`);
 });
+
+test('the PDF has bookmarks from the headings, and the table of contents lists them with their pages, as links', async () => {
+  const T = (t) => ({ type: 'text', text: t });
+  const H = (l, t) => ({ type: 'heading', attrs: { level: l }, content: [T(t)] });
+  const P = (t) => ({ type: 'paragraph', content: [T(t)] });
+  const long = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore. '.repeat(6);
+  const d = { type: 'doc', content: [{ type: 'tableOfContents' }, H(1, 'Introduction'), P(long), H(2, 'Scope'), ...Array(8).fill(P(long)), H(1, 'Costs'), H(3, 'Deep'), H(2, 'Travel'), ...Array(8).fill(P(long)), H(1, 'Summary'), P('End.')] };
+  const buf = await pdfFromDoc(d, 'Handbook');
+  const pdf = await PDFDocument.load(buf);
+  const titles = [];
+  const pageOf = new Map(pdf.getPages().map((p, i) => [p.ref.toString(), i + 1]));
+  const walk = (ref, depth) => { for (let r = ref; r;) { const n = pdf.context.lookup(r); titles.push(`${'-'.repeat(depth)}${n.lookup(PDFName.of('Title')).decodeText()}@${pageOf.get(n.lookup(PDFName.of('Dest')).get(0).toString())}`); const f = n.get(PDFName.of('First')); if (f) walk(f, depth + 1); r = n.get(PDFName.of('Next')); } };
+  walk(pdf.catalog.lookup(PDFName.of('Outlines')).get(PDFName.of('First')), 0);
+  assert.deepEqual(titles.map((t) => t.replace(/@\d+$/, '')), ['Introduction', '-Scope', 'Costs', '-Deep', '-Travel', 'Summary'], 'nested by level (a level 3 under a level 1 goes under it)');
+  assert.equal(String(pdf.catalog.get(PDFName.of('PageMode'))), '/UseOutlines');
+  // The contents' links go where the bookmarks do; its page numbers are those pages.
+  const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'));
+  const linked = Array.from({ length: annots.size() }, (_, i) => pageOf.get(pdf.context.lookup(annots.get(i)).lookup(PDFName.of('Dest')).get(0).toString()));
+  assert.deepEqual(linked, titles.map((t) => Number(t.split('@')[1])));
+  const { execFileSync } = await import('node:child_process');
+  let text;
+  try { text = execFileSync('pdftotext', ['-layout', '-l', '1', '-', '-'], { input: buf }).toString(); } catch { return; }
+  titles.forEach((t) => { const [name, pg] = t.replace(/^-+/, '').split('@'); assert.match(text, new RegExp(`${name} \\.+ ${pg}\\n`), `${name} on page ${pg}`); });
+});
