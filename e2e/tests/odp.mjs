@@ -94,6 +94,22 @@ await step('a .pptx saved as .odp by LibreOffice opens with its title and plain 
   if (got !== 'text:title::Roadmap 2027 | text:::Ship the mobile app') throw new Error(got);
   await page.screenshot({ path: `${SP}/shots/odp-from-lo.png` });
 });
+await step('a chart on a slide goes out as a real chart and comes back as one, drawn', async () => {
+  const d = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Results' })).body;
+  const c = (await api(page, 'GET', `/files/${d.id}/content`)).body;
+  const data = { categories: ['Q1', 'Q2', 'Q3'], series: [{ name: 'Sales', values: [4, 7, 9] }] };
+  await api(page, 'PUT', `/files/${d.id}/content`, { version: c.file.version, content: { ...c.content, slides: [{ id: 's1', items: [{ id: 'ch', type: 'chart', chartType: 'line', title: 'Quarterly sales', data, x: 10, y: 10, w: 70, h: 70 }] }] } });
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=odp`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Results.odp', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, d.id);
+  const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+  const item = (await api(page, 'GET', `/files/${opened.id}/content`)).body.content.slides[0].items.find((it) => it.type === 'chart');
+  if (!item || item.chartType !== 'line' || item.title !== 'Quarterly sales' || JSON.stringify(item.data) !== JSON.stringify(data)) throw new Error(JSON.stringify(item));
+  await page.goto(`${B}/slides/${opened.id}`);
+  await page.getByText('Quarterly sales').first().waitFor();
+  await page.screenshot({ path: `${SP}/shots/odp-chart.png` });
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

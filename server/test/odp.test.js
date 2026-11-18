@@ -40,7 +40,11 @@ test('.odp out: slides LibreOffice opens, with notes, a hidden slide, turned sha
   assert.match(xml, /draw:fill-color="#112233"/);
   assert.match(xml, /<presentation:notes>.*presentation:class="notes".*<text:p>Say hello<\/text:p><text:p>Then pause<\/text:p>/);
   assert.match(xml, /<table:table table:use-first-row-styles="true">/);
-  assert.match(xml, /📊 Sales[\s\S]*EU[\s\S]*Jan[\s\S]*>3<[\s\S]*Feb[\s\S]*>5</, 'a chart as its figures');
+  assert.match(xml, /<draw:frame [^>]*><draw:object xlink:href="\.\/Object 1" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"\/><\/draw:frame>/, 'a chart as a chart object');
+  const obj = await zip.file('Object 1/content.xml').async('string');
+  assert.match(obj, /<chart:chart chart:class="chart:bar"[^>]*><chart:title><text:p>Sales<\/text:p><\/chart:title>/);
+  assert.match(obj, /<table:table table:name="local-table">[\s\S]*>EU<[\s\S]*>Jan<[\s\S]*office:value="3"[\s\S]*>Feb<[\s\S]*office:value="5"/, 'its figures in its own table');
+  assert.match(await zip.file('META-INF/manifest.xml').async('string'), /full-path="Object 1\/" manifest:version="1.3" manifest:media-type="application\/vnd\.oasis\.opendocument\.chart"/);
   assert.match(xml, /▶ Demo\.mp4/);
   assert.match(await zip.file('styles.xml').async('string'), /fo:page-width="28cm" fo:page-height="15\.75cm"/);
   assert.match(await zip.file('meta.xml').async('string'), /<dc:title>Review<\/dc:title>/);
@@ -107,4 +111,26 @@ test('.odp: grouped boxes go out in one <draw:g> and come back grouped; a group 
   assert.equal(inG[0].group, inG[1].group);
   assert.equal(its.find((i) => i.text === 'Solo').group, undefined);
   assert.deepEqual([Math.round(its.find((i) => i.text === 'Acme').x)], [22]);
+});
+
+test('.odp: a slide\'s chart as a chart object carrying its figures, every kind, both ways and through LibreOffice (.odp and .pptx)', async (t) => {
+  const data = { categories: ['Jan', 'Feb', 'Mar'], series: [{ name: 'North', values: [10, 12, 15] }, { name: 'South', values: [7, null, 11] }] };
+  const types = ['column', 'stackedColumn', 'bar', 'stackedBar', 'line', 'area', 'pie', 'doughnut', 'scatter'];
+  const deck2 = { theme: 'light', slides: types.map((ty, i) => ({ id: `s${i}`, items: [{ id: `c${i}`, type: 'chart', chartType: ty, title: `Sales ${ty}`, data, x: 10, y: 15, w: 70, h: 70 }] })) };
+  const show = (d, { scatterNumbers = false } = {}) => d.slides.map((s) => s.items.filter((it) => it.type === 'chart').map((c) => JSON.stringify([c.chartType, c.title, Math.round(c.x), Math.round(c.y), Math.round(c.w), Math.round(c.h),
+    scatterNumbers && c.chartType === 'scatter' ? { ...c.data, categories: c.data.categories.map((_, k) => String(k + 1)) } : c.data])).join(' '));
+  const buf = await odpFromDeck(deck2, {});
+  assert.deepEqual(show(await deckFromOdp(buf)), show(deck2));
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { deckFromPowerPoint } = await import('../src/office/powerpoint.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.odp'), buf);
+    assert.deepEqual(show(await deckFromOdp(lo('d.odp', 'odp', 'a'))), show(deck2), 'opened and saved by LibreOffice: real charts there');
+    // As .pptx (a scatter chart's across-axis is numbers there: 1, 2, 3)
+    assert.deepEqual(show(await deckFromPowerPoint(lo('d.odp', 'pptx', 'b'), { savePicture: async () => 'x' })), show(deck2, { scatterNumbers: true }), 'and saved by it as .pptx');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

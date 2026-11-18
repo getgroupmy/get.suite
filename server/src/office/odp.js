@@ -3,6 +3,7 @@
 // shapes (rectangles, rounded ones, ellipses, triangles, diamonds, block arrows, chevrons, stars, callouts,
 // lines and arrows) with their text, tables, pictures (with alt text), turned boxes, speaker notes and hidden
 // slides. Charts go out as a table of their figures; videos as their name.
+import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import JSZip from 'jszip';
 import { parseDocument } from 'htmlparser2';
 import { themeOfDeck } from './powerpoint.js';
@@ -43,7 +44,7 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
   const theme = themeOfDeck(deck);
   const color = (v, fallback) => { const c = v === 'accent' ? theme.accent : v === 'text' ? theme.text : v === 'bg' ? theme.bg : v; return COLOR.test(c || '') ? c.toLowerCase() : fallback; };
   const font = theme.font || 'Liberation Sans';
-  const auto = [], pictures = [], fillImages = [];
+  const auto = [], pictures = [], fillImages = [], chartObjects = []; // (chartObjects: the charts' objects, Object 1, Object 2…)
   let n = 0;
   const style = (family, inner, attrs = '') => { const name = `${family[0]}${++n}`; auto.push(`<style:style style:name="${name}" style:family="${family}"${attrs}>${inner}</style:style>`); return name; };
   const picPath = new Map();
@@ -115,6 +116,10 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
         const text = it.text ? paras(it.text, textStyle(it, theme.bg, 20), paraStyle(it.align || 'center'), null) : '';
         const shape = `<draw:custom-shape draw:style-name="${gs}" ${place(it)}>${text}<draw:enhanced-geometry draw:type="${ODP_SHAPES[it.shape] || 'rectangle'}"/></draw:custom-shape>`;
         items += href ? `<draw:a xlink:type="simple" xlink:href="${x(href)}">${shape}</draw:a>` : shape;
+      } else if (it.type === 'chart' && it.data?.series?.length && dataChartObject(it, (it.w / 100) * W, (it.h / 100) * H)) {
+        // A chart: a chart object carrying its figures, which Impress draws (and keeps) as a chart.
+        chartObjects.push(dataChartObject(it, (it.w / 100) * W, (it.h / 100) * H));
+        items += `<draw:frame draw:style-name="${graphic(it, {})}" ${place(it)}><draw:object xlink:href="./Object ${chartObjects.length}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>`;
       } else if ((it.type === 'table' && it.cells?.length) || (it.type === 'chart' && it.data?.series?.length)) {
         const rows = it.type === 'table' ? it.cells : [['', ...it.data.series.map((se) => String(se.name ?? ''))], ...(it.data.categories || []).map((c, i) => [String(c ?? ''), ...it.data.series.map((se) => String(se.values?.[i] ?? ''))])];
         const head = it.type === 'chart' || it.header;
@@ -156,6 +161,7 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
 <manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="${ODP_MIME}"/>
 ${['content.xml', 'styles.xml', 'meta.xml'].map((f) => `<manifest:file-entry manifest:full-path="${f}" manifest:media-type="text/xml"/>`).join('\n')}
 ${pictures.map((p) => `<manifest:file-entry manifest:full-path="${p.path}" manifest:media-type="${p.mime}"/>`).join('\n')}
+${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${k + 1}/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.chart"/><manifest:file-entry manifest:full-path="Object ${k + 1}/content.xml" manifest:media-type="text/xml"/>`).join('\n')}
 </manifest:manifest>`;
   const zip = new JSZip();
   zip.file('mimetype', ODP_MIME, { compression: 'STORE' });
@@ -164,6 +170,7 @@ ${pictures.map((p) => `<manifest:file-entry manifest:full-path="${p.path}" manif
   zip.file('meta.xml', meta);
   zip.file('META-INF/manifest.xml', manifest);
   for (const p of pictures) zip.file(p.path, p.data);
+  chartObjects.forEach((o, k) => zip.file(`Object ${k + 1}/content.xml`, o));
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', mimeType: ODP_MIME });
 }
 
@@ -266,6 +273,14 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
         const g = look(el.attribs?.['draw:style-name'] || el.attribs?.['presentation:style-name'], 'g');
         const lk = link && /^(https?:|mailto:)/i.test(link) ? { link: { url: link } } : link?.startsWith('#') ? { link: { pageName: link.slice(1) } } : {};
         if (el.name === 'draw:frame') {
+          // A chart object carrying its figures (what the download writes, and Impress's own charts): a chart.
+          const objHref = String(tags(el, 'draw:object')[0]?.attribs['xlink:href'] || '').replace(/^\.\//, '').replace(/\/$/, '');
+          const objXml = objHref && await zip.file(`${objHref}/content.xml`)?.async('string');
+          if (objXml) {
+            const find = (n, name) => { for (const k of tags(n)) { if (k.name === name) return k; const f = find(k, name); if (f) return f; } return null; };
+            const ch = dataChartFromObject(parse(objXml), { tags, textOf, find });
+            if (ch) { slide.items.push({ id: fresh(), type: 'chart', ...boxOf(el), ...ch }); continue; }
+          }
           const img = tags(el, 'draw:image')[0], box = tags(el, 'draw:text-box')[0], tbl = tags(el, 'table:table')[0];
           const alt = textOf(tags(el, 'svg:title')[0] || tags(el, 'svg:desc')[0] || { children: [] }).trim();
           if (tbl) { // (Impress adds a picture of the table as well: the table is what counts)
