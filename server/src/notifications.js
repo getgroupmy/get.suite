@@ -18,7 +18,8 @@ q(`CREATE TABLE IF NOT EXISTS notifications (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at)').run();
 // Grouped ones (several files through one file request…): one notification counting them while it's unread and recent.
-for (const [c, t] of [['group_key', 'TEXT'], ['group_n', 'INTEGER'], ['group_items', 'TEXT']]) if (!q('PRAGMA table_info(notifications)').all().some((x) => x.name === c)) q(`ALTER TABLE notifications ADD COLUMN ${c} ${t}`).run();
+// snoozed_until: hidden (and counted as read) until then, when it comes back as new.
+for (const [c, t] of [['group_key', 'TEXT'], ['group_n', 'INTEGER'], ['group_items', 'TEXT'], ['snoozed_until', 'INTEGER']]) if (!q('PRAGMA table_info(notifications)').all().some((x) => x.name === c)) q(`ALTER TABLE notifications ADD COLUMN ${c} ${t}`).run();
 export const GROUP_WINDOW = 10 * 60e3;
 export const GROUP_ITEMS = 20; // what a grouped one lists when opened up (the latest first)
 const itemsOf = (row) => { try { return JSON.parse(row?.group_items || '[]'); } catch { return []; } };
@@ -74,7 +75,7 @@ export function notify(userIds, { kind, title, body = null, link = null, actor =
       .run(id, userId, kind, String(t).slice(0, 200), b ? String(b).slice(0, 300) : null, l, actor, at, group?.key ?? null, group ? n : null);
     if (items) q('UPDATE notifications SET group_items = ? WHERE id = ?').run(JSON.stringify(items), id);
     // Only the latest are kept.
-    q(`DELETE FROM notifications WHERE user_id = ? AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ${KEEP})`).run(userId, userId);
+    q(`DELETE FROM notifications WHERE user_id = ? AND snoozed_until IS NULL AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ${KEEP})`).run(userId, userId);
     sendTo([userId], { type: 'notification', notification: shape(q('SELECT * FROM notifications WHERE id = ?').get(id)), ...(prev && { replaces: prev.id }) });
     if (!prev) pushTo(userId, { title, body, link, tag: kind }).catch((e) => console.error('[push]', e.message)); // phones and computers with it turned on
   }
@@ -82,7 +83,8 @@ export function notify(userIds, { kind, title, body = null, link = null, actor =
 
 export function listFor(userId) {
   return {
-    items: q('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 100').all(userId).map(shape),
+    items: q('SELECT * FROM notifications WHERE user_id = ? AND snoozed_until IS NULL ORDER BY created_at DESC LIMIT 100').all(userId).map(shape),
+    snoozed: q('SELECT * FROM notifications WHERE user_id = ? AND snoozed_until IS NOT NULL ORDER BY snoozed_until LIMIT 50').all(userId).map(shape),
     unread: q('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(userId).n,
   };
 }
@@ -94,9 +96,10 @@ export function markRead(userId, ids) {
   sendTo([userId], { type: 'notifications-read' });
 }
 
-/** Back to unread (to come back to it later). */
+/** Back to unread (to come back to it later); a snoozed one comes back now, at the top. */
 export function markUnread(userId, ids) {
-  q(`UPDATE notifications SET read_at = NULL WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`).run(userId, JSON.stringify(ids));
+  q(`UPDATE notifications SET read_at = NULL, created_at = CASE WHEN snoozed_until IS NULL THEN created_at ELSE ? END, snoozed_until = NULL
+     WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`).run(Date.now(), userId, JSON.stringify(ids));
   sendTo([userId], { type: 'notifications-read' });
 }
 
@@ -104,4 +107,22 @@ export function markUnread(userId, ids) {
 export function removeNotifications(userId, ids) {
   q(`DELETE FROM notifications WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`).run(userId, JSON.stringify(ids));
   sendTo([userId], { type: 'notifications-read' });
+}
+
+export const SNOOZE_MAX = 366 * 864e5;
+/** Out of the bell until `until`, then back as new (wakeSnoozed). */
+export function snooze(userId, ids, until, now = Date.now()) {
+  q(`UPDATE notifications SET snoozed_until = ?, read_at = COALESCE(read_at, ?) WHERE user_id = ? AND id IN (SELECT value FROM json_each(?))`).run(until, now, userId, JSON.stringify(ids));
+  sendTo([userId], { type: 'notifications-read' });
+}
+
+/** Snoozed ones whose time has come: unread again, at the top, and on phones with notifications on. */
+export function wakeSnoozed(now = Date.now()) {
+  const due = q('SELECT * FROM notifications WHERE snoozed_until IS NOT NULL AND snoozed_until <= ?').all(now);
+  for (const n of due) {
+    q('UPDATE notifications SET read_at = NULL, created_at = ?, snoozed_until = NULL WHERE id = ?').run(n.snoozed_until, n.id);
+    sendTo([n.user_id], { type: 'notification', notification: shape(q('SELECT * FROM notifications WHERE id = ?').get(n.id)), replaces: n.id });
+    if (!offFor(n.user_id).includes(n.kind)) pushTo(n.user_id, { title: n.title, body: n.body, link: n.link, tag: n.kind }).catch((e) => console.error('[push]', e.message));
+  }
+  return due.length;
 }

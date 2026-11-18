@@ -2167,6 +2167,31 @@ test('notifications: mentions, tasks, invitations and shares land in the bell; r
   assert.equal(gone.unread, 0);
   assert.equal((await b('POST', '/api/notifications/unread', {})).status, 400);
   assert.equal((await b('POST', '/api/notifications/remove', { ids: [] })).status, 400);
+  // Snoozed: out of the bell and not counted until its time, then back as new, at the top.
+  const [first, second] = gone.items;
+  await b('POST', '/api/notifications/unread', { ids: [first.id] });
+  assert.equal((await b('POST', '/api/notifications/snooze', { ids: [first.id], until: Date.now() - 1 })).status, 400);
+  assert.equal((await b('POST', '/api/notifications/snooze', { ids: [first.id], until: Date.now() + 400 * 864e5 })).status, 400);
+  const later = Date.now() + 3600e3;
+  const zz = (await b('POST', '/api/notifications/snooze', { ids: [first.id, second.id], until: later })).body;
+  assert.deepEqual(zz.items.map((x) => x.kind), ['mention']);
+  assert.equal(zz.unread, 0);
+  assert.deepEqual(zz.snoozed.map((x) => [x.id, x.snoozed_until]).sort(), [[first.id, later], [second.id, later]].sort());
+  await a('POST', '/api/notifications/snooze', { ids: [zz.items[0].id], until: later });
+  assert.equal((await bell()).items.length, 1, 'only one’s own');
+  const { wakeSnoozed } = await import('../src/notifications.js');
+  assert.equal(wakeSnoozed(later - 1), 0, 'not yet');
+  wakeSnoozed(later);
+  const woke = await bell();
+  assert.deepEqual(woke.snoozed, []);
+  assert.deepEqual(woke.items.map((x) => x.id).slice(0, 2).sort(), [first.id, second.id].sort());
+  assert.equal(woke.items[0].created_at, later);
+  assert.equal(woke.unread, 2);
+  // Unsnoozed sooner (back to unread): back now.
+  await b('POST', '/api/notifications/snooze', { ids: [first.id], until: later + 3600e3 });
+  const back2 = (await b('POST', '/api/notifications/unread', { ids: [first.id] })).body;
+  assert.deepEqual(back2.snoozed, []);
+  assert.equal(back2.items.find((x) => x.id === first.id).read, false);
 });
 
 test('named versions: name the current state, name or un-name an earlier one, see its content', async () => {

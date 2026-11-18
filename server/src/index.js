@@ -8,7 +8,7 @@ import { createApp } from './app.js';
 import { attachHub } from './hub.js';
 import { db, q, DATA_DIR, restored } from './db.js';
 import { audit } from './audit.js';
-import { notify } from './notifications.js';
+import { notify, wakeSnoozed } from './notifications.js';
 import { scheduleBackups } from './backup.js';
 import { scheduleHealthChecks } from './health.js';
 import { scheduleAnnouncementStarts } from './routes/announcements.js';
@@ -59,7 +59,8 @@ setInterval(() => purgeAuthLog(), 3600e3).unref();
 setInterval(() => { try { sendDateReminders(); } catch (e) { console.error('[contacts] dates:', e.message); } }, 10 * 60e3).unref(); // birthday and date reminders, each morning
 setInterval(() => { try { meetingsCountAsTouch(); notifyDueTouches(); } catch (e) { console.error('[contacts] keep in touch:', e.message); } }, 3600e3).unref(); // contacts due to be in touch with
 setInterval(() => { try { askCheckIns(); releaseNoShows(); } catch (e) { console.error('[rooms] check-in:', e.message); } }, 60e3).unref(); // rooms nobody checked in to go back
-setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
+setInterval(() => purgeAudit(), 6 * 3600e3).unref();
+setInterval(() => { try { wakeSnoozed(); } catch (e) { console.error('[notifications] snoozed:', e.message); } }, 60e3).unref(); // snoozed notifications whose time has come // activity older than AUDIT_DAYS
 setInterval(() => { if (mailEnabled()) autoPracticeTick().catch((e) => console.error('[practice]', e.message)); }, 6 * 3600e3).unref(); // automatic phishing practice rounds
 setInterval(() => weeklyCheckupNotice().catch((e) => console.error('[checkup]', e.message)), 6 * 3600e3).unref(); // admins told weekly of what the security checkup finds
 setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than each company keeps it

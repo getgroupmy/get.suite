@@ -1,7 +1,7 @@
 // The bell: GET the latest notifications and how many are unread; mark some (or all) read, some unread again, or remove some.
 import { Router } from 'express';
 import { bad } from '../util.js';
-import { listFor, markRead, markUnread, removeNotifications, KINDS, offFor, setOff } from '../notifications.js';
+import { listFor, markRead, markUnread, removeNotifications, snooze, SNOOZE_MAX, KINDS, offFor, setOff } from '../notifications.js';
 
 export default function notificationRoutes() {
   const r = Router();
@@ -26,5 +26,13 @@ export default function notificationRoutes() {
   };
   r.post('/unread', (req, res) => { markUnread(req.user.id, someIds(req.body)); res.json(listFor(req.user.id)); });
   r.post('/remove', (req, res) => { removeNotifications(req.user.id, someIds(req.body)); res.json(listFor(req.user.id)); });
+  // { ids, until }: out of the bell until then (a time to come, within a year); /unread brings one back sooner.
+  r.post('/snooze', (req, res) => {
+    const ids = someIds(req.body), until = Number(req.body?.until), now = Date.now();
+    if (!Number.isFinite(until) || until <= now) throw bad('Choose a time to come');
+    if (until > now + SNOOZE_MAX) throw bad('Snooze for a year at most');
+    snooze(req.user.id, ids, Math.round(until));
+    res.json(listFor(req.user.id));
+  });
   return r;
 }

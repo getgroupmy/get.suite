@@ -6,6 +6,7 @@ import { get, post, put, onLive } from '../api.js';
 import Icon from './Icon.jsx';
 import { setBadgePart } from '../appbadge.js';
 import { Avatar, Modal, useToast } from './ui.jsx';
+import { snoozeTimes } from './snooze.js';
 
 const ICONS = { mention: 'chat', comment: 'chat', reply: 'reply', task: 'check', invite: 'calendar', share: 'share', link: 'link', booking: 'calendar', edit: 'edit', chat: 'chat', form: 'form' };
 
@@ -19,9 +20,13 @@ export function ago(ms, now = Date.now()) {
   return new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
+const untilText = (ms) => new Date(ms).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
 export default function Bell() {
   const navigate = useNavigate();
-  const [data, setData] = useState({ items: [], unread: 0 });
+  const [data, setData] = useState({ items: [], unread: 0, snoozed: [] });
+  const [snoozeFor, setSnoozeFor] = useState(null); // the notification whose snooze times are showing
+  const [showSnoozed, setShowSnoozed] = useState(false);
   const [openGroup, setOpenGroup] = useState(null); // the grouped notification opened up to show what's in it
   useEffect(() => { setBadgePart('bell', data.unread); }, [data.unread]); // on the app's icon, with unread mail
   const [open, setOpen] = useState(false);
@@ -29,7 +34,7 @@ export default function Bell() {
   const [onlyUnread, setOnlyUnread] = useState(false);
   const shown = onlyUnread ? data.items.filter((n) => !n.read) : data.items;
   const toast = useToast();
-  const act = (path, n) => post(path, { ids: [n.id] }).then(setData).catch((e) => toast(e.message, 'error'));
+  const act = (path, n, extra = {}) => post(path, { ids: [n.id], ...extra }).then(setData).catch((e) => toast(e.message, 'error'));
   const box = useRef();
   // A list asked for before a live notification arrived would drop it: each load is numbered, only the latest
   // one asked for is shown, and one asked for before live news came is asked for again.
@@ -45,7 +50,7 @@ export default function Bell() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => onLive((m) => {
     if (m.type === 'notification') newsAfter.current = issued.current;
-    if (m.type === 'notification') setData((d) => ({ items: [m.notification, ...d.items.filter((x) => x.id !== m.notification.id && x.id !== m.replaces)].slice(0, 100), unread: d.unread + (m.replaces && d.items.some((x) => x.id === m.replaces && !x.read) ? 0 : 1) })); // replaces: a grouped one counting more now
+    if (m.type === 'notification') setData((d) => ({ ...d, snoozed: (d.snoozed || []).filter((x) => x.id !== m.notification.id), items: [m.notification, ...d.items.filter((x) => x.id !== m.notification.id && x.id !== m.replaces)].slice(0, 100), unread: d.unread + (m.replaces && d.items.some((x) => x.id === m.replaces && !x.read) ? 0 : 1) })); // replaces: a grouped one counting more now
     else if (m.type === 'notifications-read' || m.type === 'live-connected') load();
   }), [load]);
   useEffect(() => {
@@ -83,11 +88,22 @@ export default function Bell() {
                     <span className="muted small nowrap">{ago(n.created_at)}</span>
                   </button>
                   {/* On hover or focus (always on touch screens): back to unread or read, and remove. */}
-                  <span className="bell-acts">
+                  <span className={`bell-acts${snoozeFor === n.id ? ' open' : ''}`}>
+                    <button type="button" className="icon-btn" aria-label={`Snooze: ${n.title}`} title="Snooze" aria-expanded={snoozeFor === n.id}
+                      onClick={() => setSnoozeFor(snoozeFor === n.id ? null : n.id)}><Icon name="clock" size={16} /></button>
                     <button type="button" className="icon-btn" aria-label={`${n.read ? 'Mark as unread' : 'Mark as read'}: ${n.title}`} title={n.read ? 'Mark as unread' : 'Mark as read'}
                       onClick={() => act(n.read ? '/notifications/unread' : '/notifications/read', n)}><Icon name={n.read ? 'markunread' : 'check'} size={16} /></button>
                     <button type="button" className="icon-btn" aria-label={`Remove: ${n.title}`} title="Remove" onClick={() => act('/notifications/remove', n)}><Icon name="close" size={16} /></button>
                   </span>
+                  {snoozeFor === n.id && (
+                    <div className="bell-snooze" role="group" aria-label="Snooze until">
+                      {snoozeTimes().map((t) => (
+                        <button key={t.label} type="button" className="bell-snooze-opt" onClick={() => { setSnoozeFor(null); act('/notifications/snooze', n, { until: t.at }).then(() => toast(`Snoozed until ${untilText(t.at)}`)); }}>
+                          <span className="grow">{t.label}</span><span className="muted small">{t.when}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {/* A grouped one: open it up for each of them, each going to its own place. */}
                   {n.items?.length > 1 && (
                     <>
@@ -103,6 +119,22 @@ export default function Bell() {
                 </li>
               ))}
             </ul>
+          )}
+          {/* Snoozed ones: when each comes back, and Unsnooze to have it back now. */}
+          {data.snoozed?.length > 0 && (
+            <div className="bell-snoozed">
+              <button type="button" className="link-btn small" aria-expanded={showSnoozed} onClick={() => setShowSnoozed(!showSnoozed)}>{showSnoozed ? 'Hide snoozed' : `Snoozed (${data.snoozed.length})`}</button>
+              {showSnoozed && (
+                <ul aria-label="Snoozed">
+                  {data.snoozed.map((n) => (
+                    <li key={n.id} className="row">
+                      <span className="grow"><span className="bell-title">{n.title}</span><span className="muted small bell-body">Back {untilText(n.snoozed_until)}</span></span>
+                      <button type="button" className="btn small" aria-label={`Unsnooze: ${n.title}`} onClick={() => act('/notifications/unread', n)}>Unsnooze</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -3317,3 +3317,12 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .bell-acts .icon-btn { width: 28px; height: 28px; }
 .bell-panel li:hover > .bell-acts, .bell-panel li:focus-within > .bell-acts { display: inline-flex; }
 @media (hover: none) { .bell-acts { display: inline-flex; position: static; float: right; box-shadow: none; margin: -4px 4px 4px 0; } }
+
+/* Snoozing a notification: the times under it; the snoozed ones at the foot of the panel. */
+.bell-panel li > .bell-acts.open { display: inline-flex; }
+.bell-snooze { display: flex; flex-direction: column; margin: 0 8px 6px 44px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.bell-snooze-opt { display: flex; gap: 8px; align-items: baseline; padding: 8px 10px; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.bell-snooze-opt:hover, .bell-snooze-opt:focus-visible { background: var(--hover); }
+.bell-snoozed { border-top: 1px solid var(--border); padding: 6px 12px 8px; }
+.bell-snoozed ul { padding: 4px 0 0; }
+.bell-snoozed li { gap: 8px; padding: 4px 0; }

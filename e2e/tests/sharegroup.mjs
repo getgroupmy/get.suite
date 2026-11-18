@@ -125,6 +125,30 @@ await step('a notification back to unread, filtered to unread only, and removed'
   await panel.getByText('Olivia Owner shared 3 files with you').waitFor();
   if (await panel.getByText(title).count()) throw new Error('back after reload');
 }, kim);
+await step('a notification snoozed until tomorrow: gone from the bell, listed under Snoozed, back with Unsnooze', async () => {
+  const panel = kim.getByRole('dialog', { name: 'Notifications' });
+  const title = 'Olivia Owner shared 3 files with you';
+  await panel.getByText(title).hover();
+  await panel.getByRole('button', { name: `Snooze: ${title}` }).click();
+  const times = panel.getByRole('group', { name: 'Snooze until' });
+  await times.getByRole('button', { name: /^Next week/ }).waitFor();
+  await kim.screenshot({ path: `${SP}/shots/bell-snooze.png` });
+  await times.getByRole('button', { name: /^Tomorrow/ }).click();
+  await kim.getByText(/^Snoozed until /).waitFor();
+  await panel.getByText(title).waitFor({ state: 'detached' });
+  await panel.getByRole('button', { name: 'Snoozed (1)' }).click();
+  const snoozed = panel.getByRole('list', { name: 'Snoozed' });
+  await snoozed.getByText(title).waitFor();
+  await snoozed.getByText(/^Back /).waitFor();
+  await kim.screenshot({ path: `${SP}/shots/bell-snoozed.png` });
+  await kim.reload(); // kept
+  await kim.getByRole('button', { name: /^Notifications/ }).click();
+  await panel.getByRole('button', { name: 'Snoozed (1)' }).click();
+  await panel.getByRole('button', { name: `Unsnooze: ${title}` }).click();
+  await kim.getByRole('button', { name: 'Notifications, 1 new' }).waitFor();
+  await panel.locator('.bell-item.unread', { hasText: title }).waitFor();
+  if (await panel.getByRole('button', { name: /^Snoozed/ }).count()) throw new Error('still listed as snoozed');
+}, kim);
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
