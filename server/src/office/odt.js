@@ -11,6 +11,7 @@ import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
 import { dataChartObject, dataChartFromObject } from './odpchart.js';
+import { latexToMathml, mathmlToLatex } from './mathml.js';
 import { docFromHtml, columnWidthsOf } from './word.js';
 
 // The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
@@ -93,6 +94,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   };
   const pictures = []; // { path, data, mime }
   const chartObjects = []; // charts from spreadsheets, as chart objects (Object 1, Object 2…)
+  const formulaObjects = []; // equations, as formula objects in MathML (Formula 1, Formula 2…)
   const sheetChartObject = (n, w = 17, h = 8) => { let d = n.attrs?.data; if (typeof d === 'string') { try { d = JSON.parse(d); } catch { d = null; } } return d?.series?.length ? dataChartObject({ chartType: n.attrs?.chartType || 'column', title: n.attrs?.title || '', data: d }, w, h) : null; };
   let noteNo = 0;
   const inline = (nodes = []) => {
@@ -108,7 +110,17 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       else if (t === 'datechip') text = dateText(n.attrs?.date);
       else if (t === 'filechip') text = n.attrs?.name || '';
       else if (t === 'dropchip') text = chipText(n.attrs);
-      else if (t === 'math') text = String(n.attrs?.latex || '');
+      else if (t === 'math') {
+        // An equation: a formula object (LibreOffice Math's), drawn in the line; its LaTeX kept in it.
+        const l = String(n.attrs?.latex || '').trim();
+        if (l) {
+          formulaObjects.push(latexToMathml(l));
+          const k = formulaObjects.length, wCm = Math.min(16, Math.max(0.6, [...l.replace(/\\[a-zA-Z]+|[{}^_]/g, 'x')].length * 0.22));
+          out += `<draw:frame draw:name="Formula ${k}" text:anchor-type="as-char" svg:width="${wCm.toFixed(2)}cm" svg:height="0.60cm"><draw:object xlink:href="./Formula ${k}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/><svg:desc>${x(l)}</svg:desc></draw:frame>`;
+          continue;
+        }
+        text = '';
+      }
       else if (t === 'citation') text = inText(n.attrs);
       else if (t === 'image') { out += picture(n); continue; }
       else if (t !== 'text') { out += inline(n.content); continue; }
@@ -315,6 +327,7 @@ ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<styl
 <manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>
 ${pictures.map((p) => `<manifest:file-entry manifest:full-path="${x(p.path)}" manifest:media-type="${p.mime}"/>`).join('\n')}
 ${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${k + 1}/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.chart"/><manifest:file-entry manifest:full-path="Object ${k + 1}/content.xml" manifest:media-type="text/xml"/>`).join('\n')}
+${formulaObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Formula ${k + 1}/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.formula"/><manifest:file-entry manifest:full-path="Formula ${k + 1}/content.xml" manifest:media-type="text/xml"/>`).join('\n')}
 </manifest:manifest>`;
   const zip = new JSZip();
   zip.file('mimetype', ODT_MIME, { compression: 'STORE' }); // first, and not compressed: how apps recognise the file
@@ -324,6 +337,7 @@ ${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${
   zip.file('META-INF/manifest.xml', manifest);
   for (const p of pictures) zip.file(p.path, p.data);
   chartObjects.forEach((o, k) => zip.file(`Object ${k + 1}/content.xml`, o));
+  formulaObjects.forEach((o, k) => zip.file(`Formula ${k + 1}/content.xml`, o));
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', mimeType: ODT_MIME });
 }
 
@@ -395,6 +409,14 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const stylesXml = (await zip.file('styles.xml')?.async('string')) || '';
   const parse = (s) => parseDocument(s, { xmlMode: true, decodeEntities: true });
   const root = parse(contentXml), stylesRoot = parse(stylesXml);
+  // Equations: each formula object's LaTeX (ours keep it; LibreOffice Math's are read from their MathML), by its folder.
+  const formulas = new Map();
+  for (const f of Object.keys(zip.files).filter((n) => /^[^/]+\/content\.xml$/.test(n)).slice(0, 500)) {
+    const xml = await zip.file(f).async('string');
+    if (!/<(?:\w+:)?math\b/.test(xml.slice(0, 2000))) continue;
+    const l = mathmlToLatex(xml);
+    if (l) formulas.set(f.replace(/\/content\.xml$/, ''), l.slice(0, 2000));
+  }
   // The styles: what each text style looks like, how each paragraph style is aligned, which lists are numbered.
   const styles = new Map(), numbered = new Map();
   const numberedFrom = new Map(); // a list style's first number at each level
@@ -478,6 +500,9 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         case 'text:a': { const href = bookmarkHref(c.attribs['xlink:href'] || ''); out += /^\s*javascript:/i.test(href) ? await inline(c) : `<a href="${h(href)}">${await inline(c)}</a>`; break; }
         case 'text:note': { const body = kids(c).find((k) => k.name === 'text:note-body'); out += `<sup data-footnote="" data-note="${h(textOf(body || {}).trim())}"></sup>`; break; }
         case 'draw:frame': {
+          const fo = kids(c).find((k) => k.name === 'draw:object' || k.name === 'draw:object-ole'); // (LibreOffice without its Math part keeps ours as the latter)
+          const fl = fo && formulas.get(String(fo.attribs['xlink:href'] || '').replace(/^\.\//, '').replace(/\/$/, ''));
+          if (fl) { out += `<span data-math="" data-latex="${h(fl)}"></span>`; break; } // an equation
           const img = kids(c).find((k) => k.name === 'draw:image');
           const alt = textOf(kids(c).find((k) => k.name === 'svg:desc' || k.name === 'svg:title') || { children: [] }).trim();
           const id = img && await pictureFor(img.attribs['xlink:href']);

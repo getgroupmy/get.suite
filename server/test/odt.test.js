@@ -174,6 +174,29 @@ test('.odt: a chart from a spreadsheet as a chart object, still linked to its sp
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('.odt: equations go out as formula objects (MathML) and come back, also kept as LibreOffice keeps them without its Math part', async () => {
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Area: ' }, { type: 'math', attrs: { latex: '\\pi r^2' } }, { type: 'text', text: ' and ' }, { type: 'math', attrs: { latex: '\\frac{a}{b}' } }] },
+    { type: 'paragraph', content: [{ type: 'math', attrs: { latex: 'E = mc^2' } }] },
+  ] };
+  const buf = await odtFromDoc(doc, 'T');
+  const zip = await JSZip.loadAsync(buf);
+  const content = await zip.file('content.xml').async('string');
+  assert.equal((content.match(/<draw:object xlink:href="\.\/Formula \d"/g) || []).length, 3);
+  assert.match(await zip.file('Formula 2/content.xml').async('string'), /<mfrac><mrow><mi>a<\/mi><\/mrow><mrow><mi>b<\/mi><\/mrow><\/mfrac>/);
+  assert.match(await zip.file('META-INF/manifest.xml').async('string'), /full-path="Formula 1\/" manifest:version="1.3" manifest:media-type="application\/vnd.oasis.opendocument.formula"/);
+  const show = (d) => d.doc.content.map((p) => (p.content || []).map((n) => (n.type === 'math' ? `[${n.attrs.latex}]` : n.text)).join(''));
+  const want = ['Area: [\\pi r^2] and [\\frac{a}{b}]', '[E = mc^2]'];
+  assert.deepEqual(show(await docFromOdt(buf)), want);
+  // As LibreOffice saves them again without LibreOffice Math: draw:object-ole, a picture beside it.
+  zip.file('content.xml', content.replace(/<draw:object (xlink:href="\.\/Formula \d")/g, '<draw:object-ole $1').replace(/<\/draw:object>/g, '</draw:object-ole>'));
+  assert.deepEqual(show(await docFromOdt(await zip.generateAsync({ type: 'nodebuffer' }))), want);
+  // A formula object that isn't one (no MathML): a picture note, as before.
+  zip.file('Formula 1/content.xml', '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"/>');
+  assert.match(show(await docFromOdt(await zip.generateAsync({ type: 'nodebuffer' })))[0], /^Area: \S* and \[\\frac\{a\}\{b\}\]$/);
+});
+
 test('.odt: a comment resolved in LibreOffice (loext:resolved) comes in resolved', async () => {
   const JSZip = (await import('jszip')).default;
   const T = (text, ids = []) => ({ type: 'text', text, ...(ids.length && { marks: ids.map((id) => ({ type: 'comment', attrs: { id } })) }) });

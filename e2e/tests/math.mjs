@@ -114,6 +114,26 @@ await step('the Word download has Word’s own equations, and opening it gives t
   await until(async () => (await page.locator('.doc-math .katex').count()) === 2); // both drawn (the LaTeX isn't left as text)
   await page.screenshot({ path: `${SP}/shots/math-from-word.png` });
 });
+await step('the .odt download has formula objects (MathML), and opening it gives the equations back', async () => {
+  const JSZip = (await import('module')).createRequire(`${ROOT}/server/package.json`)('jszip');
+  const res = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=odt`)).arrayBuffer();
+    const r = await (await fetch('/api/files/upload?name=Maths%20copy.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return { id: r.id, b64: btoa(Array.from(new Uint8Array(bytes), (c) => String.fromCharCode(c)).join('')) };
+  }, doc.id);
+  const zip = await JSZip.loadAsync(Buffer.from(res.b64, 'base64'));
+  const f1 = await zip.file('Formula 1/content.xml')?.async('string');
+  if (!f1 || !/<math xmlns="http:\/\/www.w3.org\/1998\/Math\/MathML"/.test(f1) || !/<mfrac>/.test(f1)) throw new Error('no formula object: ' + f1);
+  if (!(await zip.file('META-INF/manifest.xml').async('string')).includes('application/vnd.oasis.opendocument.formula')) throw new Error('manifest');
+  const opened = await api(page, 'POST', `/files/${res.id}/open-as`);
+  const maths = [];
+  (function walk(n) { if (n.type === 'math') maths.push(n.attrs.latex); (n.content || []).forEach(walk); })((await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content);
+  const orig = [];
+  (function walk(n) { if (n.type === 'math') orig.push(n.attrs.latex); (n.content || []).forEach(walk); })((await api(page, 'GET', `/files/${doc.id}/content`)).body.content);
+  if (orig.length !== 2 || maths.join(' | ') !== orig.join(' | ')) throw new Error(`${maths.join(' | ')} vs ${orig.join(' | ')}`); // (exactly as typed)
+  await page.goto(`${B}/docs/${opened.body.id}`);
+  await until(async () => (await page.locator('.doc-math .katex').count()) === 2);
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

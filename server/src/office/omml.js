@@ -3,7 +3,7 @@
 // \text{…}, and brackets. latexToOmml writes what Word draws as a real equation; ommlToLatex reads Word's back
 // (from the download or from Word itself), giving the same LaTeX for what latexToOmml wrote.
 
-const SYMBOLS = {
+export const SYMBOLS = {
   alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ϵ', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ',
   lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', varpi: 'ϖ', rho: 'ρ', varrho: 'ϱ', sigma: 'σ', varsigma: 'ς', tau: 'τ', upsilon: 'υ', phi: 'ϕ', varphi: 'φ',
   chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Upsilon: 'Υ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
@@ -13,13 +13,13 @@ const SYMBOLS = {
   ldots: '…', cdots: '⋯', degree: '°', circ: '∘', ast: '∗', star: '⋆', perp: '⊥', parallel: '∥', angle: '∠', prime: '′', hbar: 'ℏ', ell: 'ℓ',
 };
 // The first name of each symbol is the one written back (\le, not \leq).
-const COMMAND_OF = {};
+export const COMMAND_OF = {};
 for (const [cmd, ch] of Object.entries(SYMBOLS)) if (!COMMAND_OF[ch]) COMMAND_OF[ch] = cmd;
 const NARY = { sum: '∑', prod: '∏', coprod: '∐', int: '∫', iint: '∬', iiint: '∭', oint: '∮', bigcup: '⋃', bigcap: '⋂' };
-const NARY_OF = Object.fromEntries(Object.entries(NARY).map(([k, v]) => [v, k]));
-const FUNCTIONS = ['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'log', 'ln', 'lg', 'exp', 'lim', 'max', 'min', 'det', 'gcd'];
-const ACCENTS = { hat: '̂', bar: '̅', vec: '⃗', dot: '̇', ddot: '̈', tilde: '̃' };
-const ACCENT_OF = Object.fromEntries(Object.entries(ACCENTS).map(([k, v]) => [v, k]));
+export const NARY_OF = Object.fromEntries(Object.entries(NARY).map(([k, v]) => [v, k]));
+export const FUNCTIONS = ['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'log', 'ln', 'lg', 'exp', 'lim', 'max', 'min', 'det', 'gcd'];
+export const ACCENTS = { hat: '̂', bar: '̅', vec: '⃗', dot: '̇', ddot: '̈', tilde: '̃' };
+export const ACCENT_OF = Object.fromEntries(Object.entries(ACCENTS).map(([k, v]) => [v, k]));
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
