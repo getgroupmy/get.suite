@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -499,6 +499,20 @@ test('a comment assigned to a colleague: a task on their list, shown in list_com
   await call(rw, 'resolve_comment', { file: doc.id, thread: c.structuredContent.id, reply: 'Sales confirmed May.' });
   assert.ok((await avasTask()).done_at, 'ticked off when resolved');
   assert.deepEqual((await call(avaToken, 'comments_for_me', { assigned_only: true })).structuredContent.threads, [], 'resolved: no longer waiting');
+  // Her bell, through her assistant: what Olivia did, unread; marked read only with a write token.
+  const bell = (await call(avaToken, 'list_notifications', { unread_only: true })).structuredContent;
+  assert.ok(bell.unread >= 2, JSON.stringify(bell));
+  assert.ok(bell.notifications.length >= 2 && bell.notifications.every((n) => !n.read && n.id && n.at && n.title));
+  assert.ok(bell.notifications.some((n) => n.from === 'Olivia Owner' && /Pricing page/.test(n.title)), JSON.stringify(bell.notifications));
+  assert.match(bell.notifications[0].url, /^http/);
+  assert.equal((await call(avaToken, 'list_notifications', { limit: 1 })).structuredContent.notifications.length, 1);
+  assert.match((await call(avaToken, 'mark_notifications_read', { all: true })).content[0].text, /.+/);
+  assert.equal((await call(avaToken, 'list_notifications', {})).structuredContent.unread, bell.unread, 'a read-only assistant can’t mark them');
+  const avaWrite = (await ava('POST', '/api/tokens', { password: 'password123', name: 'Ava’s helper', scope: 'write', days: 30 })).body.token;
+  assert.match((await call(avaWrite, 'mark_notifications_read', {})).content[0].text, /Give ids/);
+  assert.equal((await call(avaWrite, 'mark_notifications_read', { ids: [bell.notifications[0].id] })).structuredContent.unread, bell.unread - 1);
+  assert.equal((await call(avaWrite, 'mark_notifications_read', { all: true })).structuredContent.unread, 0);
+  assert.deepEqual((await call(avaWrite, 'list_notifications', { unread_only: true })).structuredContent.notifications, []);
 });
 
 test('share a file with a colleague: as viewer, then editor; others kept; only colleagues; only what the person manages', async () => {

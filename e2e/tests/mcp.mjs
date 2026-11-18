@@ -158,6 +158,24 @@ await step('an assistant books focus time; it is in Calendar as focus time', asy
   await page.goto(`${B}/calendar`);
   await page.getByText('Write the brief').first().waitFor({ timeout: 10000 });
 });
+await step('an assistant reads the bell and marks it read; the bell on the page clears', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  await api(page, 'POST', '/notifications/read', { all: true });
+  const kim = await mk('kim');
+  await signIn(kim, 'kim@acme.com');
+  const doc = (await api(kim, 'POST', '/files/new', { kind: 'doc', name: 'Budget notes' })).body;
+  const oliviaId = (await api(kim, 'GET', '/users/directory')).body.find((u) => u.name === 'Olivia Owner').id;
+  await api(kim, 'PUT', `/files/${doc.id}/shares`, { shares: [{ user_id: oliviaId, role: 'editor' }], message: 'Numbers for Friday' });
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Notifications, 1 new' }).waitFor();
+  const got = (await rpc('tools/call', { name: 'list_notifications', arguments: { unread_only: true } })).result.structuredContent;
+  const n = got.notifications[0];
+  if (got.unread !== 1 || n.from !== 'Kim Park' || !/Budget notes/.test(n.title) || n.read || !n.url.endsWith(`/docs/${doc.id}`)) throw new Error(JSON.stringify(got));
+  const done = (await rpc('tools/call', { name: 'mark_notifications_read', arguments: { ids: [n.id] } })).result;
+  if (done.isError || done.structuredContent.unread !== 0) throw new Error(JSON.stringify(done));
+  await page.getByRole('button', { name: 'Notifications', exact: true }).waitFor(); // live, without reloading
+  await kim.context().close();
+});
 await step('claude.ai-style sign-in: the consent page offers read only or read and add; the assistant shows in Settings and can be removed', async () => {
   const crypto = await import('node:crypto');
   const reg = await (await fetch(`${B}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }) })).json();
