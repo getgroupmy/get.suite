@@ -82,6 +82,22 @@ await step('typing a hidden value hides the row as it changes', async () => {
   await kim.keyboard.type('Done'); await kim.keyboard.press('Enter');
   await until(async () => !(await shownRows(page)).startsWith('1,2'));
 });
+await step('OpenDocument (.ods) keeps the filter: the reopened copy hides the same rows, with its buttons', async () => {
+  await page.waitForTimeout(2500); // saved
+  const now = await shownRows(page);
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=ods`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Jobs.ods', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, sheetId);
+  const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+  const f = (await api(page, 'GET', `/files/${opened.id}/content`)).body.content.sheets[0].filter;
+  if (!f?.hidden?.B?.includes('Done')) throw new Error(JSON.stringify(f));
+  const copy = await page.context().newPage();
+  await copy.goto(`${B}/sheets/${opened.id}`);
+  await cell(copy, 'B1').getByRole('button', { name: 'Filter B' }).waitFor();
+  await until(async () => (await shownRows(copy)) === now);
+  await copy.close();
+});
 await step('remove the filter: every row is back', async () => {
   await page.getByRole('button', { name: 'Remove filter' }).click();
   await until(async () => (await shownRows(page)).startsWith('1,2,3,4,5,6'));

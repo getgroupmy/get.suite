@@ -7,6 +7,7 @@ import { parseDocument } from 'htmlparser2';
 import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
 import { colName } from './sheetnames.js';
 import { CALCEXT_NS, rulesToCalcext, rulesFromCalcext } from './odscf.js';
+import { filterToOds, filterFromOds } from './odsfilter.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -136,6 +137,7 @@ export async function odsFromSheet(data) {
   const settings = [];
   const validations = []; // content validations (dropdowns), for every sheet
   const cfStyles = []; // the cell styles conditional formatting applies (named styles)
+  const databaseRanges = []; // the sheets' filters
   for (const s of sheets) {
     const cells = s.cells || {}, formats = s.formats || {};
     // Alternating colours: each cell's fill (its own fill wins), the heading row bold.
@@ -185,6 +187,10 @@ export async function odsFromSheet(data) {
       for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) { validationOf.set(`${colName(c)}${r}`, vname); maxR = Math.max(maxR, r); maxC = Math.max(maxC, c); }
     }
     const hiddenRows = new Set(s.hide?.rows || []), hiddenCols = new Set(s.hide?.cols || []);
+    // The filter: LibreOffice's AutoFilter over its range, and the rows it hides marked as filtered out.
+    const fx = filterToOds(s.filter, cells, String(s.name || 'Sheet').slice(0, 100));
+    if (fx) { databaseRanges.push(fx.xml); for (const r of fx.hiddenRows) maxR = Math.max(maxR, r); }
+    const filteredRows = fx?.hiddenRows || new Set();
     let cols = '';
     for (let c = 0; c <= maxC; c++) {
       const w = s.colWidths?.[colName(c)];
@@ -193,7 +199,7 @@ export async function odsFromSheet(data) {
     let rows = '';
     for (let r = 1; r <= maxR; r++) {
       const h = s.rowHeights?.[String(r)];
-      let row = `<table:table-row${h ? ` table:style-name="${sized(rowStyles, 'ro', 'table-row', 'style:row-height', pxToCm(h))}"` : ''}${hiddenRows.has(r - 1) ? ' table:visibility="collapse"' : ''}>`;
+      let row = `<table:table-row${h ? ` table:style-name="${sized(rowStyles, 'ro', 'table-row', 'style:row-height', pxToCm(h))}"` : ''}${hiddenRows.has(r - 1) ? ' table:visibility="collapse"' : filteredRows.has(r) ? ' table:visibility="filter"' : ''}>`;
       for (let c = 0; c <= maxC; c++) {
         const key = `${colName(c)}${r}`;
         if (covered.has(key)) { row += '<table:covered-table-cell/>'; continue; }
@@ -246,7 +252,7 @@ export async function odsFromSheet(data) {
   }
   const NS = `${CALCEXT_NS} ` + 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}</office:spreadsheet></office:body></office:document-content>`;
+<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}${databaseRanges.length ? `<table:database-ranges>${databaseRanges.join('')}</table:database-ranges>` : ''}</office:spreadsheet></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles ${NS}><office:styles><style:default-style style:family="table-cell"><style:text-properties fo:font-size="10pt"/></style:default-style><style:style style:name="Default" style:family="table-cell"/>${cfStyles.join('')}</office:styles></office:document-styles>`;
   // Frozen rows and columns live in the view settings.
@@ -437,9 +443,11 @@ export async function sheetFromOds(buffer) {
     // Conditional formatting LibreOffice keeps (calcext:conditional-formats), with the looks its styles give.
     const cfEl = tags(t, 'calcext:conditional-formats')[0];
     const rules = cfEl ? rulesFromCalcext(cfEl, { tags, formulaFromOds, look: (st) => { const f = formatOf(st); return { fill: f.fill, color: f.color, bold: !!f.b }; } }) : [];
+    // The filter LibreOffice keeps for this sheet (an AutoFilter), with the values each column hides.
+    const filter = filterFromOds(tags(tags(body, 'table:database-ranges')[0] || { children: [] }, 'table:database-range'), t.attribs['table:name'], cells, tags);
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
   }
   // The hidden sheet of dropdown choices our Excel download writes (here when such a file was saved as .ods):
   // its choices back in the dropdowns, and the sheet left out.

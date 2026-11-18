@@ -155,3 +155,35 @@ test('.ods: conditional formatting as LibreOffice keeps it, every kind of rule b
     assert.deepEqual(show(await sheetFromExcel(lo('s.ods', 'xlsx', 'b'))), want, 'LibreOffice\'s Excel file of it');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('.ods: the filter as LibreOffice\'s AutoFilter (values to show worked out from the cells, conditions), rows it hides marked; both ways and through LibreOffice', async (t) => {
+  const cells = { A1: 'City', B1: 'Sales', C1: 'Note', D1: 'Score', A2: 'Paris', B2: '10', C2: 'big order', D2: '5', A3: 'Rome', B3: '50', C3: 'x', D3: '9', A4: 'Oslo', B4: '30', C4: 'big one', D4: '1', A5: 'Paris', B5: '70', C5: '', D5: '7', A6: '', B6: '40', C6: 'big', D6: '3', B7: '=B2*2' };
+  const filter = { range: 'A1:D6', hidden: { A: ['Rome', ''] }, cond: { B: { op: 'gte', a: '20' }, C: { op: 'contains', a: 'big' }, D: { op: 'notbetween', a: '2', b: '6' } } };
+  const buf = await odsFromSheet({ sheets: [{ name: 'My data', cells, colWidths: {}, filter }] });
+  const xml = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  assert.match(xml, /<table:database-range [^>]*table:target-range-address="'My data'\.A1:'My data'\.D7" table:display-filter-buttons="true">/, 'down to the last row with something in it');
+  assert.match(xml, /<table:filter-condition table:field-number="0" table:value="Paris" table:operator="="><table:filter-set-item table:value="Paris"\/><table:filter-set-item table:value="Oslo"\/><\/table:filter-condition>/, 'the values to show');
+  assert.match(xml, /table:value="20" table:operator="&gt;="\/>/, 'a number without a type (LibreOffice keeps it so)');
+  const rows = (xml.match(/<table:table-row[^>]*>/g) || []).map((r) => (/table:visibility="filter"/.test(r) ? 'F' : '.')).join('');
+  assert.equal(rows.slice(0, 7), '.FF.FFF', 'the rows it hides (row 7: its city is blank, a hidden value)');
+  const back = (await sheetFromOds(buf)).sheets[0];
+  assert.deepEqual(back.filter, { ...filter, range: 'A1:D7' });
+  assert.equal(back.hide, undefined, 'filtered rows aren\'t rows hidden by hand');
+  // Every value of a column hidden: nothing shows, and it comes back so.
+  const all = await odsFromSheet({ sheets: [{ name: 'S', cells: { A1: 'H', A2: 'Done', A3: '' , B3: 'x' }, filter: { range: 'A1:B3', hidden: { A: ['Done', ''] } } }] });
+  assert.deepEqual((await sheetFromOds(all)).sheets[0].filter.hidden, { A: ['Done', ''] });
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  try {
+    fs.writeFileSync(path.join(dir, 's.ods'), buf);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 's.ods')], { stdio: 'ignore', timeout: 120000 });
+    const lo = (await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 's.ods')))).sheets[0].filter;
+    // (LibreOffice leaves out "is not between": an "or" inside the filter's "and")
+    assert.deepEqual(lo, { range: 'A1:D7', hidden: { A: ['Rome', ''] }, cond: { B: { op: 'gte', a: '20' }, C: { op: 'contains', a: 'big' } } });
+    fs.writeFileSync(path.join(dir, 'all.ods'), all);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 'all.ods')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual((await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 'all.ods')))).sheets[0].filter.hidden, { A: ['Done', ''] }, 'nothing shown, through LibreOffice too');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
