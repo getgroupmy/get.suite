@@ -5476,9 +5476,10 @@ test('notes: write, check off, pin, label, archive, search and share', async () 
   assert.deepEqual((await a('GET', '/api/notes?archived=1')).body.map((n) => n.id), [n1.id]);
   assert.equal((await b('PATCH', `/api/notes/${n2.id}`, { body: 'hack' })).status, 404);
   // Sharing: the colleague can edit, not delete; leaving takes it off their list.
-  const sh = (await a('PUT', `/api/notes/${n2.id}/shares`, { user_ids: [ids.ntb] })).body;
+  const sh = (await a('PUT', `/api/notes/${n2.id}/shares`, { user_ids: [ids.ntb], message: 'Add your bits' })).body;
   assert.deepEqual(sh.shared.map((u) => u.name), ['Ned Notes']);
-  assert.ok((await b('GET', '/api/notifications')).body.items.some((n) => n.title === 'Nora Notes shared a note with you'));
+  const told = (await b('GET', '/api/notifications')).body.items.find((n) => n.title === 'Nora Notes shared a note with you');
+  assert.ok(told && told.body.startsWith('“Add your bits”'), JSON.stringify(told));
   const seen = (await b('GET', '/api/notes')).body;
   assert.equal(seen[0].mine, false);
   assert.equal((await b('PATCH', `/api/notes/${n2.id}`, { body: 'Plumber booked for Tuesday' })).status, 200);

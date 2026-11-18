@@ -1530,7 +1530,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Search notes** finds words in titles, text, checklist items and labels. **Archive** on the left has the archived ones.
 - **Trash:** deleting your note moves it to **Trash** (with **Undo**), where it stays for 7 days: **Restore** puts it back as it was, **Delete forever** (or **Empty trash**) removes it for good. While it's there, people it's shared with don't see it and its reminder doesn't go off.
 - **Shared with me** (on the left) shows only the notes colleagues shared with you, not your own.
-- **Share** (the person icon) gives colleagues in your company the note: they see it among their notes and can change it, and everyone sees changes as they're made. Only the owner can delete it or change who has it; the others can take it off their own list.
+- **Share** (the person icon) gives colleagues in your company the note: they see it among their notes and can change it, and everyone sees changes as they're made; with someone newly ticked, **Message to … (optional)** goes with the notification they get (*“Can you book him?” · Plumber*). Only the owner can delete it or change who has it; the others can take it off their own list.
 - **Many notes:** with hundreds of notes the page opens at once: the first 150 are shown (pinned ones always) and more come in as you scroll down, or with **Show 150 more**; searching covers all of them.
 
 ## Meet

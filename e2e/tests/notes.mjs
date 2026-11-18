@@ -94,8 +94,10 @@ await step('search', async () => {
 await step('share with a colleague, who edits it live', async () => {
   await cardOf(page, 'Plumber').getByRole('button', { name: 'Share note' }).click();
   await page.getByRole('dialog', { name: 'Share note' }).getByLabel(/Kim Park/).check();
+  await page.getByRole('dialog', { name: 'Share note' }).getByLabel('Message to Kim Park (optional)').fill('Can you book him?');
   await page.getByRole('button', { name: 'Save' }).click();
   kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
+  await until(async () => JSON.stringify((await api(kim, 'GET', '/notifications')).body.items).includes('“Can you book him?” · Plumber'), 10000);
   await kim.goto(`${B}/notes`);
   await cardOf(kim, 'Plumber').getByText('Call on Tuesday').click();
   await kim.getByRole('dialog').getByLabel('Note').fill('Plumber booked for Wednesday');

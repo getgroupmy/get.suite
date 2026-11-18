@@ -992,7 +992,9 @@ export default function noteRoutes() {
       for (const id of ids) q('INSERT INTO note_shares (note_id, user_id) VALUES (?, ?)').run(n.id, id);
     });
     const added = ids.filter((id) => !before.includes(id));
-    if (added.length) bell(added, { kind: 'share', title: `${req.user.name} shared a note with you`, body: n.title || (n.body || '').slice(0, 80) || null, link: '/notes', actor: req.user.name });
+    const note = req.body?.message ? String(req.body.message).trim().slice(0, 500) : ''; // a message for the people added now
+    const about = n.title || (n.body || '').slice(0, 80) || null;
+    if (added.length) bell(added, { kind: 'share', title: `${req.user.name} shared a note with you`, body: note ? `“${note}”${about ? ` · ${about}` : ''}` : about, link: '/notes', actor: req.user.name });
     sendTo([...new Set([...before, ...ids])], { type: 'notes-changed' });
     res.json(shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id));
   });
