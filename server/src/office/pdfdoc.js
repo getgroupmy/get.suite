@@ -3,6 +3,7 @@
 // strike, links (blue, underlined, and clickable), lists and checklists, quotes, code, tables, pictures (PNG and
 // JPEG), page breaks; footnotes at the end. Equations and chips as their text. The standard fonts hold Western
 // European letters and the usual punctuation; other characters show as "?".
+import { asDrawn } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PDFHexString } from 'pdf-lib';
 import { flattenTabs } from './doctabs.js';
 import { chipText, dateText } from './chiptext.js';
@@ -35,9 +36,9 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
     : /courier/i.test(setup?.font || '') ? ['Courier', 'CourierBold', 'CourierOblique', 'CourierBoldOblique']
       : ['Helvetica', 'HelveticaBold', 'HelveticaOblique', 'HelveticaBoldOblique'];
   const F = {
-    r: await pdf.embedFont(StandardFonts[fam[0]]), b: await pdf.embedFont(StandardFonts[fam[1]]),
-    i: await pdf.embedFont(StandardFonts[fam[2]]), bi: await pdf.embedFont(StandardFonts[fam[3]]),
-    m: await pdf.embedFont(StandardFonts.Courier),
+    r: asDrawn(await pdf.embedFont(StandardFonts[fam[0]])), b: asDrawn(await pdf.embedFont(StandardFonts[fam[1]])),
+    i: asDrawn(await pdf.embedFont(StandardFonts[fam[2]])), bi: asDrawn(await pdf.embedFont(StandardFonts[fam[3]])),
+    m: asDrawn(await pdf.embedFont(StandardFonts.Courier)),
   };
   const BASE = Number(setup?.fontSize) || 11;
   const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) { const r = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(hex || '')); return r ? rgb(r[1] / 255, r[2] / 255, r[3] / 255) : null; } const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };

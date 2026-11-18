@@ -30,6 +30,7 @@ const signIn = async (p, email) => {
   await p.getByRole('link', { name: 'Mail' }).click();
 };
 
+let kimPage;
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -77,6 +78,25 @@ await step('sent: Kim gets Offer letter.odt and can look at it in Mail', async (
   await k.locator('.mail-reader').getByText('Offer letter.odt').first().click(); // not its chip in the list
   await k.getByText('we are pleased to offer you the role').first().waitFor({ timeout: 20000 });
   await k.screenshot({ path: `${SP}/shots/attachas-received.png` });
+  kimPage = k;
+});
+await step('Kim saves that email to Drive as a PDF: it is in Saved emails, with the subject and words in it', async () => {
+  const k = kimPage;
+  await k.keyboard.press('Escape').catch(() => {});
+  await k.getByRole('button', { name: 'More for this message' }).click();
+  await k.getByRole('menuitem', { name: 'Save to Drive as PDF' }).click();
+  await k.getByText(/Saved to Drive: Saved emails \/ Your offer/).waitFor();
+  const top = (await api(k, 'GET', '/files')).body;
+  const folder = (Array.isArray(top) ? top : top.files || []).find((f) => f.name === 'Saved emails');
+  const inside = (await api(k, 'GET', `/files?parent=${folder.id}`)).body;
+  const pdf = (Array.isArray(inside) ? inside : inside.files || []).find((f) => /^Your offer \(\d{4}-\d{2}-\d{2}\)\.pdf$/.test(f.name));
+  if (!pdf || pdf.mime !== 'application/pdf') throw new Error(JSON.stringify(inside));
+  const b64 = await k.evaluate(async (id) => btoa(Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/raw`)).arrayBuffer()), (c) => String.fromCharCode(c)).join('')), pdf.id);
+  const buf = Buffer.from(b64, 'base64');
+  if (buf.subarray(0, 5).toString() !== '%PDF-') throw new Error('not a PDF');
+  let text = null;
+  try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
+  if (text !== null && (!/Your offer/.test(text) || !/From: Olivia Owner <olivia@acme\.com>/.test(text) || !/Offer letter\.odt/.test(text))) throw new Error(text);
 });
 await step('a document can be attached as a PDF too', async () => {
   await page.goto(`${B}/mail`);

@@ -3,6 +3,7 @@
 // line breaks and wrapping), shapes (rectangles, rounded ones, ellipses, triangles, diamonds, lines and arrows,
 // others as rectangles) with their text, pictures (PNG and JPEG), tables and charts (as their figures), and the
 // slide number when the deck shows numbers. Turned boxes are drawn straight. Characters the standard fonts lack: "?".
+import { asDrawn } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString } from 'pdf-lib';
 import { themeOfDeck } from './powerpoint.js';
 import { chartTable } from './sheetchart.js';
@@ -17,7 +18,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
   if (author) pdf.setAuthor(author);
   pdf.setLanguage(lang);
   const marks = []; // [{ title, page }]: the PDF's bookmarks, a slide each
-  const F = { r: await pdf.embedFont(StandardFonts.Helvetica), b: await pdf.embedFont(StandardFonts.HelveticaBold), i: await pdf.embedFont(StandardFonts.HelveticaOblique), bi: await pdf.embedFont(StandardFonts.HelveticaBoldOblique) };
+  const F = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)), i: asDrawn(await pdf.embedFont(StandardFonts.HelveticaOblique)), bi: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBoldOblique)) };
   const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { F.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join(''); // (line breaks kept)
   const theme = themeOfDeck(deck);
   const col = (v, fallback) => hexRgb(v === 'accent' ? theme.accent : v === 'text' ? theme.text : v === 'bg' ? theme.bg : v) || hexRgb(fallback) || rgb(0, 0, 0);
@@ -143,7 +144,7 @@ export async function notesPdfFromDeck(deck, title = 'Presentation', opts = {}) 
   pdf.setCreator('Workspace');
   if (opts.author) pdf.setAuthor(opts.author);
   pdf.setLanguage(opts.lang || 'en');
-  const font = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const font = asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), bold = asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold));
   const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { font.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join('');
   const PW = 595.28, PH = 841.89, M = 56, size = 11, lead = size * 1.45;
   const shown = (deck?.slides || []).map((s, i) => ({ s, i })).filter(({ s }) => !s.skip);

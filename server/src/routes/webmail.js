@@ -68,6 +68,7 @@ import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 import { syncAwayEvent } from '../mail/vacation.js';
+import { pdfFromEmail } from '../mail/emailpdf.js';
 
 // Saved searches (Mail sidebar → Searches).
 q(`CREATE TABLE IF NOT EXISTS mail_searches (
@@ -1559,6 +1560,20 @@ export default function webmailRoutes() {
     const cards = [];
     for (const uid of uids) cards.push(emailCard((await loadMessage(req.user, folder, uid, false)).parsed));
     res.status(201).json(cards.map((card, i) => postEmail(String(req.body?.channel_id || ''), req.user, i ? '' : req.body?.body, card)));
+  });
+
+  // Save an email to Drive as a PDF (its headers, text and attachments' names), in a "Saved emails" folder.
+  r.post('/messages/:uid/save-pdf', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), false);
+    const { buf, name: base } = await pdfFromEmail(parsed, { timeZone: req.body?.time_zone && /^[A-Za-z_]+(\/[A-Za-z_+-]+)*$/.test(String(req.body.time_zone)) ? String(req.body.time_zone) : 'UTC' });
+    checkQuota(req.user.org_id, buf.length, req.user.id);
+    let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Saved emails' AND trashed = 0").get(req.user.id)?.id;
+    if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Saved emails', kind: 'folder' });
+    const storage = newId();
+    fs.writeFileSync(path.join(FILES_DIR, storage), buf);
+    const id = insertFile({ owner: req.user.id, parentId: folderId, name: cleanName(base), kind: 'file', mime: 'application/pdf', size: buf.length, storage });
+    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
+    res.status(201).json({ folder_id: folderId, file: q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id) });
   });
 
   r.post('/messages/:uid/attachments/save', async (req, res) => {

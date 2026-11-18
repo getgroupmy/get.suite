@@ -98,3 +98,11 @@ test('the PDF has bookmarks from the headings, and the table of contents lists t
   try { text = execFileSync('pdftotext', ['-layout', '-l', '1', '-', '-'], { input: buf }).toString(); } catch { return; }
   titles.forEach((t) => { const [name, pg] = t.replace(/^-+/, '').split('@'); assert.match(text, new RegExp(`${name.replace(/[^\x00-\xff—]/g, '?').replace(/\?/g, '\\?')} \\.+ ${pg}\\n`), `${name} on page ${pg}`); }); // (drawn: what the fonts lack is ?)
 });
+
+test('words are placed as drawn: no space lost after letter pairs that kern (y, AV, To)', async () => {
+  const buf = await pdfFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Date: ', marks: [{ type: 'bold' }] }, { type: 'text', text: 'Tuesday, 17 November. AVAWAY To Yo' }] }] });
+  const { execFileSync } = await import('node:child_process');
+  let text;
+  try { text = execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { return; }
+  assert.match(text, /Date: Tuesday, 17 November\. AVAWAY To Yo/);
+});

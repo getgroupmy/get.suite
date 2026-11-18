@@ -3,6 +3,7 @@
 // bold, italic, underline, strike, text colour, fill, alignment and borders, column widths and hidden rows and
 // columns as in the sheet, gridlines; landscape A4 pages, the sheet's frozen rows repeated at the top of each page,
 // columns that don't fit on further pages. Characters the standard fonts lack show as "?".
+import { asDrawn } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { bookEvaluator, display, colName, parseRef } from '../sheetcalc/formula.js';
 import { formatNumber } from '../sheetcalc/cellformat.js';
@@ -16,7 +17,7 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
   pdf.setCreator('Workspace');
   if (author) pdf.setAuthor(author);
   pdf.setLanguage(lang);
-  const F = { r: await pdf.embedFont(StandardFonts.Helvetica), b: await pdf.embedFont(StandardFonts.HelveticaBold), i: await pdf.embedFont(StandardFonts.HelveticaOblique), bi: await pdf.embedFont(StandardFonts.HelveticaBoldOblique) };
+  const F = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)), i: asDrawn(await pdf.embedFont(StandardFonts.HelveticaOblique)), bi: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBoldOblique)) };
   const safe = (t) => [...String(t ?? '')].map((ch) => { try { F.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join('');
   const sheets = data?.sheets?.length ? data.sheets : [{ name: 'Sheet1', cells: {} }];
   const size = 9, rowH = 15;

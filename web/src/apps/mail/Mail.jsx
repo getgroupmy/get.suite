@@ -983,6 +983,12 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           ...(canReadAloud() ? [{ label: 'Read aloud', icon: 'audio', onClick: () => setReadingMail(Date.now()) }] : []),
           { label: 'Show original', icon: 'search', onClick: () => setOriginal(true) },
           { label: 'Download message (.eml)', icon: 'download', onClick: () => { window.location.href = `/api/mail/messages/${uid}/eml?folder=${enc(folder)}${mailboxParam()}`; } },
+          { label: 'Save to Drive as PDF', icon: 'folder', onClick: async () => {
+            try {
+              const r = await post(`/mail/messages/${uid}/save-pdf${mailboxParam().replace(/^&/, '?')}`, { folder, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+              toast(`Saved to Drive: Saved emails / ${r.file.name}`);
+            } catch (e) { toast(e.message, 'error'); }
+          } },
           ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
         ]} />
         {sharing && <ShareInChat uid={uid} folder={folder} subject={m.subject} onClose={() => setSharing(false)} />}
