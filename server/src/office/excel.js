@@ -978,6 +978,12 @@ function ruleFromExcel(x) {
   if (x.type === 'timePeriod') return { today: { when: 'dateToday' }, last7Days: { when: 'datePast7' }, thisMonth: { when: 'dateThisMonth' } }[x.timePeriod] || null;
   if (x.type === 'top10') return { when: x.bottom ? 'bottom' : 'top', value: String(x.percent ? 10 : (x.rank || 10)) };
   if (x.type === 'aboveAverage') return { when: x.aboveAverage === false ? 'belowAvg' : 'aboveAvg' };
+  // Excel's own text rules: their formula, read leniently (LibreOffice writes a quote in the text without doubling it).
+  if (x.type === 'containsText' || x.type === 'notContainsText') {
+    const t = /SEARCH\("(.*)",\$?[A-Z]+\$?\d+\)/i.exec(String(x.formulae?.[0] || ''));
+    if (t) return { when: x.type === 'containsText' ? 'contains' : 'notContains', value: t[1].replace(/""/g, '"') };
+  }
+  if (x.type === 'duplicateValues' || x.type === 'uniqueValues') return { when: x.type === 'duplicateValues' ? 'duplicate' : 'unique' }; // Excel's own (as LibreOffice and Excel write them)
   const raw = String(x.formulae?.[0] || '').trim();
   const f = raw.replace(/\$(?=[A-Z0-9])/g, '');
   const str = '"((?:[^"]|"")*)"';

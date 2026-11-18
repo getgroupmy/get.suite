@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 import { parseDocument } from 'htmlparser2';
 import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
 import { colName } from './sheetnames.js';
+import { CALCEXT_NS, rulesToCalcext, rulesFromCalcext } from './odscf.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -134,6 +135,7 @@ export async function odsFromSheet(data) {
   let tablesXml = '';
   const settings = [];
   const validations = []; // content validations (dropdowns), for every sheet
+  const cfStyles = []; // the cell styles conditional formatting applies (named styles)
   for (const s of sheets) {
     const cells = s.cells || {}, formats = s.formats || {};
     // Alternating colours: each cell's fill (its own fill wins), the heading row bold.
@@ -236,14 +238,17 @@ export async function odsFromSheet(data) {
       rows += `${row}</table:table-row>`;
     }
     const name = String(s.name || 'Sheet').slice(0, 100);
-    tablesXml += `<table:table table:name="${x(name)}">${cols}${rows}</table:table>`;
+    // Conditional formatting, as LibreOffice keeps it (its cell styles named for this sheet: CF1x1…).
+    const cf = rulesToCalcext(s.rules, name, formulaToOds, `CF${sheets.indexOf(s) + 1}x`); // (letters and digits only: LibreOffice renames others)
+    cfStyles.push(...cf.styles);
+    tablesXml += `<table:table table:name="${x(name)}">${cols}${rows}${cf.xml}</table:table>`;
     if (s.frozen?.rows || s.frozen?.cols) settings.push({ name, rows: s.frozen.rows || 0, cols: s.frozen.cols || 0 });
   }
-  const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
+  const NS = `${CALCEXT_NS} ` + 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}</office:spreadsheet></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-styles ${NS}><office:styles><style:default-style style:family="table-cell"><style:text-properties fo:font-size="10pt"/></style:default-style><style:style style:name="Default" style:family="table-cell"/></office:styles></office:document-styles>`;
+<office:document-styles ${NS}><office:styles><style:default-style style:family="table-cell"><style:text-properties fo:font-size="10pt"/></style:default-style><style:style style:name="Default" style:family="table-cell"/>${cfStyles.join('')}</office:styles></office:document-styles>`;
   // Frozen rows and columns live in the view settings.
   const item = (n, t, v) => `<config:config-item config:name="${n}" config:type="${t}">${v}</config:config-item>`;
   const settingsXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -283,7 +288,11 @@ export async function sheetFromOds(buffer) {
     for (const el of tags(node)) {
       if (el.name === 'style:style') {
         const get = (n) => tags(el, n)[0]?.attribs || {};
-        styles.set(el.attribs['style:name'], { parent: el.attribs['style:parent-style-name'], data: el.attribs['style:data-style-name'], tp: get('style:text-properties'), cp: get('style:table-cell-properties'), pp: get('style:paragraph-properties'), colp: get('style:table-column-properties'), rowp: get('style:table-row-properties') });
+        const def = { parent: el.attribs['style:parent-style-name'], data: el.attribs['style:data-style-name'], tp: get('style:text-properties'), cp: get('style:table-cell-properties'), pp: get('style:paragraph-properties'), colp: get('style:table-column-properties'), rowp: get('style:table-row-properties') };
+        styles.set(el.attribs['style:name'], def);
+        // (also by the name it's shown under: what LibreOffice's conditional formats refer to, for a style it renamed)
+        const shown = el.attribs['style:display-name'];
+        if (shown && !styles.has(shown)) styles.set(shown, def);
       } else if (/^number:(number|percentage|currency|date|time)-style$/.test(el.name)) {
         const n = tags(el, 'number:number')[0]?.attribs || {};
         const kind = el.name.slice(7, -6);
@@ -425,9 +434,12 @@ export async function sheetFromOds(buffer) {
       }
       for (const range of ranges) if (validations.length < 500) validations.push({ id: `v${validations.length + 1}`, range, ...def });
     }
+    // Conditional formatting LibreOffice keeps (calcext:conditional-formats), with the looks its styles give.
+    const cfEl = tags(t, 'calcext:conditional-formats')[0];
+    const rules = cfEl ? rulesFromCalcext(cfEl, { tags, formulaFromOds, look: (st) => { const f = formatOf(st); return { fill: f.fill, color: f.color, bold: !!f.b }; } }) : [];
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ ...(validations.length && { validations }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
   }
   // The hidden sheet of dropdown choices our Excel download writes (here when such a file was saved as .ods):
   // its choices back in the dropdowns, and the sheet left out.

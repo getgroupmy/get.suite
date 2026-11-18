@@ -117,3 +117,41 @@ test('.ods: dropdowns as content validations both ways (choices, choices from ce
     assert.equal(show(await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 's.ods')))), want, 'opened and saved by LibreOffice');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('.ods: conditional formatting as LibreOffice keeps it, every kind of rule both ways, and through LibreOffice (.ods and its Excel)', async (t) => {
+  const red = { fill: '#fce8e6', color: '#c5221f', bold: true }, green = { fill: '#e6f4ea' };
+  const rules = [
+    { range: 'A1:A9', when: 'gt', value: '5', ...red }, { range: 'A1:A9', when: 'between', value: '1', value2: '3', ...green },
+    { range: 'B1:B9', when: 'contains', value: 'an, x', ...green }, { range: 'B1:B9', when: 'notContains', value: 'q"z', ...red },
+    { range: 'B1:B9', when: 'starts', value: 'ch', ...red }, { range: 'B1:B9', when: 'empty', ...green }, { range: 'B1:B9', when: 'notEmpty', ...green },
+    { range: 'B1:B9', when: 'error', ...red }, { range: 'B1:B9', when: 'duplicate', ...red }, { range: 'B1:B9', when: 'unique', ...green },
+    { range: 'A1:A9', when: 'top', value: '3', ...green }, { range: 'A1:A9', when: 'bottom', value: '2', ...red },
+    { range: 'A1:A9', when: 'aboveAvg', ...green }, { range: 'A1:A9', when: 'belowAvg', ...red },
+    { range: 'C1:C9', when: 'dateToday', ...red }, { range: 'C1:C9', when: 'datePast7', ...green }, { range: 'C1:C9', when: 'dateThisMonth', ...green },
+    { range: 'C1:C9', when: 'datePast', ...red }, { range: 'C1:C9', when: 'dateNext7', ...green }, { range: 'C1:C9', when: 'dateBefore', value: '2026-01-31', ...green }, { range: 'C1:C9', when: 'dateAfter', value: 'today', ...red },
+    { range: 'A1:A9', when: 'formula', value: '=MOD(A1,2)=0', ...red },
+    { range: 'A1:A9', when: 'bars', bar: '#638ec6' }, { range: 'D1:D9', when: 'scale', scale: ['#f8696b', '#ffeb84', '#63be7b'] }, { range: 'E1:E9', when: 'scale', scale: ['#ffffff', '#63be7b'] },
+  ];
+  const book = { sheets: [{ name: 'My data', cells: { A1: '3', A2: '8', B1: 'apple', C1: '2026-01-05', D1: '1', E1: '2' }, colWidths: {}, rules: rules.map((r, i) => ({ id: `r${i}`, ...r })) }] };
+  const want = rules.map((r) => JSON.stringify(r));
+  const show = (b) => (b.sheets[0].rules || []).map(({ id, ...r }) => JSON.stringify(r));
+  const buf = await odsFromSheet(book);
+  const zip = await JSZip.loadAsync(buf);
+  const xml = await zip.file('content.xml').async('string');
+  assert.match(xml, /<calcext:conditional-format calcext:target-range-address="'My data'\.A1:'My data'\.A9"><calcext:condition calcext:apply-style-name="CF1x1" calcext:value="&gt;5" calcext:base-cell-address="'My data'\.A1"\/>/);
+  assert.match(xml, /calcext:value="contains-text\(&quot;an, x&quot;\)"/);
+  assert.match(xml, /calcext:value="formula-is\(MOD\(\[\.A1\];2\)=0\)"/);
+  assert.match(await zip.file('styles.xml').async('string'), /<style:style style:name="CF1x1" style:family="table-cell" style:parent-style-name="Default"><style:table-cell-properties fo:background-color="#fce8e6"\/><style:text-properties fo:color="#c5221f" fo:font-weight="bold"\/><\/style:style>/);
+  assert.deepEqual(show(await sheetFromOds(buf)), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { sheetFromExcel } = await import('../src/office/excel.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 's.ods'), buf);
+    assert.deepEqual(show(await sheetFromOds(lo('s.ods', 'ods', 'a'))), want, 'opened and saved by LibreOffice (which renames the styles: found by the names they are shown under)');
+    assert.deepEqual(show(await sheetFromExcel(lo('s.ods', 'xlsx', 'b'))), want, 'LibreOffice\'s Excel file of it');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

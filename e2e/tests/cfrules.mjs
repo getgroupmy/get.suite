@@ -83,6 +83,20 @@ await step('the colours follow the values as they change', async () => {
   await cell('B3').click(); await page.keyboard.type('500'); await page.keyboard.press('Enter');
   await until(async () => (await bg('B6')) !== GREEN);
 });
+await step('OpenDocument (.ods) keeps the rules: the reopened copy colours the same cells', async () => {
+  await page.waitForTimeout(2500); // saved
+  const before = (await api(page, 'GET', `/files/${sheetId}/content`)).body.content.sheets[0].rules.map((r) => `${r.range} ${r.when} ${r.value ?? ''} ${r.fill}`);
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=ods`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Orders.ods', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, sheetId);
+  const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+  const after = (await api(page, 'GET', `/files/${opened.id}/content`)).body.content.sheets[0].rules?.map((r) => `${r.range} ${r.when} ${r.value ?? ''} ${r.fill}`) || [];
+  if (after.join(' | ') !== before.join(' | ')) throw new Error(`${before.join(' | ')}\n→ ${after.join(' | ')}`);
+  const live = { A2: await bg('A2'), B4: await bg('B4'), A3: await bg('A3') };
+  await page.goto(`${B}/sheets/${opened.id}`);
+  await until(async () => (await bg('A2')) === live.A2 && (await bg('B4')) === live.B4 && (await bg('A3')) === live.A3);
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
