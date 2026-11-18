@@ -321,6 +321,8 @@ await step('an assistant asks a colleague for edit access to her document; she s
   const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7g', scope: 'write', days: 30 })).body.token;
   const read = (await mcp(token, 'fetch', { id: `file:${d.id}` })).structuredContent;
   if (read.metadata.your_access !== 'can view only' || read.metadata.shared_by !== 'Ava Assignee' || read.metadata.shared_with_message !== 'Have a look before Friday') throw new Error(JSON.stringify(read.metadata));
+  const sw = (await mcp(token, 'list_files', { shared_with_me: true })).structuredContent.files.find((x) => x.name === 'Ava’s draft');
+  if (!sw || sw.shared_by !== 'Ava Assignee' || sw.shared_with_message !== 'Have a look before Friday') throw new Error(JSON.stringify(sw));
   const r = await mcp(token, 'request_access', { file: `file:${d.id}`, note: 'To add the figures' });
   if (r.isError || r.structuredContent.asked !== 'Ava Assignee') throw new Error(JSON.stringify(r));
   await ava.goto(`${B}/drive`);

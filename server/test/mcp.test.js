@@ -524,6 +524,9 @@ test('share a file with a colleague: as viewer, then editor; others kept; only c
   const samToken = (await sam('POST', '/api/tokens', { password: 'password123', name: 'Sam’s assistant', scope: 'read', days: 30 })).body.token;
   const seen = (await call(samToken, 'fetch', { id: doc.id })).structuredContent.metadata;
   assert.deepEqual([seen.shared_by, seen.shared_with_message, seen.your_access], ['Olivia Owner', 'For Thursday’s review', 'can view only']);
+  const sharedList = (await call(samToken, 'list_files', { shared_with_me: true })).structuredContent.files;
+  const item = sharedList.find((x) => x.name === 'Q2 budget notes');
+  assert.deepEqual([item.shared_by, item.shared_with_message, item.your_access, !!item.shared_at], ['Olivia Owner', 'For Thursday’s review', 'can view only', true]);
   const up = (await call(rw, 'share_file', { file: doc.id, with: 'sam@acme.com', role: 'editor' })).structuredContent;
   assert.deepEqual([up.role, up.was], ['editor', 'viewer']);
   const shares = (await owner('GET', `/api/files/${fid}/shares`)).body.map((x) => [x.username, x.role]).sort();
