@@ -73,7 +73,9 @@ await step('chat: a direct message with a colleague whose vacation reply is on s
   await dlg.getByLabel('Title').fill('Review');
   const day = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
   await dlg.getByLabel('Starts').fill(day);
+  await dlg.getByLabel('Start time').fill('10:00'); // (not the next half hour: late at night that ends the next day)
   await dlg.getByLabel('Ends').fill(day);
+  await dlg.getByLabel('End time').fill('11:00');
   await dlg.getByRole('combobox', { name: 'Guests' }).fill('kim@acme.com');
   await dlg.getByRole('combobox', { name: 'Guests' }).press('Enter');
   await dlg.getByRole('list', { name: 'Guests at this time' }).getByText(/away until .* \(vacation reply on\)/).waitFor({ timeout: 10000 });
