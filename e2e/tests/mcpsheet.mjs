@@ -305,6 +305,15 @@ await step('a colleague suggests edits in Docs: the owner’s bell says so and o
   await page.waitForURL(new RegExp(`/docs/${d.id}`));
   await page.locator('.ProseMirror ins.sugg-ins', { hasText: 'in June' }).waitFor();
 }, { screenshot: (o) => page.screenshot(o) });
+await step('an assistant sets up a meeting about a document: the file is attached and the colleague with access is invited', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7f', scope: 'write', days: 30 })).body.token;
+  const at = Date.now() + 3 * 864e5;
+  const r = await mcp(token, 'create_event', { title: 'Launch note review', start: new Date(at).toISOString(), end: new Date(at + 36e5).toISOString(), about_file: launchDoc.id });
+  if (r.isError || !r.structuredContent.invited.includes('ava@acme.com') || r.structuredContent.attached[0] !== 'Launch note') throw new Error(JSON.stringify(r));
+  let mine;
+  await until(async () => { mine = ((await api(ava, 'GET', `/events?from=${at - 864e5}&to=${at + 864e5}`)).body || []).find((e) => e.title === 'Launch note review'); return mine; }, 15000);
+  if (!(mine.attachments || []).some((x) => x.name === 'Launch note')) throw new Error(JSON.stringify(mine.attachments));
+});
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
   const gus = await mk('gus');

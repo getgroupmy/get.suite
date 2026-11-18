@@ -106,10 +106,9 @@ await step('Schedule a meeting with people with access, from a spreadsheet: a ne
     if (!ev) await page.waitForTimeout(250);
   }
   if (!ev) throw new Error('not saved');
-  const full = (await api(page, 'GET', `/events/${ev.id}`)).body;
-  const guests = JSON.stringify(full.guests || ev.guests);
+  const guests = JSON.stringify(ev.guests);
   if (!/kim@acme\.com/.test(guests)) throw new Error(guests);
-  if (!JSON.stringify(full.attachments || ev.attachments || []).includes(sheet.id)) throw new Error('file not attached');
+  if (!JSON.stringify(ev.attachments || []).includes(sheet.id)) throw new Error('file not attached');
 });
 await step('from Drive too, for any file: Schedule a meeting with people with access on an uploaded file', async () => {
   const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;

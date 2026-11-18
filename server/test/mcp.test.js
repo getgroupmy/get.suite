@@ -1014,6 +1014,16 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   assert.match((await call(rw, 'draft_email', { to_people_with_access: `file:${doc.id}`, subject: 'x', body: 'x' })).content[0].text, /editor access/);
   const alone = (await call(rw, 'create_document', { name: 'Just mine', text: 'x' })).structuredContent;
   assert.match((await call(rw, 'draft_email', { to_people_with_access: alone.id, subject: 'x', body: 'x' })).content[0].text, /Nobody else has access/);
+  // A meeting about a file: it's attached, and the people with access are invited (not twice).
+  const sh = (await call(rw, 'create_document', { name: 'Team plan', text: 'x' })).structuredContent;
+  await owner('PUT', `/api/files/${sh.id.replace('file:', '')}/shares`, { shares: [{ user_id: sueId, role: 'commenter' }] });
+  const at = Date.now() + 2 * 864e5;
+  const mt = await call(rw, 'create_event', { title: 'Team plan review', start: new Date(at).toISOString(), end: new Date(at + 36e5).toISOString(), guests: ['Sue@acme.com'], about_file: sh.id }); // (outside guests need email, which this server hasn't)
+  assert.ok(!mt.isError, JSON.stringify(mt));
+  assert.deepEqual([mt.structuredContent.invited, mt.structuredContent.attached], [['Sue@acme.com'], ['Team plan']]);
+  const ev = (await owner('GET', `/api/events?from=${at - 864e5}&to=${at + 864e5}`)).body.find((x) => x.id === mt.structuredContent.id.replace('event:', ''));
+  assert.deepEqual(ev.attachments.map((x) => x.name), ['Team plan']);
+  assert.match((await call(rw, 'create_event', { title: 'x', start: new Date(at).toISOString(), end: new Date(at + 36e5).toISOString(), about_file: `file:${doc.id}` })).content[0].text, /editor access/);
   // Changed outright (not suggested): no such notification; one's own document: none either.
   const mine = (await call(rw, 'create_document', { name: 'Mine', text: 'Alpha' })).structuredContent;
   await call(rw, 'replace_in_document', { file: mine.id, find: 'Alpha', replace: 'Beta', suggest: true });

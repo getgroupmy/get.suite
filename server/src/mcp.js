@@ -195,19 +195,29 @@ export const TOOLS = [
   },
   {
     name: 'create_event', title: 'Add a calendar event', readOnly: false,
-    description: 'Add an event to the person’s calendar. Guests (email addresses) are invited by email.',
+    description: 'Add an event to the person’s calendar. Guests (email addresses) are invited by email. Given a Drive file it’s about (about_file), the file is attached and everyone it’s shared with is invited.',
     inputSchema: {
       type: 'object', required: ['title', 'start', 'end'],
       properties: {
         title: { type: 'string' }, start: { type: 'string', description: 'ISO 8601 with a time zone, e.g. 2026-11-20T15:00:00+08:00' }, end: { type: 'string', description: 'ISO 8601' },
         location: { type: 'string' }, description: { type: 'string' }, guests: { type: 'array', items: { type: 'string' }, description: 'Email addresses to invite' },
+        about_file: { type: 'string', description: 'A Drive file’s id (file:…) the meeting is about: it’s attached, and everyone it’s shared with by name is invited too (as Schedule a meeting with people with access does). Needs edit access to it.' },
       },
     },
     async run(api, a) {
       const start = timeOf(a.start, 'start'), end = timeOf(a.end, 'end');
       if (!start || !end || end <= start) throw new ToolError('end must be after start');
-      const e = await api('POST', '/events', { title: String(a.title || '').slice(0, 300), start, end, location: a.location || undefined, description: a.description || undefined, ...(Array.isArray(a.guests) && a.guests.length && { guests: a.guests }) });
-      return { id: `event:${e.id}`, title: e.title, start: iso(e.start), end: iso(e.end), url: link('/calendar') };
+      const guests = Array.isArray(a.guests) ? a.guests.map(String) : [];
+      let attachments;
+      if (a.about_file) { // the file attached, and the people with access invited (not twice)
+        const id = String(a.about_file).replace(/^file:/, '');
+        const r = await api('GET', `/files/${encodeURIComponent(id)}/people`);
+        const have = new Set(guests.map((g) => g.trim().toLowerCase()));
+        for (const p of r.people) if (!have.has(p.username.toLowerCase())) { guests.push(p.username); have.add(p.username.toLowerCase()); }
+        attachments = [id];
+      }
+      const e = await api('POST', '/events', { title: String(a.title || '').slice(0, 300), start, end, location: a.location || undefined, description: a.description || undefined, ...(guests.length && { guests }), ...(attachments && { attachments }) });
+      return { id: `event:${e.id}`, title: e.title, start: iso(e.start), end: iso(e.end), ...(guests.length && { invited: guests }), ...(attachments && { attached: (e.attachments || []).map((x) => x.name) }), url: link('/calendar') };
     },
   },
   {
