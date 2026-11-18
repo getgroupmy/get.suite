@@ -64,6 +64,26 @@ await step('a presentation downloads as plain text: each slide, its title and wo
   const txt = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
   if (txt !== 'Slide 1: Our plan\n\n• Hire two people\n• Open a shop\n\nNotes: Welcome everyone\n\n\nSlide 2 (skipped)\n\nItem\tCost\nRent\t900\n') throw new Error(JSON.stringify(txt));
 });
+await step('a presentation downloads as PDF: a page a slide, skipped ones left out', async () => {
+  const content = { theme: 'light', slides: [
+    { id: 'a', items: [{ id: 't', type: 'text', role: 'title', x: 5, y: 5, w: 90, h: 15, text: 'Launch plan' }] },
+    { id: 'b', skip: true, items: [{ id: 'h', type: 'text', x: 5, y: 5, w: 90, h: 15, text: 'Not shown' }] },
+    { id: 'c', items: [{ id: 'tb', type: 'table', x: 5, y: 5, w: 60, h: 30, header: true, cells: [['Week', 'Goal'], ['1', 'Press']] }] },
+  ] };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Launch', content })).body.id;
+  await page.goto(`${B}/slides/${id}`);
+  await page.getByText('Launch plan').first().waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as PDF (.pdf)' }).click()]);
+  if (dl.suggestedFilename() !== 'Launch.pdf') throw new Error(dl.suggestedFilename());
+  const buf = (await import('node:fs')).readFileSync(await dl.path());
+  const { PDFDocument } = (await import('module')).createRequire(`${ROOT}/server/package.json`)('pdf-lib');
+  const pdf = await PDFDocument.load(buf);
+  if (pdf.getPageCount() !== 2 || pdf.getPage(0).getWidth() !== 960) throw new Error(`${pdf.getPageCount()} pages, ${pdf.getPage(0).getWidth()} wide`);
+  let text = null;
+  try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
+  if (text !== null && (!text.includes('Launch plan') || !text.includes('Press') || text.includes('Not shown'))) throw new Error(text);
+});
 await step('in Drive an .odp file shows as a presentation and opens as one, notes and all', async () => {
   await page.goto(`${B}/drive`);
   await page.getByText('Launch deck (Impress).odp').dblclick();
