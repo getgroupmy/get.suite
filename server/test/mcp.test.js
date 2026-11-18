@@ -460,6 +460,33 @@ test('change a task: due date and time, notes, important; due date taken off; ba
   assert.equal((await call(rw, 'update_task', { id: 'task:nope', title: 'x' })).isError, true);
 });
 
+test('a comment assigned to a colleague: a task on their list, shown in list_comments, ticked off when resolved; refusals', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'ava', domain: 'acme.com', name: 'Ava Assignee', password: 'password123' })).status, 201);
+  const ava = client();
+  await ava('POST', '/api/auth/login', { username: 'ava@acme.com', password: 'password123' });
+  const doc = (await call(rw, 'create_document', { name: 'Pricing page', text: 'Prices go up in May.' })).structuredContent;
+  const fid = doc.id.replace('file:', '');
+  // Not shared with her yet: refused, saying why.
+  assert.match((await call(rw, 'comment_on_file', { file: doc.id, quote: 'in May', text: 'Check the date', assign_to: 'ava@acme.com' })).content[0].text, /someone who can open this file/);
+  assert.match((await call(rw, 'comment_on_file', { file: doc.id, quote: 'in May', text: 'x', assign_to: 'nobody@acme.com' })).content[0].text, /No colleague with the address nobody@acme\.com/);
+  const avaId = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'ava@acme.com').id;
+  await owner('PUT', `/api/files/${fid}/shares`, { shares: [{ user_id: avaId, role: 'commenter' }] });
+  const c = await call(rw, 'comment_on_file', { file: doc.id, quote: 'in May', text: 'Check the date with sales', assign_to: 'Ava@acme.com' });
+  assert.ok(!c.isError, JSON.stringify(c));
+  assert.equal(c.structuredContent.assigned_to, 'Ava Assignee');
+  assert.match((await call(rw, 'comment_on_file', { file: doc.id, reply_to: c.structuredContent.id, text: 'x', assign_to: 'ava@acme.com' })).content[0].text, /Assign a new comment/);
+  assert.equal((await call(rw, 'list_comments', { file: doc.id })).structuredContent.threads[0].assigned_to, 'Ava Assignee');
+  const avasTask = async () => {
+    const lists = (await ava('GET', '/api/tasks/lists')).body.lists;
+    const all = (await Promise.all(lists.map(async (l) => (await ava('GET', `/api/tasks/lists/${l.id}/tasks`)).body))).flat();
+    return all.find((t) => t.title === 'Check the date with sales');
+  };
+  const t = await avasTask();
+  assert.ok(t && !t.done_at, JSON.stringify(t));
+  await call(rw, 'resolve_comment', { file: doc.id, thread: c.structuredContent.id, reply: 'Sales confirmed May.' });
+  assert.ok((await avasTask()).done_at, 'ticked off when resolved');
+});
+
 test('share a file with a colleague: as viewer, then editor; others kept; only colleagues; only what the person manages', async () => {
   assert.equal((await owner('POST', '/api/users', { local: 'sam', domain: 'acme.com', name: 'Sam Share', password: 'password123' })).status, 201);
   assert.equal((await owner('POST', '/api/users', { local: 'tia', domain: 'acme.com', name: 'Tia Kept', password: 'password123' })).status, 201);

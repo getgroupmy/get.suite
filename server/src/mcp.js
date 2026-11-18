@@ -791,7 +791,7 @@ export const TOOLS = [
       return {
         file: f.name, url: fileUrl(f),
         threads: roots.slice(0, 100).map((c) => ({
-          id: c.id, about: about(c), by: c.author_name || null, at: iso(c.created_at), text: c.body, resolved: c.resolved,
+          id: c.id, about: about(c), by: c.author_name || null, at: iso(c.created_at), text: c.body, resolved: c.resolved, ...(c.assignee_name && { assigned_to: c.assignee_name }),
           replies: list.filter((r) => r.thread_id === c.id).map((r) => ({ by: r.author_name || null, at: iso(r.created_at), text: r.body })),
         })),
       };
@@ -799,7 +799,7 @@ export const TOOLS = [
   },
   {
     name: 'comment_on_file', title: 'Comment on a file', readOnly: false,
-    description: 'Leave a comment on a Drive file, as the person (e.g. review notes on a document). Pin it to text in a document (quote: the exact words), a spreadsheet cell (cell, and sheet by name), or a slide (slide number); otherwise it’s about the whole file (pictures, PDFs and other files only). Or reply to a thread with reply_to (an id from list_comments). Writing @colleague@company.com in the text notifies them. Needs at least comment access.',
+    description: 'Leave a comment on a Drive file, as the person (e.g. review notes on a document). Pin it to text in a document (quote: the exact words), a spreadsheet cell (cell, and sheet by name), or a slide (slide number); otherwise it’s about the whole file (pictures, PDFs and other files only). Or reply to a thread with reply_to (an id from list_comments). A new comment can be assigned to a colleague (assign_to: their address), as a task on their list. Writing @colleague@company.com in the text notifies them. Needs at least comment access.',
     inputSchema: {
       type: 'object', required: ['file', 'text'],
       properties: {
@@ -808,12 +808,20 @@ export const TOOLS = [
         cell: { type: 'string', description: 'Spreadsheets: a cell like B4' }, sheet: { type: 'string', description: 'Spreadsheets: the sheet’s name (the first when left out)' },
         slide: { type: 'integer', minimum: 1, description: 'Presentations: the slide number' },
         reply_to: { type: 'string', description: 'A thread’s id from list_comments, to reply in it' },
+        assign_to: { type: 'string', description: 'A colleague’s email address: the new comment is assigned to them, as a task on their list (ticked off when it’s resolved). They must be able to open the file. Not with reply_to.' },
       },
     },
     async run(api, a) {
       const id = String(a.file || '').replace(/^file:/, '');
       const f = await api('GET', `/files/${encodeURIComponent(id)}`);
       const body = { body: String(a.text || '') };
+      if (a.assign_to) {
+        if (a.reply_to) throw new ToolError('Assign a new comment, not a reply: leave out reply_to');
+        const who = String(a.assign_to).trim().toLowerCase();
+        const person = (await api('GET', '/users/directory')).find((u) => String(u.username).toLowerCase() === who);
+        if (!person) throw new ToolError(`No colleague with the address ${who}: find_people finds addresses`);
+        body.assign = person.id;
+      }
       if (a.reply_to) body.thread_id = String(a.reply_to);
       else if (f.kind === 'doc') {
         const quote = String(a.quote || '').trim();
@@ -836,7 +844,7 @@ export const TOOLS = [
       } else if (f.kind === 'folder') throw new ToolError('Folders don’t have comments: comment on a file in it');
       else body.anchor = {};
       const r = await api('POST', `/comments/${encodeURIComponent(id)}`, body);
-      return { id: r.comment?.thread_id || r.comment?.id, comment: r.comment?.id, file: f.name, ...(r.marked === false && { note: 'The words are in the document but span more than one paragraph, so they aren’t highlighted' }), ...(r.notified?.length && { notified: r.notified }), ...(r.noAccess?.length && { not_notified_cannot_open: r.noAccess }), url: fileUrl(f) };
+      return { id: r.comment?.thread_id || r.comment?.id, comment: r.comment?.id, file: f.name, ...(r.comment?.assignee_name && { assigned_to: r.comment.assignee_name }), ...(r.marked === false && { note: 'The words are in the document but span more than one paragraph, so they aren’t highlighted' }), ...(r.notified?.length && { notified: r.notified }), ...(r.noAccess?.length && { not_notified_cannot_open: r.noAccess }), url: fileUrl(f) };
     },
   },
   {

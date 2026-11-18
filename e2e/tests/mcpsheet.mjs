@@ -220,6 +220,25 @@ await step('an assistant resolves the thread with a last reply: it leaves the op
   const bg = await page.locator('.ProseMirror .comment-mark').first().evaluate((el) => getComputedStyle(el).backgroundColor); // (the words keep their mark, for reopening; only open threads are lit)
   if (/251, 188, 4/.test(bg)) throw new Error(`still highlighted: ${bg}`);
 });
+let ava;
+await step('an assistant assigns a comment to a colleague: it is on her task list, linked to the comment', async () => {
+  await api(page, 'POST', '/users', { local: 'ava', domain: 'acme.com', name: 'Ava Assignee', password: 'password123' });
+  ava = await mk('ava');
+  await ava.goto(B);
+  await ava.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'ava@acme.com', password: 'password123' }) }));
+  const avaId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'ava@acme.com').id;
+  await api(page, 'PUT', `/files/${launchDoc.id.replace('file:', '')}/shares`, { shares: [{ user_id: avaId, role: 'commenter' }] });
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7c', scope: 'write', days: 30 })).body.token;
+  const r = await mcp(token, 'comment_on_file', { file: launchDoc.id, quote: 'The launch', text: 'Write the launch email', assign_to: 'ava@acme.com' });
+  if (r.isError || r.structuredContent.assigned_to !== 'Ava Assignee') throw new Error(JSON.stringify(r));
+  await ava.goto(`${B}/tasks`);
+  const task = ava.locator('.task', { has: ava.locator('.task-title', { hasText: 'Write the launch email' }) });
+  await task.waitFor();
+  if (await task.locator('.task-link').getAttribute('title') !== 'Comment on Launch note') throw new Error('not linked');
+  await task.locator('.task-title').click();
+  await ava.getByRole('link', { name: /Comment on Launch note/ }).click();
+  await ava.locator('.comment-thread', { hasText: 'Write the launch email' }).getByText('Assigned to Ava Assignee').waitFor();
+}, { screenshot: (o) => (ava || page).screenshot(o) });
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
   const gus = await mk('gus');
