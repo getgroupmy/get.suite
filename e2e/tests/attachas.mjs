@@ -119,6 +119,20 @@ await step('a document can be attached as a PDF too', async () => {
   const pdf = (Array.isArray(inside) ? inside : inside.files || []).find((f) => f.name === 'Offer letter.pdf');
   if (!pdf || pdf.mime !== 'application/pdf') throw new Error(JSON.stringify(pdf));
 });
+await step('several at once: ticked in the list, Save to Drive as PDF makes a PDF each', async () => {
+  const k = kimPage;
+  await k.goto(`${B}/mail`);
+  await k.getByLabel('Select Your offer').first().check();
+  await k.locator('.mail-bulk').getByRole('button', { name: 'Save to Drive as PDF' }).click();
+  await k.getByText('Saved 1 PDF to Drive: Saved emails').waitFor();
+  const top = (await api(k, 'GET', '/files')).body;
+  const folder = (Array.isArray(top) ? top : top.files || []).find((f) => f.name === 'Saved emails');
+  const inside = (await api(k, 'GET', `/files?parent=${folder.id}`)).body;
+  const pdfs = (Array.isArray(inside) ? inside : inside.files || []).filter((f) => /^Your offer/.test(f.name));
+  if (pdfs.length !== 2) throw new Error(JSON.stringify(pdfs.map((f) => f.name))); // (the one saved before, and this)
+  const bad = await api(k, 'POST', '/mail/messages/save-pdf', { folder: 'INBOX', uids: [] });
+  if (bad.status !== 400) throw new Error(JSON.stringify(bad));
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

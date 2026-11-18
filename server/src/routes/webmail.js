@@ -1562,18 +1562,35 @@ export default function webmailRoutes() {
     res.status(201).json(cards.map((card, i) => postEmail(String(req.body?.channel_id || ''), req.user, i ? '' : req.body?.body, card)));
   });
 
-  // Save an email to Drive as a PDF (its headers, text and attachments' names), in a "Saved emails" folder.
-  r.post('/messages/:uid/save-pdf', async (req, res) => {
-    const { parsed } = await loadMessage(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), false);
-    const { buf, name: base } = await pdfFromEmail(parsed, { timeZone: req.body?.time_zone && /^[A-Za-z_]+(\/[A-Za-z_+-]+)*$/.test(String(req.body.time_zone)) ? String(req.body.time_zone) : 'UTC' });
-    checkQuota(req.user.org_id, buf.length, req.user.id);
-    let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Saved emails' AND trashed = 0").get(req.user.id)?.id;
-    if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Saved emails', kind: 'folder' });
+  // Save emails to Drive as PDFs (headers, text and attachments' names), a file each, in a "Saved emails" folder.
+  const zoneOf = (z) => (z && /^[A-Za-z_]+(\/[A-Za-z_+-]+)*$/.test(String(z)) ? String(z) : 'UTC');
+  const savedEmailsFolder = (user) => q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Saved emails' AND trashed = 0").get(user.id)?.id
+    || insertFile({ owner: user.id, parentId: null, name: 'Saved emails', kind: 'folder' });
+  const saveEmailPdf = async (user, folder, uid, timeZone, folderId) => {
+    const { parsed } = await loadMessage(user, folder, uid, false);
+    const { buf, name } = await pdfFromEmail(parsed, { timeZone });
+    checkQuota(user.org_id, buf.length, user.id);
     const storage = newId();
     fs.writeFileSync(path.join(FILES_DIR, storage), buf);
-    const id = insertFile({ owner: req.user.id, parentId: folderId, name: cleanName(base), kind: 'file', mime: 'application/pdf', size: buf.length, storage });
+    const id = insertFile({ owner: user.id, parentId: folderId, name: cleanName(name), kind: 'file', mime: 'application/pdf', size: buf.length, storage });
+    return q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id);
+  };
+  r.post('/messages/:uid/save-pdf', async (req, res) => {
+    const folderId = savedEmailsFolder(req.user);
+    const file = await saveEmailPdf(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), zoneOf(req.body?.time_zone), folderId);
     sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
-    res.status(201).json({ folder_id: folderId, file: q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id) });
+    res.status(201).json({ folder_id: folderId, file });
+  });
+  // Several at once: { folder, uids: [...] } (up to 50), a PDF each.
+  r.post('/messages/save-pdf', async (req, res) => {
+    const uids = Array.isArray(req.body?.uids) ? [...new Set(req.body.uids.map(Number).filter((u) => Number.isInteger(u) && u > 0))] : [];
+    if (!uids.length) throw bad('Pick some emails');
+    if (uids.length > 50) throw bad('Save up to 50 emails at a time');
+    const folderId = savedEmailsFolder(req.user);
+    const files = [];
+    for (const uid of uids) files.push(await saveEmailPdf(req.user, String(req.body?.folder || 'INBOX'), uid, zoneOf(req.body?.time_zone), folderId));
+    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
+    res.status(201).json({ folder_id: folderId, files });
   });
 
   r.post('/messages/:uid/attachments/save', async (req, res) => {

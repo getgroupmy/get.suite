@@ -598,6 +598,14 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 printHtml(printDocuments(list));
               } catch (e) { toast(e.message, 'error'); }
             }}><Icon name="print" size={16} /> Print</button>
+            <button type="button" className="btn small" title="A PDF of each in Drive, in Saved emails (read ones stay as they were)" onClick={async () => {
+              if (sel.length > 50) { toast('Save up to 50 messages at a time', 'error'); return; }
+              try {
+                const r = await post(`/mail/messages/save-pdf${mailboxParam().replace(/^&/, '?')}`, { folder, uids: sel, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+                toast(`Saved ${r.files.length === 1 ? '1 PDF' : `${r.files.length} PDFs`} to Drive: Saved emails`);
+                setChecked(new Set());
+              } catch (e) { toast(e.message, 'error'); }
+            }}>Save to Drive as PDF</button>
             {!shared && <button type="button" className="btn small" title="Each as a card in a Chat conversation" onClick={() => {
               if (sel.length > 10) { toast('Share up to 10 emails at a time', 'error'); return; }
               setSharingMany(sel);
