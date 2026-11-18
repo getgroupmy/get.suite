@@ -15,6 +15,7 @@ const argb = (h) => `FF${h.replace('#', '').toUpperCase()}`;
 const CURRENCY_SIGNS = [['RM', 'MYR'], ['$', 'USD'], ['€', 'EUR'], ['£', 'GBP'], ['S$', 'SGD'], ['¥', 'JPY'], ['₹', 'INR']];
 
 const MULTI = 'Several choices', MULTI_STRICT = 'Several choices (only these)'; // marks a several-choices dropdown in Excel
+const CHOICES_SHEET = '_choices'; // the hidden sheet holding dropdowns' choices Excel can't write out
 
 /** Excel number format -> Sheets format bits ({ num, dp, cur }) or {}. */
 export function numFromExcel(fmt) {
@@ -295,7 +296,7 @@ export async function sheetFromExcel(buffer) {
       }
     }
     rules.sort((a, b) => a._p - b._p).forEach((r) => delete r._p);
-    const validations = validationsFromExcel(ws.dataValidations?.model || {}, cells);
+    const validations = validationsFromExcel(ws.dataValidations?.model || {}, cells, ws.name);
     const bands = Object.values(ws.tables || {}).map((t, i) => bandFromTable(t.table || t, i + 1)).filter(Boolean).slice(0, 50);
     // Cells painted in their table's own stripe colours (as Sheets' downloads do) are the table's: not formats of their own.
     for (const b of bands) {
@@ -330,6 +331,21 @@ export async function sheetFromExcel(buffer) {
     }
     sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(bands.length && { bands }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
   });
+  // Dropdowns' choices on our hidden sheet: read back as their choices, and that sheet left out.
+  const hidden = sheets.find((x) => x._ws === CHOICES_SHEET && wb.getWorksheet(CHOICES_SHEET)?.state !== 'visible');
+  if (hidden) {
+    sheets.splice(sheets.indexOf(hidden), 1);
+    for (const sh of sheets) {
+      sh.validations = sh.validations?.map((v) => {
+        const m = /^_choices!([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(v.source || '');
+        if (!m) return v;
+        const values = [];
+        for (let r = Number(m[2]); r <= Number(m[4]); r++) { const t = hidden.cells[`${m[1].toUpperCase()}${r}`]; if (t !== undefined && t !== '') values.push(String(t)); }
+        const { source, ...rest } = v;
+        return { ...rest, values: [...new Set(values)].slice(0, 200) };
+      });
+    }
+  }
   // Named ranges ("Sales" = 'Sheet1'!$A$2:$A$10): on the sheet they point into.
   for (const d of wb.definedNames?.model || []) {
     const m = /^(?:'((?:[^']|'')+)'|([^'!]+))!\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/i.exec(String(d.ranges?.[0] || ''));
@@ -383,6 +399,7 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Workspace';
   const tables = tablesOf(data.sheets); // structured references (Sales[Amount]) go to Excel as plain ranges
+  const hiddenChoices = []; // dropdowns' choices written on the hidden sheet, a column each
   for (const s of data.sheets || []) {
     const ws = wb.addWorksheet((s.name || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet');
     for (const [key, raw0] of Object.entries(s.cells || {})) {
@@ -501,13 +518,25 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
       // Choices taken from cells: written as that range, so Excel's dropdown follows them too.
       const src = v.type === 'list' && sourceFormula(v.source);
       if (src) { ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [src], ...(v.strict && !v.multi && { showErrorMessage: true, errorStyle: 'stop' }), ...several(v) }); continue; }
-      const values = v.type === 'checkbox' ? ['TRUE', 'FALSE'] : (v.values || []).filter((x) => !/[,"]/.test(x));
+      const values = v.type === 'checkbox' ? ['TRUE', 'FALSE'] : (v.values || []).map(String).filter(Boolean);
       const list = values.join(',');
-      if (!values.length || list.length > 255) continue; // Excel's limit for a written-out list
+      if (!values.length) continue;
+      // Choices with a comma or a quote, or too many to write out (Excel's limit is 255 characters): on a hidden
+      // sheet of their own, the dropdown pointing at them (and read back as choices, the sheet left out).
+      if (values.some((x) => /[,"]/.test(x)) || list.length > 255) {
+        const col = colName(hiddenChoices.length);
+        hiddenChoices.push(values.slice(0, 1000));
+        ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [`${CHOICES_SHEET}!$${col}$1:$${col}$${Math.min(values.length, 1000)}`], ...(v.strict && !v.multi && { showErrorMessage: true, errorStyle: 'stop' }), ...several(v) });
+        continue;
+      }
       ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [`"${list}"`], ...(((v.strict && !v.multi) || v.type === 'checkbox') && { showErrorMessage: true, errorStyle: 'stop' }), ...several(v) }); // several choices ("A, B"): Excel's list takes one, so it only suggests
     }
   }
   if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
+  if (hiddenChoices.length) {
+    const hs = wb.addWorksheet(CHOICES_SHEET, { state: 'veryHidden' });
+    hiddenChoices.forEach((vals, k) => vals.forEach((t, r) => { hs.getCell(`${colName(k)}${r + 1}`).value = t; }));
+  }
   // Named ranges, as Excel defined names.
   wb.worksheets.forEach((ws, i) => {
     const s = (data.sheets || [])[i];
@@ -629,7 +658,7 @@ function ruleValidationFromExcel(x) {
 
 // ---- data validation from Excel: list validations become dropdowns (a TRUE/FALSE list, a tick box).
 // Excel gives them cell by cell; cells with the same list in a column are joined back into ranges.
-export function validationsFromExcel(model, cells) {
+export function validationsFromExcel(model, cells, sheetName = null) {
   const byKind = new Map();
   for (const [addr, x] of Object.entries(model)) {
     const p = /^([A-Z]+)(\d+)$/.exec(String(addr).toUpperCase());
@@ -650,6 +679,8 @@ export function validationsFromExcel(model, cells) {
       // following it. Ones on this sheet are read now as well, to tell a TRUE/FALSE tick box.
       const s = /^(?:('(?:[^']|'')+'|[A-Z_][A-Z0-9_]*)!)?\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i.exec(f);
       if (!s) continue;
+      // (a range on this very sheet, named with it as LibreOffice writes it: as one on this sheet)
+      if (s[1] && sheetName !== null && s[1].replace(/^'|'$/g, '').replace(/''/g, "'") === sheetName) s[1] = undefined;
       source = `${s[1] ? `${s[1]}!` : ''}${s[2].toUpperCase()}${s[3]}:${s[4].toUpperCase()}${s[5]}`; // as Sheets writes it: D1:D5
       const [, sheet, c1, r1, c2, r2] = s;
       values = sheet ? null : [];
@@ -668,15 +699,22 @@ export function validationsFromExcel(model, cells) {
     if (!byKind.has(key)) byKind.set(key, { col: p[1], def, rows: [] });
     byKind.get(key).rows.push(Number(p[2]));
   }
-  const out = [];
+  const runs = [];
   for (const { col, def, rows } of byKind.values()) {
     rows.sort((a, b) => a - b);
     let start = rows[0], prev = rows[0];
-    const flush = () => out.push({ id: `v${out.length + 1}`, range: `${col}${start}:${col}${prev}`, ...def });
+    const flush = () => runs.push({ c1: colIndex(col), c2: colIndex(col), r1: start, r2: prev, def, key: JSON.stringify(def) });
     for (const r of rows.slice(1)) { if (r === prev + 1) prev = r; else { flush(); start = prev = r; } }
     flush();
   }
-  return out.slice(0, 500);
+  // Runs side by side over the same rows, with the same dropdown: one range across those columns.
+  runs.forEach((r, k) => { r.at = k; }); // (kept in the order they were found)
+  const joined = [];
+  for (const r of [...runs].sort((a, b) => a.r1 - b.r1 || a.c1 - b.c1)) {
+    const left = joined.find((j) => j.key === r.key && j.r1 === r.r1 && j.r2 === r.r2 && j.c2 + 1 === r.c1);
+    if (left) left.c2 = r.c2; else joined.push({ ...r });
+  }
+  return joined.sort((a, b) => a.at - b.at).slice(0, 500).map((j, k) => ({ id: `v${k + 1}`, range: `${colName(j.c1)}${j.r1}:${colName(j.c2)}${j.r2}`, ...j.def }));
 }
 
 // ---- Excel tables (Insert → Table) as Sheets' alternating colours. Excel's built-in table styles go

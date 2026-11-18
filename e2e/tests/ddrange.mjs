@@ -133,6 +133,22 @@ await step('OpenDocument (.ods) keeps it too: the reopened copy has the dropdown
   if (!names.includes('Open') || !names.some((n) => /Done/.test(n)) || !names.includes('Blocked')) throw new Error(names.join('|')); // (Done ticked: it's the cell's value)
   await page.keyboard.press('Escape');
 });
+await step('Excel keeps choices with commas and quotes (on a hidden sheet): the reopened copy offers them as they were', async () => {
+  const id = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Checks', content: { sheets: [{ name: 'Checks', cells: { A1: 'Item', B1: 'Result' },
+    validations: [{ id: 'v1', range: 'B2:B5', type: 'list', values: ['Pass', 'Fail, retest', 'Say "N/A"'], strict: true }] }] } })).body.id;
+  const up = await page.evaluate(async (fid) => {
+    const bytes = await (await fetch(`/api/files/${fid}/export?format=xlsx`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Checks.xlsx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, id);
+  const opened = (await api(page, 'POST', `/files/${up.id}/open-as`)).body;
+  const sheets = (await api(page, 'GET', `/files/${opened.id}/content`)).body.content.sheets;
+  if (sheets.length !== 1 || JSON.stringify(sheets[0].validations?.[0]?.values) !== JSON.stringify(['Pass', 'Fail, retest', 'Say "N/A"'])) throw new Error(JSON.stringify(sheets));
+  await page.goto(`${B}/sheets/${opened.id}`);
+  await cell(page, 'B2').getByRole('button', { name: 'Choices for B2' }).click();
+  const list = page.getByRole('listbox', { name: 'Choices' });
+  await list.getByRole('option', { name: 'Fail, retest' }).click();
+  await until(async () => (await cell(page, 'B2').innerText()).includes('Fail, retest'));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

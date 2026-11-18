@@ -2326,3 +2326,42 @@ test('Docs: each numbered list numbered on its own, from its own first number; i
     assert.match(text, /1\. One 1\. Sub a 2\. Sub b 2\. Two Between code here 1\. Again one 2\. Again two Then 3\. Three 4\. Four/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Excel: dropdown choices with commas or quotes (or too many to write out) on a hidden sheet, read back as choices; own-sheet ranges; ranges across columns', async (t) => {
+  const { validationsFromExcel } = await import('../src/office/excel.js');
+  const long = Array.from({ length: 60 }, (_, i) => `Option number ${i + 1}`);
+  const book = { sheets: [{ name: 'Tasks', cells: { A1: 'Task', D2: 'Low', D3: 'High' }, colWidths: {}, validations: [
+    { id: 'v1', range: 'B2:B6', type: 'list', values: ['Open', 'Done, checked', 'Say "hi"'], strict: true },
+    { id: 'v2', range: 'C2:C6', type: 'list', values: long, strict: false },
+    { id: 'v3', range: 'E2:F4', type: 'list', values: ['x', 'y'], strict: true },
+    { id: 'v4', range: 'G2:G4', type: 'list', source: 'D2:D3', strict: false },
+  ] }] };
+  const want = JSON.stringify(book.sheets[0].validations.map(({ id, ...v }) => v));
+  const show = (b) => JSON.stringify((b.sheets[0].validations || []).map(({ id, ...v }) => ({ range: v.range, type: v.type, ...(v.values ? { values: v.values } : { source: v.source }), strict: v.strict })));
+  const buf = await excelFromSheet(book);
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf);
+  const hidden = wb.getWorksheet('_choices');
+  assert.equal(hidden.state, 'veryHidden', 'out of sight in Excel');
+  assert.equal(hidden.getCell('A2').value, 'Done, checked');
+  assert.equal(hidden.getCell('B60').value, 'Option number 60');
+  assert.deepEqual(wb.getWorksheet('Tasks').dataValidations.model.B2.formulae, ['_choices!$A$1:$A$3']);
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets.map((s) => s.name), ['Tasks'], 'the hidden sheet is left out');
+  assert.equal(show(back), want);
+  // A range on the dropdown's own sheet, named with it (as LibreOffice writes it): as one on this sheet.
+  assert.equal(validationsFromExcel({ B2: { type: 'list', formulae: ['Tasks!$D$2:$D$3'] } }, {}, 'Tasks')[0].source, 'D2:D3');
+  assert.equal(validationsFromExcel({ B2: { type: 'list', formulae: ['Lists!$D$2:$D$3'] } }, {}, 'Tasks')[0].source, 'Lists!D2:D3');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { sheetFromOds } = await import('../src/office/ods.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 's.xlsx'), buf);
+    assert.equal(show(await sheetFromExcel(lo('s.xlsx', 'xlsx', 'a'))), want, 'opened and saved by LibreOffice');
+    const ods = await sheetFromOds(lo('s.xlsx', 'ods', 'b'));
+    assert.deepEqual(ods.sheets.map((s) => s.name), ['Tasks']);
+    assert.equal(show(ods), want, 'saved by LibreOffice as .ods');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

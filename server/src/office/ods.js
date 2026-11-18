@@ -429,6 +429,22 @@ export async function sheetFromOds(buffer) {
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
     out.push({ ...(validations.length && { validations }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
   }
+  // The hidden sheet of dropdown choices our Excel download writes (here when such a file was saved as .ods):
+  // its choices back in the dropdowns, and the sheet left out.
+  const hidden = out.find((x) => x.name === '_choices');
+  if (hidden && out.length > 1) {
+    out.splice(out.indexOf(hidden), 1);
+    for (const sh of out) {
+      sh.validations = sh.validations?.map((v) => {
+        const m = /^_choices!([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(v.source || '');
+        if (!m) return v;
+        const values = [];
+        for (let r = Number(m[2]); r <= Number(m[4]); r++) { const t = hidden.cells[`${m[1].toUpperCase()}${r}`]; if (t !== undefined && t !== '') values.push(String(t)); }
+        const { source, ...rest } = v;
+        return { ...rest, values: [...new Set(values)].slice(0, 200) };
+      });
+    }
+  }
   if (!out.length) out.push({ name: 'Sheet1', cells: {}, colWidths: {} });
   return { sheets: out };
 }
