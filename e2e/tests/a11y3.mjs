@@ -76,6 +76,17 @@ await step('a11y: Home with Suggestions to review and Access requests; a view-on
   await kim.getByRole('button', { name: 'Request edit access' }).waitFor();
   await scan('View-only document banner', kim);
 });
+await step('a11y: a view-only spreadsheet and presentation, with Request edit access', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Read-only figures', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Month', B1: 'Sales', A2: 'Jan', B2: '10' } }] } })).body;
+  const deck = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Read-only deck' })).body;
+  for (const f of [sh, deck]) await api(page, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await kim.goto(`${B}/sheets/${sh.id}`);
+  await kim.getByRole('button', { name: 'Request edit access' }).waitFor();
+  await scan('View-only spreadsheet', kim);
+  await kim.goto(`${B}/slides/${deck.id}`);
+  await kim.getByRole('button', { name: 'Request edit access' }).waitFor();
+  await scan('View-only presentation', kim);
+});
 await step('a11y: Drive with new-comment badges', async () => {
   await kim.goto(`${B}/drive/shared`);
   await kim.locator('.new-comments-pill').first().waitFor();
