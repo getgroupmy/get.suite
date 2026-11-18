@@ -1,6 +1,7 @@
 // Excel files <-> Sheets: every worksheet, with values and formulas, bold/italic/underline, text and
 // fill colours, alignment, number formats (number, currency, percent, decimals) and column widths.
 import ExcelJS from 'exceljs';
+import { formulaResults } from './sheetvalues.js';
 import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
 import JSZip from 'jszip';
 import crypto from 'node:crypto';
@@ -413,14 +414,21 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
   wb.creator = 'Workspace';
   const tables = tablesOf(data.sheets); // structured references (Sales[Amount]) go to Excel as plain ranges
   const hiddenChoices = []; // dropdowns' choices written on the hidden sheet, a column each
-  for (const s of data.sheets || []) {
+  for (const [sheetIndex, s] of (data.sheets || []).entries()) {
+    const resultOf = formulaResults(data, sheetIndex); // (each formula's result, written beside it)
     const ws = wb.addWorksheet((s.name || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet');
     for (const [key, raw0] of Object.entries(s.cells || {})) {
       const at = tables.length && typeof raw0 === 'string' && raw0.startsWith('=') && /^([A-Z]+)(\d+)$/.exec(key);
       const raw = at ? `=${rangesForTables(raw0.slice(1), tables, +at[2], colIndex(at[1]), s.name)}` : raw0;
       const cell = ws.getCell(key);
       const v = String(raw);
-      if (v.startsWith('=')) { cell.value = { formula: formulaToExcel(v.slice(1)) }; const df = dateFormulaFormat(v, s.cells); if (df) cell.numFmt = df; }
+      if (v.startsWith('=')) {
+        const df = dateFormulaFormat(v, s.cells);
+        const res = df || s.formats?.[key]?.num === 'date' ? null : resultOf(key); // (dates: left for Excel to work out)
+        const result = !res ? undefined : 'number' in res ? res.number : 'bool' in res ? res.bool : 'error' in res ? { error: res.error } : res.text;
+        cell.value = { formula: formulaToExcel(v.slice(1)), ...(result !== undefined && { result }) };
+        if (df) cell.numFmt = df;
+      }
       else if (v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(v.trim())) cell.value = Number(v);
       else if (/^(TRUE|FALSE)$/i.test(v)) cell.value = /^TRUE$/i.test(v);
       else if (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))) { cell.value = new Date(`${v}T00:00:00Z`); cell.numFmt = 'yyyy-mm-dd'; } // a real date in Excel

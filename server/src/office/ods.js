@@ -10,6 +10,7 @@ import { CALCEXT_NS, rulesToCalcext, rulesFromCalcext } from './odscf.js';
 import { filterToOds, filterFromOds } from './odsfilter.js';
 import { chartObject, chartFrame, chartFromObject } from './odschart.js';
 import { threadFromNote, threadFromComment } from './excel.js';
+import { formulaResults } from './sheetvalues.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -151,6 +152,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
   const databaseRanges = []; // the sheets' filters
   const chartObjects = []; // the charts' objects (Object 1, Object 2…)
   for (const [si, s] of sheets.entries()) {
+    const resultOf = formulaResults({ sheets }, si);
     const threadAt = new Map((comments || []).filter((t) => (t.sheet || 0) === si && /^[A-Z]{1,3}\d{1,7}$/.test(t.cell || '') && t.text).map((t) => [t.cell, t]));
     const cells = s.cells || {}, formats = s.formats || {};
     // Alternating colours: each cell's fill (its own fill wins), the heading row bold.
@@ -229,7 +231,12 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
           if (v.startsWith('=')) {
             if (tables.length) v = `=${rangesForTables(v.slice(1), tables, r, c, s.name)}`;
             attrs.push(`table:formula="${x(formulaToOds(v))}"`);
+            const res = f.num === 'date' ? null : resultOf(key); // (its result too, for programs that show without working out)
             if (f.num === 'date') attrs.push('office:value-type="date"');
+            else if (res && 'number' in res) { attrs.push(`office:value-type="${f.num === 'percent' ? 'percentage' : f.num === 'currency' ? 'currency' : 'float'}" office:value="${res.number}"${f.num === 'currency' ? ` office:currency="${x(f.cur || 'MYR')}"` : ''}`); inner = `<text:p>${x(String(res.number))}</text:p>`; }
+            else if (res && 'bool' in res) { attrs.push(`office:value-type="boolean" office:boolean-value="${res.bool}"`); inner = `<text:p>${res.bool ? 'TRUE' : 'FALSE'}</text:p>`; }
+            else if (res && 'text' in res && res.text !== '') { attrs.push('office:value-type="string"'); inner = `<text:p>${x(res.text)}</text:p>`; }
+            else if (res && 'error' in res) { attrs.push('office:value-type="string"'); inner = `<text:p>${x(res.error)}</text:p>`; }
             else if (f.num === 'percent') attrs.push('office:value-type="percentage"');
           } else if (isNum(v)) {
             const type = f.num === 'percent' ? 'percentage' : f.num === 'currency' ? 'currency' : 'float';

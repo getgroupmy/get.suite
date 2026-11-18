@@ -96,6 +96,18 @@ await step('the PDF download has the worked-out values, spilled ones included', 
   try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-layout', '-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
   if (text !== null && !(/\b29\b/.test(text) && /\b30\b/.test(text))) throw new Error(text.slice(0, 400));
 });
+await step('the Excel download carries the formulas\' results; the server CSV has the values', async () => {
+  const id = page.url().split('/').pop().split('?')[0];
+  const b64 = await page.evaluate(async (fid) => btoa(Array.from(new Uint8Array(await (await fetch(`/api/files/${fid}/export?format=xlsx`)).arrayBuffer()), (c) => String.fromCharCode(c)).join('')), id);
+  const ExcelJS = (await import('module')).createRequire(`${ROOT}/server/package.json`)('exceljs');
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(Buffer.from(b64, 'base64'));
+  const g1 = wb.worksheets[0].getCell('G1').value;
+  if (!g1?.formula || g1.result !== 1) throw new Error(JSON.stringify(g1));
+  const csv = await page.evaluate(async (fid) => (await fetch(`/api/files/${fid}/export?format=csv`)).text(), id);
+  const lines = csv.replace(/^﻿/, '').split('\r\n');
+  if (lines.length < 30 || !lines[29].split(',').includes('30')) throw new Error(lines.slice(0, 3).join('|'));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
