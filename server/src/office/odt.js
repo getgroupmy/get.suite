@@ -9,7 +9,7 @@ import { flattenTabs } from './doctabs.js';
 import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
-import { docFromHtml } from './word.js';
+import { docFromHtml, columnWidthsOf } from './word.js';
 
 // The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
 const ODT_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
@@ -165,6 +165,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     return spaced.get(key);
   };
   // A cell with a colour of its own: a cell style for each colour used (Cell_fef7e0…).
+  const tableStyles = []; // tables with column widths of their own
   const cellColours = new Set();
   const cellStyle = (bg) => { const hex = /^#([0-9a-f]{6})$/i.exec(bg || '')?.[1]?.toLowerCase(); if (!hex) return 'Cell'; cellColours.add(hex); return `Cell_${hex}`; };
   const cellStyles = () => [...cellColours].map((hex) => `<style:style style:name="Cell_${hex}" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999" fo:background-color="#${hex}"/></style:style>`).join('');
@@ -191,7 +192,15 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       else if (t === 'table') {
         const rows = n.content || [];
         const width = Math.max(1, ...rows.map((r) => (r.content || []).reduce((k, c) => k + (c.attrs?.colspan || 1), 0)));
-        out += `<table:table table:name="Table${++tableNo}" table:style-name="Tbl"><table:table-column table:number-columns-repeated="${width}"/>`;
+        // Columns someone made wider or narrower: a column style each (fitted to the page's 17 cm), on a table as wide as they are.
+        const px = columnWidthsOf(n);
+        if (px && px.length === width) {
+          const k = Math.min(1, 17 / (px.reduce((a, b) => a + b, 0) * 2.54 / 96)), no = ++tableNo;
+          const cm = px.map((w) => Math.max(0.5, (w * 2.54 / 96) * k));
+          tableStyles.push(`<style:style style:name="Tbl${no}" style:family="table"><style:table-properties style:width="${cm.reduce((a, b) => a + b, 0).toFixed(3)}cm" table:align="left"/></style:style>`,
+            ...cm.map((w, i) => `<style:style style:name="Tbl${no}C${i + 1}" style:family="table-column"><style:table-column-properties style:column-width="${w.toFixed(3)}cm"/></style:style>`));
+          out += `<table:table table:name="Table${no}" table:style-name="Tbl${no}">${cm.map((w, i) => `<table:table-column table:style-name="Tbl${no}C${i + 1}"/>`).join('')}`;
+        } else out += `<table:table table:name="Table${++tableNo}" table:style-name="Tbl"><table:table-column table:number-columns-repeated="${width}"/>`;
         const headed = rows.length > 1 && (rows[0].content || []).every((c) => c.type === 'tableHeader');
         rows.forEach((r, ri) => {
           if (headed && ri === 0) out += '<table:table-header-rows>';
@@ -239,7 +248,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     .flatMap((base) => Object.values(ALIGNS).map((al) => `<style:style style:name="${base}_${al}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties fo:text-align="${al}"/></style:style>`)).join('');
   const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:font-face-decls><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-pitch="fixed"/></office:font-face-decls><office:automatic-styles>${auto}${aligned}${spacedStyles()}${cellStyles()}
+<office:document-content ${NS}><office:font-face-decls><style:font-face style:name="Liberation Mono" svg:font-family="'Liberation Mono'" style:font-pitch="fixed"/></office:font-face-decls><office:automatic-styles>${auto}${aligned}${spacedStyles()}${cellStyles()}${tableStyles.join('')}
 <style:style style:name="PageBreak" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:break-before="page"/></style:style>
 <style:style style:name="Tbl" style:family="table"><style:table-properties style:width="17cm" table:align="margins"/></style:style>
 <style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999"/></style:style>
@@ -360,7 +369,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const tp = kids(el).find((c) => c.name === 'style:text-properties')?.attribs || {};
         const pp = kids(el).find((c) => c.name === 'style:paragraph-properties')?.attribs || {};
         const cp = kids(el).find((c) => c.name === 'style:table-cell-properties')?.attribs || {};
-        styles.set(name, { parent: el.attribs['style:parent-style-name'], tp, pp, cp, list: el.attribs['style:list-style-name'], level: Number(el.attribs['style:default-outline-level']) || 0 });
+        const colp = kids(el).find((c) => c.name === 'style:table-column-properties')?.attribs || {};
+        styles.set(name, { parent: el.attribs['style:parent-style-name'], tp, pp, cp, colp, list: el.attribs['style:list-style-name'], level: Number(el.attribs['style:default-outline-level']) || 0 });
       } else if (el.name === 'text:list-style') {
         numbered.set(el.attribs['style:name'], kids(el).filter((c) => c.type === 'tag').map((c) => c.name === 'text:list-level-style-number'));
       }
@@ -491,17 +501,27 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const rows = [];
         const collect = (n) => { for (const k of kids(n)) { if (k.name === 'table:table-row') rows.push({ row: k, head: n.name === 'table:table-header-rows' }); else if (/^table:table-(header-)?rows$/.test(k.name)) collect(k); } };
         collect(c);
+        // The columns' widths (in pixels, 96 to the inch), when every column has one.
+        const colPx = [];
+        (function cols(n) { for (const k of kids(n)) { if (k.name === 'table:table-column') { const w = styles.get(k.attribs['table:style-name'])?.colp?.['style:column-width']; const cm = /^([\d.]+)(cm|mm|in)$/.exec(w || ''); const v = cm ? Math.round(Number(cm[1]) * { cm: 96 / 2.54, mm: 96 / 25.4, in: 96 }[cm[2]]) : 0; for (let i = 0; i < Math.min(64, Number(k.attribs['table:number-columns-repeated']) || 1); i++) colPx.push(v); } else if (/^table:table-(header-)?columns$/.test(k.name)) cols(k); } })(c);
+        // (a table of equal columns is just a table)
+        const widths = colPx.length > 1 && colPx.every((w) => w >= 20 && w <= 2000) && Math.max(...colPx) - Math.min(...colPx) > Math.max(...colPx) * 0.02 ? colPx : null;
         let html = '<table><tbody>';
         for (const { row, head } of rows) {
           html += '<tr>';
-          for (const cell of kids(row).filter((k) => k.name === 'table:table-cell')) {
-            const span = Number(cell.attribs['table:number-columns-spanned']) > 1 ? ` colspan="${Number(cell.attribs['table:number-columns-spanned'])}"` : '';
+          let col = 0;
+          for (const cell of kids(row).filter((k) => k.name === 'table:table-cell' || k.name === 'table:covered-table-cell')) {
+            if (cell.name === 'table:covered-table-cell') { col += Math.min(50, Number(cell.attribs['table:number-columns-repeated']) || 1); continue; }
+            const n = Number(cell.attribs['table:number-columns-spanned']) > 1 ? Number(cell.attribs['table:number-columns-spanned']) : 1;
+            const cw = widths && widths.slice(col, col + n).length === n ? ` colwidth="${widths.slice(col, col + n).join(',')}"` : '';
+            col += Math.min(50, Number(cell.attribs['table:number-columns-repeated']) || 1); // (the columns it spans come next, as covered cells)
+            const span = n > 1 ? ` colspan="${n}"` : '';
             const tag = head ? 'th' : 'td';
             const rep = Math.min(50, Number(cell.attribs['table:number-columns-repeated']) || 1);
             const inner = await blocks(cell, depth) || '<p></p>';
             const bg = /^#[0-9a-f]{6}$/i.test(cellBg(cell.attribs['table:style-name']) || '') ? cellBg(cell.attribs['table:style-name']).toLowerCase() : '';
             const bgAttr = bg && bg !== '#ffffff' && bg !== '#f1f3f4' ? ` style="background-color:${bg}"` : ''; // (not white, nor the heading row's grey a Word download gives it)
-            for (let i = 0; i < rep; i++) html += `<${tag}${span}${bgAttr}>${inner}</${tag}>`;
+            for (let i = 0; i < rep; i++) html += `<${tag}${span}${bgAttr}${rep === 1 ? cw : ''}>${inner}</${tag}>`;
           }
           html += '</tr>';
         }

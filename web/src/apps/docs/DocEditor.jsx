@@ -297,7 +297,7 @@ function SharedDoc({ file, setFile }) {
       FindReplace,
       ReadAloud,
       LongSentences,
-      Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
+      Table.configure({ resizable: true, cellMinWidth: 40, lastColumnResizable: false }), TableRow, TableHeader, TableCell, // drag a column's edge to make it wider
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
       PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, EmailDraft, EventDraft.configure({ doc: () => docRef.current }), MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick

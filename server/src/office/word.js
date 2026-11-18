@@ -151,9 +151,24 @@ export function markWordXml(xml) {
     .replace(/<w:commentRangeStart w:id="(\d+)"\/>/g, (m, id) => `${m}${marker(`k:${id}`)}`)
     .replace(/<w:commentRangeEnd w:id="(\d+)"\/>/g, (m, id) => `${marker(`/k:${id}`)}${m}`)
     // A table cell's own colour (not the heading row's grey the download gives it): a marker at the start of its first paragraph.
-    .replace(/<w:tc>(<w:tcPr>(?:(?!<\/w:tcPr>)[\s\S])*<\/w:tcPr>)(\s*<w:p\b[^>]*>(?:<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*<\/w:pPr>)?)/g, (m, tcpr, p) => {
+    // …and the widths of the columns it covers, from the table's grid (in pixels, 15 twips to the pixel), when they
+    // differ (a table of equal columns is just a table): marked on the cell first, then put in its marker.
+    .replace(/<w:tbl>((?:(?!<w:tbl>)[\s\S])*?)<\/w:tbl>/g, (m, inner) => {
+      const grid = [...(/<w:tblGrid>([\s\S]*?)<\/w:tblGrid>/.exec(inner)?.[1] || '').matchAll(/<w:gridCol\b[^>]*w:w="(\d+)"/g)].map((g) => Math.round(Number(g[1]) / 15));
+      if (grid.length < 2 || grid.some((w) => w < 20 || w > 2000) || Math.max(...grid) - Math.min(...grid) <= Math.max(...grid) * 0.02) return m;
+      return m.replace(/<w:tr\b[\s\S]*?<\/w:tr>/g, (row) => {
+        let col = 0;
+        return row.replace(/<w:tc>((?:(?!<\/w:tc>)[\s\S])*?<\/w:tc>)/g, (cm, rest) => {
+          const span = Number(/<w:gridSpan w:val="(\d+)"\/>/.exec(rest)?.[1]) || 1;
+          const ws = grid.slice(col, col + span); col += span;
+          return ws.length === span ? `<w:tc w:ourw="${ws.join(',')}">${rest}` : cm;
+        });
+      });
+    })
+    .replace(/<w:tc(?: w:ourw="([\d,]+)")?>(<w:tcPr>(?:(?!<\/w:tcPr>)[\s\S])*<\/w:tcPr>)?(\s*<w:p\b[^>]*>(?:<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*<\/w:pPr>)?)/g, (m, ws, tcpr = '', p) => {
       const fill = /<w:shd\b[^>]*w:fill="([0-9A-Fa-f]{6})"/.exec(tcpr)?.[1]?.toLowerCase();
-      return fill && fill !== 'ffffff' && fill !== 'f1f3f4' ? `<w:tc>${tcpr}${p}${marker(`cb:${fill}`)}` : m;
+      const spec = [fill && fill !== 'ffffff' && fill !== 'f1f3f4' && `bg=${fill}`, ws && `w=${ws}`].filter(Boolean).join(';');
+      return `<w:tc>${tcpr}${p}${spec ? marker(`c:${spec}`) : ''}`;
     })
     // A paragraph's own alignment, line spacing and space before and after (not its style's).
     .replace(/(<w:pPr>[\s\S]*?<\/w:pPr>)/g, (m, ppr) => {
@@ -209,7 +224,10 @@ export function unmarkWordHtml(html, commentId = null) {
       const steps = Number(/(?:^|;)in=(\d)/.exec(spec)?.[1]) || 0;
       return `<${tag}${style ? ` style="${style}"` : ''}${steps ? ` data-indent="${steps}"` : ''}>`;
     })
-    .replace(re('<(td|th)([^>]*)>((?:<p[^>]*>)?)MKcb:([0-9a-f]{6})END'), (m, tag, attrs, p, hex) => `<${tag}${attrs} style="background-color:#${hex}">${p}`)
+    .replace(re('<(td|th)([^>]*)>((?:<p[^>]*>)?)MKc:([^END]*)END'), (m, tag, attrs, p, spec) => {
+      const bg = /(?:^|;)bg=([0-9a-f]{6})/.exec(spec)?.[1], w = /(?:^|;)w=([\d,]+)/.exec(spec)?.[1];
+      return `<${tag}${attrs}${bg ? ` style="background-color:#${bg}"` : ''}${w ? ` colwidth="${w}"` : ''}>${p}`;
+    })
     .replace(re('MKs:([^END]*)END'), (m, spec) => {
       const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : x.startsWith('f:') ? `font-family:${x.slice(2).replace(/"/g, "'")}` : x.startsWith('z:') ? `font-size:${x.slice(2)}pt` : '')).filter(Boolean).join(';');
       return `<span style="${attr(css)}">`;
@@ -561,6 +579,21 @@ function sectionSetup(setup) {
 }
 
 const PAGE_PX = 624; // the width between the margins of an A4/Letter page, at 96 to the inch
+/**
+ * A table's column widths in pixels, when any column was given one (dragged in Docs): the row that says the most,
+ * with the columns it doesn't say sharing what's left of the page (as the editor shows them). Null when none was.
+ */
+export function columnWidthsOf(table, page = PAGE_PX) {
+  let best = null;
+  for (const r of (table.content || []).filter((x) => x.type === 'tableRow')) {
+    const ws = (r.content || []).flatMap((c) => { const span = c.attrs?.colspan || 1; const cw = c.attrs?.colwidth; return Array.from({ length: span }, (_, k) => (Array.isArray(cw) ? Number(cw[k]) || 0 : 0)); });
+    if (ws.length && (!best || ws.filter(Boolean).length > best.filter(Boolean).length)) best = ws;
+  }
+  if (!best || !best.some(Boolean)) return null;
+  const open = best.filter((w) => !w).length;
+  const rest = open ? Math.max(40, Math.round((page - best.reduce((a, b) => a + b, 0)) / open)) : 0;
+  return best.map((w) => w || rest);
+}
 const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/bmp': 'bmp' };
 
 /**
@@ -637,16 +670,24 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   const table = (n) => {
     const rows = (n.content || []).filter((r) => r.type === 'tableRow');
     const cols = Math.max(1, ...rows.map((r) => (r.content || []).reduce((t, c) => t + (c.attrs?.colspan || 1), 0)));
+    // Columns someone made wider or narrower: those widths (in twips, 15 to the pixel), fitted to the page.
+    const px = columnWidthsOf(n);
+    const tw = px && (() => { const k = Math.min(1, PAGE_PX / px.reduce((a, b) => a + b, 0)); return px.map((w) => Math.max(200, Math.round(w * k * 15))); })();
+    let col = 0;
     return new WordTable({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      columnWidths: Array.from({ length: cols }, () => Math.floor(9000 / cols)),
+      ...(tw ? { width: { size: tw.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: tw }
+        : { width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: Array.from({ length: cols }, () => Math.floor(9000 / cols)) }),
       rows: rows.map((r) => {
         const header = (r.content || []).every((c) => c.type === 'tableHeader');
+        col = 0;
         return new WordRow({
           ...(header && { tableHeader: true }), // (tableHeader: false writes <w:tblHeader w:val="off"/>, which readers take as a heading row)
           children: (r.content || []).map((c) => {
             const inner = block(c.content);
+            const span = c.attrs?.colspan > 1 ? c.attrs.colspan : 1;
+            const width = tw && tw.slice(col, col + span).reduce((a, b) => a + b, 0); col += span;
             return new WordCell({
+              ...(width && { width: { size: width, type: WidthType.DXA } }),
               columnSpan: c.attrs?.colspan > 1 ? c.attrs.colspan : undefined,
               rowSpan: c.attrs?.rowspan > 1 ? c.attrs.rowspan : undefined,
               ...((c.attrs?.background || c.type === 'tableHeader') && { shading: { type: ShadingType.CLEAR, color: 'auto', fill: /^#[0-9a-f]{6}$/i.test(c.attrs?.background || '') ? c.attrs.background.slice(1).toUpperCase() : 'F1F3F4' } }),

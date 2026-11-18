@@ -121,6 +121,37 @@ await step('a cell colour from the toolbar: the others see it; Word and .odt dow
     if (cells !== 'H- H- | #fef7e0 - | - - | - -') throw new Error(`${format}: ${cells}`);
   }
 });
+await step('drag a column’s edge to make it wider: the others see it; Word and .odt downloads keep the widths', async () => {
+  const th = page.locator('.paper table th').first();
+  const before = await th.evaluate((el) => el.getBoundingClientRect().width);
+  const box = await th.boundingBox();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+  await page.waitForTimeout(100);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 80, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.move(box.x + box.width + 150, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const after = await th.evaluate((el) => el.getBoundingClientRect().width);
+  if (after < before + 100) throw new Error(`${before} → ${after}`);
+  await until(async () => (await kim.locator('.paper table th').first().evaluate((el) => el.getBoundingClientRect().width)) > before + 100);
+  await page.screenshot({ path: `${SP}/shots/column-width.png` });
+  await page.waitForTimeout(2500); // saved
+  const widths = (d) => d.content.find((n) => n.type === 'table').content[0].content.map((c) => (c.attrs?.colwidth || []).join('+') || '-').join(' ');
+  const saved = widths((await api(page, 'GET', `/files/${docId}/content`)).body.content);
+  if (!/^\d+ -$/.test(saved)) throw new Error(`saved ${saved}`); // the column dragged; the other takes what's left
+  const want = [Number(saved.split(' ')[0]), 624 - Number(saved.split(' ')[0])]; // (the page's width between its margins)
+  for (const format of ['docx', 'odt']) {
+    const up = await page.evaluate(async ([id, f]) => {
+      const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
+      return (await fetch(`/api/files/upload?name=Report%20widths.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    }, [docId, format]);
+    const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+    const back = widths((await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content);
+    // (back within a pixel or so: twips and centimetres are rounded)
+    const b = back.split(' ').map(Number);
+    if (b.length !== 2 || b.some((w, i) => Math.abs(w - want[i]) > 2)) throw new Error(`${format}: ${saved} → ${back}`);
+  }
+});
 await step('a picture: put in from a file, made smaller and centred; a viewer sees it', async () => {
   await cursorAfter(page, 'rising');
   await page.keyboard.press('Enter');

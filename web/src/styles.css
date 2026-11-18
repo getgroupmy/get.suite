@@ -1051,6 +1051,10 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 .paper .tiptap td p, .paper .tiptap th p { margin: 0; }
 .paper .tiptap .selectedCell::after { content: ''; position: absolute; inset: 0; background: var(--accent-soft); opacity: .5; pointer-events: none; }
 .paper .tiptap .tableWrapper { overflow-x: auto; }
+/* dragging a column's edge to resize it */
+.paper .tiptap .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: -2px; width: 4px; background: var(--accent); pointer-events: none; z-index: 2; }
+.paper .tiptap.resize-cursor, .paper .tiptap .resize-cursor { cursor: col-resize; }
+@media print { .paper .tiptap .column-resize-handle { display: none; } }
 @media print { .paper .tiptap td, .paper .tiptap th { border-color: #999; } }
 
 /* ---------- search inside files ---------- */

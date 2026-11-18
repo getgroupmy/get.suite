@@ -2206,3 +2206,46 @@ test('Docs: table cell colours out to Word and .odt and back; only the heading r
     assert.equal(show(await docFromOdt(lo('d.docx', 'odt', 'c'))), want, 'Word saved as .odt (the heading grey is not a colour)');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Docs: table column widths out to Word and .odt and back (a table of equal columns stays a plain one)', async (t) => {
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const { columnWidthsOf } = await import('../src/office/word.js');
+  const cell = (type, text, w, span) => ({ type, attrs: { ...(w && { colwidth: w }), ...(span && { colspan: span }) }, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+  const doc = { type: 'doc', content: [
+    { type: 'table', content: [
+      { type: 'tableRow', content: [cell('tableHeader', 'Item', [300]), cell('tableHeader', 'Qty', [100]), cell('tableHeader', 'Note', [200])] },
+      { type: 'tableRow', content: [cell('tableCell', 'Wide', [300, 100], 2), cell('tableCell', 'n', [200])] },
+    ] },
+    { type: 'table', content: [{ type: 'tableRow', content: [cell('tableCell', 'a'), cell('tableCell', 'b')] }] },
+  ] };
+  assert.deepEqual(columnWidthsOf(doc.content[0]), [300, 100, 200]);
+  assert.equal(columnWidthsOf(doc.content[1]), null, 'none dragged');
+  assert.deepEqual(columnWidthsOf({ content: [{ type: 'tableRow', content: [cell('tableCell', 'x', [424]), cell('tableCell', 'y'), cell('tableCell', 'z')] }] }), [424, 100, 100], 'only one dragged: the others share the rest of the page');
+  assert.deepEqual(columnWidthsOf({ content: [{ type: 'tableRow', content: [cell('tableCell', 'x', [700]), cell('tableCell', 'y')] }] }), [700, 40], 'nothing left: the narrowest a column is');
+  const want = 'Item=300 Qty=100 Note=200 | Wide*2=300+100 n=200  //  a b';
+  const show = (d) => (d.doc || d).content.filter((n) => n.type === 'table').map((tb) => tb.content.map((r) => r.content.map((c) => `${c.content?.[0]?.content?.[0]?.text}${c.attrs?.colspan > 1 ? `*${c.attrs.colspan}` : ''}${c.attrs?.colwidth ? `=${c.attrs.colwidth.join('+')}` : ''}`).join(' ')).join(' | ')).join('  //  ');
+  const docx = await wordFromDoc(doc, 'T');
+  const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:tblGrid><w:gridCol w:w="4500"\/><w:gridCol w:w="1500"\/><w:gridCol w:w="3000"\/><\/w:tblGrid>/, '15 twips to the pixel');
+  assert.match(xml, /<w:tcW w:type="dxa" w:w="6000"\/>/, 'a cell over two columns: both widths');
+  assert.equal(show(await docFromWord(docx)), want, 'Word');
+  // Wider than the page: fitted to it.
+  const wide = await wordFromDoc({ type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [cell('tableCell', 'a', [900]), cell('tableCell', 'b', [348])] }] }] }, 'T');
+  assert.match(await (await JSZip.loadAsync(wide)).file('word/document.xml').async('string'), /<w:gridCol w:w="6750"\/><w:gridCol w:w="2610"\/>/);
+  const odt = await odtFromDoc(doc, 'T');
+  const c = await (await JSZip.loadAsync(odt)).file('content.xml').async('string');
+  assert.match(c, /<style:style style:name="Tbl1C1" style:family="table-column"><style:table-column-properties style:column-width="7.938cm"\/>/);
+  assert.match(c, /<table:table table:name="Table2" table:style-name="Tbl"><table:table-column table:number-columns-repeated="2"\/>/, 'the plain table as before');
+  assert.equal(show(await docFromOdt(odt)), want, '.odt');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.docx'), docx); fs.writeFileSync(path.join(dir, 'd.odt'), odt);
+    assert.equal(show(await docFromWord(lo('d.docx', 'docx', 'a'))), want, 'Word → LibreOffice → Word');
+    assert.equal(show(await docFromOdt(lo('d.odt', 'odt', 'b'))), want, '.odt → LibreOffice → .odt');
+    assert.equal(show(await docFromOdt(lo('d.docx', 'odt', 'c'))), want, 'Word saved as .odt');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
