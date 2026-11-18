@@ -2581,6 +2581,7 @@ test('drive: asking for access — the owner is told, approves (as asked or othe
   assert.deepEqual([up.role, up.has], ['editor', 'viewer']);
   await a('POST', `/api/files/access-requests/${up.id}`, { approve: true });
   assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'editor');
+  assert.ok((await b('GET', '/api/notifications')).body.items.some((n) => n.title === 'Req Ann gave you edit access to “Budget 2027”' && n.body === 'You can edit it now'));
   assert.match((await b('POST', `/api/files/${doc.id}/request-access`, { role: 'editor' })).body.error, /already edit/);
   const cat = (await a('GET', '/api/files/access-requests')).body[0];
   await a('POST', `/api/files/access-requests/${cat.id}`, { approve: false });

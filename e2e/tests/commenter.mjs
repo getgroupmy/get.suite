@@ -106,6 +106,9 @@ await step('a commenter asks for edit access from the banner; the owner gives it
   await kim.goto(`${B}/docs/${doc.id}`);
   await kim.locator('.ProseMirror[contenteditable="true"]').waitFor();
   if (await kim.getByRole('button', { name: 'Request edit access' }).count()) throw new Error('still asks');
+  await kim.goto(`${B}/home`);
+  await kim.getByRole('button', { name: /^Notifications/ }).click();
+  await kim.getByText('Olivia Owner gave you edit access to').first().waitFor();
 }, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

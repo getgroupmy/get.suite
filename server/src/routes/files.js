@@ -1219,13 +1219,15 @@ export default function fileRoutes({ maxUploadBytes }) {
         sendTo([req.user.id], { type: 'access-requests' });
         return res.json({ ok: true, ends_at: until });
       }
+      const hadBefore = roleFor(f.id, a.user_id); // (asking for more than they had: told what they can now do)
       q(`INSERT INTO shares (file_id, user_id, role, direct_role, shared_at, shared_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role,
          shared_at = COALESCE(shares.shared_at, excluded.shared_at), shared_by = COALESCE(shares.shared_by, excluded.shared_by)`).run(f.id, a.user_id, role, role, Date.now(), req.user.id);
       syncShares(f.id);
       const who = q('SELECT name FROM users WHERE id = ?').get(a.user_id)?.name || 'someone';
       recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view'})`], removed: [] });
       audit(req, 'file.share', { target: f.name, details: { with: [`${q('SELECT username FROM users WHERE id = ?').get(a.user_id)?.username} (${role})`], request: true } });
-      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
+      if (hadBefore) bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} gave you ${role === 'editor' ? 'edit' : role === 'commenter' ? 'comment' : 'view'} access to “${f.name}”`, body: role === 'editor' ? 'You can edit it now' : role === 'commenter' ? 'You can comment on it now' : 'You can view it', link: openLink(f), actor: req.user.name });
+      else bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
       sendTo([a.user_id], { type: 'files-changed', parent_id: null });
     } else {
       // (someone who could already open it was asking for more: they keep what they have, and are told which they didn't get)
