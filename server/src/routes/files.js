@@ -31,7 +31,7 @@ import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow, changeSheet, appendToDocument } from '../collab.js';
 import { docFromText } from '../doctext.js';
-import { appendRows } from '../sheetrows.js';
+import { appendRows, setCells } from '../sheetrows.js';
 import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
@@ -47,7 +47,7 @@ import { rtfFromDoc, docFromRtf } from '../office/rtf.js';
 import { pdfFromDoc } from '../office/pdfdoc.js';
 import { pdfFromDeck, notesPdfFromDeck } from '../office/slidepdf.js';
 import { pdfFromSheet } from '../office/sheetpdf.js';
-import { delimitedFromSheet, sheetReadingText } from '../office/sheetvalues.js';
+import { delimitedFromSheet, sheetReadingText, formulaResults } from '../office/sheetvalues.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -1545,6 +1545,29 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!out) throw bad('That spreadsheet couldn’t be changed');
     recordActivity(f.id, req.user.id, 'edit');
     res.json({ sheet: out.sheet, range: out.range, added: out.added });
+  });
+
+  // Change cells of a spreadsheet: { sheet?, cells?: { B4: value }, at?, rows? } (sheetrows.js), live and kept
+  // as adding rows is; gives back what the changed cells now show (formulas worked out).
+  r.post('/:id/cells', async (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'sheet') throw bad('Cells can only be changed in a spreadsheet');
+    notLocked(f);
+    saveNow(f.id);
+    const cur = q('SELECT updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
+    if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
+    let out = null;
+    changeSheet(f.id, (json) => {
+      out = setCells(json, { sheet: req.body?.sheet ? String(req.body.sheet) : null, cells: req.body?.cells ?? null, at: req.body?.at ?? null, rows: req.body?.rows ?? null });
+      protectionsKept(f, JSON.stringify(out.content), req.user); // throws before anything changes
+      return out.content;
+    }, req.user.id);
+    if (!out) throw bad('That spreadsheet couldn’t be changed');
+    recordActivity(f.id, req.user.id, 'edit');
+    const index = out.content.sheets.findIndex((s) => s.name === out.sheet);
+    const shown = formulaResults(out.content, index);
+    const values = Object.fromEntries(out.changed.slice(0, 200).map((k) => { const v = shown(k); return [k, !v ? null : 'number' in v ? v.number : 'bool' in v ? v.bool : 'error' in v ? v.error : v.text]; }));
+    res.json({ sheet: out.sheet, changed: out.changed.length, values });
   });
 
   // Add text to the end of a document: { text, tab? } (lines; # headings), into the tab named in a document

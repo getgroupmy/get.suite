@@ -795,6 +795,26 @@ export const TOOLS = [
     },
   },
   {
+    name: 'update_sheet_cells', title: 'Change cells in a spreadsheet', readOnly: false,
+    description: 'Change cells in a Workspace spreadsheet: put new values or formulas in cells by address (e.g. correct a figure, fill in a column), or write a block of rows from a cell. Read it with fetch first. Values are text, numbers, true/false or null (null empties a cell); text starting with = is a formula. Gives back what the changed cells now show, formulas worked out. Protected ranges still hold.',
+    inputSchema: {
+      type: 'object', required: ['file'],
+      properties: {
+        file: { type: 'string', description: 'The spreadsheet’s id (file:…, from search or list_files)' },
+        sheet: { type: 'string', description: 'Which sheet (tab) by name; the first when left out' },
+        cells: { type: 'object', description: 'Cell address → new value, e.g. {"B4": 120, "C4": "=B4*2", "D4": null}', additionalProperties: { type: ['string', 'number', 'boolean', 'null'] } },
+        at: { type: 'string', description: 'With rows: the top-left cell they start at, e.g. A10' },
+        rows: { type: 'array', maxItems: 500, items: { type: 'array', maxItems: 50, items: { type: ['string', 'number', 'boolean', 'null'] } } },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const r = await api('POST', `/files/${encodeURIComponent(id)}/cells`, { sheet: a.sheet || null, cells: a.cells ?? null, at: a.at ?? null, rows: a.rows ?? null });
+      const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+      return { changed: r.changed, sheet: r.sheet, values: r.values, name: f.name, url: fileUrl({ ...f, kind: 'sheet' }) };
+    },
+  },
+  {
     name: 'find_people', title: 'Find colleagues', readOnly: true,
     description: 'Colleagues in the company directory by name, email, job title or department (all of them without a query), with their status.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' } } },

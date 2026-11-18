@@ -74,6 +74,16 @@ await step('the spreadsheet is open while an assistant adds rows: they appear li
   await cell('C2').getByText('paid').waitFor();
   await page.screenshot({ path: `${SP}/shots/assistant-rows.png` });
 });
+await step('the spreadsheet is open while an assistant changes cells: a figure and a new formula show live, worked out', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude cells', scope: 'write', days: 30 })).body.token;
+  await page.evaluate(() => { window.__stayed2 = true; });
+  const r = await mcp(token, 'update_sheet_cells', { file: `file:${sheet.id}`, cells: { B3: 20, D3: '=B3+B4' } });
+  if (r.isError || r.structuredContent.values.D3 !== 260) throw new Error(JSON.stringify(r));
+  await cell('B3').getByText('20').waitFor({ timeout: 15000 });
+  await cell('D3').getByText('260').waitFor();
+  if (!(await page.evaluate(() => window.__stayed2))) throw new Error('the page reloaded');
+  await cell('C2').getByText('paid').waitFor();
+});
 await step('a document open while an assistant adds to it: the text appears live at the end, no reload', async () => {
   const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Team log', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Monday: started' }] }] } })).body;
   await page.goto(`${B}/docs/${doc.id}`);

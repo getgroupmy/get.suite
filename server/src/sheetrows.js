@@ -48,3 +48,37 @@ export function appendRows(content, { sheet = null, rows }) {
   const range = `${colName(c0)}${r0}:${colName(c0 + Math.max(width, 1) - 1)}${r0 + rows.length - 1}`;
   return { content: { ...content, sheets: sheets.map((x, j) => (j === i ? { ...x, cells } : x)) }, sheet: s.name, range, added: rows.length };
 }
+
+export const MAX_SET = 1000;
+/**
+ * The content with cells set on sheet `sheet` (its name; the first when not given): `cells` maps a cell ("B4")
+ * to its new value (text, a number, true/false; null or "" empties it; text starting with = is a formula), or a
+ * block of rows starting at `at`. Returns { content, sheet, changed: ["B4", …] }.
+ */
+export function setCells(content, { sheet = null, cells = null, at = null, rows = null }) {
+  const sheets = Array.isArray(content?.sheets) ? content.sheets : null;
+  if (!sheets?.length) throw bad('That spreadsheet has no sheets');
+  const i = sheet ? sheets.findIndex((s) => String(s.name || '').toLowerCase() === String(sheet).toLowerCase()) : 0;
+  if (i < 0) throw bad(`No sheet called “${sheet}”: it has ${sheets.map((s) => `“${s.name}”`).join(', ')}`);
+  const s = sheets[i];
+  if (s.pivot) throw bad('That sheet is a pivot table: it’s filled from its data, so change the data there');
+  const changes = [];
+  if (cells && typeof cells === 'object' && !Array.isArray(cells)) {
+    for (const [k0, v] of Object.entries(cells)) {
+      const k = String(k0).toUpperCase().replace(/\$/g, '');
+      if (!KEY.test(k)) throw bad(`“${k0}” isn’t a cell: give cells like B4`);
+      changes.push([k, cellText(v)]);
+    }
+  }
+  if (rows !== null) {
+    const m = KEY.exec(String(at || '').toUpperCase().replace(/\$/g, ''));
+    if (!m) throw bad('Give where the rows start (at), as a cell like B4');
+    if (!Array.isArray(rows) || rows.some((r) => !Array.isArray(r) || r.length > MAX_COLS)) throw bad(`Rows are a list of rows, each a list of at most ${MAX_COLS} cells`);
+    rows.forEach((row, ri) => row.forEach((v, ci) => changes.push([`${colName(colIndex(m[1]) + ci)}${+m[2] + ri}`, cellText(v)])));
+  }
+  if (!changes.length) throw bad('Give the cells to change: cells (like {"B4": 120}) or rows with at');
+  if (changes.length > MAX_SET) throw bad(`At most ${MAX_SET} cells at a time`);
+  const next = { ...(s.cells || {}) };
+  for (const [k, t] of changes) { if (t === null) delete next[k]; else next[k] = t; }
+  return { content: { ...content, sheets: sheets.map((x, j) => (j === i ? { ...x, cells: next } : x)) }, sheet: s.name, changed: [...new Set(changes.map(([k]) => k))] };
+}
