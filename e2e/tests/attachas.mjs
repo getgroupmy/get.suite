@@ -78,6 +78,27 @@ await step('sent: Kim gets Offer letter.odt and can look at it in Mail', async (
   await k.getByText('we are pleased to offer you the role').first().waitFor({ timeout: 20000 });
   await k.screenshot({ path: `${SP}/shots/attachas-received.png` });
 });
+await step('a document can be attached as a PDF too', async () => {
+  await page.goto(`${B}/mail`);
+  await page.getByRole('button', { name: 'Compose' }).click();
+  const d = page.getByRole('dialog', { name: 'New message' });
+  await d.getByRole('button', { name: 'Attach from Drive' }).click();
+  const pick = page.getByRole('dialog', { name: 'Attach from Drive' });
+  await pick.getByLabel('Search your files').fill('Offer');
+  await pick.getByRole('button', { name: /Offer letter/ }).filter({ hasNotText: '.odt' }).first().click(); // (not the .odt copy attached before)
+  const as = page.getByRole('dialog', { name: 'Attach “Offer letter”' });
+  if (!(await as.getByLabel('Word (.docx)').isChecked())) throw new Error('Word stays the usual choice');
+  await as.getByLabel('PDF (.pdf)').check();
+  await as.getByRole('button', { name: 'Attach' }).click();
+  await as.waitFor({ state: 'detached' });
+  await d.getByText('Offer letter.pdf').first().waitFor();
+  const folder = (await api(page, 'GET', '/files')).body;
+  const list = Array.isArray(folder) ? folder : folder.files || [];
+  const att = list.find((f) => f.name === 'Email attachments');
+  const inside = (await api(page, 'GET', `/files?parent=${att.id}`)).body;
+  const pdf = (Array.isArray(inside) ? inside : inside.files || []).find((f) => f.name === 'Offer letter.pdf');
+  if (!pdf || pdf.mime !== 'application/pdf') throw new Error(JSON.stringify(pdf));
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

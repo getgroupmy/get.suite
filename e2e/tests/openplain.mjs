@@ -92,6 +92,24 @@ await step('Download as Rich Text (.rtf), and the .rtf opens as a document again
   await page.locator('.paper em', { hasText: 'Café' }).waitFor();
   await page.locator('.paper ul li', { hasText: 'Coffee' }).waitFor();
 });
+await step('Download as PDF (.pdf): made on the server, on the page setup\'s paper, with the words in it', async () => {
+  const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Quarterly memo' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Sales grew in every region.' }] }] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Quarterly memo', content })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.locator('.ProseMirror').getByText('Sales grew').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as PDF (.pdf)' }).click()]);
+  if (dl.suggestedFilename() !== 'Quarterly memo.pdf') throw new Error(dl.suggestedFilename());
+  const buf = fs.readFileSync(await dl.path());
+  const { PDFDocument } = (await import('module')).createRequire(`${ROOT}/server/package.json`)('pdf-lib');
+  const pdf = await PDFDocument.load(buf);
+  if (pdf.getTitle() !== 'Quarterly memo' || pdf.getPageCount() !== 1 || Math.round(pdf.getPage(0).getWidth()) !== 595) throw new Error(`${pdf.getTitle()} ${pdf.getPageCount()} ${pdf.getPage(0).getWidth()}`);
+  const { execFileSync } = await import('node:child_process');
+  let text = null;
+  try { text = execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
+  if (text !== null && !/Quarterly memo[\s\S]*Sales grew in every region\./.test(text)) throw new Error(text);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -835,6 +835,7 @@ function SharedDoc({ file, setFile }) {
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as web page (.html)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=html`; } },
+          { label: 'Download as PDF (.pdf)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=pdf`; } },
           { label: 'Download as Rich Text (.rtf)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=rtf`; } },
           { label: 'Download as plain text (.txt)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=txt`; } },
           { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
