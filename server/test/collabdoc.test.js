@@ -203,3 +203,26 @@ test('a comment’s words marked: across formatting runs, only the first place, 
   assert.deepEqual(back.filter((n) => n.marks?.some((m) => m.type === 'comment')).map((n) => n.text).join(''), 'on Friday');
   assert.equal(markQuoteInYDoc(doc, 'nowhere', 'c3'), false);
 });
+
+import { replaceInYDoc, replaceInJson } from '../src/collabdoc.js';
+test('find and replace in a document: live (Yjs) and stored alike; formatting of the first letter kept; first only, any case, not across objects', () => {
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'The Acme ' }, { type: 'text', text: 'Corp', marks: [{ type: 'bold' }] }, { type: 'text', text: ' plan.' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'acme corp, ', marks: [{ type: 'italic' }] }, { type: 'text', text: 'Acme Corp 😀 Acme' }, { type: 'mention', attrs: { id: 'u', name: 'x' } }, { type: 'text', text: 'Corp' }] },
+  ] };
+  // (runs with the same formatting merged, as the editor keeps them)
+  const words = (json) => json.content.map((p) => { const out = []; for (const n of p.content || []) { const tag = n.type === 'text' ? (n.marks ? `{${n.marks.map((m) => m.type)}}` : '') : null; const last = out[out.length - 1]; if (tag !== null && last && last.tag === tag) last.text += n.text; else out.push(tag === null ? { text: `[${n.type}]`, tag: '#' } : { text: n.text, tag }); } return out.map((o) => (o.tag === '#' ? o.text : `${o.text}${o.tag}`)).join('|'); });
+  // Stored
+  const a = replaceInJson(doc, 'Acme Corp', 'Beta Ltd');
+  assert.equal(a.count, 2);
+  assert.deepEqual(words(a.json), ['The Beta Ltd plan.', 'acme corp, {italic}|Beta Ltd 😀 Acme|[mention]|Corp'], 'across the bold; not across the mention');
+  assert.deepEqual(words(replaceInJson(doc, 'acme corp', 'X', { matchCase: false, all: false }).json), ['The X plan.', 'acme corp, {italic}|Acme Corp 😀 Acme|[mention]|Corp']);
+  assert.equal(replaceInJson(doc, 'nowhere', 'x').count, 0);
+  // Live: the same changes
+  const y = docFromJson(doc);
+  assert.equal(replaceInYDoc(y, 'Acme Corp', 'Beta Ltd').count, 2);
+  assert.deepEqual(words(jsonFromDoc(y)), words(a.json));
+  const y2 = docFromJson(doc);
+  assert.equal(replaceInYDoc(y2, 'ACME CORP', '', { matchCase: false }).count, 3);
+  assert.deepEqual(words(jsonFromDoc(y2)), ['The  plan.', ', {italic}| 😀 Acme|[mention]|Corp']);
+});

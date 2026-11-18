@@ -98,6 +98,17 @@ await step('a document open while an assistant adds to it: the text appears live
   if (!(await page.evaluate(() => window.__stayed))) throw new Error('the page reloaded');
   await page.screenshot({ path: `${SP}/shots/assistant-append.png` });
 });
+await step('a document open while an assistant changes words in it: they change live, no reload', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude words', scope: 'write', days: 30 })).body.token;
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Offer', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Start date: 1 March. Salary as agreed.' }] }] } })).body;
+  await page.goto(`${B}/docs/${d.id}`);
+  await page.locator('.ProseMirror').getByText('Start date: 1 March.').waitFor();
+  await page.evaluate(() => { window.__stayedDoc = true; });
+  const r = await mcp(token, 'replace_in_document', { file: `file:${d.id}`, find: '1 March', replace: '15 April' });
+  if (r.isError || r.structuredContent.replaced !== 1) throw new Error(JSON.stringify(r));
+  await page.locator('.ProseMirror').getByText('Start date: 15 April. Salary as agreed.').waitFor({ timeout: 15000 });
+  if (!(await page.evaluate(() => window.__stayedDoc))) throw new Error('the page reloaded');
+});
 await step('an assistant makes a spreadsheet: it opens in Sheets with the heading row bold and the formulas worked out', async () => {
   const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 2', scope: 'write', days: 30 })).body.token;
   const r = await mcp(token, 'create_spreadsheet', { name: 'Q3 travel', rows: [['City', 'Nights', 'Cost'], ['Lisbon', 3, 610.5], ['Oslo', 2, 880], ['Total', '=SUM(B2:B3)', '=SUM(C2:C3)']] });

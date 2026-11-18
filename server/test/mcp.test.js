@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'replace_in_document', 'create_folder', 'move_file', 'list_comments', 'comment_on_file', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -884,4 +884,17 @@ test('keep in touch: the contacts due a catch-up, most overdue first', async () 
   const mine = r.filter((c) => ['Kit Overdue', 'Never Yet'].includes(c.name));
   assert.deepEqual(mine.map((c) => [c.name, c.meant_to_be, c.last_in_touch === null]), [['Never Yet', 'every month', true], ['Kit Overdue', 'every week', false]]);
   assert.equal(mine[1].id, `contact:${c1.id}`);
+});
+
+test('change words in a document: everywhere or first only, any case; read-only refused; not found says 0', async () => {
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Contract', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Between Acme Corp and ' }, { type: 'text', text: 'Acme Corp', marks: [{ type: 'bold' }] }, { type: 'text', text: ' again.' }] }] } })).body;
+  let r = await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Acme Corp', replace: 'Beta Ltd', all: false });
+  assert.deepEqual([r.structuredContent.replaced, r.structuredContent.name], [1, 'Contract']);
+  r = await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'acme corp', replace: 'Beta Ltd', match_case: false });
+  assert.equal(r.structuredContent.replaced, 1);
+  const content = (await owner('GET', `/api/files/${doc.id}/content`)).body.content;
+  assert.deepEqual(content.content[0].content.map((n) => [n.text, (n.marks || []).map((m) => m.type).join()]), [['Between Beta Ltd and ', ''], ['Beta Ltd', 'bold'], [' again.', '']]);
+  assert.equal((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'Nowhere', replace: 'x' })).structuredContent.replaced, 0);
+  assert.equal((await call(ro, 'replace_in_document', { file: `file:${doc.id}`, find: 'Beta', replace: 'x' })).isError, true);
+  assert.match((await call(rw, 'replace_in_document', { file: `file:${doc.id}`, find: 'a\nb', replace: 'x' })).content[0].text, /within one paragraph/);
 });

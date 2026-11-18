@@ -655,6 +655,25 @@ export const TOOLS = [
     },
   },
   {
+    name: 'replace_in_document', title: 'Change words in a document', readOnly: false,
+    description: 'Find and replace text in an existing Workspace document (e.g. a name that changed, a figure corrected), everywhere or only the first place. Read it with fetch first. The text to find is within one paragraph; the new text takes the formatting of the words it replaces. Says how many places changed (0: not found).',
+    inputSchema: {
+      type: 'object', required: ['file', 'find', 'replace'],
+      properties: {
+        file: { type: 'string', description: 'The document’s id (file:…, from search or list_files)' },
+        find: { type: 'string' }, replace: { type: 'string', description: 'The new text ("" deletes what was found)' },
+        all: { type: 'boolean', default: true, description: 'Every place (true) or only the first (false)' },
+        match_case: { type: 'boolean', default: true },
+      },
+    },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const r = await api('POST', `/files/${encodeURIComponent(id)}/replace`, { find: a.find, replace: a.replace ?? '', all: a.all !== false, match_case: a.match_case !== false });
+      const f = await api('GET', `/files/${encodeURIComponent(id)}`);
+      return { replaced: r.replaced, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+    },
+  },
+  {
     name: 'create_folder', title: 'Make a folder', readOnly: false,
     description: 'Make a folder in the person’s Drive (at the top, or inside another folder), e.g. to keep a project’s files together. If one of that name is already there, the new one gets a number after its name.',
     inputSchema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, folder: { ...FOLDER_ARG, description: 'The folder to make it in; the top of their Drive when left out' } } },

@@ -29,7 +29,7 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow, changeSheet, appendToDocument } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow, changeSheet, appendToDocument, replaceInDocument } from '../collab.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
 import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
@@ -1586,6 +1586,24 @@ export default function fileRoutes({ maxUploadBytes }) {
     const tab = appendToDocument(f.id, nodes, req.body?.tab ? String(req.body.tab) : null, req.user.id);
     recordActivity(f.id, req.user.id, 'edit');
     res.json({ added: nodes.length, tab });
+  });
+
+  // Find and replace in a document's text: { find, replace, all?, match_case? }, live for anyone editing it; the
+  // version before goes to its history as for adding text. Suggestions and comments on the words stay as marks.
+  r.post('/:id/replace', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'doc') throw bad('Text can only be replaced in a document');
+    notLocked(f);
+    const find = String(req.body?.find ?? ''), replace = String(req.body?.replace ?? '');
+    if (!find) throw bad('Give the text to find');
+    if (find.length > 5000 || replace.length > 20000) throw bad('That’s too much text to replace at once');
+    if (/[\n\r]/.test(find)) throw bad('Find text within one paragraph (no line breaks)');
+    saveNow(f.id);
+    const cur = q('SELECT updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
+    if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
+    const count = replaceInDocument(f.id, find, replace.replace(/[\r\n]+/g, ' '), { all: req.body?.all !== false, matchCase: req.body?.match_case !== false }, req.user.id);
+    if (count) recordActivity(f.id, req.user.id, 'edit');
+    res.json({ replaced: count });
   });
 
   // Lock or unlock: { locked }. Editors can lock; whoever locked it, or the owner, can unlock.

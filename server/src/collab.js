@@ -15,7 +15,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, markQuoteInJson } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 import { brokenProtections, mayEdit } from './sheetprotect.js';
@@ -220,6 +220,21 @@ export function markCommentInDocument(fileId, quote, commentId) {
   const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
   sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version });
   return true;
+}
+/** Find and replace in a document's text, live for anyone editing it: the number of places changed. */
+export function replaceInDocument(fileId, find, replace, opts = {}, by = null) {
+  const room = rooms.get(fileId);
+  if (room) { const { count } = replaceInYDoc(room.doc, find, replace, { ...opts, field: FIELD }); if (count) room.lastEditor = by || room.lastEditor; return count; }
+  const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc' AND trashed = 0").get(fileId);
+  if (!f) return 0;
+  const out = replaceInJson(JSON.parse(f.content || '{}'), find, replace, opts);
+  if (!out.count) return 0;
+  const json = JSON.stringify(out.json);
+  q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ?, updated_by = COALESCE(?, updated_by) WHERE id = ?').run(json, Buffer.byteLength(json), Date.now(), by, fileId);
+  indexSoon();
+  const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
+  sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
+  return out.count;
 }
 /** Write one file's open editing session to the database now (if anything changed). */
 export function saveNow(fileId) { const room = rooms.get(fileId); if (room) save(room); }

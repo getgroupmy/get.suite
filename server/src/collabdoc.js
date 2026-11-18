@@ -140,6 +140,73 @@ export function markQuoteInJson(json, quote, commentId) {
   return { json: out, found };
 }
 
+// ---- find and replace in a document's text (an assistant's "change X to Y"): a paragraph's text at a time, so a match
+// may cross formatting; the replacement takes the formatting of the match's first letter. At most `limit` places.
+const occurrences = (plain, find, matchCase, all) => {
+  const hay = matchCase ? plain : plain.toLowerCase(), needle = matchCase ? find : find.toLowerCase();
+  const out = [];
+  for (let at = hay.indexOf(needle); at >= 0 && needle; at = hay.indexOf(needle, at + needle.length)) {
+    if (!/￼/.test(plain.slice(at, at + needle.length))) out.push(at); // (not across a picture, chip or other object)
+    if (!all && out.length) break;
+  }
+  return out;
+};
+
+/** Replace in a live document: { count }. */
+export function replaceInYDoc(doc, find, replace, { all = true, matchCase = true, limit = 1000, field = 'default' } = {}) {
+  let count = 0;
+  const walk = (node) => {
+    for (const child of node.toArray()) {
+      if (count >= limit || (!all && count)) return;
+      if (child instanceof Y.XmlText) {
+        const delta = child.toDelta();
+        const plain = delta.map((d) => (typeof d.insert === 'string' ? d.insert : '￼')).join('');
+        const hits = occurrences(plain, find, matchCase, all).slice(0, limit - count);
+        if (!hits.length) continue;
+        const attrsAt = (pos) => { let p = 0; for (const d of delta) { const len = typeof d.insert === 'string' ? d.insert.length : 1; if (pos < p + len) return d.attributes || {}; p += len; } return {}; };
+        doc.transact(() => { for (const at of [...hits].reverse()) { const a = attrsAt(at); child.delete(at, find.length); if (replace) child.insert(at, replace, a); } });
+        count += hits.length;
+      } else if (child instanceof Y.XmlElement) walk(child);
+    }
+  };
+  walk(doc.getXmlFragment(field));
+  return { count };
+}
+
+/** The same for a stored document: { json, count }. */
+export function replaceInJson(json, find, replace, { all = true, matchCase = true, limit = 1000 } = {}) {
+  let count = 0;
+  const visit = (node) => {
+    if (!Array.isArray(node.content) || count >= limit || (!all && count)) return node;
+    const kids = node.content;
+    if (!kids.some((k) => k.type === 'text')) return { ...node, content: kids.map(visit) };
+    // Each character with the node it came from; anything not text is one object character.
+    const chars = kids.flatMap((k) => (k.type === 'text' ? [...(k.text || '')].map((ch) => ({ ch, k })) : [{ ch: '￼', k }]));
+    // (positions in UTF-16 units, as indexOf counts them)
+    const units = []; chars.forEach((c, i) => { for (let u = 0; u < c.ch.length; u++) units.push(i); });
+    const plain = chars.map((c) => c.ch).join('');
+    const hits = occurrences(plain, find, matchCase, all).slice(0, limit - count);
+    if (!hits.length) return { ...node, content: kids.map(visit) };
+    let out = [...chars];
+    for (const at of [...hits].reverse()) {
+      const from = units[at], to = units[at + find.length - 1] + 1;
+      const k = out[from].k;
+      out.splice(from, to - from, ...[...replace].map((ch) => ({ ch, k })));
+    }
+    count += hits.length;
+    // Back into nodes: neighbouring characters from the same text node (same marks) together.
+    const content = [];
+    for (const c of out) {
+      if (c.k.type !== 'text') { content.push(c.k); continue; }
+      const last = content[content.length - 1];
+      if (last && last.type === 'text' && last.__from === c.k) last.text += c.ch;
+      else content.push({ ...c.k, text: c.ch, __from: c.k });
+    }
+    return { ...node, content: content.filter((n) => n.type !== 'text' || n.text).map(({ __from, ...n }) => n) };
+  };
+  return { json: visit(json), count };
+}
+
 // ---- spreadsheets: a list of sheets, each with cells, column widths, formats and charts as maps, so two
 // people changing different cells at once both keep their change (the same cell: the later wins).
 const SHEET_MAPS = ['cells', 'colWidths', 'rowHeights', 'formats', 'charts', 'notes', 'slicers', 'views']; // charts: id → { type, range, title, x, y, w, h }; notes: cell → text; rowHeights: row number → pixels; views: id → filter view
