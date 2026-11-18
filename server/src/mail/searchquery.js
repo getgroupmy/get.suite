@@ -1,7 +1,8 @@
 // Mail search, as people type it in Gmail: words (all of them, in the subject, sender, recipients
 // or text), "exact phrases", -excluded words, and from: to: subject: has:attachment filename: is:unread
-// is:read is:starred before: after: older_than: newer_than: larger: smaller:. Turned into an
+// is:read is:starred is:important before: after: older_than: newer_than: larger: smaller:. Turned into an
 // IMAP search for the mail server.
+import { importantQuery } from './importance.js';
 
 const DAY = 864e5;
 
@@ -63,6 +64,7 @@ export function parseMailQuery(text, now = Date.now()) {
       else if (op === 'is' && /^unread$/i.test(v)) c = { seen: false };
       else if (op === 'is' && /^read$/i.test(v)) c = { seen: true };
       else if (op === 'is' && /^(starred|flagged)$/i.test(v)) c = { flagged: true };
+      else if (op === 'is' && /^(important|high)$/i.test(v)) c = importantQuery();
       else if (op === 'before' || op === 'after') {
         const d = day(v);
         if (!d) return { error: `Write dates as YYYY-MM-DD (${op}:${v})` };

@@ -664,7 +664,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 <button className="msg-row" onClick={() => (special === '\\Drafts' ? openDraft(m.uid) : go(folder, m.uid))}>
                   <span className="msg-from ellipsis">{m.suspicious && <span className="msg-suspicious" role="img" aria-label={m.suspicious === 'name' ? 'Warning: may be someone pretending to be a colleague' : 'Warning: from a lookalike of a domain you know'} title={m.suspicious === 'name' ? 'Uses a colleague’s name, from outside the company' : 'From a domain made to look like one you know'}>⚠ </span>}{special === '\\Sent' || special === '\\Drafts' ? `To: ${m.to.map(who).join(', ')}` : who(m.from)}</span>
                   <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.snoozedUntil ? <span className="snoozed-until" title={`Comes back ${whenText(m.snoozedUntil)}`}><Icon name="clock" size={14} /> {formatDate(m.snoozedUntil)}</span> : m.date ? formatDate(m.date) : ''}</span>
-                  <span className="msg-subject ellipsis">{(m.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => <LabelChip key={l.id} label={l} />)}{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
+                  <span className="msg-subject ellipsis">{(m.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => <LabelChip key={l.id} label={l} />)}{m.importance === 'high' && <span className="importance" title="High importance" aria-label="High importance">! </span>}{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
                   {shared && (m.assignee || m.done) && <span className="msg-assign small">{m.done ? <span className="pill done">✓ Done</span> : null}{m.assignee && <span className="pill" title={`Given to ${m.assignee.name}`}>→ {m.assignee.id === user.id ? 'You' : m.assignee.name}</span>}</span>}
                   {m.nudge && <span className="msg-nudge small">Received {Math.max(3, Math.floor((Date.now() - m.date) / 864e5))} days ago. Reply?</span>}
                   {sentNudge.has(m.uid) && special === '\\Sent' && <span className="msg-nudge small">Sent {Math.max(3, Math.floor((Date.now() - m.date) / 864e5))} days ago. Follow up?</span>}
@@ -1112,6 +1112,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       <FollowUpBanner messageId={m.messageId} sent={special === '\\Sent' && !shared ? m : null} />
       {m.invite && <InviteCard invite={m.invite} uid={uid} folder={folder} onChange={(invite) => setM({ ...m, invite })} />}
       {special === '\\Sent' && !shared && m.messageId && <DeliveryStatus messageId={m.messageId} />}
+      {m.importance === 'high' && <div className="importance-note small" role="note"><span className="importance" aria-hidden="true">!</span> The sender marked this message as high importance.</div>}
       {m.receipt && (
         <div className="banner receipt-ask" role="region" aria-label="Read receipt">
           <span className="grow">{who(m.from)} asked to be told when you've opened this message.</span>
@@ -1623,6 +1624,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     const base = { from: user.username, to: '', cc: '', bcc: '', subject: '', text: '', html: '' };
     for (const k of FIELDS) if (initial[k] !== undefined && initial[k] !== null) base[k] = initial[k];
     if (shared) base.from = shared.address; // a shared mailbox sends only as itself
+    if (initial.importance === 'high') base.importance = 'high'; // (kept in its draft)
     return base;
   });
   const [showCc, setShowCc] = useState(!!(initial.cc || initial.bcc));
@@ -2012,6 +2014,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           {f.replyTo?.uid && !/archive/i.test(f.replyTo.folder || '') && <button className="btn" data-archive="1" title="Send, and archive the message you're replying to" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="archive" size={16} /> Send &amp; archive</button>}
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
+          <label className="check small" title="Marked as important in the recipient's mail app (Outlook, Gmail and others show it)"><input type="checkbox" checked={f.importance === 'high'} onChange={(e) => setF({ ...f, importance: e.target.checked ? 'high' : undefined })} /> <span className="importance" aria-hidden="true">!</span> High importance</label>
           <label className="check small" title="The recipient's mail app may offer to tell you when they open it; they can say no"><input type="checkbox" checked={receipt} onChange={(e) => setReceipt(e.target.checked)} /> Read receipt</label>
           {!shared && <select className={`small followup-pick ${confidential ? 'on' : ''}`} aria-label="Confidential" title="Confidential: the email carries a link to the message, readable by its recipients until the date you choose (and you can take it back); no attachments" value={confidential} onChange={(e) => setConfidential(e.target.value)}>
             <option value="">Not confidential</option>

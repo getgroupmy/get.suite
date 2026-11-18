@@ -3295,3 +3295,7 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 
 /* Mail: the writer's default text style (Settings → Default text style) shows while writing */
 .compose-style .tiptap { font-family: inherit; font-size: inherit; }
+
+/* Mail: high importance */
+.importance { color: var(--danger, #c5221f); font-weight: 700; }
+.importance-note { margin: 4px 0 8px; color: var(--muted); }

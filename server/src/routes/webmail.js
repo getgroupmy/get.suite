@@ -52,6 +52,7 @@ import { externalRoutes, askOutside, outsideRecipients, incomingWarning, replyTo
 import { mailStorage } from '../mail/storage.js';
 import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
+import { importanceOf, highImportanceHeaders } from '../mail/importance.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { partsOf, PART_RE, KINDS as KINDS_OF_FILES } from '../mail/attachlist.js';
@@ -1076,9 +1077,11 @@ export default function webmailRoutes() {
         range = `${Math.max(1, end - PAGE + 1)}:${end}`;
       }
       const messages = [];
-      for await (const m of client.fetch(range, { uid: true, envelope: true, flags: true, internalDate: true, bodyStructure: true, size: true }, { uid: uidMode })) {
+      for await (const m of client.fetch(range, { uid: true, envelope: true, flags: true, internalDate: true, bodyStructure: true, size: true, headers: ['importance', 'x-priority'] }, { uid: uidMode })) {
         const env = m.envelope || {};
+        const importance = importanceOf(m.headers?.toString()); // marked high (or low) importance by its sender
         messages.push({
+          ...(importance && { importance }),
           uid: m.uid,
           subject: env.subject || '',
           from: addr(env.from?.[0]),
@@ -1208,6 +1211,8 @@ export default function webmailRoutes() {
       reply_elsewhere: replyToWarning(req.user, addrList(p.from)[0], addrList(p.replyTo), { list: p.headers.has('list') }),
       attachments: await attachmentList(p),
       invite: inviteFor(req.user, p),
+      // Marked high (or low) importance by its sender.
+      importance: importanceOf(p.headerLines?.map((l) => l.line).join('\n')),
       // The sender asked for a read receipt (and it hasn't been answered yet): offered, never sent by itself.
       receipt: (() => {
         if (flags.has('$MDNSent')) return null;
@@ -1994,6 +1999,7 @@ export default function webmailRoutes() {
       attachments: (Array.isArray(b.attachments) ? b.attachments : []).map(String).slice(0, 50),
       inReplyTo: b.inReplyTo ? String(b.inReplyTo) : null, references: [].concat(b.references || []).map(String).slice(-20),
       replyTo: b.replyTo?.folder && b.replyTo?.uid ? { folder: String(b.replyTo.folder), uid: Number(b.replyTo.uid) } : null,
+      ...(b.importance === 'high' && { importance: 'high' }),
       forwardOf: b.forwardOf?.folder && b.forwardOf?.uid ? {
         folder: String(b.forwardOf.folder), uid: Number(b.forwardOf.uid),
         attachments: (Array.isArray(b.forwardOf.attachments) ? b.forwardOf.attachments : []).map(Number).slice(0, 50),
@@ -2039,6 +2045,7 @@ export default function webmailRoutes() {
       inReplyTo: meta?.inReplyTo || p.inReplyTo || null, references: meta?.references || [].concat(p.references || []),
       replyTo: meta?.replyTo || null,
       forwardOf: meta?.forwardOf || null,
+      importance: meta?.importance || null,
     });
   });
 
@@ -2185,7 +2192,8 @@ export default function webmailRoutes() {
       text,
       ...(html && { html }),
       ...(b.inReplyTo && { inReplyTo: String(b.inReplyTo), references: [].concat(b.references || [], b.inReplyTo).map(String).slice(-20) }),
-      ...((b.receipt || extra.headers) && { headers: { ...(b.receipt && { 'Disposition-Notification-To': from.address }), ...extra.headers } }), // a read receipt asked for
+      // a read receipt asked for; high importance (Importance: High, X-Priority: 1, as Outlook and others read it)
+      ...((b.receipt || b.importance === 'high' || extra.headers) && { headers: { ...(b.receipt && { 'Disposition-Notification-To': from.address }), ...(b.importance === 'high' && highImportanceHeaders()), ...extra.headers } }),
       ...(req.user.delegate && { sender: { name: req.user.delegate.name, address: req.user.delegate.address } }), // sent by a delegate
       attachments,
     };
