@@ -1010,6 +1010,10 @@ test('suggestions in a colleague’s document: the owner is told who suggested e
   assert.deepEqual(heard, [['Sue Owner rejected your suggestion in “Sue’s plan”', 'Replace “people” with “staff”'], ['Sue Owner accepted 2 of your suggestions in “Sue’s plan”', 'Replace “May” with “June” · Replace “ten” with “twelve”']]);
   assert.equal((await sue('GET', '/api/notifications')).body.items.filter((x) => /your suggestion/.test(x.title)).length, 0);
   assert.deepEqual((await sue('GET', '/api/files/suggestions/for-me')).body, [], 'all answered');
+  // An email to the people with access: refused without edit access, or with nobody to write to.
+  assert.match((await call(rw, 'draft_email', { to_people_with_access: `file:${doc.id}`, subject: 'x', body: 'x' })).content[0].text, /editor access/);
+  const alone = (await call(rw, 'create_document', { name: 'Just mine', text: 'x' })).structuredContent;
+  assert.match((await call(rw, 'draft_email', { to_people_with_access: alone.id, subject: 'x', body: 'x' })).content[0].text, /Nobody else has access/);
   // Changed outright (not suggested): no such notification; one's own document: none either.
   const mine = (await call(rw, 'create_document', { name: 'Mine', text: 'Alpha' })).structuredContent;
   await call(rw, 'replace_in_document', { file: mine.id, find: 'Alpha', replace: 'Beta', suggest: true });

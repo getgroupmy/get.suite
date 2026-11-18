@@ -477,6 +477,7 @@ export const TOOLS = [
         to: { type: 'string', description: 'Addresses, separated by commas (for a reply: who it went to, unless given)' }, cc: { type: 'string' },
         subject: { type: 'string', description: 'For a reply: "Re: " and the original subject, unless given' }, body: { type: 'string', description: 'The message, as plain text' },
         reply_to: { type: 'string', description: 'The id (mail:…) of the email being replied to' }, reply_all: { type: 'boolean', description: 'With reply_to: reply to everyone on it, not only the sender' },
+        to_people_with_access: { type: 'string', description: 'A Drive file’s id (file:…): the email goes (also) to everyone it’s shared with by name, as Email people with access in Docs does. Needs edit access to it.' },
         attach: {
           type: 'array', maxItems: 20, description: 'Drive files to attach (file:… ids from search or list_files). A document, spreadsheet or presentation is attached as a copy in the format given (as: pdf, docx, odt, xlsx, ods, pptx, odp, csv…; PDF when left out); other files as they are.',
           items: { anyOf: [{ type: 'string' }, { type: 'object', required: ['file'], properties: { file: { type: 'string' }, as: { type: 'string' } } }] },
@@ -485,6 +486,14 @@ export const TOOLS = [
     },
     async run(api, a) {
       let draft = { to: String(a.to || ''), cc: String(a.cc || ''), subject: String(a.subject || ''), text: String(a.body || '') };
+      if (a.to_people_with_access) { // everyone a file is shared with, added to To (not twice)
+        const id = String(a.to_people_with_access).replace(/^file:/, '');
+        const r = await api('GET', `/files/${encodeURIComponent(id)}/people`);
+        if (!r.people.length) throw new ToolError(r.everyone_at_company ? 'It’s shared with everyone at the company and nobody by name: say who it’s to' : 'Nobody else has access to that file yet');
+        const have = new Set((draft.to.match(/[^\s<>,]+@[^\s<>,]+/g) || []).map((x) => x.toLowerCase()));
+        const more = r.people.filter((p) => !have.has(p.username.toLowerCase())).map((p) => `${p.name.replace(/[",<>]/g, '')} <${p.username}>`);
+        draft.to = [draft.to, ...more].filter(Boolean).join(', ');
+      }
       if (a.reply_to) {
         const m0 = /^mail:(.+):(\d+)$/.exec(String(a.reply_to));
         if (!m0) throw new ToolError('reply_to is an email’s id, like mail:INBOX:42 (from list_mail or search)');

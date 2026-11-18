@@ -88,6 +88,22 @@ await step('an assistant drafts an email with a document attached as PDF and a f
   const d = page.getByRole('dialog').filter({ hasText: 'Here it is.' }).first();
   for (const name of ['Q3 report.pdf', 'notes.txt', 'Q3 report.docx']) await d.getByText(name).first().waitFor({ timeout: 15000 });
 });
+await step('an assistant drafts an email to everyone a document is shared with; the draft has them all', async () => {
+  const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude people', scope: 'write', days: 30 })).body.token;
+  const mcp = async (name, args) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json()).result;
+  const ids = [];
+  for (const [local, name] of [['kim', 'Kim Park'], ['lee', 'Lee Lane']]) ids.push((await api(page, 'POST', '/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id);
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Offsite plan' })).body;
+  await api(page, 'PUT', `/files/${doc.id}/shares`, { shares: ids.map((user_id) => ({ user_id, role: 'commenter' })) });
+  const r = await mcp('draft_email', { to_people_with_access: `file:${doc.id}`, to: 'kim@acme.com', subject: 'Offsite plan comments', body: 'Please add your comments by Friday.' });
+  if (r.isError || r.structuredContent.to !== 'kim@acme.com, Lee Lane <lee@acme.com>') throw new Error(JSON.stringify(r)); // (Kim already there: not twice)
+  await page.goto(`${B}/mail/Drafts`);
+  await page.locator('.mail-list').getByText('Offsite plan comments', { exact: true }).first().click();
+  const d = page.getByRole('dialog').filter({ hasText: 'Please add your comments by Friday.' }).first();
+  await d.waitFor();
+  const to = await d.getByLabel('To', { exact: true }).inputValue();
+  if (!/kim@acme\.com/.test(to) || !/lee@acme\.com/.test(to)) throw new Error(to);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
