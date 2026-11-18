@@ -47,3 +47,29 @@ test('a document as a PDF: the page setup\'s paper and orientation, pages as the
   assert.match(text, /1\. A note\./);
   assert.match(text, /Confidential\s+1/);
 });
+
+test('the PDF follows the document\'s look: its font, sizes, colours and highlights, spacing and indents, page colour and watermark', async () => {
+  const S = (text, ...marks) => ({ type: 'text', text, marks });
+  const d = { type: 'doc', content: [
+    { type: 'paragraph', content: [S('Red', { type: 'textStyle', attrs: { color: '#d93025' } }), { type: 'text', text: ' and ' }, S('lit', { type: 'highlight', attrs: { color: '#fff475' } }), { type: 'text', text: ' and ' }, S('big', { type: 'textStyle', attrs: { fontSize: '20pt' } })] },
+    { type: 'paragraph', attrs: { indent: 2, spaceBefore: 24, lineHeight: '2' }, content: [{ type: 'text', text: 'Indented twice.' }] },
+  ] };
+  const buf = await pdfFromDoc(d, 'Styled', { setup: { font: 'Georgia', fontSize: 12, watermark: 'DRAFT', pageColor: '#fef7e0' } });
+  assert.equal((await PDFDocument.load(buf)).getPageCount(), 1);
+  const { execFileSync } = await import('node:child_process');
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pdfstyle-')), 'a.pdf');
+  fs.writeFileSync(f, buf);
+  let fonts, text, bbox;
+  try { fonts = execFileSync('pdffonts', [f]).toString(); text = execFileSync('pdftotext', [f, '-']).toString(); bbox = execFileSync('pdftotext', ['-bbox', f, '-']).toString(); } catch { return; } // (poppler not installed)
+  assert.match(fonts, /Times-Roman/, 'a serif document in Times');
+  assert.doesNotMatch(fonts, /Helvetica/);
+  assert.match(text, /Red and lit and\s+big/);
+  assert.match(text.replace(/\s+/g, ''), /DRAFT/); // (drawn across the page)
+  // The indented paragraph starts two half-inch steps (72pt) further right than the first.
+  const xOf = (word) => Number(new RegExp(`xMin="([\\d.]+)"[^>]*>${word}<`).exec(bbox)?.[1]);
+  assert.ok(Math.abs(xOf('Indented') - xOf('Red') - 72) < 1, `${xOf('Indented')} vs ${xOf('Red')}`);
+  // "big" is drawn taller than "and".
+  const hOf = (word) => { const m = new RegExp(`yMin="([\\d.]+)" xMax="[\\d.]+" yMax="([\\d.]+)">${word}<`).exec(bbox); return m ? Number(m[2]) - Number(m[1]) : 0; };
+  assert.ok(hOf('big') > hOf('and') * 1.4, `${hOf('big')} vs ${hOf('and')}`);
+});

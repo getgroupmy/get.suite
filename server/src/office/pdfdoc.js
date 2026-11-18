@@ -18,11 +18,18 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
   const pdf = await PDFDocument.create();
   pdf.setTitle(title);
   pdf.setCreator('Workspace');
+  // The document's font (Page setup): Times for the serif ones, Courier for Courier New, Helvetica otherwise.
+  const fam = /times|georgia/i.test(setup?.font || '') ? ['TimesRoman', 'TimesRomanBold', 'TimesRomanItalic', 'TimesRomanBoldItalic']
+    : /courier/i.test(setup?.font || '') ? ['Courier', 'CourierBold', 'CourierOblique', 'CourierBoldOblique']
+      : ['Helvetica', 'HelveticaBold', 'HelveticaOblique', 'HelveticaBoldOblique'];
   const F = {
-    r: await pdf.embedFont(StandardFonts.Helvetica), b: await pdf.embedFont(StandardFonts.HelveticaBold),
-    i: await pdf.embedFont(StandardFonts.HelveticaOblique), bi: await pdf.embedFont(StandardFonts.HelveticaBoldOblique),
+    r: await pdf.embedFont(StandardFonts[fam[0]]), b: await pdf.embedFont(StandardFonts[fam[1]]),
+    i: await pdf.embedFont(StandardFonts[fam[2]]), bi: await pdf.embedFont(StandardFonts[fam[3]]),
     m: await pdf.embedFont(StandardFonts.Courier),
   };
+  const BASE = Number(setup?.fontSize) || 11;
+  const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) { const r = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(hex || '')); return r ? rgb(r[1] / 255, r[2] / 255, r[3] / 255) : null; } const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
+  const ptSize = (v) => { const m = /^([\d.]+)(pt|px)$/.exec(String(v || '').trim()); if (!m) return null; const pt = m[2] === 'px' ? Number(m[1]) * 0.75 : Number(m[1]); return pt >= 4 && pt <= 96 ? pt : null; };
   const fontOf = (s) => (s.code ? F.m : s.bold && s.italic ? F.bi : s.bold ? F.b : s.italic ? F.i : F.r);
   // Characters the standard fonts can't draw: "?".
   const safe = (t) => [...String(t)].map((ch) => { try { F.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join('');
@@ -33,7 +40,16 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
   const width = right - left;
   let page, y;
   const pages = [];
-  const newPage = () => { page = pdf.addPage([pw, ph]); pages.push(page); y = top; };
+  const newPage = () => {
+    page = pdf.addPage([pw, ph]); pages.push(page); y = top;
+    const bg = hexRgb(setup?.pageColor);
+    if (bg) page.drawRectangle({ x: 0, y: 0, width: pw, height: ph, color: bg });
+    if (setup?.watermark) { // (across the page, light, under the text)
+      const wm = safe(setup.watermark), ws = Math.min(72, (Math.hypot(pw, ph) * 0.7) / Math.max(1, F.b.widthOfTextAtSize(wm, 1)));
+      const tw = F.b.widthOfTextAtSize(wm, ws), a = Math.atan2(ph, pw);
+      page.drawText(wm, { x: pw / 2 - (tw / 2) * Math.cos(a) + (ws / 3) * Math.sin(a), y: ph / 2 - (tw / 2) * Math.sin(a) - (ws / 3) * Math.cos(a), size: ws, font: F.b, color: rgb(0.85, 0.85, 0.85), rotate: { type: 'degrees', angle: (a * 180) / Math.PI } });
+    }
+  };
   newPage();
   const need = (h) => { if (y - h < bottom) newPage(); };
 
@@ -51,6 +67,8 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
       if (m.type === 'bold') s.bold = true; else if (m.type === 'italic') s.italic = true; else if (m.type === 'underline') s.underline = true;
       else if (m.type === 'strike') s.strike = true; else if (m.type === 'code') s.code = true;
       else if (m.type === 'link' && /^(https?:|mailto:)/i.test(m.attrs?.href || '')) s.link = m.attrs.href;
+      else if (m.type === 'textStyle') { if (hexRgb(m.attrs?.color)) s.color = hexRgb(m.attrs.color); if (hexRgb(m.attrs?.backgroundColor)) s.bg = hexRgb(m.attrs.backgroundColor); if (ptSize(m.attrs?.fontSize)) s.size = ptSize(m.attrs.fontSize); }
+      else if (m.type === 'highlight') s.bg = hexRgb(m.attrs?.color) || rgb(1, 0.95, 0.4);
     }
     return [{ text: safe(t), ...s }];
   });
@@ -64,7 +82,8 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
     }
     const lines = [[]];
     let lw = 0;
-    const wOf = (wd) => fontOf(wd).widthOfTextAtSize(wd.text, wd.sup ? size * 0.7 : size);
+    const szOf = (wd) => (wd.size || size) * (wd.sup ? 0.7 : 1);
+    const wOf = (wd) => fontOf(wd).widthOfTextAtSize(wd.text, szOf(wd));
     for (const wd of words) {
       if (wd.br) { lines.push([]); lw = 0; continue; }
       let ww = wOf(wd);
@@ -81,16 +100,18 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
     }
     y -= gapBefore;
     lines.forEach((line, li) => {
-      const h = size * lead;
+      const big = Math.max(size, ...line.map((wd) => wd.size || 0)); // (the line is as tall as its biggest words)
+      const h = big * lead;
       need(h);
-      y -= size;
-      const total = line.reduce((a, wd, k) => a + fontOf(wd).widthOfTextAtSize(k === line.length - 1 ? wd.text.trimEnd() : wd.text, wd.sup ? size * 0.7 : size), 0);
+      y -= big;
+      const total = line.reduce((a, wd, k) => a + fontOf(wd).widthOfTextAtSize(k === line.length - 1 ? wd.text.trimEnd() : wd.text, szOf(wd)), 0);
       let cx = x + (align === 'center' ? (w - total) / 2 : align === 'right' ? w - total : 0);
       const spans = [];
       if (li === 0 && firstPrefix) page.drawText(firstPrefix, { x: x - 16, y, size, font: F.r, color: rgb(0.2, 0.2, 0.2) });
       for (const wd of line) {
-        const sz = wd.sup ? size * 0.7 : size, font = fontOf(wd), tw = font.widthOfTextAtSize(wd.text, sz);
+        const sz = szOf(wd), font = fontOf(wd), tw = font.widthOfTextAtSize(wd.text, sz);
         const color = wd.link ? rgb(0.07, 0.33, 0.8) : wd.color || rgb(0.1, 0.1, 0.1);
+        if (wd.bg) page.drawRectangle({ x: cx, y: y - sz * 0.22, width: tw, height: sz * 1.15, color: wd.bg });
         page.drawText(wd.text, { x: cx, y: wd.sup ? y + size * 0.35 : y, size: sz, font, color });
         const tv = font.widthOfTextAtSize(wd.text.trimEnd(), sz);
         if (wd.underline || wd.link) page.drawLine({ start: { x: cx, y: y - 1.5 }, end: { x: cx + tv, y: y - 1.5 }, thickness: 0.6, color });
@@ -108,7 +129,7 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
         const annots = page.node.lookup(PDFName.of('Annots'));
         if (annots) annots.push(ref); else page.node.set(PDFName.of('Annots'), pdf.context.obj([ref]));
       }
-      y -= h - size;
+      y -= h - big;
     });
     y -= gapAfter;
   };
@@ -173,13 +194,16 @@ export async function pdfFromDoc(doc, title = 'Document', { pictureData, setup =
     for (const n of list) {
       const x = left + indent, w = width - indent;
       const align = ['center', 'right'].includes(n.attrs?.textAlign) ? n.attrs.textAlign : 'left';
-      if (n.type === 'paragraph') paragraph(runsOf(n.content), { x, w, align });
-      else if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); paragraph(runsOf(n.content, { bold: true }), { x, w, align, size: HEAD[lv], gapBefore: lv <= 2 ? 10 : 6, gapAfter: 6, lead: 1.25 }); }
+      // its own spacing and indent (in half-inch steps)
+      const lh = Number(n.attrs?.lineHeight), sb = Number(n.attrs?.spaceBefore), sa = Number(n.attrs?.spaceAfter), ind = Math.min(8, Math.max(0, Number(n.attrs?.indent) || 0)) * 36;
+      const look = { ...(lh >= 0.5 && lh <= 4 && { lead: lh * 1.2 }), ...(sb >= 0 && sb <= 200 && n.attrs?.spaceBefore != null && { gapBefore: sb }), ...(sa >= 0 && sa <= 200 && n.attrs?.spaceAfter != null && { gapAfter: sa }) };
+      if (n.type === 'paragraph') paragraph(runsOf(n.content), { x: x + ind, w: w - ind, align, size: BASE, ...look });
+      else if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); paragraph(runsOf(n.content, { bold: true }), { x: x + ind, w: w - ind, align, size: HEAD[lv], gapBefore: lv <= 2 ? 10 : 6, gapAfter: 6, lead: 1.25, ...look }); }
       else if (n.type === 'bulletList' || n.type === 'orderedList' || n.type === 'taskList') {
         for (const [k, li] of (n.content || []).entries()) {
           const mark = n.type === 'bulletList' ? '•' : n.type === 'taskList' ? (li.attrs?.checked ? '[x]' : '[ ]') : `${(n.attrs?.start || 1) + k}.`;
           const [first, ...more] = li.content || [];
-          paragraph(runsOf(first?.content), { x: x + 18, w: w - 18, gapAfter: 3, firstPrefix: mark });
+          paragraph(runsOf(first?.content), { x: x + 18, w: w - 18, gapAfter: 3, firstPrefix: mark, size: BASE });
           await blocks(more, indent + 18);
         }
         y -= 3;

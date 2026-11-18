@@ -110,6 +110,23 @@ await step('Download as PDF (.pdf): made on the server, on the page setup\'s pap
   try { text = execFileSync('pdftotext', ['-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
   if (text !== null && !/Quarterly memo[\s\S]*Sales grew in every region\./.test(text)) throw new Error(text);
 });
+await step('the PDF follows Page setup: its font, watermark and paper', async () => {
+  const content = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Terms of the offer.' }] }] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Offer terms', content })).body;
+  const r = await api(page, 'PATCH', `/files/${doc.id}`, { page_setup: { size: 'letter', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: 'DRAFT', font: 'Georgia' } });
+  if (r.status >= 300) throw new Error(JSON.stringify(r));
+  const b64 = await page.evaluate(async (id) => btoa(Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/export?format=pdf`)).arrayBuffer()), (c) => String.fromCharCode(c)).join('')), doc.id);
+  const buf = Buffer.from(b64, 'base64');
+  const { PDFDocument } = (await import('module')).createRequire(`${ROOT}/server/package.json`)('pdf-lib');
+  const pdf = await PDFDocument.load(buf);
+  if (Math.round(pdf.getPage(0).getWidth()) !== 612) throw new Error('Letter paper: ' + pdf.getPage(0).getWidth());
+  const { execFileSync } = await import('node:child_process');
+  const f = `${SP}/offer-terms.pdf`;
+  fs.writeFileSync(f, buf);
+  let fonts = null, text = null;
+  try { fonts = execFileSync('pdffonts', [f]).toString(); text = execFileSync('pdftotext', [f, '-']).toString(); } catch { /* not installed */ }
+  if (fonts !== null && (!/Times-Roman/.test(fonts) || !text.replace(/\s+/g, '').includes('DRAFT') || !text.includes('Terms of the offer.'))) throw new Error(fonts + text);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
