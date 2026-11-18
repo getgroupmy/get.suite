@@ -89,6 +89,27 @@ await step('the recipient sees “!” in the list and a note in the message; is
   const news = (await api(kim, 'GET', '/mail/messages?folder=INBOX')).body.messages.find((m) => m.subject === 'Weekly news');
   if (news.importance) throw new Error('an ordinary one marked');
 }, kim);
+await step('a filter “Importance is high → Star it” stars important mail as it arrives, and only that', async () => {
+  await kim.getByRole('button', { name: 'Filters' }).click();
+  const dlg = kim.getByRole('dialog', { name: 'Filters' });
+  await dlg.getByRole('button', { name: /New filter/ }).click();
+  const ed = kim.getByRole('dialog', { name: 'New filter' });
+  await ed.getByLabel('Name').fill('Urgent');
+  await ed.getByLabel('Condition 1 field').selectOption('importance');
+  if (await ed.getByLabel('Condition 1 value').count()) throw new Error('no value to type for importance');
+  await ed.getByLabel('Condition 1 comparison').selectOption('high');
+  await ed.getByRole('checkbox', { name: 'Star it' }).check();
+  await ed.getByRole('button', { name: 'Save filter' }).click();
+  await dlg.getByText(/it’s marked high importance/).waitFor();
+  await kim.screenshot({ path: `${SP}/shots/filter-importance.png` });
+  await kim.keyboard.press('Escape');
+  await kim.waitForTimeout(7000); // (the mail server takes up saved filters within a few seconds)
+  await smtp.sendMail({ from: 'Raj Kumar <raj@acme.com>', to: 'kim@acme.com', subject: 'Outage now', text: 'Call me.', headers: { Importance: 'High' } });
+  await smtp.sendMail({ from: 'Raj Kumar <raj@acme.com>', to: 'kim@acme.com', subject: 'Lunch menu', text: 'Soup.' });
+  const msgs = await until(async () => { const all = (await api(kim, 'GET', '/mail/messages?folder=INBOX')).body?.messages || []; return ['Outage now', 'Lunch menu'].every((x) => all.some((m) => m.subject === x)) && all; }, 60000);
+  const by = (x) => msgs.find((m) => m.subject === x);
+  if (!by('Outage now').flagged || by('Lunch menu').flagged) throw new Error(JSON.stringify([by('Outage now'), by('Lunch menu')].map((m) => [m.subject, m.flagged])));
+}, kim);
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

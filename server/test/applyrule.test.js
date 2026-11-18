@@ -1,3 +1,4 @@
+import { importantQuery } from '../src/mail/importance.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { conditionQuery, exactly, matchingUids, applyRule } from '../src/mail/applyrule.js';
@@ -81,4 +82,9 @@ test('an attachment-name condition on mail already there: checked against each m
   assert.deepEqual(await matchingUids(c, { match: 'all', conditions: [{ field: 'filename', op: 'contains', value: 'invoice' }] }), [1, 2]);
   assert.deepEqual(await matchingUids(c, { match: 'all', conditions: [{ field: 'filename', op: 'contains', value: '.pdf' }, { field: 'filename', op: 'not_contains', value: 'draft' }] }), [1]);
   assert.deepEqual(await matchingUids(c, { match: 'all', conditions: [{ field: 'filename', op: 'not_contains', value: 'pdf' }] }), [3]);
+});
+
+test('an importance condition on mail already there: the same search as is:important', () => {
+  assert.deepEqual(conditionQuery({ field: 'importance', op: 'high', value: '' }).query, importantQuery());
+  assert.deepEqual(conditionQuery({ field: 'importance', op: 'not_high', value: '' }).query, { not: importantQuery() });
 });

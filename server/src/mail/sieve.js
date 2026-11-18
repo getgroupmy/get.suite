@@ -15,6 +15,7 @@ const SIZE_OPS = ['over', 'under'];
 const TEXT_FIELDS = { body: null, list: 'list-id', filename: null };
 const TEXT_OPS = ['contains', 'not_contains'];
 const ATTACHMENT_OPS = ['has', 'has_not'];
+const IMPORTANCE_OPS = ['high', 'not_high']; // marked high importance (mail/importance.js), or not
 
 /** "5 MB", "300kb", "1.5M" → { text: "1.5 MB", kb: 1536 } (Sieve's size takes whole K), or null. */
 export function parseSize(v) {
@@ -47,6 +48,10 @@ export function normalizeRules(input) {
       if (c.field === 'attachment') {
         if (!ATTACHMENT_OPS.includes(c.op)) throw bad(`${name}: unknown comparison`);
         return { field: 'attachment', op: c.op, value: '' };
+      }
+      if (c.field === 'importance') {
+        if (!IMPORTANCE_OPS.includes(c.op)) throw bad(`${name}: unknown comparison`);
+        return { field: 'importance', op: c.op, value: '' };
       }
       if (c.field in TEXT_FIELDS) {
         if (!TEXT_OPS.includes(c.op)) throw bad(`${name}: unknown comparison`);
@@ -94,6 +99,8 @@ function conditionSieve(c) {
   if (c.field === 'size') return `size ${c.op === 'under' ? ':under' : ':over'} ${parseSize(c.value)?.kb || 1}K`;
   // With attachments: a "mixed" multipart message (pictures shown in the text alone don't count).
   if (c.field === 'attachment') { const t = 'header :contains "Content-Type" "multipart/mixed"'; return c.op === 'has_not' ? `not ${t}` : t; }
+  // High importance: Importance: High (Outlook), or X-Priority 1 or 2 (Thunderbird and others).
+  if (c.field === 'importance') { const t = 'anyof(header :is "Importance" "high", header :matches "X-Priority" ["1", "1 *", "2", "2 *"])'; return c.op === 'not_high' ? `not ${t}` : t; }
   if (c.field in TEXT_FIELDS) {
     const v = sieveString(c.value);
     const t = c.field === 'body' ? `body :text :contains ${v}`

@@ -6,6 +6,7 @@ import { parseSize } from './sieve.js';
 import { TO_PRIMARY, TO_UPDATES } from './tabs.js';
 import { partsOf } from './attachlist.js';
 import { filesMatch } from './searchquery.js';
+import { importantQuery } from './importance.js';
 
 export const MAX_APPLY = 5000;
 
@@ -20,6 +21,7 @@ export function conditionQuery(c) {
     case 'list': return { query: neg({ header: { 'list-id': c.value } }), exact: false };
     case 'size': { const bytes = (parseSize(c.value)?.kb || 1) * 1024; return { query: c.op === 'under' ? { smaller: bytes } : { larger: bytes }, exact: false }; }
     case 'attachment': return { query: neg({ header: { 'content-type': 'multipart/mixed' } }), exact: false };
+    case 'importance': return { query: c.op === 'not_high' ? { not: importantQuery() } : importantQuery(), exact: false };
     // An attachment's name: the server can't search names (they may be encoded), so every message
     // is a candidate (with an attachment, unless it's "doesn't contain"), checked by its structure.
     case 'filename': return { query: c.op === 'not_contains' ? { all: true } : { header: { 'content-type': 'multipart/mixed' } }, exact: false, files: [{ name: String(c.value).toLowerCase(), neg: c.op === 'not_contains' }] };

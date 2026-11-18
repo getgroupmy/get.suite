@@ -131,3 +131,20 @@ test('text from a filter, a vacation reply or a blocked sender can’t add Sieve
   assert.doesNotMatch(outside, /thief/);
   assert.match(script, /x\\" \{ redirect \\"thief@evil\.com\\"; \}/, 'kept as text, escaped');
 });
+
+test('filters on importance: marked high (Importance or X-Priority), or not; compiled by Sieve where it is installed', () => {
+  const [hi, lo] = normalizeRules([
+    rule([{ field: 'importance', op: 'high', value: 'ignored' }], { star: true }),
+    rule([{ field: 'importance', op: 'not_high' }, { field: 'from', op: 'contains', value: 'news' }], { moveTo: 'Later' }),
+  ]);
+  assert.deepEqual(hi.conditions, [{ field: 'importance', op: 'high', value: '' }]);
+  assert.throws(() => normalizeRules([rule([{ field: 'importance', op: 'low' }], { star: true })]), /unknown comparison/);
+  const script = userSieve({ username: 'k@acme.com', rules: [hi, lo], labels: new Map() });
+  assert.match(script, /anyof\(header :is "Importance" "high", header :matches "X-Priority" \["1", "1 \*", "2", "2 \*"\]\)\) \{\n {2}addflag "\\\\Flagged";/);
+  assert.match(script, /allof\(not anyof\(header :is "Importance" "high", header :matches "X-Priority" \["1", "1 \*", "2", "2 \*"\]\), header :contains "from" "news"\)/);
+  let sievec;
+  try { sievec = execFileSync('sh', ['-c', 'command -v sievec'], { encoding: 'utf8' }).trim(); } catch { /* not installed */ }
+  if (!sievec) return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-sieve-'));
+  try { const file = path.join(dir, 'f.sieve'); fs.writeFileSync(file, script); execFileSync(sievec, [file, path.join(dir, 'f.svbin')], { stdio: 'pipe' }); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
