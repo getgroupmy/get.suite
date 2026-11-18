@@ -317,10 +317,10 @@ await step('an assistant sets up a meeting about a document: the file is attache
 await step('an assistant asks a colleague for edit access to her document; she sees the request in Drive', async () => {
   const oliviaId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username.startsWith('olivia@')).id;
   const d = (await api(ava, 'POST', '/files/new', { kind: 'doc', name: 'Ava’s draft' })).body;
-  await api(ava, 'PUT', `/files/${d.id}/shares`, { shares: [{ user_id: oliviaId, role: 'viewer' }] });
+  await api(ava, 'PUT', `/files/${d.id}/shares`, { shares: [{ user_id: oliviaId, role: 'viewer' }], message: 'Have a look before Friday' });
   const token = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Claude 7g', scope: 'write', days: 30 })).body.token;
   const read = (await mcp(token, 'fetch', { id: `file:${d.id}` })).structuredContent;
-  if (read.metadata.your_access !== 'can view only') throw new Error(JSON.stringify(read.metadata));
+  if (read.metadata.your_access !== 'can view only' || read.metadata.shared_by !== 'Ava Assignee' || read.metadata.shared_with_message !== 'Have a look before Friday') throw new Error(JSON.stringify(read.metadata));
   const r = await mcp(token, 'request_access', { file: `file:${d.id}`, note: 'To add the figures' });
   if (r.isError || r.structuredContent.asked !== 'Ava Assignee') throw new Error(JSON.stringify(r));
   await ava.goto(`${B}/drive`);

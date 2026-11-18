@@ -131,6 +131,11 @@ q(`CREATE TABLE IF NOT EXISTS access_requests (
 if (!q('PRAGMA table_info(access_requests)').all().some((c) => c.name === 'longer')) q('ALTER TABLE access_requests ADD COLUMN longer INTEGER NOT NULL DEFAULT 0').run();
 /** "can edit", "can comment" or "can view": what a sharing role lets someone do (the activity log's words). */
 const canDo = (role) => (role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view');
+/** Shared with you: who shared it, and the message they sent with it ({} for its owner, or when nobody did). */
+const sharedWith = (f, userId) => {
+  const s = f.owner_id !== userId && q('SELECT s.shared_note, u.name AS shared_by_name FROM shares s LEFT JOIN users u ON u.id = s.shared_by WHERE s.file_id = ? AND s.user_id = ?').get(f.id, userId);
+  return { ...(s?.shared_by_name && { shared_by_name: s.shared_by_name }), ...(s?.shared_note && { shared_note: s.shared_note }) };
+};
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 /** A spreadsheet's open comment threads on cells, for its Excel download: [{ sheet, cell, author, at, text, replies }]. */
 function cellCommentsOf(fileId) {
@@ -1240,9 +1245,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (req.query.open !== undefined) sawFile(f.id, req.user.id); // opened in its editor
-    // Shared with you: who shared it, and the message they sent with it (for its Details).
-    const mine = f.owner_id !== req.user.id && q('SELECT s.shared_note, u.name AS shared_by_name FROM shares s LEFT JOIN users u ON u.id = s.shared_by WHERE s.file_id = ? AND s.user_id = ?').get(f.id, req.user.id);
-    res.json({ ...publicFile(f), ...(mine?.shared_by_name && { shared_by_name: mine.shared_by_name }), ...(mine?.shared_note && { shared_note: mine.shared_note }) });
+    res.json({ ...publicFile(f), ...sharedWith(f, req.user.id) });
   });
 
   // How big a folder is: everything in it, sub-folders too (not what's in the trash), how many files
@@ -1507,7 +1510,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (f.kind === 'doc') { saveNow(f.id); try { docJson = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'); } catch { docJson = null; } }
     const text = String((sheetJson ? await sheetReadingText(sheetJson) : docJson ? docText(withoutSuggestions(docJson)) : await textOf(full)) || '');
     const suggestions = docJson ? suggestionsOf(f.id).map(({ id, name, at, deleted, inserted }) => ({ id, by: name, at, deleted, inserted })) : undefined;
-    res.json({ file: publicFile(f), text: text.slice(0, 200000), truncated: text.length > 200000, ...(suggestions?.length && { suggestions }) });
+    res.json({ file: { ...publicFile(f), ...sharedWith(f, req.user.id) }, text: text.slice(0, 200000), truncated: text.length > 200000, ...(suggestions?.length && { suggestions }) });
   });
   r.get('/:id/content', (req, res) => {
     const f = loadFile(req.params.id, req.user);

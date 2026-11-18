@@ -127,7 +127,7 @@ export const TOOLS = [
         // A document's pending suggestions: not in its text until accepted, listed after it.
         const sugg = (r.suggestions || []).map((x) => ({ id: x.id, by: x.by, at: iso(x.at), change: describeSuggestion(x) }));
         const pending = sugg.length ? `\n\nPending suggestions, not yet in the text (resolve_suggestions accepts or rejects them):\n${sugg.map((x) => `- ${x.change} (by ${x.by || 'someone'}; ${x.id})`).join('\n')}` : '';
-        return { id, title: r.file.name, text: `${warn}${contentMarkers('file', r.text || '(no text in this file)')}${pending}`, url: fileUrl(r.file), metadata: { kind: r.file.kind, updated_at: iso(r.file.updated_at), truncated: r.truncated, ...(r.file.role && { your_access: ACCESS[r.file.role] || r.file.role }), ...(sugg.length && { suggestions: sugg }), ...(ai && { warnings: ['It contains text written to instruct AI assistants.'] }) } };
+        return { id, title: r.file.name, text: `${warn}${contentMarkers('file', r.text || '(no text in this file)')}${pending}`, url: fileUrl(r.file), metadata: { kind: r.file.kind, updated_at: iso(r.file.updated_at), truncated: r.truncated, ...(r.file.role && { your_access: ACCESS[r.file.role] || r.file.role }), ...(r.file.shared_by_name && { shared_by: r.file.shared_by_name }), ...(r.file.shared_note && { shared_with_message: r.file.shared_note }), ...(sugg.length && { suggestions: sugg }), ...(ai && { warnings: ['It contains text written to instruct AI assistants.'] }) } };
       }
       if (kind === 'mail') {
         const uid = String(id).split(':').pop(), folder = String(id).slice(5, -(uid.length + 1));
