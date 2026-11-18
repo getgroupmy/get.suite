@@ -776,7 +776,7 @@ test('equations: an equation in Word, its LaTeX in search', async () => {
   const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Energy: ' }, { type: 'math', attrs: { latex: 'E=mc^2' } }] }] };
   assert.match(docText(doc), /Energy: +E=mc\^2/);
   const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Physics'))).file('word/document.xml').async('string');
-  assert.match(xml, /<m:oMath>[\s\S]*E=mc\^2[\s\S]*<\/m:oMath>/, 'a Word equation');
+  assert.match(xml, /<m:oMath><m:r>[\s\S]*?E=m<\/m:t><\/m:r><m:sSup><m:e>[\s\S]*?c<\/m:t>[\s\S]*?<m:sup>[\s\S]*?2<\/m:t>[\s\S]*?<\/m:oMath>/, 'a Word equation: c to the power 2, as Word draws it');
 });
 
 test('PowerPoint: transitions, slides that move on by themselves, and looping, both ways', async () => {

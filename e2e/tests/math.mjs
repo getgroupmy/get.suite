@@ -96,6 +96,24 @@ await step('equations come out as $…$ in Markdown', async () => {
   if (!text.includes('Half is $\\frac{1}{2}$ and a square is $x^{2} + y^{2}$. Cost €—')) throw new Error(JSON.stringify(text));
   await page.screenshot({ path: `${SP}/shots/math.png` });
 });
+await step('the Word download has Word’s own equations, and opening it gives the equations back', async () => {
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer();
+    const zipText = new TextDecoder('latin1').decode(bytes);
+    const r = await (await fetch('/api/files/upload?name=Maths%20copy.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    return { id: r.id, size: bytes.byteLength, zipped: zipText.includes('word/document.xml') };
+  }, doc.id);
+  if (!up.zipped) throw new Error('not a Word file');
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  const maths = [];
+  (function walk(n) { if (n.type === 'math') maths.push(n.attrs.latex); (n.content || []).forEach(walk); })((await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content);
+  if (maths.join(' | ') !== '\\frac{1}{2} | x^2+y^2') throw new Error(maths.join(' | '));
+  // Opened in Docs: drawn as equations (KaTeX), not LaTeX text.
+  await page.goto(`${B}/docs/${opened.body.id}`);
+  await page.locator('.doc-math .katex').first().waitFor();
+  await until(async () => (await page.locator('.doc-math .katex').count()) === 2); // both drawn (the LaTeX isn't left as text)
+  await page.screenshot({ path: `${SP}/shots/math-from-word.png` });
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

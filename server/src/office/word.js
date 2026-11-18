@@ -24,6 +24,7 @@ import {
   Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun, CommentRangeStart, CommentRangeEnd, CommentReference, InsertedTextRun, DeletedTextRun,
 } from 'docx';
 import { Node, Mark, Extension } from '@tiptap/core';
+import { latexToOmml, ommlToLatex } from './omml.js';
 import { pageMm, MARGINS, PAPER, DOC_FONTS, DOC_FONT_SIZES } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
@@ -106,9 +107,11 @@ const cellColor = (v) => { const s = String(v || '').trim().toLowerCase(); const
 const cellBackground = { background: { default: null, parseHTML: (el) => cellColor(el.getAttribute('data-bg') || el.style.backgroundColor), renderHTML: (a) => (a.background ? { 'data-bg': a.background, style: `background-color: ${a.background}` } : {}) } };
 const DocTableCell = TableCell.extend({ addAttributes() { return { ...this.parent?.(), ...cellBackground }; } });
 const DocTableHeader = TableHeader.extend({ addAttributes() { return { ...this.parent?.(), ...cellBackground }; } });
+// An equation, as in web/src/apps/docs/math.js (its LaTeX).
+const MathNode = Node.create({ name: 'math', group: 'inline', inline: true, atom: true, addAttributes: () => ({ latex: { default: '', parseHTML: (el) => el.getAttribute('data-latex') || '' } }), parseHTML: () => [{ tag: 'span[data-math]' }], renderHTML: ({ HTMLAttributes }) => ['span', { 'data-math': '', 'data-latex': HTMLAttributes.latex }] });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
+  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, MathNode, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -172,6 +175,9 @@ export function markWordXml(xml, { numbering = '' } = {}) {
   // deleted text (w:delText, which the converter leaves out) made ordinary text inside them.
   const who = (attrs) => encodeURIComponent(JSON.stringify({ id: /w:id="(\d+)"/.exec(attrs)?.[1] || '', name: /w:author="([^"]*)"/.exec(attrs)?.[1] || '', at: /w:date="([^"]*)"/.exec(attrs)?.[1] || '' }));
   return String(xml)
+    // Equations (Word's own, OMML): a marker with their LaTeX, made Docs equations afterwards.
+    .replace(/<m:oMathPara\b[^>]*>([\s\S]*?)<\/m:oMathPara>/g, '$1')
+    .replace(/<m:oMath\b[^>]*>([\s\S]*?)<\/m:oMath>/g, (m, inner) => { const l = ommlToLatex(inner); return l ? marker(`eq:${encodeURIComponent(l)}`) : ''; })
     // Each numbered paragraph's number, as Word counts them: one that isn't 1 is marked, so a list that starts
     // there (or carries on from an earlier one) keeps its first number.
     .replace(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g, (para) => {
@@ -276,6 +282,7 @@ export function unmarkWordHtml(html, commentId = null) {
       return `<span style="${attr(css)}">`;
     })
     .replace(re('MK/END'), '</span>')
+    .replace(re('MKeq:([^END]*)END'), (m, enc) => { let l = ''; try { l = decodeURIComponent(enc); } catch { /* none */ } return l ? `<span data-math="" data-latex="${attr(l)}"></span>` : ''; })
     .replace(re('MKcdEND'), '<code>').replace(re('MK/cdEND'), '</code>')
     .replace(re('<ol>((?:<li>)(?:<p>)?)MKls:(\\d+)END'), (m, open, n) => `<ol start="${n}">${open}`)
     .replace(re('MKls:\\d+END'), '')
@@ -460,7 +467,8 @@ function runs(nodes = [], extra = {}) {
     if (n.type === 'hardBreak') { out.push(new TextRun({ break: 1 })); continue; }
     if (n.type === 'mention') { out.push(new TextRun({ text: `@${n.attrs?.name || ''}`, bold: true, color: '1A73E8' })); continue; }
     if (n.type === 'citation') { out.push(new TextRun({ text: inText(n.attrs), ...extra })); continue; }
-    if (n.type === 'math') { const l = String(n.attrs?.latex || '').trim(); if (l) out.push(new WordMath({ children: [new MathRun(l)] })); continue; }
+    // An equation: a placeholder, made Word's own equation (fractions, powers, roots… as Word draws them) once written.
+    if (n.type === 'math') { const l = String(n.attrs?.latex || '').trim(); if (l) out.push(new WordMath({ children: [new MathRun(`\uE002${encodeURIComponent(l)}\uE003`)] })); continue; }
     if (n.type === 'datechip') { out.push(new TextRun({ text: dateText(n.attrs?.date), color: '1A73E8', underline: {} })); continue; }
     if (n.type === 'filechip') { out.push(new TextRun({ text: n.attrs?.name || '', color: '1A73E8', underline: {} })); continue; }
     if (n.type === 'dropchip') { const fill = CHIP_FILLS[(n.attrs?.options || []).find((o) => o?.label === n.attrs?.value)?.color] || 'E8EAED'; out.push(new TextRun({ text: ` ${chipText(n.attrs)} `, bold: true, shading: { type: ShadingType.CLEAR, color: 'auto', fill } })); continue; }
@@ -503,6 +511,14 @@ export const watermarkXml = (text) => `<w:r><w:pict>${WATERMARK_TYPE}<v:shape id
 const VML_NS = { 'xmlns:v': 'urn:schemas-microsoft-com:vml', 'xmlns:o': 'urn:schemas-microsoft-com:office:office' };
 
 /** The written Word file with the watermark in each header's first paragraph. */
+/** The equations' placeholders made Word equations (OMML) from their LaTeX. */
+async function withEquations(buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const xml = await zip.file('word/document.xml').async('string');
+  if (!xml.includes('\uE002')) return buffer;
+  zip.file('word/document.xml', xml.replace(/<m:oMath>(?:(?!<\/m:oMath>)[\s\S])*?\uE002([^\uE003]*)\uE003(?:(?!<\/m:oMath>)[\s\S])*?<\/m:oMath>/g, (m, enc) => { let l = ''; try { l = decodeURIComponent(enc); } catch { /* none */ } return `<m:oMath>${latexToOmml(l)}</m:oMath>`; }));
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
 async function withWatermark(buffer, text) {
   const zip = await JSZip.loadAsync(buffer);
   const headers = Object.keys(zip.files).filter((f) => /^word\/header\d+\.xml$/.test(f));
@@ -847,7 +863,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     },
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });
-  const buf = await Packer.toBuffer(file);
+  const buf = await withEquations(await Packer.toBuffer(file));
   return page?.watermark ? withWatermark(buf, page.watermark) : buf;
 }
 
