@@ -1532,7 +1532,9 @@ function DetailsDialog({ file, onClose, onChanged }) {
           <dt>Modified</dt><dd>{when(f.updated_at)}{f.updated_by_name ? ` by ${f.updated_by_name}` : ''}</dd>
           <dt>Created</dt><dd>{when(f.created_at)}</dd>
           {f.kind === 'doc' && <><dt>Length</dt><dd><DocLength fileId={f.id} /></dd></>}
-          <dt>Access</dt><dd>{f.role === 'owner' ? (shares === null ? '…' : shares.length ? shares.map((s) => `${s.name} (${s.role === 'editor' ? 'can edit' : s.role === 'commenter' ? 'can comment' : 'can view'})`).join(', ') : 'Only you') : `You can ${f.role === 'editor' ? 'edit' : 'view'}`}</dd>
+          <dt>Access</dt><dd>{f.role === 'owner' ? (shares === null ? '…' : shares.length ? shares.map((s) => `${s.name} (${s.role === 'editor' ? 'can edit' : s.role === 'commenter' ? 'can comment' : 'can view'})`).join(', ') : 'Only you') : <>You can {f.role === 'editor' ? 'edit it' : f.role === 'commenter' ? 'comment on it' : 'view it'}{['viewer', 'commenter'].includes(f.role) && !f.locked_at && <> <button type="button" className="btn small" onClick={async () => {
+            try { await post(`/files/${f.id}/request-access`, { role: 'editor' }); toast(`Asked ${f.owner_name || 'its owner'} for edit access`); } catch (e) { toast(e.message, 'error'); }
+          }}>Request edit access</button></>}</>}</dd>
         </dl>
         <label className="field"><span>Description</span>
           <textarea rows={3} maxLength={2000} value={desc} disabled={!canEdit} placeholder={canEdit ? 'What it is, for whom… (search finds it)' : ''} onChange={(e) => setDesc(e.target.value)}

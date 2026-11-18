@@ -93,6 +93,13 @@ await step('everyone at the company as Commenter, from the Share dialog', async 
   await kim.getByText('You can comment and suggest edits').waitFor();
 });
 await step('a commenter asks for edit access from the banner; the owner gives it in Drive; the document opens editable', async () => {
+  // Its details in Drive say what Kim can do, with the same button.
+  await kim.goto(`${B}/drive/shared`);
+  await kim.getByRole('button', { name: `Actions for ${(await api(kim, 'GET', `/files/${doc.id}`)).body.name}` }).click();
+  await kim.getByRole('menuitem', { name: 'Details' }).click();
+  await kim.getByText('You can comment on it').waitFor();
+  await kim.getByRole('dialog').getByRole('button', { name: 'Request edit access' }).waitFor();
+  await kim.keyboard.press('Escape');
   await kim.goto(`${B}/docs/${doc.id}`);
   await kim.getByRole('button', { name: 'Request edit access' }).click();
   await kim.getByText('Asked Olivia Owner for edit access.').first().waitFor();
