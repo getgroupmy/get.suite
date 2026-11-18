@@ -2435,6 +2435,13 @@ test('drive activity: who made, edited, renamed, moved, shared, trashed and rest
   assert.deepEqual(find('share'), { added: ['Act Ben (can edit)'], removed: [] });
   assert.ok(list.every((x) => x.at > 0));
   assert.equal((await c('GET', `/api/files/${doc.id}/activity`)).status, 404, 'not shared with them');
+  // A commenter is recorded as one (not "can view").
+  const cid = (await owner('GET', '/api/users/directory')).body.find((u) => u.name === 'Act Cat')?.id;
+  if (cid) {
+    await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }, { user_id: cid, role: 'commenter' }] });
+    assert.deepEqual((await b('GET', `/api/files/${doc.id}/activity`)).body.find((x) => x.action === 'share').details.added, ['Act Cat (can comment)']);
+    await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] }); // (as it was, for the checks after)
+  }
   // Details also tell a document's length.
   const now = (await b('GET', `/api/files/${doc.id}`)).body;
   const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });

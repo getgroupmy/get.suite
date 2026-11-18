@@ -129,6 +129,8 @@ q(`CREATE TABLE IF NOT EXISTS access_requests (
 )`).run();
 // A request to keep access longer (someone whose share ends by date), rather than to get it.
 if (!q('PRAGMA table_info(access_requests)').all().some((c) => c.name === 'longer')) q('ALTER TABLE access_requests ADD COLUMN longer INTEGER NOT NULL DEFAULT 0').run();
+/** "can edit", "can comment" or "can view": what a sharing role lets someone do (the activity log's words). */
+const canDo = (role) => (role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view');
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 /** A spreadsheet's open comment threads on cells, for its Excel download: [{ sheet, cell, author, at, text, replies }]. */
 function cellCommentsOf(fileId) {
@@ -2292,7 +2294,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const now = groupsOf(f.id);
     const added = now.filter((g) => !before.has(g.group_id));
     if (added.length || before.size !== now.length - added.length) {
-      recordActivity(f.id, req.user.id, 'share', { added: added.map((g) => `the group ${g.name} (${g.role === 'editor' ? 'can edit' : 'can view'})`), removed: [] });
+      recordActivity(f.id, req.user.id, 'share', { added: added.map((g) => `the group ${g.name} (${canDo(g.role)})`), removed: [] });
       audit(req, 'file.share', { target: f.name, details: { groups: now.map((g) => `${g.name} (${g.role})`) } });
     }
     const fresh = gained.filter((id) => id !== req.user.id);
@@ -2508,7 +2510,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const added = list.filter((x) => !had.has(x.user_id) && x.user_id !== f.owner_id && x.user_id !== req.user.id);
     const gone = [...had].filter((id) => !list.some((x) => x.user_id === id));
     const who = (id) => q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'someone';
-    if (added.length || gone.length) recordActivity(f.id, req.user.id, 'share', { added: added.map((x) => `${who(x.user_id)} (${x.role === 'editor' ? 'can edit' : 'can view'})`), removed: gone.map(who) });
+    if (added.length || gone.length) recordActivity(f.id, req.user.id, 'share', { added: added.map((x) => `${who(x.user_id)} (${canDo(x.role)})`), removed: gone.map(who) });
     const untilText = (x) => (x.expires_at ? ` until ${new Date(Number(x.expires_at)).toISOString().slice(0, 10)}` : '');
     for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${x.role === 'editor' ? 'You can edit' : x.role === 'commenter' ? 'You can comment' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name, group: sharedGroup(req.user, f) });
     res.json({ ok: true });

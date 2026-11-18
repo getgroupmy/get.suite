@@ -1625,7 +1625,7 @@ function AccessRequests({ list, onClose, onChanged }) {
     try {
       const role = roles[r.id] || r.role;
       await post(`/files/access-requests/${r.id}`, { approve, role });
-      toast(approve ? (r.longer ? `${r.user_name} can keep ${r.file_name} longer` : `${r.user_name} can now ${role === 'editor' ? 'edit' : 'view'} ${r.file_name}`) : `Declined ${r.user_name}`);
+      toast(approve ? (r.longer ? `${r.user_name} can keep ${r.file_name} longer` : `${r.user_name} can now ${role === 'editor' ? 'edit' : role === 'commenter' ? 'comment on' : 'view'} ${r.file_name}`) : `Declined ${r.user_name}`);
       onChanged();
     } catch (e) { toast(e.message, 'error'); }
   };
