@@ -56,7 +56,7 @@ import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { captureFormat, applyFormat, wordAt } from './paintformat.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
-import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { LinkDialog } from './LinkDialog.jsx';
 import { measureLines } from './linenumbers.js';
@@ -1176,6 +1176,10 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         { label: 'Add column left', onClick: () => c().addColumnBefore().run(), disabled: !editor.can().addColumnBefore() },
         { label: 'Add column right', onClick: () => c().addColumnAfter().run(), disabled: !editor.can().addColumnAfter() },
         { label: 'Heading row on or off', onClick: () => c().toggleHeaderRow().run(), disabled: !editor.can().toggleHeaderRow() },
+        { label: 'Merge cells', disabled: !editor.can().mergeCells(),
+          // (then the cursor in the merged cell, so typing goes there rather than over it)
+          onClick: () => c().mergeCells().command(({ tr }) => { const cell = tr.selection.$anchorCell; if (cell) tr.setSelection(TextSelection.near(tr.doc.resolve(cell.pos + 1))); return true; }).run() },
+        { label: 'Unmerge cells', onClick: () => c().splitCell().run(), disabled: !editor.can().splitCell() },
         '-',
         { label: 'Delete row', icon: 'trash', danger: true, onClick: () => c().deleteRow().run(), disabled: !editor.can().deleteRow() },
         { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },

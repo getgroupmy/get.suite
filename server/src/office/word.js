@@ -674,18 +674,23 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     const px = columnWidthsOf(n);
     const tw = px && (() => { const k = Math.min(1, PAGE_PX / px.reduce((a, b) => a + b, 0)); return px.map((w) => Math.max(200, Math.round(w * k * 15))); })();
     let col = 0;
+    const rowsLeft = []; // per column: rows still taken by a cell merged down from above
     return new WordTable({
       ...(tw ? { width: { size: tw.reduce((a, b) => a + b, 0), type: WidthType.DXA }, columnWidths: tw }
         : { width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: Array.from({ length: cols }, () => Math.floor(9000 / cols)) }),
       rows: rows.map((r) => {
         const header = (r.content || []).every((c) => c.type === 'tableHeader');
         col = 0;
+        const skip = () => { while (rowsLeft[col] > 0) { rowsLeft[col]--; col++; } };
         return new WordRow({
           ...(header && { tableHeader: true }), // (tableHeader: false writes <w:tblHeader w:val="off"/>, which readers take as a heading row)
           children: (r.content || []).map((c) => {
             const inner = block(c.content);
             const span = c.attrs?.colspan > 1 ? c.attrs.colspan : 1;
-            const width = tw && tw.slice(col, col + span).reduce((a, b) => a + b, 0); col += span;
+            skip();
+            const width = tw && tw.slice(col, col + span).reduce((a, b) => a + b, 0);
+            for (let k = 0; k < span; k++) rowsLeft[col + k] = Math.max(1, c.attrs?.rowspan || 1) - 1;
+            col += span;
             return new WordCell({
               ...(width && { width: { size: width, type: WidthType.DXA } }),
               columnSpan: c.attrs?.colspan > 1 ? c.attrs.colspan : undefined,

@@ -152,6 +152,33 @@ await step('drag a column’s edge to make it wider: the others see it; Word and
     if (b.length !== 2 || b.some((w, i) => Math.abs(w - want[i]) > 2)) throw new Error(`${format}: ${saved} → ${back}`);
   }
 });
+await step('merge two cells and unmerge them; the others see it; Word and .odt keep merged cells', async () => {
+  const lastRow = (p) => p.locator('.paper table tr').last();
+  await lastRow(page).locator('td').first().click();
+  await lastRow(page).locator('td').last().click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Merge cells', exact: true }).click();
+  await until(async () => (await lastRow(page).locator('td').count()) === 1 && (await lastRow(page).locator('td').getAttribute('colspan')) === '2');
+  await until(async () => (await lastRow(kim).locator('td').count()) === 1);
+  await page.keyboard.type('Total');
+  await page.waitForTimeout(2500); // saved
+  const merged = (d) => d.content.find((n) => n.type === 'table').content.at(-1).content.map((c) => `${c.attrs?.colspan || 1}:${c.content?.[0]?.content?.[0]?.text || ''}`).join(' ');
+  if (merged((await api(page, 'GET', `/files/${docId}/content`)).body.content) !== '2:Total') throw new Error('not saved merged');
+  for (const format of ['docx', 'odt']) {
+    const up = await page.evaluate(async ([id, f]) => {
+      const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
+      return (await fetch(`/api/files/upload?name=Report%20merged.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+    }, [docId, format]);
+    const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+    const back = merged((await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content);
+    if (back !== '2:Total') throw new Error(`${format}: ${back}`);
+  }
+  await page.screenshot({ path: `${SP}/shots/merged-cells.png` });
+  await lastRow(page).locator('td').first().click();
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Unmerge cells' }).click();
+  await until(async () => (await lastRow(kim).locator('td').count()) === 2);
+});
 await step('a picture: put in from a file, made smaller and centred; a viewer sees it', async () => {
   await cursorAfter(page, 'rising');
   await page.keyboard.press('Enter');

@@ -202,14 +202,23 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
           out += `<table:table table:name="Table${no}" table:style-name="Tbl${no}">${cm.map((w, i) => `<table:table-column table:style-name="Tbl${no}C${i + 1}"/>`).join('')}`;
         } else out += `<table:table table:name="Table${++tableNo}" table:style-name="Tbl"><table:table-column table:number-columns-repeated="${width}"/>`;
         const headed = rows.length > 1 && (rows[0].content || []).every((c) => c.type === 'tableHeader');
+        // Cells merged down over rows below: those rows get covered cells where they are (rowsLeft: per column, how many more rows).
+        const rowsLeft = [];
         rows.forEach((r, ri) => {
           if (headed && ri === 0) out += '<table:table-header-rows>';
           out += '<table:table-row>';
+          let col = 0;
+          const coveredHere = () => { while (rowsLeft[col] > 0) { out += '<table:covered-table-cell/>'; rowsLeft[col]--; col++; } };
           for (const c of r.content || []) {
-            const span = c.attrs?.colspan > 1 ? ` table:number-columns-spanned="${c.attrs.colspan}"` : '';
+            coveredHere();
+            const cs = Math.max(1, c.attrs?.colspan || 1), rs = Math.max(1, c.attrs?.rowspan || 1);
+            const span = `${cs > 1 ? ` table:number-columns-spanned="${cs}"` : ''}${rs > 1 ? ` table:number-rows-spanned="${rs}"` : ''}`;
             out += `<table:table-cell table:style-name="${cellStyle(c.attrs?.background)}" office:value-type="string"${span}>${blocks(c.content, { style: c.type === 'tableHeader' ? 'Table_20_Heading' : 'Table_20_Contents' }) || '<text:p/>'}</table:table-cell>`;
-            for (let k = 1; k < (c.attrs?.colspan || 1); k++) out += '<table:covered-table-cell/>';
+            for (let k = 1; k < cs; k++) out += '<table:covered-table-cell/>';
+            for (let k = 0; k < cs; k++) rowsLeft[col + k] = rs - 1;
+            col += cs;
           }
+          while (col < rowsLeft.length) { if (rowsLeft[col] > 0) { out += '<table:covered-table-cell/>'; rowsLeft[col]--; } col++; }
           out += '</table:table-row>';
           if (headed && ri === 0) out += '</table:table-header-rows>';
         });
@@ -513,9 +522,10 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
           for (const cell of kids(row).filter((k) => k.name === 'table:table-cell' || k.name === 'table:covered-table-cell')) {
             if (cell.name === 'table:covered-table-cell') { col += Math.min(50, Number(cell.attribs['table:number-columns-repeated']) || 1); continue; }
             const n = Number(cell.attribs['table:number-columns-spanned']) > 1 ? Number(cell.attribs['table:number-columns-spanned']) : 1;
+            const down = Math.min(1000, Number(cell.attribs['table:number-rows-spanned']) || 1);
             const cw = widths && widths.slice(col, col + n).length === n ? ` colwidth="${widths.slice(col, col + n).join(',')}"` : '';
             col += Math.min(50, Number(cell.attribs['table:number-columns-repeated']) || 1); // (the columns it spans come next, as covered cells)
-            const span = n > 1 ? ` colspan="${n}"` : '';
+            const span = `${n > 1 ? ` colspan="${n}"` : ''}${down > 1 ? ` rowspan="${down}"` : ''}`;
             const tag = head ? 'th' : 'td';
             const rep = Math.min(50, Number(cell.attribs['table:number-columns-repeated']) || 1);
             const inner = await blocks(cell, depth) || '<p></p>';

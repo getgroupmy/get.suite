@@ -2249,3 +2249,40 @@ test('Docs: table column widths out to Word and .odt and back (a table of equal 
     assert.equal(show(await docFromOdt(lo('d.docx', 'odt', 'c'))), want, 'Word saved as .odt');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Docs: merged table cells (across and down) out to Word and .odt and back', async (t) => {
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const cell = (text, a = {}) => ({ type: 'tableCell', attrs: a, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+  // A | B C      A goes down two rows, D across two columns
+  // . | D D
+  // E | F G
+  const doc = { type: 'doc', content: [{ type: 'table', content: [
+    { type: 'tableRow', content: [cell('A', { rowspan: 2, colwidth: [300] }), cell('B', { colwidth: [100] }), cell('C', { colwidth: [200] })] },
+    { type: 'tableRow', content: [cell('D', { colspan: 2, colwidth: [100, 200] })] },
+    { type: 'tableRow', content: [cell('E', { colwidth: [300] }), cell('F', { colwidth: [100] }), cell('G', { colwidth: [200] })] },
+  ] }] };
+  const want = 'Ar2=300 B=100 C=200 | Dc2=100+200 | E=300 F=100 G=200';
+  const show = (d) => (d.doc || d).content.find((n) => n.type === 'table').content.map((r) => r.content.map((c) => `${c.content?.[0]?.content?.[0]?.text}${c.attrs?.colspan > 1 ? `c${c.attrs.colspan}` : ''}${c.attrs?.rowspan > 1 ? `r${c.attrs.rowspan}` : ''}${c.attrs?.colwidth ? `=${c.attrs.colwidth.join('+')}` : ''}`).join(' ')).join(' | ');
+  const docx = await wordFromDoc(doc, 'T');
+  const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:tcW w:type="dxa" w:w="4500"\/><w:gridSpan w:val="2"\/>/, 'D: the widths of B and C (100 + 200 px)');
+  assert.match(xml, /<w:vMerge w:val="continue"\/>/, 'under A: the rest of it');
+  assert.equal(show(await docFromWord(docx)), want, 'Word');
+  const odt = await odtFromDoc(doc, 'T');
+  const c = await (await JSZip.loadAsync(odt)).file('content.xml').async('string');
+  const rows = c.match(/<table:table-row>[\s\S]*?<\/table:table-row>/g);
+  assert.match(rows[0], /table:number-rows-spanned="2">.*?>A</);
+  assert.match(rows[1], /^<table:table-row><table:covered-table-cell\/><table:table-cell [^>]*table:number-columns-spanned="2">.*?>D<.*<table:covered-table-cell\/><\/table:table-row>$/, 'under A: a covered cell; after D: the column it covers');
+  assert.equal(show(await docFromOdt(odt)), want, '.odt');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.docx'), docx); fs.writeFileSync(path.join(dir, 'd.odt'), odt);
+    assert.equal(show(await docFromWord(lo('d.docx', 'docx', 'a'))), want, 'Word → LibreOffice → Word');
+    assert.equal(show(await docFromOdt(lo('d.odt', 'odt', 'b'))), want, '.odt → LibreOffice → .odt');
+    assert.equal(show(await docFromOdt(lo('d.docx', 'odt', 'c'))), want, 'Word saved as .odt');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
