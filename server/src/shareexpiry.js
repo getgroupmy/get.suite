@@ -10,7 +10,8 @@ import { recordActivity } from './fileactivity.js';
 
 if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'expires_at')) q('ALTER TABLE shares ADD COLUMN expires_at INTEGER').run();
 // When someone was shared a file directly, and by whom (Home → Shared with you); null for older shares.
-for (const col of ['shared_at INTEGER', 'shared_by TEXT']) if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === col.split(' ')[0])) q(`ALTER TABLE shares ADD COLUMN ${col}`).run();
+// shared_note: the message it was shared with, if any.
+for (const col of ['shared_at INTEGER', 'shared_by TEXT', 'shared_note TEXT']) if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === col.split(' ')[0])) q(`ALTER TABLE shares ADD COLUMN ${col}`).run();
 
 // The end a share was last warned about (a new end date warns again).
 if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'warned_for')) q('ALTER TABLE shares ADD COLUMN warned_for INTEGER').run();

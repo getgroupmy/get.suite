@@ -574,7 +574,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     } else if (view === 'shared') {
       // Shared with you, and shared with everyone in your company (by someone else).
       // Newest shared first (when that's known), then by name; with who shared it, and when.
-      rows = q(`SELECT ${COLS}, s.role, s.shared_at, sb.name AS shared_by_name, s.direct_role IS NOT NULL AS direct, s.expires_at AS share_ends ${FROM} JOIN shares s ON s.file_id = f.id
+      rows = q(`SELECT ${COLS}, s.role, s.shared_at, sb.name AS shared_by_name, s.shared_note, s.direct_role IS NOT NULL AS direct, s.expires_at AS share_ends ${FROM} JOIN shares s ON s.file_id = f.id
                 LEFT JOIN users sb ON sb.id = s.shared_by
                 WHERE s.user_id = ? AND f.trashed = 0 AND f.is_drive = 0 AND ${REACHABLE}
                 ORDER BY s.shared_at IS NULL, s.shared_at DESC, (f.kind = 'folder') DESC, f.name COLLATE NOCASE`).all(me, org, org);
@@ -1240,7 +1240,9 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (req.query.open !== undefined) sawFile(f.id, req.user.id); // opened in its editor
-    res.json(publicFile(f));
+    // Shared with you: who shared it, and the message they sent with it (for its Details).
+    const mine = f.owner_id !== req.user.id && q('SELECT s.shared_note, u.name AS shared_by_name FROM shares s LEFT JOIN users u ON u.id = s.shared_by WHERE s.file_id = ? AND s.user_id = ?').get(f.id, req.user.id);
+    res.json({ ...publicFile(f), ...(mine?.shared_by_name && { shared_by_name: mine.shared_by_name }), ...(mine?.shared_note && { shared_note: mine.shared_note }) });
   });
 
   // How big a folder is: everything in it, sub-folders too (not what's in the trash), how many files
@@ -2515,6 +2517,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const untilText = (x) => (x.expires_at ? ` until ${new Date(Number(x.expires_at)).toISOString().slice(0, 10)}` : '');
     // A message for the people added now, from the Share window: theirs to read with the notification.
     const note = req.body?.message ? str(req.body.message, { max: 500, name: 'Message' }) : '';
+    if (note) for (const x of added) q('UPDATE shares SET shared_note = ? WHERE file_id = ? AND user_id = ?').run(note, f.id, x.user_id); // (kept: shown in their Shared with me)
     for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${note ? `“${note}” · ` : ''}${x.role === 'editor' ? 'You can edit' : x.role === 'commenter' ? 'You can comment' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name, ...(!note && { group: sharedGroup(req.user, f) }) }); // (with a message: its own, not folded into "shared 2 files with you")
     res.json({ ok: true });
   });

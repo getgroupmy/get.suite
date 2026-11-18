@@ -515,6 +515,11 @@ test('share a file with a colleague: as viewer, then editor; others kept; only c
   assert.deepEqual([r.structuredContent.with, r.structuredContent.role], ['Sam Share', 'viewer']);
   assert.equal((await sam('GET', `/api/files/${fid}`)).status, 200, 'Sam can open it');
   assert.ok((await sam('GET', '/api/notifications')).body.items.some((n) => n.title === 'Olivia Owner shared “Q2 budget notes” with you' && n.body === '“For Thursday’s review” · You can view'), 'with the note');
+  // Kept: in Sam's Shared with me, and in the file's details.
+  assert.equal((await sam('GET', '/api/files?view=shared')).body.find((x) => x.id === fid)?.shared_note, 'For Thursday’s review');
+  const det = (await sam('GET', `/api/files/${fid}`)).body;
+  assert.deepEqual([det.shared_by_name, det.shared_note], ['Olivia Owner', 'For Thursday’s review']);
+  assert.equal((await owner('GET', `/api/files/${fid}`)).body.shared_note, undefined, 'not to its owner');
   const up = (await call(rw, 'share_file', { file: doc.id, with: 'sam@acme.com', role: 'editor' })).structuredContent;
   assert.deepEqual([up.role, up.was], ['editor', 'viewer']);
   const shares = (await owner('GET', `/api/files/${fid}/shares`)).body.map((x) => [x.username, x.role]).sort();

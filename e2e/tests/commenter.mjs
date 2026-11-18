@@ -59,6 +59,12 @@ await step('Kim is told, with the message', async () => {
   await k.goto(`${B}/home`);
   await k.getByRole('button', { name: /^Notifications/ }).click();
   await k.getByText('“Please look at the rent” · You can comment').waitFor();
+  // Kept with the file: in Shared with me, and its Details.
+  await k.goto(`${B}/drive/shared`);
+  await k.locator('tr', { hasText: 'Budget' }).getByText('“Please look at the rent”').waitFor();
+  await k.getByRole('button', { name: 'Actions for Budget' }).click();
+  await k.getByRole('menuitem', { name: 'Details' }).click();
+  await k.getByRole('dialog').getByText('Olivia Owner shared it with you: “Please look at the rent”.').waitFor();
 });
 await step('Kim can comment on a cell but not change it', async () => {
   kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
