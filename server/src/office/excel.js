@@ -158,6 +158,15 @@ export async function threadedCommentsOfXlsx(buffer) {
   return out;
 }
 
+/** A thread from a cell comment that has its replies written in ("Reply (name):", the reply indented), by `author`; or null. */
+export function threadFromComment(text, author, at) {
+  const parts = String(text || '').split(/\n(?=Reply(?: \([^)\n]*\))?:\s*(?:\n|$))/);
+  const body = (s) => s.split('\n').map((l) => l.replace(/^ {4}/, '')).join('\n').trim();
+  const first = parts[0].trim();
+  if (!first) return null;
+  const replies = parts.slice(1).map((p) => { const r = /^Reply(?: \(([^)\n]*)\))?:\s*\n?([\s\S]*)$/.exec(p); return r ? { author: (r[1] || '').slice(0, 100), text: body(r[2]).slice(0, 4000), at: null } : null; }).filter((r) => r?.text);
+  return { author: String(author || '').slice(0, 100), text: first.slice(0, 4000), at, resolved: false, replies };
+}
 /** The thread in the old-style note Excel writes for a threaded comment ("[Threaded comment] … Comment: … Reply: …"), or null. */
 export function threadFromNote(text) {
   const m = /^\[Threaded comment\][\s\S]*?\n\s*Comment:\s*\n([\s\S]*)$/.exec(String(text || ''));
@@ -201,10 +210,13 @@ export async function notesOfXlsx(buffer) {
       const commentsPath = (await rels(sheetPath)).find((r) => /\/comments$/.test(r.type))?.path;
       if (!commentsPath) continue;
       const notes = {};
-      for (const c of (await read(commentsPath)).matchAll(/<comment\b([^>]*)>([\s\S]*?)<\/comment>/g)) {
+      const xml = await read(commentsPath);
+      const authors = [...xml.matchAll(/<author>([\s\S]*?)<\/author>/g)].map((a) => unxml(a[1]).trim());
+      Object.defineProperty(notes, 'authors', { value: {}, enumerable: false }); // (each note's author, by cell)
+      for (const c of xml.matchAll(/<comment\b([^>]*)>([\s\S]*?)<\/comment>/g)) {
         const ref = (attrOf(c[1], 'ref') || '').toUpperCase();
         const text = noteText([...c[2].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((t) => unxml(t[1])).join(''));
-        if (/^[A-Z]{1,3}\d{1,7}$/.test(ref) && text) notes[ref] = text;
+        if (/^[A-Z]{1,3}\d{1,7}$/.test(ref) && text) { notes[ref] = text; notes.authors[ref] = authors[Number(attrOf(c[1], 'authorId'))] || ''; }
       }
       if (Object.keys(notes).length) out.set(name, notes);
     }
@@ -224,7 +236,8 @@ export async function sheetFromExcel(buffer) {
     for (const t of threadSheets.get(ws.name) || []) delete notes[t.cell]; // the old-style copy of a comment thread
     // An old-style copy whose thread is gone (a file saved again by a program that keeps only notes): the thread, from its text.
     for (const [cell, text] of Object.entries(notes)) {
-      const t = threadFromNote(text);
+      // (or a thread with its replies written in, as a .ods comment thread comes from LibreOffice)
+      const t = threadFromNote(text) || (/\nReply(?: \([^)\n]*\))?:\n/.test(text) ? threadFromComment(text, noteSheets.get(ws.name)?.authors?.[cell], null) : null);
       if (!t) continue;
       delete notes[cell];
       if (!threadSheets.has(ws.name)) threadSheets.set(ws.name, []);

@@ -23,6 +23,7 @@ const api = (p, method, url, body) => p.evaluate(async ([m, u, b]) => {
 }, [method, url, body]);
 const signIn = async (p, email) => { await p.goto(B); await p.evaluate(async (e) => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: e, password: 'password123' }) }), email); };
 const until = async (fn, ms = 8000) => { const end = Date.now() + ms; let v; for (;;) { v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 150)); } };
+let sheetId;
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -51,6 +52,30 @@ await step('comment threads in an Excel file open on their cells', async () => {
   await page.getByText(/^Is this the final price\?/).first().waitFor();
   await page.getByText('— Raj & Co (in the Excel file)').first().waitFor();
   await page.screenshot({ path: `${SP}/shots/xlsx-comments.png` });
+  sheetId = opened.body.id;
+});
+await step('the .ods download keeps the cell comment threads with their replies; reopened, they are threads on the same cells', async () => {
+  const threads = (await api(page, 'GET', `/comments/${sheetId}`)).body;
+  const root = threads.find((c) => !c.thread_id && c.body.startsWith('Is this the final price?'));
+  if ((await api(page, 'POST', `/comments/${sheetId}`, { body: 'Yes, from Monday.', thread_id: root.id })).status !== 201) throw new Error('reply');
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=ods`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Prices.ods', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, sheetId);
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  const back = (await api(page, 'GET', `/comments/${opened.body.id}`)).body;
+  const r2 = back.find((c) => !c.thread_id && c.body.startsWith('Is this the final price?'));
+  if (!r2 || !/\(in the OpenDocument file\)$/.test(r2.body)) throw new Error(JSON.stringify(back.map((c) => c.body)));
+  const anchor = typeof r2.anchor === 'string' ? JSON.parse(r2.anchor) : r2.anchor;
+  if (anchor?.cell !== 'B2') throw new Error('on B2: ' + JSON.stringify(r2.anchor));
+  if (!back.some((c) => c.thread_id === r2.id && c.body.startsWith('Yes, from Monday.'))) throw new Error('reply ' + JSON.stringify(back.map((c) => [c.thread_id, c.body])));
+  const content = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content;
+  if (content.sheets[0].notes?.B2) throw new Error('the thread came in as a note too');
+  await page.goto(`${B}/sheets/${opened.body.id}`);
+  const b2 = page.locator('[data-k="B2"]');
+  await until(async () => (await b2.getAttribute('class')).includes('commented'));
+  await b2.click();
+  await page.getByText(/^Yes, from Monday\./).first().waitFor();
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();

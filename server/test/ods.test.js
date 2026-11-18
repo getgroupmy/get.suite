@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
-const { odsFromSheet, sheetFromOds, formulaToOds, formulaFromOds, ODS_MIME } = await import('../src/office/ods.js');
+const { odsFromSheet, sheetFromOds, formulaToOds, formulaFromOds, ODS_MIME, commentsOfOds } = await import('../src/office/ods.js');
 
 test('formulas: Sheets ↔ OpenFormula (references in brackets, other sheets, ";" between arguments, strings left alone)', () => {
   assert.equal(formulaToOds('=SUM(A1:B2,Other!C3)'), 'of:=SUM([.A1:.B2];[$Other.C3])');
@@ -213,4 +213,39 @@ test('.ods: charts as chart objects drawing from the cells, every kind, both way
     execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 's.ods')], { stdio: 'ignore', timeout: 120000 });
     assert.deepEqual(show(await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 's.ods')))), want, 'opened and saved by LibreOffice (which splits the ranges)');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('.ods: comment threads on cells go out as Calc comments (replies written in) and come back as threads; notes stay notes; also through LibreOffice', async (t) => {
+  const data = { sheets: [{ name: 'Sheet1', cells: { A1: 'x', B2: 'y' }, notes: { A1: 'A plain note' } }, { name: 'Two', cells: { C3: '5' } }] };
+  const comments = [
+    { sheet: 0, cell: 'B2', author: 'Kim Park', at: Date.parse('2026-11-02T10:00:00Z'), text: 'Check\nthis', replies: [{ author: 'Olivia Owner', text: 'OK, done' }, { author: '', text: 'Anon' }] },
+    { sheet: 1, cell: 'D9', author: 'Lee', at: Date.parse('2026-11-04T10:00:00Z'), text: 'On an empty cell', replies: [] },
+    { sheet: 0, cell: 'A1', author: 'X', text: 'A cell with a note keeps its note', replies: [] },
+  ];
+  const show = (book, list) => [list.map((c) => [c.sheet, c.cell, c.author, c.text, c.replies.map((r) => `${r.author}:${r.text}`)]), book.sheets.map((s) => s.notes || {})];
+  const want = [[[0, 'B2', 'Kim Park', 'Check\nthis', ['Olivia Owner:OK, done', ':Anon']], [1, 'D9', 'Lee', 'On an empty cell', []]], [{ A1: 'A plain note' }, {}]];
+  const buf = await odsFromSheet(data, { comments });
+  const xml = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  assert.match(xml, /<dc:creator>Kim Park<\/dc:creator><dc:date>2026-11-02T10:00:00<\/dc:date><text:p>Check<\/text:p><text:p>this<\/text:p><text:p>Reply \(Olivia Owner\):<\/text:p><text:p> {4}OK, done<\/text:p>/);
+  const book = await sheetFromOds(buf);
+  assert.deepEqual(show(book, commentsOfOds(book)), want);
+  assert.equal(commentsOfOds(book)[0].at, Date.parse('2026-11-02T10:00:00Z'));
+  assert.deepEqual(commentsOfOds(await sheetFromOds(await odsFromSheet(data))), [], 'none: none');
+  // Excel's old-style copy of a thread (from an .xlsx LibreOffice saved as .ods) is the thread too.
+  const xlNote = '[Threaded comment]\n\nYour version of Excel allows you to read this threaded comment.\n\nComment:\n    Is it final?\nReply (Raj):\n    Yes';
+  const xl = await sheetFromOds(await odsFromSheet({ sheets: [{ name: 'S', cells: { A1: '1' }, notes: { A1: xlNote } }] }));
+  assert.deepEqual(show(xl, commentsOfOds(xl)), [[[0, 'A1', '', 'Is it final?', ['Raj:Yes']]], [{}]]);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'odscomments-'));
+  fs.writeFileSync(path.join(dir, 'c.ods'), buf);
+  const lo = (as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, 'c.ods')], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, `c.${as}`)); };
+  const again = await sheetFromOds(lo('ods', 'o'));
+  assert.deepEqual(show(again, commentsOfOds(again)), want, 'saved again by LibreOffice');
+  // Saved as .xlsx by LibreOffice: the thread with replies is still a thread.
+  const { sheetFromExcel, commentsOfBook } = await import('../src/office/excel.js');
+  const xb = await sheetFromExcel(lo('xlsx', 'x'));
+  assert.deepEqual(show(xb, commentsOfBook(xb))[0][0], [0, 'B2', 'Kim Park', 'Check\nthis', ['Olivia Owner:OK, done', ':Anon']]);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

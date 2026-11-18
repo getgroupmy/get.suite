@@ -9,6 +9,7 @@ import { colName } from './sheetnames.js';
 import { CALCEXT_NS, rulesToCalcext, rulesFromCalcext } from './odscf.js';
 import { filterToOds, filterFromOds } from './odsfilter.js';
 import { chartObject, chartFrame, chartFromObject } from './odschart.js';
+import { threadFromNote, threadFromComment } from './excel.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -105,7 +106,16 @@ const DATA_STYLES = {
 const isNum = (v) => v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(String(v).trim());
 const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 
-export async function odsFromSheet(data) {
+// ---- comment threads on cells: Calc keeps one comment a cell, by whoever wrote it; a thread's replies go in it the way
+// Excel writes them for older programs ("Reply (name):" and the reply, indented), so they come back as replies.
+const odsComments = new WeakMap(); // book → [{ sheet, cell, author, at, text, replies }]
+/** The comment threads a spreadsheet read from an .ods file had (see sheetFromOds). */
+export const commentsOfOds = (book) => odsComments.get(book) || [];
+function threadAnnotation(t) {
+  const lines = [...String(t.text).split('\n'), ...(t.replies || []).flatMap((r) => [`Reply${r.author ? ` (${String(r.author).replace(/[()\n]/g, '')})` : ''}:`, ...String(r.text || '').split('\n').map((l) => `    ${l}`)])];
+  return `<office:annotation><dc:creator>${x(t.author || 'Workspace')}</dc:creator><dc:date>${new Date(Number.isFinite(t.at) ? t.at : Date.now()).toISOString().slice(0, 19)}</dc:date>${lines.map((l) => `<text:p>${x(l)}</text:p>`).join('')}</office:annotation>`;
+}
+export async function odsFromSheet(data, { comments = [] } = {}) {
   const sheets = data?.sheets?.length ? data.sheets : [{ name: 'Sheet1', cells: {} }];
   const tables = tablesOf(sheets);
   const cellStyles = new Map(), dataStyles = new Map(), colStyles = new Map(), rowStyles = new Map();
@@ -140,7 +150,8 @@ export async function odsFromSheet(data) {
   const cfStyles = []; // the cell styles conditional formatting applies (named styles)
   const databaseRanges = []; // the sheets' filters
   const chartObjects = []; // the charts' objects (Object 1, Object 2…)
-  for (const s of sheets) {
+  for (const [si, s] of sheets.entries()) {
+    const threadAt = new Map((comments || []).filter((t) => (t.sheet || 0) === si && /^[A-Z]{1,3}\d{1,7}$/.test(t.cell || '') && t.text).map((t) => [t.cell, t]));
     const cells = s.cells || {}, formats = s.formats || {};
     // Alternating colours: each cell's fill (its own fill wins), the heading row bold.
     const fmt = (key) => formats[key];
@@ -159,7 +170,7 @@ export async function odsFromSheet(data) {
     // The used area: every cell with something in it, a format, a note or a merge.
     let maxR = 0, maxC = 0;
     const touch = (key) => { const m = CELL.exec(key); if (!m) return; maxR = Math.max(maxR, +m[2]); maxC = Math.max(maxC, colIndex(m[1])); };
-    [cells, formats, s.notes || {}, banded].forEach((o) => Object.keys(o).forEach(touch));
+    [cells, formats, s.notes || {}, banded, Object.fromEntries(threadAt)].forEach((o) => Object.keys(o).forEach(touch));
     for (const mg of s.merges || []) String(mg).split(':').forEach(touch);
     for (const r of s.hide?.rows || []) maxR = Math.max(maxR, r + 1);
     for (const c of s.hide?.cols || []) maxC = Math.max(maxC, c);
@@ -241,6 +252,7 @@ export async function odsFromSheet(data) {
         }
         const note = s.notes?.[key];
         if (note) inner = `<office:annotation><text:p>${String(note).split('\n').map(x).join('</text:p><text:p>')}</text:p></office:annotation>${inner}`;
+        else if (threadAt.has(key)) inner = threadAnnotation(threadAt.get(key)) + inner; // (a cell's own note wins, as in Excel)
         row += attrs.length || inner ? `<table:table-cell ${attrs.join(' ')}>${inner}</table:table-cell>` : '<table:table-cell/>';
       }
       rows += `${row}</table:table-row>`;
@@ -364,7 +376,7 @@ export async function sheetFromOds(buffer) {
     }
   })(settings);
 
-  const out = [];
+  const out = [], threads = [];
   const body = (function find(n) { for (const k of tags(n)) { if (k.name === 'office:spreadsheet') return k; const f = find(k); if (f) return f; } return null; })(root);
   // Dropdowns: the content validations, by name (read for each sheet, as a reference to its own cells is relative to it).
   const validationDefs = new Map();
@@ -428,7 +440,17 @@ export async function sheetFromOds(buffer) {
             const f = formatOf(cell.attribs['table:style-name'] || colDefault[c]);
             if (Object.keys(f).length && (has || f.fill || f.bd)) formats[key] = f;
             const note = tags(cell, 'office:annotation')[0];
-            if (note) { const text = tags(note, 'text:p').map(textOf).join('\n').trim(); if (text) notes[key] = text.slice(0, 2000); }
+            if (note) {
+              const text = tags(note, 'text:p').map(textOf).join('\n').trim();
+              const who = textOf({ children: tags(note, 'dc:creator') }).trim();
+              const when = textOf({ children: tags(note, 'dc:date') }).trim();
+              // By someone (not Calc's "Unknown Author" for a note from Excel): a comment thread; Excel's old-style copy of
+              // a thread too. Otherwise a note.
+              const xl = threadFromNote(text);
+              const thread = xl || (who && who !== 'Unknown Author' ? threadFromComment(text, who, Date.parse(when + (/(Z|[+-]\d\d:?\d\d)$/.test(when) ? '' : 'Z')) || null) : null);
+              if (thread && threads.length < 1000) threads.push({ sheet: out.length, cell: key, ...thread });
+              else if (text) notes[key] = text.slice(0, 2000);
+            }
             const sc = Number(cell.attribs['table:number-columns-spanned']) || 1, sr = Number(cell.attribs['table:number-rows-spanned']) || 1;
             if (sc > 1 || sr > 1) merges.push(`${key}:${colName(c + sc - 1)}${r + sr - 1}`);
           }
@@ -489,5 +511,7 @@ export async function sheetFromOds(buffer) {
     }
   }
   if (!out.length) out.push({ name: 'Sheet1', cells: {}, colWidths: {} });
-  return { sheets: out };
+  const book = { sheets: out };
+  odsComments.set(book, threads);
+  return book;
 }
