@@ -67,6 +67,17 @@ await step('Kim can now open it (read only)', async () => {
   await kim.locator('.grid').waitFor();
   if (!kim.url().includes(`/sheets/${doc.id}`)) throw new Error(kim.url());
 });
+await step('from Drive, Kim asks to edit it (Shared with me → Request edit access); Olivia sees it with what Kim can do now', async () => {
+  await kim.goto(`${B}/drive/shared`);
+  await kim.getByLabel('Actions for Payroll').click();
+  await kim.getByRole('menuitem', { name: 'Request edit access' }).click();
+  await kim.getByText('Asked Olivia Owner for edit access').waitFor();
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: /^Access requests/ }).click();
+  const dlg = page.getByRole('dialog', { name: 'Access requests' });
+  await dlg.getByText('(can view now)').waitFor();
+  await dlg.getByText('asks to edit').waitFor();
+}, kim);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
