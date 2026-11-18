@@ -84,6 +84,18 @@ await step('the TSV download has the same cells, separated by tabs', async () =>
   const tsv = (await (await import('node:fs/promises')).readFile(await d.path(), 'utf8')).split('\n');
   if (tsv.length < 30 || !tsv[29].includes('30') || tsv.some((l) => l.includes(','))) throw new Error(tsv.slice(0, 3).join('|') + ' … ' + tsv.length);
 });
+await step('the PDF download has the worked-out values, spilled ones included', async () => {
+  const dl = page.waitForEvent('download');
+  await page.getByRole('button', { name: /More|⋮/ }).first().click();
+  await page.getByRole('menuitem', { name: 'Download as PDF (.pdf)' }).click();
+  const d = await dl;
+  if (!d.suggestedFilename().endsWith('.pdf')) throw new Error(d.suggestedFilename());
+  const buf = await (await import('node:fs/promises')).readFile(await d.path());
+  if (buf.subarray(0, 5).toString() !== '%PDF-') throw new Error('not a PDF');
+  let text = null;
+  try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-layout', '-', '-'], { input: buf }).toString(); } catch { /* not installed */ }
+  if (text !== null && !(/\b29\b/.test(text) && /\b30\b/.test(text))) throw new Error(text.slice(0, 400));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

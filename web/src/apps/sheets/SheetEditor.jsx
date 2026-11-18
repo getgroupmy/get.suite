@@ -1217,6 +1217,7 @@ export default function SheetEditor() {
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download as OpenDocument (.ods)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=ods`; } },
+          { label: 'Download as PDF (.pdf)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=pdf`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: () => exportCsv(',') },
           { label: 'Download sheet as TSV (tab-separated)', icon: 'download', onClick: () => exportCsv('\t') },
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
