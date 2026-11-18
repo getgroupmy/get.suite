@@ -328,6 +328,16 @@ await step('an assistant asks a colleague for edit access to her document; she s
   const dlg = ava.getByRole('dialog', { name: 'Access requests' });
   await dlg.getByText('To add the figures').waitFor();
   await dlg.getByText('(can view now)').waitFor();
+  // Ava's own assistant answers it: yes, to comment rather than edit; Olivia can now comment, and is told.
+  const avaToken = (await api(ava, 'POST', '/tokens', { password: 'password123', name: 'Ava’s Claude 2', scope: 'write', days: 30 })).body.token;
+  const reqs = (await mcp(avaToken, 'list_access_requests', {})).structuredContent.requests;
+  const mine = reqs.find((x) => x.file_name === 'Ava’s draft');
+  if (!mine || mine.asks !== 'to edit' || mine.can_now !== 'can view only') throw new Error(JSON.stringify(reqs));
+  const ans = await mcp(avaToken, 'answer_access_request', { request: mine.id, approve: true, as: 'comment' });
+  if (ans.isError || ans.structuredContent.as !== 'comment') throw new Error(JSON.stringify(ans));
+  if ((await mcp(token, 'fetch', { id: `file:${d.id}` })).structuredContent.metadata.your_access !== 'can comment and suggest edits, not edit') throw new Error('not commenter');
+  await dlg.getByText('Nobody is waiting.').waitFor();
+  if (!JSON.stringify((await api(page, 'GET', '/notifications')).body).includes('Ava Assignee gave you comment access to “Ava’s draft”')) throw new Error('not told');
 }, { screenshot: (o) => ava.screenshot(o) });
 await step('an assistant cancels a meeting: the guest’s bell says so and it leaves their calendar', async () => {
   await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });

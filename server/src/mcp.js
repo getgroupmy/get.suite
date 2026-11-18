@@ -961,6 +961,32 @@ export const TOOLS = [
     },
   },
   {
+    name: 'list_access_requests', title: 'Access requests waiting', readOnly: true,
+    description: 'People asking for access to the person’s files (to view, comment or edit, or to keep access that ends soon), newest first: who, which file, what they asked, their note, and what they can do now. Answer with answer_access_request.',
+    inputSchema: { type: 'object', properties: {} },
+    async run(api) {
+      const list = await api('GET', '/files/access-requests');
+      const asked = (r) => (r.longer ? 'to keep it longer' : { editor: 'to edit', commenter: 'to comment', viewer: 'to view' }[r.role] || r.role);
+      return { requests: list.slice(0, 50).map((r) => ({ id: r.id, who: r.user_name, email: r.user_email, file: `file:${r.file_id}`, file_name: r.file_name, asks: asked(r), note: r.message || null, can_now: r.has ? ACCESS[r.has] : 'no access', at: iso(r.created_at) })) };
+    },
+  },
+  {
+    name: 'answer_access_request', title: 'Answer an access request', readOnly: false,
+    description: 'Say yes or no to someone asking for access to one of the person’s files (an id from list_access_requests). Yes shares it as they asked, or as given (as: view, comment, edit); no keeps it as it is. They’re told either way. Ask the person before answering.',
+    inputSchema: {
+      type: 'object', required: ['request', 'approve'],
+      properties: { request: { type: 'string' }, approve: { type: 'boolean' }, as: { type: 'string', enum: ['view', 'comment', 'edit'] } },
+    },
+    async run(api, a) {
+      const list = await api('GET', '/files/access-requests');
+      const r = list.find((x) => x.id === String(a.request || ''));
+      if (!r) throw new ToolError('No such request waiting: list_access_requests has the ids');
+      const role = a.as ? { view: 'viewer', comment: 'commenter', edit: 'editor' }[a.as] : undefined;
+      await api('POST', `/files/access-requests/${encodeURIComponent(r.id)}`, { approve: !!a.approve, ...(role && { role }) });
+      return { [a.approve ? 'approved' : 'declined']: r.user_name, file: r.file_name, ...(a.approve && !r.longer && { as: a.as || { editor: 'edit', commenter: 'comment', viewer: 'view' }[r.role] }) };
+    },
+  },
+  {
     name: 'share_file', title: 'Share a file with a colleague', readOnly: false,
     description: 'Share a Drive file or folder the person owns (or manages) with a colleague in their company, by email address: as viewer, commenter or editor. They’re told, as when sharing in Drive. Only colleagues: sharing outside the company is left to Workspace itself. Ask the person before sharing on their behalf.',
     inputSchema: {
