@@ -2116,7 +2116,7 @@ test('Slides: what LibreOffice keeps when it opens and saves our .pptx and .odp 
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('Docs: line spacing and space before / after a paragraph, out to Word and .odt and back (and from Word\'s own XML)', async (t) => {
+test('Docs: line spacing, space before / after and indents of paragraphs, out to Word and .odt and back (and from Word\'s own XML)', async (t) => {
   const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
   const { markWordXml, unmarkWordHtml } = await import('../src/office/word.js');
   const P = (text, attrs) => ({ type: 'paragraph', attrs, content: [{ type: 'text', text }] });
@@ -2125,9 +2125,13 @@ test('Docs: line spacing and space before / after a paragraph, out to Word and .
     P('Double, space after', { lineHeight: '2', spaceAfter: 12 }),
     P('Centred, 1.5, space before', { textAlign: 'center', lineHeight: '1.5', spaceBefore: 12 }),
     P('Plain'),
+    P('Indented twice', { indent: 2 }),
+    { type: 'blockquote', content: [P('Quoted')] },
   ] };
-  const want = ['Title: - - 24 12', 'Double, space after: - 2 - 12', 'Centred, 1.5, space before: center 1.5 12 -', 'Plain: - - - -'];
-  const show = (d) => d.content.filter((n) => /paragraph|heading/.test(n.type)).map((n) => `${(n.content || []).map((c) => c.text || '').join('')}: ${['textAlign', 'lineHeight', 'spaceBefore', 'spaceAfter'].map((k) => n.attrs?.[k] ?? '-').join(' ')}`);
+  const want = ['Title: - - 24 12 -', 'Double, space after: - 2 - 12 -', 'Centred, 1.5, space before: center 1.5 12 - -', 'Plain: - - - - -', 'Indented twice: - - - - 2', 'Quoted: - - - - -'];
+  // (paragraphs in a quote too: the quote's own indent is the quote's, not theirs)
+  const flat = (nodes) => nodes.flatMap((n) => (n.type === 'blockquote' ? flat(n.content || []) : [n]));
+  const show = (d) => flat(d.content).filter((n) => /paragraph|heading/.test(n.type)).map((n) => `${(n.content || []).map((c) => c.text || '').join('')}: ${['textAlign', 'lineHeight', 'spaceBefore', 'spaceAfter', 'indent'].map((k) => n.attrs?.[k] || '-').join(' ')}`);
   const docx = await wordFromDoc(doc, 'T');
   const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml').async('string');
   assert.match(xml, /<w:spacing w:after="240" w:line="480" w:lineRule="auto"\/>/);
@@ -2139,12 +2143,17 @@ test('Docs: line spacing and space before / after a paragraph, out to Word and .
   assert.match(c, /<style:style style:name="Standard_s\d" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:line-height="150%" fo:margin-top="12pt"\/>/);
   assert.match(c, /<text:h text:style-name="Heading_20_1_s\d" text:outline-level="1">Title/);
   assert.match(c, /<text:p text:style-name="Standard">Plain/, 'a plain paragraph keeps the plain style');
+  assert.match(c, /<style:paragraph-properties fo:margin-left="2.54cm"\/>/, 'two indent steps');
   assert.deepEqual(show((await docFromOdt(odt)).doc), want, '.odt');
   // Word's own: only a paragraph's direct spacing counts; 0 and "auto" spacing are none; lines in other rules are left alone.
   const html = (x) => unmarkWordHtml(markWordXml(x).replace(/<w:p>(<w:pPr>[\s\S]*?<\/w:pPr>)((?:<w:r>[\s\S]*?<\/w:r>)+)<\/w:p>/g, (m, ppr, runs) => `<p>${runs.replace(/<[^>]+>/g, '')}</p>`));
   assert.equal(html('<w:p><w:pPr><w:spacing w:before="0" w:after="160" w:line="259" w:lineRule="auto"/></w:pPr><w:r><w:t>A</w:t></w:r></w:p>'), '<p style="line-height:1.08;margin-bottom:8pt">A</p>');
   assert.equal(html('<w:p><w:pPr><w:spacing w:beforeAutospacing="1" w:before="100" w:line="300" w:lineRule="exact"/></w:pPr><w:r><w:t>B</w:t></w:r></w:p>'), '<p>B</p>');
   assert.equal(html('<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="2000"/></w:pPr><w:r><w:t>C</w:t></w:r></w:p>'), '<p style="text-align:center">C</p>', 'more than 72pt is left out');
+  assert.equal(html('<w:p><w:pPr><w:ind w:left="1440"/></w:pPr><w:r><w:t>D</w:t></w:r></w:p>'), '<p data-indent="2">D</p>', 'an indent: in half-inch steps');
+  assert.equal(html('<w:p><w:pPr><w:ind w:start="700"/></w:pPr><w:r><w:t>E</w:t></w:r></w:p>'), '<p data-indent="1">E</p>');
+  assert.equal(html('<w:p><w:pPr><w:ind w:left="720" w:hanging="720"/></w:pPr><w:r><w:t>F</w:t></w:r></w:p>'), '<p>F</p>', 'a hanging indent is not one');
+  assert.equal(html('<w:p><w:pPr><w:ind w:left="200"/></w:pPr><w:r><w:t>G</w:t></w:r></w:p>'), '<p>G</p>', 'less than half a step');
   // Through LibreOffice, where it is installed: its own direct formatting comes back the same.
   const { execFileSync } = await import('node:child_process');
   try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }

@@ -156,8 +156,9 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   const spaced = new Map(); // what a style says → its name
   const styleOf = (base, attrs = {}) => {
     const al = ALIGNS[attrs.textAlign];
-    const lh = Number(attrs.lineHeight), sb = Number(attrs.spaceBefore), sa = Number(attrs.spaceAfter);
-    const props = [al && `fo:text-align="${al}"`, lh >= 0.5 && lh <= 4 && `fo:line-height="${Math.round(lh * 100)}%"`, sb > 0 && sb <= 72 && `fo:margin-top="${sb}pt"`, sa > 0 && sa <= 72 && `fo:margin-bottom="${sa}pt"`].filter(Boolean);
+    const lh = Number(attrs.lineHeight), sb = Number(attrs.spaceBefore), sa = Number(attrs.spaceAfter), ind = Math.min(8, Math.round(Number(attrs.indent) || 0));
+    const props = [al && `fo:text-align="${al}"`, lh >= 0.5 && lh <= 4 && `fo:line-height="${Math.round(lh * 100)}%"`, sb > 0 && sb <= 72 && `fo:margin-top="${sb}pt"`, sa > 0 && sa <= 72 && `fo:margin-bottom="${sa}pt"`,
+      ind > 0 && `fo:margin-left="${(ind * 1.27).toFixed(2)}cm"`].filter(Boolean); // (an indent step: half an inch)
     if (props.length <= (al ? 1 : 0)) return al ? `${base}_${al}` : base;
     const key = `${base}|${props.join(' ')}`;
     if (!spaced.has(key)) spaced.set(key, `${base}_s${spaced.size + 1}`);
@@ -433,7 +434,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     return out;
   };
   const ALIGN = { center: 'center', end: 'right', right: 'right', justify: 'justify' };
-  const ptOf = (v) => { const m = /^(-?[\d.]+)(pt|cm|mm|in)$/.exec(String(v || '')); if (!m) return null; const n = Number(m[1]) * { pt: 1, cm: 72 / 2.54, mm: 72 / 25.4, in: 72 }[m[2]]; return n > 0.05 && n <= 72 ? Math.round(n * 10) / 10 : null; };
+  const ptOf = (v, max = 72) => { const m = /^(-?[\d.]+)(pt|cm|mm|in)$/.exec(String(v || '')); if (!m) return null; const n = Number(m[1]) * { pt: 1, cm: 72 / 2.54, mm: 72 / 25.4, in: 72 }[m[2]]; return n > 0.05 && n <= max ? Math.round(n * 10) / 10 : null; };
   // A paragraph's alignment (from its style, and those it comes from), and its own line spacing and space before
   // and after (its own direct formatting only: what a named style like "Text Body" says is that style's look).
   const alignAttr = (styleName) => {
@@ -445,7 +446,10 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     const lh = /^(\d+(?:\.\d+)?)%$/.exec(own['fo:line-height'] || '')?.[1];
     const css = [a && `text-align: ${a}`, lh && Number(lh) >= 50 && Number(lh) <= 400 && `line-height: ${Math.round(Number(lh)) / 100}`,
       ptOf(own['fo:margin-top']) && `margin-top: ${ptOf(own['fo:margin-top'])}pt`, ptOf(own['fo:margin-bottom']) && `margin-bottom: ${ptOf(own['fo:margin-bottom'])}pt`].filter(Boolean);
-    return css.length ? ` style="${css.join('; ')}"` : '';
+    // An indent from the left of its own (not a hanging one), in half-inch steps (36pt).
+    const quote = look(styleName).names.some((n) => /^(quotations|quote|intense_20_quote)$/.test(n)); // (a quote's indent is the quote's own)
+    const steps = quote || (own['fo:text-indent'] && /^-/.test(own['fo:text-indent'])) ? 0 : Math.min(8, Math.round((ptOf(own['fo:margin-left'], 400) || 0) / 36));
+    return (css.length ? ` style="${css.join('; ')}"` : '') + (steps > 0 ? ` data-indent="${steps}"` : '');
   };
   const blocks = async (el, depth = 0, listStyle = null) => {
     let out = '';

@@ -69,7 +69,7 @@ await step('kept after reopening, and in the Word download', async () => {
   const size = await page.evaluate(async (id) => (await (await fetch(`/api/files/${id}/export`)).arrayBuffer()).byteLength, docId);
   if (size < 3000) throw new Error('no Word file');
 });
-await step('Add space before / after a paragraph; the other editor sees it; Word and .odt keep it', async () => {
+await step('Add space before / after a paragraph; the other editor sees it; Word and .odt keep it, and the indent', async () => {
   const para = (p) => p.locator('.paper .tiptap p', { hasText: 'Second paragraph' }).first();
   const gaps = (p) => para(p).evaluate((el) => `${getComputedStyle(el).marginTop} ${getComputedStyle(el).marginBottom}`);
   const inSecond = () => page.evaluate(() => document.querySelector('.paper .tiptap').editor.state.selection.$from.parent.textContent.startsWith('Second'));
@@ -83,6 +83,8 @@ await step('Add space before / after a paragraph; the other editor sees it; Word
   if (!labels.includes('Remove space before paragraph') || !labels.includes('Remove space after paragraph')) throw new Error(labels.join(','));
   if ((await menu.inputValue()) !== '') throw new Error(`menu shows ${await menu.inputValue()}`);
   await until(async () => (await gaps(kim)) === '16px 16px');
+  await page.keyboard.press('Control+BracketRight'); // and an indent, to go out with it
+  await until(async () => (await para(page).getAttribute('data-indent')) === '1');
   if ((await style(page, 'Letter to the board')).lh !== '2') throw new Error('the other paragraph changed');
   await page.waitForTimeout(2500); // saved
   for (const format of ['docx', 'odt']) {
@@ -95,7 +97,7 @@ await step('Add space before / after a paragraph; the other editor sees it; Word
     const nodes = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.content;
     const second = nodes.find((n) => JSON.stringify(n).includes('Second paragraph'));
     const first = nodes.find((n) => JSON.stringify(n).includes('Letter to the board'));
-    if (second?.attrs?.spaceBefore !== 12 || second?.attrs?.spaceAfter !== 12 || String(first?.attrs?.lineHeight) !== '2') throw new Error(`${format}: ${JSON.stringify([first?.attrs, second?.attrs])}`);
+    if (second?.attrs?.spaceBefore !== 12 || second?.attrs?.spaceAfter !== 12 || second?.attrs?.indent !== 1 || String(first?.attrs?.lineHeight) !== '2') throw new Error(`${format}: ${JSON.stringify([first?.attrs, second?.attrs])}`);
   }
   // Taking one off again.
   await para(page).click();

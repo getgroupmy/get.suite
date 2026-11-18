@@ -97,6 +97,8 @@ const ParagraphSpacing = Extension.create({
     lineHeight: { default: null, parseHTML: (el) => { const v = el.style.lineHeight; return /^[\d.]+$/.test(v) ? v : null; }, renderHTML: (a) => (a.lineHeight ? { style: `line-height: ${a.lineHeight}` } : {}) },
     spaceBefore: { default: null, parseHTML: (el) => ptOf(el.style.marginTop), renderHTML: (a) => (a.spaceBefore ? { style: `margin-top: ${a.spaceBefore}pt` } : {}) },
     spaceAfter: { default: null, parseHTML: (el) => ptOf(el.style.marginBottom), renderHTML: (a) => (a.spaceAfter ? { style: `margin-bottom: ${a.spaceAfter}pt` } : {}) },
+    // (and the indent, as in web/src/apps/docs/indent.js: whole half-inch steps, 0–8)
+    indent: { default: 0, parseHTML: (el) => Math.max(0, Math.min(8, Math.round(Number(el.getAttribute('data-indent')) || 0))), renderHTML: (a) => (a.indent ? { 'data-indent': a.indent } : {}) },
   } }],
 });
 const EXTENSIONS = [
@@ -152,7 +154,12 @@ export function markWordXml(xml) {
       const rule = /w:lineRule="(\w+)"/.exec(sp)?.[1] || 'auto';
       const lh = rule === 'auto' && num('line') ? Math.round((num('line') / 240) * 100) / 100 : null;
       const pt = (k) => { const v = num(k) / 20; return v > 0 && v <= 72 && !new RegExp(`w:${k}Autospacing="(1|true)"`).test(sp) ? Math.round(v * 10) / 10 : null; };
-      const spec = [WORD_ALIGN[jc] && `al=${WORD_ALIGN[jc]}`, lh >= 0.5 && lh <= 4 && `lh=${lh}`, pt('before') && `sb=${pt('before')}`, pt('after') && `sa=${pt('after')}`].filter(Boolean).join(';');
+      // An indent from the left (not a hanging or first-line one, nor a list's): in half-inch steps, as the Docs toolbar's.
+      const ind = /<w:ind\b([^>]*)\/>/.exec(own)?.[1] || '';
+      const left = Number(/w:(?:left|start)="(\d+)"/.exec(ind)?.[1]) || 0;
+      const quote = /<w:pStyle w:val="(?:Quote|IntenseQuote|Quotations)"\/>/.test(own); // (a quote's indent is the quote's own)
+      const steps = quote || /<w:numPr>/.test(own) || /w:hanging="[1-9]/.test(ind) ? 0 : Math.min(8, Math.round(left / 720));
+      const spec = [WORD_ALIGN[jc] && `al=${WORD_ALIGN[jc]}`, lh >= 0.5 && lh <= 4 && `lh=${lh}`, pt('before') && `sb=${pt('before')}`, pt('after') && `sa=${pt('after')}`, steps > 0 && `in=${steps}`].filter(Boolean).join(';');
       return spec ? `${ppr}${marker(`p:${spec}`)}` : ppr;
     })
     .replace(/<w:r(?=[\s>])([^>]*)>((?:(?!<\/w:r>)[\s\S])*?)<\/w:r>/g, (m, attrs, inner) => {
@@ -189,7 +196,8 @@ export function unmarkWordHtml(html, commentId = null) {
     .replace(re('<(p|h[1-6])>MKp:([^END]*)END'), (m, tag, spec) => {
       const css = { al: 'text-align:', lh: 'line-height:', sb: 'margin-top:', sa: 'margin-bottom:' };
       const style = spec.split(';').map((kv) => { const [k, v] = kv.split('='); return css[k] && /^[\w.]+$/.test(v) ? `${css[k]}${v}${k === 'sb' || k === 'sa' ? 'pt' : ''}` : ''; }).filter(Boolean).join(';');
-      return style ? `<${tag} style="${style}">` : `<${tag}>`;
+      const steps = Number(/(?:^|;)in=(\d)/.exec(spec)?.[1]) || 0;
+      return `<${tag}${style ? ` style="${style}"` : ''}${steps ? ` data-indent="${steps}"` : ''}>`;
     })
     .replace(re('MKs:([^END]*)END'), (m, spec) => {
       const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : x.startsWith('f:') ? `font-family:${x.slice(2).replace(/"/g, "'")}` : x.startsWith('z:') ? `font-size:${x.slice(2)}pt` : '')).filter(Boolean).join(';');
