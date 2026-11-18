@@ -42,6 +42,7 @@ import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
 import { textFromDeck } from '../office/slidetext.js';
+import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -59,6 +60,11 @@ const OFFICE = {
   odp: { kind: 'slides', mime: ODP_MIME },
   md: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
   markdown: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
+  txt: { kind: 'doc', mime: 'text/plain; charset=utf-8' },
+  html: { kind: 'doc', mime: 'text/html; charset=utf-8' },
+  htm: { kind: 'doc', mime: 'text/html; charset=utf-8' },
+  csv: { kind: 'sheet', mime: 'text/csv; charset=utf-8' },
+  tsv: { kind: 'sheet', mime: 'text/tab-separated-values; charset=utf-8' },
 };
 const EXPORT_AS = { doc: 'docx', sheet: 'xlsx', slides: 'pptx' };
 const MAX_CONVERT = 50 * 1024 * 1024;
@@ -1771,7 +1777,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   const convertOffice = async (f, user) => {
     const req = { user }; // (as the route had it)
     const type = f.kind === 'file' && officeType(f.name);
-    if (!type) throw bad('Only Word (.docx), OpenDocument (.odt, .ods, .odp), Excel (.xlsx), PowerPoint (.pptx) and Markdown (.md) files can be opened this way');
+    if (!type) throw bad('Only Word (.docx), OpenDocument (.odt, .ods, .odp), Excel (.xlsx), PowerPoint (.pptx), Markdown (.md), text (.txt), web page (.html), CSV and TSV files can be opened this way');
     if (f.size > MAX_CONVERT) throw bad('This file is too large to convert (50 MB at most)');
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
@@ -1790,6 +1796,9 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (type === 'docx') { const w = await docFromWord(buf, { savePicture }); content = w.doc; wordComments = w.comments || []; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
       else if (type === 'odt') { const o = await docFromOdt(buf, { savePicture }); content = o.doc; wordComments = o.comments || []; layout = { ...layout, ...(await pageOfOdt(buf)) }; }
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
+      else if (type === 'txt') content = docFromTextFile(buf);
+      else if (type === 'html' || type === 'htm') content = await docFromWebPage(buf, { savePicture });
+      else if (type === 'csv' || type === 'tsv') content = sheetFromDelimited(buf, name, type === 'tsv' ? '\t' : ',');
       else if (type === 'xlsx') { content = await sheetFromExcel(buf); sheetThreads = commentsOfBook(content); }
       else if (type === 'ods') { content = await sheetFromOds(buf); sheetThreads = commentsOfOds(content); }
       else if (type === 'odp') { content = await deckFromOdp(buf, { savePicture }); slideComments = commentsOfOdpDeck(content); }

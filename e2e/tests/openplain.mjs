@@ -1,0 +1,78 @@
+import { chromium } from 'playwright';
+const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
+const SP = process.argv[2];
+const B = process.env.BASE || 'http://localhost:8080';
+const browser = await chromium.launch();
+const errors = [];
+let failed = 0;
+const mk = async (who) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const p = await ctx.newPage();
+  p.on('pageerror', (e) => errors.push(`${who}: ${e.message}`));
+  p.on('console', (m) => m.type() === 'error' && !/40[0-4]|503|Content Security|sandboxed/.test(m.text()) && errors.push(`${who}: ${m.text()}`));
+  return p;
+};
+const page = await mk('olivia');
+const step = async (name, fn, p = page) => {
+  try { await fn(); console.log('PASS', name); }
+  catch (e) { failed++; console.log('FAIL', name, e.message.split('\n')[0], (String(e.stack).match(/e2e[\w-]*\.mjs:\d+/g) || []).slice(0, 2).join(' ')); await p.screenshot({ path: `${SP}/shots/fail-${name.replace(/\W+/g, '_')}.png` }); }
+};
+const api = (p, method, url, body) => p.evaluate(async ([m, u, b]) => {
+  const r = await fetch('/api' + u, { method: m, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined });
+  return { status: r.status, body: await r.json().catch(() => null) };
+}, [method, url, body]);
+const signIn = async (p, email) => { await p.goto(B); await p.evaluate(async (e) => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: e, password: 'password123' }) }), email); };
+const until = async (fn, ms = 8000) => { const end = Date.now() + ms; let v; for (;;) { v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 150)); } };
+await step('setup', async () => {
+  await page.goto(B);
+  await page.getByLabel('Your company name').fill('Acme Trading');
+  await page.getByLabel('Company domain').fill('acme.com');
+  await page.getByLabel('Your full name').fill('Olivia Owner');
+  await page.getByLabel('Address before @').fill('olivia');
+  await page.getByLabel('Password', { exact: true }).fill('password123');
+  await page.getByLabel('Confirm password').fill('password123');
+  await page.getByRole('button', { name: 'Create workspace' }).click();
+  await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
+});
+const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+const fs = await import('node:fs');
+const upload = (name, body) => page.evaluate(async ([n, b]) => (await fetch(`/api/files/upload?name=${encodeURIComponent(n)}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: b })).json(), [name, body]);
+const openFromDrive = async (name, what) => {
+  await page.goto(B + '/drive');
+  await page.getByLabel(`Actions for ${name}`).click();
+  await page.getByRole('menuitem', { name: `Open as ${what}` }).click();
+};
+await step('a text file opens as a document, a paragraph a line', async () => {
+  await upload('notes.txt', 'Shopping\n\nMilk\nBread');
+  await openFromDrive('notes.txt', 'document');
+  await page.waitForURL(/\/docs\//);
+  await page.locator('.paper p', { hasText: 'Bread' }).waitFor();
+  const paras = await page.locator('.ProseMirror > p').allInnerTexts();
+  if (paras.map((t) => t.trim()).join('|') !== 'Shopping||Milk|Bread') throw new Error(paras.join('|'));
+});
+await step('a CSV file opens as a spreadsheet', async () => {
+  await upload('people.csv', 'Name,Note\nAna,"says ""hi"", twice"\nBo,42\n');
+  await openFromDrive('people.csv', 'spreadsheet');
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="B2"]').getByText('says "hi", twice').waitFor();
+  await page.locator('[data-k="B3"]').getByText('42').waitFor();
+});
+await step('a web page downloaded from here opens as a document again: formatting, picture, equation, footnote', async () => {
+  const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Report' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Key', marks: [{ type: 'bold' }] }, { type: 'text', text: ' half is ' }, { type: 'math', attrs: { latex: '\\frac{1}{2}' } }, { type: 'footnote', attrs: { note: 'Roughly.' } }] }] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Report', content })).body;
+  const html = await page.evaluate(async (id) => (await fetch(`/api/files/${id}/export?format=html`)).text(), doc.id);
+  await upload('Report page.html', html);
+  await openFromDrive('Report page.html', 'document');
+  await page.waitForURL(/\/docs\//);
+  await page.getByRole('heading', { name: 'Report' }).waitFor();
+  await page.locator('.paper strong', { hasText: 'Key' }).waitFor();
+  await page.locator('.doc-math .katex').first().waitFor(); // drawn as an equation
+  const id = page.url().split('/').pop();
+  const json = JSON.stringify((await api(page, 'GET', `/files/${id}/content`)).body.content);
+  if (!json.includes('"type":"footnote"') || !json.includes('Roughly.') || !json.includes('\\\\frac{1}{2}')) throw new Error(json.slice(0, 500));
+});
+if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
+console.log(failed ? `${failed} failed` : 'all passed');
+await browser.close();
+process.exit(failed ? 1 : 0);
