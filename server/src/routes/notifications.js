@@ -1,7 +1,7 @@
 // The bell: GET the latest notifications and how many are unread; mark some (or all) read, some unread again, or remove some.
 import { Router } from 'express';
 import { bad } from '../util.js';
-import { listFor, markRead, markUnread, removeNotifications, snooze, SNOOZE_MAX, KINDS, offFor, setOff } from '../notifications.js';
+import { listFor, markRead, markUnread, removeNotifications, restoreNotifications, snooze, SNOOZE_MAX, KINDS, offFor, setOff } from '../notifications.js';
 
 export default function notificationRoutes() {
   const r = Router();
@@ -25,7 +25,12 @@ export default function notificationRoutes() {
     return body.ids.map(String).slice(0, 500);
   };
   r.post('/unread', (req, res) => { markUnread(req.user.id, someIds(req.body)); res.json(listFor(req.user.id)); });
-  r.post('/remove', (req, res) => { removeNotifications(req.user.id, someIds(req.body)); res.json(listFor(req.user.id)); });
+  // { ids } or { read: true } (every read one, not snoozed ones) → the list, and removed: the ids, for /restore (Undo, 10 minutes).
+  r.post('/remove', (req, res) => {
+    const removed = removeNotifications(req.user.id, req.body?.read === true ? 'read' : someIds(req.body));
+    res.json({ ...listFor(req.user.id), removed });
+  });
+  r.post('/restore', (req, res) => { restoreNotifications(req.user.id, someIds(req.body)); res.json(listFor(req.user.id)); });
   // { ids, until }: out of the bell until then (a time to come, within a year); /unread brings one back sooner.
   r.post('/snooze', (req, res) => {
     const ids = someIds(req.body), until = Number(req.body?.until), now = Date.now();

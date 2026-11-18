@@ -80,7 +80,7 @@ export async function pushTo(userId, msg, { now = Date.now(), force = false, bas
   }
   const keys = vapidKeys();
   // With the number of unread notifications, for the app's icon (the app adds unread mail when it opens).
-  const badge = q('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(userId)?.n ?? 0;
+  const badge = q('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL AND removed_at IS NULL').get(userId)?.n ?? 0;
   const payload = JSON.stringify({ title: String(msg.title || 'Workspace').slice(0, 200), body: msg.body ? String(msg.body).slice(0, 300) : '', link: msg.link || '/', tag: msg.tag || undefined, badge });
   let ok = 0;
   await Promise.all(subs.map(async (s) => {

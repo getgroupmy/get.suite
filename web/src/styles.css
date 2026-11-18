@@ -3326,3 +3326,4 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .bell-snoozed { border-top: 1px solid var(--border); padding: 6px 12px 8px; }
 .bell-snoozed ul { padding: 4px 0 0; }
 .bell-snoozed li { gap: 8px; padding: 4px 0; }
+.bell-head .bell-tools { margin-top: 6px; gap: 12px; }

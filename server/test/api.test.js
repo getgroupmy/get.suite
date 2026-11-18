@@ -2192,6 +2192,32 @@ test('notifications: mentions, tasks, invitations and shares land in the bell; r
   const back2 = (await b('POST', '/api/notifications/unread', { ids: [first.id] })).body;
   assert.deepEqual(back2.snoozed, []);
   assert.equal(back2.items.find((x) => x.id === first.id).read, false);
+  // Removed, then Undo: back as it was (unread still); not someone else's.
+  const r1 = (await b('POST', '/api/notifications/remove', { ids: [first.id] })).body;
+  assert.deepEqual(r1.removed, [first.id]);
+  assert.equal(r1.items.some((x) => x.id === first.id), false);
+  assert.equal(r1.unread, back2.unread - 1, 'not counted while removed');
+  await a('POST', '/api/notifications/restore', { ids: [first.id] });
+  assert.equal((await bell()).items.some((x) => x.id === first.id), false);
+  const r2 = (await b('POST', '/api/notifications/restore', { ids: [first.id] })).body;
+  assert.equal(r2.items.find((x) => x.id === first.id).read, false);
+  assert.equal(r2.unread, back2.unread);
+  // Clear read: every read one (not snoozed, not unread), with Undo too.
+  await b('POST', '/api/notifications/snooze', { ids: [second.id], until: Date.now() + 3600e3 });
+  const before = await bell();
+  const readOnes = before.items.filter((x) => x.read).map((x) => x.id);
+  assert.ok(readOnes.length >= 1);
+  const cleared = (await b('POST', '/api/notifications/remove', { read: true })).body;
+  assert.deepEqual(cleared.removed.sort(), readOnes.sort());
+  assert.ok(cleared.items.every((x) => !x.read));
+  assert.deepEqual(cleared.snoozed.map((x) => x.id), [second.id], 'snoozed ones stay');
+  assert.equal((await b('POST', '/api/notifications/restore', { ids: cleared.removed })).body.items.length, before.items.length);
+  // After 10 minutes they're gone for good.
+  const { purgeRemoved } = await import('../src/notifications.js');
+  await b('POST', '/api/notifications/remove', { ids: [first.id] });
+  assert.equal(purgeRemoved(Date.now() + 9 * 60e3), 0, 'kept 10 minutes');
+  assert.ok(purgeRemoved(Date.now() + 11 * 60e3) >= 1); // (with those removed earlier in this test)
+  assert.equal((await b('POST', '/api/notifications/restore', { ids: [first.id] })).body.items.some((x) => x.id === first.id), false);
 });
 
 test('named versions: name the current state, name or un-name an earlier one, see its content', async () => {

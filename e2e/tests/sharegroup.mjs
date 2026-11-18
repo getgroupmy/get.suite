@@ -120,6 +120,11 @@ await step('a notification back to unread, filtered to unread only, and removed'
   await panel.getByText(title).hover();
   await panel.getByRole('button', { name: `Remove: ${title}` }).click();
   await panel.getByText(title).waitFor({ state: 'detached' });
+  await kim.getByRole('button', { name: 'Undo' }).click(); // back again
+  await panel.getByText(title).waitFor();
+  await panel.getByText(title).hover();
+  await panel.getByRole('button', { name: `Remove: ${title}` }).click();
+  await panel.getByText(title).waitFor({ state: 'detached' });
   await kim.reload();
   await kim.getByRole('button', { name: /^Notifications/ }).click();
   await panel.getByText('Olivia Owner shared 3 files with you').waitFor();
@@ -148,6 +153,19 @@ await step('a notification snoozed until tomorrow: gone from the bell, listed un
   await kim.getByRole('button', { name: 'Notifications, 1 new' }).waitFor();
   await panel.locator('.bell-item.unread', { hasText: title }).waitFor();
   if (await panel.getByRole('button', { name: /^Snoozed/ }).count()) throw new Error('still listed as snoozed');
+}, kim);
+await step('Clear read removes every read notification, with Undo', async () => {
+  const panel = kim.getByRole('dialog', { name: 'Notifications' });
+  const unread = 'Olivia Owner shared 3 files with you', read = 'Olivia Owner shared the list “Launch” with you';
+  await panel.getByText(read).waitFor();
+  await kim.screenshot({ path: `${SP}/shots/bell-clear.png` });
+  await panel.getByRole('button', { name: 'Clear read' }).click();
+  await kim.getByText('Notification removed').waitFor();
+  await panel.getByText(read).waitFor({ state: 'detached' });
+  await panel.getByText(unread).waitFor();
+  if (await panel.getByRole('button', { name: 'Clear read' }).count()) throw new Error('nothing read left to clear');
+  await kim.getByRole('button', { name: 'Undo' }).click();
+  await panel.getByText(read).waitFor();
 }, kim);
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
