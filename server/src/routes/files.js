@@ -2249,6 +2249,26 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(out);
   });
 
+  // Everyone with access of their own (owner, people and groups it or its folders are shared with), to email them:
+  // { people: [{ name, username }] } without the asker or disabled accounts, and whether everyone at the company can open it too.
+  r.get('/:id/people', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    const ids = new Set(); let everyone = false;
+    for (let cur = f.id, depth = 0; cur && depth < 64; depth++) {
+      const row = q('SELECT owner_id, parent_id, org_role FROM files WHERE id = ?').get(cur);
+      if (!row) break;
+      ids.add(row.owner_id);
+      if (row.org_role) everyone = true;
+      for (const x of q('SELECT user_id FROM shares WHERE file_id = ?').all(cur)) ids.add(x.user_id);
+      for (const x of q('SELECT m.user_id FROM group_shares g JOIN group_members m ON m.group_id = g.group_id WHERE g.file_id = ?').all(cur)) ids.add(x.user_id);
+      cur = row.parent_id;
+    }
+    ids.delete(req.user.id);
+    const people = [...ids].map((id) => q('SELECT name, username, disabled FROM users WHERE id = ?').get(id)).filter((u) => u && !u.disabled)
+      .map(({ name, username }) => ({ name, username })).sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ people, everyone_at_company: everyone });
+  });
+
   r.get('/:id/shares', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     res.json(q(`SELECT s.user_id, s.direct_role, s.expires_at, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external

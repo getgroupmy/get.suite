@@ -1,3 +1,5 @@
+import { emailPeopleWithAccess } from '../emailpeople.js';
+import { useMailStatus } from '../../mailStatus.js';
 import { isPaused, pausedUntil, pauseUntil } from '../../pause.js';
 import { sprintText, SPRINTS } from './sprint.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -178,6 +180,8 @@ export default function DocEditor() {
 function SharedDoc({ file, setFile }) {
   const { user } = useAuth();
   const toast = useToast();
+  const mail = useMailStatus();
+  const navigate = useNavigate();
   const [sharing, setSharing] = useState(false);
   const [history, setHistory] = useState(false);
   // Focus mode: only the page (no header, toolbar or panels), full screen where the browser allows; Esc, or leaving
@@ -829,6 +833,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly }) },
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }, { label: 'Add tab', icon: 'plus', onClick: () => { addTab(editor); setTabsPanel(true); } }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
+          ...(mail?.enabled && ['owner', 'editor'].includes(file?.role) ? [{ label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(file, { navigate, toast }) }] : []),
           { label: 'Compare documents', icon: 'doc', onClick: () => setComparing({ step: 'pick' }) },
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),

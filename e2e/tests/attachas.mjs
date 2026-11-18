@@ -133,6 +133,24 @@ await step('several at once: ticked in the list, Save to Drive as PDF makes a PD
   const bad = await api(k, 'POST', '/mail/messages/save-pdf', { folder: 'INBOX', uids: [] });
   if (bad.status !== 400) throw new Error(JSON.stringify(bad));
 });
+await step('Email people with access, from a document: a new email to everyone it is shared with, about it', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const lee = (await api(page, 'POST', '/users', { local: 'lee', domain: 'acme.com', name: 'Lee Lane', password: 'password123' })).body;
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Launch plan' })).body;
+  await api(page, 'PUT', `/files/${d.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }, { user_id: lee.id, role: 'viewer' }] });
+  await page.goto(`${B}/docs/${d.id}`);
+  await page.locator('.ProseMirror').waitFor();
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Email people with access' }).click();
+  await page.waitForURL(/\/mail/);
+  const m = page.getByRole('dialog', { name: 'Launch plan' }); // (the window takes the subject's name)
+  await m.waitFor();
+  const to = await m.getByLabel('To', { exact: true }).inputValue();
+  if (!/kim@acme\.com/.test(to) || !/lee@acme\.com/.test(to) || /olivia@/.test(to)) throw new Error(to);
+  if (await m.getByLabel('Subject').inputValue() !== 'Launch plan') throw new Error('subject');
+  const href = await m.locator('.ProseMirror a', { hasText: 'Launch plan' }).getAttribute('href');
+  if (!href.endsWith(`/docs/${d.id}`)) throw new Error(href);
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
