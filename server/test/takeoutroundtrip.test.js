@@ -128,3 +128,28 @@ test('booking pages come back with their settings and a new link; a co-host here
   assert.deepEqual(importBookingPages({ ...kimRow, org_id: 'elsewhere' }, raw), { added: 1, skipped: 0 });
   assert.deepEqual(JSON.parse(q('SELECT hosts FROM booking_pages WHERE user_id = ?').get(kimRow.id).hosts), []);
 });
+
+test('calendar subscriptions and saved mail searches come back; brought in twice, still once', async () => {
+  const ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-WR-CALNAME:Holidays\r\nBEGIN:VEVENT\r\nUID:h1\r\nDTSTART;VALUE=DATE:20261225\r\nDTEND;VALUE=DATE:20261226\r\nSUMMARY:Christmas Day\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/calendar' }); res.end(ics); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  process.env.CALENDAR_FEEDS_ALLOW_PRIVATE = '1';
+  try {
+    const url = `http://127.0.0.1:${srv.address().port}/holidays.ics`;
+    const made = await olivia('POST', '/api/events/feeds', { url, name: 'Public holidays', color: '#0b8043' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    const { q } = await import('../src/db.js');
+    const oliviaId = (await olivia('GET', '/api/auth/me')).body.user.id;
+    q('INSERT INTO mail_searches (id, user_id, name, folder, query, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run('s1', oliviaId, 'Invoices', 'INBOX', 'from:billing has:attachment', 1, Date.now());
+    const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+    for (let i = 0; i < 2; i++) {
+      const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+      assert.ok(r.status < 300, await r.text());
+    }
+    let feeds;
+    for (let k = 0; k < 40; k++) { feeds = (await kim('GET', '/api/events/feeds')).body; if (feeds[0]?.events) break; await new Promise((r) => setTimeout(r, 100)); }
+    assert.deepEqual(feeds.map((f) => [f.name, f.url, f.color, f.events]), [['Public holidays', url, '#0b8043', 1]], 'once, fetched again from its address');
+    const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
+    assert.deepEqual(q('SELECT name, folder, query FROM mail_searches WHERE user_id = ?').all(kimId).map((x) => ({ ...x })), [{ name: 'Invoices', folder: 'INBOX', query: 'from:billing has:attachment' }]);
+  } finally { delete process.env.CALENDAR_FEEDS_ALLOW_PRIVATE; srv.close(); }
+});

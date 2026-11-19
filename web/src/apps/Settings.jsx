@@ -1083,7 +1083,8 @@ function useBringIn(onDone = () => {}) {
         r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
         r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'),
         r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.note_templates?.added && n(r.note_templates.added, 'note template', 'note templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures'),
-        r.booking_pages?.added && `${n(r.booking_pages.added, 'booking page', 'booking pages')} (with new links)`, r.contact_groups?.added && n(r.contact_groups.added, 'contact group', 'contact groups')].filter(Boolean);
+        r.booking_pages?.added && `${n(r.booking_pages.added, 'booking page', 'booking pages')} (with new links)`, r.contact_groups?.added && n(r.contact_groups.added, 'contact group', 'contact groups'),
+        r.calendar_subscriptions?.added && n(r.calendar_subscriptions.added, 'calendar subscription', 'calendar subscriptions'), r.saved_searches?.added && n(r.saved_searches.added, 'saved mail search', 'saved mail searches')].filter(Boolean);
       toast(`${r.from ? `From ${r.from}: brought` : 'Brought'} in ${parts.join(', ') || 'nothing new'}`);
       if (r.left_out?.length) toast(`Left out (not part of Workspace): ${r.left_out.join(', ')}`);
       if (r.pst) toast('Outlook data files (.pst) can’t be read here: bring that mail in with Mail → Import mail instead', 'error');

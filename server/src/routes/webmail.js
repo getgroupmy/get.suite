@@ -434,6 +434,22 @@ export function ownLabels(user, rules, { strict = true } = {}) {
 }
 
 /** Mail filters from filters.json ({ rules }): the ones not already there are added. { added, skipped, rules } */
+/** Saved mail searches from Download your data: one already saved (same folder and words) is left as it is; one this
+ *  server can't read is skipped. */
+export function importMailSearches(userId, list) {
+  let added = 0, skipped = 0;
+  for (const raw of (Array.isArray(list) ? list : []).slice(0, 30)) {
+    const query = String(raw?.query || '').trim().slice(0, 500);
+    const folder = String(raw?.folder || 'INBOX').slice(0, 300);
+    if (!query || parseMailQuery(query).error || q('SELECT 1 FROM mail_searches WHERE user_id = ? AND folder = ? AND query = ?').get(userId, folder, query)
+      || q('SELECT COUNT(*) AS n FROM mail_searches WHERE user_id = ?').get(userId).n >= 30) { skipped++; continue; }
+    const name = String(raw?.name || query).trim().slice(0, 60) || query.slice(0, 60);
+    q('INSERT INTO mail_searches (id, user_id, name, folder, query, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(newId(), userId, name, folder, query, Date.now() + added, Date.now());
+    added++;
+  }
+  return { added, skipped };
+}
+
 export function importMailRules(user, body) {
   const incoming = ownLabels(user, normalizeRules(Array.isArray(body?.rules) ? body.rules : []), { strict: false });
   if (!incoming.length) throw bad('There are no filters in that file');

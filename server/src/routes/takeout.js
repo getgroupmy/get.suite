@@ -38,7 +38,8 @@ import { forbidden, notFound } from '../util.js';
 import { restoreForeign } from '../migrate/restore.js';
 import { bookingPagesJson, importBookingPages } from './booking.js';
 import { exportCalendar, importCalendar } from '../calimport.js';
-import { importMailRules, importMailTemplates, importSignatures } from './webmail.js';
+import { importMailRules, importMailTemplates, importSignatures, importMailSearches } from './webmail.js';
+import { feedsJson, importFeeds } from '../calfeeds.js';
 import { importEventTemplates } from './calendar.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { withPhoto } from '../contactphotos.js';
@@ -101,6 +102,9 @@ export function mailSettingsFiles(userId, username) {
   // Labels (with their colours), so filters that label mail can be set up again elsewhere.
   const labels = (() => { try { return q('SELECT id, name, color FROM mail_labels WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(userId); } catch { return []; } })();
   if (labels.length) out.push(['Mail settings/labels.json', `${JSON.stringify(labels, null, 2)}\n`]);
+  // Saved searches (Mail's list of them), to be saved again elsewhere.
+  const searches = (() => { try { return q('SELECT name, folder, query FROM mail_searches WHERE user_id = ? ORDER BY position, created_at').all(userId); } catch { return []; } })();
+  if (searches.length) out.push(['Mail settings/saved searches.json', `${JSON.stringify(searches.map((x) => ({ ...x })), null, 2)}\n`]);
   const sig = q("SELECT html FROM mail_signatures WHERE user_id = ? AND html != ''").get(userId);
   if (sig) out.push(['Mail settings/signature.html', sig.html]);
   for (const s of q("SELECT address, html FROM identity_signatures WHERE user_id = ? AND html != '' ORDER BY address").all(userId)) out.push([`Mail settings/signature ${safe(s.address)}.html`, s.html]);
@@ -305,6 +309,11 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   }
   const evTemplates = await json('Calendar templates.json');
   if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
+  // Calendars subscribed to by address (fetched again from there) and saved mail searches.
+  const feeds = await json('Calendar subscriptions.json');
+  if (Array.isArray(feeds) && feeds.length) out.calendar_subscriptions = importFeeds(user.id, feeds);
+  const searches = await json('Mail settings/saved searches.json');
+  if (Array.isArray(searches) && searches.length) out.saved_searches = importMailSearches(user.id, searches);
   // Booking pages: each comes back with a new link (the old one was this account's on the other server).
   const bookingPages = await json('Booking pages.json');
   if (Array.isArray(bookingPages) && bookingPages.length) out.booking_pages = importBookingPages(user, bookingPages);
@@ -460,6 +469,7 @@ export default function takeoutRoutes() {
     if (evTemplates) zip.file('Calendar templates.json', evTemplates);
     { const nt = noteTemplatesJson(me); if (nt) zip.file('Note templates.json', nt); }
     { const b = bookingPagesJson(me); if (b) zip.file('Booking pages.json', b); }
+    { const f = feedsJson(me); if (f) zip.file('Calendar subscriptions.json', f); }
     { const groups = groupsOf(me).map((g) => ({ name: g.name, members: g.members })); if (groups.length) zip.file('Contact groups.json', `${JSON.stringify(groups, null, 2)}\n`); }
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
@@ -512,6 +522,7 @@ export default function takeoutRoutes() {
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Contact groups.json  your contact groups and who is in each (if any)',
       'Booking pages.json   your booking pages (each comes back with a new link) (if any)',
+      'Calendar subscriptions.json  the calendars you subscribe to by web address (if any)',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',
       'Time on tasks.csv  the time you tracked or added on tasks, oldest first (if any)',
@@ -522,7 +533,7 @@ export default function takeoutRoutes() {
       'Chat/         each conversation you are in, as text',
       'Forms/        each of your forms: its questions, and its responses for a spreadsheet',
       'Meet chats/   the chat kept from meetings you started or were in (when its host kept it)',
-      'Mail settings/ your filters (as Sieve, which most mail servers take), signatures, templates and vacation reply',
+      'Mail settings/ your filters (as Sieve, which most mail servers take), signatures, templates, vacation reply, labels and saved searches',
       'Calendar templates.json  your event templates, if you have any',
       'Note templates.json  your note templates, if you have any (Notes → Templates)',
       'Recently deleted.json  task lists, forms and the like you deleted in the last 30 days (or kept by a legal hold), with what each held', mailNote].join('\r\n'));

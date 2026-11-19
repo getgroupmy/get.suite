@@ -136,3 +136,25 @@ export async function refreshDueFeeds(now = Date.now()) {
     return due.length;
   } finally { refreshing = false; }
 }
+
+/** Your calendar subscriptions for Download your data: name, address and colour (the events are fetched again from the address). Null when none. */
+export function feedsJson(userId) {
+  const list = q('SELECT name, url, color FROM calendar_feeds WHERE user_id = ? ORDER BY created_at').all(userId);
+  return list.length ? `${JSON.stringify(list.map((f) => ({ ...f })), null, 2)}\n` : null;
+}
+/** Subscribes again to calendars from Download your data: one already subscribed to (same address) is left as it is, and a
+ *  wrong address is skipped. Each is fetched in the background (not waited for), so a slow or gone server doesn't hold it up. */
+export function importFeeds(userId, list) {
+  let added = 0, skipped = 0;
+  for (const raw of (Array.isArray(list) ? list : []).slice(0, MAX_FEEDS)) {
+    let u;
+    try { u = feedUrl(raw?.url); } catch { skipped++; continue; }
+    if (q('SELECT 1 FROM calendar_feeds WHERE user_id = ? AND url = ?').get(userId, u) || q('SELECT COUNT(*) AS n FROM calendar_feeds WHERE user_id = ?').get(userId).n >= MAX_FEEDS) { skipped++; continue; }
+    const id = uid();
+    q('INSERT INTO calendar_feeds (id, user_id, url, name, color, events, fetched_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)')
+      .run(id, userId, u, String(raw?.name || '').trim().slice(0, 100) || new URL(u).hostname, /^#[0-9a-f]{6}$/i.test(raw?.color || '') ? raw.color : '#7986cb', '[]', Date.now());
+    refreshFeed(q('SELECT * FROM calendar_feeds WHERE id = ?').get(id)).catch(() => {});
+    added++;
+  }
+  return { added, skipped };
+}
