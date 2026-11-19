@@ -40,6 +40,7 @@ import { bookingPagesJson, importBookingPages } from './booking.js';
 import { exportCalendar, importCalendar } from '../calimport.js';
 import { importMailRules, importMailTemplates, importSignatures, importMailSearches } from './webmail.js';
 import { feedsJson, importFeeds } from '../calfeeds.js';
+import { addCalendar, MAX_CALENDARS } from '../mycalendars.js';
 import { importEventTemplates } from './calendar.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { withPhoto } from '../contactphotos.js';
@@ -238,8 +239,21 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   const files = entries.filter((e) => !e.dir);
   const out = {};
   onStep({ step: 'calendar' });
+  // Your other calendars first (one with the same name here is used), so their events go back into them.
+  const calByName = new Map(q('SELECT id, name FROM user_calendars WHERE owner_id = ?').all(user.id).map((c) => [c.name.toLowerCase(), c.id]));
+  const cals = await (async () => { try { return JSON.parse(await text('Calendars.json') || 'null'); } catch { return null; } })();
+  if (Array.isArray(cals)) {
+    let made = 0;
+    for (const c of cals.slice(0, MAX_CALENDARS)) {
+      const name = String(c?.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      if (!name || calByName.has(name.toLowerCase())) continue;
+      try { const nc = addCalendar(user.id, { name, color: /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : undefined }); if (c.hidden) q('UPDATE user_calendars SET hidden = 1 WHERE id = ?').run(nc.id); calByName.set(name.toLowerCase(), nc.id); made++; }
+      catch (e) { if (e.status !== 400) throw e; } // at most MAX_CALENDARS
+    }
+    if (made) out.calendars = { added: made };
+  }
   const ics = await text('Calendar.ics');
-  if (ics) { const r2 = importCalendar(user.id, ics, tz); out.calendar = r2.error ? { added: 0, skipped: 0 } : { added: r2.added, skipped: r2.skipped }; }
+  if (ics) { const r2 = importCalendar(user.id, ics, tz, null, null, { calendarByName: (n) => calByName.get(n.toLowerCase()) }); out.calendar = r2.error ? { added: 0, skipped: 0 } : { added: r2.added, skipped: r2.skipped }; }
   onStep({ step: 'contacts' });
   const vcf = await text('Contacts.vcf');
   if (vcf && /BEGIN:VCARD/i.test(vcf)) out.contacts = importContacts(user, vcf);
@@ -465,6 +479,8 @@ export default function takeoutRoutes() {
       }
     }
     zip.file('Calendar.ics', exportCalendar(me));
+    // Your other calendars (Personal, Family…): each event in Calendar.ics says which one it's in.
+    { const cals = q('SELECT name, color, hidden FROM user_calendars WHERE owner_id = ? ORDER BY created_at, name').all(me); if (cals.length) zip.file('Calendars.json', `${JSON.stringify(cals.map((c) => ({ name: c.name, color: c.color, hidden: !!c.hidden })), null, 2)}\n`); }
     const evTemplates = eventTemplatesJson(me);
     if (evTemplates) zip.file('Calendar templates.json', evTemplates);
     { const nt = noteTemplatesJson(me); if (nt) zip.file('Note templates.json', nt); }
@@ -523,6 +539,7 @@ export default function takeoutRoutes() {
       'Contact groups.json  your contact groups and who is in each (if any)',
       'Booking pages.json   your booking pages (each comes back with a new link) (if any)',
       'Calendar subscriptions.json  the calendars you subscribe to by web address (if any)',
+      'Calendars.json  your calendars besides the main one, with their colours (each event in Calendar.ics says which it is in)',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',
       'Time on tasks.csv  the time you tracked or added on tasks, oldest first (if any)',

@@ -153,3 +153,28 @@ test('calendar subscriptions and saved mail searches come back; brought in twice
     assert.deepEqual(q('SELECT name, folder, query FROM mail_searches WHERE user_id = ?').all(kimId).map((x) => ({ ...x })), [{ name: 'Invoices', folder: 'INBOX', query: 'from:billing has:attachment' }]);
   } finally { delete process.env.CALENDAR_FEEDS_ALLOW_PRIVATE; srv.close(); }
 });
+
+test('your other calendars come back as calendars of their own, with their events in them', async () => {
+  const fam = (await olivia('POST', '/api/events/calendars', { name: 'Family; home', color: '#8e24aa' })).body;
+  const side = (await olivia('POST', '/api/events/calendars', { name: 'Side project', color: '#f4511e' })).body;
+  await olivia('PATCH', `/api/events/calendars/${side.id}`, { hidden: true });
+  const start = Date.UTC(2026, 11, 20, 9);
+  for (const [title, cal] of [['Grandma visit', fam.id], ['Ship the beta', side.id], ['Main thing', null]]) {
+    const r = await olivia('POST', '/api/events', { title, start, end: start + 3600e3, calendar_id: cal });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+  }
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+    assert.ok(r.status < 300, await r.text());
+  }
+  const cals = (await kim('GET', '/api/events/calendars')).body.filter((c) => !c.shared);
+  assert.deepEqual(cals.map((c) => [c.name, c.color, c.hidden]), [['Family; home', '#8e24aa', false], ['Side project', '#f4511e', true]], 'once each, with colour and hidden');
+  const evs = (await kim('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body;
+  const where = (t) => evs.filter((e) => e.title === t).map((e) => e.calendar_id ?? null);
+  assert.deepEqual(where('Grandma visit'), [cals[0].id]);
+  assert.deepEqual(where('Main thing'), [null]);
+  const { q } = await import('../src/db.js');
+  const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
+  assert.deepEqual(q("SELECT calendar_id FROM events WHERE owner_id = ? AND title = 'Ship the beta'").all(kimId).map((r) => r.calendar_id), [cals[1].id], 'in the hidden one too');
+});

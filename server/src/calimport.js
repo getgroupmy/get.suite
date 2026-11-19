@@ -27,8 +27,9 @@ export function splitCalendar(text) {
 
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
-/** Add the file's events to this person's calendar: { added, skipped, failed }. */
-export function importCalendar(userId, text, tz = 'UTC', calendarId = null, color = null) {
+/** Add the file's events to this person's calendar: { added, skipped, failed }. With `calendarByName` (from Download your data),
+ *  an event marked as in one of your other calendars (X-WORKSPACE-CALENDAR) goes into the one it gives for that name. */
+export function importCalendar(userId, text, tz = 'UTC', calendarId = null, color = null, { calendarByName } = {}) {
   if (!/BEGIN:VCALENDAR/i.test(String(text || ''))) {
     const csv = icsFromCsv(text, zoneOrUtc(tz));
     if (!csv) return { error: 'This isn’t a calendar file (.ics) or a calendar exported as CSV' };
@@ -44,9 +45,11 @@ export function importCalendar(userId, text, tz = 'UTC', calendarId = null, colo
       if (e.error) { failed++; continue; }
       if (e.uid && q('SELECT 1 FROM events WHERE owner_id = ? AND ical_uid = ?').get(userId, e.uid)) { skipped++; continue; }
       const id = uid();
+      const inCal = (/\nX-WORKSPACE-CALENDAR:(.*)/i.exec(part)?.[1] || '').trim().replace(/\\([\\;,])/g, '$1');
+      const calId = calendarId ?? (inCal && calendarByName ? calendarByName(inCal) ?? null : null);
       q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, ical_uid, color, calendar_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), zoneOrUtc(e.tz), id, userId, e.uid, color, calendarId);
+        .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), zoneOrUtc(e.tz), id, userId, e.uid, color, calId);
       // Free/busy, private and the event's own colour (from a Workspace export), kept as they were.
       if (e.show_as || e.private || (e.color && !color)) q('UPDATE events SET show_as = ?, private = ?, color = ? WHERE id = ?').run(e.show_as || null, e.private ? 1 : 0, color || e.color || null, id);
       syncOverrides(id, e, userId);
@@ -64,8 +67,14 @@ export function exportCalendar(userId, only) {
     : q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE owner_id = ? AND recur_parent IS NULL AND calendar_id IS ? ORDER BY start').all(userId, userId, only.id);
   const zones = new Map();
   const bodies = [];
+  // The whole calendar (Download your data): each event in one of your other calendars says which, by name.
+  const calNames = only === undefined ? new Map(q('SELECT id, name FROM user_calendars WHERE owner_id = ?').all(userId).map((c) => [c.id, c.name])) : new Map();
   for (const e of events) {
-    const one = icsOf(e).replace(/\r\n[ \t]/g, '\u0000'); // keep folded lines whole while splitting
+    let one = icsOf(e).replace(/\r\n[ \t]/g, '\u0000'); // keep folded lines whole while splitting
+    if (calNames.has(e.calendar_id)) {
+      const mark = `X-WORKSPACE-CALENDAR:${calNames.get(e.calendar_id).replace(/[\\;,]/g, (c) => `\\${c}`)}\r\n`;
+      one = one.replace(/END:VEVENT/g, `${mark}END:VEVENT`);
+    }
     for (const z of one.match(/BEGIN:VTIMEZONE[\s\S]*?END:VTIMEZONE/g) || []) {
       const tzid = /TZID:([^\r\n]*)/.exec(z)?.[1];
       if (tzid && !zones.has(tzid)) zones.set(tzid, z);
