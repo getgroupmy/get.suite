@@ -1,7 +1,7 @@
 import { pasteSpecial, PASTE_MODES } from './paste.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, patch, put } from '../../api.js';
+import { get, patch, post, put } from '../../api.js';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -1468,6 +1468,7 @@ export default function SheetEditor() {
                 { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename-sheet', index: i }) },
                 { label: 'Tab colour…', onClick: () => setDialog({ type: 'tab-colour', index: i }) },
                 data.sheets.filter((x) => !x.hidden).length > 1 && { label: 'Hide sheet', onClick: () => { writeSheet(() => ({ hidden: true })); const next = data.sheets.findIndex((x, j) => j !== i && !x.hidden); setActive(next); setSel({ c: 0, r: 0 }); setAnchor(null); } },
+                { label: 'Copy to another spreadsheet…', onClick: () => setDialog({ type: 'copy-to', index: i }) },
                 { label: 'Duplicate', icon: 'copy', onClick: () => { const cur = dataRef.current; reorderSheets([...cur.sheets.slice(0, i + 1), copySheet(cur.sheets[i], cur.sheets.map((x) => x.name), newSheetId), ...cur.sheets.slice(i + 1)], { copy: i }, i + 1); } },
                 i > 0 && { label: 'Move left', icon: 'left', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i - 1), { move: [i, i - 1] }, i - 1) },
                 i < data.sheets.length - 1 && { label: 'Move right', icon: 'right', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i + 1), { move: [i, i + 1] }, i + 1) },
@@ -1635,6 +1636,17 @@ export default function SheetEditor() {
         <PivotDialog headings={dialog.headings} spec={dialog.spec} editing={dialog.index !== null} table={pivotSource(dialog.spec)}
           source={`${dialog.spec.source}!${colName(dialog.spec.c1)}${dialog.spec.r1 + 1}:${colName(dialog.spec.c2)}`}
           onSave={(spec) => savePivot(spec, { index: dialog.index })} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
+      {dialog?.type === 'copy-to' && (
+        <DrivePicker title={`Copy “${data.sheets[dialog.index]?.name || ''}” to a spreadsheet`} empty="No spreadsheets you can edit." accept={(x) => x.kind === 'sheet' && (x.role === 'owner' || x.role === 'editor')}
+          onClose={() => setDialog(null)} onPick={async (t) => {
+            const index = dialog.index;
+            setDialog(null);
+            try {
+              const r = await post(`/files/${file.id}/sheets/${index}/copy-to`, { target: t.id });
+              toast(`Copied to “${r.name}” as “${r.sheet}”`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/sheets/${r.id}`; } } });
+            } catch (e) { toast(e.message || 'Couldn’t copy the sheet', 'error'); }
+          }} />
       )}
       {dialog?.type === 'tab-colour' && (
         <Modal title={`Tab colour for “${data.sheets[dialog.index]?.name || ''}”`} onClose={() => setDialog(null)}>

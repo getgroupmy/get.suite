@@ -117,6 +117,29 @@ await step('dragging a tab puts it in a new place, for Kim too, and Notes\' comm
   await until(async () => (await anchorSheet()).sheet === 0);
   await until(async () => same(await tabs(kim), ['Notes', 'Budget', 'Plan']), 10000);
 });
+await step('Copy to another spreadsheet…: Budget into “Annual”, which Kim has open, where it arrives at once', async () => {
+  const annual = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Annual', content: { sheets: [{ name: 'Summary', cells: { A1: 'Year' } }] } })).body;
+  const dir = (await api(page, 'GET', '/users/directory')).body;
+  await api(page, 'PUT', `/files/${annual.id}/shares`, { shares: [{ user_id: dir.find((u) => u.username === 'kim@acme.com').id, role: 'editor' }] });
+  const viewOnly = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Annual (old)', content: { sheets: [{ name: 'S', cells: {} }] } })).body;
+  await kim.goto(`${B}/sheets/${annual.id}`);
+  await until(async () => same(await tabs(kim), ['Summary']));
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await menu('Budget', 'Copy to another spreadsheet…');
+  const dlg = page.getByRole('dialog', { name: 'Copy “Budget” to a spreadsheet' });
+  await dlg.getByLabel('Search your files').fill('Annual');
+  await dlg.getByRole('button', { name: /^Annual\s*Spreadsheet$/ }).click(); // (its kind beside it)
+  await page.locator('.toast', { hasText: 'Copied to “Annual” as “Budget”' }).waitFor();
+  await until(async () => same(await tabs(kim), ['Summary', 'Budget']), 10000);
+  await kim.locator('.sheet-tab > button:first-child', { hasText: /^Budget$/ }).click();
+  await kim.locator('[data-k="B1"]').getByText('900').waitFor();
+  // The original is as it was
+  await until(async () => same(await tabs(page), ['Notes', 'Budget', 'Plan']));
+  await page.locator('.toast', { hasText: 'Copied to' }).getByRole('button', { name: 'Open it' }).click();
+  await page.waitForURL(new RegExp(`/sheets/${annual.id}`));
+  await until(async () => same(await tabs(page), ['Summary', 'Budget']));
+  if (!viewOnly.id) throw new Error('setup');
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

@@ -29,6 +29,7 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway, accessRequestsFor } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
+import { sheetCopyFor } from '../sheetcopy.js';
 import { recheckSoon, resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
@@ -1980,6 +1981,30 @@ export default function fileRoutes({ maxUploadBytes }) {
     return id;
   };
   convertOfficeFile = convertOffice;
+  // Copy one of a spreadsheet's sheets into another spreadsheet (or the same one), at the end: for someone who can
+  // edit both. Open there, the new sheet arrives live.
+  r.post('/:id/sheets/:index/copy-to', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'sheet') throw bad('Only a spreadsheet has sheets');
+    saveNow(f.id); // what's being typed right now goes in too
+    const sheet = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}')?.sheets?.[Number(req.params.index)];
+    if (!sheet || !/^\d+$/.test(req.params.index)) throw notFound('No such sheet');
+    const t = loadFile(String(req.body?.target || ''), req.user, 'editor');
+    if (t.kind !== 'sheet' || q('SELECT trashed FROM files WHERE id = ?').get(t.id)?.trashed) throw bad('Choose a spreadsheet to copy it to');
+    notLocked(t);
+    let name = null;
+    changeSheet(t.id, (json) => {
+      const sheets = json?.sheets?.length ? json.sheets : [];
+      if (sheets.length >= 200) return null;
+      const copy = sheetCopyFor(sheet, sheets.map((x) => x.name));
+      name = copy.name;
+      return { ...(json || {}), sheets: [...sheets, copy] };
+    }, req.user.id);
+    if (!name) throw bad('That spreadsheet has as many sheets as it can hold');
+    audit(req, 'sheet.copy_to', { target: t.name, details: { from: f.name, sheet: name } });
+    res.status(201).json({ id: t.id, name: t.name, sheet: name });
+  });
+
   r.post('/:id/open-as', async (req, res) => {
     const id = await convertOffice(loadFile(req.params.id, req.user), req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));

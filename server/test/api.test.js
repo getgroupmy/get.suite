@@ -16058,3 +16058,35 @@ test('a PDF copy beside a document, spreadsheet or presentation: made again over
   // Not for a folder or an ordinary file.
   assert.equal((await owner('POST', `/api/files/${folder.id}/pdf-copy`, {})).status, 400);
 });
+
+test('Sheets: copy a sheet to another spreadsheet you can edit (by its name, or "Copy of …"), not to one you can only view', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'copyb', domain: 'acme.com', name: 'Copy Bea', password: 'password123' })).status, 201);
+  const bea = client(); await login(bea, 'copyb@acme.com');
+  const src = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Q3', content: { sheets: [
+    { name: 'Budget', cells: { A1: 'Rent', B1: '900' }, charts: { c1: { id: 'c1', type: 'line', range: 'A1:B1' } } }, { name: 'Notes', cells: { A1: 'x' } },
+  ] } })).body;
+  const dst = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Annual', content: { sheets: [{ name: 'Summary', cells: {} }] } })).body;
+  const r = await owner('POST', `/api/files/${src.id}/sheets/0/copy-to`, { target: dst.id });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { id: dst.id, name: 'Annual', sheet: 'Budget' });
+  let sheets = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.sheets;
+  assert.deepEqual(sheets.map((s) => s.name), ['Summary', 'Budget']);
+  assert.deepEqual(sheets[1].cells, { A1: 'Rent', B1: '900' });
+  assert.notEqual(Object.keys(sheets[1].charts)[0], 'c1', 'its chart has an id of its own');
+  assert.equal((await owner('POST', `/api/files/${src.id}/sheets/0/copy-to`, { target: dst.id })).body.sheet, 'Copy of Budget', 'the name taken: Copy of …');
+  assert.equal((await owner('POST', `/api/files/${src.id}/sheets/0/copy-to`, { target: src.id })).body.sheet, 'Copy of Budget', 'into the same spreadsheet: at its end');
+  // Bea can only view the target, or can't see the source at all
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  await owner('PUT', `/api/files/${dst.id}/shares`, { shares: [{ user_id: dir.find((u) => u.username === 'copyb@acme.com').id, role: 'viewer' }] });
+  const mine = (await bea('POST', '/api/files/new', { kind: 'sheet', name: 'Bea’s', content: { sheets: [{ name: 'S', cells: { A1: '1' } }] } })).body;
+  assert.equal((await bea('POST', `/api/files/${mine.id}/sheets/0/copy-to`, { target: dst.id })).status, 403, 'only view the target');
+  assert.equal((await bea('POST', `/api/files/${src.id}/sheets/0/copy-to`, { target: mine.id })).status, 404, 'not someone else\'s');
+  // Not a spreadsheet, no such sheet, a locked target
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Memo' })).body;
+  assert.equal((await owner('POST', `/api/files/${src.id}/sheets/0/copy-to`, { target: doc.id })).status, 400);
+  assert.equal((await owner('POST', `/api/files/${src.id}/sheets/9/copy-to`, { target: dst.id })).status, 404);
+  await owner('PUT', `/api/files/${dst.id}/lock`, { locked: true });
+  assert.equal((await owner('POST', `/api/files/${src.id}/sheets/1/copy-to`, { target: dst.id })).status, 423);
+  sheets = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.sheets;
+  assert.deepEqual(sheets.map((s) => s.name), ['Summary', 'Budget', 'Copy of Budget']);
+});
