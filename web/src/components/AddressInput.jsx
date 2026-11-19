@@ -15,8 +15,9 @@ export default function AddressInput({ value, onChange, label, ...rest }) {
   useEffect(() => { if (caretTo.current != null) { ref.current?.setSelectionRange(caretTo.current, caretTo.current); caretTo.current = null; } }, [value]);
   useEffect(() => {
     if (!token || token.text.length < 1 || token.text.includes('<')) { setList([]); return undefined; }
-    const t = setTimeout(() => get(`/contacts/suggest?q=${encodeURIComponent(token.text)}`).then((r) => { setList(r); setPick(0); }).catch(() => setList([])), 120);
-    return () => clearTimeout(t);
+    let live = true; // typed on meanwhile: this answer is for older text, and is dropped
+    const t = setTimeout(() => get(`/contacts/suggest?q=${encodeURIComponent(token.text)}`).then((r) => { if (live) { setList(r); setPick(0); } }).catch(() => { if (live) setList([]); }), 120);
+    return () => { live = false; clearTimeout(t); };
   }, [token?.text]);
   const track = (v, caret) => setToken(currentToken(v, caret));
   const choose = (p) => {

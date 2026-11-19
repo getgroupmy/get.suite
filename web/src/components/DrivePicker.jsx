@@ -15,8 +15,9 @@ export default function DrivePicker({ title = 'Attach from Drive', accept = (x) 
   const [term, setTerm] = useState('');
   useEffect(() => {
     const url = term ? `/files?view=search&q=${encodeURIComponent(term)}` : '/files?view=recent';
-    const t = setTimeout(() => get(url).then((l) => setItems(l.filter(accept))).catch(() => setItems([])), term ? 250 : 0);
-    return () => clearTimeout(t);
+    let live = true; // typed on meanwhile: this answer is for an older search, and is dropped
+    const t = setTimeout(() => get(url).then((l) => { if (live) setItems(l.filter(accept)); }).catch(() => { if (live) setItems([]); }), term ? 250 : 0);
+    return () => { live = false; clearTimeout(t); };
   }, [term]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Modal title={title} onClose={onClose}>
