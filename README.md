@@ -337,7 +337,7 @@ The box at the bottom right of a spreadsheet, beside the sheet tabs, shows it sm
 
 ## Grouping rows and columns (Sheets)
 
-Select rows (or columns) by their headings, then **Group rows 2–4** in the right-click menu: they're marked at the side, and a **−** on the heading just after them collapses them (**+** brings them back), like the details under a total. Everyone with the spreadsheet sees the same; groups move with inserted and deleted rows, can't overlap, and **Ungroup rows** removes them (collapsed rows show again). Collapsed rows and columns are left out when printing, and Excel downloads and uploads keep groups as outlines.
+Select rows (or columns) by their headings, then **Group rows 2–4** in the right-click menu: they're marked at the side, and a **−** on the heading just after them collapses them (**+** brings them back), like the details under a total. Everyone with the spreadsheet sees the same; groups move with inserted and deleted rows, can't overlap, and **Ungroup rows** removes them (collapsed rows show again). Collapsed rows and columns are left out when printing, and Excel and OpenDocument (.ods) downloads and uploads keep groups as outlines (LibreOffice's row and column groups), collapsed ones collapsed.
 
 ## Filling and selection totals (Sheets)
 
@@ -533,7 +533,7 @@ Give cells a name and use it in formulas instead of the address: `=SUM(Sales)*Ta
 
 - The box left of the formula bar shows the selection's name when it has one. Type a name, a cell (`D7`) or a range (`A2:A10`) there and press Enter to go to it.
 - A name nobody has defined shows `#NAME?`. Named ranges move with their cells when rows or columns are inserted or deleted, and a name whose cells are all deleted goes. Each sheet has its own names (use another sheet's as `Data!Total`).
-- Excel downloads and uploads keep them as Excel's defined names.
+- Excel downloads and uploads keep them as Excel's defined names, and OpenDocument (.ods) ones as named ranges, so formulas using them are worked out in Excel and LibreOffice too (not `#NAME?`). Those files have one set of names for the whole file: when two sheets use the same name, the first sheet's goes in.
 
 ## Named functions (Sheets)
 

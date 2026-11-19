@@ -180,6 +180,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
   const validations = []; // content validations (dropdowns), for every sheet
   const cfStyles = []; // the cell styles conditional formatting applies (named styles)
   const databaseRanges = []; // the sheets' filters
+  const namedRanges = [], namesUsed = new Set(); // the sheets' named ranges
   const chartObjects = []; // the charts' objects (Object 1, Object 2…)
   for (const [si, s] of sheets.entries()) {
     const resultOf = formulaResults({ sheets }, si);
@@ -238,15 +239,24 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
     const fx = filterToOds(s.filter, cells, String(s.name || 'Sheet').slice(0, 100));
     if (fx) { databaseRanges.push(fx.xml); for (const r of fx.hiddenRows) maxR = Math.max(maxR, r); }
     const filteredRows = fx?.hiddenRows || new Set();
+    // Grouped rows and columns: each run in a row or column group, a collapsed one hidden (as LibreOffice's outline).
+    const groupsOn = (axis) => (s.groups || []).filter((g) => g.axis === axis && g.from >= 0 && g.to >= g.from && g.to < (axis === 'row' ? 100000 : 1024)).sort((a, b) => a.from - b.from);
+    const rowGroups = groupsOn('row'), colGroups = groupsOn('col');
+    for (const g of rowGroups) maxR = Math.max(maxR, g.to + 1);
+    for (const g of colGroups) maxC = Math.max(maxC, g.to);
+    const groupAt = (list, i) => list.find((g) => g.from <= i && i <= g.to);
+    const open = (list, i, tag) => { const g = list.find((x) => x.from === i); return g ? `<table:table-${tag}-group${g.collapsed ? ' table:display="false"' : ''}>` : ''; };
+    const close = (list, i, tag) => (list.some((x) => x.to === i) ? `</table:table-${tag}-group>` : '');
     let cols = '';
     for (let c = 0; c <= maxC; c++) {
       const w = s.colWidths?.[colName(c)];
-      cols += `<table:table-column table:style-name="${sized(colStyles, 'co', 'table-column', 'style:column-width', pxToCm(w || 100))}"${hiddenCols.has(c) ? ' table:visibility="collapse"' : ''} table:default-cell-style-name="Default"/>`;
+      const folded = groupAt(colGroups, c)?.collapsed;
+      cols += `${open(colGroups, c, 'column')}<table:table-column table:style-name="${sized(colStyles, 'co', 'table-column', 'style:column-width', pxToCm(w || 100))}"${hiddenCols.has(c) || folded ? ' table:visibility="collapse"' : ''} table:default-cell-style-name="Default"/>${close(colGroups, c, 'column')}`;
     }
     let rows = '';
     for (let r = 1; r <= maxR; r++) {
       const h = s.rowHeights?.[String(r)];
-      let row = `<table:table-row${h ? ` table:style-name="${sized(rowStyles, 'ro', 'table-row', 'style:row-height', pxToCm(h))}"` : ''}${hiddenRows.has(r - 1) ? ' table:visibility="collapse"' : filteredRows.has(r) ? ' table:visibility="filter"' : ''}>`;
+      let row = `${open(rowGroups, r - 1, 'row')}<table:table-row${h ? ` table:style-name="${sized(rowStyles, 'ro', 'table-row', 'style:row-height', pxToCm(h))}"` : ''}${hiddenRows.has(r - 1) || groupAt(rowGroups, r - 1)?.collapsed ? ' table:visibility="collapse"' : filteredRows.has(r) ? ' table:visibility="filter"' : ''}>`;
       for (let c = 0; c <= maxC; c++) {
         const key = `${colName(c)}${r}`;
         if (covered.has(key)) { row += '<table:covered-table-cell/>'; continue; }
@@ -294,7 +304,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
         else if (threadAt.has(key)) inner = threadAnnotation(threadAt.get(key)) + inner; // (a cell's own note wins, as in Excel)
         row += attrs.length || inner ? `<table:table-cell ${attrs.join(' ')}>${inner}</table:table-cell>` : '<table:table-cell/>';
       }
-      rows += `${row}</table:table-row>`;
+      rows += `${row}</table:table-row>${close(rowGroups, r - 1, 'row')}`;
     }
     const name = String(s.name || 'Sheet').slice(0, 100);
     // Conditional formatting, as LibreOffice keeps it (its cell styles named for this sheet: CF1x1…).
@@ -308,12 +318,19 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
       frames += chartFrame(ch, chartObjects.length, name);
       chartObjects.push(obj);
     }
+    for (const [nm, target] of Object.entries(s.names || {})) { // named ranges (on the whole file, as in LibreOffice and Excel)
+      const m = /^([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?$/i.exec(String(target || '').trim());
+      if (!m || !/^[A-Za-z_][A-Za-z0-9_.]{0,99}$/.test(nm) || /^[A-Za-z]{1,3}\d+$/.test(nm) || namesUsed.has(nm.toLowerCase())) continue; // (a name once in the file: the first sheet's)
+      namesUsed.add(nm.toLowerCase());
+      const sh = `$${odsQuote(name)}`, abs = (col, row) => `$${col.toUpperCase()}$${row}`;
+      namedRanges.push(`<table:named-range table:name="${x(nm)}" table:base-cell-address="${x(`${sh}.$A$1`)}" table:cell-range-address="${x(`${sh}.${abs(m[1], m[2])}${m[3] ? `:.${abs(m[3], m[4])}` : ''}`)}"/>`);
+    }
     tablesXml += `<table:table table:name="${x(name)}">${frames ? `<table:shapes>${frames}</table:shapes>` : ''}${cols}${rows}${cf.xml}</table:table>`;
     if (s.frozen?.rows || s.frozen?.cols) settings.push({ name, rows: s.frozen.rows || 0, cols: s.frozen.cols || 0 });
   }
   const NS = `${CALCEXT_NS} xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" ` + 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}${databaseRanges.length ? `<table:database-ranges>${databaseRanges.join('')}</table:database-ranges>` : ''}</office:spreadsheet></office:body></office:document-content>`;
+<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}${namedRanges.length ? `<table:named-expressions>${namedRanges.join('')}</table:named-expressions>` : ''}${databaseRanges.length ? `<table:database-ranges>${databaseRanges.join('')}</table:database-ranges>` : ''}</office:spreadsheet></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles ${NS}><office:styles><style:default-style style:family="table-cell"><style:text-properties fo:font-size="10pt"/></style:default-style><style:style style:name="Default" style:family="table-cell"/>${cfStyles.join('')}</office:styles></office:document-styles>`;
   // Frozen rows and columns live in the view settings.
@@ -431,8 +448,12 @@ export async function sheetFromOds(buffer) {
     const colDefault = [];
     let c0 = 0;
     const columns = [];
-    (function cols(n) { for (const k of tags(n)) { if (k.name === 'table:table-column') columns.push(k); else if (/^table:table-(header-)?columns$|^table:table-column-group$/.test(k.name)) cols(k); } })(t);
+    // (a column group: a marker before and after its columns, to find where it starts and ends)
+    (function cols(n) { for (const k of tags(n)) { if (k.name === 'table:table-column') columns.push(k); else if (k.name === 'table:table-column-group') { columns.push({ group: 'start', display: k.attribs['table:display'] }); cols(k); columns.push({ group: 'end' }); } else if (/^table:table-(header-)?columns$/.test(k.name)) cols(k); } })(t);
+    const groups = [], openCols = [];
     for (const col of columns) {
+      if (col.group === 'start') { openCols.push({ from: c0, display: col.display }); continue; }
+      if (col.group === 'end') { const g = openCols.pop(); if (g && !openCols.length && c0 > g.from) groups.push({ axis: 'col', from: g.from, to: c0 - 1, display: g.display }); continue; }
       const rep = Math.min(Number(col.attribs['table:number-columns-repeated']) || 1, 1024 - c0);
       const st = styles.get(col.attribs['table:style-name']);
       const px = lengthPx(st?.colp?.['style:column-width']);
@@ -444,9 +465,12 @@ export async function sheetFromOds(buffer) {
     }
     // Rows (in groups and header-rows too).
     const rowEls = [];
-    (function rws(n) { for (const k of tags(n)) { if (k.name === 'table:table-row') rowEls.push(k); else if (/^table:table-(header-)?rows$|^table:table-row-group$/.test(k.name)) rws(k); } })(t);
+    (function rws(n) { for (const k of tags(n)) { if (k.name === 'table:table-row') rowEls.push(k); else if (k.name === 'table:table-row-group') { rowEls.push({ group: 'start', display: k.attribs['table:display'] }); rws(k); rowEls.push({ group: 'end' }); } else if (/^table:table-(header-)?rows$/.test(k.name)) rws(k); } })(t);
     let r = 1;
+    const openRows = [];
     for (const row of rowEls) {
+      if (row.group === 'start') { openRows.push({ from: r - 1, display: row.display }); continue; }
+      if (row.group === 'end') { const g = openRows.pop(); if (g && !openRows.length && r - 1 > g.from) groups.push({ axis: 'row', from: g.from, to: r - 2, display: g.display }); continue; } // (an outermost group: Sheets' don't nest)
       const rep = Number(row.attribs['table:number-rows-repeated']) || 1;
       const cellsIn = tags(row).filter((k) => k.name === 'table:table-cell' || k.name === 'table:covered-table-cell');
       // (Empty rows still count when a cell has a dropdown: LibreOffice writes a dropdown's empty rows as one repeated row.)
@@ -530,9 +554,29 @@ export async function sheetFromOds(buffer) {
       const ch = chartFromObject(parse(objXml), fr, t.attribs['table:name'], { tags, textOf, find });
       if (ch) charts[`o${Object.keys(charts).length + 1}`] = ch;
     }
+    // Groups: collapsed when LibreOffice says so (or all their rows or columns are hidden); what they hide is theirs.
+    const sheetGroups = groups.map((g) => {
+      const hidden = g.axis === 'row' ? hideRows : hideCols;
+      const inside = (i) => i >= g.from && i <= g.to;
+      const all = Array.from({ length: g.to - g.from + 1 }, (_, k) => g.from + k).every((i) => hidden.includes(i));
+      const collapsed = g.display === 'false' || all;
+      if (collapsed) { const keep = hidden.filter((i) => !inside(i)); hidden.splice(0, hidden.length, ...keep); }
+      return { axis: g.axis, from: g.from, to: g.to, collapsed };
+    }).filter((g) => g.to - g.from < 5000).sort((a, b) => (a.axis === b.axis ? a.from - b.from : a.axis < b.axis ? -1 : 1));
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(sheetGroups.length && { groups: sheetGroups }), ...(Object.keys(notes).length && { notes }) });
+  }
+  // Named ranges ("Sales" = $Sheet1.$A$2:.$A$10): on the sheet they point into, as Sheets keeps them.
+  for (const nr of tags(tags(body, 'table:named-expressions')[0] || { children: [] }, 'table:named-range')) {
+    const nm = nr.attribs['table:name'] || '';
+    const m = /^\$?('(?:[^']|'')+'|[^.]+)\.\$?([A-Z]{1,3})\$?(\d+)(?::(?:\$?(?:'(?:[^']|'')+'|[^.]+))?\.\$?([A-Z]{1,3})\$?(\d+))?$/i.exec(nr.attribs['table:cell-range-address'] || '');
+    if (!m || !/^[A-Za-z_][A-Za-z0-9_.]{0,99}$/.test(nm) || /^[A-Za-z]{1,3}\d+$/.test(nm)) continue;
+    const sheetName = m[1].replace(/^'|'$/g, '').replace(/''/g, "'");
+    const sh = out.find((x) => x.name === sheetName.slice(0, 30));
+    if (!sh) continue;
+    const a = `${m[2]}${m[3]}`.toUpperCase(), b = m[4] ? `${m[4]}${m[5]}`.toUpperCase() : a;
+    (sh.names ||= {})[nm] = a === b ? a : `${a}:${b}`;
   }
   // The hidden sheet of dropdown choices our Excel download writes (here when such a file was saved as .ods):
   // its choices back in the dropdowns, and the sheet left out.
