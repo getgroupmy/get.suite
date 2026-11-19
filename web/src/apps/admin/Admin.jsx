@@ -423,7 +423,10 @@ function Users({ orgId, setOrgId }) {
           const kept = r.drive_items_kept ? `; ${r.drive_items_kept} item${r.drive_items_kept === 1 ? '' : 's'} kept in shared drives` : '';
           const mail = r.mail_to ? `; their email now goes to ${r.mail_to}` : '';
           const meetings = dialog.eventsTo && r.meetings_moved ? `; ${r.meetings_moved} meeting${r.meetings_moved === 1 ? '' : 's'} given to ${users.find((x) => x.id === dialog.eventsTo)?.name}` : '';
-          toast(`User deleted${given}${kept}${mail}${meetings}`); load();
+          const h = r.handed_over || {};
+          const work = [[h.lists, 'task list'], [h.forms, 'form'], [h.notes, 'note']].filter(([n]) => n).map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`);
+          const handed = work.length ? `; ${work.join(', ')} kept for ${dialog.heir ? users.find((x) => x.id === dialog.heir)?.name : 'the people they were shared with'}` : '';
+          toast(`User deleted${given}${kept}${mail}${meetings}${handed}`); load();
         }}>
         <label className="field"><span>Their Drive files</span>
           <select value={dialog.heir || ''} onChange={(e) => setDialog({ ...dialog, heir: e.target.value || null })}>
@@ -431,6 +434,7 @@ function Users({ orgId, setOrgId }) {
             {(users || []).filter((x) => x.id !== dialog.user.id && !x.disabled).map((x) => <option key={x.id} value={x.id}>Give them to {x.name}</option>)}
           </select>
         </label>
+        <p className="muted small" style={{ margin: 0 }}>Task lists, forms and notes they shared with colleagues aren't deleted: {dialog.heir ? `${users.find((x) => x.id === dialog.heir)?.name} gets them (and the rest of their lists, forms and notes)` : 'each goes to someone it was shared with'}, and everyone keeps their access.</p>
         <label className="field"><span>Email sent to {dialog.user.username} from now on</span>
           <select value={dialog.mailTo || ''} onChange={(e) => setDialog({ ...dialog, mailTo: e.target.value || null })}>
             <option value="">Bounce it (the address stops working)</option>

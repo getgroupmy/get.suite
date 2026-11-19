@@ -139,6 +139,30 @@ function rememberStatus(userId, emoji, text, clear) {
 export const recentStatuses = (userId) => q('SELECT emoji, text, clear FROM status_recent WHERE user_id = ? ORDER BY used_at DESC').all(userId)
   .map((r) => ({ emoji: r.emoji || null, text: r.text || null, clear: r.clear }));
 
+// Shared work goes on when its owner's account is deleted: a task list with members, a form with co-editors
+// and a note shared with colleagues go to the colleague given their files (who joins in), or else to someone
+// it's shared with; the others keep their access. What nobody else has goes with the account, unless there's
+// a colleague to give it to.
+function handOverWork(userId, heirId) {
+  const n = { lists: 0, forms: 0, notes: 0 };
+  const kinds = [
+    ['lists', 'task_lists', 'task_list_members', 'list_id', 'SELECT user_id FROM task_list_members WHERE list_id = ? AND user_id != ? ORDER BY rowid'],
+    ['forms', 'forms', 'form_editors', 'form_id', 'SELECT user_id FROM form_editors WHERE form_id = ? AND user_id != ? ORDER BY added_at'],
+    ['notes', 'notes', 'note_shares', 'note_id', 'SELECT user_id FROM note_shares WHERE note_id = ? AND user_id != ? ORDER BY rowid'],
+  ];
+  for (const [key, table, members, col, others] of kinds) {
+    for (const { id } of q(`SELECT id FROM ${table} WHERE owner_id = ?`).all(userId)) {
+      const firstOther = q(others).get(id, userId)?.user_id;
+      const to = heirId || firstOther;
+      if (!to) continue;
+      q(`UPDATE ${table} SET owner_id = ? WHERE id = ?`).run(to, id);
+      q(`DELETE FROM ${members} WHERE ${col} = ? AND user_id = ?`).run(id, to); // the owner isn't also a member
+      n[key]++;
+    }
+  }
+  return n;
+}
+
 export default function userRoutes() {
   const r = Router();
 
@@ -859,6 +883,7 @@ export default function userRoutes() {
         }
         req.eventsMoved = ids.length;
       }
+      req.handedOver = handOverWork(u.id, heir?.id);
       const list = blobsOwnedBy('?', u.id);
       q('UPDATE domains SET catchall = NULL WHERE catchall = (SELECT username FROM users WHERE id = ?)').run(u.id);
       // Their mail stays on the mail server; whoever gets this address next starts with an empty mailbox.
@@ -873,7 +898,7 @@ export default function userRoutes() {
     syncCompanyGroupAliases(u.org_id); // their groups' email addresses no longer include them
     scheduleMailConfig();
     audit(req, 'user.delete', { org: u.org_id, target: u.username, details: { ...(heir && { files_to: heir.name, items: req.moved }), ...(mailHeir && { mail_to: mailHeir.username }), ...(eventsHeir && { meetings_to: eventsHeir.name, meetings: req.eventsMoved }) } });
-    res.json({ ok: true, files_moved: req.moved || 0, drive_items_kept: kept, mail_to: mailHeir?.username || null, meetings_moved: req.eventsMoved || 0 });
+    res.json({ ok: true, handed_over: req.handedOver, files_moved: req.moved || 0, drive_items_kept: kept, mail_to: mailHeir?.username || null, meetings_moved: req.eventsMoved || 0 });
   });
 
   return r;
