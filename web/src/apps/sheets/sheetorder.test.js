@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { placesAfter, moveSheet, copyName, copySheet } from './sheetorder.js';
+import { placesAfter, moveSheet, copyName, copySheet, shownSheet } from './sheetorder.js';
 
 test('where each sheet ends up: moved, copied, removed', () => {
   assert.deepEqual(placesAfter(4, { move: [0, 2] }), [2, 0, 1, 3]);
@@ -16,6 +16,14 @@ test('where each sheet ends up: moved, copied, removed', () => {
     const moved = moveSheet(names, from, to);
     placesAfter(4, { move: [from, to] }).forEach((p, i) => assert.equal(moved[p], names[i]));
   }
+});
+
+test('the next or previous shown sheet, skipping hidden ones, staying put at either end', () => {
+  const sheets = [{ name: 'A' }, { name: 'B', hidden: true }, { name: 'C' }, { name: 'D', hidden: true }];
+  assert.equal(shownSheet(sheets, 0, 1), 2);
+  assert.equal(shownSheet(sheets, 2, -1), 0);
+  assert.equal(shownSheet(sheets, 2, 1), 2, 'only hidden ones after it');
+  assert.equal(shownSheet(sheets, 0, -1), 0);
 });
 
 test('a copy\'s name is new, whatever the case', () => {

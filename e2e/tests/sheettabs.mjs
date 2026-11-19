@@ -96,6 +96,27 @@ await step('Delete a sheet before Notes: Notes\' comment follows it; the first a
   if (await page.getByRole('menuitem', { name: 'Move right', exact: true }).count()) throw new Error('Move right on the last tab');
   await page.keyboard.press('Escape');
 });
+await step('Ctrl+Page Down / Up (and with Shift) go to the next or previous sheet from the grid', async () => {
+  await page.locator('.sheet-tab > button:first-child', { hasText: /^Budget$/ }).click();
+  await page.locator('[data-k="A1"]').click();
+  await page.keyboard.press('Control+PageDown');
+  await until(async () => (await page.locator('.sheet-tab.on > button:first-child').innerText()) === 'Plan');
+  await page.keyboard.press('Control+Shift+PageDown');
+  await until(async () => (await page.locator('.sheet-tab.on > button:first-child').innerText()) === 'Notes');
+  await page.keyboard.press('Control+PageDown'); // the last: stays
+  await page.waitForTimeout(300);
+  if ((await page.locator('.sheet-tab.on > button:first-child').innerText()) !== 'Notes') throw new Error('went past the last sheet');
+  await page.keyboard.press('Control+PageUp');
+  await until(async () => (await page.locator('.sheet-tab.on > button:first-child').innerText()) === 'Plan');
+});
+await step('dragging a tab puts it in a new place, for Kim too, and Notes\' comment goes with it', async () => {
+  const tab = (n) => page.locator('.sheet-tab', { has: page.locator('button', { hasText: new RegExp(`^${n}$`) }) });
+  await tab('Notes').dragTo(tab('Budget'));
+  await until(async () => same(await tabs(page), ['Notes', 'Budget', 'Plan']));
+  await until(async () => (await page.locator('.sheet-tab.on > button:first-child').innerText()) === 'Notes');
+  await until(async () => (await anchorSheet()).sheet === 0);
+  await until(async () => same(await tabs(kim), ['Notes', 'Budget', 'Plan']), 10000);
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

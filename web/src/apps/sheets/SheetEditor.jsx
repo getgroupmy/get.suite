@@ -43,7 +43,7 @@ import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './groups.js';
 import { FilterMenu } from './SheetFilter.jsx';
 import { TAB_COLOURS, tabColorOf, tabColorName } from './tabcolor.js';
-import { placesAfter, moveSheet, copySheet } from './sheetorder.js';
+import { placesAfter, moveSheet, copySheet, shownSheet } from './sheetorder.js';
 import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle, ruleContext } from './condformat.js';
@@ -438,6 +438,8 @@ export default function SheetEditor() {
     }
     setActive(to); setSel({ c: 0, r: 0 }); setAnchor(null);
   }
+  const dragTab = useRef(null); // a tab being dragged to a new place (its sheet's place)
+  const [dropAt, setDropAt] = useState(null);
   const newSheetId = () => (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
   const setWidth = (c, w) => writeSheet((s) => ({ colWidths: { ...(s.colWidths || {}), [colName(c)]: Math.round(Math.max(MIN_W, Math.min(MAX_W, w))) } }));
   /** Hide rows or columns a..b (or show them again). The selection steps off any it hides. */
@@ -936,6 +938,13 @@ export default function SheetEditor() {
     if (mod && !e.altKey && arrow) { e.preventDefault(); jump(dataEdge((c, r) => { const v = cells[cellKey(c, r)]; return v !== undefined && v !== ''; }, sel.c, sel.r, arrow[0], arrow[1], { cols, rows }), e.shiftKey); return; }
     if (mod && !e.altKey && k === 'Home') { e.preventDefault(); jump({ c: 0, r: 0 }, e.shiftKey); return; }
     if (mod && !e.altKey && k === 'End') { e.preventDefault(); jump(lastUsed(cells), e.shiftKey); return; }
+    // Ctrl+Page Down / Page Up (also with Shift, as Google Sheets has it where the browser keeps the plain keys): the next or previous sheet
+    if (mod && !e.altKey && (k === 'PageDown' || k === 'PageUp')) {
+      e.preventDefault();
+      const to = shownSheet(data.sheets, active, k === 'PageDown' ? 1 : -1);
+      if (to !== active) { setActive(to); setSel({ c: 0, r: 0 }); setAnchor(null); }
+      return;
+    }
     if (!mod && !e.altKey && (k === 'PageDown' || k === 'PageUp')) {
       e.preventDefault();
       const page = Math.max(1, Math.floor((gridRef.current?.clientHeight || 600) / (25 * zoom / 100)) - 1);
@@ -1448,7 +1457,11 @@ export default function SheetEditor() {
           } />
         )}
         {data.sheets.map((s, i) => s.hidden ? null : (
-          <div key={i} className={`sheet-tab ${i === active ? 'on' : ''}`} style={tabColorOf(s.tabColor) ? { '--tab-colour': tabColorOf(s.tabColor) } : undefined}>
+          <div key={i} className={`sheet-tab ${i === active ? 'on' : ''} ${dropAt === i ? 'drop-here' : ''}`} style={tabColorOf(s.tabColor) ? { '--tab-colour': tabColorOf(s.tabColor) } : undefined}
+            draggable={!readOnly} onDragStart={(e) => { dragTab.current = i; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', s.name); }}
+            onDragOver={(e) => { if (dragTab.current === null || dragTab.current === i) return; e.preventDefault(); setDropAt(i); }} onDragLeave={() => setDropAt((d) => (d === i ? null : d))}
+            onDragEnd={() => { dragTab.current = null; setDropAt(null); }}
+            onDrop={(e) => { const from = dragTab.current; dragTab.current = null; setDropAt(null); if (from === null || from === i) return; e.preventDefault(); reorderSheets(moveSheet(dataRef.current.sheets, from, i), { move: [from, i] }, i); }}>
             <button onClick={() => { setActive(i); setSel({ c: 0, r: 0 }); setAnchor(null); }} {...(tabColorOf(s.tabColor) && { title: `Tab colour: ${tabColorName(s.tabColor)}`, 'data-tab-colour': tabColorOf(s.tabColor) })}>{s.name}</button>
             {i === active && !readOnly && (
               <Menu align="left" trigger={(p) => <button className="tab-menu" aria-label={`Options for ${s.name}`} {...p}>▾</button>} items={[

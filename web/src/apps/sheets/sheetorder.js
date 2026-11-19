@@ -15,6 +15,12 @@ export function placesAfter(n, op) {
   return out;
 }
 
+/** The shown sheet before (dir -1) or after (dir 1) the one at `at`, skipping hidden ones; `at` itself at either end. */
+export function shownSheet(sheets, at, dir) {
+  for (let i = at + dir; i >= 0 && i < sheets.length; i += dir) if (!sheets[i]?.hidden) return i;
+  return at;
+}
+
 /** The sheets after moving the one at `from` to `to`. */
 export function moveSheet(sheets, from, to) {
   if (from === to || to < 0 || to >= sheets.length) return sheets;

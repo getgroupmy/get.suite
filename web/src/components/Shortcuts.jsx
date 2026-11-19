@@ -31,6 +31,7 @@ export const SHORTCUTS = {
     [`${mod}+F / ${mod}+H`, 'Find, or find and replace'], [`${alt}+Shift+5`, 'Strikethrough'],
     ['Typing a formula', 'Suggests functions: arrows, then Tab or Enter'],
     [`${mod}+${alt}+M`, 'Comment on the cell'], ['Shift+F10', 'Menu: insert or delete rows and columns, sort, freeze'],
+    [`${mod}+Page Down / ${mod}+Page Up`, 'Next or previous sheet (also with Shift)'],
   ] },
   slides: { title: 'Slides', keys: [
     ['Arrow keys', 'Nudge the selected item (Shift: further)'], ['Enter', 'Type in the selected text box'], ['Delete', 'Remove the selected item'],
