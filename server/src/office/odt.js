@@ -222,12 +222,25 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   const cellStyles = () => [...cellColours].map((hex) => `<style:style style:name="Cell_${hex}" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999" fo:background-color="#${hex}"/></style:style>`).join('');
   const spacedStyles = () => [...spaced].map(([key, name]) => { const [base, props] = key.split('|'); return `<style:style style:name="${name}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties ${props}/></style:style>`; }).join('');
   const para = (n, style = 'Standard') => `<text:p text:style-name="${styleOf(style, n.attrs)}">${inline(n.content)}</text:p>`;
+  // A table of contents: LibreOffice's own (it updates it, Tools → Update), its entries links to bookmarks on the
+  // headings (toc_1…, as in the Word download).
+  const plainOf = (n) => (n.text ?? (n.content || []).map(plainOf).join(''));
+  const headings = [];
+  (function gather(n) { if (n.type === 'heading') { const text = plainOf(n).trim(); if (text) headings.push({ node: n, level: Math.min(6, n.attrs?.level || 1), text }); return; } if (n.type !== 'paragraph') for (const c of n.content || []) gather(c); })(doc || {});
+  const withContents = JSON.stringify(doc || {}).includes('"type":"tableOfContents"');
+  const tocMark = (n) => { const k = withContents ? headings.findIndex((h) => h.node === n) : -1; return k >= 0 ? `<text:bookmark text:name="toc_${k + 1}"/>` : ''; };
+  const contentsXml = () => {
+    const levels = [1, 2, 3, 4, 5, 6].map((l) => `<text:table-of-content-entry-template text:outline-level="${l}" text:style-name="Contents_20_${l}"><text:index-entry-link-start text:style-name="Index_20_Link"/><text:index-entry-text/><text:index-entry-link-end/></text:table-of-content-entry-template>`).join('');
+    const entries = headings.map((h, k) => `<text:p text:style-name="Contents_20_${h.level}"><text:a xlink:type="simple" xlink:href="#toc_${k + 1}" text:style-name="Index_20_Link" text:visited-style-name="Index_20_Link">${odfText(h.text)}</text:a></text:p>`).join('');
+    return `<text:table-of-content text:protected="true" text:name="Table of Contents1"><text:table-of-content-source text:outline-level="6" text:use-index-marks="false"><text:index-title-template text:style-name="Contents_20_Heading">Contents</text:index-title-template>${levels}</text:table-of-content-source><text:index-body><text:index-title text:name="Table of Contents1_Head"><text:p text:style-name="Contents_20_Heading">Contents</text:p></text:index-title>${entries || '<text:p text:style-name="Contents_20_1"/>'}</text:index-body></text:table-of-content>`;
+  };
   const blocks = (nodes = [], ctx = {}) => {
     let out = '';
     for (const n of nodes) {
       const t = n.type;
       if (t === 'paragraph') out += para(n, ctx.style || 'Standard');
-      else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); out += `<text:h text:style-name="${styleOf(`Heading_20_${lv}`, n.attrs)}" text:outline-level="${lv}">${inline(n.content)}</text:h>`; }
+      else if (t === 'tableOfContents') out += contentsXml();
+      else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); out += `<text:h text:style-name="${styleOf(`Heading_20_${lv}`, n.attrs)}" text:outline-level="${lv}">${tocMark(n)}${inline(n.content)}</text:h>`; }
       else if (t === 'bulletList' || t === 'orderedList') {
         const start = t === 'orderedList' ? Math.max(1, Math.min(9999, Math.round(Number(n.attrs?.start) || 1))) : 1; // (a numbered list's first number)
         out += `<text:list text:style-name="${t === 'orderedList' ? 'LNum' : 'LBul'}">${(n.content || []).map((li, i) => `<text:list-item${i === 0 && start > 1 ? ` text:start-value="${start}"` : ''}>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
@@ -295,7 +308,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
         const lines = t === 'eventDraft' ? eventLines(a) : [['To', a.to || ''], ['Cc', a.cc || ''], ['Subject', a.subject || '']].filter(([k, v]) => v || k !== 'Cc');
         for (const [k, v] of lines) out += `<text:p text:style-name="Standard"><text:span text:style-name="${textStyle({ bold: 1, color: '#5f6368' })}">${odfText(`${k}: `)}</text:span>${odfText(v)}</text:p>`;
         out += blocks(n.content, ctx);
-      } else if (t !== 'tableOfContents' && n.content) out += blocks(n.content, ctx);
+      } else if (n.content) out += blocks(n.content, ctx);
     }
     return out;
   };
@@ -333,7 +346,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<style:style style:name="Heading_20_${l}" style:display-name="Heading ${l}" style:family="paragraph" style:parent-style-name="Heading" style:default-outline-level="${l}" style:class="text"><style:text-properties fo:font-size="${pt}pt"/></style:style>`).join('\n')}
 <style:style style:name="Quotations" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-left="1cm" fo:padding-left="0.2cm" fo:border-left="1.5pt solid #bbbbbb"/></style:style>
 <style:style style:name="Preformatted_20_Text" style:display-name="Preformatted Text" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:text-properties style:font-name="Liberation Mono" fo:font-family="'Liberation Mono'" fo:font-size="10pt"/></style:style>
-<style:style style:name="Horizontal_20_Line" style:display-name="Horizontal Line" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:padding="0cm" fo:border-bottom="0.5pt solid #bbbbbb"/></style:style>
+<style:style style:name="Contents_20_Heading" style:display-name="Contents Heading" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-top="0.2cm" fo:margin-bottom="0.2cm"/><style:text-properties fo:font-size="14pt" fo:font-weight="bold"/></style:style>${[1, 2, 3, 4, 5, 6].map((l) => `<style:style style:name="Contents_20_${l}" style:display-name="Contents ${l}" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-left="${((l - 1) * 0.5).toFixed(1)}cm" fo:margin-top="0cm" fo:margin-bottom="0.1cm"/></style:style>`).join('')}<style:style style:name="Index_20_Link" style:display-name="Index Link" style:family="text"/><style:style style:name="Horizontal_20_Line" style:display-name="Horizontal Line" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:padding="0cm" fo:border-bottom="0.5pt solid #bbbbbb"/></style:style>
 <style:style style:name="Table_20_Contents" style:display-name="Table Contents" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"/>
 <style:style style:name="Table_20_Heading" style:display-name="Table Heading" style:family="paragraph" style:parent-style-name="Table_20_Contents" style:class="extra"><style:text-properties fo:font-weight="bold"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:text-properties fo:font-size="9pt"/></style:style>
@@ -710,7 +723,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         }
         out += `${html}</tbody></table>`;
       } else if (c.name === 'text:section' || c.name === 'text:index-body' || c.name === 'text:soft-page-break') out += await blocks(c, depth, listStyle);
-      else if (/^text:(table-of-content|alphabetical-index|illustration-index|bibliography)$/.test(c.name)) out += await blocks(kids(c).find((k) => k.name === 'text:index-body') || {}, depth);
+      else if (c.name === 'text:table-of-content') out += '<nav data-toc=""></nav>'; // Docs' own table of contents (its entries are the headings')
+      else if (/^text:(alphabetical-index|illustration-index|bibliography)$/.test(c.name)) out += await blocks(kids(c).find((k) => k.name === 'text:index-body') || {}, depth);
     }
     return out;
   };

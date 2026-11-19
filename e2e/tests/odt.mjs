@@ -67,6 +67,44 @@ await step('in Drive an .odt file shows as a document and opens as one', async (
   await page.locator('.ProseMirror strong', { hasText: 'hire two people' }).waitFor();
   await page.locator('.ProseMirror', { hasText: 'Decisions' }).waitFor();
 });
+await step('a table of contents goes out as LibreOffice\'s own and comes back as the document\'s contents block, also as Word', async () => {
+  const H = (level, text) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Handbook', content: { type: 'doc', content: [
+    H(1, 'Handbook'), { type: 'tableOfContents' }, H(2, 'Holidays'), { type: 'paragraph', content: [{ type: 'text', text: 'Book them early.' }] }, H(2, 'Expenses'), H(3, 'Travel'),
+  ] } })).body;
+  await page.goto(`${B}/docs/${d.id}`);
+  await page.locator('.paper nav.doc-toc').waitFor();
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  let lo = true;
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { lo = false; console.log('(LibreOffice is not installed here: the files are opened as downloaded)'); }
+  for (const [item, ext] of [['Download as OpenDocument (.odt)', 'odt'], [/Download as Word/, 'docx']]) {
+    await page.goto(`${B}/docs/${d.id}`);
+    await page.locator('.paper nav.doc-toc').waitFor();
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: item }).click()]);
+    let bytes = fs.readFileSync(await dl.path());
+    if (lo) { // opened and saved again by LibreOffice
+      const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+      fs.writeFileSync(path.join(dir, `Handbook.${ext}`), bytes);
+      execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', ext, '--outdir', path.join(dir, 'out'), path.join(dir, `Handbook.${ext}`)], { stdio: 'ignore', timeout: 120000 });
+      bytes = fs.readFileSync(path.join(dir, 'out', `Handbook.${ext}`));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    const name = `Handbook (${ext}).${ext}`;
+    await page.evaluate(async ([b64, n]) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch(`/api/files/upload?name=${encodeURIComponent(n)}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, [bytes.toString('base64'), name]);
+    await page.goto(`${B}/drive`);
+    await page.getByText(name).dblclick();
+    const pv = page.getByRole('dialog').filter({ hasText: name });
+    await pv.getByRole('button', { name: 'Open as document' }).click({ timeout: 20000 });
+    await page.waitForURL(/\/docs\//);
+    await page.locator('.paper nav.doc-toc').waitFor();
+    const items = await page.locator('.paper nav.doc-toc li a').allInnerTexts();
+    if (JSON.stringify(items) !== JSON.stringify(['Handbook', 'Holidays', 'Expenses', 'Travel'])) throw new Error(`${ext}: ${JSON.stringify(items)}`);
+    const paras = await page.locator('.paper .ProseMirror > p').allInnerTexts();
+    if (paras.some((t) => /^(Contents|Holidays|Expenses)$/.test(t.trim()))) throw new Error(`${ext}: the entries came in as paragraphs too: ${JSON.stringify(paras)}`);
+    await page.screenshot({ path: `${SP}/shots/toc-${ext}.png` });
+  }
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

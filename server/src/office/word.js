@@ -90,6 +90,8 @@ const CommentMark = Mark.create({
   renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 });
 // A page break, as in web/src/apps/docs/pagebreak.js.
+// A table of contents, as in web/src/apps/docs/toc.js: the editor lists the headings itself.
+const TocNode = Node.create({ name: 'tableOfContents', group: 'block', atom: true, parseHTML: () => [{ tag: 'nav[data-toc]' }], renderHTML: () => ['nav', { 'data-toc': '' }] });
 const PageBreakNode = Node.create({ name: 'pageBreak', group: 'block', atom: true, parseHTML: () => [{ tag: 'div[data-page-break]' }, { tag: 'hr[data-page-break]' }], renderHTML: () => ['div', { 'data-page-break': '' }] });
 // Line spacing and the space before and after a paragraph, as in web/src/apps/docs/typography.js.
 const ptOf = (v) => { const m = /^([\d.]+)pt$/.exec(String(v || '').trim()); const n = m ? Number(m[1]) : NaN; return n > 0 && n <= 72 ? Math.round(n * 10) / 10 : null; };
@@ -116,7 +118,7 @@ const SheetChartNode = Node.create({ name: 'sheetChart', group: 'block', atom: t
 const MathNode = Node.create({ name: 'math', group: 'inline', inline: true, atom: true, addAttributes: () => ({ latex: { default: '', parseHTML: (el) => el.getAttribute('data-latex') || '' } }), parseHTML: () => [{ tag: 'span[data-math]' }], renderHTML: ({ HTMLAttributes }) => ['span', { 'data-math': '', 'data-latex': HTMLAttributes.latex }] });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, MathNode, SheetChartNode, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
+  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, MathNode, SheetChartNode, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete, TocNode,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -182,7 +184,7 @@ export function markWordXml(xml, { numbering = '' } = {}) {
   // Tracked changes (not the self-closing ones Word puts on paragraph marks): who and when, kept as markers;
   // deleted text (w:delText, which the converter leaves out) made ordinary text inside them.
   const who = (attrs) => encodeURIComponent(JSON.stringify({ id: /w:id="(\d+)"/.exec(attrs)?.[1] || '', name: /w:author="([^"]*)"/.exec(attrs)?.[1] || '', at: /w:date="([^"]*)"/.exec(attrs)?.[1] || '' }));
-  return String(xml)
+  return contentsMarked(String(xml))
     // Equations (Word's own, OMML): a marker with their LaTeX, made Docs equations afterwards.
     .replace(/<m:oMathPara\b[^>]*>([\s\S]*?)<\/m:oMathPara>/g, '$1')
     .replace(/<m:oMath\b[^>]*>([\s\S]*?)<\/m:oMath>/g, (m, inner) => { const l = ommlToLatex(inner); return l ? marker(`eq:${encodeURIComponent(l)}`) : ''; })
@@ -293,6 +295,7 @@ export function unmarkWordHtml(html, commentId = null) {
     .replace(re('MK/END'), '</span>')
     .replace(re('MKeq:([^END]*)END'), (m, enc) => { let l = ''; try { l = decodeURIComponent(enc); } catch { /* none */ } return l ? `<span data-math="" data-latex="${attr(l)}"></span>` : ''; })
     .replace(re('(?:<p[^>]*>)?MKch:([^END]*)END(?:</p>)?'), (m, enc) => chartFigureHtml(enc)) // a chart
+    .replace(re('<p>MKtocEND</p>'), '<nav data-toc=""></nav>') // a table of contents: Docs' own
     .replace(re('MKcdEND'), '<code>').replace(re('MK/cdEND'), '</code>')
     .replace(re('<ol>((?:<li>)(?:<p>)?)MKls:(\\d+)END'), (m, open, n) => `<ol start="${n}">${open}`)
     .replace(re('MKls:\\d+END'), '')
@@ -581,6 +584,70 @@ const VML_NS = { 'xmlns:v': 'urn:schemas-microsoft-com:vml', 'xmlns:o': 'urn:sch
 
 /** The written Word file with the watermark in each header's first paragraph. */
 /** The equations' placeholders made Word equations (OMML) from their LaTeX. */
+/**
+ * The table of contents as Word's own: its title and entries in a Table of Contents block, the entries the result of
+ * a TOC field (shown as written; Word's Update Field remakes them, LibreOffice keeps them as its index).
+ */
+async function withContentsField(buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const xml = await zip.file('word/document.xml').async('string');
+  const P = '<w:p(?:\\s[^>]*)?>(?:(?!<\\/w:p>)[\\s\\S])*?';
+  const re = new RegExp(`(${P}<w:pStyle w:val="TOCHeading"\\/>(?:(?!<\\/w:p>)[\\s\\S])*<\\/w:p>)((?:${P}<w:pStyle w:val="TOC\\d"\\/>(?:(?!<\\/w:p>)[\\s\\S])*<\\/w:p>)*)`, 'g');
+  const begin = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-6" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>';
+  const end = '<w:r><w:fldChar w:fldCharType="end"/></w:r>';
+  let changed = false;
+  const out = xml.replace(re, (m, title, entries) => {
+    changed = true;
+    const paras = entries.match(new RegExp(`${P}<\\/w:p>`, 'g')) || [];
+    if (!paras.length) paras.push('<w:p></w:p>');
+    paras[0] = paras[0].includes('</w:pPr>') ? paras[0].replace('</w:pPr>', `</w:pPr>${begin}`) : paras[0].replace(/^<w:p(\s[^>]*)?>/, (o) => `${o}${begin}`);
+    paras[paras.length - 1] = paras[paras.length - 1].replace(/<\/w:p>$/, `${end}</w:p>`);
+    return `<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj></w:sdtPr><w:sdtContent>${title}${paras.join('')}</w:sdtContent></w:sdt>`;
+  });
+  if (!changed) return buffer;
+  zip.file('word/document.xml', out);
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** Word's tables of contents (a Table of Contents block, or the paragraphs of a TOC field): one marker each. */
+export function contentsMarked(xml) {
+  const mark = `<w:p>${marker('toc')}</w:p>`;
+  // A Table of Contents block (its own, possibly with blocks inside): the whole of it.
+  let out = '', at = 0;
+  for (;;) {
+    const i = xml.indexOf('<w:sdt>', at);
+    if (i < 0) break;
+    let depth = 0, j = i;
+    const tag = /<w:sdt>|<\/w:sdt>/g;
+    tag.lastIndex = i;
+    for (let t; (t = tag.exec(xml));) { depth += t[0] === '<w:sdt>' ? 1 : -1; if (!depth) { j = tag.lastIndex; break; } }
+    if (j === i) break;
+    const block = xml.slice(i, j);
+    const pr = /^<w:sdt><w:sdtPr>[\s\S]*?<\/w:sdtPr>/.exec(block)?.[0] || '';
+    out += xml.slice(at, i) + (/<w:docPartGallery w:val="Table of Contents"\/>/.test(pr) ? mark : block);
+    at = j;
+  }
+  xml = out + xml.slice(at);
+  // A TOC field across paragraphs (from the one it starts in to the one it ends in), with a TOC Heading just before.
+  const paras = xml.match(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>|<w:p\b[^>]*\/>/g) || [];
+  for (let k = 0; k < paras.length; k++) {
+    if (!/<w:instrText[^>]*>\s*TOC\b/.test(paras[k])) continue;
+    let depth = 0, last = -1;
+    for (let m = k; m < paras.length && last < 0; m++) {
+      const chars = paras[m].match(/w:fldCharType="(begin|end)"/g) || [];
+      for (const c of chars) { depth += c.includes('begin') ? 1 : -1; if (depth <= 0 && m >= k) { last = m; break; } }
+    }
+    if (last < 0) continue;
+    const first = k > 0 && /<w:pStyle w:val="TOC ?Heading"\/>/i.test(paras[k - 1]) ? k - 1 : k;
+    const from = xml.indexOf(paras[first]);
+    let to = xml.indexOf(paras[last], from) + paras[last].length;
+    if (from < 0 || to < from) continue;
+    xml = xml.slice(0, from) + mark + xml.slice(to);
+    k = last;
+  }
+  return xml;
+}
+
 async function withEquations(buffer) {
   const zip = await JSZip.loadAsync(buffer);
   const xml = await zip.file('word/document.xml').async('string');
@@ -777,13 +844,13 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   let listNo = 0; const starts = new Set(); // numbered lists: one numbering instance each, and the first numbers they use
   const allLabels = headingLabels(levels);
   let headingAt = 0;
+  // (styled TOC Heading and TOC 1…, made Word's own table of contents once written: see withContentsField)
   const contentsBlock = () => [
-    new Paragraph({ children: [new TextRun({ text: 'Contents', bold: true })], spacing: { after: 120 } }),
+    new Paragraph({ style: 'TOCHeading', children: [new TextRun({ text: 'Contents', bold: true })], spacing: { after: 120 } }),
     ...contents.map((h, k) => new Paragraph({
-      indent: { left: 360 * (h.level - top) },
+      style: `TOC${Math.min(9, h.level - top + 1)}`,
       children: [new InternalHyperlink({ anchor: `toc_${k + 1}`, children: [new TextRun({ text: h.label ? `${h.label} ${h.text}` : h.text, style: 'Hyperlink' })] })],
     })),
-    new Paragraph(''),
   ];
   const block = (nodes, ctx = {}) => { const out = []; walkInto(out, nodes, ctx); return out; };
   const picture = (n) => {
@@ -942,11 +1009,11 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         // Headings in the text's own colour, as Docs shows them (the library's are blue, and Heading 4 italic).
         ...HEADING_RUNS,
       },
-      paragraphStyles: [{ id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' } }, { id: 'Code', name: 'Code', basedOn: 'Normal', next: 'Normal', run: { font: 'Consolas' }, paragraph: { spacing: { after: 0 } } }], // quotes (blockquotes); code blocks
+      paragraphStyles: [{ id: 'TOCHeading', name: 'TOC Heading', basedOn: 'Normal', next: 'Normal', run: { bold: true, size: 28 } }, { id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' } }, { id: 'Code', name: 'Code', basedOn: 'Normal', next: 'Normal', run: { font: 'Consolas' }, paragraph: { spacing: { after: 0 } } }], // quotes (blockquotes); code blocks
     },
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });
-  const buf = await withWordCharts(await withEquations(await Packer.toBuffer(file)));
+  const buf = await withContentsField(await withWordCharts(await withEquations(await Packer.toBuffer(file))));
   return page?.watermark ? withWatermark(buf, page.watermark) : buf;
 }
 

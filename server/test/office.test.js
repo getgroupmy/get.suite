@@ -349,7 +349,7 @@ test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in 
   assert.equal(back.cells.B2, '=STDEV.P(A1:A2)');
 });
 
-test('Word: a table of contents becomes links to bookmarked headings, and opens again as plain headings', async () => {
+test('Word: a table of contents becomes Word\'s own (its entries links to bookmarked headings), and opens again as Docs\' contents', async () => {
   const JSZip = (await import('jszip')).default;
   const doc = { type: 'doc', content: [
     { type: 'tableOfContents' },
@@ -364,8 +364,12 @@ test('Word: a table of contents becomes links to bookmarked headings, and opens 
   assert.match(xml, /<w:bookmarkStart[^>]*w:name="toc_2"/);
   assert.doesNotMatch(xml, /toc_3/);
   assert.match(xml, /<w:hyperlink[^>]*w:anchor="toc_2"[^>]*>[\s\S]*?Budget/);
-  assert.match(xml, /<w:ind w:left="360"/); // Budget indented under Plan
+  assert.match(xml, /<w:pStyle w:val="TOC2"\/>(?:(?!<\/w:p>)[\s\S])*Budget/); // Budget indented under Plan (Word's TOC 2 style)
+  assert.match(xml, /<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val="Table of Contents"\/>/);
+  assert.match(xml, /<w:instrText xml:space="preserve"> TOC \\o "1-6" \\h \\z \\u <\/w:instrText>/);
   const back = (await docFromWord(buf)).doc;
+  assert.deepEqual(back.content.filter((n) => n.type === 'tableOfContents').length, 1, 'the contents block, not its entries as paragraphs');
+  assert.ok(!back.content.some((n) => n.type === 'paragraph' && n.content?.[0]?.text === 'Contents'));
   const headings = back.content.filter((n) => n.type === 'heading').map((n) => n.content?.map((t) => t.text).join(''));
   assert.deepEqual(headings.filter(Boolean), ['Plan', 'Budget']);
   // Without a contents block, headings aren't bookmarked.
