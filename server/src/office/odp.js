@@ -6,7 +6,7 @@
 import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import JSZip from 'jszip';
 import { parseDocument } from 'htmlparser2';
-import { themeOfDeck } from './powerpoint.js';
+import { themeOfDeck, numberShown } from './powerpoint.js';
 
 /** Boxes of the same group (two or more) wrapped in one <draw:g>, where the first of them was. */
 export function groupedXml(xml, pieces) {
@@ -30,6 +30,14 @@ export const ODP_MIME = 'application/vnd.oasis.opendocument.presentation';
 const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const COLOR = /^#[0-9a-f]{6}$/i;
 const W = 28, H = 15.75; // cm, 16:9 like Slides
+// Slide transitions as LibreOffice's (SMIL) and back: the nearest of Slides' three.
+const ODP_TRANSITIONS = { fade: 'smil:type="fade" smil:subtype="crossfade"', push: 'smil:type="pushWipe" smil:subtype="fromBottom"', zoom: 'smil:type="zoom"' };
+const transitionFromOdp = (type) => (!type ? null : /^(pushWipe|slideWipe|barWipe|irisWipe|clockWipe|snakeWipe|spiralWipe|waterfallWipe)$/i.test(type) ? 'push' : /^(zoom|ellipseWipe|fourBoxWipe)$/i.test(type) ? 'zoom' : 'fade');
+/** A slide's page properties for showing it: its transition, moving on by itself after so many seconds, its number. */
+function slideShowProps(s, numbered) {
+  const secs = Number(s.advance) > 0 ? Math.min(3600, Math.round(Number(s.advance))) : 0;
+  return `${secs ? ` presentation:transition-type="automatic" presentation:duration="PT${secs}S"` : ''}${ODP_TRANSITIONS[s.transition] ? ` presentation:transition-speed="medium" ${ODP_TRANSITIONS[s.transition]}` : ''} presentation:display-page-number="${numbered ? 'true' : 'false'}"`;
+}
 const cm = (n) => `${Number(n).toFixed(3)}cm`;
 const ODP_SHAPES = { rect: 'rectangle', round: 'round-rectangle', ellipse: 'ellipse', triangle: 'isosceles-triangle', diamond: 'diamond', arrowblock: 'right-arrow', chevron: 'chevron', star: 'star5', callout: 'round-rectangular-callout' };
 const OUR_SHAPES = { ...Object.fromEntries(Object.entries(ODP_SHAPES).map(([a, b]) => [b, a])),
@@ -159,11 +167,19 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
   };
   const slides = deck?.slides?.length ? deck.slides : [{ id: 's1', items: [] }];
   let pages = '';
+  const gradients = []; // gradient backgrounds, by name (in styles.xml)
   for (const [si, s] of slides.entries()) {
     const bgPath = await picture(s.bgImage);
     let dp;
-    if (bgPath) { const name = `bg${fillImages.length + 1}`; fillImages.push(`<draw:fill-image draw:name="${name}" xlink:href="${bgPath}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>`); dp = style('drawing-page', `<style:drawing-page-properties draw:fill="bitmap" draw:fill-image-name="${name}" style:repeat="stretch" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"/>`); }
-    else dp = style('drawing-page', `<style:drawing-page-properties draw:fill="solid" draw:fill-color="${color(s.bg, theme.bg)}" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"/>`);
+    // How it moves on (LibreOffice's transitions and timings), whether it shows its number, and a gradient background.
+    const show = slideShowProps(s, numberShown(deck, si));
+    const grad = !bgPath && /^#([0-9a-f]{6}) (\d{1,3})$/i.exec(s.bgGrad || '');
+    if (bgPath) { const name = `bg${fillImages.length + 1}`; fillImages.push(`<draw:fill-image draw:name="${name}" xlink:href="${bgPath}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>`); dp = style('drawing-page', `<style:drawing-page-properties draw:fill="bitmap" draw:fill-image-name="${name}" style:repeat="stretch" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"${show}/>`); }
+    else if (grad) { // from the slide's colour into the other, at the angle (CSS's; LibreOffice's runs the other way round from the top)
+      const name = `grad${gradients.length + 1}`;
+      gradients.push(`<draw:gradient draw:name="${name}" draw:style="linear" draw:start-color="${color(s.bg, theme.bg)}" draw:end-color="#${grad[1].toLowerCase()}" draw:start-intensity="100%" draw:end-intensity="100%" draw:angle="${(180 - (Number(grad[2]) % 360) + 360) % 360}deg" draw:border="0%"/>`);
+      dp = style('drawing-page', `<style:drawing-page-properties draw:fill="gradient" draw:fill-gradient-name="${name}" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"${show}/>`);
+    } else dp = style('drawing-page', `<style:drawing-page-properties draw:fill="solid" draw:fill-color="${color(s.bg, theme.bg)}" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"${show}/>`);
     let items = '', titled = false;
     const pieces = []; // each box's own XML, so grouped ones can be wrapped in a <draw:g>
     for (const it of s.items || []) {
@@ -237,13 +253,15 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
     items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).flatMap((pc) => (pc.paraIds?.length ? pc.paraIds : [pc.animId]).map((id, n) => ({ id, anim: pc.it.anim, start: n ? null : pc.it.animStart || null }))));
     const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:style-name="${notesStyle()}" presentation:class="notes" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
     const threads = (comments || []).filter((t) => t.slideId === s.id && t.text);
-    pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}${slideAnnotations(threads)}</draw:page>`;
+    // Its number: a page-number box at the bottom right, as LibreOffice keeps a slide's (it counts the slides itself).
+    const number = numberShown(deck, si) ? `<draw:frame presentation:class="page-number" svg:x="${(W - 3.4).toFixed(2)}cm" svg:y="${(H - 1.3).toFixed(2)}cm" svg:width="3cm" svg:height="0.9cm"><draw:text-box><text:p text:style-name="${paraStyle('right')}"><text:span text:style-name="${style('text', `<style:text-properties fo:font-size="12pt" style:font-name="${x(font)}" fo:font-family="'${x(font)}'" fo:color="#888888"/>`)}"><text:page-number>${si + 1}</text:page-number></text:span></text:p></draw:text-box></draw:frame>` : '';
+    pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${number}${notes}${slideAnnotations(threads)}</draw:page>`;
   }
   const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" xmlns:smil="urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0" xmlns:officeooo="http://openoffice.org/2009/office" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:automatic-styles>${auto.join('')}</office:automatic-styles><office:body><office:presentation>${pages}</office:presentation></office:body></office:document-content>`;
+<office:document-content ${NS}><office:automatic-styles>${auto.join('')}</office:automatic-styles><office:body><office:presentation>${pages}${deck?.loop ? '<presentation:settings presentation:endless="true" presentation:pause="P0D"/>' : ''}</office:presentation></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-styles ${NS}><office:styles>${fillImages.join('')}<draw:marker draw:name="Arrow" svg:viewBox="0 0 20 30" svg:d="M10 0l-10 30h20z"/>
+<office:document-styles ${NS}><office:styles>${fillImages.join('')}${gradients.join('')}<draw:marker draw:name="Arrow" svg:viewBox="0 0 20 30" svg:d="M10 0l-10 30h20z"/>
 <style:default-style style:family="graphic"><style:graphic-properties draw:fill="none" draw:stroke="none"/><style:text-properties fo:font-size="18pt" style:font-name="${x(font)}" fo:font-family="'${x(font)}'"/></style:default-style></office:styles>
 <office:automatic-styles><style:page-layout style:name="PM1"><style:page-layout-properties fo:margin="0cm" fo:page-width="${W}cm" fo:page-height="${H}cm" style:print-orientation="landscape"/></style:page-layout>
 <style:page-layout style:name="PMN"><style:page-layout-properties fo:margin="0cm" fo:page-width="21cm" fo:page-height="29.7cm" style:print-orientation="portrait"/></style:page-layout>
@@ -283,13 +301,14 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
   if (!contentXml) throw new Error('Not an OpenDocument presentation');
   const parse = (s) => parseDocument(s || '', { xmlMode: true, decodeEntities: true });
   const root = parse(contentXml), stylesRoot = parse(await zip.file('styles.xml')?.async('string'));
-  const styles = new Map(), fillImages = new Map(), layouts = new Map(), masters = new Map();
+  const styles = new Map(), fillImages = new Map(), layouts = new Map(), masters = new Map(), gradients = new Map();
   const read = (node) => {
     for (const el of tags(node)) {
       if (el.name === 'style:style') {
         const get = (k) => tags(el, k)[0]?.attribs || {};
         styles.set(el.attribs['style:name'], { parent: el.attribs['style:parent-style-name'], g: get('style:graphic-properties'), t: get('style:text-properties'), p: get('style:paragraph-properties'), d: get('style:drawing-page-properties') });
       } else if (el.name === 'draw:fill-image') fillImages.set(el.attribs['draw:name'], el.attribs['xlink:href']);
+      else if (el.name === 'draw:gradient') gradients.set(el.attribs['draw:name'], el.attribs);
       else if (el.name === 'style:page-layout') layouts.set(el.attribs['style:name'], tags(el, 'style:page-layout-properties')[0]?.attribs || {});
       else if (el.name === 'style:master-page') masters.set(el.attribs['style:name'], el.attribs);
       read(el);
@@ -352,13 +371,27 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
   const fresh = () => Math.random().toString(36).slice(2, 10);
   const pres = (function find(n) { for (const k of tags(n)) { if (k.name === 'office:presentation') return k; const f = find(k); if (f) return f; } return null; })(root);
   const pageLinks = new Map();
+  const numbered = new Set(); // the slides showing their number
   for (const page of tags(pres, 'draw:page')) {
     const d = look(page.attribs['draw:style-name'], 'd');
     const slide = { id: fresh(), items: [] };
     pageLinks.set(page.attribs['draw:name'], slide.id);
     if (d['draw:fill'] === 'bitmap' && d['draw:fill-image-name']) { const id = await pictureFor(fillImages.get(d['draw:fill-image-name'])); if (id) slide.bgImage = id; }
-    else if (fillOf(d)) slide.bg = fillOf(d);
+    else if (d['draw:fill'] === 'gradient' && gradients.get(d['draw:fill-gradient-name'])) { // a linear gradient: from its first colour into its last
+      const gr = gradients.get(d['draw:fill-gradient-name']);
+      const from = hex(gr['draw:start-color']), to = hex(gr['draw:end-color']);
+      const deg = /^(-?[\d.]+)(deg|rad|grad)?$/.exec(String(gr['draw:angle'] || '0'));
+      const odf = deg ? (deg[2] === 'rad' ? (Number(deg[1]) * 180) / Math.PI : deg[2] === 'grad' ? Number(deg[1]) * 0.9 : deg[2] ? Number(deg[1]) : Number(deg[1]) / 10) : 0; // (no unit: tenths of a degree)
+      if (from) slide.bg = from;
+      if (to && to !== from) slide.bgGrad = `${to} ${Math.round((((180 - odf) % 360) + 360) % 360)}`;
+    } else if (fillOf(d)) slide.bg = fillOf(d);
     if (d['presentation:visibility'] === 'hidden') slide.skip = true;
+    const tr = transitionFromOdp(d['smil:type']);
+    if (tr) slide.transition = tr;
+    const dur = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?$/.exec(d['presentation:duration'] || '');
+    const secs = dur ? (Number(dur[1] || 0) * 3600) + (Number(dur[2] || 0) * 60) + Number(dur[3] || 0) : 0;
+    if (d['presentation:transition-type'] === 'automatic' && secs > 0) slide.advance = Math.min(3600, Math.max(1, Math.round(secs)));
+    if (d['presentation:display-page-number'] === 'true') numbered.add(slides.length);
     const byAnimId = new Map(); // a drawing element's id → the box it became (for animations)
     const byParaId = new Map(); // a paragraph's id → the box it is in (animations a paragraph at a time)
     const walk = async (nodes, link) => {
@@ -373,6 +406,10 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
       }
     };
     const one = async (el, link) => {
+        if (el.name === 'draw:frame' && /^(page-number|footer|header|date-time)$/.test(el.attribs['presentation:class'] || '')) { // the slide's number (or footer): not a box of its own
+          if (el.attribs['presentation:class'] === 'page-number') numbered.add(slides.length);
+          return;
+        }
         if (el.name === 'draw:g') { // a group: its boxes keep a group id (the outermost group's; a group of one is just a box)
           const from = slide.items.length;
           await walk(tags(el), link);
@@ -468,7 +505,10 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
   }
   // Links to another slide, now that every slide has its id.
   for (const s of slides) for (const it of s.items) if (it.link?.pageName) { const id = pageLinks.get(it.link.pageName); if (id) it.link = { slide: id }; else delete it.link; }
-  const deck = { theme: 'light', slides: slides.length ? slides : [{ id: fresh(), items: [] }] };
+  // Slide numbers: on every slide, or every one but the first; looping when the show is endless.
+  const numbers = !numbered.size ? null : numbered.size === slides.length - 1 && !numbered.has(0) ? 'skip-first' : true;
+  const loop = tags(pres, 'presentation:settings')[0]?.attribs['presentation:endless'] === 'true';
+  const deck = { theme: 'light', ...(numbers && { numbers }), ...(loop && { loop: true }), slides: slides.length ? slides : [{ id: fresh(), items: [] }] };
   odpComments.set(deck, threads);
   return deck;
 }

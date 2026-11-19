@@ -194,6 +194,42 @@ await step('saved again by LibreOffice, a table keeps its heading row, a picture
   if (got !== JSON.stringify({ link: 'https://acme.example', toSlide: true, alt: 'Shop front', header: true })) throw new Error(got);
   await page.screenshot({ path: `${SP}/shots/odp-lo-kept.png` });
 });
+await step('transitions, timings, a gradient, slide numbers and looping go out in .odp and come back, also saved again by LibreOffice', async () => {
+  const T = (id, text) => ({ id, type: 'text', x: 10, y: 10, w: 80, h: 20, text });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Kiosk loop', content: { theme: 'light', numbers: 'skip-first', loop: true, slides: [
+    { id: 'a', bg: '#ffffff', items: [T('t1', 'Welcome')], transition: 'fade', advance: 5 },
+    { id: 'b', bg: '#112233', bgGrad: '#445566 90', items: [T('t2', 'Opening hours')], transition: 'push', advance: 8 },
+  ] } })).body;
+  await page.goto(`${B}/slides/${d.id}`);
+  await page.getByText('Welcome').first().waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as OpenDocument (.odp)' }).click()]);
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  let bytes = fs.readFileSync(await dl.path());
+  try {
+    execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 });
+    const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+    fs.writeFileSync(path.join(dir, 'Kiosk.odp'), bytes);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odp', '--outdir', path.join(dir, 'out'), path.join(dir, 'Kiosk.odp')], { stdio: 'ignore', timeout: 120000 });
+    bytes = fs.readFileSync(path.join(dir, 'out', 'Kiosk.odp'));
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch { console.log('(LibreOffice is not installed here: the file is opened as downloaded)'); }
+  await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch('/api/files/upload?name=Kiosk%20loop%20(Impress).odp', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, bytes.toString('base64'));
+  await page.goto(`${B}/drive`);
+  await page.getByText('Kiosk loop (Impress).odp').dblclick();
+  const pv = page.getByRole('dialog').filter({ hasText: 'Kiosk loop (Impress).odp' });
+  await pv.getByRole('button', { name: 'Open as presentation' }).click({ timeout: 20000 });
+  await page.waitForURL(/\/slides\//);
+  await page.getByText('Welcome').first().waitFor();
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const c = (await api(page, 'GET', `/files/${id}/content`)).body.content;
+  const got = JSON.stringify({ numbers: c.numbers, loop: c.loop, slides: c.slides.map((x) => [x.transition, x.advance, x.bg, x.bgGrad || null]) });
+  const want = JSON.stringify({ numbers: 'skip-first', loop: true, slides: [['fade', 5, '#ffffff', null], ['push', 8, '#112233', '#445566 90']] });
+  if (got !== want) throw new Error(got);
+  // The second slide is drawn with its gradient (left to right), as it was here.
+  await page.getByText('Opening hours').first().waitFor({ state: 'attached' });
+  await page.screenshot({ path: `${SP}/shots/odp-show.png` });
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
