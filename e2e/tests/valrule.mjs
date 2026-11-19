@@ -122,6 +122,41 @@ await step('a custom formula marks the rows that break it', async () => {
   await until(async () => (await marked('C3')) && (await marked('C5')));
   if (await marked('C2')) throw new Error('paid is fine');
 });
+await step('rules go out in an OpenDocument (.ods) download, LibreOffice keeps them, and they work again opened from Drive', async () => {
+  await page.goto(`${B}/sheets/${sheetId}`);
+  await cell('B6').getByText('210').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as OpenDocument (.ods)' }).click()]);
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  let bytes = fs.readFileSync(await dl.path());
+  let lo = true;
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { lo = false; console.log('(LibreOffice is not installed here: the file is opened as downloaded)'); }
+  if (lo) { // opened and saved again by LibreOffice
+    const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+    fs.writeFileSync(path.join(dir, 'Orders.ods'), bytes);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 'Orders.ods')], { stdio: 'ignore', timeout: 120000 });
+    bytes = fs.readFileSync(path.join(dir, 'out', 'Orders.ods'));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch('/api/files/upload?name=Orders%20(Calc).ods', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, bytes.toString('base64'));
+  await page.goto(`${B}/drive`);
+  await page.getByText('Orders (Calc).ods').dblclick();
+  const pv = page.getByRole('dialog').filter({ hasText: 'Orders (Calc).ods' });
+  await pv.getByRole('button', { name: 'Open as spreadsheet' }).click({ timeout: 20000 });
+  await page.waitForURL(/\/sheets\//);
+  await cell('B6').getByText('210').waitFor();
+  // The whole number rule still refuses, with its message; the date rule still marks.
+  await typeIn('B4', '0');
+  await page.locator('.toast', { hasText: 'A total from 1 to 999' }).last().waitFor();
+  await page.keyboard.press('Escape');
+  await until(async () => (await cell('B4').innerText()) === '300');
+  await until(async () => (await marked('D2')) && (await marked('C3')));
+  if (await marked('D3')) throw new Error('a fine date is not marked');
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const kinds = (await api(page, 'GET', `/files/${id}/content`)).body.content.sheets[0].validations.map((v) => `${v.range} ${v.check.kind} ${v.strict ? 'refuse' : 'warn'}`).sort();
+  if (JSON.stringify(kinds) !== JSON.stringify(['B2:B6 whole refuse', 'C2:C6 formula refuse', 'D2:D6 date warn'])) throw new Error(JSON.stringify(kinds));
+  await page.screenshot({ path: `${SP}/shots/valrule-ods.png` });
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

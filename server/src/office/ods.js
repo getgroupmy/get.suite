@@ -7,6 +7,7 @@ import { parseDocument } from 'htmlparser2';
 import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
 import { colName } from './sheetnames.js';
 import { CALCEXT_NS, rulesToCalcext, rulesFromCalcext } from './odscf.js';
+import { ruleToOdsCondition, ruleFromOdsCondition } from './odsrules.js';
 import { filterToOds, filterFromOds } from './odsfilter.js';
 import { chartObject, chartFrame, chartFromObject } from './odschart.js';
 import { threadFromNote, threadFromComment } from './excel.js';
@@ -218,16 +219,18 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
     // Dropdowns: each a content validation, named on every cell of its range (up to 2000 rows).
     const validationOf = new Map();
     for (const v of s.validations || []) {
-      if (v.type !== 'list' && v.type !== 'checkbox') continue; // (rules aren't written)
+      if (v.type !== 'list' && v.type !== 'checkbox' && v.type !== 'rule') continue;
       const m = /^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/.exec(String(v.range || ''));
       const sheetName = String(s.name || 'Sheet').slice(0, 100);
-      const cond = m && validationCondition(v, sheetName);
+      const cond = m && (v.type === 'rule' ? ruleToOdsCondition(v) : validationCondition(v, sheetName));
       if (!cond) continue;
       const [c1, r1] = [colIndex(m[1]), +m[2]];
       const [c2, r2] = m[3] ? [Math.min(colIndex(m[3]), 1023), Math.min(+m[4], r1 + 1999)] : [c1, r1];
       const vname = `val${validations.length + 1}`;
       const help = v.multi ? `<table:help-message table:title="${v.strict ? MULTI_STRICT : MULTI}" table:display="true"><text:p>Pick one or more of the choices, separated by commas</text:p></table:help-message>` : '';
-      validations.push(`<table:content-validation table:name="${vname}" table:condition="${x(cond)}" table:allow-empty-cell="true" table:base-cell-address="${x(`${odsQuote(sheetName)}.${m[1]}${m[2]}`)}" table:display-list="unsorted">${help}<table:error-message table:display="${(v.strict && !v.multi) || v.type === 'checkbox'}" table:message-type="stop"/></table:content-validation>`);
+      if (v.type === 'rule') { // refused (stop) or kept with a warning, with its message
+        validations.push(`<table:content-validation table:name="${vname}" table:condition="${x(cond)}" table:allow-empty-cell="true" table:base-cell-address="${x(`${odsQuote(sheetName)}.${m[1]}${m[2]}`)}"><table:error-message table:message-type="${v.strict ? 'stop' : 'warning'}"${v.message ? ' table:title="Not valid"' : ''} table:display="true">${v.message ? `<text:p>${x(String(v.message).slice(0, 255))}</text:p>` : ''}</table:error-message></table:content-validation>`);
+      } else validations.push(`<table:content-validation table:name="${vname}" table:condition="${x(cond)}" table:allow-empty-cell="true" table:base-cell-address="${x(`${odsQuote(sheetName)}.${m[1]}${m[2]}`)}" table:display-list="unsorted">${help}<table:error-message table:display="${(v.strict && !v.multi) || v.type === 'checkbox'}" table:message-type="stop"/></table:content-validation>`);
       for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) { validationOf.set(`${colName(c)}${r}`, vname); maxR = Math.max(maxR, r); maxC = Math.max(maxC, c); }
     }
     const hiddenRows = new Set(s.hide?.rows || []), hiddenCols = new Set(s.hide?.cols || []);
@@ -418,7 +421,7 @@ export async function sheetFromOds(buffer) {
   const validationDefs = new Map();
   for (const v of tags(tags(body, 'table:content-validations')[0] || { children: [] }, 'table:content-validation')) {
     const err = tags(v, 'table:error-message')[0], help = tags(v, 'table:help-message')[0];
-    validationDefs.set(v.attribs['table:name'], { cond: v.attribs['table:condition'], strict: err?.attribs['table:display'] === 'true' && (err.attribs['table:message-type'] || 'stop') === 'stop', title: help?.attribs['table:title'] || '' });
+    validationDefs.set(v.attribs['table:name'], { cond: v.attribs['table:condition'], strict: err?.attribs['table:display'] === 'true' && (err.attribs['table:message-type'] || 'stop') === 'stop', title: help?.attribs['table:title'] || '', message: err ? tags(err, 'text:p').map((p) => textOf(p)).join('\n').trim() : '' });
   }
   for (const t of tags(body, 'table:table')) {
     const name = String(t.attribs['table:name'] || `Sheet${out.length + 1}`).slice(0, 30);
@@ -498,7 +501,7 @@ export async function sheetFromOds(buffer) {
     const validations = [];
     for (const [vname, at] of validated) {
       const d = validationDefs.get(vname);
-      const def = validationFromCondition(d.cond, d, t.attribs['table:name']);
+      const def = validationFromCondition(d.cond, d, t.attribs['table:name']) || ruleFromOdsCondition(d.cond, d);
       if (!def) continue;
       const cs = at.map(([c]) => c), rs = at.map(([, r]) => r);
       const [cmin, cmax, rmin, rmax] = [Math.min(...cs), Math.max(...cs), Math.min(...rs), Math.max(...rs)];

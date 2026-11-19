@@ -682,7 +682,7 @@ function ruleValidationFromExcel(x) {
     const f = String(x.formulae[0]).trim();
     if (/^ISNUMBER\(MATCH\("\*@\?\*\.\?\*",[A-Z]+\d+,0\)\)$/i.test(f)) return { type: 'rule', check: { kind: 'email' }, ...extra };
     if (/^OR\(LEFT\([A-Z]+\d+,7\)="http:\/\/",LEFT/i.test(f)) return { type: 'rule', check: { kind: 'url' }, ...extra };
-    return { type: 'rule', check: { kind: 'formula', a: `=${formulaFromExcel(f)}` }, strict: false };
+    return { type: 'rule', check: { kind: 'formula', a: `=${formulaFromExcel(f)}` }, ...extra };
   }
   return null;
 }
