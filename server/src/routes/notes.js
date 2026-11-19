@@ -163,6 +163,9 @@ export function textToItems(body) {
 /** A note as Markdown: its title as a heading, then its text, or its checklist as "- [x]" lines (sub-items indented), then labels. */
 export function noteMarkdown(n) {
   const lines = [];
+  // Its colour, pinned or archived (when any): front matter, as Markdown notes apps keep such things.
+  const meta = [n.color && `color: "${n.color}"`, n.pinned && 'pinned: true', n.archived && 'archived: true'].filter(Boolean);
+  if (meta.length) lines.push('---', ...meta, '---', '');
   if (n.title) lines.push(`# ${n.title}`, '');
   if (n.items) for (const it of n.items) lines.push(`${it.indent ? '  ' : ''}- [${it.done ? 'x' : ' '}] ${it.text}`);
   else if (n.body) lines.push(n.body);
@@ -177,6 +180,16 @@ export function noteMarkdown(n) {
 export function noteFromMarkdown(text, fileName = '') {
   const lines = String(text || '').replace(/\r\n?/g, '\n').replace(/^\ufeff/, '').split('\n');
   let title = '';
+  // Front matter ("---" … "---" at the top): colour, pinned, archived; other keys (other apps') are left out.
+  const meta = {};
+  if (lines[0]?.trim() === '---') {
+    const end = lines.indexOf('---', 1);
+    if (end > 0 && end < 50) {
+      for (const l of lines.slice(1, end)) { const m = /^\s*([a-z_]+)\s*:\s*(.*?)\s*$/i.exec(l); if (m) meta[m[1].toLowerCase()] = m[2].replace(/^["']|["']$/g, ''); }
+      lines.splice(0, end + 1);
+    }
+  }
+  const extra = { ...(COLORS.includes(meta.color) && { color: meta.color }), ...(/^(true|yes)$/i.test(meta.pinned || '') && { pinned: true }), ...(/^(true|yes)$/i.test(meta.archived || '') && { archived: true }) };
   while (lines.length && !lines[0].trim()) lines.shift();
   if (/^#\s+\S/.test(lines[0] || '')) title = lines.shift().replace(/^#\s+/, '').trim();
   else title = String(fileName).replace(/\.(md|markdown|txt)$/i, '').trim();
@@ -190,9 +203,9 @@ export function noteFromMarkdown(text, fileName = '') {
   const filled = lines.filter((l) => l.trim());
   if (filled.length && filled.every((l) => task.test(l))) {
     const items = filled.map((l, i) => { const [, ind, mark, t] = task.exec(l); return { text: t.trim(), done: mark !== ' ', ...(ind.length >= 2 && i > 0 && { indent: 1 }) }; });
-    return { title: title.slice(0, 300), body: '', items: cleanItems(items), labels: cleanLabels(labels) };
+    return { title: title.slice(0, 300), body: '', items: cleanItems(items), labels: cleanLabels(labels), ...extra };
   }
-  return { title: title.slice(0, 300), body: lines.join('\n').slice(0, 20000), items: null, labels: cleanLabels(labels) };
+  return { title: title.slice(0, 300), body: lines.join('\n').slice(0, 20000), items: null, labels: cleanLabels(labels), ...extra };
 }
 /** Checklist → text (Hide tick boxes): a line per item, ticked ones as "✓ …", sub-items indented. */
 export const itemsToText = (items) => (items || []).map((i) => `${i.indent ? '  ' : ''}${i.done ? '✓ ' : ''}${i.text}`).join('\n');
@@ -269,7 +282,7 @@ export async function notesZipEntries(notes) {
     const recs = q('SELECT storage, mime FROM note_recordings WHERE note_id = ? ORDER BY created_at').all(n.id).flatMap((x, k) => {
       try { return [{ path: `${dir}/recording-${k + 1}.${RECORDING_TYPES[x.mime] || 'audio'}`, data: fs.readFileSync(path.join(FILES_DIR, x.storage)) }]; } catch { return []; }
     });
-    let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') });
+    let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived });
     if (pics.length) md = `${md.replace(/\s*$/, '')}\n\n${pics.map((p) => `![](${encodeURI(p.path)})`).join('\n')}\n`;
     if (recs.length) md = `${md.replace(/\s*$/, '')}\n\n${recs.map((x, k) => `[🎙 Recording ${k + 1}](${encodeURI(x.path)})`).join('\n')}\n`;
     out.push({ path: names[i], data: md }, ...pics, ...recs);
@@ -806,7 +819,7 @@ export default function noteRoutes() {
   });
   r.get('/:id/export.md', (req, res) => {
     const n = load(req.params.id, req.user);
-    const note = { title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') };
+    const note = { title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived };
     const name = (n.title || 'Note').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'Note';
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="note.md"; filename*=UTF-8''${encodeURIComponent(name)}.md`);

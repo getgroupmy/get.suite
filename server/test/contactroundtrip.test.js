@@ -1,5 +1,5 @@
-// Out and back in: a contact with everything filled in (vCard), and an event (.ics), are the same after
-// Export and Import.
+// Out and back in: a contact with everything filled in (vCard), an event (.ics) and notes (Markdown) are
+// the same after Export and Import.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -70,4 +70,19 @@ test('a full event through Export and Import', async () => {
   const { expand } = await import('../src/calmath.js');
   const days = (e) => expand(e, start - 864e5, start + 60 * 864e5).map((o) => [o.start, o.end]);
   assert.deepEqual(days(theirs), days(mine));
+});
+
+test('notes through Download (.md) and Import notes: text, checklist, labels, colour, pinned, archived', async () => {
+  const a = (await olivia('POST', '/api/notes', { title: 'Shopping', items: [{ text: 'Milk', done: true }, { text: 'Eggs', done: false }], color: '#fff8b8', pinned: true, labels: ['home'] })).body;
+  const b = (await olivia('POST', '/api/notes', { title: 'Old idea', body: 'Line one\nLine two' })).body;
+  await olivia('PATCH', `/api/notes/${b.id}`, { archived: true, color: '#d4e4ed' });
+  const files = [];
+  for (const n of [a, b]) files.push({ name: `${n.title}.md`, text: await (await fetch(`${base}/api/notes/${n.id}/export.md`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).text() });
+  assert.match(files[0].text, /^---\ncolor: "#fff8b8"\npinned: true\n---\n/);
+  const imp = await kim('POST', '/api/notes/import', { files });
+  assert.ok(imp.status < 300, JSON.stringify(imp.body));
+  const pick = (n) => [n.title, n.body || '', (n.items || []).map((i) => [i.text, i.done]), n.labels, n.color, !!n.pinned, !!n.archived];
+  const list = async (c) => { const r = (await c('GET', '/api/notes?archived=all')).body; const all = r.notes || r; const arch = (await c('GET', '/api/notes?archived=1')).body; return [...all, ...((arch.notes || arch) || [])]; };
+  const find = async (c, title) => (await list(c)).find((n) => n.title === title);
+  for (const t of ['Shopping', 'Old idea']) assert.deepEqual(pick(await find(kim, t)), pick(await find(olivia, t)), t);
 });
