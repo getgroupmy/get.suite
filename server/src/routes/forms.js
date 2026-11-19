@@ -509,13 +509,13 @@ function formFile(f) {
   const responses = q('SELECT r.answers, r.created_at, r.email, u.email AS user_email FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at').all(f.id)
     .map((r) => ({ answers: JSON.parse(r.answers || '{}'), at: r.created_at, ...(r.email && { email: r.email }), ...(r.user_email && { by: r.user_email }) }));
   return `${JSON.stringify({ title: f.title, description: f.description, questions: f.questions, ...Object.fromEntries(FORM_SETTINGS.map((k) => [k, raw[k]])),
-    ...(f.theme && { theme: f.theme }), ...(raw.archived_at && { archived: true }), responses }, null, 2)}\n`;
+    ...(f.theme && { theme: f.theme }), ...(raw.archived_at && { archived: true }), ...(raw.files_folder && { files_folder: raw.files_folder }), responses }, null, 2)}\n`;
 }
 
 /** Forms from Download your data (each … - form.json): made again as new forms of yours (with new links) with their
  *  responses; a colleague's response is theirs again when they're here (found by email). One you already have (the same
  *  title and questions) is left as it is. Its spreadsheet, uploads folder and chat aren't brought: those belong to the old one. */
-export function importForms(user, list) {
+export function importForms(user, list, { fileFor = () => null } = {}) {
   let added = 0, skipped = 0, responses = 0;
   const allowLinks = !!q('SELECT allow_links FROM orgs WHERE id = ?').get(user.org_id)?.allow_links;
   for (const raw of (Array.isArray(list) ? list : []).slice(0, 500)) {
@@ -534,8 +534,15 @@ export function importForms(user, list) {
       q('UPDATE forms SET collect_email = ?, send_copy = ?, allow_edit = ?, max_responses = ?, show_results = ?, email_domains = ?, progress_bar = ?, archived_at = ? WHERE id = ?')
         .run(b('collect_email'), b('send_copy'), b('allow_edit'), max, b('show_results'), typeof raw.email_domains === 'string' ? raw.email_domains.slice(0, 1000) : null, b('progress_bar'), raw.archived ? t : null, id);
       if (raw.theme) { try { q('UPDATE forms SET theme = ? WHERE id = ?').run(JSON.stringify(cleanTheme(raw.theme)), id); } catch { /* a look this server doesn't have */ } }
+      // Its uploads folder and the files sent with it, when they came back with Drive.
+      const folder = raw.files_folder ? fileFor(String(raw.files_folder)) : null;
+      if (folder) q('UPDATE forms SET files_folder = ? WHERE id = ?').run(folder, id);
+      const fileQs = questions.filter((qu) => qu.type === 'file').map((qu) => qu.id);
       for (const r of (Array.isArray(raw.responses) ? raw.responses : []).slice(0, 20000)) {
         if (!r || typeof r.answers !== 'object') continue;
+        for (const k of fileQs) {
+          if (Array.isArray(r.answers[k])) r.answers[k] = r.answers[k].map((a) => ({ ...a, file_id: a?.file_id ? fileFor(String(a.file_id)) : null }));
+        }
         const who = r.by ? q('SELECT id FROM users WHERE lower(email) = lower(?) AND org_id = ?').get(String(r.by), user.org_id)?.id : null;
         q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, email) VALUES (?, ?, ?, ?, ?, ?)')
           .run(uid(), id, who || null, JSON.stringify(r.answers).slice(0, 1e6), Number.isFinite(r.at) ? r.at : t, typeof r.email === 'string' ? r.email.slice(0, 320) : null);
@@ -985,7 +992,8 @@ export default function formRoutes() {
     const fileId = String(req.params.fileId);
     if (!q('SELECT 1 FROM form_responses WHERE form_id = ? AND answers LIKE ?').get(f.id, `%"file_id":"${fileId.replace(/[%_"\\]/g, '')}"%`)) throw notFound('File not found');
     const file = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
-    if (!file) throw notFound('That file has been deleted');
+    // Files sent with a form are kept in its owner's Drive: anything else a response names isn't the form's to give.
+    if (!file || file.owner_id !== f.owner_id) throw notFound('That file has been deleted');
     const inline = req.query.download === undefined && isInlineSafe(file.mime);
     res.setHeader('Content-Type', inline ? file.mime : 'application/octet-stream');
     if (file.mime !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");

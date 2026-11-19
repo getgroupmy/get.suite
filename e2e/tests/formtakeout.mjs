@@ -1,5 +1,5 @@
 // Forms go into Download your data whole (… - form.json): brought into another account, each is a form again, with
-// a new link, its questions and its responses (shown in Forms' Responses).
+// a new link, its questions and its responses (shown in Forms' Responses), files sent with it opening from Kim's own copy.
 import { chromium } from 'playwright';
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
@@ -33,6 +33,11 @@ await step('setup: a form with a response, then Download your data', async () =>
   const f = (await api('POST', '/forms', { title: 'Lunch order', questions: [{ id: 'dish', type: 'choice', title: 'Dish', required: true, options: ['Soup', 'Salad'] }] })).body;
   const sent = await api('POST', `/public/forms/${f.token}`, { answers: { dish: 'Salad' } });
   if (sent.status >= 300) throw new Error(`response ${sent.status}`);
+  // A form with a file question, and a response with a file.
+  const ex = (await api('POST', '/forms', { title: 'Expense claims', questions: [{ id: 'receipt', type: 'file', title: 'Receipt' }] })).body;
+  const u = await page.evaluate(async (t) => (await fetch(`/api/public/forms/${t}/upload?name=taxi.txt&question=receipt`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'text/plain' }, body: 'Taxi 12.50' })).json(), ex.token);
+  const sent2 = await api('POST', `/public/forms/${ex.token}`, { answers: { receipt: [u.id] } });
+  if (sent2.status >= 300) throw new Error(`file response ${sent2.status} ${JSON.stringify(sent2.body)}`);
   const [dl] = await Promise.all([page.waitForEvent('download'), (async () => { await page.goto(`${B}/settings`); await page.getByRole('link', { name: /Download your data/ }).first().click(); })()]);
   zip = await (await import('node:fs')).promises.readFile(await dl.path());
   if (!zip.includes('Lunch order - form.json')) throw new Error('no form.json');
@@ -47,11 +52,22 @@ await step('Kim brings it in: the form is in Forms with its response', async () 
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
   await page.goto(`${B}/settings`);
   await page.getByLabel('Your data to bring in').setInputFiles({ name: 'Workspace data.zip', mimeType: 'application/zip', buffer: zip });
-  await page.locator('.toast', { hasText: /1 form \(1 response, new links\)/ }).first().waitFor({ timeout: 30000 });
+  await page.locator('.toast', { hasText: /2 forms \(2 responses, new links\)/ }).first().waitFor({ timeout: 30000 });
   await page.goto(`${B}/forms`);
   await page.getByText('Lunch order').first().click();
   await page.getByRole('tab', { name: /Responses/ }).first().click();
   await page.getByText('Salad').first().waitFor();
+});
+
+await step('the file sent with Expense claims opens from its response: Kim’s copy, brought in with Drive', async () => {
+  await page.goto(`${B}/forms`);
+  await page.getByText('Expense claims').first().click();
+  await page.getByRole('tab', { name: /Responses/ }).first().click();
+  const link = page.getByRole('link', { name: /taxi\.txt/ }).first();
+  await link.waitFor();
+  const href = await link.getAttribute('href');
+  const text = await page.evaluate(async (h) => { const r = await fetch(h); return `${r.status} ${await r.text()}`; }, href);
+  if (text !== '200 Taxi 12.50') throw new Error(text.slice(0, 200));
 });
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');

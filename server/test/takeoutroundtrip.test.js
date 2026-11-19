@@ -313,3 +313,51 @@ test('forms come back with their questions, settings and responses (a colleague�
   const mine = (await kim('GET', `/api/forms/${theirs[0].id}/responses`)).body;
   assert.equal((mine.responses || mine).length, 1, JSON.stringify(mine).slice(0, 200));
 });
+
+test('files sent with a form come back with it: the response opens the copy brought in with Drive', async () => {
+  const f = (await olivia('POST', '/api/forms', { title: 'Expense claims', questions: [{ id: 'receipt', type: 'file', title: 'Receipt' }] })).body;
+  const sam = client();
+  await sam('POST', '/api/auth/login', { username: 'sam@acme.com', password: 'password123' });
+  const up = await fetch(`${base}/api/public/forms/${f.token}/upload?name=taxi.txt&question=receipt`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: sam.cookie(), 'content-type': 'text/plain' }, body: 'Taxi 12.50' });
+  const u = await up.json();
+  assert.equal(up.status, 201, JSON.stringify(u));
+  const sent = await sam('POST', `/api/public/forms/${f.token}`, { answers: { receipt: [u.id] } });
+  assert.ok(sent.status < 300, JSON.stringify(sent.body));
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+  const out = await r.json();
+  assert.ok(r.status < 300);
+  const { q } = await import('../src/db.js');
+  const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
+  const theirs = q("SELECT * FROM forms WHERE owner_id = ? AND title = 'Expense claims'").get(kimId);
+  const ans = JSON.parse(q('SELECT answers FROM form_responses WHERE form_id = ?').get(theirs.id).answers);
+  const fileId = ans.receipt[0].file_id;
+  const file = q('SELECT * FROM files WHERE id = ?').get(fileId);
+  assert.equal(file?.owner_id, kimId, 'Kim’s copy, from the Drive brought in');
+  assert.match(file.name, /taxi\.txt$/);
+  const folder = q('SELECT * FROM files WHERE id = ?').get(theirs.files_folder);
+  assert.equal(folder?.parent_id, out.drive.folder_id, 'the form’s uploads folder is the one brought in');
+  assert.equal(file.parent_id, folder.id);
+  const got = await fetch(`${base}/api/forms/${theirs.id}/file/${fileId}`, { headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie() } });
+  assert.equal(await got.text(), 'Taxi 12.50');
+});
+
+test('a form brought in can’t be made to hand out someone else’s file', async () => {
+  // Olivia's private file, and a made-up form.json whose response names it.
+  const up = await fetch(`${base}/api/files/upload?name=${encodeURIComponent('salaries.txt')}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'text/plain' }, body: 'secret' });
+  const secret = await up.json();
+  const JSZip = (await import('jszip')).default;
+  const zip = new JSZip();
+  zip.file('README.txt', 'Your Workspace data, 2026-11-19');
+  zip.file('Forms/Sneaky - form.json', JSON.stringify({ title: 'Sneaky', questions: [{ id: 'f', type: 'file', title: 'F' }], responses: [{ answers: { f: [{ file_id: secret.id, name: 'x' }] }, at: Date.now() }] }));
+  const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: await zip.generateAsync({ type: 'nodebuffer' }) });
+  assert.ok(r.status < 300);
+  const { q } = await import('../src/db.js');
+  const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
+  const form = q("SELECT id FROM forms WHERE owner_id = ? AND title = 'Sneaky'").get(kimId);
+  assert.equal(JSON.parse(q('SELECT answers FROM form_responses WHERE form_id = ?').get(form.id).answers).f[0].file_id, null, 'the file isn’t linked');
+  // And even a response that names it (put there some other way) doesn't open it.
+  q('UPDATE form_responses SET answers = ? WHERE form_id = ?').run(JSON.stringify({ f: [{ file_id: secret.id, name: 'x' }] }), form.id);
+  const got = await fetch(`${base}/api/forms/${form.id}/file/${secret.id}`, { headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie() } });
+  assert.equal(got.status, 404);
+});

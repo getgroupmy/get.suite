@@ -353,13 +353,6 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   // Your own settings (working hours, world clocks, how Mail looks…), each only where it's still the default here.
   const prefs = await json('Settings.json');
   if (prefs) { const r2 = importPrefs(user.id, prefs); if (r2.added) out.settings = r2; }
-  // Forms: each made again (a new link) with its responses.
-  const formFiles = files.filter((x) => /^Forms\/.+ - form\.json$/.test(x.name));
-  if (formFiles.length) {
-    const list = [];
-    for (const f of formFiles) { try { list.push(JSON.parse((await f.buffer()).toString('utf8'))); } catch { /* not readable: left out */ } }
-    out.forms = importForms(user, list);
-  }
   // Calendars subscribed to by address (fetched again from there) and saved mail searches.
   const feeds = await json('Calendar subscriptions.json');
   if (Array.isArray(feeds) && feeds.length) out.calendar_subscriptions = importFeeds(user.id, feeds);
@@ -399,6 +392,16 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
     }
     if (converted || kept) out.documents = { converted, kept };
     out.drive_details = applyDriveDetails(user.id, details, driveIds);
+  }
+  // Files sent with forms (in their "(File uploads)" folders, brought in with Drive): their old id → the new one.
+  const formFiles2 = new Map();
+  if (details && Array.isArray(details.files)) for (const d of details.files) if (d?.id && driveIds.has(String(d.path))) formFiles2.set(String(d.id), driveIds.get(String(d.path)));
+  // Forms: each made again (a new link) with its responses.
+  const formFiles = files.filter((x) => /^Forms\/.+ - form\.json$/.test(x.name));
+  if (formFiles.length) {
+    const list = [];
+    for (const f of formFiles) { try { list.push(JSON.parse((await f.buffer()).toString('utf8'))); } catch { /* not readable: left out */ } }
+    out.forms = importForms(user, list, { fileFor: (oldId) => formFiles2.get(oldId) || null });
   }
   // Notes: its Notes/ folder (with pictures), through Import notes… (which reads only Notes/ from a Download your data .zip).
   onStep({ step: 'notes' });
@@ -511,8 +514,10 @@ export default function takeoutRoutes() {
     const labelsOf = new Map();
     for (const l of q('SELECT file_id, label FROM file_labels WHERE user_id = ? ORDER BY label').all(me)) labelsOf.set(l.file_id, [...(labelsOf.get(l.file_id) || []), l.label]);
     const details = [];
+    // Forms' "(File uploads)" folders and what's in them keep their ids here, so responses can find their files again.
+    const formFolders = new Set(q('SELECT files_folder FROM forms WHERE owner_id = ? AND files_folder IS NOT NULL').all(me).map((r) => r.files_folder));
     const detailFor = (f, where) => {
-      const d = { path: where.slice('Drive/'.length), ...(['doc', 'sheet', 'slides'].includes(f.kind) && { kind: f.kind }), ...(starred.has(f.id) && { starred: true }), ...(f.kind === 'folder' && f.color && { color: f.color }),
+      const d = { path: where.slice('Drive/'.length), ...((formFolders.has(f.id) || formFolders.has(f.parent_id)) && { id: f.id }), ...(['doc', 'sheet', 'slides'].includes(f.kind) && { kind: f.kind }), ...(starred.has(f.id) && { starred: true }), ...(f.kind === 'folder' && f.color && { color: f.color }),
         ...(f.description && { description: f.description }), ...(labelsOf.has(f.id) && { labels: labelsOf.get(f.id) }) };
       if (Object.keys(d).length > 1) details.push(d);
     };
