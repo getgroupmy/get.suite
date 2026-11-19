@@ -45,6 +45,10 @@ const problems = () => page.evaluate(() => {
     const r = h.getBoundingClientRect();
     const text = h.textContent.trim();
     if (!text) continue;
+    // Under a panel or dialog laid over the screen (a thread on a phone covers the conversation): not shown, so fine.
+    const top = document.elementFromPoint(Math.min(Math.max(r.left + 4, 0), window.innerWidth - 1), r.top + r.height / 2);
+    const cover = top?.closest('[role="complementary"], [role="dialog"], aside, .modal');
+    if (cover && !cover.contains(h)) continue;
     // Squeezed: a heading of several letters given less room than three of them, or wrapped to a word a line.
     const lineHeight = parseFloat(getComputedStyle(h).lineHeight) || parseFloat(getComputedStyle(h).fontSize) * 1.3;
     if (text.length > 3 && r.width < 48) out.push(`“${text}” squeezed to ${Math.round(r.width)}px`);
@@ -73,18 +77,43 @@ const problems = () => page.evaluate(() => {
       if (words.some((t) => over(t, q))) out.push(`“${text}” under ${c.tagName.toLowerCase()} “${(c.getAttribute('aria-label') || c.textContent || c.value || '').trim().slice(0, 30)}”`);
     }
   }
+  // Anywhere on the screen: a button or field past the window's edge that nothing scrolls to (a toolbar
+  // that scrolls sideways is fine).
+  const W = window.innerWidth;
+  for (const c of controls) {
+    const q = c.getBoundingClientRect();
+    if (q.right <= W + 1 && q.left >= -1) continue;
+    let scrolls = false;
+    for (let a = c.parentElement; a && a !== document.body; a = a.parentElement) {
+      const st = getComputedStyle(a);
+      if ((st.overflowX === 'auto' || st.overflowX === 'scroll') && a.scrollWidth > a.clientWidth) { scrolls = true; break; }
+      // A drawer kept wholly off-screen until it's opened (the phone's app list) isn't cut off.
+      if ((st.position === 'fixed' || st.position === 'absolute') && (() => { const b = a.getBoundingClientRect(); return b.right <= 0 || b.left >= W; })()) { scrolls = true; break; }
+    }
+    if (!scrolls && !c.closest('[aria-hidden="true"], .sr-only, .visually-hidden')) { out.push(`${c.tagName.toLowerCase()} “${(c.getAttribute('aria-label') || c.textContent || c.placeholder || '').trim().slice(0, 30)}” off the edge (${Math.round(q.left)}–${Math.round(q.right)} of ${W})`); }
+  }
   return out;
 });
 
 const SCREENS = [['Home', '/home'], ['Mail', '/mail'], ['Drive', '/drive'], ['Calendar', '/calendar'], ['Chat', '/chat'], ['Tasks', '/tasks'],
   ['Contacts', '/contacts'], ['Notes', '/notes'], ['Forms', '/forms'], ['Meet', '/meet'], ['Settings', '/settings'], ['Admin', '/admin']];
-const WIDTHS = [1280, 1024, 820];
+const WIDTHS = [1280, 1024, 820, 390];
 const found = [];
 await step('setup: a channel with a thread, a list with tasks', async () => {
   const general = (await api('GET', '/chat/channels')).body.channels.find((c) => c.name === 'general').id;
   const top = (await api('POST', `/chat/channels/${general}/messages`, { body: 'Planning the offsite' })).body;
   await api('POST', `/chat/channels/${general}/messages`, { body: 'Lake or city?', thread_id: top.id });
   SCREENS.push(['Chat with a thread open', `/chat/${general}?msg=${top.id}&thread=${top.id}`]);
+  // The editors, a form, a task list and a note, and Admin's and Settings' pages.
+  for (const kind of ['doc', 'sheet', 'slides']) {
+    const f = (await api('POST', '/files/new', { kind, name: `Quarterly ${kind} review` })).body;
+    SCREENS.push([`${kind} editor`, `/${kind === 'doc' ? 'docs' : kind === 'sheet' ? 'sheets' : 'slides'}/${f.id}`]);
+  }
+  const form = (await api('POST', '/forms', { title: 'Team lunch preferences' })).body;
+  if (form?.id) SCREENS.push(['form editor', `/forms/${form.id}`]);
+  const list = (await api('POST', '/tasks/lists', { name: 'Launch checklist' })).body;
+  if (list?.id) { await api('POST', `/tasks/lists/${list.id}/tasks`, { title: 'Book the venue' }); SCREENS.push(['task list', `/tasks/${list.id}`]); }
+  for (const tab of ['company', 'checkup', 'links', 'system', 'reports', 'phishing', 'announcements', 'apps', 'storage', 'activity', 'drives']) SCREENS.push([`Admin ${tab}`, `/admin?tab=${tab}`]);
 });
 for (const width of WIDTHS) {
   await step(`every screen at ${width}px: headings readable, nothing over them`, async () => {
@@ -113,6 +142,16 @@ await step('the check itself: Chat’s old header (before its fix) is caught', a
     throw new Error(`not caught: ${JSON.stringify(p)} ${JSON.stringify(dbg)}`);
   }
 });
+await step('the check itself: Calendar’s old toolbar on a tablet (view switch off the edge) is caught', async () => {
+  await page.setViewportSize({ width: 820, height: 860 });
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radiogroup', { name: 'View' }).waitFor();
+  await page.addStyleTag({ content: '.cal-head { flex-wrap: nowrap !important; } .cal-head h1 { white-space: normal !important; }' });
+  await page.waitForTimeout(300);
+  const p = await problems();
+  if (!p.some((x) => /Schedule|Year/.test(x) && /off the edge/.test(x))) throw new Error(`not caught: ${JSON.stringify(p)}`);
+});
+console.log(`checked ${SCREENS.length} screens: ${SCREENS.map(([n]) => n).join(', ')}`);
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
