@@ -857,6 +857,11 @@ export default function formRoutes() {
       .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), `Copy of ${f.title}`.slice(0, 200), f.description, JSON.stringify(f.questions),
         f.audience === 'public' && !req.user.allow_links ? 'org' : f.audience, f.one_per_person ? 1 : 0, f.confirmation, f.notify ? 1 : 0, f.quiz ? 1 : 0, f.show_score ? 1 : 0, t, t);
     if (f.theme) q('UPDATE forms SET theme = ? WHERE id = ?').run(JSON.stringify(f.theme), id); // the same look
+    // The same settings: what's asked of people and what happens with their answers. (Not what belongs to the
+    // original: its spreadsheet, uploads folder, chat, open/close dates, invitations and results link.)
+    const raw = q('SELECT collect_email, send_copy, allow_edit, max_responses, show_results, email_domains, progress_bar, task_list, task_title FROM forms WHERE id = ?').get(f.id);
+    q('UPDATE forms SET collect_email = ?, send_copy = ?, allow_edit = ?, max_responses = ?, show_results = ?, email_domains = ?, progress_bar = ?, task_list = ?, task_title = ? WHERE id = ?')
+      .run(raw.collect_email, raw.send_copy, raw.allow_edit, raw.max_responses, raw.show_results, raw.email_domains, raw.progress_bar, raw.task_list, raw.task_title, id);
     res.status(201).json(ownForm(id, req.user));
   });
 

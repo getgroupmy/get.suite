@@ -488,6 +488,8 @@ export default function taskRoutes() {
     const ids = new Map(tasks.map((x) => [x.id, uid()]));
     tx(() => {
       q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(id, req.user.id, name, t);
+      // Its look and its rate for billing time, as the original's.
+      q('UPDATE task_lists SET color = ?, emoji = ?, rate = ?, currency = ? WHERE id = ?').run(list.color ?? null, list.emoji ?? null, list.rate ?? null, list.currency ?? null, id);
       const secs = new Map();
       for (const sec of sectionsOf(list.id)) { secs.set(sec.id, uid()); q('INSERT INTO task_sections (id, list_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(secs.get(sec.id), id, sec.name, sec.position, t); }
       for (const x of tasks) {
@@ -500,6 +502,7 @@ export default function taskRoutes() {
           .run(ids.get(x.id), id, x.title, x.notes, moved(x.due), start && x.due ? x.due_time : null, moved(x.start), x.position, x.repeat, moved(x.repeat_until), steps, x.important, x.link_url, x.link_label, x.attachments, blocked, x.tags, req.user.id, t, t);
         if (x.section_id && secs.has(x.section_id)) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secs.get(x.section_id), ids.get(x.id));
         if (x.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(x.priority, ids.get(x.id));
+        if (x.estimate || x.nonbillable) q('UPDATE tasks SET estimate = ?, nonbillable = ? WHERE id = ?').run(x.estimate ?? null, x.nonbillable ?? 0, ids.get(x.id));
       }
     });
     sendTo([req.user.id], { type: 'tasks-changed', list_id: id });
