@@ -151,3 +151,17 @@ test('organisers are told their meeting lost its room, unless the removal is und
   assert.match(b, /Garden room was removed/);
   assert.match(b, /“Team lunch” no longer has a room/);
 });
+
+test('a notice still waiting when the server restarts is sent afterwards', async () => {
+  process.env.ROOM_REMOVED_NOTICE_MS = '60000'; // not yet due
+  const t = Date.now() + 3 * 864e5;
+  const room = (await olivia('POST', '/api/rooms', { name: 'Loft', capacity: 4 })).body;
+  await carol('POST', '/api/events', { title: 'Design review', start: t, end: t + 3600e3, rooms: [room.id] });
+  await olivia('DELETE', `/api/rooms/${room.id}`);
+  const { sendRoomNotices } = await import('../src/routes/rooms.js');
+  assert.equal(sendRoomNotices(), 0, 'not due yet');
+  // (as if after a restart, a minute later: the stored notice is found and sent)
+  assert.equal(sendRoomNotices(Date.now() + 61000), 1);
+  assert.match(JSON.stringify((await carol('GET', '/api/notifications')).body), /Loft was removed/);
+  assert.equal(sendRoomNotices(Date.now() + 120000), 0, 'once');
+});

@@ -234,6 +234,22 @@ const csvCell = (v) => (/[",\n;]/.test(String(v ?? '')) ? `"${String(v).replace(
 
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
+// Notices waiting for the moment to Undo to pass (kept here, so a restart meanwhile doesn't lose them).
+q(`CREATE TABLE IF NOT EXISTS room_removed_notices (
+  bin_id TEXT PRIMARY KEY, room_name TEXT NOT NULL, meetings TEXT NOT NULL,
+  by_id TEXT, by_name TEXT, due_at INTEGER NOT NULL
+)`).run();
+/** Send the notices that are due. Returns how many organisers were told. */
+export function sendRoomNotices(t = Date.now()) {
+  let n = 0;
+  for (const r of q('SELECT * FROM room_removed_notices WHERE due_at <= ?').all(t)) {
+    q('DELETE FROM room_removed_notices WHERE bin_id = ?').run(r.bin_id);
+    try { n += tellRoomRemoved(r.bin_id, r.room_name, JSON.parse(r.meetings), { id: r.by_id, name: r.by_name || 'An admin' }); } catch (e) { console.error('[rooms]', e.message); }
+  }
+  return n;
+}
+setInterval(() => { try { sendRoomNotices(); } catch (e) { console.error('[rooms]', e.message); } }, 5000).unref();
+
 /** A removed room (not put back): each organiser of a meeting that had it booked is told which meetings lost it. */
 export function tellRoomRemoved(binId, roomName, meetings, by) {
   if (!q('SELECT 1 FROM recycle_bin WHERE id = ?').get(binId)) return 0; // undone
@@ -427,7 +443,11 @@ export default function roomRoutes() {
     const meetings = upcoming(room.id);
     const lose = upcomingMeetings(room.id);
     const binId = binAndDelete('room', room.id, { ownerId: req.user.id, name: room.name, by: req.user.id });
-    setTimeout(() => tellRoomRemoved(binId, room.name, lose, req.user), Number(process.env.ROOM_REMOVED_NOTICE_MS) || 15000).unref();
+    if (lose.length) {
+      q('INSERT INTO room_removed_notices (bin_id, room_name, meetings, by_id, by_name, due_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(binId, room.name, JSON.stringify(lose), req.user.id, req.user.name, Date.now() + (Number(process.env.ROOM_REMOVED_NOTICE_MS) || 15000));
+      setTimeout(sendRoomNotices, (Number(process.env.ROOM_REMOVED_NOTICE_MS) || 15000) + 50).unref();
+    }
     res.json({ ok: true, meetings, bin_id: binId });
   });
   r.post('/bin/:id/restore', (req, res) => {
