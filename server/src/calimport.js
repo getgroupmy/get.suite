@@ -47,6 +47,8 @@ export function importCalendar(userId, text, tz = 'UTC', calendarId = null, colo
       q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, ical_uid, color, calendar_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), zoneOrUtc(e.tz), id, userId, e.uid, color, calendarId);
+      // Free/busy, private and the event's own colour (from a Workspace export), kept as they were.
+      if (e.show_as || e.private || (e.color && !color)) q('UPDATE events SET show_as = ?, private = ?, color = ? WHERE id = ?').run(e.show_as || null, e.private ? 1 : 0, color || e.color || null, id);
       syncOverrides(id, e, userId);
       setReminders(id, userId, e.reminders);
       added++;

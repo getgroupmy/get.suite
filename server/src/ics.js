@@ -160,6 +160,7 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   }
   lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, `TRANSP:${e.show_as === 'free' ? 'TRANSPARENT' : 'OPAQUE'}`);
   if (e.private) lines.push('CLASS:PRIVATE');
+  if (/^#[0-9a-f]{6}$/i.test(e.color || '')) lines.push(`X-WORKSPACE-COLOR:${e.color}`); // (COLOR takes only CSS names: this keeps it for Workspace)
   // Reminders, so the phone reminds too.
   for (const m of alarms) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeText(e.title)}`, `TRIGGER:${beforeStart(m)}`, 'END:VALARM');
   lines.push('END:VEVENT');
@@ -421,6 +422,7 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
     start: start.ms, end: endMs, all_day: allDay ? 1 : 0, tz: allDay ? tz : ianaOf(startL.params.TZID, start.ms), rrule: null, exdates: [],
     show_as: /^TRANSPARENT$/i.test(get('TRANSP')?.value?.trim() || '') ? 'free' : null,
     private: /^(PRIVATE|CONFIDENTIAL)$/i.test(get('CLASS')?.value?.trim() || '') ? 1 : 0,
+    ...(/^#[0-9a-f]{6}$/i.test(get('X-WORKSPACE-COLOR')?.value?.trim() || '') && { color: get('X-WORKSPACE-COLOR').value.trim().toLowerCase() }),
   };
   const rr = get('RRULE');
   if (rr) {
