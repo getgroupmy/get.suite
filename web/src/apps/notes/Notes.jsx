@@ -628,10 +628,19 @@ function NoteEditor({ note, onClose }) {
   const [f, setF] = useState({ title: note.title, body: note.body, items: note.items });
   const dirty = useRef(false);
   const saveRef = useRef(null);
+  // Only what was changed here is sent, so a change made elsewhere meanwhile (the title on a phone, say) stays.
+  const sent = useRef({ title: note.title, body: note.body, items: note.items });
   const save = useCallback(async () => {
     if (!dirty.current) return;
     dirty.current = false;
-    const body = { title: f.title, ...(f.items ? { items: f.items } : { body: f.body, items: null }) };
+    const was = sent.current;
+    const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const body = {
+      ...(!same(f.title, was.title) && { title: f.title }),
+      ...(f.items ? !same(f.items, was.items) && { items: f.items } : (!same(f.body, was.body) || was.items) && { body: f.body, items: null }),
+    };
+    if (!Object.keys(body).length) return;
+    sent.current = { ...f };
     try { await patch(`/notes/${note.id}`, body); } catch (e) {
       if (unreachable(e)) { await keepChange({ method: 'PATCH', url: `/notes/${note.id}`, body, user: user?.id, label: f.title || 'a note', id: note.id }); return; }
       toast(e.message, 'error');

@@ -1700,8 +1700,17 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
     saving.current = true; setBusy(true);
     try { await saveOnce(which); } finally { saving.current = false; setBusy(false); }
   }
+  // What the dialog opened with: changing a one-off event sends only what was changed here, so a change made
+  // elsewhere meanwhile (the place, on a phone) isn't put back.
+  const opened = useRef(null);
+  if (opened.current === null) opened.current = read().body;
   async function saveOnce(which) {
-    const { start, end, body } = read();
+    const { start, end } = read();
+    let { body } = read();
+    if (event.id && !event.rrule) {
+      const was = opened.current;
+      body = Object.fromEntries(Object.entries(body).filter(([k, v]) => JSON.stringify(v ?? null) !== JSON.stringify(was[k] ?? null)));
+    }
     if (end < start) return setError('The event ends before it starts');
     // A new event gets its id here, so one made offline is made once when the connection is back (however often it's sent).
     if (!event.id) body.id = (newId.current ??= offlineId());

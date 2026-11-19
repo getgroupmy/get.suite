@@ -569,11 +569,17 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
       : { method: 'PUT', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'image/jpeg' }, body: pic.blob });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'The photo couldn’t be saved');
   }
+  // What the dialog opened with: changing someone sends only what was changed here, so a change made elsewhere
+  // meanwhile (a phone number added on a phone) isn't put back.
+  const formBody = (f) => ({ name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared,
+      more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()),
+      dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()) });
+  const opened = useRef(null);
+  if (opened.current === null) opened.current = formBody(f);
   async function submit(e) {
     e.preventDefault();
-    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared,
-      more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()),
-      dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()) };
+    let body = formBody(f);
+    if (contact.id) body = Object.fromEntries(Object.entries(body).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(opened.current[k])));
     const mine = !contact.id || contact.owner_id === user.id;
     if (!contact.id) body.id = (newId.current ??= offlineId()); // so one added offline is made once when the connection is back
     if (busy) return;
