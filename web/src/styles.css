@@ -3349,3 +3349,12 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .cal-head { flex-wrap: wrap; row-gap: 8px; }
 .cal-head h1 { white-space: nowrap; }
 .cal-head .seg { flex: none; }
+/* Mail on a tablet or a narrow window (701–1000px): three columns leave a message too little room (its
+   address a letter a line), so an open message takes the list's place, with Back to return, as on a phone. */
+@media (min-width: 701px) and (max-width: 1000px) {
+  .mail.pane-right.reading .mail-list { display: none; }
+  .mail.pane-right.reading .mail-reader .icon-btn.mobile-only { display: inline-grid; }
+  .mail.pane-right.reading .mail-reader { border-radius: var(--radius) var(--radius) 0 0; }
+}
+/* The open message's buttons wrap onto a second row rather than going off the edge. */
+.reader-actions { flex-wrap: wrap; }
