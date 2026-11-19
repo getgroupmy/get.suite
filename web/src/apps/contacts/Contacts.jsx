@@ -550,6 +550,9 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
   const toast = useToast();
   const [f, setF] = useState({ name: '', email: '', phone: '', company: '', notes: '', ...contact });
   const [error, setError] = useState('');
+  // A new contact's id, the same however often Save is pressed (a second press while the first is on its way makes no second contact).
+  const newId = useRef(null);
+  const [busy, setBusy] = useState(false);
   // The photo: unchanged (null), a new one picked ({ blob, url }), or taken away ('remove').
   const [pic, setPic] = useState(null);
   const picInput = useRef();
@@ -572,7 +575,9 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
       more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()),
       dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()) };
     const mine = !contact.id || contact.owner_id === user.id;
-    if (!contact.id) body.id = offlineId(); // so one added offline is made once when the connection is back
+    if (!contact.id) body.id = (newId.current ??= offlineId()); // so one added offline is made once when the connection is back
+    if (busy) return;
+    setBusy(true);
     try {
       const saved = contact.id ? await patch(`/contacts/${contact.id}`, { ...body, ...(mine && { touch_days: f.touch_days || null }) }) : await post('/contacts', body);
       if (!contact.id && f.touch_days) await patch(`/contacts/${saved.id}`, { touch_days: f.touch_days });
@@ -598,7 +603,7 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
         return;
       }
       setError(err.message);
-    }
+    } finally { setBusy(false); }
   }
   return (
     <Modal title={contact.id ? 'Edit contact' : 'New contact'} onClose={onClose}>
@@ -629,7 +634,7 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
           <span className="muted small">Shows them under Keep in touch when it's been longer than this. Sending them email counts.</span></label>}
         <label className="check"><input type="checkbox" checked={!!f.shared} onChange={(e) => setF({ ...f, shared: e.target.checked })} /> Share with everyone at {orgName}</label>
         {error && <p className="error">{error}</p>}
-        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div>
       </form>
     </Modal>
   );

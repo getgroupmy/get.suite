@@ -1679,6 +1679,9 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   };
   const [scopeFor, setScopeFor] = useState(null); // 'save' | 'delete': asking which occurrences
   const [error, setError] = useState('');
+  // A new event's id, the same however often Save is pressed (a second press while the first is on its way makes no second event).
+  const newId = useRef(null);
+  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const setR = (k) => (e) => setRep({ ...rep, [k]: e.target.value });
 
@@ -1690,11 +1693,18 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
       guests: special ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : f.focus ? 'focus' : null, show_as: f.ooo ? 'busy' : f.show_as, private: f.private, meet_code: special ? null : meet, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: special ? [] : roomIds }) } };
   };
 
+  // One save at a time: Save pressed again while one is on its way does nothing.
+  const saving = useRef(false);
   async function save(which) {
+    if (saving.current) return;
+    saving.current = true; setBusy(true);
+    try { await saveOnce(which); } finally { saving.current = false; setBusy(false); }
+  }
+  async function saveOnce(which) {
     const { start, end, body } = read();
     if (end < start) return setError('The event ends before it starts');
     // A new event gets its id here, so one made offline is made once when the connection is back (however often it's sent).
-    if (!event.id) body.id = offlineId();
+    if (!event.id) body.id = (newId.current ??= offlineId());
     // With the auto-reply, the server turns it on for the event's days, along with saving it.
     let saved;
     try { saved = await applyEdit(event, f.ooo && autoReply ? { ...body, auto_reply: true } : body, which); }
@@ -1918,7 +1928,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           {event.id && <a className="btn" href={`/api/events/${event.id}/ics`} download title="A calendar file of this event, for Outlook, Apple or Google Calendar, or to pass on">Download (.ics)</a>}
           <div className="grow" />
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary">Save</button>
+          <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       </form>
       {naming && <PromptModal title="Save as template" label="Template name" initial={f.title || ''} confirm="Save template"
