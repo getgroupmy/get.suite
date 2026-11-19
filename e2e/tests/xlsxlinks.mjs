@@ -50,6 +50,41 @@ await step('links in Excel cells open as links in Sheets', async () => {
   await page.locator('[data-k="B2"]').click();
   await until(async () => (await page.getByLabel('Cell contents').inputValue()) === '=HYPERLINK("https://acme.com/", "acme.com")');
 });
+await step('the same file saved as .ods by LibreOffice (its links as LibreOffice keeps them) opens with the same links', async () => {
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  let bytes;
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { bytes = null; }
+  if (bytes !== null) {
+    const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+    fs.copyFileSync(`${ROOT}/e2e/fixtures/office/links.xlsx`, path.join(dir, 'Suppliers.xlsx'));
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 'Suppliers.xlsx')], { stdio: 'ignore', timeout: 120000 });
+    bytes = fs.readFileSync(path.join(dir, 'out', 'Suppliers.ods'));
+    fs.rmSync(dir, { recursive: true, force: true });
+  } else { // without LibreOffice: an .ods with link cells written as it writes them
+    console.log('(LibreOffice is not installed here: a hand-made .ods instead)');
+    const JSZip = (await import('module')).createRequire(`${ROOT}/server/package.json`)('jszip');
+    const zip = new JSZip();
+    zip.file('mimetype', 'application/vnd.oasis.opendocument.spreadsheet');
+    const cellOf = (t, href) => `<table:table-cell office:value-type="string"><text:p>${href ? `<text:a xlink:href="${href}" xlink:type="simple">${t}</text:a>` : t}</text:p></table:table-cell>`;
+    zip.file('content.xml', `<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:xlink="http://www.w3.org/1999/xlink"><office:body><office:spreadsheet><table:table table:name="Sheet1"><table:table-column table:number-columns-repeated="2"/><table:table-row>${cellOf('Name')}${cellOf('Site')}</table:table-row><table:table-row>${cellOf('Acme')}${cellOf('acme.com', 'https://acme.com/')}</table:table-row><table:table-row>${cellOf('Sales')}${cellOf('sales@acme.com', 'mailto:sales@acme.com')}</table:table-row></table:table></office:spreadsheet></office:body></office:document-content>`);
+    bytes = await zip.generateAsync({ type: 'nodebuffer' });
+  }
+  const up = await page.evaluate(async (data) => {
+    const b = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    return (await fetch('/api/files/upload?name=Suppliers.ods', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: b })).json();
+  }, bytes.toString('base64'));
+  await page.goto(`${B}/drive`);
+  await page.getByText('Suppliers.ods').dblclick();
+  const pv = page.getByRole('dialog').filter({ hasText: 'Suppliers.ods' });
+  await pv.getByRole('button', { name: 'Open as spreadsheet' }).click({ timeout: 20000 });
+  await page.waitForURL(/\/sheets\//);
+  if (new URL(page.url()).pathname.endsWith(up.id)) throw new Error('not a copy');
+  const link = page.locator('[data-k="B2"] a.cell-link');
+  await link.waitFor();
+  if ((await link.innerText()) !== 'acme.com' || (await link.getAttribute('href')) !== 'https://acme.com/') throw new Error(await link.getAttribute('href'));
+  if ((await page.locator('[data-k="B3"] a.cell-link').getAttribute('href')) !== 'mailto:sales@acme.com') throw new Error('mail link');
+  await page.screenshot({ path: `${SP}/shots/ods-links.png` });
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

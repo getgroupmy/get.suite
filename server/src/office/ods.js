@@ -10,7 +10,7 @@ import { CALCEXT_NS, rulesToCalcext, rulesFromCalcext } from './odscf.js';
 import { ruleToOdsCondition, ruleFromOdsCondition } from './odsrules.js';
 import { filterToOds, filterFromOds } from './odsfilter.js';
 import { chartObject, chartFrame, chartFromObject } from './odschart.js';
-import { threadFromNote, threadFromComment } from './excel.js';
+import { threadFromNote, threadFromComment, linkCell } from './excel.js';
 import { formulaResults } from './sheetvalues.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
@@ -499,7 +499,14 @@ export async function sheetFromOds(buffer) {
             else if (type === 'boolean') v = cell.attribs['office:boolean-value'] === 'true' ? 'TRUE' : 'FALSE';
             else if (type === 'date') v = String(cell.attribs['office:date-value'] || '').slice(0, 10);
             else if (type === 'time') v = textOf({ children: tags(cell, 'text:p') });
-            else { const ps = tags(cell, 'text:p'); if (ps.length) v = ps.map(textOf).join('\n'); }
+            else {
+              const ps = tags(cell, 'text:p');
+              if (ps.length) v = ps.map(textOf).join('\n');
+              // A link cell (LibreOffice's Insert → Hyperlink, or an Excel link it kept): its whole text one link to a
+              // web page or an email address, kept as =HYPERLINK(…) as an Excel file's are.
+              const links = (function find(n, acc = []) { for (const k of tags(n)) { if (k.name === 'text:a') acc.push(k); else find(k, acc); } return acc; })(cell);
+              if (v && links.length === 1 && textOf(links[0]).trim() === v.trim()) v = linkCell({ text: v.trim(), hyperlink: links[0].attribs['xlink:href'] });
+            }
             if (v !== null && v !== '') cells[key] = v;
             const f = formatOf(cell.attribs['table:style-name'] || colDefault[c]);
             if (Object.keys(f).length && (has || f.fill || f.bd)) formats[key] = f;
