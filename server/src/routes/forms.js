@@ -3,6 +3,7 @@ import { shownQuestions } from '../formpath.js';
 // (/f/<token>) that people in the company (signed in) or anyone can fill in, and reads the answers:
 // a summary per question, each response, a CSV download, or a copy in a new spreadsheet in Drive.
 // Mounted at /api/forms (owner) and /api/public/forms (people filling it in).
+import { binAndDelete, restoreFromBin, binOf } from '../recyclebin.js';
 import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
@@ -877,9 +878,18 @@ export default function formRoutes() {
   r.delete('/:id', (req, res) => {
     const f = ownForm(req.params.id, req.user, { ownerOnly: true });
     const team = teamOf(f);
-    q('DELETE FROM forms WHERE id = ?').run(f.id);
+    // Deleted forms can be put back for 30 days, with their responses (recyclebin.js).
+    const bin = binAndDelete('form', f.id, { ownerId: req.user.id, name: f.title, by: req.user.id });
     sendTo(team.filter((x) => x !== req.user.id), { type: 'form-changed', form_id: f.id, deleted: true });
-    res.json({ ok: true });
+    res.json({ ok: true, bin_id: bin });
+  });
+  r.get('/bin/list', (req, res) => res.json(binOf(req.user.id, 'form')));
+  r.post('/bin/:id/restore', (req, res) => {
+    const back = restoreFromBin(req.params.id, req.user.id);
+    if (!back || back.kind !== 'form') throw notFound('Not in your recently deleted forms');
+    const f = q('SELECT id, owner_id FROM forms WHERE id = ?').get(back.item_id);
+    sendTo(teamOf(f).filter((x) => x !== req.user.id), { type: 'form-changed', form_id: f.id });
+    res.json({ ok: true, form_id: f.id });
   });
 
   // Editors: colleagues (same company) who can change the form and read its answers. The owner adds and

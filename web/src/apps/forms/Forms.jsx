@@ -1,6 +1,7 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
 import { mergeList } from './listmerge.js';
+import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { REQUEST_KINDS } from '../drive/requestkinds.js';
 import { printHtml } from '../mail/mailprint.js';
 import { matchesFilter, filterOptions, ANSWERED, BLANK } from './formfilter.js';
@@ -39,6 +40,7 @@ function FormList() {
     && (show !== 'open' || !f.closed) && (show !== 'closed' || f.closed) && (show !== 'shared' || f.owner_name)
     && (!find.trim() || f.title.toLowerCase().includes(find.trim().toLowerCase())));
   const [templates, setTemplates] = useState([]);
+  const [bin, setBin] = useState(false);
   useEffect(() => { get('/forms/templates').then(setTemplates).catch(() => {}); }, []);
   // One new form per press: pressed again while the first is on its way, nothing more is made.
   const creating = useRef(false);
@@ -49,7 +51,9 @@ function FormList() {
   };
   return (
     <div className="page">
-      <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn primary" onClick={() => create()}><Icon name="plus" size={18} /> New form</button></div>
+      <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn" onClick={() => setBin(true)}><Icon name="trash" size={18} /> Recently deleted</button><button type="button" className="btn primary" onClick={() => create()}><Icon name="plus" size={18} /> New form</button></div>
+      {bin && <RecentlyDeleted title="Recently deleted forms" what="Forms" list="/forms/bin/list" restore={(id) => `/forms/bin/${id}/restore`}
+        onClose={() => setBin(false)} onRestored={(b) => navigate(`/forms/${b.form_id}`)} />}
       {templates.length > 0 && (
         <section className="form-gallery" aria-label="Start a new form">
           <h2 className="small muted">Start a new form</h2>
@@ -226,8 +230,14 @@ function FormEditor({ id }) {
       {tab === 'questions' && <QuestionsTab form={form} edit={edit} />}
       {tab === 'responses' && <ResponsesTab form={form} responses={responses} reload={loadResponses} setting={setting} flush={flush} />}
       {tab === 'settings' && <SettingsTab form={form} setForm={setForm} setting={setting} orgName={user.org_name} allowLinks={user.allow_links} />}
-      {confirm && <ConfirmModal title="Delete this form?" message={`“${form.title}” and its ${count === 1 ? 'response' : `${count} responses`} will be deleted, and its link will stop working.`}
-        onClose={() => setConfirm(false)} onConfirm={async () => { pending.current = null; await del(`/forms/${id}`); navigate('/forms'); }} />}
+      {confirm && <ConfirmModal title="Delete this form?" message={`“${form.title}” and its ${count === 1 ? 'response' : `${count} responses`} will be deleted, and its link will stop working. You can put it back from Recently deleted for 30 days.`}
+        onClose={() => setConfirm(false)} onConfirm={async () => {
+          pending.current = null;
+          const r = await del(`/forms/${id}`); navigate('/forms');
+          if (r?.bin_id) toast(`“${form.title || 'Untitled form'}” deleted`, 'info', { action: { label: 'Undo', onClick: async () => {
+            try { await post(`/forms/bin/${r.bin_id}/restore`); navigate(`/forms/${id}`); } catch (e) { toast(e.message, 'error'); }
+          } } });
+        }} />}
     </div>
   );
 }

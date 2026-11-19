@@ -1,6 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
+import { binAndDelete, restoreFromBin, binOf } from '../recyclebin.js';
 import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf, workloadCsv } from '../taskworkload.js';
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
@@ -543,13 +544,24 @@ export default function taskRoutes() {
   r.delete('/lists/:id', (req, res) => {
     const list = loadList(req.params.id, req.user);
     const before = peopleOn(list);
-    if (list.owner_id === req.user.id) { q('DELETE FROM task_lists WHERE id = ?').run(list.id); forgetGoneHistory(); }
+    let bin = null;
+    // Deleted lists can be put back for 30 days (recyclebin.js).
+    if (list.owner_id === req.user.id) { bin = binAndDelete('task_list', list.id, { ownerId: req.user.id, name: list.name, by: req.user.id }); forgetGoneHistory(); }
     else tx(() => {
       q('DELETE FROM task_list_members WHERE list_id = ? AND user_id = ?').run(list.id, req.user.id);
       q('UPDATE tasks SET assignee_id = NULL WHERE list_id = ? AND assignee_id = ?').run(list.id, req.user.id);
     });
     sendTo(new Set(before), { type: 'tasks-changed', list_id: list.id });
-    res.json({ ok: true });
+    res.json({ ok: true, bin_id: bin });
+  });
+  // Recently deleted lists (yours), and putting one back: its tasks, sections, members and all.
+  r.get('/bin', (req, res) => res.json(binOf(req.user.id, 'task_list')));
+  r.post('/bin/:id/restore', (req, res) => {
+    const back = restoreFromBin(req.params.id, req.user.id);
+    if (!back || back.kind !== 'task_list') throw notFound('Not in your recently deleted lists');
+    const list = q('SELECT * FROM task_lists WHERE id = ?').get(back.item_id);
+    sendTo(new Set(peopleOn(list)), { type: 'tasks-changed', list_id: list.id });
+    res.json({ ok: true, list_id: list.id });
   });
 
   // ---- comments ----

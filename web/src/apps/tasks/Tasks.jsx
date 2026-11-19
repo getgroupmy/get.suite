@@ -12,6 +12,7 @@ import SendInChat from '../../components/SendInChat.jsx';
 import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
+import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { groupPlanned, groupCompleted } from './planned.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -373,6 +374,7 @@ export default function Tasks() {
             <span className="nav-star" aria-hidden="true">#</span><span className="grow ellipsis">{t.name}</span><span className="count">{t.count}</span>
           </button>
         ))}
+        <button type="button" className="subnav-item" onClick={() => setDialog('bin')}><Icon name="trash" /><span className="grow">Recently deleted</span></button>
         <button type="button" className="subnav-item" title="Tasks.json from the Tasks folder of a Google Takeout download: each list comes in as a new list" onClick={() => googleRef.current?.click()}><Icon name="upload" /><span className="grow">Import from Google Tasks…</span></button>
         <input ref={googleRef} type="file" accept=".json,application/json" hidden aria-label="Google Tasks file" onChange={async (e) => {
           const f = e.target.files[0]; e.target.value = '';
@@ -653,6 +655,8 @@ export default function Tasks() {
         onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
         onDelete={() => { show(null); deleteTask(current); }}
         onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
+      {dialog === 'bin' && <RecentlyDeleted title="Recently deleted lists" what="Lists" list="/tasks/bin" restore={(id) => `/tasks/bin/${id}/restore`}
+        onClose={() => setDialog(null)} onRestored={async (b) => { setDialog(null); await loadLists(); navigate(`/tasks/${b.list_id}`); }} />}
       {dialog === 'new' && <PromptModal title="New list" label="List name" confirm="Create" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
@@ -682,8 +686,15 @@ export default function Tasks() {
       {dialog === 'share' && list && <ShareList list={list} me={user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'delete' && list && (
         <ConfirmModal title={list.mine ? `Delete “${list.name}”?` : `Leave “${list.name}”?`} confirm={list.mine ? 'Delete list' : 'Leave'}
-          message={list.mine ? `Its ${open.length + done.length} task${open.length + done.length === 1 ? '' : 's'} go too${list.members.length ? ', for everyone it’s shared with' : ''}.` : 'You won’t see it any more, and tasks given to you on it become nobody’s.'}
-          onClose={() => setDialog(null)} onConfirm={async () => { await del(`/tasks/lists/${list.id}`); setDialog(null); await loadLists(); navigate('/tasks'); }} />
+          message={list.mine ? `Its ${open.length + done.length} task${open.length + done.length === 1 ? '' : 's'} go too${list.members.length ? ', for everyone it’s shared with' : ''}. You can put it back from Recently deleted for 30 days.` : 'You won’t see it any more, and tasks given to you on it become nobody’s.'}
+          onClose={() => setDialog(null)} onConfirm={async () => {
+            const r = await del(`/tasks/lists/${list.id}`); setDialog(null); await loadLists(); navigate('/tasks');
+            if (r?.bin_id) {
+              toast(`“${list.name}” deleted`, 'info', { action: { label: 'Undo', onClick: async () => {
+                try { const b = await post(`/tasks/bin/${r.bin_id}/restore`); await loadLists(); navigate(`/tasks/${b.list_id}`); } catch (e) { toast(e.message, 'error'); }
+              } } });
+            }
+          }} />
       )}
     </div>
   );
