@@ -1,5 +1,6 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
+import { mergeList } from './listmerge.js';
 import { REQUEST_KINDS } from '../drive/requestkinds.js';
 import { printHtml } from '../mail/mailprint.js';
 import { matchesFilter, filterOptions, ANSWERED, BLANK } from './formfilter.js';
@@ -115,11 +116,14 @@ function FormEditor({ id }) {
   const [responses, setResponses] = useState(null);
   const pending = useRef(null); // edits not yet saved
 
-  useEffect(() => { get(`/forms/${id}`).then(setForm).catch((e) => setError(e.message)); }, [id]);
+  // The questions as the server last had them: sent with a save, so a colleague's changes meanwhile are merged in.
+  const base = useRef(null);
+  const fromServer = useCallback((f) => { base.current = f.questions; setForm(f); }, []);
+  useEffect(() => { get(`/forms/${id}`).then(fromServer).catch((e) => setError(e.message)); }, [id, fromServer]);
   const loadResponses = useCallback(() => get(`/forms/${id}/responses`).then((r) => setResponses(r.responses)).catch(() => {}), [id]);
   useEffect(() => { loadResponses(); }, [loadResponses]);
   // A colleague changed the form: take their version unless you have changes waiting to be saved.
-  const reloadForm = useCallback(() => get(`/forms/${id}`).then((f) => { if (!pending.current) setForm(f); }).catch(() => {}), [id]);
+  const reloadForm = useCallback(() => get(`/forms/${id}`).then((f) => { if (!pending.current) fromServer(f); }).catch(() => {}), [id, fromServer]);
   useEffect(() => onLive((m) => {
     if (m.type === 'live-connected') { loadResponses(); reloadForm(); return; } // back online: what came in meanwhile
     if (m.form_id !== id) return;
@@ -138,7 +142,16 @@ function FormEditor({ id }) {
     if (!body) return;
     pending.current = null;
     setStatus('Saving…');
-    try { await put(`/forms/${id}`, body); setStatus('Saved'); } catch (e) { setStatus(''); toast(e.message, 'error'); }
+    const sent = body.questions;
+    try {
+      const saved = await put(`/forms/${id}`, sent ? { ...body, base_questions: base.current } : body);
+      setStatus('Saved');
+      if (sent && saved?.questions) {
+        // Someone else's changes came back merged in: shown here too (on top of anything typed since).
+        base.current = saved.questions;
+        if (JSON.stringify(saved.questions) !== JSON.stringify(sent)) setForm((f) => ({ ...f, questions: mergeList(sent, f.questions, saved.questions) }));
+      }
+    } catch (e) { setStatus(''); toast(e.message, 'error'); }
   }, [id, toast]);
   useEffect(() => () => { flush(); }, [flush]);
   // patch: the changes, or a function of the latest form giving them (for changes that finish later, such as an
@@ -158,7 +171,7 @@ function FormEditor({ id }) {
     await flush();
     const before = form;
     setForm((f) => ({ ...f, ...patch })); // tick boxes move straight away
-    try { setForm(await put(`/forms/${id}`, patch)); setStatus('Saved'); } catch (e) { setForm(before); toast(e.message, 'error'); }
+    try { fromServer(await put(`/forms/${id}`, patch)); setStatus('Saved'); } catch (e) { setForm(before); toast(e.message, 'error'); }
   };
 
   if (error) return <div className="page"><Empty icon="form" title="Form not available">{error}</Empty></div>;

@@ -11,6 +11,7 @@ import { cleanTheme, themeOf } from '../formtheme.js';
 import { templateList, templateById } from '../formtemplates.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
 import { Router } from 'express';
+import { mergeList } from '../listmerge.js';
 import crypto from 'node:crypto';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError, isInlineSafe } from '../util.js';
@@ -730,7 +731,11 @@ export default function formRoutes() {
     const next = {
       title: 'title' in b ? (str(b.title, { max: 200 }) || 'Untitled form') : f.title,
       description: 'description' in b ? str(b.description ?? '', { max: 5000 }) : f.description,
-      questions: 'questions' in b ? cleanQuestions(b.questions) : f.questions,
+      // With the questions this editor started from (base_questions), changes made by someone else meanwhile are
+      // kept: merged question by question (listmerge.js), not replaced by whoever saved last.
+      questions: !('questions' in b) ? f.questions
+        : Array.isArray(b.base_questions) ? cleanQuestions(mergeList(cleanQuestions(b.base_questions), cleanQuestions(b.questions), f.questions))
+          : cleanQuestions(b.questions),
       audience: 'audience' in b ? (b.audience === 'public' ? 'public' : 'org') : f.audience,
       accepting: 'accepting' in b ? !!b.accepting : f.accepting,
       one_per_person: 'one_per_person' in b ? !!b.one_per_person : f.one_per_person,
