@@ -42,6 +42,7 @@ import { nextViewName, cleanViewName, adjustViews, viewSheet, viewList, viewLink
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './groups.js';
 import { FilterMenu } from './SheetFilter.jsx';
+import { TAB_COLOURS, tabColorOf, tabColorName } from './tabcolor.js';
 import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle, ruleContext } from './condformat.js';
@@ -1423,11 +1424,12 @@ export default function SheetEditor() {
           }}><Icon name="plus" size={18} /></button>
         )}
         {data.sheets.map((s, i) => (
-          <div key={i} className={`sheet-tab ${i === active ? 'on' : ''}`}>
-            <button onClick={() => { setActive(i); setSel({ c: 0, r: 0 }); setAnchor(null); }}>{s.name}</button>
+          <div key={i} className={`sheet-tab ${i === active ? 'on' : ''}`} style={tabColorOf(s.tabColor) ? { '--tab-colour': tabColorOf(s.tabColor) } : undefined}>
+            <button onClick={() => { setActive(i); setSel({ c: 0, r: 0 }); setAnchor(null); }} {...(tabColorOf(s.tabColor) && { title: `Tab colour: ${tabColorName(s.tabColor)}`, 'data-tab-colour': tabColorOf(s.tabColor) })}>{s.name}</button>
             {i === active && !readOnly && (
               <Menu align="left" trigger={(p) => <button className="tab-menu" aria-label={`Options for ${s.name}`} {...p}>▾</button>} items={[
                 { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename-sheet', index: i }) },
+                { label: 'Tab colour…', onClick: () => setDialog({ type: 'tab-colour', index: i }) },
                 data.sheets.length > 1 && { label: 'Delete', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete-sheet', index: i }) },
               ]} />
             )}
@@ -1592,6 +1594,17 @@ export default function SheetEditor() {
         <PivotDialog headings={dialog.headings} spec={dialog.spec} editing={dialog.index !== null} table={pivotSource(dialog.spec)}
           source={`${dialog.spec.source}!${colName(dialog.spec.c1)}${dialog.spec.r1 + 1}:${colName(dialog.spec.c2)}`}
           onSave={(spec) => savePivot(spec, { index: dialog.index })} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
+      {dialog?.type === 'tab-colour' && (
+        <Modal title={`Tab colour for “${data.sheets[dialog.index]?.name || ''}”`} onClose={() => setDialog(null)}>
+          <div className="tab-colours" role="group" aria-label="Colours">
+            {TAB_COLOURS.map(([c, label]) => (
+              <button key={c} className={`tab-swatch ${tabColorOf(data.sheets[dialog.index]?.tabColor) === c ? 'on' : ''}`} style={{ background: c }} aria-label={label}
+                aria-pressed={tabColorOf(data.sheets[dialog.index]?.tabColor) === c} onClick={() => { writeSheet(() => ({ tabColor: c })); setDialog(null); }} />
+            ))}
+          </div>
+          <button className="btn" onClick={() => { writeSheet(() => ({ tabColor: undefined })); setDialog(null); }}>No colour</button>
+        </Modal>
       )}
       {dialog?.type === 'rename-sheet' && (
         <PromptModal title="Rename sheet" label="Sheet name" initial={data.sheets[dialog.index].name} onClose={() => setDialog(null)}

@@ -319,6 +319,10 @@ Put a status, a review stage or a priority right in the text, like *Website: In 
 
 The box at the bottom right of a spreadsheet, beside the sheet tabs, shows it smaller or bigger (50% to 200%): more rows and columns at once, or larger cells to read. It's kept with your account, so every spreadsheet opens at that size for you on any device (documents have their own zoom). The cells, charts and slicers grow and shrink together, and clicking, selecting, filling, dragging column and row edges and moving or resizing charts and slicers work as usual. It's only how you see it: column widths, printing and downloads aren't affected, and people sharing the spreadsheet keep their own size.
 
+## Tab colours (Sheets)
+
+A sheet's tab can have a colour, to find it at a glance among many (this month's in green, archived ones in grey): the tab's **▾ → Tab colour…** offers ten (red, orange, yellow, green, teal, blue, purple, pink, brown, grey), shown as a bar under the tab's name, with its name when you point at the tab; **No colour** takes it away. Everyone with the spreadsheet sees the change at once. Excel and OpenDocument (.ods) downloads keep it as each program's own tab colour, and opening an Excel or .ods file brings its tab colours in, also after LibreOffice has saved the file again.
+
 ## Printing (Sheets)
 
 - **Print or save as PDF** (⋮ menu) prints the sheet, or just the selected cells (chosen for you when several are selected), on A4 or Letter, portrait or landscape, with or without gridlines. Values print as they're shown (formatted numbers, dates and formula results), with bold, colours, fills, alignment, borders, merged cells and column widths. Hidden and filtered-out rows and columns are left out. Choose "Save as PDF" in the print dialog for a PDF.

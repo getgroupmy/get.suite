@@ -353,7 +353,8 @@ export async function sheetFromExcel(buffer) {
       const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
-    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(bands.length && { bands }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
+    const tabArgb = /^(?:[0-9A-F]{2})?([0-9A-F]{6})$/i.exec(String(ws.properties?.tabColor?.argb || '')); // its tab colour (a theme colour isn't kept)
+    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), ...(tabArgb && { tabColor: `#${tabArgb[1].toLowerCase()}` }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(bands.length && { bands }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
   });
   // Dropdowns' choices on our hidden sheet: read back as their choices, and that sheet left out.
   const hidden = sheets.find((x) => x._ws === CHOICES_SHEET && wb.getWorksheet(CHOICES_SHEET)?.state !== 'visible');
@@ -426,7 +427,8 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
   const hiddenChoices = []; // dropdowns' choices written on the hidden sheet, a column each
   for (const [sheetIndex, s] of (data.sheets || []).entries()) {
     const resultOf = formulaResults(data, sheetIndex); // (each formula's result, written beside it)
-    const ws = wb.addWorksheet((s.name || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet');
+    const tab = /^#([0-9a-f]{6})$/i.exec(String(s.tabColor || '')); // its tab colour, as Excel's
+    const ws = wb.addWorksheet((s.name || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet', tab ? { properties: { tabColor: { argb: `FF${tab[1].toUpperCase()}` } } } : undefined);
     for (const [key, raw0] of Object.entries(s.cells || {})) {
       const at = tables.length && typeof raw0 === 'string' && raw0.startsWith('=') && /^([A-Z]+)(\d+)$/.exec(key);
       const raw = at ? `=${rangesForTables(raw0.slice(1), tables, +at[2], colIndex(at[1]), s.name)}` : raw0;

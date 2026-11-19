@@ -180,6 +180,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
   const validations = []; // content validations (dropdowns), for every sheet
   const cfStyles = []; // the cell styles conditional formatting applies (named styles)
   const databaseRanges = []; // the sheets' filters
+  const tableStyles = []; // the sheets' own table styles (for a tab colour)
   const namedRanges = [], namesUsed = new Set(); // the sheets' named ranges
   const chartObjects = []; // the charts' objects (Object 1, Object 2…)
   for (const [si, s] of sheets.entries()) {
@@ -325,12 +326,15 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
       const sh = `$${odsQuote(name)}`, abs = (col, row) => `$${col.toUpperCase()}$${row}`;
       namedRanges.push(`<table:named-range table:name="${x(nm)}" table:base-cell-address="${x(`${sh}.$A$1`)}" table:cell-range-address="${x(`${sh}.${abs(m[1], m[2])}${m[3] ? `:.${abs(m[3], m[4])}` : ''}`)}"/>`);
     }
-    tablesXml += `<table:table table:name="${x(name)}">${frames ? `<table:shapes>${frames}</table:shapes>` : ''}${cols}${rows}${cf.xml}</table:table>`;
+    // Its tab colour: on a table style of its own, as LibreOffice keeps it.
+    const tab = /^#([0-9a-f]{6})$/i.exec(String(s.tabColor || ''));
+    if (tab) tableStyles.push(`<style:style style:name="ta${tableStyles.length + 1}" style:family="table"><style:table-properties table:display="true" table:tab-color="#${tab[1].toLowerCase()}"/></style:style>`);
+    tablesXml += `<table:table table:name="${x(name)}"${tab ? ` table:style-name="ta${tableStyles.length}"` : ''}>${frames ? `<table:shapes>${frames}</table:shapes>` : ''}${cols}${rows}${cf.xml}</table:table>`;
     if (s.frozen?.rows || s.frozen?.cols) settings.push({ name, rows: s.frozen.rows || 0, cols: s.frozen.cols || 0 });
   }
   const NS = `${CALCEXT_NS} xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" ` + 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}${namedRanges.length ? `<table:named-expressions>${namedRanges.join('')}</table:named-expressions>` : ''}${databaseRanges.length ? `<table:database-ranges>${databaseRanges.join('')}</table:database-ranges>` : ''}</office:spreadsheet></office:body></office:document-content>`;
+<office:document-content ${NS}><office:automatic-styles>${[...dataStyles.values()].join('')}${[...colStyles.values(), ...rowStyles.values(), ...cellStyles.values()].map((s) => s.xml).join('')}${tableStyles.join('')}</office:automatic-styles><office:body><office:spreadsheet>${validations.length ? `<table:content-validations>${validations.join('')}</table:content-validations>` : ''}${tablesXml}${namedRanges.length ? `<table:named-expressions>${namedRanges.join('')}</table:named-expressions>` : ''}${databaseRanges.length ? `<table:database-ranges>${databaseRanges.join('')}</table:database-ranges>` : ''}</office:spreadsheet></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles ${NS}><office:styles><style:default-style style:family="table-cell"><style:text-properties fo:font-size="10pt"/></style:default-style><style:style style:name="Default" style:family="table-cell"/>${cfStyles.join('')}</office:styles></office:document-styles>`;
   // Frozen rows and columns live in the view settings.
@@ -374,7 +378,7 @@ export async function sheetFromOds(buffer) {
     for (const el of tags(node)) {
       if (el.name === 'style:style') {
         const get = (n) => tags(el, n)[0]?.attribs || {};
-        const def = { parent: el.attribs['style:parent-style-name'], data: el.attribs['style:data-style-name'], tp: get('style:text-properties'), cp: get('style:table-cell-properties'), pp: get('style:paragraph-properties'), colp: get('style:table-column-properties'), rowp: get('style:table-row-properties') };
+        const def = { parent: el.attribs['style:parent-style-name'], data: el.attribs['style:data-style-name'], tablep: get('style:table-properties'), tp: get('style:text-properties'), cp: get('style:table-cell-properties'), pp: get('style:paragraph-properties'), colp: get('style:table-column-properties'), rowp: get('style:table-row-properties') };
         styles.set(el.attribs['style:name'], def);
         // (also by the name it's shown under: what LibreOffice's conditional formats refer to, for a style it renamed)
         const shown = el.attribs['style:display-name'];
@@ -442,6 +446,8 @@ export async function sheetFromOds(buffer) {
   }
   for (const t of tags(body, 'table:table')) {
     const name = String(t.attribs['table:name'] || `Sheet${out.length + 1}`).slice(0, 30);
+    const tp = styles.get(t.attribs['table:style-name'])?.tablep || {};
+    const tabColor = /^#[0-9a-f]{6}$/i.test(tp['table:tab-color'] || tp['tableooo:tab-color'] || '') ? (tp['table:tab-color'] || tp['tableooo:tab-color']).toLowerCase() : null; // its tab colour
     const cells = {}, formats = {}, notes = {}, colWidths = {}, rowHeights = {}, merges = [], hideRows = [], hideCols = [];
     const validated = new Map(); // content validation name → the cells naming it ([col, row])
     // Columns: widths, hidden ones, and each one's default cell style.
@@ -572,7 +578,7 @@ export async function sheetFromOds(buffer) {
     }).filter((g) => g.to - g.from < 5000).sort((a, b) => (a.axis === b.axis ? a.from - b.from : a.axis < b.axis ? -1 : 1));
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(sheetGroups.length && { groups: sheetGroups }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, ...(tabColor && { tabColor }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(sheetGroups.length && { groups: sheetGroups }), ...(Object.keys(notes).length && { notes }) });
   }
   // Named ranges ("Sales" = $Sheet1.$A$2:.$A$10): on the sheet they point into, as Sheets keeps them.
   for (const nr of tags(tags(body, 'table:named-expressions')[0] || { children: [] }, 'table:named-range')) {

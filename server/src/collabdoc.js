@@ -358,6 +358,7 @@ function sheetMap(sheet) {
   if (sheet.rules?.length) m.set('rules', sheet.rules); // conditional formatting
   if (sheet.validations?.length) m.set('validations', sheet.validations); // dropdowns and tick boxes
   if (sheet.filter) m.set('filter', sheet.filter); // { range, hidden: { col: [values] } }
+  if (sheet.tabColor) m.set('tabColor', sheet.tabColor); // '#rrggbb': the tab's colour
   if (sheet.merges?.length) m.set('merges', sheet.merges); // merged cells: ["A1:C1", …]
   if (sheet.hide) m.set('hide', sheet.hide); // hidden rows and columns: { rows: [2, 3], cols: [0] }
   if (sheet.groups) m.set('groups', sheet.groups); // grouped rows and columns: [{ axis, from, to, collapsed }]
@@ -390,6 +391,7 @@ export function jsonFromSheetDoc(doc) {
     if (m.get('rules')?.length) s.rules = m.get('rules');
     if (m.get('validations')?.length) s.validations = m.get('validations');
     if (m.get('filter')) s.filter = m.get('filter');
+    if (m.get('tabColor')) s.tabColor = m.get('tabColor');
     if (m.get('merges')?.length) s.merges = m.get('merges');
     if (m.get('hide')) s.hide = m.get('hide');
     if (m.get('groups')) s.groups = m.get('groups');
@@ -424,6 +426,7 @@ export function applySheetJson(doc, next) {
       if (!same(m.get('rules') || [], sheet.rules || [])) { if (sheet.rules?.length) m.set('rules', sheet.rules); else m.delete('rules'); }
       if (!same(m.get('validations') || [], sheet.validations || [])) { if (sheet.validations?.length) m.set('validations', sheet.validations); else m.delete('validations'); }
       if (!same(m.get('filter') || null, sheet.filter || null)) { if (sheet.filter) m.set('filter', sheet.filter); else m.delete('filter'); }
+      if ((m.get('tabColor') || null) !== (sheet.tabColor || null)) { if (sheet.tabColor) m.set('tabColor', sheet.tabColor); else m.delete('tabColor'); }
       if (!same(m.get('merges') || [], sheet.merges || [])) { if (sheet.merges?.length) m.set('merges', sheet.merges); else m.delete('merges'); }
       if (!same(m.get('hide') || null, sheet.hide || null)) { if (sheet.hide) m.set('hide', sheet.hide); else m.delete('hide'); }
       if (!same(m.get('groups') || null, sheet.groups || null)) { if (sheet.groups) m.set('groups', sheet.groups); else m.delete('groups'); }
