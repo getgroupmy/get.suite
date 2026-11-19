@@ -76,3 +76,15 @@ test('a duplicated task, and the next of a repeating one, stay not billable', as
   const next = q('SELECT next_id FROM tasks WHERE id = ?').get(t.id).next_id;
   for (const id of [dup.id, next]) assert.deepEqual({ ...q('SELECT nonbillable, estimate, priority FROM tasks WHERE id = ?').get(id) }, { ...q('SELECT nonbillable, estimate, priority FROM tasks WHERE id = ?').get(t.id) });
 });
+
+test('a file’s copy in Drive keeps its description, and a document its page setup', async () => {
+  const doc = (await olivia('POST', '/api/files/new', { kind: 'doc', name: 'Proposal' })).body;
+  const r = await olivia('PATCH', `/api/files/${doc.id}`, { description: 'For the board, final draft', page_setup: { size: 'letter', orientation: 'landscape', margin: 'narrow', watermark: 'DRAFT' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const copy = (await olivia('POST', `/api/files/${doc.id}/copy`, {})).body;
+  const a = (await olivia('GET', `/api/files/${doc.id}`)).body, b = (await olivia('GET', `/api/files/${copy.id}`)).body;
+  assert.equal(b.name, 'Copy of Proposal');
+  assert.equal(b.description, 'For the board, final draft');
+  assert.deepEqual(b.page_setup, a.page_setup);
+  assert.equal(a.page_setup.watermark, 'DRAFT');
+});

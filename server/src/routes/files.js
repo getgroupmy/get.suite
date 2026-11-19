@@ -1338,6 +1338,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Gather what goes: [{ row, children }] with the size and count of it all.
     let count = 0; let size = 0; let skipped = 0;
     const gather = (r) => {
+      if (CO_EDITED.includes(r.kind)) { saveNow(r.id); r = q('SELECT * FROM files WHERE id = ?').get(r.id); } // what's being typed right now goes in too
       if (++count > MAX_COPY) throw bad(`That folder holds more than ${MAX_COPY} items; copy parts of it`);
       size += r.kind === 'file' ? r.size || 0 : 0;
       const kids = r.kind !== 'folder' ? [] : q('SELECT * FROM files WHERE parent_id = ? AND trashed = 0 ORDER BY name').all(r.id).filter((k) => {
@@ -1353,7 +1354,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       let storage = null;
       if (r.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, r.storage), path.join(FILES_DIR, storage)); }
       const id = insertFile({ owner: user.id, parentId: parent, name, kind: r.kind, mime: r.mime, size: r.size, storage, content: r.content, activity: { action: 'copy', details: { from: r.name } } });
-      if (r.kind === 'folder' && (r.color || r.description)) q('UPDATE files SET color = ?, description = ? WHERE id = ?').run(r.color, r.description, id);
+      // A folder's colour, and any item's description; a document's page setup (size, margins) too.
+      if (r.color || r.description || r.page_setup) q('UPDATE files SET color = ?, description = ?, page_setup = ? WHERE id = ?').run(r.kind === 'folder' ? r.color : null, r.description, r.page_setup, id);
       for (const c of children) put(c, id, c.row.name);
       return id;
     };
