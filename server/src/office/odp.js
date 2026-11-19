@@ -25,7 +25,9 @@ export function groupedXml(xml, pieces) {
 }
 
 export const ODP_MIME = 'application/vnd.oasis.opendocument.presentation';
-const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// (characters XML can't hold — control characters such as CHAR(1) gives, a lone surrogate — are left out: one would
+// make the whole file unreadable)
+const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const COLOR = /^#[0-9a-f]{6}$/i;
 const W = 28, H = 15.75; // cm, 16:9 like Slides
 const cm = (n) => `${Number(n).toFixed(3)}cm`;

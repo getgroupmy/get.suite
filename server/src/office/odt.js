@@ -18,7 +18,9 @@ import { docFromHtml, columnWidthsOf } from './word.js';
 const ODT_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
 const ODT_SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36];
 export const ODT_MIME = 'application/vnd.oasis.opendocument.text';
-const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// (characters XML can't hold — control characters such as CHAR(1) gives, a lone surrogate — are left out: one would
+// make the whole file unreadable)
+const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** Text as ODF wants it: runs of spaces as <text:s/>, tabs and line breaks as elements. */
 const odfText = (s) => x(s).replace(/\t/g, '<text:tab/>').replace(/\n/g, '<text:line-break/>').replace(/ {2,}/g, (m) => ` <text:s text:c="${m.length - 1}"/>`);
 const COLOR = /^#[0-9a-f]{6}$/i;

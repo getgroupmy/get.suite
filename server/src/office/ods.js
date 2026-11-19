@@ -13,7 +13,9 @@ import { threadFromNote, threadFromComment } from './excel.js';
 import { formulaResults } from './sheetvalues.js';
 
 export const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
-const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// (characters XML can't hold — control characters such as CHAR(1) gives, a lone surrogate — are left out: one would
+// make the whole file unreadable)
+const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 // ---- dropdowns (Sheets' list validations) as OpenDocument content validations, both ways
 const MULTI = 'Several choices', MULTI_STRICT = 'Several choices (only these)'; // as in excel.js: marks a several-choices dropdown
 const odsQuote = (name) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `'${String(name).replace(/'/g, "''")}'`);
@@ -55,6 +57,32 @@ const CELL = /^([A-Z]{1,3})(\d+)$/;
 // ---- formulas ----
 const REF = String.raw`\$?[A-Za-z]{1,3}\$?\d+`;
 const SHEET = String.raw`(?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)`;
+// Function names as OpenDocument stores them, where they differ from Excel's (and Sheets'): Excel's own functions with
+// COM.MICROSOFT. before them (COM.MICROSOFT.STDEV.S), the old statistics with LEGACY., and three by other names.
+// Written plainly, LibreOffice shows #NAME?. (Checked against LibreOffice: each of these works only so.)
+const COM_MICROSOFT = [
+  'AGGREGATE', 'BETA.DIST', 'BINOM.DIST', 'BINOM.INV', 'CEILING.MATH', 'CHISQ.DIST', 'CHISQ.DIST.RT', 'CHISQ.INV', 'CHISQ.INV.RT', 'CHISQ.TEST',
+  'CONCAT', 'CONFIDENCE.NORM', 'CONFIDENCE.T', 'COVARIANCE.P', 'COVARIANCE.S', 'WEIBULL.DIST', 'WORKDAY.INTL', 'Z.TEST', 'ENCODEURL', 'EXPON.DIST',
+  'F.DIST', 'F.DIST.RT', 'F.INV', 'F.INV.RT', 'F.TEST', 'FLOOR.MATH', 'FORECAST.LINEAR', 'GAMMA.DIST', 'GAMMA.INV', 'HYPGEOM.DIST', 'IFS',
+  'ISO.CEILING', 'LOGNORM.DIST', 'LOGNORM.INV', 'MAXIFS', 'MINIFS', 'MODE.MULT', 'MODE.SNGL', 'NEGBINOM.DIST', 'NETWORKDAYS.INTL', 'NORM.DIST',
+  'NORM.INV', 'NORM.S.DIST', 'NORM.S.INV', 'PERCENTILE.EXC', 'PERCENTILE.INC', 'PERCENTRANK.EXC', 'PERCENTRANK.INC', 'POISSON.DIST', 'QUARTILE.EXC',
+  'QUARTILE.INC', 'RANK.AVG', 'RANK.EQ', 'STDEV.P', 'STDEV.S', 'SWITCH', 'T.DIST', 'T.DIST.2T', 'T.DIST.RT', 'T.INV', 'T.INV.2T', 'T.TEST',
+  'TEXTJOIN', 'VAR.P', 'VAR.S'];
+const ODS_NAMES = new Map([
+  ...COM_MICROSOFT.map((n) => [n, `COM.MICROSOFT.${n}`]),
+  ...['CHIDIST', 'CHIINV', 'CHITEST', 'NORMSDIST', 'NORMSINV'].map((n) => [n, `LEGACY.${n}`]),
+  ['FORMULATEXT', 'FORMULA'], ['SKEW.P', 'SKEWP'], ['ECMA.CEILING', 'COM.MICROSOFT.CEILING'],
+]);
+const FROM_ODS = new Map([...ODS_NAMES].map(([a, b]) => [b, a]));
+const NAME_RE = /("(?:[^"]|"")*")|(?<![A-Za-z0-9_.$])([A-Za-z_][A-Za-z0-9_.]*)(?=\s*\()/g;
+const namesToOds = (f) => f.replace(NAME_RE, (m, str, name) => str || ODS_NAMES.get(name.toUpperCase()) || name);
+/** An OpenDocument function name back as Sheets': its table, then any COM.MICROSOFT. or LEGACY. left off. */
+const namesFromOds = (f) => f.replace(NAME_RE, (m, str, name) => {
+  if (str) return str;
+  const up = name.toUpperCase();
+  return FROM_ODS.get(up) || (/^(COM\.MICROSOFT|LEGACY)\./.test(up) ? up.replace(/^(COM\.MICROSOFT|LEGACY)\./, '') : name);
+});
+
 /** A Sheets formula ("=SUM(A1:B2, Other!C3)") as OpenFormula ("of:=SUM([.A1:.B2];[$Other.C3])"). */
 export function formulaToOds(f) {
   const body = String(f).replace(/^=/, '');
@@ -68,7 +96,7 @@ export function formulaToOds(f) {
     const sh = sheet ? `$${sheet}` : '';
     return b ? `[${sh}.${a}:${sh ? sh : ''}.${b}]` : `[${sh}.${a}]`;
   });
-  return `of:=${out}`;
+  return `of:=${namesToOds(out)}`;
 }
 /** An OpenFormula ("of:=SUM([.A1:.B2];[$'My sheet'.C3])") as a Sheets formula ("=SUM(A1:B2,'My sheet'!C3)"). */
 export function formulaFromOds(f) {
@@ -89,7 +117,8 @@ export function formulaFromOds(f) {
     const pre = sheet ? `${sheet}!` : '';
     return pre + parts.map((p) => p.at).join(':');
   });
-  return `=${out}`;
+  // (LibreOffice writes TRUE and FALSE as TRUE() and FALSE(): back as they're usually typed)
+  return `=${namesFromOds(out).replace(/("(?:[^"]|"")*")|(?<![A-Za-z0-9_.])(TRUE|FALSE)\(\)/gi, (m, str, b) => str || b.toUpperCase())}`;
 }
 
 // ---- sheet → .ods ----

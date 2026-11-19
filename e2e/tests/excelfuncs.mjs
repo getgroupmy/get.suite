@@ -104,6 +104,14 @@ await step('Download as Excel writes the newer functions as Excel needs them (_x
   const xml = await (await JSZip.loadAsync(await res.body())).file('xl/worksheets/sheet1.xml').async('string');
   if (!xml.includes('<f>_xlfn.AGGREGATE(9,6,A1:A2)</f>') || !xml.includes('<f>_xlfn.XOR(TRUE,FALSE)</f>')) throw new Error(xml.slice(0, 600));
 });
+await step('Download as OpenDocument (.ods) names functions as LibreOffice needs them, and a CHAR(1) cell doesn’t spoil the file', async () => {
+  const id = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'For LibreOffice', content: { sheets: [{ name: 'Sheet1', cells: { A1: '5', A2: '7', A3: '=STDEV.S(A1:A2)', A4: '=IFS(A1>3,"big",TRUE,"small")', A5: '=CHAR(1)&"x"' } }] } })).body.id;
+  const res = await page.request.get(`${B}/api/files/${id}/export?format=ods`, { headers: { 'x-requested-with': 'nas-workspace' } });
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const xml = await (await JSZip.loadAsync(await res.body())).file('content.xml').async('string');
+  if (!xml.includes('of:=COM.MICROSOFT.STDEV.S([.A1:.A2])') || !xml.includes('of:=COM.MICROSOFT.IFS(')) throw new Error(xml.slice(xml.indexOf('<table:table '), xml.indexOf('<table:table ') + 800));
+  if (/[\u0000-\u0008]/.test(xml)) throw new Error('a control character in content.xml');
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');
