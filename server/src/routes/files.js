@@ -535,6 +535,14 @@ const SEARCH_TYPES = {
   archive: "f.kind = 'file' AND (f.name LIKE '%.zip' OR f.name LIKE '%.7z' OR f.name LIKE '%.rar' OR f.name LIKE '%.tar' OR f.name LIKE '%.gz')",
 };
 
+let convertOfficeFile = null;
+/** A Word, Excel, PowerPoint, OpenDocument or Markdown file (its row) as a new document, spreadsheet or presentation
+ *  beside it, for user: its id (as Open as… does; once the routes are made). */
+export const convertToWorkspace = (f, user) => {
+  if (!convertOfficeFile) throw new Error('Drive isn’t ready');
+  return convertOfficeFile(f, user);
+};
+
 export default function fileRoutes({ maxUploadBytes }) {
   const r = Router();
   // After any change, the search index catches up within a couple of seconds.
@@ -1968,6 +1976,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     notifyPlace(parentId, req.user);
     return id;
   };
+  convertOfficeFile = convertOffice;
   r.post('/:id/open-as', async (req, res) => {
     const id = await convertOffice(loadFile(req.params.id, req.user), req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));

@@ -28,7 +28,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { roleFor, atLeast } from '../access.js';
 import { q, tx, FILES_DIR } from '../db.js';
-import { insertFile, cleanFileLabels, FILE_LABEL_COLORS } from './files.js';
+import { insertFile, cleanFileLabels, FILE_LABEL_COLORS, convertToWorkspace } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { indexSoon } from '../search.js';
 import { bad, uid, mimeFor } from '../util.js';
@@ -373,7 +373,26 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   Object.assign(out, await intoDrive(user, { drive: driveEntries, mail: mailEntries, rootName: `From your data ${new Date().toISOString().slice(0, 10)}`, onStep, ids: driveIds }));
   // Stars, folder colours, descriptions and labels, on the files and folders just brought in.
   const details = await json('Drive details.json');
-  if (details && Array.isArray(details.files) && driveIds.size) out.drive_details = applyDriveDetails(user.id, details, driveIds);
+  if (details && Array.isArray(details.files) && driveIds.size) {
+    // Documents, spreadsheets and presentations (downloaded as Word, Excel and PowerPoint, or OpenDocument) become them
+    // again, under their own names; the downloaded file goes to the trash (as when uploads are converted). One that
+    // can't be read stays as the file it came as.
+    let converted = 0, kept = 0;
+    const marked = details.files.filter((d) => ['doc', 'sheet', 'slides'].includes(d?.kind) && driveIds.has(String(d.path)));
+    for (const [k, d] of marked.entries()) {
+      if (k % 10 === 0) onStep({ step: 'documents', done: k, total: marked.length });
+      const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file'").get(driveIds.get(String(d.path)));
+      if (!f) continue;
+      try {
+        const id = await convertToWorkspace(f, user);
+        q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(Date.now(), Date.now(), f.id);
+        driveIds.set(String(d.path), id);
+        converted++;
+      } catch (e) { if (e.status !== 400 && e.status !== 413) throw e; kept++; }
+    }
+    if (converted || kept) out.documents = { converted, kept };
+    out.drive_details = applyDriveDetails(user.id, details, driveIds);
+  }
   // Notes: its Notes/ folder (with pictures), through Import notes… (which reads only Notes/ from a Download your data .zip).
   onStep({ step: 'notes' });
   const noteEntries = files.filter((x) => x.name.startsWith('Notes/'));
@@ -486,7 +505,7 @@ export default function takeoutRoutes() {
     for (const l of q('SELECT file_id, label FROM file_labels WHERE user_id = ? ORDER BY label').all(me)) labelsOf.set(l.file_id, [...(labelsOf.get(l.file_id) || []), l.label]);
     const details = [];
     const detailFor = (f, where) => {
-      const d = { path: where.slice('Drive/'.length), ...(starred.has(f.id) && { starred: true }), ...(f.kind === 'folder' && f.color && { color: f.color }),
+      const d = { path: where.slice('Drive/'.length), ...(['doc', 'sheet', 'slides'].includes(f.kind) && { kind: f.kind }), ...(starred.has(f.id) && { starred: true }), ...(f.kind === 'folder' && f.color && { color: f.color }),
         ...(f.description && { description: f.description }), ...(labelsOf.has(f.id) && { labels: labelsOf.get(f.id) }) };
       if (Object.keys(d).length > 1) details.push(d);
     };

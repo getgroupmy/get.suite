@@ -234,3 +234,30 @@ test('Drive’s stars, folder colours, descriptions and labels come back on the 
   assert.deepEqual(q('SELECT label FROM file_labels WHERE user_id = ? AND file_id = ? ORDER BY label').all(kimId, l2.id).map((x) => x.label), ['Legal', 'Urgent']);
   assert.ok(out.drive_details.files >= 2);
 });
+
+test('documents, spreadsheets and presentations come back as them, with their words; a real Word file stays a Word file', async () => {
+  const doc = (await olivia('POST', '/api/files/new', { kind: 'doc', name: 'Handbook', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Welcome aboard' }] }] } })).body;
+  await olivia('PUT', `/api/files/${doc.id}/star`, { starred: true });
+  await olivia('POST', '/api/files/new', { kind: 'sheet', name: 'Budget', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Rent', B1: '1200' } }] } });
+  const { wordFromDoc } = await import('../src/office/word.js');
+  const word = await wordFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'From outside' }] }] }, 'Supplier');
+  const up = await fetch(`${base}/api/files/upload?name=Supplier.docx`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'application/octet-stream' }, body: word });
+  assert.ok(up.status < 300);
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+  const out = await r.json();
+  assert.ok(out.documents?.converted >= 2, JSON.stringify(out.documents));
+  const { q } = await import('../src/db.js');
+  const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
+  const root = out.drive.folder_id;
+  const here = q('SELECT id, name, kind, content FROM files WHERE parent_id = ? AND trashed = 0').all(root);
+  const hb = here.find((f) => f.name === 'Handbook');
+  assert.equal(hb?.kind, 'doc');
+  assert.match(hb.content, /Welcome aboard/);
+  assert.ok(q('SELECT 1 FROM file_stars WHERE user_id = ? AND file_id = ?').get(kimId, hb.id), 'its star is on the document');
+  const bd = here.find((f) => f.name === 'Budget');
+  assert.equal(bd?.kind, 'sheet');
+  assert.match(bd.content, /Rent/);
+  assert.ok(here.some((f) => f.name === 'Supplier.docx' && f.kind === 'file'), 'an uploaded Word file stays one');
+  assert.ok(!here.some((f) => f.name === 'Handbook.docx'), 'the downloaded Word file isn’t left beside it');
+});

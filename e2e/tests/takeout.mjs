@@ -105,7 +105,11 @@ await step('Settings → Bring in your data…: the download goes back in (lists
   if (!/file.* into “From your data \d{4}-\d{2}-\d{2}” in Drive/.test(msg)) throw new Error(msg);
   await page.goto(`${B}/drive`);
   await page.getByText(/^From your data \d{4}-/).first().dblclick();
-  await page.getByText('Plan.docx').first().waitFor();
+  // Plan was a document: it comes back as one (not as the Word file it was downloaded as), and opens in Docs.
+  if (!/1 document, spreadsheet or presentation editable again/.test(msg)) throw new Error(msg);
+  if (await page.getByText('Plan.docx', { exact: true }).count()) throw new Error('Plan.docx is still there');
+  await page.getByText('Plan', { exact: true }).first().dblclick();
+  await page.waitForURL(/\/docs\//);
 });
 await step('the activity log records it', async () => {
   const r = await api(page, 'GET', '/audit?limit=20');

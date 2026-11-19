@@ -14281,8 +14281,11 @@ test('takeout: bringing data back in puts its Drive in one new folder, with its 
   assert.equal(root.owner_id, bid);
   const kids = q('SELECT name, kind, id FROM files WHERE parent_id = ? ORDER BY name').all(root.id);
   assert.deepEqual(kids.map((k) => [k.name, k.kind]), [['Empty one', 'folder'], ['Reports', 'folder']], JSON.stringify(kids));
-  const inReports = q('SELECT name, kind, mime, size FROM files WHERE parent_id = ? ORDER BY name').all(kids[1].id);
-  assert.deepEqual(inReports.map((k) => k.name), ['Q3.docx', 'notes.txt']);
+  const inReports = q('SELECT name, kind, mime, size FROM files WHERE parent_id = ? AND trashed = 0 ORDER BY name').all(kids[1].id);
+  // The document comes back as a document (its Word download in the trash), the uploaded file as it was.
+  assert.deepEqual(inReports.map((k) => [k.name, k.kind]), [['Q3', 'doc'], ['notes.txt', 'file']]);
+  assert.deepEqual(q('SELECT name FROM files WHERE parent_id = ? AND trashed = 1').all(kids[1].id).map((k) => k.name), ['Q3.docx']);
+  assert.deepEqual(r.documents, { converted: 1, kept: 0 });
   assert.equal(inReports.find((k) => k.name === 'notes.txt').size, 'plain words'.length);
   const txt = q('SELECT id FROM files WHERE parent_id = ? AND name = ?').get(kids[1].id, 'notes.txt').id;
   assert.equal((await b('GET', `/api/files/${txt}/raw`)).body, 'plain words');
