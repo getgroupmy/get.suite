@@ -354,7 +354,7 @@ export async function sheetFromExcel(buffer) {
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
     const tabArgb = /^(?:[0-9A-F]{2})?([0-9A-F]{6})$/i.exec(String(ws.properties?.tabColor?.argb || '')); // its tab colour (a theme colour isn't kept)
-    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), ...(tabArgb && { tabColor: `#${tabArgb[1].toLowerCase()}` }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(bands.length && { bands }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
+    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), ...(tabArgb && { tabColor: `#${tabArgb[1].toLowerCase()}` }), ...((ws.state === 'hidden' || ws.state === 'veryHidden') && { hidden: true }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(bands.length && { bands }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
   });
   // Dropdowns' choices on our hidden sheet: read back as their choices, and that sheet left out.
   const hidden = sheets.find((x) => x._ws === CHOICES_SHEET && wb.getWorksheet(CHOICES_SHEET)?.state !== 'visible');
@@ -428,7 +428,7 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
   for (const [sheetIndex, s] of (data.sheets || []).entries()) {
     const resultOf = formulaResults(data, sheetIndex); // (each formula's result, written beside it)
     const tab = /^#([0-9a-f]{6})$/i.exec(String(s.tabColor || '')); // its tab colour, as Excel's
-    const ws = wb.addWorksheet((s.name || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet', tab ? { properties: { tabColor: { argb: `FF${tab[1].toUpperCase()}` } } } : undefined);
+    const ws = wb.addWorksheet((s.name || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet', { ...(tab && { properties: { tabColor: { argb: `FF${tab[1].toUpperCase()}` } } }), ...(s.hidden && (data.sheets || []).some((o) => !o.hidden) && { state: 'hidden' }) }); // (a hidden sheet stays hidden there; one of them is always shown)
     for (const [key, raw0] of Object.entries(s.cells || {})) {
       const at = tables.length && typeof raw0 === 'string' && raw0.startsWith('=') && /^([A-Z]+)(\d+)$/.exec(key);
       const raw = at ? `=${rangesForTables(raw0.slice(1), tables, +at[2], colIndex(at[1]), s.name)}` : raw0;
@@ -570,6 +570,9 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
     const hs = wb.addWorksheet(CHOICES_SHEET, { state: 'veryHidden' });
     hiddenChoices.forEach((vals, k) => vals.forEach((t, r) => { hs.getCell(`${colName(k)}${r + 1}`).value = t; }));
   }
+  // The sheet shown when it opens: the first that isn't hidden.
+  const firstShown = (data.sheets || []).findIndex((o) => !o.hidden);
+  if (firstShown > 0) wb.views = [{ activeTab: firstShown, firstSheet: firstShown, visibility: 'visible' }];
   // Named ranges, as Excel defined names.
   wb.worksheets.forEach((ws, i) => {
     const s = (data.sheets || [])[i];

@@ -327,9 +327,11 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
       namedRanges.push(`<table:named-range table:name="${x(nm)}" table:base-cell-address="${x(`${sh}.$A$1`)}" table:cell-range-address="${x(`${sh}.${abs(m[1], m[2])}${m[3] ? `:.${abs(m[3], m[4])}` : ''}`)}"/>`);
     }
     // Its tab colour: on a table style of its own, as LibreOffice keeps it.
+    // Hidden (one is always shown), as LibreOffice keeps it: table:display on the same style.
     const tab = /^#([0-9a-f]{6})$/i.exec(String(s.tabColor || ''));
-    if (tab) tableStyles.push(`<style:style style:name="ta${tableStyles.length + 1}" style:family="table"><style:table-properties table:display="true" table:tab-color="#${tab[1].toLowerCase()}"/></style:style>`);
-    tablesXml += `<table:table table:name="${x(name)}"${tab ? ` table:style-name="ta${tableStyles.length}"` : ''}>${frames ? `<table:shapes>${frames}</table:shapes>` : ''}${cols}${rows}${cf.xml}</table:table>`;
+    const hideIt = !!s.hidden && sheets.some((o) => !o.hidden);
+    if (tab || hideIt) tableStyles.push(`<style:style style:name="ta${tableStyles.length + 1}" style:family="table"><style:table-properties table:display="${hideIt ? 'false' : 'true'}"${tab ? ` table:tab-color="#${tab[1].toLowerCase()}"` : ''}/></style:style>`);
+    tablesXml += `<table:table table:name="${x(name)}"${tab || hideIt ? ` table:style-name="ta${tableStyles.length}"` : ''}>${frames ? `<table:shapes>${frames}</table:shapes>` : ''}${cols}${rows}${cf.xml}</table:table>`;
     if (s.frozen?.rows || s.frozen?.cols) settings.push({ name, rows: s.frozen.rows || 0, cols: s.frozen.cols || 0 });
   }
   const NS = `${CALCEXT_NS} xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" ` + 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" office:version="1.3"';
@@ -340,7 +342,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
   // Frozen rows and columns live in the view settings.
   const item = (n, t, v) => `<config:config-item config:name="${n}" config:type="${t}">${v}</config:config-item>`;
   const settingsXml = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-settings ${NS}><office:settings><config:config-item-set config:name="ooo:view-settings"><config:config-item-map-indexed config:name="Views"><config:config-item-map-entry>${item('ViewId', 'string', 'view1')}<config:config-item-map-named config:name="Tables">${settings.map((t) => `<config:config-item-map-entry config:name="${x(t.name)}">${item('HorizontalSplitMode', 'short', t.cols ? 2 : 0)}${item('VerticalSplitMode', 'short', t.rows ? 2 : 0)}${item('HorizontalSplitPosition', 'int', t.cols)}${item('VerticalSplitPosition', 'int', t.rows)}${item('ActiveSplitRange', 'short', 2)}${item('PositionLeft', 'int', 0)}${item('PositionRight', 'int', t.cols)}${item('PositionTop', 'int', 0)}${item('PositionBottom', 'int', t.rows)}</config:config-item-map-entry>`).join('')}</config:config-item-map-named></config:config-item-map-entry></config:config-item-map-indexed></config:config-item-set></office:settings></office:document-settings>`;
+<office:document-settings ${NS}><office:settings><config:config-item-set config:name="ooo:view-settings"><config:config-item-map-indexed config:name="Views"><config:config-item-map-entry>${item('ViewId', 'string', 'view1')}<config:config-item-map-named config:name="Tables">${settings.map((t) => `<config:config-item-map-entry config:name="${x(t.name)}">${item('HorizontalSplitMode', 'short', t.cols ? 2 : 0)}${item('VerticalSplitMode', 'short', t.rows ? 2 : 0)}${item('HorizontalSplitPosition', 'int', t.cols)}${item('VerticalSplitPosition', 'int', t.rows)}${item('ActiveSplitRange', 'short', 2)}${item('PositionLeft', 'int', 0)}${item('PositionRight', 'int', t.cols)}${item('PositionTop', 'int', 0)}${item('PositionBottom', 'int', t.rows)}</config:config-item-map-entry>`).join('')}</config:config-item-map-named>${sheets[0]?.hidden && sheets.some((o) => !o.hidden) ? item('ActiveTable', 'string', String(sheets.find((o) => !o.hidden).name || 'Sheet').slice(0, 100)) : ''}</config:config-item-map-entry></config:config-item-map-indexed></config:config-item-set></office:settings></office:document-settings>`;
   const meta = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-meta ${NS}><office:meta><meta:generator>Workspace</meta:generator></office:meta></office:document-meta>`;
   const manifest = `<?xml version="1.0" encoding="UTF-8"?>
@@ -447,6 +449,7 @@ export async function sheetFromOds(buffer) {
   for (const t of tags(body, 'table:table')) {
     const name = String(t.attribs['table:name'] || `Sheet${out.length + 1}`).slice(0, 30);
     const tp = styles.get(t.attribs['table:style-name'])?.tablep || {};
+    const hiddenSheet = tp['table:display'] === 'false'; // hidden there
     const tabColor = /^#[0-9a-f]{6}$/i.test(tp['table:tab-color'] || tp['tableooo:tab-color'] || '') ? (tp['table:tab-color'] || tp['tableooo:tab-color']).toLowerCase() : null; // its tab colour
     const cells = {}, formats = {}, notes = {}, colWidths = {}, rowHeights = {}, merges = [], hideRows = [], hideCols = [];
     const validated = new Map(); // content validation name → the cells naming it ([col, row])
@@ -578,7 +581,7 @@ export async function sheetFromOds(buffer) {
     }).filter((g) => g.to - g.from < 5000).sort((a, b) => (a.axis === b.axis ? a.from - b.from : a.axis < b.axis ? -1 : 1));
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, ...(tabColor && { tabColor }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(sheetGroups.length && { groups: sheetGroups }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, ...(tabColor && { tabColor }), ...(hiddenSheet && { hidden: true }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(sheetGroups.length && { groups: sheetGroups }), ...(Object.keys(notes).length && { notes }) });
   }
   // Named ranges ("Sales" = $Sheet1.$A$2:.$A$10): on the sheet they point into, as Sheets keeps them.
   for (const nr of tags(tags(body, 'table:named-expressions')[0] || { children: [] }, 'table:named-range')) {

@@ -421,6 +421,11 @@ export default function SheetEditor() {
     const cur = dataRef.current;
     commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, ...fn(s) } : s)) });
   }
+  useEffect(() => {
+    if (!data?.sheets?.[active]?.hidden) return;
+    const shown = data.sheets.findIndex((x) => !x.hidden);
+    if (shown >= 0) { setActive(shown); setSel({ c: 0, r: 0 }); setAnchor(null); }
+  }, [data, active]);
   /** Sheets moved, copied or removed: comments on them go with them (a removed sheet's are marked as gone). */
   function reorderSheets(next, op, to) {
     const cur = dataRef.current;
@@ -1437,13 +1442,19 @@ export default function SheetEditor() {
             setActive(cur.sheets.length);
           }}><Icon name="plus" size={18} /></button>
         )}
-        {data.sheets.map((s, i) => (
+        {!readOnly && data.sheets.some((s) => s.hidden) && (
+          <Menu align="left" trigger={(p) => <button className="btn small hidden-sheets" {...p}>Hidden sheets ({data.sheets.filter((s) => s.hidden).length})</button>} items={
+            data.sheets.map((s, i) => s.hidden && { label: `Show “${s.name}”`, onClick: () => { const cur = dataRef.current; commitData({ ...cur, sheets: cur.sheets.map((x, j) => (j === i ? { ...x, hidden: undefined } : x)) }); setActive(i); setSel({ c: 0, r: 0 }); setAnchor(null); } }).filter(Boolean)
+          } />
+        )}
+        {data.sheets.map((s, i) => s.hidden ? null : (
           <div key={i} className={`sheet-tab ${i === active ? 'on' : ''}`} style={tabColorOf(s.tabColor) ? { '--tab-colour': tabColorOf(s.tabColor) } : undefined}>
             <button onClick={() => { setActive(i); setSel({ c: 0, r: 0 }); setAnchor(null); }} {...(tabColorOf(s.tabColor) && { title: `Tab colour: ${tabColorName(s.tabColor)}`, 'data-tab-colour': tabColorOf(s.tabColor) })}>{s.name}</button>
             {i === active && !readOnly && (
               <Menu align="left" trigger={(p) => <button className="tab-menu" aria-label={`Options for ${s.name}`} {...p}>▾</button>} items={[
                 { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename-sheet', index: i }) },
                 { label: 'Tab colour…', onClick: () => setDialog({ type: 'tab-colour', index: i }) },
+                data.sheets.filter((x) => !x.hidden).length > 1 && { label: 'Hide sheet', onClick: () => { writeSheet(() => ({ hidden: true })); const next = data.sheets.findIndex((x, j) => j !== i && !x.hidden); setActive(next); setSel({ c: 0, r: 0 }); setAnchor(null); } },
                 { label: 'Duplicate', icon: 'copy', onClick: () => { const cur = dataRef.current; reorderSheets([...cur.sheets.slice(0, i + 1), copySheet(cur.sheets[i], cur.sheets.map((x) => x.name), newSheetId), ...cur.sheets.slice(i + 1)], { copy: i }, i + 1); } },
                 i > 0 && { label: 'Move left', icon: 'left', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i - 1), { move: [i, i - 1] }, i - 1) },
                 i < data.sheets.length - 1 && { label: 'Move right', icon: 'right', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i + 1), { move: [i, i + 1] }, i + 1) },
