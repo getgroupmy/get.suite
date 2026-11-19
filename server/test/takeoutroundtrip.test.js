@@ -85,3 +85,16 @@ test('mail labels, a filter that labels mail, and the vacation reply come back t
   const v = q('SELECT enabled, subject, body, start_date, end_date FROM vacations WHERE user_id = ?').get(kimId);
   assert.deepEqual({ ...v }, { enabled: 1, subject: 'Away until Monday', body: 'I’m away; back on Monday.\nUrgent: ring the office.', start_date: '2030-01-01', end_date: '2030-01-10' });
 });
+
+test('contact groups come back, with who is in each; a name already used isn’t doubled', async () => {
+  const members = [{ name: 'Ann Lee', email: 'ann@x.example' }, { name: 'Bo Chan', email: 'bo@y.example' }];
+  assert.ok((await olivia('POST', '/api/contacts/groups', { name: 'Suppliers', members })).status < 300);
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+    assert.ok(r.status < 300, await r.text());
+  }
+  const groups = (await kim('GET', '/api/contacts/groups')).body.filter((g) => g.name === 'Suppliers');
+  assert.equal(groups.length, 1, 'once, even brought in twice');
+  assert.deepEqual(groups[0].members.map((m) => [m.name, m.email]), members.map((m) => [m.name, m.email]));
+});

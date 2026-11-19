@@ -112,7 +112,21 @@ if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'shared')) q(
 // Starred: the people you deal with most, first in your contacts and in suggestions while writing mail.
 if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'starred')) q('ALTER TABLE contacts ADD COLUMN starred INTEGER NOT NULL DEFAULT 0').run();
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
-const groupsOf = (userId) => q('SELECT id, name, members FROM contact_groups WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map((g) => ({ ...g, members: JSON.parse(g.members) }));
+export const groupsOf = (userId) => q('SELECT id, name, members FROM contact_groups WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map((g) => ({ ...g, members: JSON.parse(g.members) }));
+/** Groups from a Download your data .zip ([{ name, members }]): each name not taken here is added. { added, skipped } */
+export function importGroups(userId, list) {
+  let added = 0, skipped = 0;
+  const have = new Set(groupsOf(userId).map((g) => g.name.toLowerCase()));
+  for (const g of Array.isArray(list) ? list : []) {
+    const name = String(g?.name || '').trim().slice(0, 100);
+    if (!name || have.has(name.toLowerCase()) || have.size >= MAX_GROUPS) { skipped++; continue; }
+    let members;
+    try { members = readMembers(g.members || []); } catch { skipped++; continue; }
+    q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), userId, name, JSON.stringify(members), now());
+    have.add(name.toLowerCase()); added++;
+  }
+  return { added, skipped };
+}
 function readMembers(list) {
   if (!Array.isArray(list)) throw bad('Members must be a list');
   const seen = new Set(), out = [];

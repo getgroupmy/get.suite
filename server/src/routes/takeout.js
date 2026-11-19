@@ -6,7 +6,7 @@ import { setVacation } from '../mail/vacation.js';
 import { saveNow, CO_EDITED } from '../collab.js';
 import { binExport } from '../recyclebin.js';
 import { notesZipEntries, importNotes, noteTemplatesJson, importNoteTemplates } from './notes.js';
-import { importContacts } from './contacts.js';
+import { importContacts, groupsOf, importGroups } from './contacts.js';
 import { allListsCsv, importTaskLists } from './tasks.js';
 import { historyTable } from '../taskhistory.js';
 import { myTimeCsv } from '../tasktime.js';
@@ -238,6 +238,9 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   onStep({ step: 'contacts' });
   const vcf = await text('Contacts.vcf');
   if (vcf && /BEGIN:VCARD/i.test(vcf)) out.contacts = importContacts(user, vcf);
+  // Contact groups (a name already used here is left as it is).
+  const groupsText = await text('Contact groups.json');
+  if (groupsText) { try { out.contact_groups = importGroups(user.id, JSON.parse(groupsText)); } catch { /* not readable: left out */ } }
   onStep({ step: 'tasks' });
   const csv = await text('Tasks.csv');
   if (csv) {
@@ -452,6 +455,7 @@ export default function takeoutRoutes() {
     const evTemplates = eventTemplatesJson(me);
     if (evTemplates) zip.file('Calendar templates.json', evTemplates);
     { const nt = noteTemplatesJson(me); if (nt) zip.file('Note templates.json', nt); }
+    { const groups = groupsOf(me).map((g) => ({ name: g.name, members: g.members })); if (groups.length) zip.file('Contact groups.json', `${JSON.stringify(groups, null, 2)}\n`); }
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
     { const h = historyTable(me); if (h.length > 1) zip.file('Task history.csv', `\ufeff${h.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`); }
@@ -501,6 +505,7 @@ export default function takeoutRoutes() {
       `Drive/        your files and folders (${odf ? 'documents, spreadsheets and presentations as OpenDocument: .odt, .ods, .odp, for LibreOffice and others' : 'documents as Word, spreadsheets as Excel, presentations as PowerPoint'})`,
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
+      'Contact groups.json  your contact groups and who is in each (if any)',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',
       'Time on tasks.csv  the time you tracked or added on tasks, oldest first (if any)',
