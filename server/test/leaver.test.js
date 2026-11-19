@@ -134,3 +134,25 @@ test('links they made keep working when their files are given to a colleague (no
   const { q } = await import('../src/db.js');
   assert.equal(q('SELECT created_by FROM share_links WHERE token = ?').get(link.token).created_by, people.dan.id, 'now Dan’s to manage');
 });
+
+test('what they had in Recently deleted goes to the colleague given their files, and can be put back', async () => {
+  const r0 = await admin('POST', '/api/users', { local: 'gus', domain: 'acme.com', name: 'Gus G', password: 'password123' });
+  people.gus = { id: r0.body.id };
+  const gus = await signIn('gus');
+  const list = (await gus('POST', '/api/tasks/lists', { name: 'Gus archive' })).body;
+  await gus('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Old idea' });
+  await gus('DELETE', `/api/tasks/lists/${list.id}`);
+  const r = await admin('DELETE', `/api/users/${people.gus.id}?transfer_to=${people.dan.id}`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const d = people.dan.c;
+  const bin = (await d('GET', '/api/tasks/bin')).body;
+  const it = bin.find((x) => x.name === 'Gus archive');
+  assert.ok(it, JSON.stringify(bin));
+  const back = await d('POST', `/api/tasks/bin/${it.id}/restore`);
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  const lists = (await d('GET', '/api/tasks/lists')).body;
+  const l = (lists.lists || lists).find((x) => x.id === list.id);
+  assert.equal(l?.owner_id, people.dan.id, 'Dan owns it');
+  const tasks = (await d('GET', `/api/tasks/lists/${list.id}/tasks`)).body;
+  assert.ok(JSON.stringify(tasks).includes('Old idea'), 'with its task');
+});

@@ -79,6 +79,29 @@ export function binAndDelete(kind, itemId, { ownerId, name, by }) {
   return id;
 }
 
+// Columns pointing at people (users.id): someone deleted since is left out (null), or, where there must be
+// someone (an owner), it's whoever puts it back (the colleague given a leaver's things, say).
+const peopleCols = new Map();
+function withPeopleWhoExist(table, row, restorer) {
+  if (!peopleCols.has(table)) {
+    const notNull = new Set(db.prepare(`PRAGMA table_info("${table}")`).all().filter((c) => c.notnull).map((c) => c.name));
+    peopleCols.set(table, db.prepare(`PRAGMA foreign_key_list("${table}")`).all().filter((fk) => fk.table === 'users').map((fk) => ({ col: fk.from, required: notNull.has(fk.from) })));
+  }
+  let out = row;
+  for (const { col, required } of peopleCols.get(table)) {
+    const v = row[col];
+    if (v === null || v === undefined || q('SELECT 1 FROM users WHERE id = ?').get(v)) continue;
+    out = { ...out, [col]: required ? restorer : null };
+  }
+  return out;
+}
+
+/** Hand someone's recently deleted things to a colleague (their account is being deleted), or drop them. */
+export function handOverBin(fromId, toId) {
+  if (!toId) return q('DELETE FROM recycle_bin WHERE owner_id = ?').run(fromId).changes;
+  return q('UPDATE recycle_bin SET owner_id = ? WHERE owner_id = ?').run(toId, fromId).changes;
+}
+
 /** Put it back. Rows that can't go back (someone since deleted, say) are left out. Returns { kind, item_id }. */
 export function restoreFromBin(binId, ownerId) {
   const e = q('SELECT * FROM recycle_bin WHERE id = ? AND owner_id = ?').get(binId, ownerId);
@@ -86,7 +109,8 @@ export function restoreFromBin(binId, ownerId) {
   const { rows, relinks } = JSON.parse(e.data);
   tx(() => {
     if (q(`SELECT 1 FROM ${TABLES[e.kind]} WHERE id = ?`).get(e.item_id)) throw new HttpError(409, 'It is already back');
-    for (const { table, row } of rows) {
+    for (const { table, row: saved } of rows) {
+      const row = withPeopleWhoExist(table, saved, ownerId);
       const cols = Object.keys(row);
       try { db.prepare(`INSERT OR IGNORE INTO "${table}" (${cols.map((c) => `"${c}"`).join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...cols.map((c) => row[c])); }
       catch { /* its person or parent has gone since: left out */ }

@@ -1,4 +1,5 @@
 import { cleanCalPrefs, colorRulesOf } from '../calprefs.js';
+import { handOverBin } from '../recyclebin.js';
 import { sweepSoon } from '../livesessions.js';
 import { securityActivity } from '../securityactivity.js';
 import { checkFull } from '../mail/storage.js';
@@ -884,6 +885,7 @@ export default function userRoutes() {
       }
       req.moved = moved;
       req.handedOver = handOverWork(u.id, heir?.id, req.user.id);
+      handOverBin(u.id, heir?.id); // their Recently deleted: the colleague's to put back, else gone with the account
       // Links they made to files that stay (given to a colleague, or someone else's they could share) keep
       // working, now the file owner's (who is told before one ends, and can stop it).
       req.handedOver.links = q(`UPDATE share_links SET created_by = (SELECT owner_id FROM files WHERE files.id = share_links.file_id)
