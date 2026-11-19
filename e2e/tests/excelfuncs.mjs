@@ -132,6 +132,25 @@ await step('a PowerPoint file with its speaker notes in a plain text box (as Lib
   await page.goto(`${B}/sheets/${sheetId}`); // back to the sheet, for the steps after
   await cell('A1').waitFor();
 });
+await step('an .odt shaped as LibreOffice saves one (Word’s Quote and Code styles, an empty page layout first) opens with its quote, code and landscape page', async () => {
+  const { odtFromDoc } = await import(`${ROOT}/server/src/office/odt.js`);
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const z = await JSZip.loadAsync(await odtFromDoc({ type: 'doc', content: [{ type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Quoted words' }] }] }, { type: 'codeBlock', content: [{ type: 'text', text: 'let x = 1;' }] }] }, 'Q', { page: { size: 'a4', orientation: 'landscape', margin: 'normal', header: '', footer: '', numbers: false } }));
+  z.file('content.xml', (await z.file('content.xml').async('string')).replaceAll('text:style-name="Quotations"', 'text:style-name="Quote"').replaceAll('text:style-name="Preformatted_20_Text"', 'text:style-name="Code"'));
+  let styles = (await z.file('styles.xml').async('string')).replace('style:name="Quotations"', 'style:name="Quote"').replace('style:name="Preformatted_20_Text" style:display-name="Preformatted Text"', 'style:name="Code" style:display-name="Code"');
+  styles = styles.replace('<office:automatic-styles>', '<office:automatic-styles><style:page-layout style:name="pmEmpty"><style:page-layout-properties style:layout-grid-standard-mode="true"/></style:page-layout>');
+  z.file('styles.xml', styles);
+  const up = await page.request.post(`${B}/api/files/upload?name=${encodeURIComponent('From LibreOffice.odt')}`, { headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/octet-stream' }, data: await z.generateAsync({ type: 'nodebuffer' }) });
+  const made = await api(page, 'POST', `/files/${(await up.json()).id}/open-as`);
+  await page.goto(`${B}/docs/${made.body.id}`);
+  await page.locator('.ProseMirror blockquote').getByText('Quoted words').waitFor();
+  await page.locator('.ProseMirror pre').getByText('let x = 1;').waitFor();
+  const f = (await api(page, 'GET', `/files/${made.body.id}`)).body;
+  const setup = typeof f.page_setup === 'string' ? JSON.parse(f.page_setup) : f.page_setup;
+  if (setup?.orientation !== 'landscape') throw new Error(`page setup: ${JSON.stringify(setup)}`);
+  await page.goto(`${B}/sheets/${sheetId}`);
+  await cell('A1').waitFor();
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');

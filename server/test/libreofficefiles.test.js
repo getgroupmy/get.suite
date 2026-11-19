@@ -45,3 +45,49 @@ test('through LibreOffice: our .odp saved by it as .pptx keeps its notes', { ski
     assert.match(notes, /<p:ph type="body"/, 'as real speaker notes (PowerPoint’s notes placeholder)');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+import { odtFromDoc, docFromOdt, pageOfOdt } from '../src/office/odt.js';
+import { wordFromDoc, docFromWord } from '../src/office/word.js';
+const qdoc = { type: 'doc', content: [
+  { type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A quote' }] }] },
+  { type: 'codeBlock', content: [{ type: 'text', text: 'let x = 1;' }] },
+] };
+const kinds = (doc) => (doc.content || []).map((n) => n.type);
+
+test('an .odt using Word’s style names (Quote, Code), as LibreOffice keeps them from a .docx, has its quote and code block', async () => {
+  const z = await JSZip.loadAsync(await odtFromDoc(qdoc, 'Q'));
+  let content = await z.file('content.xml').async('string');
+  content = content.replaceAll('text:style-name="Quotations"', 'text:style-name="Quote"').replaceAll('text:style-name="Preformatted_20_Text"', 'text:style-name="Code"');
+  z.file('content.xml', content);
+  let styles = await z.file('styles.xml').async('string');
+  styles = styles.replace('style:name="Quotations"', 'style:name="Quote"').replace('style:name="Preformatted_20_Text" style:display-name="Preformatted Text"', 'style:name="Code" style:display-name="Code"');
+  z.file('styles.xml', styles);
+  const back = await docFromOdt(await z.generateAsync({ type: 'nodebuffer' }), {});
+  assert.deepEqual(kinds(back.doc), ['blockquote', 'codeBlock']);
+});
+
+test('an .odt’s page: the layout its master page uses (LibreOffice writes an empty one first, sizes in inches)', async () => {
+  const z = await JSZip.loadAsync(await odtFromDoc({ type: 'doc', content: [{ type: 'paragraph' }] }, 'P', { page: { size: 'a4', orientation: 'landscape', margin: 'normal', header: '', footer: '', numbers: false } }));
+  let styles = await z.file('styles.xml').async('string');
+  const name = /<style:master-page\b[^>]*style:page-layout-name="([^"]+)"/.exec(styles)[1];
+  styles = styles.replace('<office:automatic-styles>', '<office:automatic-styles><style:page-layout style:name="pmEmpty"><style:page-layout-properties style:layout-grid-standard-mode="true"/></style:page-layout>');
+  styles = styles.replace(new RegExp(`(<style:page-layout\\b[^>]*style:name="${name}"[^>]*>\\s*<style:page-layout-properties\\b[^>]*?)fo:page-width="[^"]+" fo:page-height="[^"]+"`), '$1fo:page-width="11.6929in" fo:page-height="8.2681in"');
+  z.file('styles.xml', styles);
+  const page = await pageOfOdt(await z.generateAsync({ type: 'nodebuffer' }));
+  assert.deepEqual([page.size, page.orientation], ['a4', 'landscape']);
+});
+
+test('through LibreOffice: a document (quote, code, landscape, page numbers) saved by it as .odt and .docx comes back whole', { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lodoc-'));
+  try {
+    const page = { size: 'a4', orientation: 'landscape', margin: 'normal', header: 'Acme', footer: 'Confidential', numbers: true };
+    fs.writeFileSync(path.join(dir, 'd.docx'), await wordFromDoc(qdoc, 'Q', { page }));
+    execFileSync('soffice', ['--headless', '--convert-to', 'odt', '--outdir', dir, path.join(dir, 'd.docx')], { stdio: 'ignore', timeout: 120000 });
+    const odt = fs.readFileSync(path.join(dir, 'd.odt'));
+    assert.deepEqual(kinds((await docFromOdt(odt, {})).doc), ['blockquote', 'codeBlock']);
+    const p = await pageOfOdt(odt);
+    assert.deepEqual([p.size, p.orientation, p.header, p.footer, p.numbers], ['a4', 'landscape', 'Acme', 'Confidential', true]);
+    execFileSync('soffice', ['--headless', '--convert-to', 'docx:MS Word 2007 XML', '--outdir', path.join(dir, 'w'), path.join(dir, 'd.docx')], { stdio: 'ignore', timeout: 120000 });
+    assert.deepEqual(kinds((await docFromWord(fs.readFileSync(path.join(dir, 'w', 'd.docx')), {})).doc), ['blockquote', 'codeBlock']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

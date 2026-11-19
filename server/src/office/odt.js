@@ -366,7 +366,10 @@ export async function pageOfOdt(buffer) {
     const size = Number((/^([\d.]+)pt$/.exec(pick(/fo:font-size="([^"]+)"/) || '') || [])[1]);
     const out = {};
     // The page: the master page's layout (the first one), as Page setup knows it (nearest paper and margins).
-    const layout = /<style:page-layout-properties\b([^>]*)\/?>/.exec(styles)?.[1] || '';
+    // (LibreOffice writes several layouts, an empty one first: take the one the first master page uses, else the first with a size.)
+    const usedName = /<style:master-page\b[^>]*style:page-layout-name="([^"]+)"/.exec(styles)?.[1];
+    const layoutOf = (name) => new RegExp(`<style:page-layout\\b[^>]*style:name="${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>\\s*<style:page-layout-properties\\b([^>]*)\\/?>`).exec(styles)?.[1];
+    const layout = (usedName && layoutOf(usedName)) || [...styles.matchAll(/<style:page-layout-properties\b([^>]*)\/?>/g)].map((m) => m[1]).find((a) => /fo:page-width=/.test(a)) || '';
     const len = (name) => { const m = new RegExp(`${name}="([\\d.]+)(cm|mm|in|pt)"`).exec(layout); return m ? Number(m[1]) * { cm: 10, mm: 1, in: 25.4, pt: 25.4 / 72 }[m[2]] : null; };
     const w = len('fo:page-width'), h = len('fo:page-height');
     if (w && h) {
@@ -588,13 +591,14 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const raw = await inline(c);
         if (st.pp['fo:break-before'] === 'page' && out) { out += '<div data-page-break=""></div>'; if (!raw.trim()) continue; }
         if (named(/^horizontal( |_20_|_)line$/) && !raw.replace(/<[^>]+>/g, '').trim()) { out += '<hr>'; continue; }
-        if (named(/preformatted/)) { out += `<pre><code>${raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')}</code></pre>`; continue; }
+        // Code: LibreOffice's "Preformatted Text", or Word's "Code" kept from a .docx.
+        if (named(/preformatted|^code$|^source(_20_| )text$|^html(_20_| )code$/)) { out += `<pre><code>${raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')}</code></pre>`; continue; }
         if (/^\s*(<img [^>]*>\s*)+$/.test(raw)) { out += raw; continue; } // a picture on its own line: no empty paragraph around it
         const lv = named(/^title$/) ? 1 : st.level;
         const { 'fo:font-weight': weight, ...look2 } = st.tp; // a whole paragraph in a colour, italic…: on its text (a heading's boldness is its own)
         const inner = raw ? wrap(raw, lv ? look2 : st.tp) : raw;
         if (lv) out += `<h${Math.min(6, lv)}${alignAttr(sn)}>${inner}</h${Math.min(6, lv)}>`;
-        else if (named(/^quotations?$/)) out += `<blockquote><p>${inner}</p></blockquote>`;
+        else if (named(/^(quotations?|quote|intense(_20_| )quote)$/)) out += `<blockquote><p>${inner}</p></blockquote>`; // (LibreOffice's, or Word's kept from a .docx)
         else out += `<p${alignAttr(sn)}>${inner}</p>`;
       } else if (c.name === 'text:h') {
         const lv = Math.min(6, Math.max(1, Number(c.attribs['text:outline-level']) || 1));
