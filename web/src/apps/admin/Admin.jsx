@@ -906,7 +906,7 @@ function Rooms() {
       </div>
       {rooms?.length > 0 && <RoomUsage />}
       {removing && <ConfirmModal title={`Remove ${removing.room.name}?`} confirm="Remove room" onClose={() => setRemoving(null)} onConfirm={remove}
-        message={removing.meetings ? `${removing.meetings} meeting${removing.meetings === 1 ? ' to come has' : 's to come have'} it booked, and will lose it. You can undo this straight after.` : 'No meetings to come have it booked. You can undo this straight after.'} />}
+        message={removing.meetings ? `${removing.meetings} meeting${removing.meetings === 1 ? ' to come has' : 's to come have'} it booked, and will lose it (their organisers are told). You can undo this straight after.` : 'No meetings to come have it booked. You can undo this straight after.'} />}
     </div>
   );
 }

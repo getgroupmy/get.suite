@@ -132,3 +132,22 @@ test('a meeting room removed by mistake: Undo puts it back with its bookings', a
   assert.equal((await olivia('POST', `/api/rooms/bin/${del.body.bin_id}/restore`)).status, 200);
   assert.equal((await roomsOf()).length, 1, 'and has it again');
 });
+
+test('organisers are told their meeting lost its room, unless the removal is undone in time', async () => {
+  process.env.ROOM_REMOVED_NOTICE_MS = '300';
+  const t = Date.now() + 2 * 864e5;
+  const bells = async () => JSON.stringify((await carol('GET', '/api/notifications')).body);
+  const room = (await olivia('POST', '/api/rooms', { name: 'Garden room', capacity: 6 })).body;
+  await carol('POST', '/api/events', { title: 'Team lunch', start: t, end: t + 3600e3, rooms: [room.id] });
+  // removed and put back straight away: nobody is told
+  let del = await olivia('DELETE', `/api/rooms/${room.id}`);
+  assert.equal((await olivia('POST', `/api/rooms/bin/${del.body.bin_id}/restore`)).status, 200);
+  await new Promise((r) => setTimeout(r, 600));
+  assert.doesNotMatch(await bells(), /Garden room was removed/);
+  // removed for good: Carol is told about her meeting
+  del = await olivia('DELETE', `/api/rooms/${room.id}`);
+  await new Promise((r) => setTimeout(r, 600));
+  const b = await bells();
+  assert.match(b, /Garden room was removed/);
+  assert.match(b, /“Team lunch” no longer has a room/);
+});

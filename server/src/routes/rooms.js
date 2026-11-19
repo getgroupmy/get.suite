@@ -234,6 +234,18 @@ const csvCell = (v) => (/[",\n;]/.test(String(v ?? '')) ? `"${String(v).replace(
 
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
+/** A removed room (not put back): each organiser of a meeting that had it booked is told which meetings lost it. */
+export function tellRoomRemoved(binId, roomName, meetings, by) {
+  if (!q('SELECT 1 FROM recycle_bin WHERE id = ?').get(binId)) return 0; // undone
+  const byOwner = new Map();
+  for (const m of meetings) if (m.owner_id !== by.id) byOwner.set(m.owner_id, [...(byOwner.get(m.owner_id) || []), m]);
+  for (const [owner, list] of byOwner) {
+    const names = list.slice(0, 3).map((m) => `“${m.title}”`).join(', ') + (list.length > 3 ? ` and ${list.length - 3} more` : '');
+    notify([owner], { kind: 'invite', title: `${roomName} was removed`, body: `${by.name} removed the room, so ${names} no longer ${list.length === 1 ? 'has' : 'have'} a room. Book another from the meeting.`, link: `/calendar?event=${list[0].id}` });
+  }
+  return byOwner.size;
+}
+
 export default function roomRoutes() {
   const r = Router();
   // Everything that's in some room of the company (to choose what a meeting needs), A to Z, each once.
@@ -401,16 +413,22 @@ export default function roomRoutes() {
     q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ?, admins_only = ?, check_in = ? WHERE id = ?').run(v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, v.check_in, room.id);
     res.json(outRoom(q(`${ROOM} WHERE id = ?`).get(room.id)));
   });
+  const upcomingMeetings = (roomId) => q(`SELECT e.id, e.title, e.owner_id, e.start FROM event_rooms er JOIN events e ON e.id = er.event_id
+    WHERE er.room_id = ? AND er.status = 'yes' AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?))) ORDER BY e.start`).all(roomId, Date.now(), Date.now());
   // Meetings to come that have the room booked (asked before removing it: they'd lose it).
   const upcoming = (roomId) => q(`SELECT COUNT(*) AS n FROM event_rooms er JOIN events e ON e.id = er.event_id
     WHERE er.room_id = ? AND er.status = 'yes' AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).get(roomId, Date.now(), Date.now()).n;
   r.get('/:id/upcoming', (req, res) => { admin(req); res.json({ meetings: upcoming(own(req).id) }); });
   // Removed rooms can be put back (Undo), with their bookings (recyclebin.js).
+  // Their organisers are told, once the moment to Undo has passed (and only if it wasn't undone).
   r.delete('/:id', (req, res) => {
     admin(req);
     const room = own(req);
     const meetings = upcoming(room.id);
-    res.json({ ok: true, meetings, bin_id: binAndDelete('room', room.id, { ownerId: req.user.id, name: room.name, by: req.user.id }) });
+    const lose = upcomingMeetings(room.id);
+    const binId = binAndDelete('room', room.id, { ownerId: req.user.id, name: room.name, by: req.user.id });
+    setTimeout(() => tellRoomRemoved(binId, room.name, lose, req.user), Number(process.env.ROOM_REMOVED_NOTICE_MS) || 15000).unref();
+    res.json({ ok: true, meetings, bin_id: binId });
   });
   r.post('/bin/:id/restore', (req, res) => {
     admin(req);
