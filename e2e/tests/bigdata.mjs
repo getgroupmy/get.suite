@@ -25,7 +25,7 @@ const many = (reqs) => page.evaluate(async (list) => {
     if (bad) throw new Error(`${bad.status} from ${bad.url}: ${await bad.text()}`);
   }
 }, reqs);
-let list;
+let list, general;
 
 await step('setup: a company with a lot in it', async () => {
   await page.goto(B);
@@ -46,6 +46,11 @@ await step('setup: a company with a lot in it', async () => {
   await many(Array.from({ length: 300 }, (_, i) => ['POST', '/notes', { title: `Note ${i}`, body: `Body of note ${i}` }]));
   const month = new Date(); month.setDate(1); month.setHours(9, 0, 0, 0);
   await many(Array.from({ length: 300 }, (_, i) => ['POST', '/events', { title: `Meeting ${i}`, start: month.getTime() + (i % 28) * 864e5 + (i % 8) * 3600e3, end: month.getTime() + (i % 28) * 864e5 + (i % 8) * 3600e3 + 1800e3 }]));
+  // A busy channel, a big address book, many lists.
+  general = (await api('GET', '/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  await many(Array.from({ length: 3000 }, (_, i) => ['POST', `/chat/channels/${general}/messages`, { body: `Message number ${i} about the quarterly plan` }]));
+  await many(Array.from({ length: 2000 }, (_, i) => ['POST', '/contacts', { name: `Contact ${String(i).padStart(4, '0')}`, email: `contact${i}@example.com` }]));
+  await many(Array.from({ length: 50 }, (_, i) => ['POST', '/tasks/lists', { name: `List ${i}` }]));
   // Notifications: a colleague shares files with Olivia.
   await api('POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
   const kim = await (await browser.newContext()).newPage();
@@ -74,7 +79,8 @@ await step('each app’s list answers within a second', async () => {
   const to = new Date(from); to.setMonth(to.getMonth() + 1);
   const ENDPOINTS = [['Drive', '/files?view=mine'], ['Drive recent', '/files?view=recent'], ['Drive shared with me', '/files?view=shared'], ['Drive search', '/files?view=search&q=Report%2012'],
     ['Tasks', `/tasks/lists/${list.id}/tasks`], ['Tasks lists', '/tasks/lists'], ['Notes', '/notes'], ['Calendar month', `/events?from=${from.getTime()}&to=${to.getTime()}`],
-    ['the bell', '/notifications'], ['Chat', '/chat/channels'], ['Home summary', '/files/suggested']];
+    ['the bell', '/notifications'], ['Chat', '/chat/channels'], ['Home summary', '/files/suggested'], ['Chat channel', `/chat/channels/${general}/messages`], ['Chat search', '/chat/search?q=quarterly'],
+    ['Contacts', '/contacts'], ['everything search', '/tasks/search?q=Task%2099']];
   const slow = [];
   for (const [name, url] of ENDPOINTS) {
     let worst = 0, status = 0;
@@ -92,7 +98,8 @@ await step('each app’s list answers within a second', async () => {
 await step('the screens show it: Drive, the list, Notes, the month, the bell', async () => {
   const shown = [];
   for (const [name, path, ready] of [['Drive', '/drive', () => page.getByText('Report 0000').first()], ['Tasks', `/tasks/${list.id}`, () => page.getByText('Task 0', { exact: true }).first()],
-    ['Notes', '/notes', () => page.getByText('Note 299', { exact: true }).first()], ['Calendar', '/calendar', () => page.getByText(/Meeting \d+/).first()], ['Home', '/home', () => page.getByRole('heading', { level: 1 })]]) {
+    ['Notes', '/notes', () => page.getByText('Note 299', { exact: true }).first()], ['Calendar', '/calendar', () => page.getByText(/Meeting \d+/).first()], ['Home', '/home', () => page.getByRole('heading', { level: 1 })],
+    ['Chat', `/chat/${general}`, () => page.getByText('Message number 2999 about the quarterly plan')], ['Contacts', '/contacts', () => page.getByText('Contact 0000').first()]]) {
     const t = Date.now();
     await page.goto(`${B}${path}`);
     await ready().waitFor({ timeout: 15000 });
