@@ -446,7 +446,8 @@ export async function sheetFromOds(buffer) {
     for (const row of rowEls) {
       const rep = Number(row.attribs['table:number-rows-repeated']) || 1;
       const cellsIn = tags(row).filter((k) => k.name === 'table:table-cell' || k.name === 'table:covered-table-cell');
-      const empty = cellsIn.every((k) => !kids(k).length && !k.attribs['table:formula'] && k.attribs['office:value-type'] === undefined);
+      // (Empty rows still count when a cell has a dropdown: LibreOffice writes a dropdown's empty rows as one repeated row.)
+      const empty = cellsIn.every((k) => !kids(k).length && !k.attribs['table:formula'] && k.attribs['office:value-type'] === undefined && !k.attribs['table:content-validation-name']);
       if (empty && rep > 1) { r += rep; if (r > 100000) break; continue; } // the rest of the sheet, empty
       const rst = styles.get(row.attribs['table:style-name']);
       for (let i = 0; i < Math.min(rep, 1000) && r <= 100000; i++, r++) {
@@ -466,7 +467,7 @@ export async function sheetFromOds(buffer) {
             const type = cell.attribs['office:value-type'];
             const formula = cell.attribs['table:formula'];
             let v = null;
-            if (formula) v = formulaFromOds(formula);
+            if (formula) { v = formulaFromOds(formula); if (/^=(TRUE|FALSE)$/i.test(v)) v = v.slice(1).toUpperCase(); } // (=TRUE(): LibreOffice's way of saving a TRUE cell)
             else if (type === 'float' || type === 'percentage' || type === 'currency') v = String(Number(cell.attribs['office:value']));
             else if (type === 'boolean') v = cell.attribs['office:boolean-value'] === 'true' ? 'TRUE' : 'FALSE';
             else if (type === 'date') v = String(cell.attribs['office:date-value'] || '').slice(0, 10);

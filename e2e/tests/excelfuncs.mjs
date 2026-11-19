@@ -151,6 +151,21 @@ await step('an .odt shaped as LibreOffice saves one (Word’s Quote and Code sty
   await page.goto(`${B}/sheets/${sheetId}`);
   await cell('A1').waitFor();
 });
+await step('an Excel file from LibreOffice (TRUE and FALSE saved as =TRUE()) opens with the values, not formulas', async () => {
+  const ExcelJS = (await import(`${ROOT}/server/node_modules/exceljs/excel.js`)).default;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Sheet1');
+  ws.getCell('A1').value = 'Paid'; ws.getCell('A2').value = { formula: 'TRUE()', result: true }; ws.getCell('A3').value = { formula: 'FALSE()', result: false };
+  const up = await page.request.post(`${B}/api/files/upload?name=${encodeURIComponent('From Calc.xlsx')}`, { headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/octet-stream' }, data: Buffer.from(await wb.xlsx.writeBuffer()) });
+  const made = await api(page, 'POST', `/files/${(await up.json()).id}/open-as`);
+  await page.goto(`${B}/sheets/${made.body.id}`);
+  await until(async () => (await cell('A2').innerText()) === 'TRUE' && (await cell('A3').innerText()) === 'FALSE');
+  await cell('A2').click();
+  const bar = await page.getByLabel('Formula bar').inputValue().catch(async () => page.locator('.formula-bar input, [aria-label*="ormula"]').first().inputValue());
+  if (bar.startsWith('=')) throw new Error(`A2 holds ${bar}`);
+  await page.goto(`${B}/sheets/${sheetId}`);
+  await cell('A1').waitFor();
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');

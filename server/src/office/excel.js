@@ -113,7 +113,10 @@ function cellText(cell) {
   const v = cell.value;
   if (v === null || v === undefined) return null;
   if (typeof v === 'object') {
-    if ('formula' in v || 'sharedFormula' in v) return `=${formulaFromExcel(v.formula || cell.formula)}`;
+    if ('formula' in v || 'sharedFormula' in v) {
+      const f = `=${formulaFromExcel(v.formula || cell.formula)}`;
+      return /^=(TRUE|FALSE)$/i.test(f) ? f.slice(1).toUpperCase() : f; // a tick-box value LibreOffice saves as =TRUE(): the value itself
+    }
     if (v instanceof Date) return v.toISOString().slice(0, 10);
     if (v.richText) return v.richText.map((r) => r.text).join('');
     if ('text' in v) return linkCell(v); // a link in the cell

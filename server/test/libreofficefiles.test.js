@@ -91,3 +91,33 @@ test('through LibreOffice: a document (quote, code, landscape, page numbers) sav
     assert.deepEqual(kinds((await docFromWord(fs.readFileSync(path.join(dir, 'w', 'd.docx')), {})).doc), ['blockquote', 'codeBlock']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+import ExcelJS from 'exceljs';
+import { excelFromSheet as xlOut, sheetFromExcel } from '../src/office/excel.js';
+import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
+
+test('a TRUE or FALSE cell LibreOffice saved as the formula TRUE() comes in as the value', async () => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('S');
+  ws.getCell('A1').value = { formula: 'TRUE()', result: true };
+  ws.getCell('A2').value = { formula: 'FALSE()', result: false };
+  ws.getCell('A3').value = { formula: 'NOT(FALSE())', result: true };
+  const back = (await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()))).sheets[0].cells;
+  assert.deepEqual([back.A1, back.A2, back.A3], ['TRUE', 'FALSE', '=NOT(FALSE)'], 'a real formula stays one');
+});
+
+test('through LibreOffice: tick boxes stay values and dropdowns keep their whole range (.xlsx and .ods)', { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-losheet-'));
+  try {
+    const data = { sheets: [{ name: 'Tracker', cells: { A1: 'Status', B1: 'Paid', A2: 'Open', B2: 'TRUE', A3: 'Done', B3: 'FALSE' },
+      validations: [{ id: 'v', range: 'A2:A9', type: 'list', values: ['Open', 'Done'], strict: true }, { id: 'w', range: 'B2:B9', type: 'checkbox' }] }] };
+    fs.writeFileSync(path.join(dir, 'ours.ods'), await odsFromSheet(data));
+    fs.writeFileSync(path.join(dir, 'ours.xlsx'), await xlOut(data));
+    execFileSync('soffice', ['--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'o'), path.join(dir, 'ours.ods')], { stdio: 'ignore', timeout: 120000 });
+    execFileSync('soffice', ['--headless', '--convert-to', 'xlsx:Calc MS Excel 2007 XML', '--outdir', path.join(dir, 'x'), path.join(dir, 'ours.xlsx')], { stdio: 'ignore', timeout: 120000 });
+    for (const back of [(await sheetFromOds(fs.readFileSync(path.join(dir, 'o', 'ours.ods')))).sheets[0], (await sheetFromExcel(fs.readFileSync(path.join(dir, 'x', 'ours.xlsx')))).sheets[0]]) {
+      assert.deepEqual([back.cells.B2, back.cells.B3], ['TRUE', 'FALSE']);
+      assert.deepEqual(back.validations.map((v) => v.range).sort(), ['A2:A9', 'B2:B9']);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
