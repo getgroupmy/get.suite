@@ -105,3 +105,18 @@ test('a short day name before a time is that day: "lunch fri 1pm"', async () => 
   assert.equal(p('Wed 2-3pm planning', { today: '2026-11-19' }).title, 'planning');
   assert.equal(p('sat with Kim 3pm', { today: '2026-11-19' }).title, 'sat with Kim', 'not before a time: as typed');
 });
+
+test('mixed weekdays of the month: "the first Monday and the third Tuesday" (events only; tasks keep one weekday)', async () => {
+  const { parseQuickEvent: p } = await import('./quickevent.js');
+  const { parseQuickAdd, monthlyWeekdaysIn } = await import('../tasks/quickadd.js');
+  const day = (r) => { const d = new Date(r.start); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const a = p('Board the first Monday and the third Tuesday 6pm', { today: '2026-11-19' });
+  assert.deepEqual([a.title, a.rrule, day(a)], ['Board', { freq: 'monthly', mdays: [[1, 1], [3, 2]] }, '2026-12-7 18:00'], 'the next one: the third Tuesday of November (17th) has gone, so the first Monday of December');
+  const b = p('Rota first and third Monday and last Friday 9am', { today: '2026-11-03' });
+  assert.deepEqual([b.title, b.rrule, day(b)], ['Rota', { freq: 'monthly', mdays: [[1, 1], [3, 1], [-1, 5]] }, '2026-11-16 9:00']);
+  // Still one weekday: the same rule as before.
+  assert.deepEqual(p('Committee every first and third Monday 6pm', { today: '2026-11-19' }).rrule, { freq: 'monthly', nths: [1, 3], wd: 1 });
+  // A task's repeat can't mix weekdays: not taken as a repeat there.
+  assert.equal(monthlyWeekdaysIn('Pay first Monday and third Tuesday'), null);
+  assert.equal(parseQuickAdd('Pay first Monday and third Tuesday', { today: '2026-11-19' }).repeat ?? null, null);
+});

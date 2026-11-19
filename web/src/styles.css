@@ -748,6 +748,9 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .repeat-box { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; gap: 10px; }
 .repeat-box .check input[type="date"], .repeat-box .check input[type="number"] { margin-left: 6px; }
 .weekdays { display: flex; gap: 6px; }
+.month-days { border-collapse: collapse; }
+.month-days th, .month-days td { padding: 2px 6px; text-align: center; font-weight: normal; }
+.month-days th[scope="row"] { text-align: left; color: var(--muted); }
 .weekdays .wd { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 .weekdays .wd.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .chip .rep { opacity: .7; }
@@ -3309,7 +3312,7 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 
 /* The bell: who did it, with what kind of thing in a corner. */
 .bell-who { position: relative; display: inline-flex; flex: none; }
-.bell-who .bell-kind { position: absolute; right: -4px; bottom: -4px; background: var(--surface, #fff); border-radius: 50%; padding: 1px; color: var(--muted, #5f6368); }
+.bell-who .bell-kind { position: absolute; right: -4px; bottom: -4px; background: var(--surface, #fff); border-radius: 50%; padding: 1px; color: var(--muted); }
 
 /* A notification's own buttons (unread/read, remove): over its time on hover or focus; always on touch screens. */
 .bell-panel li { position: relative; }

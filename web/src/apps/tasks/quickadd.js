@@ -65,15 +65,28 @@ const ORD_WORD = '(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)';
  * Weeks of the month: "every first and third Monday", "on the 2nd and 4th Tue", "the last Friday of the month"
  * → { rule: { freq: 'monthly', nth | nths, wd }, text without it }, or null.
  */
-export function monthlyWeekdaysIn(text) {
-  const re = new RegExp(`\\s(?:every|each|on)?\\s*(?:the\\s+)?(${ORD_WORD}(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?${ORD_WORD})*)\\s+(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)[a-z]*(?:\\s+(?:of\\s+)?(?:the|each|every)\\s+month)?(?=[\\s,.]|$)`, 'i');
+export function monthlyWeekdaysIn(text, { mixed = false } = {}) {
+  // One or more "first and third Monday" groups ("the first Monday and the third Tuesday" with `mixed`).
+  const ONE = `${ORD_WORD}(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?${ORD_WORD})*\\s+(?:sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)[a-z]*`;
+  const re = new RegExp(`\\s(?:every|each|on)?\\s*(?:the\\s+)?(${ONE}(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?${ONE})*)(?:\\s+(?:of\\s+)?(?:the|each|every)\\s+month)?(?=[\\s,.]|$)`, 'i');
   const m = re.exec(` ${text} `);
   if (!m) return null;
-  const nths = [...new Set(m[1].toLowerCase().split(/\s*(?:,|and|&)\s*(?:the\s+)?/).map((w) => ORD[w.trim()]).filter((k) => k !== undefined))]
-    .sort((a, b) => (a === -1) - (b === -1) || a - b);
-  const wd = WD[m[2].toLowerCase().replace(/^(thu)r?s?$/, '$1').slice(0, m[2].toLowerCase().startsWith('tue') ? 3 : 3)];
-  if (!nths.length || wd === undefined) return null;
-  const rule = nths.length === 1 ? { freq: 'monthly', nth: nths[0], wd } : { freq: 'monthly', nths, wd };
+  const pairs = [];
+  for (const g of m[1].matchAll(new RegExp(`(${ORD_WORD}(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?${ORD_WORD})*)\\s+(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)[a-z]*`, 'gi'))) {
+    const wd = WD[g[2].toLowerCase().replace(/^(thu)r?s?$/, '$1').slice(0, 3)];
+    const ks = g[1].toLowerCase().split(/\s*(?:,|and|&)\s*(?:the\s+)?/).map((w) => ORD[w.trim()]).filter((k) => k !== undefined);
+    if (wd === undefined || !ks.length) return null;
+    for (const k of ks) if (!pairs.some(([a, b]) => a === k && b === wd)) pairs.push([k, wd]);
+  }
+  if (!pairs.length) return null;
+  const byLast = (a, b) => (a === -1) - (b === -1) || a - b;
+  const wds = [...new Set(pairs.map((x) => x[1]))];
+  let rule;
+  if (wds.length > 1 && !mixed) return null; // a task's repeat has one weekday: rather than half of it, none
+  if (wds.length === 1) {
+    const nths = pairs.map((x) => x[0]).sort(byLast);
+    rule = nths.length === 1 ? { freq: 'monthly', nth: nths[0], wd: wds[0] } : { freq: 'monthly', nths, wd: wds[0] };
+  } else rule = { freq: 'monthly', mdays: pairs.sort((a, b) => a[1] - b[1] || byLast(a[0], b[0])) }; // the first Monday and the third Tuesday
   const t = ` ${text} `;
   return { rule, text: `${t.slice(0, m.index)} ${t.slice(m.index + m[0].length)}`.replace(/\s+/g, ' ').trim() };
 }
@@ -81,12 +94,11 @@ export function monthlyWeekdaysIn(text) {
 /** The first day on or after `fromIso` (YYYY-MM-DD) that `rule` (monthly on weeks of a weekday) falls on. */
 export function firstDayOf(rule, from) {
   const d = fromIso(from);
-  const nths = rule.nths || [rule.nth];
+  const pairs = rule.mdays || (rule.nths || [rule.nth]).map((k) => [k, rule.wd]);
   for (let i = 0; i < 400; i++) {
     const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i);
-    if (x.getDay() !== rule.wd) continue;
     const nth = Math.ceil(x.getDate() / 7), last = x.getDate() + 7 > new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
-    if (nths.includes(nth) || (last && nths.includes(-1))) return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    if (pairs.some(([k, wd]) => wd === x.getDay() && (k === nth || (k === -1 && last)))) return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
   }
   return from;
 }

@@ -126,8 +126,8 @@ export function parseQuickEvent(input, { today, minutes = 60, people = [], rooms
       s = `${s.slice(0, r.index)} ${s.slice(r.index + r[0].length)}`;
     }
   }
-  // Weeks of the month: "every first and third Monday" (starting on the next one, unless a day is given).
-  const weeks = monthlyWeekdaysIn(s);
+  // Weeks of the month: "every first and third Monday", "the first Monday and third Tuesday" (starting on the next one, unless a day is given).
+  const weeks = monthlyWeekdaysIn(s, { mixed: true }); // the first Monday and the third Tuesday too (tasks can't repeat so)
   if (weeks) s = ` ${weeks.text} `;
   // A placeholder word, so a line that is only a day and time ("tomorrow 3pm") isn't kept as typed.
   const q = parseQuickAdd(`${s} \u2042 `, { today, datesOnly: true });
