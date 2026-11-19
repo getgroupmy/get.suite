@@ -65,13 +65,16 @@ function collect(table, column, values, out, seen) {
 }
 
 /** Delete a task list or form, keeping a copy to restore. Returns the bin entry's id. */
-export function binAndDelete(kind, itemId, { ownerId, name, by }) {
+// `extra`: rows tied to it without a foreign key (a task's history, by task id): [{ table, column, values }].
+export function binAndDelete(kind, itemId, { ownerId, name, by, extra = [] }) {
   const table = TABLES[kind];
   if (!table) throw new Error(`Unknown kind ${kind}`);
   const out = { rows: [], relinks: [] };
   const id = uid();
   tx(() => {
-    collect(table, 'id', [itemId], out, new Set());
+    const seen = new Set();
+    collect(table, 'id', [itemId], out, seen);
+    for (const x of extra) collect(x.table, x.column, x.values, out, seen);
     q('INSERT INTO recycle_bin (id, kind, item_id, owner_id, name, deleted_by, deleted_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, kind, itemId, ownerId, String(name || '').slice(0, 300), by || null, Date.now(), JSON.stringify(out));
     q(`DELETE FROM ${table} WHERE id = ?`).run(itemId);

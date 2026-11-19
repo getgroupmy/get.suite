@@ -547,7 +547,9 @@ export default function taskRoutes() {
     let bin = null;
     // Deleted lists can be put back for 30 days (recyclebin.js).
     if (list.owner_id === req.user.id) {
-      bin = binAndDelete('task_list', list.id, { ownerId: req.user.id, name: list.name, by: req.user.id }); forgetGoneHistory();
+      // (with its tasks' history, which is kept by task, not by list)
+      const taskIds = q('SELECT id FROM tasks WHERE list_id = ?').all(list.id).map((t) => t.id);
+      bin = binAndDelete('task_list', list.id, { ownerId: req.user.id, name: list.name, by: req.user.id, extra: [{ table: 'task_history', column: 'task_id', values: taskIds }] }); forgetGoneHistory();
       // The people it was shared with are told (unless it's undone straight away).
       noticeAfterUndo(bin, before.filter((id) => id !== req.user.id), { kind: 'task', title: `${req.user.name} deleted the list “${list.name}”`, body: 'Its tasks are gone for you too. They can put it back from Recently deleted in Tasks for 30 days.', actor: req.user.name });
     }

@@ -235,3 +235,15 @@ test('Download your data includes what’s in Recently deleted, with what it hel
   assert.ok(it.contents.tasks.some((t) => t.title === 'Brief the agency'));
   assert.match(await zip.file('README.txt').async('string'), /Recently deleted\.json/);
 });
+
+test('a list put back keeps its tasks’ history (who changed what)', async () => {
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Audit trail' })).body;
+  const t = (await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'File the report' })).body;
+  await olivia('PATCH', `/api/tasks/tasks/${t.id}`, { title: 'File the annual report' });
+  const hist = async () => JSON.stringify((await olivia('GET', `/api/tasks/tasks/${t.id}/history`)).body);
+  const before = await hist();
+  assert.match(before, /annual report/);
+  const del = await olivia('DELETE', `/api/tasks/lists/${list.id}`);
+  assert.equal((await olivia('POST', `/api/tasks/bin/${del.body.bin_id}/restore`)).status, 200);
+  assert.equal(await hist(), before);
+});
