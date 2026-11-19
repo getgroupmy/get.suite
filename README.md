@@ -123,6 +123,8 @@ Pictures in documents and presentations can be given **Alt text** for screen rea
 
 **Slow connections:** pressing **Save** (or **Create**) again while the first press is still on its way makes no second one: a new folder, contact, event, task list, channel, booking page, form, comment, user (in Admin) or chat message is made once, and an email is sent once (a contact, an event, a booking page, a form and a comment used to be made twice; a contact's and an event's Save now shows *Saving…* meanwhile). Searching as you type keeps the results for what you typed last, even when an earlier search answers later (it used to be able to replace them in Drive's file picker, *From Drive*, and in address suggestions when writing).
 
+**When saving fails:** if the server can't save something (it answers with an error), what you wrote isn't lost: a comment, a chat message, a task, a new event or contact stays where you wrote it, with the error shown, to try again.
+
 **A lot of data:** a company with 1,500 files, 1,000 tasks on one list (and 50 lists), 300 notes, 300 events in a month, a channel with 3,000 messages, 2,000 contacts, an Inbox of 5,000 emails and a full bell is checked too: each app's list answers within a second (in the tests, all under 40 ms; in Mail, a page of the Inbox about 20 ms, searching 5,000 emails under 0.1 s) and its screen shows it (all under a quarter of a second).
 
 **Links lead somewhere:** an address Workspace doesn't know opens Drive, so a broken link wouldn't show as an error; the tests open every in-app link on each app's main screen and Admin's pages and check it lands where it says, and check every link the server puts in notifications against the pages the app has.
