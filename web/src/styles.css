@@ -3369,3 +3369,5 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* A grid tile's ⋮ menu, in its top right corner: placed by its wrapper (the button was placed against a wrapper with no width at the tile's left, out of the tile and cut off). */
 .file-tile > .menu-wrap { position: absolute; top: 4px; right: 4px; z-index: 1; }
 .file-tile > .menu-wrap > .tile-menu { position: static; }
+/* On a touch screen there's no pointing at a note: its ✓ (to select several) shows faintly all the time. */
+@media (hover: none) { .note-select { opacity: 0.45; } }
