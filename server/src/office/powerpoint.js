@@ -269,6 +269,24 @@ async function withGradients(buffer, deck, theme) {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/** Tables whose first row is a heading say so (firstRow="1"), as PowerPoint's own do: PptxGenJS leaves it out, so other
+ *  programs (LibreOffice) lost the heading row (the bold, coloured first row stayed, but not as a heading). */
+async function withTableHeaders(buffer, deck) {
+  const slides = deck.slides || [];
+  if (!slides.some((s) => (s.items || []).some((it) => it.type === 'table' && it.header))) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  for (let i = 0; i < slides.length; i++) {
+    const tables = (slides[i].items || []).filter((it) => it.type === 'table' && it.cells?.length);
+    if (!tables.some((t) => t.header)) continue;
+    const file = `ppt/slides/slide${i + 1}.xml`;
+    const xml = await zip.file(file)?.async('string');
+    if (!xml) continue;
+    let n = 0;
+    zip.file(file, xml.replace(/<a:tblPr\/>/g, (m) => (tables[n++]?.header ? '<a:tblPr firstRow="1" bandRow="1"/>' : m)));
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 async function withShowSettings(buffer, deck, emitted = new Map()) {
   const slides = deck.slides || [];
   if (!deck.loop && !slides.some((s) => s.transition || s.advance || (s.items || []).some((it) => it.anim))) return buffer;
@@ -772,5 +790,5 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     }
     if (withMaster && master.footer) slide.addText(master.footer, { x: Win * (master.logo && master.corner === 'bl' ? 0.18 : 0.025), y: Hin - 0.55, w: Win * 0.6, h: 0.35, fontSize: 11, color: color('text', theme.text), fontFace: FONT, transparency: 30, valign: 'middle', margin: 0 });
   }
-  return withGradients(await withSlideComments(await withGroups(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck, emitted), deck, emitted, { Win, Hin }), deck, comments), deck, theme);
+  return withGradients(await withSlideComments(await withGroups(await withShowSettings(await withTableHeaders(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck), deck, emitted), deck, emitted, { Win, Hin }), deck, comments), deck, theme);
 }

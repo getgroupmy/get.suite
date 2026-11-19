@@ -161,6 +161,39 @@ await step('a chart on a slide goes out as a real chart and comes back as one, d
   await page.getByText('Quarterly sales').first().waitFor();
   await page.screenshot({ path: `${SP}/shots/odp-chart.png` });
 });
+await step('saved again by LibreOffice, a table keeps its heading row, a picture its alt text, and links still go where they went', async () => {
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { console.log('(LibreOffice is not installed here: step skipped)'); return; }
+  const fs = await import('node:fs'); const path = await import('node:path');
+  const png = await page.evaluate(async () => { const b = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0)); return (await fetch('/api/files/upload?name=dot.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'image/png' }, body: b })).json(); });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Price list', content: { theme: 'light', slides: [
+    { id: 'a', items: [{ id: 't', type: 'text', x: 10, y: 10, w: 60, h: 12, text: 'Our shop', link: { url: 'https://acme.example' } }, { id: 'e', type: 'shape', shape: 'ellipse', x: 75, y: 10, w: 10, h: 15, fill: '#4285f4', link: { slide: 'b' } }, { id: 'i', type: 'image', fileId: png.id, x: 10, y: 40, w: 20, h: 30, alt: 'Shop front' }] },
+    { id: 'b', items: [{ id: 'tb', type: 'table', header: true, x: 10, y: 10, w: 60, h: 30, cells: [['Item', 'Price'], ['Pens', '2']] }] },
+  ] } })).body;
+  const out = await page.evaluate(async (id) => btoa(String.fromCharCode(...new Uint8Array(await (await fetch(`/api/files/${id}/export?format=odp`)).arrayBuffer()))), d.id);
+  const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+  fs.writeFileSync(path.join(dir, 'Prices.odp'), Buffer.from(out, 'base64'));
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odp', '--outdir', path.join(dir, 'out'), path.join(dir, 'Prices.odp')], { stdio: 'ignore', timeout: 120000 });
+  const bytes = fs.readFileSync(path.join(dir, 'out', 'Prices.odp')).toString('base64');
+  fs.rmSync(dir, { recursive: true, force: true });
+  await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch('/api/files/upload?name=Prices%20(LibreOffice).odp', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, bytes);
+  await page.goto(`${B}/drive`);
+  await page.getByText('Prices (LibreOffice).odp').dblclick();
+  const pv = page.getByRole('dialog').filter({ hasText: 'Prices (LibreOffice).odp' });
+  await pv.getByRole('button', { name: 'Open as presentation' }).click({ timeout: 20000 });
+  await page.waitForURL(/\/slides\//);
+  await page.getByText('Our shop').first().waitFor();
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const [a, b] = (await api(page, 'GET', `/files/${id}/content`)).body.content.slides;
+  const got = JSON.stringify({
+    link: a.items.find((it) => it.text === 'Our shop')?.link?.url?.replace(/\/$/, ''),
+    toSlide: a.items.find((it) => it.shape === 'ellipse')?.link?.slide === b.id,
+    alt: a.items.find((it) => it.type === 'image')?.alt,
+    header: b.items.find((it) => it.type === 'table')?.header,
+  });
+  if (got !== JSON.stringify({ link: 'https://acme.example', toSlide: true, alt: 'Shop front', header: true })) throw new Error(got);
+  await page.screenshot({ path: `${SP}/shots/odp-lo-kept.png` });
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -200,11 +200,11 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
         const cols = Math.max(...rows.map((r) => r.length));
         const plain = graphic(it, {});
         const caption = it.type === 'chart' && it.title ? `<draw:frame draw:style-name="${plain}" ${place({ ...it, h: Math.min(it.h, 8) })}><draw:text-box>${paras(`📊 ${it.title}`, textStyle({ size: 20, bold: true }, theme.text, 20), ps)}</draw:text-box></draw:frame>` : '';
-        items += `${caption}<draw:frame draw:style-name="${plain}" ${place(it.type === 'chart' && it.title ? { ...it, y: it.y + 8, h: Math.max(4, it.h - 8) } : it)}><table:table${head ? ' table:use-first-row-styles="true"' : ''}><table:table-column table:number-columns-repeated="${cols}"/>${rows.map((r, ri) => `<table:table-row>${Array.from({ length: cols }, (_, ci) => `<table:table-cell table:style-name="${head && ri === 0 ? headCell : cell}" office:value-type="string">${paras(r[ci] ?? '', head && ri === 0 ? hs : ts, ps)}</table:table-cell>`).join('')}</table:table-row>`).join('')}</table:table></draw:frame>`;
+        items += `${caption}<draw:frame draw:style-name="${plain}" ${place(it.type === 'chart' && it.title ? { ...it, y: it.y + 8, h: Math.max(4, it.h - 8) } : it)}><table:table${head ? ' table:template-name="default" table:use-first-row-styles="true"' : ''}><table:table-column table:number-columns-repeated="${cols}"/>${rows.map((r, ri) => `<table:table-row>${Array.from({ length: cols }, (_, ci) => `<table:table-cell table:style-name="${head && ri === 0 ? headCell : cell}" office:value-type="string">${paras(r[ci] ?? '', head && ri === 0 ? hs : ts, ps)}</table:table-cell>`).join('')}</table:table-row>`).join('')}</table:table></draw:frame>`;
       } else if (it.type === 'image') {
         const p = await picture(it.fileId);
         if (!p) continue;
-        const img = `<draw:frame draw:style-name="${graphic(it, {})}" ${place(it)}><draw:image xlink:href="${p}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>${it.alt ? `<svg:title>${x(it.alt)}</svg:title>` : ''}</draw:frame>`;
+        const img = `<draw:frame draw:style-name="${graphic(it, {})}" ${place(it)}><draw:image xlink:href="${p}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>${it.alt ? `<svg:title>${x(it.alt)}</svg:title><svg:desc>${x(it.alt)}</svg:desc>` : ''}</draw:frame>`;
         items += href ? `<draw:a xlink:type="simple" xlink:href="${x(href)}">${img}</draw:a>` : img;
       } else if (it.type === 'video' || it.type === 'audio') {
         items += `<draw:frame draw:style-name="${graphic(it, { fill: '#f1f3f4', valign: 'middle' })}" ${place(it)}><draw:text-box>${paras(`${it.type === 'audio' ? '🔊' : '▶'} ${it.name || (it.type === 'audio' ? 'Sound' : 'Video')}`, textStyle({ size: 18, color: '#5f6368' }, '#5f6368', 18), paraStyle('center'))}</draw:text-box></draw:frame>`;
@@ -338,6 +338,12 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     const al = { center: 'center', end: 'right', right: 'right', justify: 'justify' }[look(p?.attribs['text:style-name'], 'p')['fo:text-align']];
     return { size: sizeOf(pt, pw), ...(/bold|[6-9]00/.test(t['fo:font-weight'] || '') && { bold: true }), ...(t['fo:font-style'] === 'italic' && { italic: true }), ...(hex(t['fo:color']) && { color: hex(t['fo:color']) }), ...(al && { align: al }) };
   };
+  // A table whose first row is all bold (and the rest isn't): a heading row, as LibreOffice turns a PowerPoint table's into.
+  const boldFirstRow = (tbl) => {
+    const rows = tags(tbl, 'table:table-row');
+    const bold = (row) => { const cells = tags(row, 'table:table-cell').filter((c) => textOf(c).trim()); return cells.length > 0 && cells.every((c) => textLook(c, 18).bold); };
+    return rows.length > 1 && bold(rows[0]) && !bold(rows[1]);
+  };
   const linkIn = (el) => { const a = (function find(n) { for (const k of tags(n)) { if (k.name === 'text:a' || k.name === 'draw:a') return k; const f = find(k); if (f) return f; } return null; })(el); const h = a?.attribs['xlink:href']; return h && /^(https?:|mailto:)/i.test(h) ? { url: h } : null; };
   const paraText = (el) => tags(el).filter((k) => k.name === 'text:p' || k.name === 'text:h' || k.name === 'text:list').map((k) => (k.name === 'text:list' ? tags(k, 'text:list-item').map((li) => paraText(li)).join('\n') : textOf(k))).join('\n');
   const fillOf = (g) => (g['draw:fill'] === 'solid' || (g['draw:fill'] === undefined && g['draw:fill-color']) ? hex(g['draw:fill-color']) : null);
@@ -378,7 +384,18 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
         if (el.name === 'draw:a') { await walk(tags(el), el.attribs['xlink:href']); return; }
         if (el.attribs?.['presentation:placeholder'] === 'true' && !textOf(el).trim()) return; // an empty placeholder (Impress marks some with text in them too)
         const g = look(el.attribs?.['draw:style-name'] || el.attribs?.['presentation:style-name'], 'g');
-        const lk = link && /^(https?:|mailto:)/i.test(link) ? { link: { url: link } } : link?.startsWith('#') ? { link: { pageName: link.slice(1) } } : {};
+        // Its link: a <draw:a> round it (ours), else a click action (LibreOffice's: go to a slide, or a web page), else one
+        // link that is all of its text.
+        let own = link;
+        if (!own) {
+          const ev = tags(tags(el, 'office:event-listeners')[0] || { children: [] }, 'presentation:event-listener')[0];
+          if (ev && ['show', 'previous-page', 'next-page'].includes(ev.attribs['presentation:action'] || 'show')) own = ev.attribs['xlink:href'];
+        }
+        if (!own) {
+          const all = (function find(n, out = []) { for (const k of tags(n)) { if (k.name === 'text:a') out.push(k); else find(k, out); } return out; })(el);
+          if (all.length === 1 && textOf(all[0]).trim() && textOf(all[0]).trim() === textOf(el).trim()) own = all[0].attribs['xlink:href'];
+        }
+        const lk = own && /^(https?:|mailto:)/i.test(own) ? { link: { url: own } } : own?.startsWith('#') ? { link: { pageName: own.slice(1) } } : {};
         if (el.name === 'draw:frame') {
           // A chart object carrying its figures (what the download writes, and Impress's own charts): a chart.
           const objHref = String(tags(el, 'draw:object')[0]?.attribs['xlink:href'] || '').replace(/^\.\//, '').replace(/\/$/, '');
@@ -393,7 +410,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
           if (tbl) { // (Impress adds a picture of the table as well: the table is what counts)
             const rows = [];
             (function rws(n) { for (const k of tags(n)) { if (k.name === 'table:table-row') rows.push(tags(k).filter((c) => c.name === 'table:table-cell').map((c) => paraText(c))); else if (/^table:table-(header-)?rows$/.test(k.name)) rws(k); } })(tbl);
-            if (rows.length) slide.items.push({ id: fresh(), type: 'table', ...boxOf(el), cells: rows.slice(0, 30).map((r) => r.slice(0, 12)), ...(tbl.attribs['table:use-first-row-styles'] === 'true' && { header: true }), size: textLook(tags(tags(tbl, 'table:table-row')[0], 'table:table-cell')[0] || {}, 18).size });
+            if (rows.length) slide.items.push({ id: fresh(), type: 'table', ...boxOf(el), cells: rows.slice(0, 30).map((r) => r.slice(0, 12)), ...((tbl.attribs['table:use-first-row-styles'] === 'true' || boldFirstRow(tbl)) && { header: true }), size: textLook(tags(tags(tbl, 'table:table-row')[0], 'table:table-cell')[0] || {}, 18).size });
           } else if (img) { const id = await pictureFor(img.attribs['xlink:href']); if (id) slide.items.push({ id: fresh(), type: 'image', ...boxOf(el), fileId: id, ...(alt && { alt }), ...lk }); }
           else if (box) {
             const text = paraText(box);

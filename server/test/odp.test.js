@@ -39,7 +39,8 @@ test('.odp out: slides LibreOffice opens, with notes, a hidden slide, turned sha
   assert.match(xml, /presentation:visibility="hidden"/);
   assert.match(xml, /draw:fill-color="#112233"/);
   assert.match(xml, /<presentation:notes>.*presentation:class="notes".*<text:p>Say hello<\/text:p><text:p>Then pause<\/text:p>/);
-  assert.match(xml, /<table:table table:use-first-row-styles="true">/);
+  assert.match(xml, /<table:table table:template-name="default" table:use-first-row-styles="true">/, 'LibreOffice drops the heading-row flag from a table with no template');
+  assert.match(xml, /<svg:title>A dot<\/svg:title><svg:desc>A dot<\/svg:desc>/, 'the description is what LibreOffice keeps as alt text');
   assert.match(xml, /<draw:frame [^>]*><draw:object xlink:href="\.\/Object 1" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"\/><\/draw:frame>/, 'a chart as a chart object');
   const obj = await zip.file('Object 1/content.xml').async('string');
   assert.match(obj, /<chart:chart chart:class="chart:bar"[^>]*><chart:title><text:p>Sales<\/text:p><\/chart:title>/);
@@ -276,5 +277,53 @@ test('.odp: a slide\'s chart as a chart object carrying its figures, every kind,
     assert.deepEqual(show(await deckFromOdp(lo('d.odp', 'odp', 'a'))), show(deck2), 'opened and saved by LibreOffice: real charts there');
     // As .pptx (a scatter chart's across-axis is numbers there: 1, 2, 3)
     assert.deepEqual(show(await deckFromPowerPoint(lo('d.odp', 'pptx', 'b'), { savePicture: async () => 'x' })), show(deck2, { scatterNumbers: true }), 'and saved by it as .pptx');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('.odp in: what LibreOffice writes for links, a heading row and alt text', async () => {
+  const NS = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:script="urn:oasis:names:tc:opendocument:xmlns:script:1.0" xmlns:office2="x"';
+  const zip = new JSZip();
+  zip.file('mimetype', ODP_MIME);
+  zip.file('content.xml', `<office:document-content ${NS}><office:automatic-styles><style:style style:name="B" style:family="text"><style:text-properties fo:font-weight="bold"/></style:style></office:automatic-styles><office:body><office:presentation>
+    <draw:page draw:name="One">
+      <draw:custom-shape svg:x="1cm" svg:y="1cm" svg:width="2cm" svg:height="2cm"><office:event-listeners><presentation:event-listener script:event-name="dom:click" presentation:action="show" xlink:href="#Two"/></office:event-listeners><draw:enhanced-geometry draw:type="ellipse"/></draw:custom-shape>
+      <draw:custom-shape svg:x="4cm" svg:y="1cm" svg:width="2cm" svg:height="2cm"><office:event-listeners><presentation:event-listener script:event-name="dom:click" presentation:action="show" xlink:href="https://acme.example/x"/></office:event-listeners><draw:enhanced-geometry draw:type="rectangle"/></draw:custom-shape>
+      <draw:frame svg:x="1cm" svg:y="5cm" svg:width="8cm" svg:height="2cm"><draw:text-box><text:p><text:a xlink:href="https://acme.example">The site</text:a></text:p></draw:text-box></draw:frame>
+      <draw:frame svg:x="1cm" svg:y="8cm" svg:width="8cm" svg:height="2cm"><draw:text-box><text:p>Read <text:a xlink:href="https://acme.example">this</text:a> first</text:p></draw:text-box></draw:frame>
+    </draw:page>
+    <draw:page draw:name="Two">
+      <draw:frame svg:x="1cm" svg:y="1cm" svg:width="10cm" svg:height="4cm"><table:table><table:table-row><table:table-cell><text:p><text:span text:style-name="B">Item</text:span></text:p></table:table-cell><table:table-cell><text:p><text:span text:style-name="B">Qty</text:span></text:p></table:table-cell></table:table-row><table:table-row><table:table-cell><text:p>Pens</text:p></table:table-cell><table:table-cell><text:p>4</text:p></table:table-cell></table:table-row></table:table></draw:frame>
+      <draw:frame svg:x="12cm" svg:y="1cm" svg:width="10cm" svg:height="4cm"><table:table><table:table-row><table:table-cell><text:p><text:span text:style-name="B">All</text:span></text:p></table:table-cell></table:table-row><table:table-row><table:table-cell><text:p><text:span text:style-name="B">Bold</text:span></text:p></table:table-cell></table:table-row></table:table></draw:frame>
+    </draw:page>
+  </office:presentation></office:body></office:document-content>`);
+  const back = await deckFromOdp(await zip.generateAsync({ type: 'nodebuffer' }));
+  const [one, two] = back.slides;
+  assert.deepEqual(one.items.map((it) => it.link), [{ slide: two.id }, { url: 'https://acme.example/x' }, { url: 'https://acme.example' }, { url: 'https://acme.example' }], 'a click that goes to a slide or a page; a link in a box\'s text links the box (Slides links whole boxes)');
+  assert.deepEqual(two.items.map((it) => it.header), [true, undefined], 'a bold first row over a plain one is a heading row; a table bold all through is not');
+});
+
+test('a table\'s heading row, alt text and links come back after LibreOffice saves the slides (.odp and .pptx both ways)', async (t) => {
+  const { powerPointFromDeck, deckFromPowerPoint } = await import('../src/office/powerpoint.js');
+  const pptx = await powerPointFromDeck(deck, { title: 'R', pictureData: async () => ({ data: PNG, mime: 'image/png' }) });
+  const pz = await JSZip.loadAsync(pptx);
+  assert.match(await pz.file('ppt/slides/slide2.xml').async('string'), /<a:tblPr firstRow="1" bandRow="1"\/>/, 'the heading row marked in .pptx');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  const look = (d) => { const [a, b] = d.slides; const by = (ty, pred = () => true) => a.items.find((it) => it.type === ty && pred(it)); return {
+    header: b.items.find((it) => it.type === 'table')?.header, alt: by('image')?.alt,
+    text: a.items.find((it) => it.text === 'See the site')?.link?.url?.replace(/\/$/, ''), shape: by('shape', (it) => it.shape === 'ellipse')?.link?.slide === b.id };
+  };
+  const want = { header: true, alt: 'A dot', text: 'https://acme.example', shape: true }; // LibreOffice may add a closing slash to the address
+  try {
+    fs.writeFileSync(path.join(dir, 'd.odp'), await odpFromDeck(deck, { title: 'R', pictureData: async () => ({ data: PNG, mime: 'image/png' }) }));
+    fs.writeFileSync(path.join(dir, 'p.pptx'), pptx);
+    const savePicture = async () => 'x';
+    assert.deepEqual(look(await deckFromOdp(lo('d.odp', 'odp', 'a'), { savePicture })), want, '.odp saved again as .odp');
+    assert.deepEqual(look(await deckFromPowerPoint(lo('d.odp', 'pptx', 'b'), { savePicture })), want, '.odp saved as .pptx');
+    assert.deepEqual(look(await deckFromOdp(lo('p.pptx', 'odp', 'c'), { savePicture })), want, '.pptx saved as .odp');
+    assert.deepEqual(look(await deckFromPowerPoint(lo('p.pptx', 'pptx', 'e'), { savePicture })), want, '.pptx saved again as .pptx');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
