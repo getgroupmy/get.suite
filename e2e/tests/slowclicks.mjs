@@ -88,6 +88,57 @@ await step('a new task list: Create twice makes one', async () => {
   const n = (lists.lists || lists).filter((l) => l.name === 'Twice list').length;
   if (n !== 1) found.push(`task list: ${n}`);
 });
+await step('a new channel: Create twice makes one', async () => {
+  await page.goto(`${B}/chat`);
+  await slow();
+  await page.getByRole('button', { name: 'New channel' }).click();
+  const dlg = page.getByRole('dialog', { name: 'New channel' });
+  await dlg.getByLabel('Channel name').fill('twice-channel');
+  await twice(dlg.getByRole('button', { name: 'Create' }));
+  await page.waitForTimeout(5000);
+  await fast();
+  const n = (await api('GET', '/chat/channels')).body.channels.filter((c) => c.name === 'twice-channel').length;
+  if (n !== 1) found.push(`channel: ${n}`);
+});
+await step('a new booking page: Create twice makes one', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'New booking page' }).click();
+  await dlg.getByLabel('Title').fill('Twice page');
+  await slow();
+  await twice(dlg.getByRole('button', { name: 'Create' }));
+  await page.waitForTimeout(5000);
+  await fast();
+  const n = (await api('GET', '/bookings')).body.filter((b) => b.title === 'Twice page').length;
+  if (n !== 1) found.push(`booking page: ${n}`);
+});
+await step('a new form: New form twice makes one', async () => {
+  await page.goto(`${B}/forms`);
+  const before = (await api('GET', '/forms')).body;
+  const count = (x) => (x.forms || x).length;
+  await slow();
+  await twice(page.getByRole('button', { name: 'New form' }));
+  await page.waitForTimeout(5000);
+  await fast();
+  const n = count((await api('GET', '/forms')).body) - count(before);
+  if (n !== 1) found.push(`form: ${n}`);
+});
+await step('a comment: Comment twice posts one', async () => {
+  const sheet = (await api('POST', '/files/new', { kind: 'sheet', name: 'Twice sheet', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'x' } }] } })).body;
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await page.locator('[data-k="B2"]').click();
+  await page.getByRole('button', { name: 'Add comment' }).click();
+  await page.getByText('On B2').waitFor();
+  await page.getByLabel('New comment').fill('Twice comment');
+  await slow();
+  await twice(page.getByRole('button', { name: 'Comment', exact: true }));
+  await page.waitForTimeout(5000);
+  await fast();
+  const all = (await api('GET', `/comments/${sheet.id}`)).body;
+  const n = (JSON.stringify(all).match(/"body":"Twice comment"/g) || []).length; // (threads and replies, however they're shaped)
+  if (n !== 1) found.push(`comment: ${n}`);
+});
 await step('one of each', async () => { if (found.length) throw new Error(found.join('; ')); });
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');

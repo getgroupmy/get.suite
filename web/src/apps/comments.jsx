@@ -101,11 +101,20 @@ export function CommentsPanel({ fileId, fileRole, threads, seenAt, onSeen, canEd
   useEffect(() => { if (pending) get('/users/directory').then(setPeople).catch(() => {}); }, [!!pending]); // eslint-disable-line react-hooks/exhaustive-deps
   const mentioned = [...new Set([...draft.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()))]
     .map((e) => people.find((p) => p.username === e)).filter(Boolean);
-  const send = async (body, extra) => {
-    const r = await post(`/comments/${fileId}`, { body, ...extra });
-    if (r.noAccess?.length) toast(`${r.noAccess.join(', ')} can't open this file, so they weren't told. Share it with them first.`, 'error');
-    else if (r.notified?.length) toast(`${r.notified.join(', ')} ${r.notified.length === 1 ? 'was' : 'were'} told by chat`);
-    return r.comment;
+  // The same comment sent again while the first is on its way (Comment or Reply pressed twice on a slow
+  // connection) is the first one, not a second.
+  const sending = useRef(new Map());
+  const send = (body, extra) => {
+    const key = JSON.stringify([body, extra?.thread_id || null, extra?.anchor || null]);
+    if (sending.current.has(key)) return sending.current.get(key);
+    const p = (async () => {
+      const r = await post(`/comments/${fileId}`, { body, ...extra });
+      if (r.noAccess?.length) toast(`${r.noAccess.join(', ')} can't open this file, so they weren't told. Share it with them first.`, 'error');
+      else if (r.notified?.length) toast(`${r.notified.join(', ')} ${r.notified.length === 1 ? 'was' : 'were'} told by chat`);
+      return r.comment;
+    })().finally(() => sending.current.delete(key));
+    sending.current.set(key, p);
+    return p;
   };
   const [onlyMine, setOnlyMine] = useState(false);
   // What's new is what came after you last looked before opening the panel; it stays marked while it's open,

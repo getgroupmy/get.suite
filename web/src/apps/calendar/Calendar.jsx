@@ -2273,13 +2273,17 @@ function BookingPagesDialog({ onClose }) {
   const load = () => get('/bookings').then(setPages).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const fresh = () => ({ title: 'Meeting', description: '', duration: 30, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, notice_hours: 4, days_ahead: 30, buffer_min: 0, max_per_day: 0, remind: true, questions: [], enabled: true });
+  // One save at a time: Create pressed again while the first is on its way makes no second page.
+  const saving = useRef(false);
   async function save(p) {
+    if (saving.current) return;
+    saving.current = true;
     try {
       const body = { ...p, tz: TZ, questions: (p.questions || []).filter((x) => x.label.trim()) }; // blank ones left out
       if (p.id) await patch(`/bookings/${p.id}`, body); else await post('/bookings', body);
       toast(p.id ? 'Booking page saved' : 'Booking page made: copy its link to share it');
       setEditing(null); load();
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (e) { toast(e.message, 'error'); } finally { saving.current = false; }
   }
   const copy = async (p) => { try { await navigator.clipboard.writeText(p.url); toast('Link copied'); } catch { toast(p.url); } };
   return (

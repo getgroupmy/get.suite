@@ -39,8 +39,12 @@ function FormList() {
     && (!find.trim() || f.title.toLowerCase().includes(find.trim().toLowerCase())));
   const [templates, setTemplates] = useState([]);
   useEffect(() => { get('/forms/templates').then(setTemplates).catch(() => {}); }, []);
+  // One new form per press: pressed again while the first is on its way, nothing more is made.
+  const creating = useRef(false);
   const create = async (template) => {
-    try { navigate(`/forms/${(await post('/forms', template ? { template } : { title: 'Untitled form' })).id}`); } catch (e) { toast(e.message, 'error'); }
+    if (creating.current) return;
+    creating.current = true;
+    try { navigate(`/forms/${(await post('/forms', template ? { template } : { title: 'Untitled form' })).id}`); } catch (e) { toast(e.message, 'error'); } finally { creating.current = false; }
   };
   return (
     <div className="page">
