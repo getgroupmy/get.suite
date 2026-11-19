@@ -21,6 +21,8 @@ const COLUMNS = {
   estimate: ['estimate (min)', 'estimate', 'minutes'],
   priority: ['priority'],
   repeat: ['repeat', 'repeats', 'recurrence', 'recurring', 'repeat rule'],
+  repeat_until: ['repeat until', 'repeats until', 'recurrence end', 'end repeat'],
+  assignee: ['assigned to', 'assignee', 'owner', 'responsible'],
 };
 
 // How a task repeats, as a download writes it ("weekly", "every:2:week:1,4", "monthweek:1,3:1") or in words.
@@ -79,7 +81,8 @@ export function tasksFromCsv(text) {
       ...((() => { const m = Math.round(Number(get(r, 'estimate'))); return m >= 1 && m <= 6000 ? { estimate: m } : {}; })()),
       ...((() => { const v = String(get(r, 'priority') || '').trim().toLowerCase(); const p = { high: 'high', h: 'high', 3: 'high', medium: 'medium', med: 'medium', m: 'medium', 2: 'medium', low: 'low', l: 'low', 1: 'low' }[v]; return p ? { priority: p } : {}; })()),
       ...(get(r, 'parent') && { parent: get(r, 'parent').slice(0, 500) }),
-      ...(due && repeatFrom(get(r, 'repeat')) && { repeat: repeatFrom(get(r, 'repeat')) }),
+      ...(due && repeatFrom(get(r, 'repeat')) && { repeat: repeatFrom(get(r, 'repeat')), ...(dateOf(get(r, 'repeat_until')) && { repeat_until: dateOf(get(r, 'repeat_until')) }) }),
+      ...(get(r, 'assignee') && { assignee: get(r, 'assignee').trim().slice(0, 200) }),
       tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')) || (/^\d/.test(status) && !!dateOf(status)), important: yes(get(r, 'important')), steps, // a date in Done: when it was done
     });
   }

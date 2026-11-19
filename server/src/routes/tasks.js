@@ -203,6 +203,7 @@ export function tasksTable(tasks) {
   if (tasks.some((t) => t.estimate)) table = table.map((r, i) => [...r.slice(0, 4), i ? (tasks[i - 1].estimate || '') : 'Estimate (min)', ...r.slice(4)]);
   // How it repeats, when any task does: after Start (as kept: weekly, every:2:week:1,4, monthweek:1,3:1).
   if (tasks.some((t) => t.repeat)) { const at = table[0].indexOf('Start') + 1; table = table.map((r, i) => [...r.slice(0, at), i ? (tasks[i - 1].repeat || '') : 'Repeat', ...r.slice(at)]); }
+  if (tasks.some((t) => t.repeat && t.repeat_until)) { const at = table[0].indexOf('Repeat') + 1; table = table.map((r, i) => [...r.slice(0, at), i ? (tasks[i - 1].repeat_until || '') : 'Repeat until', ...r.slice(at)]); }
   // Priority, when any task has one: after Important.
   if (tasks.some((t) => t.priority)) { const at = table[0].indexOf('Important') + 1; table = table.map((r, i) => [...r.slice(0, at), i ? (tasks[i - 1].priority ? tasks[i - 1].priority[0].toUpperCase() + tasks[i - 1].priority.slice(1) : '') : 'Priority', ...r.slice(at)]); }
   if (tasks.some((t) => t.section_name)) table = table.map((r, i) => [r[0], i ? tasks[i - 1].section_name || '' : 'Section', ...r.slice(1)]);
@@ -381,6 +382,8 @@ export function importTaskLists(user, body) {
 
 /** Adds the tasks read from a CSV (tasksFromCsv) to the end of a list, making the sections it names. Call inside tx(). */
 function addCsvTasks(list, found, user) {
+  const row = q('SELECT * FROM task_lists WHERE id = ?').get(list.id);
+  const people = row ? peopleOn(row).map((id) => q('SELECT id, name, username FROM users WHERE id = ?').get(id)).filter(Boolean) : [];
   let at = q('SELECT MAX(position) AS p FROM tasks WHERE list_id = ?').get(list.id).p ?? -1;
   const t = now();
   // Sections named in the file: the list's own (whatever the capitals), or new ones at the end.
@@ -400,7 +403,13 @@ function addCsvTasks(list, found, user) {
     if (x.section) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secId(x.section), tid);
     if (x.estimate) q('UPDATE tasks SET estimate = ? WHERE id = ?').run(x.estimate, tid);
     if (x.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(PRIORITY[x.priority], tid);
-    if (x.repeat && !x.done) q('UPDATE tasks SET repeat = ? WHERE id = ?').run(x.repeat, tid);
+    if (x.repeat && !x.done) q('UPDATE tasks SET repeat = ?, repeat_until = ? WHERE id = ?').run(x.repeat, x.repeat_until || null, tid);
+    // Assigned to: someone on the list, by name or address (a name nobody on the list has is left out).
+    if (x.assignee) {
+      const want = x.assignee.toLowerCase();
+      const who = people.find((p) => p.name?.toLowerCase() === want || p.username.toLowerCase() === want);
+      if (who) q('UPDATE tasks SET assignee_id = ? WHERE id = ?').run(who.id, tid);
+    }
   }
 }
 

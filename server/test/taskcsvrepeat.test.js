@@ -61,3 +61,23 @@ test('Repeat in words, from another app, is understood', async () => {
   const by = Object.fromEntries((tasks.tasks || tasks).map((t) => [t.title, t.repeat || null]));
   assert.deepEqual(by, { 'Stand-up': 'weekdays', Rent: 'monthly', 'No date': null, Odd: null }, 'a repeat needs a due date; unknown words are left out');
 });
+
+test('the rest of a task through CSV too: its repeat’s end, who it’s assigned to', async () => {
+  const kim = (await olivia('POST', '/api/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body;
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Shared' })).body;
+  await olivia('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [kim.id] });
+  const t = (await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Everything', due: '2026-11-02' })).body;
+  await olivia('PATCH', `/api/tasks/tasks/${t.id}`, { notes: 'Some notes', due_time: '09:30', start: '2026-10-30', assignee_id: kim.id, important: true, priority: 'high', tags: ['ops'], estimate: 45, repeat: 'weekly', repeat_until: '2027-01-31' });
+  const pick = (x) => { const a = (x.tasks || x)[0]; return [a.title, a.notes, a.due, a.due_time, a.start, a.assignee_id, a.important, a.priority, a.tags, a.estimate, a.repeat, a.repeat_until]; };
+  const before = pick((await olivia('GET', `/api/tasks/lists/${list.id}/tasks`)).body);
+  const csv = await (await fetch(`${base}/api/tasks/lists/${list.id}/export.csv`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).text();
+  assert.match(csv.split(/\r?\n/)[0], /Repeat,Repeat until/);
+  const copy = (await olivia('POST', '/api/tasks/lists', { name: 'Shared copy' })).body;
+  await olivia('PUT', `/api/tasks/lists/${copy.id}/members`, { user_ids: [kim.id] });
+  await fetch(`${base}/api/tasks/lists/${copy.id}/import`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'text/csv' }, body: csv });
+  assert.deepEqual(pick((await olivia('GET', `/api/tasks/lists/${copy.id}/tasks`)).body), before);
+  // on a list Kim isn't on, the task comes in unassigned
+  const mine = (await olivia('POST', '/api/tasks/lists', { name: 'Mine only' })).body;
+  await fetch(`${base}/api/tasks/lists/${mine.id}/import`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'text/csv' }, body: csv });
+  assert.equal(pick((await olivia('GET', `/api/tasks/lists/${mine.id}/tasks`)).body)[5], null);
+});
