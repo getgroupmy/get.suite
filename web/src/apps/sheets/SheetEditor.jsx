@@ -35,7 +35,7 @@ import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
 import { rowTops, rowWindow, WINDOW_FROM, colLefts, colWindow, COLS_FROM } from './rowwindow.js';
 import { dataEdge, lastUsed } from './jumpkeys.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, chipsOf, breaksRule, describeCheck } from './validation.js';
-import { columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
+import { columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows, formulaHiddenRows } from './filter.js';
 import { SlicerCard } from './SheetSlicer.jsx';
 import { describeCondition } from './filtercond.js';
 import { nextViewName, cleanViewName, adjustViews, viewSheet, viewList, viewLink } from './views.js';
@@ -205,7 +205,7 @@ export default function SheetEditor() {
     window.addEventListener('focus', refreshImports); // back from the other spreadsheet: its latest
     return () => { off(); clearInterval(t); clearInterval(w); window.removeEventListener('focus', refreshImports); };
   }, []);
-  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, web: importWeb, depth: 0 }, data.functions) : createEvaluator(cells, names)), [data?.sheets, data?.functions, active, cells, names, importsAt]);
+  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, web: importWeb, depth: 0 }, data.functions, formulaHiddenRows) : createEvaluator(cells, names)), [data?.sheets, data?.functions, active, cells, names, importsAt]);
   const ruleCtx = useMemo(() => ruleContext(evaluate, evaluate.formulaAt), [evaluate]); // for whole-range and custom formula rules
   // A cell's value on this sheet (sheet null) or another tab by name, for dropdowns taking their choices from a range.
   const valueOf = useMemo(() => {
@@ -215,7 +215,7 @@ export default function SheetEditor() {
       const i = data.sheets.findIndex((s) => String(s.name).toLowerCase() === String(name).toLowerCase());
       if (i < 0) return null;
       if (i === Math.min(active, data.sheets.length - 1)) return evaluate(key);
-      if (!others.has(i)) others.set(i, bookEvaluator(data.sheets, i, { book: importBook, web: importWeb, depth: 0 }, data.functions));
+      if (!others.has(i)) others.set(i, bookEvaluator(data.sheets, i, { book: importBook, web: importWeb, depth: 0 }, data.functions, formulaHiddenRows));
       return others.get(i)(key);
     };
   }, [evaluate, data?.sheets, data?.functions, active]);

@@ -6,6 +6,7 @@
 import { asDrawn } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { bookEvaluator, display, colName, parseRef } from '../sheetcalc/formula.js';
+import { formulaHiddenRows } from '../sheetcalc/hiddenrows.js';
 import { formatNumber } from '../sheetcalc/cellformat.js';
 
 const PW = 841.89, PH = 595.28, M = 28; // A4 landscape
@@ -23,7 +24,7 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
   const size = 9, rowH = 15;
   for (const [si, sheet] of sheets.entries()) {
     if (sheet.hidden) continue;
-    const ev = bookEvaluator(sheets, si);
+    const ev = bookEvaluator(sheets, si, null, data?.functions, formulaHiddenRows);
     const formats = sheet.formats || {};
     // The used range: cells with something in them (spilled results too).
     let maxR = -1, maxC = -1;

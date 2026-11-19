@@ -4,42 +4,12 @@
 // The range grows to take in rows added below it. A column can also have a condition (filtercond.js):
 // { ..., cond: { C: { op: 'gt', a: '10' } } } hides rows whose value doesn't meet it.
 import { parseRange, rangeText } from './charts.js';
-import { cellKey, colName, colIndex, display } from './formula.js';
+import { cellKey, colName } from './formula.js';
+import { cleanCondition } from './filtercond.js';
 import { adjustRange, adjustKey } from './structure.js';
-import { meetsCondition, cleanCondition } from './filtercond.js';
-import { collapsedOn } from './groups.js';
+import { filterLabel, filterArea, hiddenRows, slicerAsFilter, slicerHiddenRows, sheetHiddenRows, formulaHiddenRows } from './hiddenrows.js';
 
-/** How a value shows in the filter's list ("" for an empty cell). */
-export const filterLabel = (v) => (v === null || v === undefined || v === '' ? '' : display(v));
-
-/** The filter's range, reaching down to the last row with data in its columns. */
-export function filterArea(filter, cells) {
-  const g = parseRange(filter?.range);
-  if (!g) return null;
-  let last = g.r2;
-  for (const k of Object.keys(cells || {})) {
-    const m = /^([A-Z]+)(\d+)$/.exec(k);
-    if (!m || cells[k] === '' || cells[k] === undefined) continue;
-    const c = colIndex(m[1]), r = Number(m[2]) - 1;
-    if (c >= g.c1 && c <= g.c2 && r > last && r <= last + 1000) last = r;
-  }
-  return { ...g, r2: last };
-}
-
-/** The rows (0-based) the filter hides. `value(key)` gives a cell's value. */
-export function hiddenRows(filter, cells, value) {
-  const out = new Set();
-  const g = filterArea(filter, cells);
-  if (!g) return out;
-  const cols = Object.entries(filter.hidden || {}).filter(([, list]) => list?.length).map(([col, list]) => [colIndex(col), new Set(list)]);
-  const conds = Object.entries(filter.cond || {}).filter(([, c]) => cleanCondition(c)).map(([col, c]) => [colIndex(col), c]);
-  if (!cols.length && !conds.length) return out;
-  for (let r = g.r1 + 1; r <= g.r2; r++) {
-    if (cols.some(([c, hide]) => hide.has(filterLabel(value(cellKey(c, r)))))
-      || conds.some(([c, cond]) => !meetsCondition(cond, value(cellKey(c, r))))) out.add(r);
-  }
-  return out;
-}
+export { filterLabel, filterArea, hiddenRows, slicerAsFilter, slicerHiddenRows, sheetHiddenRows, formulaHiddenRows };
 
 /** The different values in a column of the filter (below the headings), with how often each comes. */
 export function columnValues(filter, cells, value, c) {
@@ -81,15 +51,6 @@ export { rangeText, colName };
 // ---- slicers: a control on the sheet that filters a table by one column's values, like the filter's
 // ▾ menu but always in view (handy above a chart). A sheet keeps them as
 // slicers: { id: { range: "A1:D20", col: "B", hidden: ["East"], x, y } }. Their hidden rows add to the filter's.
-export const slicerAsFilter = (s) => ({ range: s.range, hidden: { [s.col]: s.hidden || [] } });
-
-/** The rows (0-based) all the sheet's slicers hide. */
-export function slicerHiddenRows(slicers, cells, value) {
-  const out = new Set();
-  for (const s of Object.values(slicers || {})) if (s?.hidden?.length) for (const r of hiddenRows(slicerAsFilter(s), cells, value)) out.add(r);
-  return out;
-}
-
 /** The slicers after rows or columns are inserted or deleted (one whose column or headings went is dropped). */
 export function adjustSlicers(slicers, change) {
   if (!slicers) return slicers;
@@ -112,12 +73,4 @@ export function slicerSummary(s, values) {
   return `${shown.length} of ${values.length}`;
 }
 
-/** Every row a sheet hides: by its filter, its slicers, Hide row, or a collapsed group. */
-export function sheetHiddenRows(sheet, value) {
-  const cells = sheet?.cells || {};
-  const h = hiddenRows(sheet?.filter, cells, value);
-  for (const r of slicerHiddenRows(sheet?.slicers, cells, value)) h.add(r);
-  for (const r of sheet?.hide?.rows || []) h.add(r);
-  for (const r of collapsedOn(sheet?.groups, 'row')) h.add(r);
-  return h;
-}
+

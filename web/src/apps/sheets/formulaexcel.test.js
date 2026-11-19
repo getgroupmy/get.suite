@@ -116,3 +116,15 @@ test('AGGREGATE totals a column with errors in it, skipping them (options 6); wi
   assert.deepEqual(t('=SUM(A1:A5)'), { error: '#DIV/0!' }, 'SUM still stops at an error, as in Excel');
   assert.deepEqual(t('=AGGREGATE(20,6,A1:A5)'), { error: '#VALUE!' });
 });
+
+test('with the rows a sheet hides: SUBTOTAL 1–11 leaves out filtered rows, 101–111 and AGGREGATE 1/3/5/7 all hidden ones', async () => {
+  const { bookEvaluator } = await import('./formula.js');
+  const { formulaHiddenRows } = await import('./hiddenrows.js');
+  const sheet = { name: 'Sheet1', cells: { A1: 'T', B1: 'H', A2: 'Red', B2: 10, A3: 'Blue', B3: 20, A4: 'Red', B4: 30, A5: 'Blue', B5: 40,
+    D1: '=SUBTOTAL(109,B2:B5)', D2: '=SUBTOTAL(9,B2:B5)', D3: '=AGGREGATE(9,5,B2:B5)', D4: '=AGGREGATE(9,4,B2:B5)', D5: '=SUBTOTAL(103,A2:A5)' },
+  filter: { range: 'A1:B5', hidden: { A: ['Blue'] } }, hide: { rows: [3] } };
+  const ev = bookEvaluator([sheet], 0, null, null, formulaHiddenRows);
+  assert.deepEqual(['D1', 'D2', 'D3', 'D4', 'D5'].map((k) => ev(k)), [10, 40, 10, 100, 1]);
+  const plain = bookEvaluator([sheet], 0);
+  assert.equal(plain('D1'), 100, 'without the hidden rows given: everything (as before)');
+});

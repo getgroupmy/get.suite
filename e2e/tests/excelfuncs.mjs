@@ -75,6 +75,22 @@ await step('typed: AGGREGATE totals a column with an error in it', async () => {
   await typeIn('J5', '=SUM(J1:J3)');
   await until(async () => (await cell('J4').innerText()) === '12' && (await cell('J5').innerText()) === '#DIV/0!');
 });
+await step('a filter: SUBTOTAL(109) totals only the rows still shown; SUM all of them', async () => {
+  const cells2 = { A1: 'Team', B1: 'Hours', A2: 'Red', B2: '10', A3: 'Blue', B3: '20', A4: 'Red', B4: '30', A5: 'Blue', B5: '40', D1: '=SUBTOTAL(109,B2:B5)', D2: '=SUM(B2:B5)' };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Hours', content: { sheets: [{ name: 'Sheet1', cells: cells2 }] } })).body.id;
+  await page.goto(`${B}/sheets/${id}`);
+  await until(async () => (await cell('D1').innerText()) === '100');
+  await cell('A1').click();
+  await page.getByRole('button', { name: 'Create a filter' }).click();
+  await cell('A1').getByRole('button', { name: 'Filter A' }).click();
+  const menu = page.getByRole('dialog', { name: 'Filter column A' });
+  await menu.getByLabel('Blue').uncheck();
+  await menu.getByRole('button', { name: 'OK' }).click();
+  await until(async () => (await cell('D1').innerText()) === '40' && (await cell('D2').innerText()) === '100');
+  // Downloaded as CSV, the total is the same as on screen.
+  const csv = await page.evaluate(async (f) => (await fetch(`/api/files/${f}/export?format=csv`)).text(), id);
+  if (!/^Team,Hours,,40\r?$/m.test(csv)) throw new Error(`the CSV has ${JSON.stringify(csv.split(/\r?\n/)[0])}`);
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');

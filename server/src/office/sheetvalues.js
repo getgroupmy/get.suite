@@ -2,11 +2,12 @@
 // so a file opened somewhere that doesn't calculate (a phone's preview, Quick Look, a mail app) still shows
 // them. Plain values only: a number, text, TRUE/FALSE or an error code; null when there's nothing sure to give.
 import { bookEvaluator } from '../sheetcalc/formula.js';
+import { formulaHiddenRows } from '../sheetcalc/hiddenrows.js';
 
 /** For sheet `index` of `data`: key → { number } | { text } | { bool } | { error } | null. */
 export function formulaResults(data, index) {
   let ev = null;
-  try { ev = bookEvaluator(data?.sheets || [], index); } catch { ev = null; }
+  try { ev = bookEvaluator(data?.sheets || [], index, null, data?.functions, formulaHiddenRows); } catch { ev = null; } // (SUBTOTAL 109 leaves out filtered rows, as on screen)
   return (key) => {
     if (!ev) return null;
     let v;
@@ -27,7 +28,7 @@ export async function delimitedFromSheet(data, index = 0, sep = ',') {
   const { formatNumber } = await import('../sheetcalc/cellformat.js');
   const s = data?.sheets?.[index] || { cells: {} };
   let ev;
-  try { ev = be(data?.sheets || [], index); } catch { ev = () => ''; }
+  try { ev = be(data?.sheets || [], index, null, data?.functions, formulaHiddenRows); } catch { ev = () => ''; }
   let maxR = -1, maxC = -1;
   for (const k of [...Object.keys(s.cells || {}), ...(ev.spilledKeys?.() || [])]) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
   const { colName } = await import('../sheetcalc/formula.js');

@@ -1799,6 +1799,20 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
   const spillFrom = new Map(); // filled cell -> { anchor, value }
   let pending = null; // formulas that may spill and haven't been worked out yet (while finding spills)
   const isEmpty = (raw) => raw === undefined || raw === null || raw === '';
+  // The rows the sheet hides, for SUBTOTAL 101–111 and AGGREGATE: { all, filtered } (Sets of 0-based rows), from
+  // the page (its filter, slicers, Hide row and collapsed groups), worked out once; none known, none left out.
+  let hiddenCache = null, findingHidden = false;
+  const hiddenHere = () => {
+    if (!book?.hiddenRowsOf) return { all: new Set(), filtered: new Set() };
+    if (hiddenCache) return hiddenCache;
+    if (findingHidden) return { all: new Set(), filtered: new Set() }; // a filter on the totals' own column
+    findingHidden = true;
+    try {
+      const sheet = book.sheets.find((x) => String(x.name).toUpperCase() === String(sheetName ?? '').toUpperCase()) || { cells };
+      hiddenCache = book.hiddenRowsOf(sheet, (k) => { try { return valueOf(k); } catch (e) { if (e instanceof FormulaError) return errorValue(e); throw e; } });
+    } finally { findingHidden = false; }
+    return hiddenCache;
+  };
 
   function findSpills() {
     pending = [];
@@ -2029,20 +2043,31 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           if (!out) err('#N/A');
           return out.length === 1 && out[0].length === 1 ? out[0][0] : grid(out);
         }
-        // AGGREGATE reads its ranges keeping error cells as errors (rather than stopping at the first), to skip them.
-        if (n.name === 'AGGREGATE') {
-          const soft = (a) => {
-            if (a.k !== 'range') { try { return evaluate(a); } catch (e) { if (e instanceof FormulaError) return errorValue(e); throw e; } }
+        // SUBTOTAL and AGGREGATE read their ranges themselves: rows the sheet hides can be left out (SUBTOTAL 1–11
+        // leaves out rows a filter hides, 101–111 every hidden row, AGGREGATE with options 1, 3, 5 or 7 too), and
+        // AGGREGATE keeps error cells as errors, to skip them, rather than stopping at the first.
+        if (n.name === 'SUBTOTAL' || n.name === 'AGGREGATE') {
+          const [fn, opt, ...more] = n.args;
+          const which = fn ? scalar(evaluate(fn)) : undefined, num = Math.trunc(toNum(which));
+          const isAgg = n.name === 'AGGREGATE';
+          const o = isAgg && opt && opt.k !== 'empty' ? Math.trunc(toNum(scalar(evaluate(opt)))) : 0;
+          const hidden = hiddenHere();
+          const skip = isAgg ? ([1, 3, 5, 7].includes(o) ? hidden.all : null) : num > 100 ? hidden.all : hidden.filtered;
+          const read = (a, soft) => {
+            if (a.k !== 'range') { try { return evaluate(a); } catch (e) { if (soft && e instanceof FormulaError) return errorValue(e); throw e; } }
             if (!a.a || !a.b) err('#REF!');
             const out = [];
             for (let r = Math.min(a.a.r, a.b.r); r <= Math.max(a.a.r, a.b.r); r++) {
-              for (let c = Math.min(a.a.c, a.b.c); c <= Math.max(a.a.c, a.b.c); c++) { try { out.push(valueOf(cellKey(c, r))); } catch (e) { if (e instanceof FormulaError) out.push(errorValue(e)); else throw e; } }
+              if (skip?.has(r)) continue;
+              for (let c = Math.min(a.a.c, a.b.c); c <= Math.max(a.a.c, a.b.c); c++) {
+                try { out.push(valueOf(cellKey(c, r))); } catch (e) { if (soft && e instanceof FormulaError) out.push(errorValue(e)); else throw e; }
+              }
             }
             return out;
           };
-          const [fn, opt, ...rest] = n.args;
-          const which = fn ? scalar(evaluate(fn)) : undefined, withK = toNum(which) >= 14; // 14–19: a range, then k
-          return FUNCS.AGGREGATE([which, opt && opt.k !== 'empty' ? evaluate(opt) : undefined, ...rest.map((a, i) => (!withK || i === 0 ? soft(a) : evaluate(a)))]);
+          if (!isAgg) return FUNCS.SUBTOTAL([which, ...[opt, ...more].filter(Boolean).map((a) => read(a, false))]);
+          const withK = num >= 14; // 14–19: a range, then k
+          return FUNCS.AGGREGATE([which, o, ...more.map((a, i) => (!withK || i === 0 ? read(a, true) : evaluate(a)))]);
         }
         if (n.name === 'OFFSET' || n.name === 'INDIRECT') return readRef(refOf(n));
         // Where cells are: ROW()/COLUMN() of this cell, or of a reference (a range gives its first); ROWS/COLUMNS count a range.
@@ -2232,8 +2257,8 @@ function sheetEvaluator(book, name) {
 }
 
 /** An evaluator for one sheet of a spreadsheet whose formulas can refer to the other sheets. */
-export function bookEvaluator(sheets, index, imports = null, functions = null) {
-  const book = { sheets: sheets || [], open: new Map(), imports, functions: namedFunctions(functions) };
+export function bookEvaluator(sheets, index, imports = null, functions = null, hiddenRowsOf = null) {
+  const book = { sheets: sheets || [], open: new Map(), imports, functions: namedFunctions(functions), hiddenRowsOf };
   const s = book.sheets[index];
   if (!s) return createEvaluator({}, null, book);
   const ev = createEvaluator(s.cells || {}, s.names, book, s.name);

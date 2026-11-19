@@ -22,3 +22,13 @@ test('AGGREGATE skips the error cells in a download too', async () => {
   const csv = await delimitedFromSheet({ sheets: [{ name: 'Sheet1', cells: { A1: '5', A2: '=1/0', A3: '7', B1: '=AGGREGATE(9,6,A1:A3)' } }] }, 0);
   assert.equal(csv.trim().split(/\r?\n/)[0].split(',')[1], '12');
 });
+
+test('SUBTOTAL 109 and AGGREGATE leave out the rows a filter or Hide row hides; SUBTOTAL 9 only the filtered ones', async () => {
+  const sheet = { name: 'Sheet1', cells: {
+    A1: 'Team', B1: 'Hours', A2: 'Red', B2: '10', A3: 'Blue', B3: '20', A4: 'Red', B4: '30', A5: 'Blue', B5: '40',
+    D1: '=SUBTOTAL(109,B2:B5)', D2: '=SUBTOTAL(9,B2:B5)', D3: '=AGGREGATE(9,5,B2:B5)', D4: '=SUM(B2:B5)',
+  }, filter: { range: 'A1:B5', hidden: { A: ['Blue'] } }, hide: { rows: [3] } }; // Blue rows filtered out, row 4 (Red, 30) hidden by hand
+  const csv = await delimitedFromSheet({ sheets: [sheet] }, 0);
+  const col = csv.trim().split(/\r?\n/).map((l) => l.split(',')[3]);
+  assert.deepEqual(col.slice(0, 4), ['10', '40', '10', '100'], 'filtered and hidden: 10; filtered only: 10+30; AGGREGATE 5: 10; SUM: all');
+});
