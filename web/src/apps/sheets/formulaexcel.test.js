@@ -106,3 +106,13 @@ test('more of Excel: distributions and their inverses, matrices, bases, deprecia
   near('=ERFC(1)', 0.157299);
   near('=GAUSS(2)', 0.477250);
 });
+
+test('AGGREGATE totals a column with errors in it, skipping them (options 6); without, the error shows', () => {
+  const t = (f) => createEvaluator({ A1: 5, A2: '=1/0', A3: 7, A4: '=NA()', A5: 3, Z1: f })('Z1');
+  assert.deepEqual([t('=AGGREGATE(9,6,A1:A5)'), t('=AGGREGATE(4,6,A1:A5)'), t('=AGGREGATE(1,6,A1:A5)'), t('=AGGREGATE(2,6,A1:A5)'), t('=AGGREGATE(12,6,A1:A5)')], [15, 7, 5, 3, 5]);
+  assert.deepEqual([t('=AGGREGATE(14,6,A1:A5,2)'), t('=AGGREGATE(15,6,A1:A5,1)'), t('=AGGREGATE(16,6,A1:A5,0.5)')], [5, 3, 5], 'with a k');
+  assert.equal(t('=AGGREGATE(9,6,A1:A2,A3:A5)'), 15, 'several ranges');
+  assert.deepEqual(t('=AGGREGATE(9,4,A1:A5)'), { error: '#DIV/0!' }, 'not skipping errors: the first one shows');
+  assert.deepEqual(t('=SUM(A1:A5)'), { error: '#DIV/0!' }, 'SUM still stops at an error, as in Excel');
+  assert.deepEqual(t('=AGGREGATE(20,6,A1:A5)'), { error: '#VALUE!' });
+});

@@ -67,6 +67,14 @@ await step('typed: an inverse matrix spills; distributions, bases and depreciati
   await until(async () => (await cell('H5').innerText()) === '0' && (await cell('I5').innerText()) === '0.5' && (await cell('H6').innerText()) === '-1' && (await cell('I6').innerText()) === '2'
     && (await cell('H8').innerText()) === '15.21' && (await cell('H9').innerText()) === '00001111' && (await cell('H10').innerText()) === '480');
 });
+await step('typed: AGGREGATE totals a column with an error in it', async () => {
+  await typeIn('J1', '5');
+  await typeIn('J2', '=1/0');
+  await typeIn('J3', '7');
+  await typeIn('J4', '=AGGREGATE(9,6,J1:J3)');
+  await typeIn('J5', '=SUM(J1:J3)');
+  await until(async () => (await cell('J4').innerText()) === '12' && (await cell('J5').innerText()) === '#DIV/0!');
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');

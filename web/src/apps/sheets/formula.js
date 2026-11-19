@@ -1606,6 +1606,21 @@ Object.assign(FUNCS, {
     }
     return total;
   },
+  // AGGREGATE(function, options, range…): one of 19 totals, skipping error cells when options says so (2, 3, 6, 7),
+  // as Excel's =AGGREGATE(9, 6, B2:B50) sums a column with #N/A in it. (Hidden rows count here, as with SUBTOTAL.)
+  // 14–19 take a k: =AGGREGATE(14, 6, B2:B50, 2) is the second largest.
+  AGGREGATE: ([fn, options, ...rest]) => {
+    const n = Math.trunc(toNum(fn)), o = given(options) ? Math.trunc(toNum(options)) : 0;
+    const name = [null, 'AVERAGE', 'COUNT', 'COUNTA', 'MAX', 'MIN', 'PRODUCT', 'STDEV.S', 'STDEV.P', 'SUM', 'VAR.S', 'VAR.P', 'MEDIAN', 'MODE.SNGL', 'LARGE', 'SMALL', 'PERCENTILE.INC', 'QUARTILE.INC', 'PERCENTILE.EXC', 'QUARTILE.EXC'][n];
+    if (!name || o < 0 || o > 7 || !rest.length) err('#VALUE!');
+    const skipErrors = [2, 3, 6, 7].includes(o);
+    const clean = (v) => { const all = Array.isArray(v) ? [...v] : [v]; return skipErrors ? all.filter((x) => !isErr(x)) : all; };
+    if (n >= 14) {
+      if (rest.length < 2) err('#VALUE!');
+      return FUNCS[name]([clean(rest[0]), rest[1]]);
+    }
+    return FUNCS[name](rest.map(clean));
+  },
   VALUETOTEXT: ([v, format]) => (typeof v === 'string' && given(format) && toNum(format) === 1 ? `"${v.replace(/"/g, '""')}"` : toStr(v)),
   ARRAYTOTEXT: ([v, format]) => {
     const strict = given(format) && toNum(format) === 1, rows = Array.isArray(v) ? rowsOf(v) : [[v]];
@@ -2013,6 +2028,21 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           try { out = runQuery(rowsOf(evaluate(a)), toStr(scalar(evaluate(n.args[1]))), h, first); } catch (e) { if (e instanceof QueryError) throw new FormulaError('#VALUE!', e.message); throw e; }
           if (!out) err('#N/A');
           return out.length === 1 && out[0].length === 1 ? out[0][0] : grid(out);
+        }
+        // AGGREGATE reads its ranges keeping error cells as errors (rather than stopping at the first), to skip them.
+        if (n.name === 'AGGREGATE') {
+          const soft = (a) => {
+            if (a.k !== 'range') { try { return evaluate(a); } catch (e) { if (e instanceof FormulaError) return errorValue(e); throw e; } }
+            if (!a.a || !a.b) err('#REF!');
+            const out = [];
+            for (let r = Math.min(a.a.r, a.b.r); r <= Math.max(a.a.r, a.b.r); r++) {
+              for (let c = Math.min(a.a.c, a.b.c); c <= Math.max(a.a.c, a.b.c); c++) { try { out.push(valueOf(cellKey(c, r))); } catch (e) { if (e instanceof FormulaError) out.push(errorValue(e)); else throw e; } }
+            }
+            return out;
+          };
+          const [fn, opt, ...rest] = n.args;
+          const which = fn ? scalar(evaluate(fn)) : undefined, withK = toNum(which) >= 14; // 14–19: a range, then k
+          return FUNCS.AGGREGATE([which, opt && opt.k !== 'empty' ? evaluate(opt) : undefined, ...rest.map((a, i) => (!withK || i === 0 ? soft(a) : evaluate(a)))]);
         }
         if (n.name === 'OFFSET' || n.name === 'INDIRECT') return readRef(refOf(n));
         // Where cells are: ROW()/COLUMN() of this cell, or of a reference (a range gives its first); ROWS/COLUMNS count a range.

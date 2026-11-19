@@ -17,3 +17,8 @@ test('and the second batch: matrices, distributions, depreciation', async () => 
   } }] }, 0);
   assert.deepEqual(csv.trim().split(/\r?\n/), ['1', '15.21', '480', '00FB', '4']);
 });
+
+test('AGGREGATE skips the error cells in a download too', async () => {
+  const csv = await delimitedFromSheet({ sheets: [{ name: 'Sheet1', cells: { A1: '5', A2: '=1/0', A3: '7', B1: '=AGGREGATE(9,6,A1:A3)' } }] }, 0);
+  assert.equal(csv.trim().split(/\r?\n/)[0].split(',')[1], '12');
+});

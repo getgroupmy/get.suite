@@ -123,6 +123,7 @@ export const HELP = {
   MDETERM: ['matrix', 'The determinant of a square matrix'], MINVERSE: ['matrix', 'The inverse of a square matrix'], MUNIT: ['size', 'The identity matrix of that size'],
   DSTDEV: ['database, field, criteria', 'Standard deviation of a sample of the matching rows'], DSTDEVP: ['database, field, criteria', 'Standard deviation of the matching rows as a population'],
   DVAR: ['database, field, criteria', 'Variance of a sample of the matching rows'], DVARP: ['database, field, criteria', 'Variance of the matching rows as a population'],
+  AGGREGATE: ['function_number, options, range1, [range2 or k, …]', 'A total by number (9 sums, 1 averages, 14 the k-th largest…); options 6 skips error cells'],
   VDB: ['cost, salvage, life, start, end, [factor], [no_switch]', 'Declining-balance depreciation between two periods'],
   VALUETOTEXT: ['value, [format]', 'The value as text (format 1: text in quotes)'],
   ARRAYTOTEXT: ['array, [format]', 'The array as text (format 1: as an array constant, {1,"a";2,"b"})'],
