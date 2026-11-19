@@ -11,6 +11,8 @@ import { chartDataFromXml } from './xlsxcharts.js';
 const P = 'http://schemas.openxmlformats.org/presentationml/2006/main';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const P14 = 'http://schemas.microsoft.com/office/powerpoint/2010/main';
+const MEDIA_MIME = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg', wmv: 'video/x-ms-wmv', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg' };
 const RELS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const THEMES = { light: { bg: '#ffffff', text: '#202124', accent: '#1a73e8' }, dark: { bg: '#202124', text: '#f1f3f4', accent: '#8ab4f8' }, ocean: { bg: '#0b57d0', text: '#ffffff', accent: '#ffd666' }, sand: { bg: '#f7f1e3', text: '#3c2f1e', accent: '#b5651d' } };
 // PowerPoint's shape names → Slides' (and back, for downloads).
@@ -271,6 +273,25 @@ async function withGradients(buffer, deck, theme) {
 
 /** Tables whose first row is a heading say so (firstRow="1"), as PowerPoint's own do: PptxGenJS leaves it out, so other
  *  programs (LibreOffice) lost the heading row (the bold, coloured first row stayed, but not as a heading). */
+/** Each video's and sound's name, as its description (the library calls them all "Media 0", "Media 1"…). */
+async function withMediaNames(buffer, deck, mediaNames) {
+  if (!mediaNames.size) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  const slides = deck.slides || [];
+  for (let i = 0; i < slides.length; i++) {
+    const names = mediaNames.get(slides[i]);
+    const file = `ppt/slides/slide${i + 1}.xml`;
+    const xml = names && await zip.file(file)?.async('string');
+    if (!xml) continue;
+    let n = 0;
+    zip.file(file, xml.replace(/<p:cNvPr id="(\d+)" name="Media \d+">(?=<a:hlinkClick r:id="" action="ppaction:\/\/media"\/>)/g, (m, id) => {
+      const nm = names[n++];
+      return nm ? `<p:cNvPr id="${id}" name="${xmlSafe(nm).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}" descr="${xmlSafe(nm).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}">` : m;
+    }));
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 async function withTableHeaders(buffer, deck) {
   const slides = deck.slides || [];
   if (!slides.some((s) => (s.items || []).some((it) => it.type === 'table' && it.header))) return buffer;
@@ -470,6 +491,17 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       const box = boxOf(el);
       if (!box) continue;
       if (el.local === 'pic') {
+        // A video or a sound (its poster picture beside it: the media is what counts), by the name it had.
+        const mediaEl = deep(el, P14, 'media')[0], fileEl = deep(el, A, 'videoFile')[0] || deep(el, A, 'audioFile')[0];
+        const mediaTarget = (mediaEl && rels.get(rattr(mediaEl, 'embed'))) || (fileEl && rels.get(rattr(fileEl, 'link')));
+        const mediaData = mediaTarget && await zip.file(mediaTarget)?.async('nodebuffer');
+        const mediaMime = mediaTarget && MEDIA_MIME[path.posix.extname(mediaTarget).slice(1).toLowerCase()];
+        if (mediaData && mediaMime) {
+          const nm = String(attr(deep(el, P, 'cNvPr')[0], 'descr') || '').trim();
+          const name = (/^[^\\/:*?"<>|]{1,200}\.[A-Za-z0-9]{2,5}$/.test(nm) ? nm : path.posix.basename(mediaTarget)).slice(0, 200);
+          pushFrom(el, linked(el, { id: id(), type: mediaMime.startsWith('audio/') ? 'audio' : 'video', fileId: await savePicture(name, mediaData, mediaMime), name, ...box }));
+          continue;
+        }
         const embed = rattr(deep(el, A, 'blip')[0], 'embed');
         const target = embed && rels.get(embed);
         const data = target && await zip.file(target)?.async('nodebuffer');
@@ -694,6 +726,8 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
   // An outline round a shape or text box: its colour and thickness in points.
   const outline = (it) => (it.outline ? { line: { color: color(it.outline, theme.text), width: OUTLINE_WIDTHS.includes(it.outlineW) ? it.outlineW : 1 } } : {});
   const emitted = new Map(); // slide → its boxes that became shapes, in order
+  const mediaNames = new Map(); // slide → its videos' and sounds' names, in order (written into them afterwards: withMediaNames)
+  const named = (s, it) => { if (!mediaNames.has(s)) mediaNames.set(s, []); mediaNames.get(s).push(String(it.name || '')); };
   for (const s of deck.slides || []) {
     const slide = pptx.addSlide();
     // A picture behind the slide, or its colour (also kept under the picture, for programs that skip it).
@@ -768,6 +802,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         if (vid && /^video\//.test(vid.mime) && vid.data.length <= 100 * 1024 * 1024) {
           const extn = { 'video/quicktime': 'mov', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/ogg': 'ogv' }[vid.mime] || 'mp4';
           slide.addMedia({ ...pos, type: 'video', data: `${vid.mime};base64,${vid.data.toString('base64')}`, extn });
+          named(s, it);
         } else slide.addText(`▶ ${it.name || 'Video'}`, { ...pos, fontSize: 18, align: 'center', valign: 'middle', color: '5F6368', fill: { color: 'F1F3F4' } });
       } else if (it.type === 'audio') {
         // Sound plays in PowerPoint too (up to 50 MB; a bigger one is named instead).
@@ -775,6 +810,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         if (snd && /^audio\//.test(snd.mime) && snd.data.length <= 50 * 1024 * 1024) {
           const extn = { 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm' }[snd.mime] || 'mp3';
           slide.addMedia({ ...pos, type: 'audio', data: `${snd.mime};base64,${snd.data.toString('base64')}`, extn });
+          named(s, it);
         } else slide.addText(`🔊 ${it.name || 'Sound'}`, { ...pos, fontSize: 14, align: 'center', valign: 'middle', color: '5F6368', fill: { color: 'F1F3F4' } });
       }
       if ((slide._slideObjects?.length ?? 0) > before) shown.push(it);
@@ -790,5 +826,5 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     }
     if (withMaster && master.footer) slide.addText(master.footer, { x: Win * (master.logo && master.corner === 'bl' ? 0.18 : 0.025), y: Hin - 0.55, w: Win * 0.6, h: 0.35, fontSize: 11, color: color('text', theme.text), fontFace: FONT, transparency: 30, valign: 'middle', margin: 0 });
   }
-  return withGradients(await withSlideComments(await withGroups(await withShowSettings(await withTableHeaders(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck), deck, emitted), deck, emitted, { Win, Hin }), deck, comments), deck, theme);
+  return withMediaNames(await withGradients(await withSlideComments(await withGroups(await withShowSettings(await withTableHeaders(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck), deck, emitted), deck, emitted, { Win, Hin }), deck, comments), deck, theme), deck, mediaNames);
 }

@@ -5,6 +5,7 @@
 // slides. Charts go out as a table of their figures; videos as their name.
 import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import JSZip from 'jszip';
+import path from 'node:path';
 import { parseDocument } from 'htmlparser2';
 import { themeOfDeck, numberShown } from './powerpoint.js';
 
@@ -30,6 +31,7 @@ export const ODP_MIME = 'application/vnd.oasis.opendocument.presentation';
 const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const COLOR = /^#[0-9a-f]{6}$/i;
 const W = 28, H = 15.75; // cm, 16:9 like Slides
+const MEDIA_MIME = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg' };
 // Slide transitions as LibreOffice's (SMIL) and back: the nearest of Slides' three.
 const ODP_TRANSITIONS = { fade: 'smil:type="fade" smil:subtype="crossfade"', push: 'smil:type="pushWipe" smil:subtype="fromBottom"', zoom: 'smil:type="zoom"' };
 const transitionFromOdp = (type) => (!type ? null : /^(pushWipe|slideWipe|barWipe|irisWipe|clockWipe|snakeWipe|spiralWipe|waterfallWipe)$/i.test(type) ? 'push' : /^(zoom|ellipseWipe|fourBoxWipe)$/i.test(type) ? 'zoom' : 'fade');
@@ -127,6 +129,20 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
   const notesStyle = () => (notesStyleName ??= (auto.push('<style:style style:name="prNotes" style:family="presentation"/>'), 'prNotes'));
   const style = (family, inner, attrs = '') => { const name = `${family[0]}${++n}`; auto.push(`<style:style style:name="${name}" style:family="${family}"${attrs}>${inner}</style:style>`); return name; };
   const picPath = new Map();
+  // Videos and sounds kept in the file (Media/1.mp4…), each once.
+  const mediaPaths = new Map();
+  const MEDIA_EXT = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/ogg': 'ogv', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm' };
+  const mediaPath = async (it) => {
+    if (!it.fileId) return null;
+    if (mediaPaths.has(it.fileId)) return mediaPaths.get(it.fileId);
+    const got = await pictureData?.(it.fileId);
+    const kind = it.type === 'audio' ? 'audio' : 'video';
+    const ok = got && got.mime?.startsWith(`${kind}/`) && got.data.length <= (kind === 'audio' ? 50 : 100) * 1024 * 1024;
+    const m = ok ? { path: `Media/${mediaPaths.size + 1}.${MEDIA_EXT[got.mime] || (kind === 'audio' ? 'mp3' : 'mp4')}`, mime: got.mime } : null;
+    if (m) pictures.push({ path: m.path, data: got.data, mime: got.mime });
+    mediaPaths.set(it.fileId, m);
+    return m;
+  };
   const picture = async (id) => {
     if (!id) return null;
     if (picPath.has(id)) return picPath.get(id);
@@ -222,6 +238,11 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
         if (!p) continue;
         const img = `<draw:frame draw:style-name="${graphic(it, {})}" ${place(it)}><draw:image xlink:href="${p}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>${it.alt ? `<svg:title>${x(it.alt)}</svg:title><svg:desc>${x(it.alt)}</svg:desc>` : ''}</draw:frame>`;
         items += href ? `<draw:a xlink:type="simple" xlink:href="${x(href)}">${img}</draw:a>` : img;
+      } else if ((it.type === 'video' || it.type === 'audio') && await mediaPath(it)) {
+        // A video or a sound plays in LibreOffice too (as in the PowerPoint download, up to 100 or 50 MB): a media
+        // object, its name as the frame's title.
+        const m = await mediaPath(it);
+        items += `<draw:frame draw:name="${x(it.name || (it.type === 'audio' ? 'Sound' : 'Video'))}" ${place(it)}><draw:plugin xlink:href="${m.path}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad" draw:mime-type="${m.mime}"><draw:param draw:name="Loop" draw:value="false"/><draw:param draw:name="Mute" draw:value="false"/></draw:plugin><svg:title>${x(it.name || '')}</svg:title><svg:desc>${x(it.name || '')}</svg:desc></draw:frame>`; // (the description is what LibreOffice keeps as .pptx)
       } else if (it.type === 'video' || it.type === 'audio') {
         items += `<draw:frame draw:style-name="${graphic(it, { fill: '#f1f3f4', valign: 'middle' })}" ${place(it)}><draw:text-box>${paras(`${it.type === 'audio' ? '🔊' : '▶'} ${it.name || (it.type === 'audio' ? 'Sound' : 'Video')}`, textStyle({ size: 18, color: '#5f6368' }, '#5f6368', 18), paraStyle('center'))}</draw:text-box></draw:frame>`;
       }
@@ -441,6 +462,20 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
             const find = (n, name) => { for (const k of tags(n)) { if (k.name === name) return k; const f = find(k, name); if (f) return f; } return null; };
             const ch = dataChartFromObject(parse(objXml), { tags, textOf, find });
             if (ch) { slide.items.push({ id: fresh(), type: 'chart', ...boxOf(el), ...ch }); return; }
+          }
+          const plugin = tags(el, 'draw:plugin')[0];
+          if (plugin && savePicture) { // a video or a sound (with a picture of it beside it: the media is what counts)
+            const href = String(plugin.attribs['xlink:href'] || '').replace(/^\.?\//, '');
+            const f = !/^[a-z]+:/i.test(href) && zip.file(href);
+            const ext = path.posix.extname(href).slice(1).toLowerCase();
+            const mime = String(plugin.attribs['draw:mime-type'] || '') || MEDIA_MIME[ext] || '';
+            if (f && /^(video|audio)\//.test(mime)) {
+              const title = textOf(tags(el, 'svg:title')[0] || { children: [] }).trim(), dn = el.attribs['draw:name'] || '';
+              const name = (title || (!/^Media \d+$/.test(dn) && dn) || path.posix.basename(href)).slice(0, 200);
+              const fileId = await savePicture(name, await f.async('nodebuffer'), mime);
+              slide.items.push({ id: fresh(), type: mime.startsWith('audio/') ? 'audio' : 'video', ...boxOf(el), fileId, name, ...lk });
+              return;
+            }
           }
           const img = tags(el, 'draw:image')[0], box = tags(el, 'draw:text-box')[0], tbl = tags(el, 'table:table')[0];
           const alt = textOf(tags(el, 'svg:title')[0] || tags(el, 'svg:desc')[0] || { children: [] }).trim();

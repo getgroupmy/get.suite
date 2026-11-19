@@ -71,6 +71,41 @@ await step('a colleague who can only view the presentation plays it (the video f
   await until(async () => (await v.evaluate((el) => el.currentTime)) > 0.3, 10000);
   await vee.screenshot({ path: `${SP}/shots/slide-video.png` });
 });
+await step('downloaded as PowerPoint or OpenDocument (and saved again by LibreOffice), the video comes back as a video that plays', async () => {
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  let lo = true;
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { lo = false; console.log('(LibreOffice is not installed here: the files are opened as downloaded)'); }
+  for (const [item, ext] of [[/Download as PowerPoint/, 'pptx'], ['Download as OpenDocument (.odp)', 'odp']]) {
+    await page.goto(`${B}/slides/${deck.id}`);
+    await page.locator('.slide-item[aria-label="Video: tour.webm"]').first().waitFor();
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: item }).click()]);
+    let bytes = fs.readFileSync(await dl.path());
+    if (lo) {
+      const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+      fs.writeFileSync(path.join(dir, `Tour.${ext}`), bytes);
+      execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', ext, '--outdir', path.join(dir, 'out'), path.join(dir, `Tour.${ext}`)], { stdio: 'ignore', timeout: 120000 });
+      bytes = fs.readFileSync(path.join(dir, 'out', `Tour.${ext}`));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    const name = `Product tour (${ext}).${ext}`;
+    await page.evaluate(async ([b64, n]) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch(`/api/files/upload?name=${encodeURIComponent(n)}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, [bytes.toString('base64'), name]);
+    await page.goto(`${B}/drive`);
+    await page.getByText(name).dblclick();
+    const pv = page.getByRole('dialog').filter({ hasText: name });
+    await pv.getByRole('button', { name: 'Open as presentation' }).click({ timeout: 20000 });
+    await page.waitForURL(/\/slides\//);
+    const v = page.locator('.slide-item[aria-label="Video: tour.webm"] video').first();
+    await v.waitFor({ timeout: 15000 });
+    await until(async () => (await v.evaluate((el) => el.readyState)) >= 1, 15000);
+    const dur = await v.evaluate((el) => el.duration);
+    if (!(dur > 1.5 && dur < 2.5)) throw new Error(`${ext}: duration ${dur}`);
+    const id = new URL(page.url()).pathname.split('/').pop();
+    const items = (await api(page, 'GET', `/files/${id}/content`)).body.content.slides[0].items;
+    if (items.some((i) => i.type === 'image')) throw new Error(`${ext}: a picture of the video came in too`);
+  }
+  await page.screenshot({ path: `${SP}/shots/slide-video-back.png` });
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

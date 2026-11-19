@@ -11515,7 +11515,9 @@ test('presentations: sound on a slide plays for everyone who can open the deck, 
   assert.ok(Object.keys((await JSZip.loadAsync(pptx.body)).files).some((n) => /^ppt\/media\/.+\.mp3$/.test(n)), 'a real sound in PowerPoint');
   const odp = await v('GET', `/api/files/${deck.id}/export?format=odp`, undefined, { binary: true });
   assert.equal(odp.status, 200);
-  assert.match(await (await JSZip.loadAsync(odp.body)).file('content.xml').async('string'), /🔊 intro\.mp3/);
+  const odpZip = await JSZip.loadAsync(odp.body);
+  assert.match(await odpZip.file('content.xml').async('string'), /<draw:frame draw:name="intro\.mp3" [^>]*><draw:plugin xlink:href="Media\/1\.mp3"[^>]*draw:mime-type="audio\/mpeg">/, 'a real sound in OpenDocument too');
+  assert.equal((await odpZip.file('Media/1.mp3').async('nodebuffer')).length, mp3.length);
 });
 
 test('slides Q&A: the presenter starts it, colleagues ask and upvote, the presenter marks answered', async () => {
