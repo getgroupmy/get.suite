@@ -178,3 +178,33 @@ test('your other calendars come back as calendars of their own, with their event
   const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
   assert.deepEqual(q("SELECT calendar_id FROM events WHERE owner_id = ? AND title = 'Ship the beta'").all(kimId).map((r) => r.calendar_id), [cals[1].id], 'in the hidden one too');
 });
+
+test('your own settings come back, each only where it’s still the default', async () => {
+  const hours = { days: [1, 2, 3, 4], start: 8 * 60, end: 16 * 60, tz: 'Europe/Berlin' };
+  assert.equal((await olivia('PUT', '/api/users/me/work-hours', { hours })).status, 200);
+  assert.equal((await olivia('PUT', '/api/users/me/world-clocks', { zones: ['Asia/Tokyo', 'America/New_York'] })).status, 200);
+  assert.equal((await olivia('PUT', '/api/users/me/file-format', { format: 'odf' })).status, 200);
+  assert.equal((await olivia('PUT', '/api/notes/view', { view: 'list', sort: 'title' })).status, 200);
+  assert.ok((await olivia('PUT', '/api/notes/label-colors', { label: 'home', color: '#188038' })).status < 300);
+  // Kim has already picked their own world clocks: those stay.
+  assert.equal((await kim('PUT', '/api/users/me/world-clocks', { zones: ['Australia/Sydney'] })).status, 200);
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  const JSZip = (await import('jszip')).default;
+  const settings = JSON.parse(await (await JSZip.loadAsync(zip)).file('Settings.json').async('string'));
+  for (const k of Object.keys(settings.settings)) assert.ok(!/hash|password|admin|quota|email|username|org/.test(k), `${k} isn’t a setting`);
+  const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+  assert.ok(r.status < 300);
+  const out = await r.json();
+  assert.ok(out.settings?.added >= 4, JSON.stringify(out.settings));
+  const h = (await kim('GET', '/api/users/me/work-hours')).body;
+  assert.deepEqual([h.days, h.start, h.end, h.tz], [hours.days, hours.start, hours.end, hours.tz]);
+  const { q } = await import('../src/db.js');
+  const kimRow = q('SELECT world_clocks, file_format FROM users WHERE username = ?').get('kim@acme.com');
+  assert.deepEqual([JSON.parse(kimRow.world_clocks), kimRow.file_format], [['Australia/Sydney'], 'odf']);
+  assert.deepEqual((await kim('GET', '/api/notes/view')).body, { view: 'list', sort: 'title' });
+  assert.equal((await kim('GET', '/api/notes/label-colors')).body.home, '#188038');
+  // Something that isn't right (made-up hours) is left out, not saved.
+  const { importPrefs } = await import('../src/prefsexport.js');
+  const samId = q('SELECT id FROM users WHERE username = ?').get('sam@acme.com').id;
+  assert.deepEqual(importPrefs(samId, { settings: { work_hours: '{"days":[],"start":0,"end":0}', file_format: 'pdf', password_hash: 'x', is_admin: 1 } }), { added: 0 });
+});

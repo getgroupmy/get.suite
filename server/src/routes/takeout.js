@@ -41,6 +41,7 @@ import { exportCalendar, importCalendar } from '../calimport.js';
 import { importMailRules, importMailTemplates, importSignatures, importMailSearches } from './webmail.js';
 import { feedsJson, importFeeds } from '../calfeeds.js';
 import { addCalendar, MAX_CALENDARS } from '../mycalendars.js';
+import { prefsJson, importPrefs } from '../prefsexport.js';
 import { importEventTemplates } from './calendar.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { withPhoto } from '../contactphotos.js';
@@ -323,6 +324,9 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   }
   const evTemplates = await json('Calendar templates.json');
   if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
+  // Your own settings (working hours, world clocks, how Mail looks…), each only where it's still the default here.
+  const prefs = await json('Settings.json');
+  if (prefs) { const r2 = importPrefs(user.id, prefs); if (r2.added) out.settings = r2; }
   // Calendars subscribed to by address (fetched again from there) and saved mail searches.
   const feeds = await json('Calendar subscriptions.json');
   if (Array.isArray(feeds) && feeds.length) out.calendar_subscriptions = importFeeds(user.id, feeds);
@@ -486,6 +490,7 @@ export default function takeoutRoutes() {
     { const nt = noteTemplatesJson(me); if (nt) zip.file('Note templates.json', nt); }
     { const b = bookingPagesJson(me); if (b) zip.file('Booking pages.json', b); }
     { const f = feedsJson(me); if (f) zip.file('Calendar subscriptions.json', f); }
+    { const p = prefsJson(me); if (p) zip.file('Settings.json', p); }
     { const groups = groupsOf(me).map((g) => ({ name: g.name, members: g.members })); if (groups.length) zip.file('Contact groups.json', `${JSON.stringify(groups, null, 2)}\n`); }
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
@@ -539,6 +544,7 @@ export default function takeoutRoutes() {
       'Contact groups.json  your contact groups and who is in each (if any)',
       'Booking pages.json   your booking pages (each comes back with a new link) (if any)',
       'Calendar subscriptions.json  the calendars you subscribe to by web address (if any)',
+      'Settings.json  your own settings: working hours, world clocks, how Mail, Drive and Chat look and behave for you',
       'Calendars.json  your calendars besides the main one, with their colours (each event in Calendar.ics says which it is in)',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',
