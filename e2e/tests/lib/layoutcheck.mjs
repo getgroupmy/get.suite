@@ -17,7 +17,7 @@ export const layoutProblems = (page) => page.evaluate(() => {
     if (!text) continue;
     // Under a panel or dialog laid over the screen (a thread on a phone covers the conversation): not shown, so fine.
     const top = document.elementFromPoint(Math.min(Math.max(r.left + 4, 0), window.innerWidth - 1), r.top + r.height / 2);
-    const cover = top?.closest('[role="complementary"], [role="dialog"], aside, .modal');
+    const cover = top?.closest('[role="complementary"], [role="dialog"], aside, .modal, .modal-backdrop'); // (a dialog's dimmed backdrop too)
     if (cover && !cover.contains(h)) continue;
     // Squeezed: a heading of several letters given less room than three of them, or wrapped to a word a line.
     const lineHeight = parseFloat(getComputedStyle(h).lineHeight) || parseFloat(getComputedStyle(h).fontSize) * 1.3;
@@ -71,6 +71,17 @@ export const layoutProblems = (page) => page.evaluate(() => {
       if ((st.position === 'fixed' || st.position === 'absolute') && (() => { const b = a.getBoundingClientRect(); return b.right <= 0 || b.left >= W; })()) { scrolls = true; break; }
     }
     if (!scrolls && !c.closest('[aria-hidden="true"], .sr-only, .visually-hidden')) { out.push(`${c.tagName.toLowerCase()} “${(c.getAttribute('aria-label') || c.textContent || c.placeholder || '').trim().slice(0, 30)}” off the edge (${Math.round(q.left)}–${Math.round(q.right)} of ${W})`); }
+  }
+  // A dialog: inside the window across, and either inside it top to bottom or scrollable (else its last buttons can't be reached).
+  for (const d of [...document.querySelectorAll('[role="dialog"], dialog[open]')].filter(seen)) {
+    const b = d.getBoundingClientRect();
+    const name = (d.getAttribute('aria-label') || d.querySelector('h2, h1')?.textContent || 'a dialog').trim().slice(0, 40);
+    if (b.left < -1 || b.right > W + 1) out.push(`dialog “${name}” wider than the window (${Math.round(b.left)}–${Math.round(b.right)} of ${W})`);
+    if (b.bottom > window.innerHeight + 1) {
+      let scrolls = false;
+      for (let a = d; a && a !== document.documentElement; a = a.parentElement) { const st = getComputedStyle(a); if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && a.scrollHeight > a.clientHeight) { scrolls = true; break; } }
+      if (!scrolls && ![...d.querySelectorAll('*')].some((x) => { const st = getComputedStyle(x); return (st.overflowY === 'auto' || st.overflowY === 'scroll') && x.scrollHeight > x.clientHeight; })) out.push(`dialog “${name}” taller than the window, and nothing scrolls`);
+    }
   }
   return out;
 });

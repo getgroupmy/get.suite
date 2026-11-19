@@ -62,21 +62,27 @@ await step('setup: a channel with a thread, a list with tasks', async () => {
   const doc = SCREENS.find(([n]) => n === 'doc editor');
   if (doc) SCREENS.push(['doc with comments open', doc[1], 'Comments']);
   for (const v of ['Week', 'Day', 'Year', 'Schedule']) SCREENS.push([`Calendar ${v}`, '/calendar', v]);
+  // Dialogs: a new event, sharing a file, notification settings.
+  SCREENS.push(['new event dialog', '/calendar', 'Create']);
+  const shared = SCREENS.find(([n]) => n === 'doc editor')[1].split('/').pop();
+  SCREENS.push(['Share dialog', `/drive?share=${shared}`, null, 'dialog']);
+  SCREENS.push(['notification settings', '/home', ['Notifications', 'Notification settings']]);
   for (const tab of ['company', 'checkup', 'links', 'system', 'reports', 'phishing', 'announcements', 'apps', 'storage', 'activity', 'drives']) SCREENS.push([`Admin ${tab}`, `/admin?tab=${tab}`]);
 });
 for (const width of WIDTHS) {
   await step(`every screen at ${width}px: headings readable, nothing over them`, async () => {
     await page.setViewportSize({ width, height: 860 });
-    for (const [name, path, open] of SCREENS) {
+    for (const [name, path, open, wait] of SCREENS) {
       await page.goto(`${B}${path}`);
       await page.waitForLoadState('networkidle').catch(() => {});
       await page.waitForTimeout(400);
-      if (open) { // a panel or view to open first: a button, or a view in a switch
-        const b = page.getByRole('button', { name: open, exact: true }).or(page.getByRole('radio', { name: open, exact: true })).first();
-        if (!(await b.count())) throw new Error(`${name}: no “${open}” to open`);
+      for (const what of [].concat(open || [])) { // a panel, view or dialog to open first: buttons, or a view in a switch
+        const b = page.getByRole('button', { name: what, exact: true }).or(page.getByRole('radio', { name: what, exact: true })).first();
+        if (!(await b.count())) throw new Error(`${name}: no “${what}” to open`);
         await b.click();
         await page.waitForTimeout(500);
       }
+      if (wait === 'dialog') await page.getByRole('dialog').first().waitFor();
       const p = await problems();
       if ((name === 'Calendar' && width === 820) || (name === 'Calendar Week' && width === 390)) await page.screenshot({ path: `${SP}/shots/${name.replace(/\W+/g, '_')}-${width}.png` });
       if (p.length) { found.push(`${name} at ${width}px: ${p.join('; ')}`); await page.screenshot({ path: `${SP}/shots/narrow-${name.replace(/\W+/g, '_')}-${width}.png` }); }
@@ -105,6 +111,18 @@ await step('the check itself: Calendar’s old toolbar on a tablet (view switch 
   await page.waitForTimeout(300);
   const p = await problems();
   if (!p.some((x) => /Schedule|Year/.test(x) && /off the edge/.test(x))) throw new Error(`not caught: ${JSON.stringify(p)}`);
+});
+await step('the check itself: a dialog taller than a phone with nothing to scroll is caught', async () => {
+  await page.setViewportSize({ width: 390, height: 600 });
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('dialog').first().waitFor();
+  let p = await problems();
+  if (p.some((x) => /dialog/.test(x))) throw new Error(`the dialog as it is was flagged: ${p.join('; ')}`);
+  await page.addStyleTag({ content: '.modal-backdrop, .modal-backdrop * { overflow: visible !important; max-height: none !important; }' });
+  await page.waitForTimeout(300);
+  p = await problems();
+  if (!p.some((x) => /taller than the window/.test(x))) throw new Error(`not caught: ${JSON.stringify(p)}`);
 });
 console.log(`checked ${SCREENS.length} screens: ${SCREENS.map(([n]) => n).join(', ')}`);
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
