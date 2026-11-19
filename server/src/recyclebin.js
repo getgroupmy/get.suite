@@ -18,7 +18,7 @@ q(`CREATE TABLE IF NOT EXISTS recycle_bin (
 q('CREATE INDEX IF NOT EXISTS recycle_bin_owner ON recycle_bin(owner_id, deleted_at)').run();
 
 export const KEEP_DAYS = 30;
-const TABLES = { task_list: 'task_lists', form: 'forms', booking_page: 'booking_pages', contact_group: 'contact_groups' };
+const TABLES = { task_list: 'task_lists', form: 'forms', booking_page: 'booking_pages', contact_group: 'contact_groups', room: 'rooms' };
 
 // Which tables point at which: { parent: [{ table, from, to, onDelete }] }.
 let refs = null;

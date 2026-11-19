@@ -1,6 +1,7 @@
 // Meeting rooms (and other things to book, like a projector): a company's admins list them; people
 // add one to an event, and it's booked when it's free then (every time, for a repeating event, over
 // the next six months) or declined when something else has it.
+import { binAndDelete, restoreFromBin } from '../recyclebin.js';
 import express, { Router } from 'express';
 import { parseCsv } from '../contactfiles.js';
 import { q, tx } from '../db.js';
@@ -400,10 +401,22 @@ export default function roomRoutes() {
     q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ?, admins_only = ?, check_in = ? WHERE id = ?').run(v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, v.check_in, room.id);
     res.json(outRoom(q(`${ROOM} WHERE id = ?`).get(room.id)));
   });
+  // Meetings to come that have the room booked (asked before removing it: they'd lose it).
+  const upcoming = (roomId) => q(`SELECT COUNT(*) AS n FROM event_rooms er JOIN events e ON e.id = er.event_id
+    WHERE er.room_id = ? AND er.status = 'yes' AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).get(roomId, Date.now(), Date.now()).n;
+  r.get('/:id/upcoming', (req, res) => { admin(req); res.json({ meetings: upcoming(own(req).id) }); });
+  // Removed rooms can be put back (Undo), with their bookings (recyclebin.js).
   r.delete('/:id', (req, res) => {
     admin(req);
-    q('DELETE FROM rooms WHERE id = ?').run(own(req).id);
-    res.json({ ok: true });
+    const room = own(req);
+    const meetings = upcoming(room.id);
+    res.json({ ok: true, meetings, bin_id: binAndDelete('room', room.id, { ownerId: req.user.id, name: room.name, by: req.user.id }) });
+  });
+  r.post('/bin/:id/restore', (req, res) => {
+    admin(req);
+    const back = restoreFromBin(req.params.id, req.user.id);
+    if (!back || back.kind !== 'room') throw notFound('Not in your recently removed rooms');
+    res.json({ ok: true, id: back.item_id });
   });
   return r;
 }

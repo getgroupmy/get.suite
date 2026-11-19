@@ -849,6 +849,17 @@ function Rooms() {
   const load = () => get('/rooms').then(setRooms).catch(() => setRooms([]));
   useEffect(() => { load(); }, []);
   const run = (fn, msg) => async () => { try { await fn(); if (msg) toast(msg); load(); } catch (e) { toast(e.message, 'error'); } };
+  // Removing a room: asked first (meetings booked in it lose it), with Undo after.
+  const [removing, setRemoving] = useState(null); // { room, meetings }
+  const askRemove = async (room) => { try { const { meetings } = await get(`/rooms/${room.id}/upcoming`); setRemoving({ room, meetings }); } catch (e) { toast(e.message, 'error'); } };
+  const remove = async () => {
+    const { room } = removing;
+    setRemoving(null);
+    try {
+      const r = await del(`/rooms/${room.id}`); load();
+      toast(`${room.name} removed`, 'info', { action: { label: 'Undo', onClick: async () => { try { await post(`/rooms/bin/${r.bin_id}/restore`); toast(`${room.name} is back, with its bookings`); load(); } catch (e) { toast(e.message, 'error'); } } } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
   return (
     <div className="card stack">
       <h2>Rooms</h2>
@@ -869,7 +880,7 @@ function Rooms() {
                   onChange={(e) => { const el = e.target, on = el.checked; patch(`/rooms/${r.id}`, { check_in: on }).then(() => toast(on ? `${r.name}: check-in needed` : `${r.name}: no check-in`)).catch((err) => { el.checked = !on; toast(err.message, 'error'); }); }} /> ✅ Check-in</label>
               <label className="check small room-admins" title="Only admins can book it; others are declined"><input type="checkbox" aria-label={`Only admins can book ${r.name}`} defaultChecked={!!r.admins_only}
                 onChange={(e) => { const el = e.target, on = el.checked; patch(`/rooms/${r.id}`, { admins_only: on }).then(() => toast(on ? `${r.name}: admins only` : `${r.name}: anyone can book`)).catch((err) => { el.checked = !on; toast(err.message, 'error'); }); }} /> 🔒 Admins only</label>
-              <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={run(() => del(`/rooms/${r.id}`), `${r.name} removed`)}><Icon name="trash" size={18} /></button>
+              <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => askRemove(r)}><Icon name="trash" size={18} /></button>
             </li>
           ))}
         </ul>
@@ -894,6 +905,8 @@ function Rooms() {
         <span className="muted small">Columns: Name, Seats, Where, Equipment, Admins only, Check-in (yes or no). Rooms with the same name are updated.</span>
       </div>
       {rooms?.length > 0 && <RoomUsage />}
+      {removing && <ConfirmModal title={`Remove ${removing.room.name}?`} confirm="Remove room" onClose={() => setRemoving(null)} onConfirm={remove}
+        message={removing.meetings ? `${removing.meetings} meeting${removing.meetings === 1 ? ' to come has' : 's to come have'} it booked, and will lose it. You can undo this straight after.` : 'No meetings to come have it booked. You can undo this straight after.'} />}
     </div>
   );
 }

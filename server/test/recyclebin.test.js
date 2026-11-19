@@ -117,3 +117,18 @@ test('a contact group deleted and put back, with its members', async () => {
   assert.equal((await olivia('POST', `/api/contacts/groups/bin/${del.body.bin_id}/restore`)).status, 200);
   assert.equal(await groups(), before);
 });
+
+test('a meeting room removed by mistake: Undo puts it back with its bookings', async () => {
+  const room = (await olivia('POST', '/api/rooms', { name: 'Board room', capacity: 10 })).body;
+  assert.ok(room.id, JSON.stringify(room));
+  const t = Date.now() + 864e5;
+  const ev = (await olivia('POST', '/api/events', { title: 'Quarterly review', start: t, end: t + 3600e3, rooms: [room.id] })).body;
+  const roomsOf = async () => { const e = (await olivia('GET', `/api/events?from=${t - 1}&to=${t + 7200e3}`)).body.find((x) => x.id === ev.id); return (e.rooms || []).map((x) => x.name || x.id); };
+  assert.equal((await roomsOf()).length, 1);
+  assert.equal((await olivia('GET', `/api/rooms/${room.id}/upcoming`)).body.meetings, 1);
+  const del = await olivia('DELETE', `/api/rooms/${room.id}`);
+  assert.equal(del.body.meetings, 1);
+  assert.equal((await roomsOf()).length, 0, 'the meeting lost it');
+  assert.equal((await olivia('POST', `/api/rooms/bin/${del.body.bin_id}/restore`)).status, 200);
+  assert.equal((await roomsOf()).length, 1, 'and has it again');
+});
