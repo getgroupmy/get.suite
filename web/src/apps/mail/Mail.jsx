@@ -128,6 +128,15 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [compose, setCompose] = useState(null);
+  const dropUnsaved = () => { try { sessionStorage.removeItem(unsavedMailKey(user)); } catch { /* storage off */ } };
+  // An email that was being written when the session ended opens again.
+  useEffect(() => {
+    if (shared) return;
+    let d = null;
+    try { d = JSON.parse(sessionStorage.getItem(unsavedMailKey(user)) || 'null'); } catch { /* none */ }
+    if (d && typeof d === 'object') setCompose({ ...d, files: Array.isArray(d.files) ? d.files : [], draftUid: d.draftUid || undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [checked, setChecked] = useState(new Set());
   const [vacation, setVacation] = useState(null);
   const [vacationOpen, setVacationOpen] = useState(false);
@@ -737,7 +746,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
-      {compose && <Compose initial={compose} shared={shared} signatures={sigs} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {compose && <Compose initial={compose} shared={shared} signatures={sigs} onClose={() => { dropUnsaved(); setCompose(null); }} onSent={() => { dropUnsaved(); setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
       {labelDialog && !labelDialog.deleting && <LabelDialog label={labelDialog} colors={labelColors} onClose={() => setLabelDialog(null)}
         onSaved={() => { setLabelDialog(null); loadLabels(); }} />}
       {labelDialog?.deleting && (
@@ -1560,6 +1569,9 @@ function HtmlBody({ html, remote, images, onShowImages }) {
   );
 }
 
+// An email being written that the Drafts folder doesn't have yet is also kept in this tab (for you only):
+// if the session ends mid-sentence, it opens again in Mail after signing in.
+const unsavedMailKey = (user) => `nw-mail-unsaved:${user?.id}`;
 const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'html', 'inReplyTo', 'references', 'replyTo'];
 
 // Attaching a document, spreadsheet or presentation: as which kind of file (a copy as it is now, kept in Email attachments).
@@ -1673,6 +1685,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
         const r = await post('/mail/drafts', { ...cur, attachments: att.map((x) => x.id), uid: draftUid.current, forwardOf: fw });
         draftUid.current = r.uid;
         setDraftState('saved');
+        if (!dirty.current) { try { sessionStorage.removeItem(unsavedMailKey(user)); } catch { /* storage off */ } }
       } catch { dirty.current = true; setDraftState('error'); }
     });
     return chain.current;
@@ -1683,6 +1696,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   useEffect(() => {
     if (first.current || skipNext.current) { first.current = false; skipNext.current = false; return; }
     dirty.current = true;
+    if (!shared) { try { sessionStorage.setItem(unsavedMailKey(user), JSON.stringify({ ...f, files, forwardOf: fwd, draftUid: draftUid.current })); } catch { /* storage off */ } }
     clearTimeout(timer.current);
     timer.current = setTimeout(saveDraft, 2000);
   }, [f, files, fwd, saveDraft]);
