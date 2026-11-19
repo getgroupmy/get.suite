@@ -888,8 +888,10 @@ export default function formRoutes() {
   r.post('/bin/:id/restore', (req, res) => {
     const back = restoreFromBin(req.params.id, req.user.id);
     if (!back || back.kind !== 'form') throw notFound('Not in your recently deleted forms');
-    const f = q('SELECT id, owner_id FROM forms WHERE id = ?').get(back.item_id);
+    const f = q('SELECT id, owner_id, title FROM forms WHERE id = ?').get(back.item_id);
     sendTo(teamOf(f).filter((x) => x !== req.user.id), { type: 'form-changed', form_id: f.id });
+    const tell = back.told.filter((id) => teamOf(f).includes(id) && id !== req.user.id);
+    if (tell.length) bell(tell, { kind: 'share', title: `${req.user.name} put back the form “${f.title}”`, body: 'It’s back with its responses, and its link works again.', link: `/forms/${f.id}`, actor: req.user.name });
     res.json({ ok: true, form_id: f.id });
   });
 

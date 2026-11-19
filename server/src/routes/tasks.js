@@ -565,6 +565,8 @@ export default function taskRoutes() {
     if (!back || back.kind !== 'task_list') throw notFound('Not in your recently deleted lists');
     const list = q('SELECT * FROM task_lists WHERE id = ?').get(back.item_id);
     sendTo(new Set(peopleOn(list)), { type: 'tasks-changed', list_id: list.id });
+    const tell = back.told.filter((id) => peopleOn(list).includes(id) && id !== req.user.id);
+    if (tell.length) bell(tell, { kind: 'task', title: `${req.user.name} put back the list “${list.name}”`, body: 'Its tasks are back, as they were.', link: `/tasks/${list.id}`, actor: req.user.name });
     res.json({ ok: true, list_id: list.id });
   });
 

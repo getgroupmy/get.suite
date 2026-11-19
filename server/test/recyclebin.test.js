@@ -134,7 +134,7 @@ test('a meeting room removed by mistake: Undo puts it back with its bookings', a
 });
 
 test('organisers are told their meeting lost its room, unless the removal is undone in time', async () => {
-  process.env.ROOM_REMOVED_NOTICE_MS = '300';
+  process.env.BIN_NOTICE_MS = '300';
   const t = Date.now() + 2 * 864e5;
   const bells = async () => JSON.stringify((await carol('GET', '/api/notifications')).body);
   const room = (await olivia('POST', '/api/rooms', { name: 'Garden room', capacity: 6 })).body;
@@ -153,12 +153,12 @@ test('organisers are told their meeting lost its room, unless the removal is und
 });
 
 test('a notice still waiting when the server restarts is sent afterwards', async () => {
-  process.env.ROOM_REMOVED_NOTICE_MS = '60000'; // not yet due
+  process.env.BIN_NOTICE_MS = '60000'; // not yet due
   const t = Date.now() + 3 * 864e5;
   const room = (await olivia('POST', '/api/rooms', { name: 'Loft', capacity: 4 })).body;
   await carol('POST', '/api/events', { title: 'Design review', start: t, end: t + 3600e3, rooms: [room.id] });
   await olivia('DELETE', `/api/rooms/${room.id}`);
-  const { sendRoomNotices } = await import('../src/routes/rooms.js');
+  const { sendBinNotices: sendRoomNotices } = await import('../src/recyclebin.js');
   assert.equal(sendRoomNotices(), 0, 'not due yet');
   // (as if after a restart, a minute later: the stored notice is found and sent)
   assert.equal(sendRoomNotices(Date.now() + 61000), 1);
@@ -187,4 +187,16 @@ test('the people a list or form was shared with are told it was deleted, unless 
   const { q } = await import('../src/db.js');
   const mine = JSON.stringify(q("SELECT title FROM notifications WHERE title LIKE '%deleted the%'").all());
   assert.equal((mine.match(/Launch plan/g) || []).length, 1, 'told once');
+});
+
+test('put back after people were told it was deleted: they’re told it’s back', async () => {
+  process.env.BIN_NOTICE_MS = '300';
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Hiring plan' })).body;
+  await olivia('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [carolId] });
+  const del = await olivia('DELETE', `/api/tasks/lists/${list.id}`);
+  await new Promise((r) => setTimeout(r, 700));
+  assert.equal((await olivia('POST', `/api/tasks/bin/${del.body.bin_id}/restore`)).status, 200);
+  const b = JSON.stringify((await carol('GET', '/api/notifications')).body);
+  assert.match(b, /deleted the list “Hiring plan”/);
+  assert.match(b, /Olivia Owner put back the list “Hiring plan”/);
 });

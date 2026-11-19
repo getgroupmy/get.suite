@@ -95,7 +95,10 @@ export function restoreFromBin(binId, ownerId) {
     }
     q('DELETE FROM recycle_bin WHERE id = ?').run(binId);
   });
-  return { kind: e.kind, item_id: e.item_id };
+  // Those already told it was deleted: (the restoring route tells them it's back); notices still waiting are dropped.
+  const told = [...new Set(q('SELECT user_ids FROM bin_notices WHERE bin_id = ? AND sent_at IS NOT NULL').all(binId).flatMap((r) => JSON.parse(r.user_ids)))];
+  q('DELETE FROM bin_notices WHERE bin_id = ?').run(binId);
+  return { kind: e.kind, item_id: e.item_id, told };
 }
 
 /** Your recently deleted lists or forms. */
@@ -103,6 +106,7 @@ export const binOf = (ownerId, kind) => q('SELECT id, kind, item_id, name, delet
   .map((x) => ({ ...x, until: x.deleted_at + KEEP_DAYS * 864e5 }));
 
 export function purgeBin(t = Date.now()) {
+  q('DELETE FROM bin_notices WHERE bin_id NOT IN (SELECT id FROM recycle_bin) AND sent_at IS NOT NULL').run();
   return q('DELETE FROM recycle_bin WHERE deleted_at < ?').run(t - KEEP_DAYS * 864e5).changes;
 }
 setInterval(() => { try { purgeBin(); } catch (e) { console.error('[bin]', e.message); } }, 6 * 3600e3).unref();
@@ -112,6 +116,8 @@ setInterval(() => { try { purgeBin(); } catch (e) { console.error('[bin]', e.mes
 q(`CREATE TABLE IF NOT EXISTS bin_notices (
   id TEXT PRIMARY KEY, bin_id TEXT NOT NULL, user_ids TEXT NOT NULL, notice TEXT NOT NULL, due_at INTEGER NOT NULL
 )`).run();
+// When it was sent (null: still waiting): who was told it was deleted, to tell them again if it's put back.
+if (!q('PRAGMA table_info(bin_notices)').all().some((c) => c.name === 'sent_at')) q('ALTER TABLE bin_notices ADD COLUMN sent_at INTEGER').run();
 export const UNDO_GRACE_MS = () => Number(process.env.BIN_NOTICE_MS) || 15000;
 export function noticeAfterUndo(binId, userIds, notice) {
   const ids = [...new Set(userIds)].filter(Boolean);
@@ -122,9 +128,9 @@ export function noticeAfterUndo(binId, userIds, notice) {
 /** Send the notices that are due (for items still deleted). Returns how many people were told. */
 export function sendBinNotices(t = Date.now()) {
   let n = 0;
-  for (const r of q('SELECT * FROM bin_notices WHERE due_at <= ?').all(t)) {
-    q('DELETE FROM bin_notices WHERE id = ?').run(r.id);
-    if (!q('SELECT 1 FROM recycle_bin WHERE id = ?').get(r.bin_id)) continue; // undone
+  for (const r of q('SELECT * FROM bin_notices WHERE due_at <= ? AND sent_at IS NULL').all(t)) {
+    if (!q('SELECT 1 FROM recycle_bin WHERE id = ?').get(r.bin_id)) { q('DELETE FROM bin_notices WHERE id = ?').run(r.id); continue; } // undone
+    q('UPDATE bin_notices SET sent_at = ? WHERE id = ?').run(t, r.id);
     const ids = JSON.parse(r.user_ids);
     try { notify(ids, JSON.parse(r.notice)); n += ids.length; } catch (e) { console.error('[bin]', e.message); }
   }

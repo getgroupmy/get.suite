@@ -1,7 +1,7 @@
 // Meeting rooms (and other things to book, like a projector): a company's admins list them; people
 // add one to an event, and it's booked when it's free then (every time, for a repeating event, over
 // the next six months) or declined when something else has it.
-import { binAndDelete, restoreFromBin } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, noticeAfterUndo } from '../recyclebin.js';
 import express, { Router } from 'express';
 import { parseCsv } from '../contactfiles.js';
 import { q, tx } from '../db.js';
@@ -234,30 +234,14 @@ const csvCell = (v) => (/[",\n;]/.test(String(v ?? '')) ? `"${String(v).replace(
 
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
-// Notices waiting for the moment to Undo to pass (kept here, so a restart meanwhile doesn't lose them).
-q(`CREATE TABLE IF NOT EXISTS room_removed_notices (
-  bin_id TEXT PRIMARY KEY, room_name TEXT NOT NULL, meetings TEXT NOT NULL,
-  by_id TEXT, by_name TEXT, due_at INTEGER NOT NULL
-)`).run();
-/** Send the notices that are due. Returns how many organisers were told. */
-export function sendRoomNotices(t = Date.now()) {
-  let n = 0;
-  for (const r of q('SELECT * FROM room_removed_notices WHERE due_at <= ?').all(t)) {
-    q('DELETE FROM room_removed_notices WHERE bin_id = ?').run(r.bin_id);
-    try { n += tellRoomRemoved(r.bin_id, r.room_name, JSON.parse(r.meetings), { id: r.by_id, name: r.by_name || 'An admin' }); } catch (e) { console.error('[rooms]', e.message); }
-  }
-  return n;
-}
-setInterval(() => { try { sendRoomNotices(); } catch (e) { console.error('[rooms]', e.message); } }, 5000).unref();
-
-/** A removed room (not put back): each organiser of a meeting that had it booked is told which meetings lost it. */
-export function tellRoomRemoved(binId, roomName, meetings, by) {
-  if (!q('SELECT 1 FROM recycle_bin WHERE id = ?').get(binId)) return 0; // undone
+/** A removed room: each organiser of a meeting that had it booked is told which of theirs lost it, once the
+ * moment to Undo has passed (recyclebin.js: only if it wasn't put back, and kept through a restart). */
+function tellRoomRemoved(binId, roomName, meetings, by) {
   const byOwner = new Map();
   for (const m of meetings) if (m.owner_id !== by.id) byOwner.set(m.owner_id, [...(byOwner.get(m.owner_id) || []), m]);
   for (const [owner, list] of byOwner) {
     const names = list.slice(0, 3).map((m) => `“${m.title}”`).join(', ') + (list.length > 3 ? ` and ${list.length - 3} more` : '');
-    notify([owner], { kind: 'invite', title: `${roomName} was removed`, body: `${by.name} removed the room, so ${names} no longer ${list.length === 1 ? 'has' : 'have'} a room. Book another from the meeting.`, link: `/calendar?event=${list[0].id}` });
+    noticeAfterUndo(binId, [owner], { kind: 'invite', title: `${roomName} was removed`, body: `${by.name} removed the room, so ${names} no longer ${list.length === 1 ? 'has' : 'have'} a room. Book another from the meeting.`, link: `/calendar?event=${list[0].id}` });
   }
   return byOwner.size;
 }
@@ -443,11 +427,7 @@ export default function roomRoutes() {
     const meetings = upcoming(room.id);
     const lose = upcomingMeetings(room.id);
     const binId = binAndDelete('room', room.id, { ownerId: req.user.id, name: room.name, by: req.user.id });
-    if (lose.length) {
-      q('INSERT INTO room_removed_notices (bin_id, room_name, meetings, by_id, by_name, due_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(binId, room.name, JSON.stringify(lose), req.user.id, req.user.name, Date.now() + (Number(process.env.ROOM_REMOVED_NOTICE_MS) || 15000));
-      setTimeout(sendRoomNotices, (Number(process.env.ROOM_REMOVED_NOTICE_MS) || 15000) + 50).unref();
-    }
+    tellRoomRemoved(binId, room.name, lose, req.user);
     res.json({ ok: true, meetings, bin_id: binId });
   });
   r.post('/bin/:id/restore', (req, res) => {
