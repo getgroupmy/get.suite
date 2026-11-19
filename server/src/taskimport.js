@@ -1,5 +1,6 @@
 // Tasks from a spreadsheet (CSV): a list kept in Excel or Sheets, another to-do app's export, or a list
 // downloaded from Workspace itself. The first row names the columns; only a task column is needed.
+import { cleanRepeat } from './taskrepeat.js';
 import { parseCsv } from './contactfiles.js';
 
 export const MAX_TASK_IMPORT = 1000;
@@ -19,7 +20,13 @@ const COLUMNS = {
   parent: ['parent task', 'parent'],
   estimate: ['estimate (min)', 'estimate', 'minutes'],
   priority: ['priority'],
+  repeat: ['repeat', 'repeats', 'recurrence', 'recurring', 'repeat rule'],
 };
+
+// How a task repeats, as a download writes it ("weekly", "every:2:week:1,4", "monthweek:1,3:1") or in words.
+const REPEAT_WORDS = { daily: 'daily', 'every day': 'daily', weekdays: 'weekdays', 'every weekday': 'weekdays', weekly: 'weekly', 'every week': 'weekly',
+  monthly: 'monthly', 'every month': 'monthly', yearly: 'yearly', annually: 'yearly', 'every year': 'yearly' };
+const repeatFrom = (v) => { const t = String(v || '').trim(); return t ? REPEAT_WORDS[t.toLowerCase()] || cleanRepeat(t) || null : null; };
 
 const iso = (y, m, d) => {
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -72,6 +79,7 @@ export function tasksFromCsv(text) {
       ...((() => { const m = Math.round(Number(get(r, 'estimate'))); return m >= 1 && m <= 6000 ? { estimate: m } : {}; })()),
       ...((() => { const v = String(get(r, 'priority') || '').trim().toLowerCase(); const p = { high: 'high', h: 'high', 3: 'high', medium: 'medium', med: 'medium', m: 'medium', 2: 'medium', low: 'low', l: 'low', 1: 'low' }[v]; return p ? { priority: p } : {}; })()),
       ...(get(r, 'parent') && { parent: get(r, 'parent').slice(0, 500) }),
+      ...(due && repeatFrom(get(r, 'repeat')) && { repeat: repeatFrom(get(r, 'repeat')) }),
       tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')) || (/^\d/.test(status) && !!dateOf(status)), important: yes(get(r, 'important')), steps, // a date in Done: when it was done
     });
   }

@@ -201,6 +201,8 @@ export function tasksTable(tasks) {
   let table = [head, ...rows];
   // Estimates (minutes), when any task has one: after Time.
   if (tasks.some((t) => t.estimate)) table = table.map((r, i) => [...r.slice(0, 4), i ? (tasks[i - 1].estimate || '') : 'Estimate (min)', ...r.slice(4)]);
+  // How it repeats, when any task does: after Start (as kept: weekly, every:2:week:1,4, monthweek:1,3:1).
+  if (tasks.some((t) => t.repeat)) { const at = table[0].indexOf('Start') + 1; table = table.map((r, i) => [...r.slice(0, at), i ? (tasks[i - 1].repeat || '') : 'Repeat', ...r.slice(at)]); }
   // Priority, when any task has one: after Important.
   if (tasks.some((t) => t.priority)) { const at = table[0].indexOf('Important') + 1; table = table.map((r, i) => [...r.slice(0, at), i ? (tasks[i - 1].priority ? tasks[i - 1].priority[0].toUpperCase() + tasks[i - 1].priority.slice(1) : '') : 'Priority', ...r.slice(at)]); }
   if (tasks.some((t) => t.section_name)) table = table.map((r, i) => [r[0], i ? tasks[i - 1].section_name || '' : 'Section', ...r.slice(1)]);
@@ -398,6 +400,7 @@ function addCsvTasks(list, found, user) {
     if (x.section) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secId(x.section), tid);
     if (x.estimate) q('UPDATE tasks SET estimate = ? WHERE id = ?').run(x.estimate, tid);
     if (x.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(PRIORITY[x.priority], tid);
+    if (x.repeat && !x.done) q('UPDATE tasks SET repeat = ? WHERE id = ?').run(x.repeat, tid);
   }
 }
 
