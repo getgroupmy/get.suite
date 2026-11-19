@@ -155,7 +155,7 @@ test('monthly on a weekday: BYDAY=2MO out, and in from Outlook (BYSETPOS) and ph
   assert.deepEqual(read('FREQ=MONTHLY;BYDAY=+2MO;COUNT=5'), { freq: 'monthly', nth: 2, wd: 1, count: 5 });
   assert.deepEqual(read('FREQ=MONTHLY;INTERVAL=2;BYDAY=FR;BYSETPOS=-1'), { freq: 'monthly', interval: 2, nth: -1, wd: 5 });
   assert.deepEqual(read('FREQ=MONTHLY;BYDAY=-1SU'), { freq: 'monthly', nth: -1, wd: 0 });
-  // The 5th is a repeat now (months without one skipped); still not shown: a 6th, the second to last, several weekdays.
+  // The 5th is a repeat now (months without one skipped); still not shown: a 6th, the second to last, several numbered weekdays.
   assert.deepEqual(read('FREQ=MONTHLY;BYDAY=5MO'), { freq: 'monthly', nth: 5, wd: 1 });
   assert.equal(read('FREQ=MONTHLY;BYDAY=6MO'), null);
   assert.equal(read('FREQ=MONTHLY;BYDAY=-2MO'), null);

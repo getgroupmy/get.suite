@@ -99,3 +99,17 @@ test('a phone’s “fifth Monday of the month” repeats here too, and goes bac
   const back = (await dav('GET', `${cal}FIFTH-MONDAY-1.ics`)).text;
   assert.match(back, /RRULE:FREQ=MONTHLY;BYDAY=5MO/);
 });
+
+test('“every Monday and Wednesday of the month” from a phone: those days every week, on both sides', async () => {
+  const cal = `/dav/calendars/${me.id}/default/`;
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Google Inc//Google Calendar 70.9054//EN', 'BEGIN:VEVENT', 'UID:MON-WED-MONTH-1',
+    'DTSTART;TZID=Europe/London:20261102T090000', 'DTEND;TZID=Europe/London:20261102T093000', 'SUMMARY:Stand-up',
+    'RRULE:FREQ=MONTHLY;BYDAY=MO,WE;COUNT=6', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  assert.equal((await dav('PUT', `${cal}MON-WED-MONTH-1.ics`, { body: ics, headers: { 'content-type': 'text/calendar' } })).status, 201);
+  const ev = (await api('GET', `/api/events?from=${Date.UTC(2026, 10, 1)}&to=${Date.UTC(2026, 11, 31)}`)).body.find((e) => e.title === 'Stand-up');
+  assert.ok(ev.rrule, 'a repeat, not a one-off');
+  const { expand } = await import('../src/calmath.js');
+  const days = expand(ev, Date.UTC(2026, 10, 1), Date.UTC(2026, 11, 31)).map((o) => new Date(o.start).toISOString().slice(0, 10));
+  assert.deepEqual(days, ['2026-11-02', '2026-11-04', '2026-11-09', '2026-11-11', '2026-11-16', '2026-11-18']);
+  assert.match((await dav('GET', `${cal}MON-WED-MONTH-1.ics`)).text, /RRULE:FREQ=WEEKLY;.*BYDAY=MO,WE|RRULE:FREQ=WEEKLY;BYDAY=MO,WE/);
+});

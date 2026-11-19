@@ -424,9 +424,12 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
   const rr = get('RRULE');
   if (rr) {
     const p = Object.fromEntries(rr.value.split(';').map((x) => x.split('=')).map(([k, v]) => [k.toUpperCase(), v]));
-    const freq = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }[p.FREQ];
+    let freq = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }[p.FREQ];
     const days = p.BYDAY ? p.BYDAY.split(',') : [];
     const plainDays = days.every((d) => /^(SU|MO|TU|WE|TH|FR|SA)$/.test(d));
+    // Every month on plain weekdays ("every Monday and Wednesday of the month"): the very same dates as
+    // weekly on those days, so it's kept as that (every other month, say, isn't the same, and stays a one-off).
+    if (freq === 'monthly' && days.length && plainDays && !(+p.INTERVAL > 1) && !p.BYSETPOS && !p.BYMONTHDAY && !p.BYMONTH) freq = 'weekly';
     // Monthly on one weekday of the month: BYDAY=2MO, or BYDAY=MO;BYSETPOS=2 (Outlook), the 1st–5th or the last.
     const nthDay = freq === 'monthly' && days.length === 1 && !p.BYMONTHDAY && !p.BYMONTH
       && (/^([+-]?[1-5]|-1)(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-5]|-1)$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
