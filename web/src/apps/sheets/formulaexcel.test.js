@@ -77,3 +77,32 @@ test('statistics, counting and money', () => {
   near('=FVSCHEDULE(1,{0.09,0.11,0.1})', 1.33089);
   assert.deepEqual([v('=DAYS360("2026-01-30","2026-03-31")'), v('=DAYS360("2026-01-31","2026-02-28")'), v('=DAYS360("2026-01-31","2026-03-31",TRUE)')], [60, 28, 60]);
 });
+
+test('more of Excel: distributions and their inverses, matrices, bases, depreciation (Excel’s own examples)', () => {
+  near('=F.DIST(15.2069,6,4,TRUE)', 0.99, 1e-5);
+  near('=F.INV.RT(0.01,6,4)', 15.20686, 1e-4);
+  near('=F.TEST({6,7,9,15,21},{20,28,31,38,40})', 0.648318);
+  near('=CHISQ.INV(0.93,1)', 3.283020);
+  near('=CHISQ.INV.RT(0.050001,10)', 18.30703, 1e-4);
+  near('=GAMMA.DIST(10.00001131,9,2,TRUE)', 0.068094);
+  near('=GAMMA.INV(0.068094,9,2)', 10.000011, 1e-4);
+  near('=HYPGEOM.DIST(1,4,8,20,TRUE)', 0.465428);
+  near('=NEGBINOM.DIST(10,5,0.25,FALSE)', 0.055049);
+  assert.equal(v('=BINOM.INV(6,0.5,0.75)'), 4);
+  near('=BINOM.DIST.RANGE(60,0.75,45,50)', 0.523630);
+  near('=MDETERM({3,6,1;1,1,0;3,10,2})', 1);
+  assert.equal(v('=INDEX(MINVERSE({4,-1;2,0}),1,2)'), 0.5);
+  assert.equal(v('=SUM(MUNIT(3))'), 3);
+  assert.deepEqual(v('=MINVERSE({1,2;2,4})'), { error: '#NUM!' }, 'no inverse');
+  assert.deepEqual([v('=BIN2HEX(11111011,4)'), v('=HEX2BIN("F",8)'), v('=OCT2HEX(100,4)')], ['00FB', '00001111', '0040']);
+  near('=NUMBERVALUE("2.500,27",",",".")', 2500.27);
+  assert.equal(v('=VDB(2400,300,10,0,1)'), 480);
+  near('=VDB(2400,300,120,6,18)', 396.306132, 1e-4);
+  assert.equal(v('=PERCENTRANK.EXC({1,2,3,6,6,6,7,8,9},7)'), 0.7);
+  assert.equal(v('=QUARTILE.EXC({6,7,15,36,39,40,41,42,43,47,49},1)'), 15);
+  near('=SKEW.P({3,4,5,2,3,4,5,6,4,7})', 0.303193);
+  assert.equal(v('=DOLLARDE(1.02,16)'), 1.125);
+  assert.equal(v('=ARRAYTOTEXT({1,"a";2,"b"},1)'), '{1,"a";2,"b"}');
+  near('=ERFC(1)', 0.157299);
+  near('=GAUSS(2)', 0.477250);
+});

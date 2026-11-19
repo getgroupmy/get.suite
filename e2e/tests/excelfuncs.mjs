@@ -59,6 +59,14 @@ await step('typed: trigonometry, ISNA, LOOKUP and REPLACE work out (no #NAME?)',
   const shown = await page.locator('.grid, [role="grid"]').first().innerText();
   if (/#NAME\?|#ERROR!/.test(shown)) throw new Error('an error shows');
 });
+await step('typed: an inverse matrix spills; distributions, bases and depreciation work out', async () => {
+  await typeIn('H5', '=MINVERSE({4,-1;2,0})');
+  await typeIn('H8', '=ROUND(F.INV.RT(0.01,6,4),2)');
+  await typeIn('H9', '=HEX2BIN("F",8)');
+  await typeIn('H10', '=VDB(2400,300,10,0,1)');
+  await until(async () => (await cell('H5').innerText()) === '0' && (await cell('I5').innerText()) === '0.5' && (await cell('H6').innerText()) === '-1' && (await cell('I6').innerText()) === '2'
+    && (await cell('H8').innerText()) === '15.21' && (await cell('H9').innerText()) === '00001111' && (await cell('H10').innerText()) === '480');
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');

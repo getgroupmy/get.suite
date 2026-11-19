@@ -1443,6 +1443,176 @@ Object.assign(FUNCS, {
   DPRODUCT: ([d, f, c]) => nums(dbValues(d, f, c)).reduce((s, x) => s * x, 1),
   DGET: ([d, f, c]) => { const v = dbValues(d, f, c); if (!v.length) err('#VALUE!'); if (v.length > 1) err('#NUM!'); return v[0]; },
 });
+
+// More of Excel's functions: distributions (and their inverses), matrices, bases, database statistics, depreciation.
+/** x where f(x) = p, for f rising from lo to hi (bisection; the inverse distributions). */
+function inverse(f, p, lo, hi) {
+  let a = lo, b = hi;
+  while (f(b) < p && b < 1e10) b *= 2;
+  for (let i = 0; i < 200; i++) { const m = (a + b) / 2; if (f(m) < p) a = m; else b = m; if (b - a < 1e-12 * Math.max(1, Math.abs(m))) break; }
+  return (a + b) / 2;
+}
+const fCdf = (x, d1, d2) => (x <= 0 ? 0 : betaI(d1 / 2, d2 / 2, (d1 * x) / (d1 * x + d2)));
+const gammaCdf = (x, a, b) => (x <= 0 ? 0 : gammaP(a, x / b));
+const hypgeom = (k, n, K, N) => Math.exp(lnChoose(K, k) + lnChoose(N - K, n - k) - lnChoose(N, n));
+const lnChoose = (n, k) => lnGamma(n + 1) - lnGamma(k + 1) - lnGamma(n - k + 1);
+/** A square matrix of numbers from a range or array, or #VALUE!. */
+function squareOf(a) {
+  const m = rowsOf(a);
+  if (!m.length || m.some((r) => r.length !== m.length || r.some((v) => typeof v !== 'number'))) err('#VALUE!');
+  return m.map((r) => [...r]);
+}
+/** Gaussian elimination: { det, inv } of a square matrix (inv null when it has none). */
+function eliminate(m) {
+  const n = m.length, a = m.map((r, i) => [...r, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
+  let det = 1;
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(a[r][c]) > Math.abs(a[p][c])) p = r;
+    if (Math.abs(a[p][c]) < 1e-12) return { det: 0, inv: null };
+    if (p !== c) { [a[p], a[c]] = [a[c], a[p]]; det = -det; }
+    det *= a[c][c];
+    const d = a[c][c];
+    for (let j = 0; j < 2 * n; j++) a[c][j] /= d;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = a[r][c]; if (f) for (let j = 0; j < 2 * n; j++) a[r][j] -= f * a[c][j]; }
+  }
+  return { det, inv: a.map((r) => r.slice(n)) };
+}
+const valuesA = (a) => flat(a).filter((x) => x !== null && x !== '' && x !== undefined).map((x) => (typeof x === 'number' ? x : typeof x === 'boolean' ? (x ? 1 : 0) : 0));
+Object.assign(FUNCS, {
+  CSC: ([v]) => { const s = Math.sin(toNum(v)); if (!s) err('#DIV/0!'); return 1 / s; },
+  CSCH: ([v]) => { const s = Math.sinh(toNum(v)); if (!s) err('#DIV/0!'); return 1 / s; },
+  ERFC: ([v]) => 1 - (toNum(v) < 0 ? -gammaP(0.5, toNum(v) ** 2) : gammaP(0.5, toNum(v) ** 2)),
+  FISHERINV: ([v]) => Math.tanh(toNum(v)),
+  GAUSS: ([v]) => normCdf(toNum(v)) - 0.5,
+  PHI: ([v]) => normPdf(toNum(v)),
+  GESTEP: ([v, step]) => (toNum(v) >= toNum(step ?? 0) ? 1 : 0),
+  PERMUTATIONA: ([n, k]) => { const a = Math.trunc(toNum(n)), b = Math.trunc(toNum(k)); if (a < 0 || b < 0) err('#NUM!'); return a ** b; },
+  'ISO.CEILING': ([v, sig]) => FUNCS['CEILING.MATH']([v, sig ?? 1]),
+  'ECMA.CEILING': ([v, sig]) => FUNCS.CEILING([v, sig]),
+  NUMBERVALUE: ([v, dec, group]) => {
+    const d = given(dec) ? toStr(dec)[0] || '.' : '.', g = given(group) ? toStr(group)[0] || ',' : ',';
+    let t = toStr(v).replace(/\s/g, '');
+    if (t === '') return 0;
+    const pct = (t.match(/%+$/) || [''])[0].length;
+    t = t.replace(/%+$/, '').split(g).join('');
+    if (d !== '.') t = t.split(d).join('.');
+    const n = Number(t);
+    if (!t || Number.isNaN(n)) err('#VALUE!');
+    return n / 100 ** pct;
+  },
+  BIN2HEX: ([v, places]) => toBase(fromBase(v, 2, 10), 16, places, 10),
+  BIN2OCT: ([v, places]) => toBase(fromBase(v, 2, 10), 8, places, 10),
+  HEX2BIN: ([v, places]) => { const n = fromBase(v, 16, 10); if (n < -512 || n > 511) err('#NUM!'); return toBase(n, 2, places, 10); },
+  HEX2OCT: ([v, places]) => toBase(fromBase(v, 16, 10), 8, places, 10),
+  OCT2BIN: ([v, places]) => { const n = fromBase(v, 8, 10); if (n < -512 || n > 511) err('#NUM!'); return toBase(n, 2, places, 10); },
+  OCT2HEX: ([v, places]) => toBase(fromBase(v, 8, 10), 16, places, 10),
+  VARA: (a) => variance([valuesA(a)], true),
+  VARPA: (a) => variance([valuesA(a)], false),
+  STDEVPA: (a) => Math.sqrt(variance([valuesA(a)], false)),
+  'SKEW.P': (a) => { const n = nums(a); if (n.length < 3) err('#DIV/0!'); const m = n.reduce((s, x) => s + x, 0) / n.length, sd = Math.sqrt(n.reduce((s, x) => s + (x - m) ** 2, 0) / n.length); if (!sd) err('#DIV/0!'); return n.reduce((s, x) => s + ((x - m) / sd) ** 3, 0) / n.length; },
+  'QUARTILE.EXC': ([range, q]) => { const n = Math.trunc(toNum(q)); if (n < 1 || n > 3) err('#NUM!'); return FUNCS['PERCENTILE.EXC']([range, n / 4]); },
+  'PERCENTRANK.EXC': ([range, x, significance]) => {
+    const n = nums([range]).sort((p, q) => p - q), v = toNum(x), digits = given(significance) ? Math.trunc(toNum(significance)) : 3;
+    if (!n.length || digits < 1 || v < n[0] || v > n[n.length - 1]) err('#N/A');
+    let pos = n.indexOf(v);
+    if (pos < 0) { const i = n.findIndex((y) => y > v) - 1; pos = i + (v - n[i]) / (n[i + 1] - n[i]); }
+    const f = 10 ** digits;
+    return Math.floor(((pos + 1) / (n.length + 1)) * f + 1e-9) / f;
+  },
+  'F.DIST': ([x, d1, d2, cumulative]) => {
+    const v = toNum(x), a = degrees(d1), b = degrees(d2);
+    if (v < 0) err('#NUM!');
+    if (toBool(cumulative)) return fCdf(v, a, b);
+    if (v === 0) return a < 2 ? Infinity : a === 2 ? 1 : 0;
+    return Math.exp(0.5 * a * Math.log(a * v) + 0.5 * b * Math.log(b) - 0.5 * (a + b) * Math.log(a * v + b) - Math.log(v) - (lnGamma(a / 2) + lnGamma(b / 2) - lnGamma((a + b) / 2)));
+  },
+  'F.DIST.RT': ([x, d1, d2]) => { const v = toNum(x); if (v < 0) err('#NUM!'); return 1 - fCdf(v, degrees(d1), degrees(d2)); },
+  'F.INV': ([p, d1, d2]) => { const q = toNum(p); if (q < 0 || q > 1) err('#NUM!'); const a = degrees(d1), b = degrees(d2); return inverse((x) => fCdf(x, a, b), q, 0, 10); },
+  'F.INV.RT': ([p, d1, d2]) => { const q = toNum(p); if (q < 0 || q > 1) err('#NUM!'); const a = degrees(d1), b = degrees(d2); return inverse((x) => fCdf(x, a, b), 1 - q, 0, 10); },
+  'F.TEST': ([r1, r2]) => {
+    const x = nums([r1]), y = nums([r2]);
+    if (x.length < 2 || y.length < 2) err('#DIV/0!');
+    const vx = variance([x], true), vy = variance([y], true);
+    if (!vx || !vy) err('#DIV/0!');
+    const f = vx / vy, c = fCdf(f, x.length - 1, y.length - 1);
+    return 2 * Math.min(c, 1 - c);
+  },
+  'CHISQ.INV': ([p, df]) => { const q = toNum(p); if (q < 0 || q >= 1) err('#NUM!'); const d = degrees(df); return inverse((x) => chiCdf(x, d), q, 0, d + 10); },
+  'CHISQ.INV.RT': ([p, df]) => { const q = toNum(p); if (q <= 0 || q > 1) err('#NUM!'); const d = degrees(df); return inverse((x) => chiCdf(x, d), 1 - q, 0, d + 10); },
+  CHIINV: (a) => FUNCS['CHISQ.INV.RT'](a),
+  'GAMMA.DIST': ([x, alpha, beta, cumulative]) => {
+    const v = toNum(x), a = positive(alpha), b = positive(beta);
+    if (v < 0) err('#NUM!');
+    return toBool(cumulative) ? gammaCdf(v, a, b) : (v === 0 ? (a < 1 ? Infinity : a === 1 ? 1 / b : 0) : Math.exp((a - 1) * Math.log(v) - v / b - lnGamma(a) - a * Math.log(b)));
+  },
+  'GAMMA.INV': ([p, alpha, beta]) => { const q = toNum(p); if (q < 0 || q >= 1) err('#NUM!'); const a = positive(alpha), b = positive(beta); return inverse((x) => gammaCdf(x, a, b), q, 0, a * b + 10 * b); },
+  LOGINV: ([p, mean, sd]) => Math.exp(toNum(mean) + positive(sd) * normInv(probability(p))),
+  'LOGNORM.INV': ([p, mean, sd]) => Math.exp(toNum(mean) + positive(sd) * normInv(probability(p))),
+  LOGNORMDIST: ([x, mean, sd]) => FUNCS['LOGNORM.DIST']([x, mean, sd, true]),
+  'HYPGEOM.DIST': ([k, n, K, N, cumulative]) => {
+    const a = Math.trunc(toNum(k)), b = Math.trunc(toNum(n)), c = Math.trunc(toNum(K)), d = Math.trunc(toNum(N));
+    if (a < 0 || b <= 0 || c <= 0 || d <= 0 || b > d || c > d || a > Math.min(b, c) || a < Math.max(0, b - d + c)) err('#NUM!');
+    if (!toBool(cumulative)) return hypgeom(a, b, c, d);
+    let s = 0;
+    for (let i = Math.max(0, b - d + c); i <= a; i++) s += hypgeom(i, b, c, d);
+    return Math.min(1, s);
+  },
+  'NEGBINOM.DIST': ([f, s, p, cumulative]) => {
+    const k = Math.trunc(toNum(f)), r = Math.trunc(toNum(s)), q = toNum(p);
+    if (k < 0 || r < 1 || q <= 0 || q >= 1) err('#NUM!');
+    const pmf = (i) => Math.exp(lnChoose(i + r - 1, i) + r * Math.log(q) + i * Math.log(1 - q));
+    if (!toBool(cumulative)) return pmf(k);
+    let t = 0;
+    for (let i = 0; i <= k; i++) t += pmf(i);
+    return Math.min(1, t);
+  },
+  'BINOM.INV': ([n, p, alpha]) => {
+    const k = Math.trunc(toNum(n)), q = toNum(p), a = toNum(alpha);
+    if (k < 0 || q < 0 || q > 1 || a <= 0 || a >= 1) err('#NUM!');
+    for (let i = 0; i <= k; i++) if (binomCdf(i, k, q) >= a - 1e-12) return i;
+    return k;
+  },
+  CRITBINOM: (a) => FUNCS['BINOM.INV'](a),
+  'BINOM.DIST.RANGE': ([n, p, s1, s2]) => {
+    const k = Math.trunc(toNum(n)), q = toNum(p), a = Math.trunc(toNum(s1)), b = given(s2) ? Math.trunc(toNum(s2)) : a;
+    if (k < 0 || q < 0 || q > 1 || a < 0 || b < a || b > k) err('#NUM!');
+    let t = 0;
+    for (let i = a; i <= b; i++) t += binomPmf(i, k, q);
+    return t;
+  },
+  PDURATION: ([rate, pv, fv]) => { const r = toNum(rate), a = toNum(pv), b = toNum(fv); if (r <= 0 || a <= 0 || b <= 0) err('#NUM!'); return (Math.log(b) - Math.log(a)) / Math.log(1 + r); },
+  DOLLARDE: ([v, frac]) => { const f = Math.trunc(toNum(frac)); if (f < 1) err(f < 0 ? '#NUM!' : '#DIV/0!'); const x = toNum(v), i = Math.trunc(x), digits = 10 ** Math.ceil(Math.log10(f)); return i + ((x - i) * digits) / f; },
+  DOLLARFR: ([v, frac]) => { const f = Math.trunc(toNum(frac)); if (f < 1) err(f < 0 ? '#NUM!' : '#DIV/0!'); const x = toNum(v), i = Math.trunc(x), digits = 10 ** Math.ceil(Math.log10(f)); return i + ((x - i) * f) / digits; },
+  MDETERM: ([a]) => eliminate(squareOf(a)).det,
+  MINVERSE: ([a]) => { const r = eliminate(squareOf(a)); if (!r.inv) err('#NUM!'); return grid(r.inv); },
+  MUNIT: ([n]) => { const k = Math.trunc(toNum(n)); if (k < 1 || k * k > MAX_CELLS) err('#VALUE!'); return grid(Array.from({ length: k }, (_, i) => Array.from({ length: k }, (_, j) => (i === j ? 1 : 0)))); },
+  DSTDEV: ([d, f, c]) => Math.sqrt(variance([nums(dbValues(d, f, c))], true)),
+  DSTDEVP: ([d, f, c]) => Math.sqrt(variance([nums(dbValues(d, f, c))], false)),
+  DVAR: ([d, f, c]) => variance([nums(dbValues(d, f, c))], true),
+  DVARP: ([d, f, c]) => variance([nums(dbValues(d, f, c))], false),
+  // VDB: declining balance between two periods, switching to straight line when that's more (unless told not to).
+  VDB: ([cost, salvage, life, start, end, factor, noSwitch]) => {
+    const c = toNum(cost), s = toNum(salvage), l = toNum(life), a = toNum(start), b = toNum(end), f = given(factor) ? toNum(factor) : 2, ns = given(noSwitch) && toBool(noSwitch);
+    if (c < 0 || s < 0 || l <= 0 || a < 0 || b < a || b > l || f <= 0) err('#NUM!');
+    let value = c, total = 0;
+    for (let p = 0; p < Math.ceil(b); p++) {
+      const ddbPart = Math.min(value * (f / l), Math.max(0, value - s));
+      const slPart = (value - s) / (l - p);
+      const dep = !ns && slPart > ddbPart ? Math.max(0, slPart) : ddbPart;
+      const from = Math.max(a, p), to = Math.min(b, p + 1);
+      if (to > from) total += dep * (to - from);
+      value -= dep;
+    }
+    return total;
+  },
+  VALUETOTEXT: ([v, format]) => (typeof v === 'string' && given(format) && toNum(format) === 1 ? `"${v.replace(/"/g, '""')}"` : toStr(v)),
+  ARRAYTOTEXT: ([v, format]) => {
+    const strict = given(format) && toNum(format) === 1, rows = Array.isArray(v) ? rowsOf(v) : [[v]];
+    const one = (x) => (strict && typeof x === 'string' ? `"${x.replace(/"/g, '""')}"` : toStr(x));
+    return strict ? `{${rows.map((r) => r.map(one).join(',')).join(';')}}` : rows.flat().map(one).join(', ');
+  },
+});
 function cumulative(part, rate, n, pv, start, end, type) {
   const r = toNum(rate), k = Math.trunc(toNum(n)), v = toNum(pv), a = Math.trunc(toNum(start)), b = Math.trunc(toNum(end)), t = toNum(type);
   if (r <= 0 || k <= 0 || v <= 0 || a < 1 || b < a || b > k || (t !== 0 && t !== 1)) err('#NUM!');

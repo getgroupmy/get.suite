@@ -10,3 +10,10 @@ test('a CSV download has the worked-out values', async () => {
   } }] }, 0);
   assert.deepEqual(csv.trim().split(/\r?\n/), ['10', '45', 'TRUE', 'B', '2026/11']);
 });
+
+test('and the second batch: matrices, distributions, depreciation', async () => {
+  const csv = await delimitedFromSheet({ sheets: [{ name: 'Sheet1', cells: {
+    A1: '=MDETERM({3,6,1;1,1,0;3,10,2})', A2: '=ROUND(F.INV.RT(0.01,6,4),2)', A3: '=VDB(2400,300,10,0,1)', A4: '=BIN2HEX(11111011,4)', A5: '=BINOM.INV(6,0.5,0.75)',
+  } }] }, 0);
+  assert.deepEqual(csv.trim().split(/\r?\n/), ['1', '15.21', '480', '00FB', '4']);
+});
