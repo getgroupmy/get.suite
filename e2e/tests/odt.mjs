@@ -105,6 +105,43 @@ await step('a table of contents goes out as LibreOffice\'s own and comes back as
     await page.screenshot({ path: `${SP}/shots/toc-${ext}.png` });
   }
 });
+await step('a link to a heading still goes to it after a Word download saved as .odt by LibreOffice', async () => {
+  const H = (level, text) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] });
+  const filler = Array.from({ length: 40 }, (_, i) => ({ type: 'paragraph', content: [{ type: 'text', text: `Line ${i + 1} of the notes.` }] }));
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Budget notes', content: { type: 'doc', content: [
+    H(1, 'Budget'), { type: 'paragraph', content: [{ type: 'text', text: 'Read ' }, { type: 'text', text: 'the second costs', marks: [{ type: 'link', attrs: { href: '#costs-2' } }] }, { type: 'text', text: ' first.' }] },
+    H(2, 'Costs'), ...filler, H(2, 'Costs'), { type: 'paragraph', content: [{ type: 'text', text: 'The real numbers.' }] }, ...filler,
+  ] } })).body;
+  await page.goto(`${B}/docs/${d.id}`);
+  await page.locator('.ProseMirror a', { hasText: 'the second costs' }).waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Download as Word/ }).click()]);
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  let bytes = fs.readFileSync(await dl.path()), name = 'Budget notes (Word).docx';
+  try {
+    execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 });
+    const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+    fs.writeFileSync(path.join(dir, 'Budget.docx'), bytes);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'out'), path.join(dir, 'Budget.docx')], { stdio: 'ignore', timeout: 120000 });
+    bytes = fs.readFileSync(path.join(dir, 'out', 'Budget.odt')); name = 'Budget notes (Writer).odt';
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch { console.log('(LibreOffice is not installed here: the Word file is opened as downloaded)'); }
+  await page.evaluate(async ([b64, n]) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch(`/api/files/upload?name=${encodeURIComponent(n)}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, [bytes.toString('base64'), name]);
+  await page.goto(`${B}/drive`);
+  await page.getByText(name).dblclick();
+  const pv = page.getByRole('dialog').filter({ hasText: name });
+  await pv.getByRole('button', { name: 'Open as document' }).click({ timeout: 20000 });
+  await page.waitForURL(/\/docs\//);
+  const link = page.locator('.ProseMirror a', { hasText: 'the second costs' });
+  await link.waitFor();
+  if ((await link.getAttribute('href')) !== '#costs-2') throw new Error(await link.getAttribute('href'));
+  await link.click({ modifiers: ['Control'] }); // (Ctrl+click follows a link while editing)
+  await until(async () => page.url().endsWith('#costs-2'));
+  const second = page.locator('.ProseMirror h2', { hasText: 'Costs' }).nth(1);
+  await until(async () => { const b = await second.boundingBox(); return b && b.y >= 0 && b.y < 900; });
+  if (await page.locator('.ProseMirror [data-bookmark]').count()) throw new Error('bookmarks left on the headings');
+  await page.screenshot({ path: `${SP}/shots/heading-link.png` });
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

@@ -13,6 +13,7 @@ import { chartTable } from './sheetchart.js';
 import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import { latexToMathml, mathmlToLatex } from './mathml.js';
 import { docFromHtml, columnWidthsOf, widthOfPicture, joinReplacements } from './word.js';
+import { headingsOfDoc, linksToHeadings } from './anchors.js';
 
 // The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
 const ODT_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
@@ -159,7 +160,8 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       let run = odfText(text);
       if (Object.keys(props).length) run = `<text:span text:style-name="${textStyle(props)}">${run}</text:span>`;
       const href = marks.get('link')?.attrs?.href;
-      if (href && !/^\s*javascript:/i.test(href)) run = `<text:a xlink:type="simple" xlink:href="${x(String(href).replace(/^#bm-([a-z0-9]{6,16})$/, '#bm_$1'))}">${run}</text:a>`; // (a link to a bookmark: to its name)
+      const toHeading = (() => { try { return /^#/.test(href || '') && tocOf.get(decodeURIComponent(href.slice(1)).toLowerCase()); } catch { return null; } })();
+      if (href && !/^\s*javascript:/i.test(href)) run = `<text:a xlink:type="simple" xlink:href="${x(toHeading ? `#${toHeading}` : String(href).replace(/^#bm-([a-z0-9]{6,16})$/, '#bm_$1'))}">${run}</text:a>`; // (a link to a bookmark: to its name; to a heading: to its bookmark)
       const sg = marks.get('suggestInsert') || marks.get('suggestDelete');
       if (sg) { // an insertion between its start and end; a deletion kept in its region, a mark where it was
         const cid = `ct${changedRegions.length + 1}`;
@@ -224,11 +226,14 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   const para = (n, style = 'Standard') => `<text:p text:style-name="${styleOf(style, n.attrs)}">${inline(n.content)}</text:p>`;
   // A table of contents: LibreOffice's own (it updates it, Tools → Update), its entries links to bookmarks on the
   // headings (toc_1…, as in the Word download).
-  const plainOf = (n) => (n.text ?? (n.content || []).map(plainOf).join(''));
-  const headings = [];
-  (function gather(n) { if (n.type === 'heading') { const text = plainOf(n).trim(); if (text) headings.push({ node: n, level: Math.min(6, n.attrs?.level || 1), text }); return; } if (n.type !== 'paragraph') for (const c of n.content || []) gather(c); })(doc || {});
+  const headings = headingsOfDoc(doc).map((h) => ({ ...h, level: Math.min(6, h.level) })); // (as the editor lists them, with their anchors)
   const withContents = JSON.stringify(doc || {}).includes('"type":"tableOfContents"');
-  const tocMark = (n) => { const k = withContents ? headings.findIndex((h) => h.node === n) : -1; return k >= 0 ? `<text:bookmark text:name="toc_${k + 1}"/>` : ''; };
+  // Links to headings (#costs): to a bookmark on the heading (toc_…), which LibreOffice follows.
+  const anchored = headings;
+  const linked = new Set();
+  (function hrefs(n) { for (const m of n.marks || []) if (m.type === 'link' && /^#/.test(m.attrs?.href || '')) { try { linked.add(decodeURIComponent(m.attrs.href.slice(1)).toLowerCase()); } catch { /* not an anchor */ } } (n.content || []).forEach(hrefs); })(doc || {});
+  const tocOf = new Map(anchored.map((h, k) => [h.anchor, `toc_${k + 1}`]));
+  const tocMark = (n) => { const k = headings.findIndex((h) => h.node === n); return k >= 0 && (withContents || linked.has(anchored[k]?.anchor)) ? `<text:bookmark text:name="toc_${k + 1}"/>` : ''; };
   const contentsXml = () => {
     const levels = [1, 2, 3, 4, 5, 6].map((l) => `<text:table-of-content-entry-template text:outline-level="${l}" text:style-name="Contents_20_${l}"><text:index-entry-link-start text:style-name="Index_20_Link"/><text:index-entry-text/><text:index-entry-link-end/></text:table-of-content-entry-template>`).join('');
     const entries = headings.map((h, k) => `<text:p text:style-name="Contents_20_${h.level}"><text:a xlink:type="simple" xlink:href="#toc_${k + 1}" text:style-name="Index_20_Link" text:visited-style-name="Index_20_Link">${odfText(h.text)}</text:a></text:p>`).join('');
@@ -735,6 +740,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const docs = parts.map((p) => docFromHtml(p || '<p></p>'));
   const content = docs.flatMap((d, i) => [...(i ? [{ type: 'pageBreak' }] : []), ...(d.content || [])]);
   for (const n of content) joinReplacements(n); // (a deletion and the insertion after it, by one person at once: one suggestion)
+  linksToHeadings({ content }); // links to a bookmark starting a heading: to the heading
   (function spaces(n) { if (n.type === 'text' && n.text?.includes(SPACE)) n.text = n.text.replaceAll(SPACE, ' '); (n.content || []).forEach(spaces); })({ content });
   const comments = [...notes.values()].map((c) => ({ id: c.id, author: c.author, text: c.text, at: c.at, quote: c.quote.slice(0, 500), ...(c.resolved && { resolved: true }), replies: c.replies }));
   return { doc: { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }, comments };

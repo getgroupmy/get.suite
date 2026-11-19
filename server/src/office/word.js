@@ -6,7 +6,7 @@ import { headingLabels } from '../pagesetup.js';
 import { flattenTabs } from './doctabs.js';
 import crypto from 'node:crypto';
 import mammoth from 'mammoth';
-import { anchorsOf } from './anchors.js';
+import { anchorsOf, linksToHeadings } from './anchors.js';
 import JSZip from 'jszip';
 import { chartTable } from './sheetchart.js';
 import { chipText, dateText, eventLines } from './chiptext.js';
@@ -439,6 +439,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   const withNotes = picturesOnTheirOwn(bookmarksFromWord(footnotesFromWord(html))).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
   joinReplacements(doc);
+  linksToHeadings(doc); // links to a bookmark starting a heading (as Word files link to headings): to the heading
   // The words each comment covers, now in the document (a comment whose words are gone is still kept, unanchored).
   const quotes = new Map();
   const walk = (n) => { if (n.type === 'text') for (const mk of n.marks || []) if (mk.type === 'comment') quotes.set(mk.attrs.id, (quotes.get(mk.attrs.id) || '') + n.text); (n.content || []).forEach(walk); };
