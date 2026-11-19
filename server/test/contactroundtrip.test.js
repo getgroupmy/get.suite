@@ -101,3 +101,25 @@ test('a note’s reminder (to come, repeating) through Download (.md) and Import
   assert.deepEqual([got.remind_at, got.remind_repeat], [r.body.remind_at ?? soon, 'weekly']);
   assert.equal((all.notes || all).find((x) => x.title === 'Old reminder').remind_at, null, 'a reminder that has gone by isn’t brought back');
 });
+
+test('a repeating event with one occurrence moved and one cancelled, through Export and Import', async () => {
+  const start = Date.UTC(2027, 0, 4, 9, 0); // Mondays from 4 January 2027
+  const ev = (await olivia('POST', '/api/events', { title: 'Weekly sync', start, end: start + 1800e3, tz: 'UTC', rrule: { freq: 'weekly', byday: [1], count: 5 } })).body;
+  const wk = 7 * 864e5;
+  // the 2nd one an hour later, on its own; the 3rd cancelled
+  const moved = await olivia('POST', '/api/events', { title: 'Weekly sync', start: start + wk + 3600e3, end: start + wk + 5400e3, tz: 'UTC', recurrence_of: { id: ev.id, occurrence: start + wk } });
+  assert.ok(moved.status < 300, JSON.stringify(moved.body));
+  assert.equal((await olivia('PATCH', `/api/events/${ev.id}`, { exdates: [start + wk, start + 2 * wk] })).status, 200);
+  const days = async (c) => {
+    const list = (await c('GET', `/api/events?from=${start - 864e5}&to=${start + 6 * wk}`)).body.filter((e) => e.title === 'Weekly sync');
+    const { expand } = await import('../src/calmath.js');
+    return list.flatMap((e) => expand(e, start - 864e5, start + 6 * wk)).map((o) => new Date(o.start).toISOString().slice(0, 16)).sort();
+  };
+  const before = await days(olivia);
+  assert.deepEqual(before, ['2027-01-04T09:00', '2027-01-11T10:00', '2027-01-25T09:00', '2027-02-01T09:00']);
+  const ics = await (await fetch(`${base}/api/events/export`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).text();
+  assert.match(ics, /RECURRENCE-ID/);
+  const imp = await fetch(`${base}/api/events/import`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'text/calendar' }, body: ics });
+  assert.ok(imp.status < 300);
+  assert.deepEqual(await days(kim), before);
+});

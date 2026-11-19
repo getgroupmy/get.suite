@@ -383,7 +383,7 @@ function zoneResolver(lines, fallback) {
 export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
   const all = contentLines(text);
   const { zones, ianaOf } = resolver || zoneResolver(all, tz);
-  // Only the main event; changed single occurrences (RECURRENCE-ID) aren't kept yet.
+  // The main event here; occurrences changed on their own (RECURRENCE-ID) come with it below, as overrides.
   const blocks = [];
   let cur = null, depth = 0;
   for (const l of all) {
