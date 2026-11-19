@@ -22,6 +22,34 @@ export function formulaResults(data, index) {
   };
 }
 
+/**
+ * A spreadsheet as published: its shown sheets only (a hidden one's cells aren't given out), with each formula that
+ * reads a hidden sheet (by its name, or a named range on it) given as the value it works out to, so the page shows
+ * what the spreadsheet does.
+ */
+export function publishedBook(data) {
+  const all = data?.sheets || [];
+  const hidden = all.filter((s) => s.hidden);
+  const esc = (t) => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const names = hidden.flatMap((s) => Object.keys(s.names || {}));
+  const reads = hidden.length ? new RegExp(`(?:'?(?:${hidden.map((s) => esc(s.name).replace(/'/g, "''")).join('|')})'?!)${names.length ? `|(?<![A-Za-z0-9_.!])(?:${names.map(esc).join('|')})(?![A-Za-z0-9_.(])` : ''}`, 'i') : null;
+  const sheets = [];
+  all.forEach((s, i) => {
+    if (s.hidden && all.some((o) => !o.hidden)) return;
+    let cells = s.cells || {};
+    if (reads) {
+      const result = formulaResults(data, i);
+      cells = Object.fromEntries(Object.entries(cells).map(([k, v]) => {
+        if (typeof v !== 'string' || !v.startsWith('=') || !reads.test(v)) return [k, v];
+        const r = result(k);
+        return [k, !r ? '#REF!' : 'number' in r ? String(r.number) : 'bool' in r ? (r.bool ? 'TRUE' : 'FALSE') : 'error' in r ? r.error : r.text.startsWith('=') ? ` ${r.text}` : r.text];
+      }));
+    }
+    sheets.push({ ...s, cells });
+  });
+  return sheets;
+}
+
 /** One sheet's cells as CSV (or TSV with sep '\t'): the values the page shows (number formats too), row by row. */
 export async function delimitedFromSheet(data, index = 0, sep = ',') {
   const { bookEvaluator: be, display, parseRef } = await import('../sheetcalc/formula.js');

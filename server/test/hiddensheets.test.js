@@ -10,6 +10,7 @@ import JSZip from 'jszip';
 import { excelFromSheet, sheetFromExcel } from '../src/office/excel.js';
 import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
 import { sheetDocFromJson, jsonFromSheetDoc, applySheetJson } from '../src/collabdoc.js';
+import { publishedBook } from '../src/office/sheetvalues.js';
 
 const sheet = { sheets: [{ name: 'Lookup', hidden: true, cells: { A1: '5' } }, { name: 'Report', cells: { A1: '=Lookup!A1*2' } }, { name: 'Old', hidden: true, tabColor: '#757575', cells: { A1: 'x' } }] };
 const show = (d) => d.sheets.map((s) => [s.name, !!s.hidden, s.tabColor || null]);
@@ -46,6 +47,16 @@ test('live editing keeps a sheet hidden, and shows it again', () => {
   applySheetJson(doc, { sheets: sheet.sheets.map((s) => ({ ...s, hidden: s.name === 'Report' ? true : undefined })) });
   assert.deepEqual(show(jsonFromSheetDoc(doc)).map(([n, h]) => [n, h]), [['Lookup', false], ['Report', true], ['Old', false]]);
   assert.ok(!('hidden' in jsonFromSheetDoc(doc).sheets[0]));
+});
+
+test('published: the shown sheets, each formula reading a hidden one as its value (quoted names, errors, text too)', () => {
+  const data = { sheets: [
+    { name: "Look up's", hidden: true, cells: { A1: '5', B1: 'secret', C1: '=1/0', D1: '=TRUE' } },
+    { name: 'Report', cells: { A1: "='Look up''s'!A1*2", A2: "='Look up''s'!B1", A3: "='Look up''s'!C1", A4: "='Look up''s'!D1", A5: '=SUM(1,2)', A6: 'plain' } },
+  ] };
+  assert.deepEqual(publishedBook(data), [{ name: 'Report', cells: { A1: '10', A2: 'secret', A3: '#DIV/0!', A4: 'TRUE', A5: '=SUM(1,2)', A6: 'plain' } }]);
+  assert.deepEqual(publishedBook({ sheets: [{ name: 'A', cells: { A1: '=B1' } }] }), [{ name: 'A', cells: { A1: '=B1' } }], 'nothing hidden: as it is');
+  assert.deepEqual(publishedBook({ sheets: [{ name: 'A', hidden: true, cells: { A1: '1' } }] }).map((s) => s.name), ['A'], 'all hidden: shown all the same');
 });
 
 const soffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); return true; } catch { return false; } })();

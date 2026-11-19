@@ -87,6 +87,21 @@ await step('Hidden sheets (2) → Show “Lookup”: its tab is back where it wa
   const c = (await api(page, 'GET', `/files/${sheet.id}/content`)).body.content;
   if (JSON.stringify(c.sheets.map((s) => !!s.hidden)) !== JSON.stringify([false, false, true])) throw new Error(JSON.stringify(c.sheets.map((s) => s.hidden)));
 });
+await step('published to the web with Lookup hidden: Report shows 10, worked out from Lookup, which isn\'t on the page', async () => {
+  await menu('Lookup', 'Hide sheet');
+  await until(async () => same(await tabs(page), ['Report']));
+  const token = (await api(page, 'PUT', `/publish/${sheet.id}`, { on: true })).body.path.split('/').pop();
+  const anon = await (await browser.newContext()).newPage();
+  anon.on('pageerror', (e) => errors.push(`anon: ${e.message}`));
+  await anon.goto(`${B}/pub/${token}`);
+  const table = anon.locator('table.pub-sheet');
+  await table.getByText('10', { exact: true }).waitFor();
+  if (await anon.getByRole('tab', { name: 'Lookup' }).count()) throw new Error('the hidden sheet is on the page');
+  const body = await anon.evaluate(async (t) => (await fetch(`/api/public/pub/${t}?peek=1`)).text(), token);
+  if (body.includes('Lookup')) throw new Error('the hidden sheet is given out');
+  await anon.screenshot({ path: `${SP}/shots/hidden-published.png` });
+  await api(page, 'PUT', `/publish/${sheet.id}`, { on: false });
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

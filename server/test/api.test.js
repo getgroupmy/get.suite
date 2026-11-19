@@ -8720,6 +8720,20 @@ test('a published spreadsheet carries each sheet\'s named ranges and the named f
   await owner('PUT', `/api/publish/${sheet.id}`, { on: false });
 });
 
+test('publish to the web: a formula reading a hidden sheet shows its value; the hidden sheet itself isn\'t given out', async () => {
+  const pub = (path) => fetch(`${base}/api/public/pub${path}`).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Rates', content: { sheets: [
+    { name: 'Workings', hidden: true, cells: { A1: '0.2', B1: 'internal note' } },
+    { name: 'Prices', cells: { A1: '100', B1: '=A1*(1+Workings!A1)', C1: '=SUM(A1,1)', D1: "='Workings'!B1" } },
+  ] } })).body;
+  const token = (await owner('PUT', `/api/publish/${sheet.id}`, { on: true })).body.path.split('/').pop();
+  const r = (await pub(`/${token}?peek=1`)).body;
+  assert.deepEqual(r.content.sheets.map((x) => x.name), ['Prices']);
+  assert.deepEqual(r.content.sheets[0].cells, { A1: '100', B1: '120', C1: '=SUM(A1,1)', D1: 'internal note' }, 'its value, as the spreadsheet shows it; other formulas as they are');
+  assert.ok(!JSON.stringify(r).includes('0.2'), 'not the hidden sheet\'s cells');
+  await owner('PUT', `/api/publish/${sheet.id}`, { on: false });
+});
+
 test('publish to the web: the owner publishes a doc, sheet or deck; anyone reads the latest, without notes or suggestions', async () => {
   const pub = (path) => fetch(`${base}/api/public/pub${path}`).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
   const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Launch deck' })).body;
