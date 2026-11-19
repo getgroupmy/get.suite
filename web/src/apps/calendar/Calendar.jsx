@@ -1288,6 +1288,12 @@ function GuestList({ guests }) {
 }
 
 const WEEKDAY_LETTERS = Array.from({ length: 7 }, (_, d) => new Date(2026, 10, 1 + d)); // a Sunday-first week
+/** The weekdays in the order of your week (Calendar's "Week starts on"): [weekday number, a date on it]. */
+const myWeek = () => {
+  let ws = 0;
+  try { const v = Number(localStorage.getItem('nw.calWeekStart')); if ([0, 1, 6].includes(v)) ws = v; } catch { /* the usual Sunday */ }
+  return weekOrder(ws).map((d) => [d, WEEKDAY_LETTERS[d]]);
+};
 /**
  * The menu's monthly choice that fits the start date: "on the last Friday" only in the last week of the
  * month ("on the fifth Monday" skips months without one).
@@ -1835,9 +1841,9 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             const dayName = (d) => new Date(2026, 10, 1 + d).toLocaleDateString([], { weekday: 'long' });
             return (
               <table className="month-days" role="group" aria-label="Which days of the month">
-                <thead><tr><th />{WEEKDAY_LETTERS.map((d, i) => <th key={i} scope="col" title={dayName(i)}>{d.toLocaleDateString([], { weekday: 'narrow' })}</th>)}</tr></thead>
+                <thead><tr><th />{myWeek().map(([i, d]) => <th key={i} scope="col" title={dayName(i)}>{d.toLocaleDateString([], { weekday: 'narrow' })}</th>)}</tr></thead>
                 <tbody>{[[1, 'First'], [2, 'Second'], [3, 'Third'], [4, 'Fourth'], [5, 'Fifth'], [-1, 'Last']].map(([k, label]) => (
-                  <tr key={k}><th scope="row" className="small">{label}</th>{WEEKDAY_LETTERS.map((_, d) => (
+                  <tr key={k}><th scope="row" className="small">{label}</th>{myWeek().map(([d]) => (
                     <td key={d}><input type="checkbox" aria-label={`${label} ${dayName(d)}`} checked={has(k, d)} onChange={() => {
                       const next = has(k, d) ? picked.filter(([a, b]) => !(a === k && b === d)) : [...picked, [k, d]];
                       if (next.length) setRep({ ...rep, mdays: next.sort((a, b) => a[1] - b[1] || (a[0] === -1) - (b[0] === -1) || a[0] - b[0]) });
@@ -1863,7 +1869,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           })()}
           {rep.freq === 'weekly' && (
             <div className="weekdays" role="group" aria-label="On these days">
-              {WEEKDAY_LETTERS.map((d, i) => {
+              {myWeek().map(([i, d]) => {
                 const on = rep.byday.includes(i);
                 return <button key={i} type="button" className={`wd ${on ? 'on' : ''}`} aria-pressed={on} aria-label={d.toLocaleDateString([], { weekday: 'long' })}
                   onClick={() => setRep({ ...rep, byday: on ? rep.byday.filter((x) => x !== i) : [...rep.byday, i].sort() })}>{d.toLocaleDateString([], { weekday: 'narrow' })}</button>;
@@ -2355,7 +2361,7 @@ function BookingPagesDialog({ onClose }) {
           <ul className="rule-list">
             {(pages || []).map((p) => (
               <li key={p.id}>
-                <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {p.days.map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.host_names?.length ? ` · with ${p.host_names.join(', ')}` : ''}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}</span></span>
+                <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {myWeek().map(([d]) => d).filter((d) => p.days.includes(d)).map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.host_names?.length ? ` · with ${p.host_names.join(', ')}` : ''}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}</span></span>
                 <button type="button" className="btn small" onClick={() => copy(p)}>Copy link</button>
                 <a className="btn small" href={p.url} target="_blank" rel="noreferrer">Open</a>
                 <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
@@ -2408,8 +2414,8 @@ function BookingForm({ page, onSave, onCancel }) {
         <label className="field"><span>To</span><input type="time" value={hhmm(p.to_min === 1440 ? 1439 : p.to_min)} onChange={(e) => set('to_min', fromHhmm(e.target.value))} /></label>
       </div>
       <fieldset className="booking-weekdays"><legend className="muted small">Days</legend>
-        {WEEKDAYS.map((d, i) => (
-          <label key={d} className="check"><input type="checkbox" checked={p.days.includes(i)} onChange={(e) => set('days', e.target.checked ? [...p.days, i].sort() : p.days.filter((x) => x !== i))} /> {d}</label>
+        {myWeek().map(([i]) => (
+          <label key={i} className="check"><input type="checkbox" checked={p.days.includes(i)} onChange={(e) => set('days', e.target.checked ? [...p.days, i].sort() : p.days.filter((x) => x !== i))} /> {WEEKDAYS[i]}</label>
         ))}
       </fieldset>
       <div className="row wrap" style={{ gap: 12 }}>

@@ -65,6 +65,24 @@ await step('printing "This week" starts on the chosen day too', async () => {
   const [y, m, dd] = from.split('-').map(Number);
   if (new Date(y, m - 1, dd).getDay() !== 6) throw new Error('custom dates start from the Saturday: ' + from);
 });
+await step('the event and booking page weekday pickers follow it too (Saturday first here)', async () => {
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Create' }).click();
+  const d = page.getByRole('dialog', { name: 'New event' });
+  await d.getByRole('combobox', { name: 'Repeat', exact: true }).selectOption('weekly');
+  const days = await d.getByRole('group', { name: 'On these days' }).getByRole('button').evaluateAll((bs) => bs.map((b) => b.getAttribute('aria-label')));
+  if (days[0] !== 'Saturday' || days[6] !== 'Friday') throw new Error(`weekly: ${days.join(',')}`);
+  await d.getByRole('combobox', { name: 'Repeat', exact: true }).selectOption('monthly-mdays');
+  const cols = await d.getByRole('group', { name: 'Which days of the month' }).locator('thead th[scope="col"]').evaluateAll((ths) => ths.map((t) => t.getAttribute('title')));
+  if (cols[0] !== 'Saturday' || cols[1] !== 'Sunday') throw new Error(`days of the month: ${cols.join(',')}`);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const bp = page.getByRole('dialog', { name: 'Booking pages' });
+  await bp.getByRole('button', { name: /New booking page/ }).click();
+  const labels = (await bp.locator('.booking-weekdays label').allTextContents()).map((t) => t.trim());
+  if (labels[0] !== 'Sat' || labels[6] !== 'Fri') throw new Error(`booking days: ${labels.join(',')}`);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
