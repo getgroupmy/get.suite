@@ -1504,6 +1504,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id/text', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind === 'folder') throw bad('A folder has no text');
+    if (CO_EDITED.includes(f.kind)) saveNow(f.id); // as it stands, what's being typed right now included
     const full = q('SELECT * FROM files WHERE id = ?').get(f.id);
     // (a spreadsheet: as a table of its values, formulas worked out, rather than its words for searching)
     let sheetJson = null;
@@ -1518,6 +1519,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id/content', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (!EDITABLE.includes(f.kind)) throw bad('No editable content');
+    if (CO_EDITED.includes(f.kind)) saveNow(f.id); // as it stands, what's being typed right now included
     const { content } = q('SELECT content FROM files WHERE id = ?').get(f.id);
     res.json({ file: publicFile(f), content: JSON.parse(content) });
   });

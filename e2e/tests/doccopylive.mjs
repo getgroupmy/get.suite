@@ -50,6 +50,27 @@ await step('typed, then Download your data straight away: the Word file has it',
   const xml = await (inner.file('word/document.xml') || inner.file('content.xml')).async('string');
   if (!xml.includes('Approved the budget for next year.')) throw new Error('the downloaded document doesn’t have what was just typed');
 });
+await step('typed, then read straight away (as an assistant or another app would): the text has it', async () => {
+  const doc = (await api('POST', '/files/new', { kind: 'doc', name: 'Live text' })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.locator('.ProseMirror').first().click();
+  await page.keyboard.type('The office moves on 3 March.');
+  await page.waitForTimeout(700);
+  const c = JSON.stringify((await api('GET', `/files/${doc.id}/content`)).body); // (first: nothing else has saved it yet)
+  const t = (await api('GET', `/files/${doc.id}/text`)).body?.text || '';
+  if (!t.includes('The office moves on 3 March.')) throw new Error(`the text is “${t}”`);
+  if (!c.includes('The office moves on 3 March.')) throw new Error('the content doesn’t have it');
+});
+await step('a presentation being changed, read straight away: its text has the change', async () => {
+  const deck = (await api('POST', '/files/new', { kind: 'slides', name: 'Live deck' })).body;
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByText('Click to add title').dblclick();
+  await page.keyboard.type('Quarterly results');
+  await page.locator('.slide-stage').click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(700);
+  const t = (await api('GET', `/files/${deck.id}/text`)).body?.text || '';
+  if (!t.includes('Quarterly results')) throw new Error(`the text is “${t}”`);
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
