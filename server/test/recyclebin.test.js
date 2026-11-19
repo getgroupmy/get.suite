@@ -200,3 +200,18 @@ test('put back after people were told it was deleted: they’re told it’s back
   assert.match(b, /deleted the list “Hiring plan”/);
   assert.match(b, /Olivia Owner put back the list “Hiring plan”/);
 });
+
+test('on legal hold, recently deleted things aren’t purged after 30 days', async () => {
+  const { purgeBin } = await import('../src/recyclebin.js');
+  const { setHold } = await import('../src/hold.js');
+  const me = (await olivia('GET', '/api/auth/me')).body.user;
+  purgeBin(Date.now() + 365 * 864e5); // (clear what earlier tests left)
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Evidence list' })).body;
+  const del = await olivia('DELETE', `/api/tasks/lists/${list.id}`);
+  setHold(me.id, true, { note: 'Case 42' });
+  assert.equal(purgeBin(Date.now() + 40 * 864e5), 0, 'kept while on hold');
+  assert.equal((await olivia('POST', `/api/tasks/bin/${del.body.bin_id}/restore`)).status, 200, 'and can still be put back');
+  await olivia('DELETE', `/api/tasks/lists/${list.id}`);
+  setHold(me.id, false);
+  assert.equal(purgeBin(Date.now() + 40 * 864e5), 1, 'hold lifted: purged as usual');
+});

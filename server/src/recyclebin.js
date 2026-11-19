@@ -5,6 +5,7 @@
 import { q, tx, db } from './db.js';
 import { uid, HttpError } from './util.js';
 import { notify } from './notifications.js';
+import './hold.js'; // users.legal_hold
 
 q(`CREATE TABLE IF NOT EXISTS recycle_bin (
   id TEXT PRIMARY KEY,
@@ -107,7 +108,8 @@ export const binOf = (ownerId, kind) => q('SELECT id, kind, item_id, name, delet
 
 export function purgeBin(t = Date.now()) {
   q('DELETE FROM bin_notices WHERE bin_id NOT IN (SELECT id FROM recycle_bin) AND sent_at IS NOT NULL').run();
-  return q('DELETE FROM recycle_bin WHERE deleted_at < ?').run(t - KEEP_DAYS * 864e5).changes;
+  // Not while its owner is on legal hold (hold.js): kept until the hold ends (then purged at the next check, if older than 30 days).
+  return q(`DELETE FROM recycle_bin WHERE deleted_at < ? AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = recycle_bin.owner_id AND u.legal_hold = 1)`).run(t - KEEP_DAYS * 864e5).changes;
 }
 setInterval(() => { try { purgeBin(); } catch (e) { console.error('[bin]', e.message); } }, 6 * 3600e3).unref();
 

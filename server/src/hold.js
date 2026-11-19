@@ -1,5 +1,6 @@
 // Legal hold (admins): while a person is on hold, nothing of theirs is deleted for good: not by the
-// automatic clean-ups (Drive's trash, Chat's keeping period, Mail's Trash and Junk), and not by anyone
+// automatic clean-ups (Drive's trash, Chat's keeping period, Mail's Trash and Junk, Recently deleted lists,
+// forms, booking pages, groups and rooms), and not by anyone
 // deleting it for good by hand (they can still move things to the trash, which keeps them). Their
 // account can't be deleted either. Kept on users.legal_hold (with who set it, when and why).
 import { q, db } from './db.js';
