@@ -85,7 +85,19 @@ function readRule(rule) {
   }
   // Monthly on a weekday: { nth: 1–5 or -1 (the last), wd: 0=Sun..6 } (a fifth: months without one are skipped).
   // Or several of one weekday: { nths: [1, 3], wd: 1 } (the first and third Monday).
-  if (rule.nths !== undefined && rule.nths !== null) {
+  // Or weekdays of the month, mixed: { mdays: [[1, 1], [3, 2]] } (the first Monday and the third Tuesday).
+  if (rule.mdays !== undefined && rule.mdays !== null) {
+    if (out.freq !== 'monthly') throw bad('Pick weekdays of the month');
+    const list = Array.isArray(rule.mdays) ? rule.mdays : [];
+    const seen = new Set(), mdays = [];
+    for (const x of list) {
+      const k = Number(x?.[0]), wd = Number(x?.[1]);
+      if (![1, 2, 3, 4, 5, -1].includes(k) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick weekdays of the month');
+      if (!seen.has(`${k}:${wd}`)) { seen.add(`${k}:${wd}`); mdays.push([k, wd]); }
+    }
+    if (!mdays.length || mdays.length > 35) throw bad('Pick weekdays of the month');
+    out.mdays = mdays.sort((a, b) => a[1] - b[1] || (a[0] === -1) - (b[0] === -1) || a[0] - b[0]);
+  } else if (rule.nths !== undefined && rule.nths !== null) {
     if (rule.freq !== 'monthly') throw bad('"The first and third Monday" only applies to monthly repeats');
     const nths = Array.isArray(rule.nths) ? [...new Set(rule.nths.map(Number))] : [];
     const wd = Number(rule.wd);

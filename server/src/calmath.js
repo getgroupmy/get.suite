@@ -173,6 +173,19 @@ export function occurrenceStarts(ev, to) {
         if (!take(t)) { stop = true; break; }
       }
       if (stop) break;
+    } else if (r.freq === 'monthly' && r.mdays?.length) {
+      // Monthly on weekdays of the month, mixed: the first Monday and the third Tuesday ([[1, 1], [3, 2]]); every
+      // Monday of every other month is all five Mondays (a fifth skipped when there's none).
+      const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
+      if (m.getTime() >= to || (r.until !== undefined && m.getTime() > r.until)) break;
+      const days = [...new Set(r.mdays.map(([k, wd]) => nthWeekdayOf(m.getFullYear(), m.getMonth(), k, wd)).filter((d) => d !== null))].sort((a, b) => a - b);
+      let stop = false;
+      for (const day of days) {
+        const t = at(m.getFullYear(), m.getMonth(), day).getTime();
+        if (t < ev.start) continue; // earlier in the first month
+        if (!take(t)) { stop = true; break; }
+      }
+      if (stop) break;
     } else if (r.freq === 'monthly' && r.nths?.length) {
       // Monthly on several of a weekday: the first and third (say) Monday of every month.
       const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
@@ -270,6 +283,15 @@ export function describeRule(r, start, locale) {
     const words = r.nths.map((k) => ORDINALS[k]);
     text += ` on the ${words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;
   }
+  if (r.freq === 'monthly' && r.mdays?.length) {
+    // "on every Monday and the third Tuesday": a weekday with all five is "every".
+    const byDay = new Map();
+    for (const [k, wd] of r.mdays) byDay.set(wd, [...(byDay.get(wd) || []), k]);
+    const name = (wd) => new Date(2026, 10, 1 + wd).toLocaleDateString(locale, { weekday: 'long' });
+    const parts = [...byDay].map(([wd, ks]) => ([1, 2, 3, 4, 5].every((k) => ks.includes(k)) ? `every ${name(wd)}`
+      : `the ${ks.length > 1 ? `${ks.slice(0, -1).map((k) => ORDINALS[k]).join(', ')} and ${ORDINALS[ks.at(-1)]}` : ORDINALS[ks[0]]} ${name(wd)}`));
+    text += ` on ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}`;
+  }
   if (r.count) text += `, ${r.count} times`;
   if (r.until !== undefined) text += `, until ${new Date(r.until).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   return text;
@@ -306,6 +328,7 @@ export function shiftWeekdays(rule, dayDelta, newStart) {
   }
   // The first and third Monday, moved a day later: the first and third Tuesday.
   if (rule?.freq === 'monthly' && rule.nths?.length && dayDelta % 7) return { ...rule, wd: (((rule.wd + dayDelta) % 7) + 7) % 7 };
+  if (rule?.freq === 'monthly' && rule.mdays?.length && dayDelta % 7) return { ...rule, mdays: rule.mdays.map(([k, wd]) => [k, (((wd + dayDelta) % 7) + 7) % 7]) };
   if (!rule || rule.freq !== 'weekly' || !rule.byday?.length || dayDelta % 7 === 0) return rule;
   return { ...rule, byday: [...new Set(rule.byday.map((d) => (((d + dayDelta) % 7) + 7) % 7))].sort() };
 }

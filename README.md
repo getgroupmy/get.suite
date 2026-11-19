@@ -663,8 +663,9 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - **The fifth Monday:** monthly on the fifth (say) Monday goes both ways too, and is skipped in months without one, as phones and Outlook do. The web's **Repeat** offers it when an event starts on a fifth weekday.
   - **Every Monday and Wednesday of the month** (as some apps write a weekly repeat) comes in as weekly on those days: the very same dates.
   - **The first and third Monday** (or the second and last Thursday: several of one weekday each month) goes both ways too; the event shows its repeat as *Monthly on the first and third Monday*, and changing the event in the web keeps it.
+  - **The first Monday and the third Tuesday** (weekdays of the month mixed, as Outlook and some phones write them) goes both ways too, and so does **every Monday and Wednesday of every other month**: the event shows its repeat as *Monthly on the first Monday and the third Tuesday* or *Every 2 months on every Monday and every Wednesday*, and changing the event in the web keeps it. A calendar file imported in the web reads them the same way.
 - **Not yet:**
-  - Repeats that Workspace can't show (such as the first Monday and the third Tuesday, or several weekdays every other month) arrive as a one-off on the first date.
+  - Repeats Workspace can't show (such as the second-to-last Monday, a rule with BYSETPOS on several weekdays, or one on set week numbers) arrive as a one-off on the first date.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
 
 **Changed on a phone, nothing else lost:** a phone's contacts or calendar app sends the whole card or event back when you change it there. What the phone doesn't know about stays as it was: a contact's extra numbers and addresses, dates, fields of your own and reminder to keep in touch; an event's colour, guests, reminders, attachments, privacy, *show as* and time zone.

@@ -296,3 +296,17 @@ test('the first and third Monday of each month', async () => {
   const counted = { ...ev, rrule: { ...ev.rrule, count: 3 } };
   assert.equal(ex(counted, start, new Date(2027, 11, 1).getTime()).length, 3);
 });
+
+test('mixed weekdays of the month: the first Monday and the third Tuesday, and every Monday of every other month', async () => {
+  const { expand, describeRule, shiftWeekdays } = await import('./calmath.js');
+  const start = new Date(2026, 10, 2, 9).getTime(); // Monday 2 November 2026
+  const ev = { id: 'x', start, end: start + 36e5, rrule: { freq: 'monthly', mdays: [[1, 1], [3, 2]] } };
+  const got = expand(ev, start, new Date(2027, 0, 31).getTime()).map((o) => { const d = new Date(o.start); return `${d.getMonth() + 1}/${d.getDate()}`; });
+  assert.deepEqual(got, ['11/2', '11/17', '12/7', '12/15', '1/4', '1/19']);
+  assert.equal(describeRule(ev.rrule, start, 'en-GB'), 'Monthly on the first Monday and the third Tuesday');
+  const every = { freq: 'monthly', interval: 2, mdays: [1, 2, 3, 4, 5].map((k) => [k, 1]) };
+  const mondays = expand({ ...ev, rrule: every }, start, new Date(2027, 1, 1).getTime()).map((o) => new Date(o.start).getMonth() + 1);
+  assert.deepEqual([...new Set(mondays)], [11, 1], 'November and January, not December');
+  assert.equal(describeRule(every, start, 'en-GB'), 'Every 2 months on every Monday');
+  assert.deepEqual(shiftWeekdays(ev.rrule, -1).mdays, [[1, 0], [3, 1]]);
+});

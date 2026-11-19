@@ -161,6 +161,8 @@ test('monthly on a weekday: BYDAY=2MO out, and in from Outlook (BYSETPOS) and ph
   assert.equal(read('FREQ=MONTHLY;BYDAY=-2MO'), null);
   assert.deepEqual(read('FREQ=MONTHLY;BYDAY=1MO,3MO'), { freq: 'monthly', nths: [1, 3], wd: 1 }, 'the first and third Monday');
   assert.deepEqual(read('FREQ=MONTHLY;BYDAY=2TH,-1TH'), { freq: 'monthly', nths: [2, -1], wd: 4 });
-  assert.equal(read('FREQ=MONTHLY;BYDAY=1MO,3TU'), null, 'different weekdays: not shown');
+  assert.deepEqual(read('FREQ=MONTHLY;BYDAY=1MO,3TU'), { freq: 'monthly', mdays: [[1, 1], [3, 2]] }, 'different weekdays: each with which of it');
+  assert.deepEqual(read('FREQ=MONTHLY;INTERVAL=2;BYDAY=MO,-1FR'), { freq: 'monthly', interval: 2, mdays: [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [-1, 5]] }, 'every Monday and the last Friday, every other month');
+  assert.equal(read('FREQ=MONTHLY;BYDAY=1MO,3TU;BYSETPOS=1'), null, 'with BYSETPOS: still not shown');
   assert.equal(read('FREQ=YEARLY;BYDAY=2MO;BYMONTH=5'), null);
 });

@@ -1301,7 +1301,8 @@ const ruleFromForm = (r, start) => {
   if (r.freq === 'none') return null;
   const freq = monthlyChoice(r.freq, start);
   const out = { freq: freq.startsWith('monthly') ? 'monthly' : freq };
-  if (freq === 'monthly-nths') { const w = weekdayInMonth(start); out.nths = r.nths?.length ? r.nths : [w.nth]; out.wd = w.wd; }
+  if (freq === 'monthly-mdays' && r.mdays?.length) out.mdays = r.mdays; // the first Monday and third Tuesday (from a phone): kept as it is
+  else if (freq === 'monthly-nths') { const w = weekdayInMonth(start); out.nths = r.nths?.length ? r.nths : [w.nth]; out.wd = w.wd; }
   else if (freq !== 'monthly' && freq.startsWith('monthly')) { const w = weekdayInMonth(start); out.nth = freq === 'monthly-last' ? -1 : w.nth; out.wd = w.wd; }
   if (Number(r.interval) > 1) out.interval = Number(r.interval);
   if (r.freq === 'weekly') out.byday = r.byday.length ? r.byday : [new Date(start).getDay()];
@@ -1624,9 +1625,10 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   const [autoReply, setAutoReply] = useState(false);
   const r0 = event.rrule;
   const [rep, setRep] = useState({
-    freq: r0?.nths?.length ? 'monthly-nths' : r0?.nth ? (r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
+    freq: r0?.mdays?.length ? 'monthly-mdays' : r0?.nths?.length ? 'monthly-nths' : r0?.nth ? (r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
     ends: r0?.until !== undefined ? 'on' : r0?.count ? 'after' : 'never',
     nths: r0?.nths || null, wd: r0?.wd, // the first and third Monday (from a phone): kept as it is
+    mdays: r0?.mdays || null, // the first Monday and the third Tuesday (from a phone or Outlook): kept as it is
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
   const [guests, setGuests] = useState((event.guests || []).map((g) => g.email));
@@ -1808,6 +1810,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                   return <>
                     <option value="monthly-nth">{describeRule({ freq: 'monthly', nth: w.nth, wd: w.wd }, start)}</option>
                     {w.last && <option value="monthly-last">{describeRule({ freq: 'monthly', nth: -1, wd: w.wd }, start)}</option>}
+                    {rep.mdays?.length > 0 && <option value="monthly-mdays">{describeRule({ freq: 'monthly', mdays: rep.mdays }, start)}</option>}
                     <option value="monthly-nths">{rep.nths?.length > 1 ? describeRule({ freq: 'monthly', nths: rep.nths, wd: w.wd }, start) : `Monthly on chosen ${w.dayName}s…`}</option>
                   </>;
                 })()}
