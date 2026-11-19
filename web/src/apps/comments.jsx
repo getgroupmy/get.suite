@@ -95,7 +95,7 @@ export function CommentsPanel({ fileId, fileRole, threads, seenAt, onSeen, canEd
   const [showResolved, setShowResolved] = useState(false);
   // The new comment's words are kept for this tab (per file and spot) until posted or cancelled, so a
   // session that ends mid-sentence, or a reload, doesn't lose them: open the same spot again and they're back.
-  const draftKey = pending ? `nw-comment-draft:${fileId}:${JSON.stringify(pending.anchor ?? null)}` : null;
+  const draftKey = pending ? `nw-comment-draft:${user?.id}:${fileId}:${JSON.stringify(pending.anchor ?? null)}` : null;
   const [draft, setDraftState] = useState('');
   useEffect(() => {
     let kept = '';

@@ -60,7 +60,8 @@ await step('a comment written as the session ends: asked to sign in, and the wor
     const again = await page.getByLabel('New comment').inputValue();
     if (again !== 'Words written over a long lunch break') throw new Error(`the comment box has “${again}”`);
     await page.getByRole('button', { name: 'Comment', exact: true }).click();
-    await page.getByText('Words written over a long lunch break').first().waitFor();
+    await page.getByLabel('New comment').waitFor({ state: 'detached' }); // posted
+    for (let k = 0; k < 20 && !JSON.stringify((await api('GET', `/comments/${sheet.id}`)).body).includes('long lunch break'); k++) await page.waitForTimeout(250);
   }
 });
 await step('posted, the kept words are gone: a new comment on that cell starts empty', async () => {

@@ -157,11 +157,21 @@ export default function Chat() {
   const clientId = useRef(Math.random().toString(36).slice(2, 12)).current;
   const pendingDraft = useRef(null); // { cid, body } not yet saved
   const draftTimer = useRef(null);
+  // Until the server has a draft, this tab keeps it too (for you only): if the session has ended, what's
+  // typed is back in its conversation after signing in again, and saved then.
+  const unsavedKey = `nw-chat-unsaved:${user?.id}`;
+  const unsaved = useCallback((cid, body) => {
+    try {
+      const all = JSON.parse(sessionStorage.getItem(unsavedKey) || '{}');
+      if (body === undefined) delete all[cid]; else all[cid] = body;
+      if (Object.keys(all).length) sessionStorage.setItem(unsavedKey, JSON.stringify(all)); else sessionStorage.removeItem(unsavedKey);
+    } catch { /* storage off */ }
+  }, [unsavedKey]);
   const putDraft = useCallback((cid, body) => {
     draftsRef.current = { ...draftsRef.current, [cid]: body.trim() ? body : '' };
     setDrafts(draftsRef.current);
-    put(`/chat/channels/${cid}/draft`, { body, client: clientId }).catch(() => {});
-  }, [clientId]);
+    put(`/chat/channels/${cid}/draft`, { body, client: clientId }).then(() => { if (pendingDraft.current?.cid !== cid) unsaved(cid); }).catch(() => {});
+  }, [clientId, unsaved]);
   const flushDraft = useCallback(() => {
     clearTimeout(draftTimer.current);
     const p = pendingDraft.current;
@@ -172,13 +182,20 @@ export default function Chat() {
     if (!channelId) return;
     if (pendingDraft.current && pendingDraft.current.cid !== channelId) flushDraft();
     pendingDraft.current = { cid: channelId, body };
+    unsaved(channelId, body);
     clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(flushDraft, 700);
   };
   keepDraftRef.current = keepDraft;
-  const dropDraft = (cid) => { clearTimeout(draftTimer.current); pendingDraft.current = null; draftsRef.current = { ...draftsRef.current, [cid]: '' }; setDrafts(draftsRef.current); };
+  const dropDraft = (cid) => { clearTimeout(draftTimer.current); pendingDraft.current = null; unsaved(cid); draftsRef.current = { ...draftsRef.current, [cid]: '' }; setDrafts(draftsRef.current); };
   useEffect(() => {
-    get('/chat/drafts').then((all) => { draftsRef.current = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.body])); setDrafts(draftsRef.current); }).catch(() => {}).finally(() => setDraftsReady(true));
+    get('/chat/drafts').then((all) => {
+      draftsRef.current = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.body]));
+      let kept = {};
+      try { kept = JSON.parse(sessionStorage.getItem(unsavedKey) || '{}'); } catch { /* none */ }
+      for (const [cid, body] of Object.entries(kept)) if ((draftsRef.current[cid] || '') !== (body.trim() ? body : '')) putDraft(cid, body);
+      setDrafts(draftsRef.current);
+    }).catch(() => {}).finally(() => setDraftsReady(true));
     return () => flushDraft();
   }, [flushDraft]);
   useEffect(() => {
