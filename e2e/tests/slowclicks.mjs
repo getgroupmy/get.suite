@@ -139,6 +139,35 @@ await step('a comment: Comment twice posts one', async () => {
   const n = (JSON.stringify(all).match(/"body":"Twice comment"/g) || []).length; // (threads and replies, however they're shaped)
   if (n !== 1) found.push(`comment: ${n}`);
 });
+await step('a new user (Admin): Create twice makes one', async () => {
+  await page.goto(`${B}/admin`);
+  await page.getByRole('button', { name: 'Add user' }).click();
+  const d = page.getByRole('dialog', { name: 'Add user' });
+  await d.getByLabel('Full name').fill('Twice User');
+  await d.getByRole('textbox', { name: /Email address|Address before @/ }).first().fill('twice');
+  await d.getByLabel('Temporary password').fill('welcome-123-twice');
+  await slow();
+  await twice(d.getByRole('button', { name: /Create/ }));
+  await page.waitForTimeout(5000);
+  await fast();
+  const users = (await api('GET', '/users')).body;
+  const n = users.filter((u) => u.name === 'Twice User').length;
+  if (n !== 1) found.push(`user: ${n}`);
+  const errs = await page.getByText(/already|taken|exists/i).count();
+  if (errs) found.push('user: an “already exists” error after the second press');
+});
+await step('a chat message: Send twice posts one', async () => {
+  const general = (await api('GET', '/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  await page.goto(`${B}/chat/${general}`);
+  await page.getByRole('textbox', { name: 'Message' }).fill('Twice message');
+  await slow();
+  await twice(page.getByRole('button', { name: 'Send', exact: true }));
+  await page.waitForTimeout(5000);
+  await fast();
+  const msgs = (await api('GET', `/chat/channels/${general}/messages`)).body;
+  const n = (msgs.messages || msgs).filter((m) => m.body === 'Twice message').length;
+  if (n !== 1) found.push(`chat message: ${n}`);
+});
 await step('one of each', async () => { if (found.length) throw new Error(found.join('; ')); });
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
