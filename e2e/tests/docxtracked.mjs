@@ -56,6 +56,44 @@ await step('tracked changes in a Word file open as suggestions to accept', async
   await panel.getByRole('button', { name: 'Accept all' }).click();
   await until(async () => (await ed.innerText()).includes('The meeting is in April.') && !(await ed.locator('ins, del').count()));
 });
+await step('suggestions go out in an OpenDocument (.odt) download as tracked changes, LibreOffice keeps them, and they come back', async () => {
+  const at = Date.parse('2026-11-03T09:30:00Z');
+  const sg = (type) => ({ type, attrs: { id: 's1', by: null, name: 'Kim Park', at } });
+  const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Agenda', content: { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'We meet on ' }, { type: 'text', text: 'Monday', marks: [sg('suggestDelete')] }, { type: 'text', text: 'Tuesday', marks: [sg('suggestInsert')] }, { type: 'text', text: ' at noon.' }] },
+  ] } })).body;
+  await page.goto(`${B}/docs/${d.id}`);
+  await page.locator('.ProseMirror ins.sugg-ins', { hasText: 'Tuesday' }).waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as OpenDocument (.odt)' }).click()]);
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  let bytes = fs.readFileSync(await dl.path());
+  let lo = true;
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { lo = false; console.log('(LibreOffice is not installed here: the file is opened as downloaded)'); }
+  if (lo) { // opened and saved again by LibreOffice
+    const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+    fs.writeFileSync(path.join(dir, 'Agenda.odt'), bytes);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'out'), path.join(dir, 'Agenda.odt')], { stdio: 'ignore', timeout: 120000 });
+    bytes = fs.readFileSync(path.join(dir, 'out', 'Agenda.odt'));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await fetch('/api/files/upload?name=Agenda%20(Writer).odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bin }); }, bytes.toString('base64'));
+  await page.goto(`${B}/drive`);
+  await page.getByText('Agenda (Writer).odt').dblclick();
+  const pv = page.getByRole('dialog').filter({ hasText: 'Agenda (Writer).odt' });
+  await pv.getByRole('button', { name: 'Open as document' }).click({ timeout: 20000 });
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.ProseMirror');
+  await ed.locator('del.sugg-del', { hasText: 'Monday' }).waitFor();
+  await ed.locator('ins.sugg-ins', { hasText: 'Tuesday' }).waitFor();
+  if ((await ed.locator('ins.sugg-ins').getAttribute('title')) !== 'Suggested by Kim Park') throw new Error(await ed.locator('ins.sugg-ins').getAttribute('title'));
+  await page.getByRole('button', { name: /suggestions/ }).click();
+  const panel = page.getByRole('complementary', { name: 'Suggestions' });
+  await panel.getByText('Replace “Monday” with “Tuesday”').waitFor();
+  await page.screenshot({ path: `${SP}/shots/odt-tracked.png` });
+  await panel.getByRole('button', { name: 'Accept all' }).click();
+  await until(async () => (await ed.innerText()).includes('We meet on Tuesday at noon.') && !(await ed.locator('ins, del').count()));
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

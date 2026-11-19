@@ -12,7 +12,7 @@ import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
 import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import { latexToMathml, mathmlToLatex } from './mathml.js';
-import { docFromHtml, columnWidthsOf, widthOfPicture } from './word.js';
+import { docFromHtml, columnWidthsOf, widthOfPicture, joinReplacements } from './word.js';
 
 // The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
 const ODT_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
@@ -24,6 +24,8 @@ const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001
 /** Text as ODF wants it: runs of spaces as <text:s/>, tabs and line breaks as elements. */
 const odfText = (s) => x(s).replace(/\t/g, '<text:tab/>').replace(/\n/g, '<text:line-break/>').replace(/ {2,}/g, (m) => ` <text:s text:c="${m.length - 1}"/>`);
 const COLOR = /^#[0-9a-f]{6}$/i;
+// <text:s/>, read: a character the HTML step keeps as it is (spaces it would fold), an ordinary space afterwards.
+const SPACE = '\uE000';
 
 // ---- document → .odt ----
 /** The page: paper size and orientation, margins and page colour from Page setup (A4 portrait, 2 cm, white without one). */
@@ -91,6 +93,9 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   const firstOf = new Map(), lastOf = new Map();
   (function scan(n) { if (n.type === 'text') for (const m of n.marks || []) if (m.type === 'comment' && threads.has(m.attrs?.id)) { if (!firstOf.has(m.attrs.id)) firstOf.set(m.attrs.id, n); lastOf.set(m.attrs.id, n); } (n.content || []).forEach(scan); })(doc);
   const annoName = (id) => `c${String(id).replace(/[^A-Za-z0-9_-]/g, '')}`;
+  // Pending suggestions: LibreOffice's tracked changes (each a changed region, by whoever suggested it and when).
+  const changedRegions = [];
+  const changeInfo = (sg) => `<office:change-info><dc:creator>${x(String(sg.name || 'Workspace').slice(0, 100))}</dc:creator><dc:date>${new Date(sg.at || Date.now()).toISOString().slice(0, 19)}</dc:date></office:change-info>`;
   const note = (c, attrs = '') => `<office:annotation${attrs}><dc:creator>${x(c.author || '')}</dc:creator><dc:date>${new Date(c.at || Date.now()).toISOString().slice(0, 19)}</dc:date>${String(c.text || '').split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</office:annotation>`;
   const startOf = (id) => { const c = threads.get(id); return note(c, ` office:name="${annoName(id)}"`) + (c.replies || []).map((r, k) => note(r, ` office:name="${annoName(id)}r${k + 1}" loext:parent-name="${annoName(id)}"`)).join(''); };
   const textStyles = new Map(); // key → name
@@ -155,6 +160,16 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       if (Object.keys(props).length) run = `<text:span text:style-name="${textStyle(props)}">${run}</text:span>`;
       const href = marks.get('link')?.attrs?.href;
       if (href && !/^\s*javascript:/i.test(href)) run = `<text:a xlink:type="simple" xlink:href="${x(String(href).replace(/^#bm-([a-z0-9]{6,16})$/, '#bm_$1'))}">${run}</text:a>`; // (a link to a bookmark: to its name)
+      const sg = marks.get('suggestInsert') || marks.get('suggestDelete');
+      if (sg) { // an insertion between its start and end; a deletion kept in its region, a mark where it was
+        const cid = `ct${changedRegions.length + 1}`;
+        if (marks.has('suggestInsert')) { changedRegions.push(`<text:changed-region text:id="${cid}"><text:insertion>${changeInfo(sg.attrs || {})}</text:insertion></text:changed-region>`); run = `<text:change-start text:change-id="${cid}"/>${run}<text:change-end text:change-id="${cid}"/>`; }
+        else { // (its words in a paragraph of their own: a space at either end written as one, or it would be dropped)
+          const kept = run.replace(/^((?:<[^/][^>]*>)*) /, '$1<text:s/>').replace(/ ((?:<\/[^>]+>)*)$/, '<text:s/>$1');
+          changedRegions.push(`<text:changed-region text:id="${cid}"><text:deletion>${changeInfo(sg.attrs || {})}<text:p>${kept}</text:p></text:deletion></text:changed-region>`);
+          run = `<text:change text:change-id="${cid}"/>`;
+        }
+      }
       for (const [id, first] of firstOf) if (first === n) run = startOf(id) + run;
       for (const [id, last] of lastOf) if (last === n) run += `<office:annotation-end office:name="${annoName(id)}"/>`;
       out += run;
@@ -308,7 +323,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 <style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999"/></style:style>
 <text:list-style style:name="LBul">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-bullet text:level="${l}" text:bullet-char="${'•◦▪'[(l - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-bullet>`).join('')}</text:list-style>
 <text:list-style style:name="LNum">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-number text:level="${l}" style:num-suffix="." style:num-format="${['1', 'a', 'i'][(l - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-number>`).join('')}</text:list-style>
-</office:automatic-styles><office:body><office:text>${body}</office:text></office:body></office:document-content>`;
+</office:automatic-styles><office:body><office:text>${changedRegions.length ? `<text:tracked-changes text:track-changes="false">${changedRegions.join('')}</text:tracked-changes>` : ''}${body}</office:text></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles ${NS}><office:styles>${lineNumbersXml(page)}
 <style:default-style style:family="paragraph"><style:paragraph-properties fo:margin-bottom="0.2cm"/><style:text-properties ${normalText(page)}/></style:default-style>
@@ -498,18 +513,43 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     if (!font && /mono|courier|consolas/i.test(`${tp['style:font-name'] || ''} ${tp['fo:font-family'] || ''}`)) out = `<code>${out}</code>`; // other fixed-width fonts: code
     return out;
   };
+  // Tracked changes (LibreOffice's): each region's kind, who and when, and a deletion's words; an insertion open now.
+  const changes = new Map();
+  let openInsertion = null, suggNo = 0;
+  for (const r of (function all(n, acc = []) { for (const k of kids(n)) { if (k.type !== 'tag') continue; if (k.name === 'text:changed-region') acc.push(k); else all(k, acc); } return acc; })(root)) {
+    const kind = kids(r).find((k) => k.name === 'text:insertion' || k.name === 'text:deletion');
+    if (!kind) continue; // (a format change: not a suggestion here)
+    const info = kids(kind).find((k) => k.name === 'office:change-info');
+    const who = textOf(kids(info || {}).find((k) => k.name === 'dc:creator') || { children: [] }).trim();
+    const when = Date.parse(`${textOf(kids(info || {}).find((k) => k.name === 'dc:date') || { children: [] }).trim().replace(/Z?$/, 'Z')}`) || 0;
+    changes.set(r.attribs['text:id'] || r.attribs['xml:id'], { kind: kind.name === 'text:insertion' ? 'ins' : 'del', who, when, el: kind, no: ++suggNo });
+  }
+  const suggAttrs = (ch) => `data-sugg="o${ch.no}" data-name="${h(ch.who.slice(0, 100))}" data-at="${ch.when}"`;
+  // A run of text: marked as inserted while an insertion is open, and as a comment's words while one is.
+  const leaf = (html, raw = '') => {
+    const open = openNotes.length && notes.get(openNotes[openNotes.length - 1]);
+    if (open) { open.quote += raw; html = `<span data-comment="${open.id}">${html}</span>`; }
+    return openInsertion ? `<ins ${suggAttrs(openInsertion)}>${html}</ins>` : html;
+  };
   const inline = async (el) => {
     let out = '';
     for (const c of kids(el)) {
-      if (c.type === 'text') {
-        // (inside a comment's words: marked with its thread, the innermost one)
-        const open = openNotes.length && notes.get(openNotes[openNotes.length - 1]);
-        if (open) { open.quote += c.data; out += `<span data-comment="${open.id}">${h(c.data)}</span>`; } else out += h(c.data);
-        continue;
-      }
+      if (c.type === 'text') { out += leaf(h(c.data), c.data); continue; }
       if (c.type !== 'tag') continue;
       switch (c.name) {
-        case 'text:s': out += '\u00a0'.repeat(Math.min(100, Number(c.attribs['text:c']) || 1)); break; // kept, not folded into one
+        case 'text:change-start': { const ch = changes.get(c.attribs['text:change-id']); if (ch?.kind === 'ins') openInsertion = ch; break; }
+        case 'text:change-end': { if (openInsertion && changes.get(c.attribs['text:change-id']) === openInsertion) openInsertion = null; break; }
+        case 'text:change': { // a deletion: its words, marked as deleted
+          const ch = changes.get(c.attribs['text:change-id']);
+          if (ch?.kind !== 'del') break;
+          const was = openInsertion; openInsertion = null;
+          const words = [];
+          for (const p of kids(ch.el).filter((k) => k.name === 'text:p' || k.name === 'text:h')) words.push(await inline(p));
+          openInsertion = was;
+          if (words.join('')) out += `<del ${suggAttrs(ch)}>${words.join(' ')}</del>`;
+          break;
+        }
+        case 'text:s': out += leaf(SPACE.repeat(Math.min(100, Number(c.attribs['text:c']) || 1))); break; // kept, not folded into one (an ordinary space in the end)
         case 'text:tab': out += '\t'; break;
         case 'text:line-break': out += '<br>'; break;
         case 'text:span': { const st = look(c.attribs['text:style-name']); out += wrap(await inline(c), st.names.some((n) => /^(visited_20_)?internet_20_link$/.test(n)) ? {} : st.tp, true); break; } // a link's own look (blue, underlined) is the link's, not formatting
@@ -611,7 +651,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         if (st.pp['fo:break-before'] === 'page' && out) { out += '<div data-page-break=""></div>'; if (!raw.trim()) continue; }
         if (!raw.replace(/<[^>]+>/g, '').trim() && !/<img |data-/.test(raw) && (named(/^horizontal( |_20_|_)line$/) || ruleOnly(st.pp))) { out += '<hr>'; continue; }
         // Code: LibreOffice's "Preformatted Text", or Word's "Code" kept from a .docx.
-        if (named(/preformatted|^code$|^source(_20_| )text$|^html(_20_| )code$/)) { out += `<pre><code>${raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')}</code></pre>`; continue; }
+        if (named(/preformatted|^code$|^source(_20_| )text$|^html(_20_| )code$/)) { out += `<pre><code>${raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')}</code></pre>`; continue; } // (its spaces: SPACE, made ordinary below)
         if (/^\s*(<img [^>]*>\s*)+$/.test(raw)) { // a picture on its own line: no empty paragraph around it, aligned as its line
           const al = { center: 'center', end: 'right', right: 'right' }[st.pp['fo:text-align']];
           out += al ? raw.replace(/<img /g, `<img align="${al}" `) : raw;
@@ -680,6 +720,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const parts = html.split('<div data-page-break=""></div>');
   const docs = parts.map((p) => docFromHtml(p || '<p></p>'));
   const content = docs.flatMap((d, i) => [...(i ? [{ type: 'pageBreak' }] : []), ...(d.content || [])]);
+  for (const n of content) joinReplacements(n); // (a deletion and the insertion after it, by one person at once: one suggestion)
+  (function spaces(n) { if (n.type === 'text' && n.text?.includes(SPACE)) n.text = n.text.replaceAll(SPACE, ' '); (n.content || []).forEach(spaces); })({ content });
   const comments = [...notes.values()].map((c) => ({ id: c.id, author: c.author, text: c.text, at: c.at, quote: c.quote.slice(0, 500), ...(c.resolved && { resolved: true }), replies: c.replies }));
   return { doc: { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }, comments };
 }

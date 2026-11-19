@@ -9869,6 +9869,23 @@ test('Office files: suggestions go into the Word download as tracked changes (th
   assert.match(back, /"type":"suggestInsert"[^\]]*\],"text":"April"/);
 });
 
+test('Office files: suggestions go into the OpenDocument download as tracked changes, and come back as suggestions', async () => {
+  const at = Date.parse('2026-11-02T08:30:00Z');
+  const s = (type) => ({ type, attrs: { id: 's1', by: null, name: 'Kim Park', at } });
+  const content = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Meet in ' }, { type: 'text', text: 'March', marks: [s('suggestDelete')] }, { type: 'text', text: 'April', marks: [s('suggestInsert')] }] }] };
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Plan', content })).body;
+  const odt = await owner('GET', `/api/files/${d.id}/export?format=odt`, undefined, { binary: true });
+  const JSZip = (await import('jszip')).default;
+  const xml = await (await JSZip.loadAsync(odt.body)).file('content.xml').async('string');
+  assert.match(xml, /<text:changed-region text:id="ct1"><text:deletion><office:change-info><dc:creator>Kim Park<\/dc:creator><dc:date>2026-11-02T08:30:00<\/dc:date><\/office:change-info><text:p>March<\/text:p><\/text:deletion>/);
+  assert.match(xml, /Meet in <text:change text:change-id="ct1"\/><text:change-start text:change-id="ct2"\/>April<text:change-end text:change-id="ct2"\/>/);
+  const up = (await owner('POST', '/api/files/upload?name=Plan%20tracked.odt', odt.body, { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  const [p] = (await owner('GET', `/api/files/${opened.id}/content`)).body.content.content;
+  assert.deepEqual(p.content.map((t) => [t.text, t.marks?.[0]?.type || null, t.marks?.[0]?.attrs.name || null, t.marks?.[0]?.attrs.at || null]), [['Meet in ', null, null, null], ['March', 'suggestDelete', 'Kim Park', at], ['April', 'suggestInsert', 'Kim Park', at]]);
+  assert.equal(p.content[1].marks[0].attrs.id, p.content[2].marks[0].attrs.id, 'one replacement, as it was');
+});
+
 test('legal hold: nothing of theirs is deleted for good until it is lifted', async () => {
   const { emptyOldTrash } = await import('../src/routes/files.js');
   const { purgeOldChat } = await import('../src/routes/chat.js');

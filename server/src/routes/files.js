@@ -1989,8 +1989,8 @@ export default function fileRoutes({ maxUploadBytes }) {
   const exportedAs = async (f, type, { notes = false, sheetIndex = 0 } = {}) => {
     saveNow(f.id); // what's being typed right now goes in too
     const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
-    // Pending suggestions aren't in it yet; a Word download carries them as tracked changes.
-    const content = f.kind === 'doc' && type !== 'docx' ? withoutSuggestions(stored) : stored;
+    // Pending suggestions aren't in it yet; a Word or OpenDocument download carries them as tracked changes.
+    const content = f.kind === 'doc' && type !== 'docx' && type !== 'odt' ? withoutSuggestions(stored) : stored;
     // The same rule as showing pictures in the file: only pictures owned by someone who can edit it.
     const pictureData = async (fileId) => {
       const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);

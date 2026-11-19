@@ -435,24 +435,6 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   const html = unmarkWordHtml(marked, (wid) => (wordComments.has(wid) ? commentId(wid) : null));
   const withNotes = picturesOnTheirOwn(bookmarksFromWord(footnotesFromWord(html))).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
-  // A deletion right before an insertion, by the same person at the same time, is one replacement (as Docs makes them).
-  const joinReplacements = (n) => {
-    const kids = n.content || [];
-    for (let i = 0; i + 1 < kids.length; i++) {
-      const del = kids[i].marks?.find((m) => m.type === 'suggestDelete');
-      if (!del) continue;
-      for (let j = i + 1; j < kids.length; j++) {
-        const ins = kids[j].marks?.find((m) => m.type === 'suggestInsert');
-        const sameDel = kids[j].marks?.find((m) => m.type === 'suggestDelete' && m.attrs.id === del.attrs.id);
-        if (sameDel) continue; // more of the same deletion (other formatting)
-        if (!ins || ins.attrs.name !== del.attrs.name || ins.attrs.at !== del.attrs.at) break;
-        const old = ins.attrs.id;
-        for (let k = j; k < kids.length; k++) { const m = kids[k].marks?.find((x) => x.type === 'suggestInsert' && x.attrs.id === old); if (!m) break; m.attrs.id = del.attrs.id; }
-        break;
-      }
-    }
-    kids.forEach(joinReplacements);
-  };
   joinReplacements(doc);
   // The words each comment covers, now in the document (a comment whose words are gone is still kept, unanchored).
   const quotes = new Map();
@@ -464,6 +446,25 @@ export async function docFromWord(buffer, { savePicture } = {}) {
     replies: [...wordComments.values()].filter((r) => r.parent === wid).map((r) => ({ author: r.author, text: r.text, at: r.at })),
   }));
   return { doc, comments, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };
+}
+
+/** A deletion right before an insertion, by the same person at the same time, is one replacement (as Docs makes them). */
+export function joinReplacements(n) {
+  const kids = n.content || [];
+  for (let i = 0; i + 1 < kids.length; i++) {
+    const del = kids[i].marks?.find((m) => m.type === 'suggestDelete');
+    if (!del) continue;
+    for (let j = i + 1; j < kids.length; j++) {
+      const ins = kids[j].marks?.find((m) => m.type === 'suggestInsert');
+      const sameDel = kids[j].marks?.find((m) => m.type === 'suggestDelete' && m.attrs.id === del.attrs.id);
+      if (sameDel) continue; // more of the same deletion (other formatting)
+      if (!ins || ins.attrs.name !== del.attrs.name || ins.attrs.at !== del.attrs.at) break;
+      const old = ins.attrs.id;
+      for (let k = j; k < kids.length; k++) { const m = kids[k].marks?.find((x) => x.type === 'suggestInsert' && x.attrs.id === old); if (!m) break; m.attrs.id = del.attrs.id; }
+      break;
+    }
+  }
+  kids.forEach(joinReplacements);
 }
 
 /** Paragraphs starting with a box (☐, or ☑ ☒ when ticked), one after another, become a checklist. */
