@@ -62,6 +62,60 @@ await step('click and type before the server’s copy arrives: the words land wh
   for (let k = 0; k < 20; k++) { server = (await api('GET', `/files/${doc.id}/text`)).body?.text || ''; if (server.includes('Row 3: early late')) break; await page.waitForTimeout(500); }
   if (!server.includes('Row 3: early late')) throw new Error(`saved as ${JSON.stringify(server)}`);
 });
+await step('a spreadsheet: values typed before and after the server’s copy arrives all stay', async () => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+  const sheet = (await api('POST', '/files/new', { kind: 'sheet', name: 'Early cells', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Item', B1: 'Qty' } }] } })).body;
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await page.locator('[data-k="B1"]').getByText('Qty').waitFor();
+  await page.waitForTimeout(1500); // kept on the device
+  await page.goto(`${B}/drive`);
+  await page.routeWebSocket(/\/ws\/collab/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => server.send(m));
+    server.onMessage((m) => setTimeout(() => { try { ws.send(m); } catch { /* closed */ } }, 2000));
+  });
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await page.locator('[data-k="B1"]').getByText('Qty').waitFor({ timeout: 5000 });
+  const typeIn = async (k, text) => { await page.locator(`[data-k="${k}"]`).click(); await page.keyboard.type(text); await page.keyboard.press('Enter'); };
+  await typeIn('A2', 'Pens');
+  await typeIn('B2', '12');
+  await page.waitForTimeout(3500);
+  await typeIn('A3', 'Paper');
+  await typeIn('B3', '5');
+  const want = { A2: 'Pens', B2: '12', A3: 'Paper', B3: '5' };
+  for (const [k, v] of Object.entries(want)) await page.locator(`[data-k="${k}"]`).getByText(v, { exact: true }).waitFor({ timeout: 5000 }).catch(async () => { throw new Error(`${k} shows “${(await page.locator(`[data-k="${k}"]`).innerText()).trim()}”, not “${v}”`); });
+  await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+  let cells;
+  for (let k = 0; k < 20; k++) { cells = (await api('GET', `/files/${sheet.id}/content`)).body?.content?.sheets?.[0]?.cells || {}; if (Object.entries(want).every(([c, v]) => String(cells[c]) === v)) break; await page.waitForTimeout(500); }
+  const missing = Object.entries(want).filter(([c, v]) => String(cells[c]) !== v);
+  if (missing.length) throw new Error(`saved: ${JSON.stringify(cells)}`);
+});
+await step('a presentation: slides added before and after the server’s copy arrives all stay', async () => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+  const deck = (await api('POST', '/files/new', { kind: 'slides', name: 'Early slides' })).body;
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByRole('button', { name: 'New slide' }).first().waitFor();
+  await page.waitForTimeout(1500); // kept on the device
+  const before = (await api('GET', `/files/${deck.id}/content`)).body.content.slides.length;
+  await page.goto(`${B}/drive`);
+  await page.routeWebSocket(/\/ws\/collab/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => server.send(m));
+    server.onMessage((m) => setTimeout(() => { try { ws.send(m); } catch { /* closed */ } }, 2000));
+  });
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByRole('button', { name: 'New slide' }).first().click({ timeout: 5000 });
+  await page.getByRole('menuitem', { name: 'Title and text' }).click();
+  await page.getByRole('button', { name: `Slide ${before + 1}`, exact: true }).waitFor();
+  await page.waitForTimeout(3500);
+  await page.getByRole('button', { name: 'New slide' }).first().click();
+  await page.getByRole('menuitem', { name: 'Title and text' }).click();
+  await page.getByRole('button', { name: `Slide ${before + 2}`, exact: true }).waitFor();
+  await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+  let n;
+  for (let k = 0; k < 20; k++) { n = (await api('GET', `/files/${deck.id}/content`)).body.content.slides.length; if (n === before + 2) break; await page.waitForTimeout(500); }
+  if (n !== before + 2) throw new Error(`${n} slides saved, not ${before + 2}`);
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
