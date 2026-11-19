@@ -83,10 +83,15 @@ await step('the event and booking page weekday pickers follow it too (Saturday f
   const labels = (await bp.locator('.booking-weekdays label').allTextContents()).map((t) => t.trim());
   if (labels[0] !== 'Sat' || labels[6] !== 'Fri') throw new Error(`booking days: ${labels.join(',')}`);
 });
-await step('another browser (nothing stored in it): the week starts on Saturday there too, weekends and week numbers as chosen', async () => {
+await step('another browser (nothing stored in it): the week starts on Saturday there too; weekends, tasks and Kim’s calendar beside yours as chosen', async () => {
+  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
   await page.goto(`${B}/calendar`);
   await page.getByLabel('Show weekends').uncheck();
-  await until(async () => (await api(page, 'GET', '/auth/me')).body.user.cal_prefs.weekends === false);
+  await page.getByLabel('Show tasks with due dates').uncheck();
+  const kimId = (await api(page, 'GET', '/users')).body.find((u) => u.name === 'Kim Park').id;
+  await page.getByLabel("Show a colleague's calendar").selectOption(kimId);
+  await page.getByRole('button', { name: 'Hide Kim Park' }).waitFor();
+  await until(async () => { const c = (await api(page, 'GET', '/auth/me')).body.user.cal_prefs; return c.weekends === false && c.showTasks === false && c.others?.some((o) => o.id === kimId); });
   const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const p2 = await ctx2.newPage();
   p2.on('pageerror', (e) => errors.push(e.message));
@@ -97,8 +102,9 @@ await step('another browser (nothing stored in it): the week starts on Saturday 
   await p2.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
   await p2.goto(`${B}/calendar`);
   if ((await p2.getByLabel('Week starts on').inputValue()) !== '6') throw new Error(`week starts on ${await p2.getByLabel('Week starts on').inputValue()}`);
-  const weekendsBox = p2.getByLabel('Show weekends');
-  if (await weekendsBox.count() && await weekendsBox.isChecked()) throw new Error('weekends shown in the other browser');
+  if (await p2.getByLabel('Show weekends').isChecked()) throw new Error('weekends shown in the other browser');
+  if (await p2.getByLabel('Show tasks with due dates').isChecked()) throw new Error('tasks shown in the other browser');
+  await p2.getByRole('button', { name: 'Hide Kim Park' }).waitFor({ timeout: 5000 }); // Kim's calendar is beside yours there too
   await ctx2.close();
 });
 await step('a browser that had chosen Monday before: kept for the account the first time', async () => {

@@ -2,7 +2,7 @@
 // working time for them now and where they're working today. Opened from the Directory and the org chart.
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post, del, onLive, formatDate } from '../api.js';
+import { get, post, put, del, onLive, formatDate } from '../api.js';
 import { Avatar, Modal, useToast } from './ui.jsx';
 import { useAuth } from '../App.jsx';
 import WithPerson from './WithPerson.jsx';
@@ -80,7 +80,7 @@ export default function PersonCard({ userId, onClose }) {
   const [card, setCard] = useState(null);
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   useEffect(() => { setCard(null); get(`/users/${id}/card`).then(setCard).catch((e) => { toast(e.status === 404 ? 'Cards are for colleagues in your company' : e.message, 'error'); onClose(); }); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!card) return null;
   // Call: a video call in your direct messages with them; they're rung, and the meeting opens for you.
@@ -93,11 +93,13 @@ export default function PersonCard({ userId, onClose }) {
   };
   const message = async () => { const { id: dm } = await post('/chat/dm', { user_id: card.id }); onClose(); navigate(`/chat/${dm}`); };
   const schedule = () => { onClose(); scheduleWith([{ id: card.id, email: card.email, name: card.name }], { navigate, toast }); };
-  const seeCalendar = () => {
-    try {
-      const list = JSON.parse(localStorage.getItem('nw.calOthers') || '[]');
-      if (!list.some((o) => o.id === card.id)) localStorage.setItem('nw.calOthers', JSON.stringify([...list, { id: card.id, name: card.name, color: '#8430ce' }].slice(-10)));
-    } catch { /* private window */ }
+  // Their busy times beside yours in Calendar (kept with your Calendar settings, so on every computer).
+  const seeCalendar = async () => {
+    const list = user?.cal_prefs?.others ?? (() => { try { return JSON.parse(localStorage.getItem('nw.calOthers') || '[]'); } catch { return []; } })();
+    if (!list.some((o) => o.id === card.id)) {
+      try { const p = await put('/users/me/calendar-prefs', { others: [...list, { id: card.id, name: card.name, color: '#8430ce' }].slice(-10) }); setUser({ ...user, cal_prefs: p }); }
+      catch (e) { toast(e.message, 'error'); return; }
+    }
     onClose(); navigate('/calendar');
   };
   const person = (p) => <button type="button" className="link-btn" onClick={() => setId(p.id)}>{p.name}</button>;

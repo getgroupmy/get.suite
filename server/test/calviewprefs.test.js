@@ -17,6 +17,15 @@ test('only Sunday, Monday or Saturday, and true or false', () => {
   assert.equal(cleanCalPrefs({ weekends: 'no' }).weekends, null);
 });
 
+test('colleagues shown beside yours: at most ten, each id once, a colour of its own; tasks and birthdays on or off', () => {
+  assert.equal(cleanCalPrefs({}).others, null);
+  const many = Array.from({ length: 14 }, (_, i) => ({ id: `u${i}`, name: `P${i}`, color: '#00aa00' }));
+  assert.deepEqual(cleanCalPrefs({ others: many }).others.map((o) => o.id), many.slice(-10).map((o) => o.id));
+  assert.deepEqual(cleanCalPrefs({ others: [{ id: 'a', name: 'Kim', color: 'red' }, { id: 'a', name: 'again' }, { id: 'r1', name: 'Room 4', room: 1 }, { id: '../x' }] }).others,
+    [{ id: 'a', name: 'Kim', color: '#8430ce' }, { id: 'r1', name: 'Room 4', color: '#8430ce', room: true }]);
+  assert.deepEqual([cleanCalPrefs({ showTasks: false }).showTasks, cleanCalPrefs({ showBirthdays: true }).showBirthdays, cleanCalPrefs({ showTasks: 0 }).showTasks], [false, true, null]);
+});
+
 test('saved through the settings call, one at a time, the rest kept', async () => {
   const fs = await import('node:fs');
   const os = await import('node:os');

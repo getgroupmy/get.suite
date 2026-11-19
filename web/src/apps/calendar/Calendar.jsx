@@ -98,6 +98,8 @@ export default function CalendarPage() {
 }
 
 function Calendar({ acting = null, managed = [], onPick }) {
+  const { user: me, setUser } = useAuth();
+  const savedPrefs = me?.cal_prefs || {};
   const toast = useToast();
   const [view, setViewState] = useState(savedView);
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
@@ -183,7 +185,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
     setEditing({ color: COLORS[0], ...ev });
     navigateTo(location.pathname, { replace: true, state: null }); // a reload doesn't open it again
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [showTasks, setShowTasksState] = useState(savedTasks);
+  const [showTasks, setShowTasksState] = useState(() => savedPrefs.showTasks ?? savedTasks());
   const [copyWeek, setCopyWeek] = useState(null); // the start of the week being copied (Copy this week…)
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
@@ -204,15 +206,14 @@ function Calendar({ acting = null, managed = [], onPick }) {
   };
 
   const [tasks, setTasks] = useState([]);
-  const [showBirthdays, setShowBirthdaysState] = useState(savedBirthdays);
-  const setShowBirthdays = (on) => { setShowBirthdaysState(on); try { localStorage.setItem('nw.calBirthdays', on ? '1' : '0'); } catch { /* private window */ } };
+  const [showBirthdays, setShowBirthdaysState] = useState(() => savedPrefs.showBirthdays ?? savedBirthdays());
+  const setShowBirthdays = (on) => { setShowBirthdaysState(on); keepPref({ showBirthdays: on }); };
   const [birthdays, setBirthdays] = useState([]);
   const [holidays, setHolidays] = useState([]); // the company's holidays in view
   const [myHolidays, setMyHolidays] = useState({ country: '', countries: [], list: [] }); // your own "Holidays in …"
-  const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
+  const setShowTasks = (on) => { setShowTasksState(on); keepPref({ showTasks: on }); };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
-  const { user: me, setUser } = useAuth();
   // How the views look: the week's first day, weekends, week numbers. Kept with your account (the same on every
   // computer and phone browser); until you choose, what this browser had before (and that's then kept for you).
   const flag = (k, dflt) => { try { const v = localStorage.getItem(k); return v === null ? dflt : v === '1'; } catch { return dflt; } };
@@ -230,6 +231,9 @@ function Calendar({ acting = null, managed = [], onPick }) {
     if (saved.weekStart === null && local() !== null) moved.weekStart = local();
     try { if (saved.weekends === null && localStorage.getItem('nw.calWeekends') !== null) moved.weekends = flag('nw.calWeekends', true); } catch { /* private window */ }
     try { if (saved.weekNumbers === null && localStorage.getItem('nw.calWeekNums') !== null) moved.weekNumbers = flag('nw.calWeekNums', false); } catch { /* private window */ }
+    if (saved.others === null && localOthers()?.length) moved.others = localOthers();
+    try { if (saved.showTasks === null && localStorage.getItem('nw.calTasks') !== null) moved.showTasks = savedTasks(); } catch { /* private window */ }
+    try { if (saved.showBirthdays === null && localStorage.getItem('nw.calBirthdays') !== null) moved.showBirthdays = savedBirthdays(); } catch { /* private window */ }
     if (Object.keys(moved).length) keepPref(moved);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const setWeekStart = (v) => { setWeekStartState(v); keepPref({ weekStart: v }); };
@@ -239,8 +243,9 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const setWeekends = keep('nw.calWeekends', setWeekendsState), setWeekNums = keep('nw.calWeekNums', setWeekNumsState);
   const gridDays = useMemo(() => daysShown(view, days, weekends), [view, days, weekends]);
   // Other people's calendars (busy times only), chosen on this device.
-  const [others, setOthersState] = useState(() => { try { return JSON.parse(localStorage.getItem('nw.calOthers') || '[]'); } catch { return []; } });
-  const setOthers = (list) => { setOthersState(list); try { localStorage.setItem('nw.calOthers', JSON.stringify(list)); } catch { /* private window */ } };
+  const localOthers = () => { try { const v = JSON.parse(localStorage.getItem('nw.calOthers') || 'null'); return Array.isArray(v) ? v : null; } catch { return null; } };
+  const [others, setOthersState] = useState(() => savedPrefs.others ?? localOthers() ?? []);
+  const setOthers = (list) => { setOthersState(list); keepPref({ others: list }); };
   const [busy, setBusy] = useState([]);
   // Working location for the days shown (week and day views).
   const [locations, setLocations] = useState({});
