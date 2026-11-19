@@ -2,6 +2,7 @@ import { keptChatsOf } from '../meet.js';
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
+import { setVacation } from '../mail/vacation.js';
 import { saveNow, CO_EDITED } from '../collab.js';
 import { binExport } from '../recyclebin.js';
 import { notesZipEntries, importNotes, noteTemplatesJson, importNoteTemplates } from './notes.js';
@@ -96,6 +97,9 @@ export function mailSettingsFiles(userId, username) {
     out.push(['Mail settings/filters.sieve', userSieve({ username, rules, labels }) || '']);
     out.push(['Mail settings/filters.json', `${JSON.stringify(rules, null, 2)}\n`]);
   }
+  // Labels (with their colours), so filters that label mail can be set up again elsewhere.
+  const labels = (() => { try { return q('SELECT id, name, color FROM mail_labels WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(userId); } catch { return []; } })();
+  if (labels.length) out.push(['Mail settings/labels.json', `${JSON.stringify(labels, null, 2)}\n`]);
   const sig = q("SELECT html FROM mail_signatures WHERE user_id = ? AND html != ''").get(userId);
   if (sig) out.push(['Mail settings/signature.html', sig.html]);
   for (const s of q("SELECT address, html FROM identity_signatures WHERE user_id = ? AND html != '' ORDER BY address").all(userId)) out.push([`Mail settings/signature ${safe(s.address)}.html`, s.html]);
@@ -244,7 +248,27 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   const tryImport = (fn) => { try { return fn(); } catch (e) { if (e.status === 400 || e.status === 403) return { added: 0, skipped: 0, error: e.message }; throw e; } };
   const json = async (name) => { const t = await text(name); if (!t) return null; try { return JSON.parse(t); } catch { return null; } };
   onStep({ step: 'settings' });
-  const rules = await json('Mail settings/filters.json');
+  // Labels first (by name: one already here is used), so filters that label mail still do.
+  const labelMap = new Map();
+  const labelList = await json('Mail settings/labels.json');
+  if (Array.isArray(labelList)) {
+    let made = 0;
+    for (const l of labelList.slice(0, 100)) {
+      const name = String(l?.name || '').trim().slice(0, 50);
+      if (!name) continue;
+      const had = q('SELECT id FROM mail_labels WHERE user_id = ? AND lower(name) = lower(?)').get(user.id, name);
+      let id = had?.id;
+      if (!id && q('SELECT COUNT(*) AS n FROM mail_labels WHERE user_id = ?').get(user.id).n < 100) {
+        id = uid();
+        q('INSERT INTO mail_labels (id, user_id, name, color, keyword, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(id, user.id, name, /^#[0-9a-f]{6}$/i.test(l.color || '') ? l.color : '#5f6368', `nwl_${id.replace(/[^a-z0-9]/gi, '').slice(0, 12)}`, Date.now());
+        made++;
+      }
+      if (id && l.id) labelMap.set(String(l.id), id);
+    }
+    if (made) out.labels = { added: made };
+  }
+  const rules = (await json('Mail settings/filters.json'))?.map?.((x) => (x?.actions?.label && labelMap.has(String(x.actions.label)) ? { ...x, actions: { ...x.actions, label: labelMap.get(String(x.actions.label)) } } : x));
   if (Array.isArray(rules) && rules.length) { const r2 = tryImport(() => importMailRules(user, { rules })); out.filters = { added: r2.added, skipped: r2.skipped, ...(r2.error && { error: r2.error }) }; }
   const unesc = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   const templates = [];
@@ -262,6 +286,19 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
     sigs.push({ address: m[1] ? m[1].toLowerCase() : null, html: (await f.buffer()).toString('utf8') });
   }
   if (sigs.length) out.signatures = importSignatures(user, sigs);
+  // The vacation reply (when none is set here): its words and days, on only if it hasn't ended.
+  const vac = await text('Mail settings/vacation reply.txt');
+  if (vac && !q("SELECT 1 FROM vacations WHERE user_id = ? AND body != ''").get(user.id)) {
+    const [head, ...rest] = vac.replace(/\r\n/g, '\n').split('\n\n');
+    const subject = /^Subject: (.*)$/m.exec(head)?.[1]?.trim().slice(0, 200) || 'Out of office';
+    const on = /^On: (yes|no)(?:, from (\d{4}-\d{2}-\d{2}))?(?: until (\d{4}-\d{2}-\d{2}))?/m.exec(head);
+    const body = rest.join('\n\n').trim().slice(0, 5000);
+    const today = new Date().toISOString().slice(0, 10);
+    if (body) {
+      setVacation(user.id, { enabled: on?.[1] === 'yes' && !(on?.[3] && on[3] < today), subject, body, start_date: on?.[2] || null, end_date: on?.[3] || null });
+      out.vacation = true;
+    }
+  }
   const evTemplates = await json('Calendar templates.json');
   if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
   const noteTemplates = await json('Note templates.json');
