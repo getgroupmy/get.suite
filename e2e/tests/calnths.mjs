@@ -65,6 +65,28 @@ await step('the event says “first and third Monday”, and renaming it keeps t
   if (ev?.title !== 'Committee meeting') throw new Error(`title: ${ev?.title}`);
   if (JSON.stringify(ev.rrule) !== JSON.stringify({ freq: 'monthly', nths: [1, 3], wd: 1 })) throw new Error(`the repeat became ${JSON.stringify(ev.rrule)}`);
 });
+await step('made in the web: a one-off set to repeat on the first and third Monday', async () => {
+  const start = await page.evaluate(() => new Date(2026, 10, 2, 12).getTime());
+  const one = (await api('POST', '/events', { title: 'Lunch and learn', start, end: start + 3600e3 })).body;
+  await page.clock.setFixedTime(new Date(2026, 10, 10, 9));
+  await page.goto(`${B}/calendar`);
+  await page.getByText('Lunch and learn').first().click();
+  let dlg = page.getByRole('dialog').first();
+  if (!(await dlg.getByRole('combobox', { name: 'Repeat', exact: true }).count())) { await dlg.getByRole('button', { name: /Edit/ }).first().click(); dlg = page.getByRole('dialog').first(); }
+  await dlg.getByRole('combobox', { name: 'Repeat', exact: true }).selectOption('monthly-nths');
+  const weeks = dlg.getByRole('group', { name: 'Which Mondays of the month' });
+  if (!(await weeks.getByRole('checkbox', { name: 'First' }).isChecked())) throw new Error('the start’s own week isn’t ticked');
+  await weeks.getByRole('checkbox', { name: 'Third' }).check();
+  const shown = await dlg.getByRole('combobox', { name: 'Repeat', exact: true }).evaluate((el) => el.options[el.selectedIndex].text);
+  if (!/first and third Monday/.test(shown)) throw new Error(`the repeat reads “${shown}”`);
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(1500);
+  const t0 = await page.evaluate(() => new Date(2026, 10, 1).getTime());
+  const ev = (await api('GET', `/events?from=${t0}&to=${t0 + 90 * 864e5}`)).body.find((e) => e.id === one.id);
+  if (JSON.stringify(ev?.rrule) !== JSON.stringify({ freq: 'monthly', nths: [1, 3], wd: 1 })) throw new Error(`saved as ${JSON.stringify(ev?.rrule)}`);
+  const cells = (await page.locator('.month').first().locator(':scope > *', { hasText: 'Lunch and learn' }).allInnerTexts()).map((c) => c.split('\n')[0].trim());
+  if (!cells.includes('16')) throw new Error(`shown on ${JSON.stringify(cells)}`);
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

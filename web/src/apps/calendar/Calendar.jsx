@@ -1301,7 +1301,7 @@ const ruleFromForm = (r, start) => {
   if (r.freq === 'none') return null;
   const freq = monthlyChoice(r.freq, start);
   const out = { freq: freq.startsWith('monthly') ? 'monthly' : freq };
-  if (freq === 'monthly-nths') { out.nths = r.nths; out.wd = r.wd; }
+  if (freq === 'monthly-nths') { const w = weekdayInMonth(start); out.nths = r.nths?.length ? r.nths : [w.nth]; out.wd = w.wd; }
   else if (freq !== 'monthly' && freq.startsWith('monthly')) { const w = weekdayInMonth(start); out.nth = freq === 'monthly-last' ? -1 : w.nth; out.wd = w.wd; }
   if (Number(r.interval) > 1) out.interval = Number(r.interval);
   if (r.freq === 'weekly') out.byday = r.byday.length ? r.byday : [new Date(start).getDay()];
@@ -1804,11 +1804,11 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                 <option value="monthly">Monthly (same date)</option>
                 {(() => {
                   // "Monthly on the second Monday", and "on the last Monday" in a month's last week.
-                  const start = read().start, w = weekdayInMonth(start);
+                  const start = read().start, w = { ...weekdayInMonth(start), dayName: new Date(start).toLocaleDateString([], { weekday: 'long' }) };
                   return <>
                     <option value="monthly-nth">{describeRule({ freq: 'monthly', nth: w.nth, wd: w.wd }, start)}</option>
                     {w.last && <option value="monthly-last">{describeRule({ freq: 'monthly', nth: -1, wd: w.wd }, start)}</option>}
-                    {r0?.nths?.length > 0 && <option value="monthly-nths">{describeRule({ freq: 'monthly', nths: r0.nths, wd: r0.wd }, start)}</option>}
+                    <option value="monthly-nths">{rep.nths?.length > 1 ? describeRule({ freq: 'monthly', nths: rep.nths, wd: w.wd }, start) : `Monthly on chosen ${w.dayName}s…`}</option>
                   </>;
                 })()}
                 <option value="yearly">Yearly</option>
@@ -1816,6 +1816,22 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             {rep.freq !== 'none' && <label className="field"><span>Every</span>
               <input type="number" min="1" max="99" value={rep.interval} onChange={setR('interval')} aria-label="Repeat every" style={{ width: 80 }} /></label>}
           </div>
+          {rep.freq === 'monthly-nths' && (() => {
+            // The first and third Monday (say): which of the start's weekday in each month.
+            const start = read().start, w = weekdayInMonth(start), name = new Date(start).toLocaleDateString([], { weekday: 'long' });
+            const picked = rep.nths?.length ? rep.nths : [w.nth];
+            return (
+              <div className="row wrap" role="group" aria-label={`Which ${name}s of the month`}>
+                {[[1, 'First'], [2, 'Second'], [3, 'Third'], [4, 'Fourth'], [5, 'Fifth'], [-1, 'Last']].map(([k, label]) => {
+                  const on = picked.includes(k);
+                  return <label key={k} className="check"><input type="checkbox" checked={on} onChange={() => {
+                    const next = on ? picked.filter((x) => x !== k) : [...picked, k];
+                    setRep({ ...rep, nths: next.length ? next.sort((a, b) => (a === -1) - (b === -1) || a - b) : picked });
+                  }} /> {label}</label>;
+                })}
+              </div>
+            );
+          })()}
           {rep.freq === 'weekly' && (
             <div className="weekdays" role="group" aria-label="On these days">
               {WEEKDAY_LETTERS.map((d, i) => {
