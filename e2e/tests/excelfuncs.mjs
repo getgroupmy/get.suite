@@ -97,6 +97,13 @@ await step('a report with subtotals: the grand SUBTOTAL counts each row once', a
   await page.goto(`${B}/sheets/${id}`);
   await until(async () => (await cell('B3').innerText()) === '30' && (await cell('B6').innerText()) === '35' && (await cell('B7').innerText()) === '70'); // SUM counts the subtotals too: 10+20+30+5+5
 });
+await step('Download as Excel writes the newer functions as Excel needs them (_xlfn.), so Excel works them out too', async () => {
+  const id = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'For Excel', content: { sheets: [{ name: 'Sheet1', cells: { A1: '5', A2: '=1/0', A3: '=AGGREGATE(9,6,A1:A2)', A4: '=XOR(TRUE,FALSE)' } }] } })).body.id;
+  const res = await page.request.get(`${B}/api/files/${id}/export`, { headers: { 'x-requested-with': 'nas-workspace' } });
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const xml = await (await JSZip.loadAsync(await res.body())).file('xl/worksheets/sheet1.xml').async('string');
+  if (!xml.includes('<f>_xlfn.AGGREGATE(9,6,A1:A2)</f>') || !xml.includes('<f>_xlfn.XOR(TRUE,FALSE)</f>')) throw new Error(xml.slice(0, 600));
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');
