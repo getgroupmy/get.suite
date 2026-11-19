@@ -165,3 +165,26 @@ test('a notice still waiting when the server restarts is sent afterwards', async
   assert.match(JSON.stringify((await carol('GET', '/api/notifications')).body), /Loft was removed/);
   assert.equal(sendRoomNotices(Date.now() + 120000), 0, 'once');
 });
+
+test('the people a list or form was shared with are told it was deleted, unless it was undone in time', async () => {
+  process.env.BIN_NOTICE_MS = '300';
+  const bells = async () => JSON.stringify((await carol('GET', '/api/notifications')).body);
+  const wait = () => new Promise((r) => setTimeout(r, 700));
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Launch plan' })).body;
+  await olivia('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [carolId] });
+  let del = await olivia('DELETE', `/api/tasks/lists/${list.id}`);
+  await olivia('POST', `/api/tasks/bin/${del.body.bin_id}/restore`);
+  await wait();
+  assert.doesNotMatch(await bells(), /deleted the list “Launch plan”/, 'undone: nobody told');
+  del = await olivia('DELETE', `/api/tasks/lists/${list.id}`);
+  await wait();
+  assert.match(await bells(), /Olivia Owner deleted the list “Launch plan”/);
+  const f = (await olivia('POST', '/api/forms', { title: 'Offsite survey' })).body;
+  await olivia('POST', `/api/forms/${f.id}/editors`, { email: 'carol@acme.com' });
+  await olivia('DELETE', `/api/forms/${f.id}`);
+  await wait();
+  assert.match(await bells(), /Olivia Owner deleted the form “Offsite survey”/);
+  const { q } = await import('../src/db.js');
+  const mine = JSON.stringify(q("SELECT title FROM notifications WHERE title LIKE '%deleted the%'").all());
+  assert.equal((mine.match(/Launch plan/g) || []).length, 1, 'told once');
+});

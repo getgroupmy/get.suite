@@ -1,7 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
-import { binAndDelete, restoreFromBin, binOf } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, binOf, noticeAfterUndo } from '../recyclebin.js';
 import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf, workloadCsv } from '../taskworkload.js';
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
@@ -546,7 +546,11 @@ export default function taskRoutes() {
     const before = peopleOn(list);
     let bin = null;
     // Deleted lists can be put back for 30 days (recyclebin.js).
-    if (list.owner_id === req.user.id) { bin = binAndDelete('task_list', list.id, { ownerId: req.user.id, name: list.name, by: req.user.id }); forgetGoneHistory(); }
+    if (list.owner_id === req.user.id) {
+      bin = binAndDelete('task_list', list.id, { ownerId: req.user.id, name: list.name, by: req.user.id }); forgetGoneHistory();
+      // The people it was shared with are told (unless it's undone straight away).
+      noticeAfterUndo(bin, before.filter((id) => id !== req.user.id), { kind: 'task', title: `${req.user.name} deleted the list “${list.name}”`, body: 'Its tasks are gone for you too. They can put it back from Recently deleted in Tasks for 30 days.', actor: req.user.name });
+    }
     else tx(() => {
       q('DELETE FROM task_list_members WHERE list_id = ? AND user_id = ?').run(list.id, req.user.id);
       q('UPDATE tasks SET assignee_id = NULL WHERE list_id = ? AND assignee_id = ?').run(list.id, req.user.id);

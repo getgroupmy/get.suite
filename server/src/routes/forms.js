@@ -3,7 +3,7 @@ import { shownQuestions } from '../formpath.js';
 // (/f/<token>) that people in the company (signed in) or anyone can fill in, and reads the answers:
 // a summary per question, each response, a CSV download, or a copy in a new spreadsheet in Drive.
 // Mounted at /api/forms (owner) and /api/public/forms (people filling it in).
-import { binAndDelete, restoreFromBin, binOf } from '../recyclebin.js';
+import { binAndDelete, restoreFromBin, binOf, noticeAfterUndo } from '../recyclebin.js';
 import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
@@ -880,6 +880,7 @@ export default function formRoutes() {
     const team = teamOf(f);
     // Deleted forms can be put back for 30 days, with their responses (recyclebin.js).
     const bin = binAndDelete('form', f.id, { ownerId: req.user.id, name: f.title, by: req.user.id });
+    noticeAfterUndo(bin, team.filter((x) => x !== req.user.id), { kind: 'share', title: `${req.user.name} deleted the form “${f.title}”`, body: 'Its link no longer works. They can put it back, with its responses, from Recently deleted in Forms for 30 days.', actor: req.user.name });
     sendTo(team.filter((x) => x !== req.user.id), { type: 'form-changed', form_id: f.id, deleted: true });
     res.json({ ok: true, bin_id: bin });
   });

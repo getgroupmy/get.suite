@@ -72,6 +72,15 @@ await step('a form deleted, then put back from Recently deleted with its respons
   await owner.waitForURL(new RegExp(`/forms/${form.id}`));
   await owner.getByRole('tab', { name: /Responses \(3\)/ }).waitFor({ timeout: 8000 });
 });
+await step('deleted for good: Carol’s bell says who deleted the list', async () => {
+  const l2 = (await api(owner, 'POST', '/tasks/lists', { name: 'Holiday rota' })).body;
+  await api(owner, 'PUT', `/tasks/lists/${l2.id}/members`, { user_ids: [carolId] });
+  await api(owner, 'DELETE', `/tasks/lists/${l2.id}`);
+  await carol.goto(`${B}/drive`);
+  await carol.waitForTimeout(17000); // past the moment to undo
+  await carol.getByRole('button', { name: /^Notifications/ }).first().click();
+  await carol.getByText('Olivia Owner deleted the list “Holiday rota”').first().waitFor({ timeout: 8000 });
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

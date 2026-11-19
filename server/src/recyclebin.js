@@ -4,6 +4,7 @@
 // Restoring puts the rows back, and links that were cleared (ON DELETE SET NULL) are set again.
 import { q, tx, db } from './db.js';
 import { uid, HttpError } from './util.js';
+import { notify } from './notifications.js';
 
 q(`CREATE TABLE IF NOT EXISTS recycle_bin (
   id TEXT PRIMARY KEY,
@@ -105,3 +106,28 @@ export function purgeBin(t = Date.now()) {
   return q('DELETE FROM recycle_bin WHERE deleted_at < ?').run(t - KEEP_DAYS * 864e5).changes;
 }
 setInterval(() => { try { purgeBin(); } catch (e) { console.error('[bin]', e.message); } }, 6 * 3600e3).unref();
+
+// Telling others once it's clear the deletion stands: kept until the moment to Undo has passed (stored, so a
+// restart meanwhile doesn't lose it), then sent only if the item is still in the bin.
+q(`CREATE TABLE IF NOT EXISTS bin_notices (
+  id TEXT PRIMARY KEY, bin_id TEXT NOT NULL, user_ids TEXT NOT NULL, notice TEXT NOT NULL, due_at INTEGER NOT NULL
+)`).run();
+export const UNDO_GRACE_MS = () => Number(process.env.BIN_NOTICE_MS) || 15000;
+export function noticeAfterUndo(binId, userIds, notice) {
+  const ids = [...new Set(userIds)].filter(Boolean);
+  if (!ids.length) return;
+  q('INSERT INTO bin_notices (id, bin_id, user_ids, notice, due_at) VALUES (?, ?, ?, ?, ?)').run(uid(), binId, JSON.stringify(ids), JSON.stringify(notice), Date.now() + UNDO_GRACE_MS());
+  setTimeout(() => sendBinNotices(), UNDO_GRACE_MS() + 50).unref();
+}
+/** Send the notices that are due (for items still deleted). Returns how many people were told. */
+export function sendBinNotices(t = Date.now()) {
+  let n = 0;
+  for (const r of q('SELECT * FROM bin_notices WHERE due_at <= ?').all(t)) {
+    q('DELETE FROM bin_notices WHERE id = ?').run(r.id);
+    if (!q('SELECT 1 FROM recycle_bin WHERE id = ?').get(r.bin_id)) continue; // undone
+    const ids = JSON.parse(r.user_ids);
+    try { notify(ids, JSON.parse(r.notice)); n += ids.length; } catch (e) { console.error('[bin]', e.message); }
+  }
+  return n;
+}
+setInterval(() => { try { sendBinNotices(); } catch (e) { console.error('[bin]', e.message); } }, 5000).unref();
