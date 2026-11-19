@@ -200,17 +200,51 @@ function checkHosts(user, ids) {
   });
 }
 
+/** Saves a new booking page (read by readPage) with a new link; its id. */
+function addPage(user, p) {
+  const id = uid();
+  q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
+    p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
+  q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(user, p.hosts)), p.where_kind, p.where_text, p.seats, id);
+  return id;
+}
+
+const PAGE_KEYS = ['title', 'description', 'duration', 'days', 'from_min', 'to_min', 'tz', 'notice_hours', 'days_ahead', 'enabled', 'buffer_min', 'max_per_day', 'remind', 'questions', 'where_kind', 'where_text', 'seats'];
+/** Your booking pages for Download your data: their settings, with co-hosts by email (ids mean nothing on another server). Null when you have none. */
+export function bookingPagesJson(userId) {
+  const pages = q('SELECT * FROM booking_pages WHERE user_id = ? ORDER BY created_at').all(userId);
+  if (!pages.length) return null;
+  return `${JSON.stringify(pages.map((p) => {
+    const s = { ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), enabled: !!p.enabled, remind: !!p.remind };
+    const o = Object.fromEntries(PAGE_KEYS.map((k) => [k, s[k]]));
+    o.cohosts = JSON.parse(p.hosts || '[]').map((id) => q('SELECT email FROM users WHERE id = ?').get(id)?.email).filter(Boolean);
+    return o;
+  }), null, 2)}\n`;
+}
+/** Brings back booking pages from Download your data: each as a new page with a new link (one with the same title is left as it is).
+ *  Co-hosts are found by email among your colleagues; anyone not here is left out. */
+export function importBookingPages(user, list) {
+  let added = 0, skipped = 0;
+  for (const raw of (Array.isArray(list) ? list : []).slice(0, MAX_PAGES)) {
+    try {
+      const hosts = (Array.isArray(raw?.cohosts) ? raw.cohosts : []).map((e) => q('SELECT id FROM users WHERE lower(email) = lower(?) AND org_id = ? AND disabled = 0 AND id != ?').get(String(e), user.org_id, user.id)?.id).filter(Boolean);
+      const p = readPage({ ...Object.fromEntries(PAGE_KEYS.map((k) => [k, raw?.[k] ?? undefined]).filter(([, v]) => v != null)), hosts });
+      if (q('SELECT 1 FROM booking_pages WHERE user_id = ? AND lower(title) = lower(?)').get(user.id, p.title)) { skipped++; continue; }
+      if (q('SELECT COUNT(*) AS n FROM booking_pages WHERE user_id = ?').get(user.id).n >= MAX_PAGES) { skipped++; continue; }
+      addPage(user, p);
+      added++;
+    } catch (e) { if (e.status !== 400) throw e; skipped++; }
+  }
+  return { added, skipped };
+}
+
 export default function bookingRoutes() {
   const r = Router();
   r.get('/', (req, res) => res.json(q('SELECT * FROM booking_pages WHERE user_id = ? ORDER BY created_at').all(req.user.id).map((p) => shapePage(p, req))));
   r.post('/', (req, res) => {
     if (q('SELECT COUNT(*) AS n FROM booking_pages WHERE user_id = ?').get(req.user.id).n >= MAX_PAGES) throw bad('Too many booking pages');
-    const p = readPage(req.body || {});
-    const id = uid();
-    q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
-      p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
-    q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), p.where_kind, p.where_text, p.seats, id);
+    const id = addPage(req.user, readPage(req.body || {}));
     res.status(201).json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(id), req));
   });
   const mine = (req) => {

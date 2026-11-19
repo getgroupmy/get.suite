@@ -36,6 +36,7 @@ import { audit } from '../audit.js';
 import { sendTo } from '../hub.js';
 import { forbidden, notFound } from '../util.js';
 import { restoreForeign } from '../migrate/restore.js';
+import { bookingPagesJson, importBookingPages } from './booking.js';
 import { exportCalendar, importCalendar } from '../calimport.js';
 import { importMailRules, importMailTemplates, importSignatures } from './webmail.js';
 import { importEventTemplates } from './calendar.js';
@@ -304,6 +305,9 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   }
   const evTemplates = await json('Calendar templates.json');
   if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
+  // Booking pages: each comes back with a new link (the old one was this account's on the other server).
+  const bookingPages = await json('Booking pages.json');
+  if (Array.isArray(bookingPages) && bookingPages.length) out.booking_pages = importBookingPages(user, bookingPages);
   const noteTemplates = await json('Note templates.json');
   if (Array.isArray(noteTemplates) && noteTemplates.length) out.note_templates = tryImport(() => importNoteTemplates(user, noteTemplates));
   // Drive: the Drive/ folder comes in as one new folder ("From your data 2026-11-13") with its folders and files as they were
@@ -455,6 +459,7 @@ export default function takeoutRoutes() {
     const evTemplates = eventTemplatesJson(me);
     if (evTemplates) zip.file('Calendar templates.json', evTemplates);
     { const nt = noteTemplatesJson(me); if (nt) zip.file('Note templates.json', nt); }
+    { const b = bookingPagesJson(me); if (b) zip.file('Booking pages.json', b); }
     { const groups = groupsOf(me).map((g) => ({ name: g.name, members: g.members })); if (groups.length) zip.file('Contact groups.json', `${JSON.stringify(groups, null, 2)}\n`); }
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
@@ -506,6 +511,7 @@ export default function takeoutRoutes() {
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Contact groups.json  your contact groups and who is in each (if any)',
+      'Booking pages.json   your booking pages (each comes back with a new link) (if any)',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',
       'Time on tasks.csv  the time you tracked or added on tasks, oldest first (if any)',

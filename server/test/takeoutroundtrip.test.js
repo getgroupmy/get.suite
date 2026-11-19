@@ -98,3 +98,33 @@ test('contact groups come back, with who is in each; a name already used isn’t
   assert.equal(groups.length, 1, 'once, even brought in twice');
   assert.deepEqual(groups[0].members.map((m) => [m.name, m.email]), members.map((m) => [m.name, m.email]));
 });
+
+test('booking pages come back with their settings and a new link; a co-host here is kept, one not here is left out', async () => {
+  await olivia('POST', '/api/users', { local: 'sam', domain: 'acme.com', name: 'Sam Hall', password: 'password123' });
+  const sam = (await import('../src/db.js')).q('SELECT id FROM users WHERE email = ?').get('sam@acme.com');
+  const page = { title: 'Intro call', description: 'A quick hello', duration: 45, days: [2, 4], from_min: 600, to_min: 900, tz: 'Europe/London', notice_hours: 24, days_ahead: 14,
+    buffer_min: 15, max_per_day: 3, remind: false, questions: [{ label: 'Company?', required: true }], where_kind: 'place', where_text: 'Our office', seats: 2, enabled: false, hosts: [sam.id] };
+  const made = await olivia('POST', '/api/bookings', page);
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+    assert.ok(r.status < 300, await r.text());
+  }
+  const list = (x) => x.pages || x;
+  const theirs = list((await kim('GET', '/api/bookings')).body).filter((p) => p.title === 'Intro call');
+  assert.equal(theirs.length, 1, 'once, even brought in twice');
+  const pick = (p) => [p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.buffer_min, p.max_per_day, !!p.remind, JSON.stringify(p.questions), p.where_kind, p.where_text, p.seats, !!p.enabled];
+  assert.deepEqual(pick(theirs[0]), pick(made.body));
+  assert.deepEqual(theirs[0].hosts, [sam.id], 'Sam, a colleague here too, is still a co-host');
+  assert.notEqual(theirs[0].url, made.body.url, 'a new link');
+  // Into an account in another company: Sam isn't there, so the page comes without a co-host.
+  const { importBookingPages } = await import('../src/routes/booking.js');
+  const { q } = await import('../src/db.js');
+  const kimRow = q('SELECT * FROM users WHERE email = ?').get('kim@acme.com');
+  q('DELETE FROM booking_pages WHERE user_id = ?').run(kimRow.id);
+  const raw = JSON.parse((await import('../src/routes/booking.js')).bookingPagesJson(q('SELECT id FROM users WHERE email = ?').get('olivia@acme.com').id));
+  assert.deepEqual(raw[0].cohosts, ['sam@acme.com']);
+  assert.deepEqual(importBookingPages({ ...kimRow, org_id: 'elsewhere' }, raw), { added: 1, skipped: 0 });
+  assert.deepEqual(JSON.parse(q('SELECT hosts FROM booking_pages WHERE user_id = ?').get(kimRow.id).hosts), []);
+});
