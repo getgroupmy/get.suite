@@ -143,8 +143,19 @@ export const recentStatuses = (userId) => q('SELECT emoji, text, clear FROM stat
 // and a note shared with colleagues go to the colleague given their files (who joins in), or else to someone
 // it's shared with; the others keep their access. What nobody else has goes with the account, unless there's
 // a colleague to give it to.
-function handOverWork(userId, heirId) {
-  const n = { lists: 0, forms: 0, notes: 0 };
+// A calendar shared with colleagues goes the same way, with all its events; contacts shared with the whole
+// company go to that colleague, or else to the admin deleting the account.
+function handOverWork(userId, heirId, adminId) {
+  const n = { lists: 0, forms: 0, notes: 0, calendars: 0, contacts: 0 };
+  for (const { id } of q('SELECT id FROM user_calendars WHERE owner_id = ?').all(userId)) {
+    const to = heirId || q('SELECT user_id FROM user_calendar_shares WHERE calendar_id = ? AND user_id != ? ORDER BY rowid').get(id, userId)?.user_id;
+    if (!to) continue;
+    q('UPDATE user_calendars SET owner_id = ? WHERE id = ?').run(to, id);
+    q('UPDATE events SET owner_id = ? WHERE calendar_id = ? AND owner_id = ?').run(to, id, userId);
+    q('DELETE FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ?').run(id, to);
+    n.calendars++;
+  }
+  n.contacts = q('UPDATE contacts SET owner_id = ? WHERE owner_id = ? AND shared = 1').run(heirId || adminId, userId).changes;
   const kinds = [
     ['lists', 'task_lists', 'task_list_members', 'list_id', 'SELECT user_id FROM task_list_members WHERE list_id = ? AND user_id != ? ORDER BY rowid'],
     ['forms', 'forms', 'form_editors', 'form_id', 'SELECT user_id FROM form_editors WHERE form_id = ? AND user_id != ? ORDER BY added_at'],
@@ -872,6 +883,7 @@ export default function userRoutes() {
         q('DELETE FROM shares WHERE user_id = ? AND file_id IN (SELECT id FROM files WHERE owner_id = ?)').run(heir.id, heir.id);
       }
       req.moved = moved;
+      req.handedOver = handOverWork(u.id, heir?.id, req.user.id);
       // Upcoming meetings they organise (and repeating ones still going): the colleague becomes the organiser,
       // keeping the guests; past ones go with the account.
       if (eventsHeir) {
@@ -883,7 +895,6 @@ export default function userRoutes() {
         }
         req.eventsMoved = ids.length;
       }
-      req.handedOver = handOverWork(u.id, heir?.id);
       const list = blobsOwnedBy('?', u.id);
       q('UPDATE domains SET catchall = NULL WHERE catchall = (SELECT username FROM users WHERE id = ?)').run(u.id);
       // Their mail stays on the mail server; whoever gets this address next starts with an empty mailbox.

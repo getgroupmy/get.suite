@@ -50,7 +50,7 @@ await step('Admin deletes Bob: told shared work stays, and what was kept', async
   await owner.getByRole('button', { name: 'Actions for Bob Brown' }).click();
   await owner.getByRole('menuitem', { name: /Delete user/ }).click();
   const dlg = owner.getByRole('dialog', { name: /Delete Bob Brown/ });
-  await dlg.getByText(/Task lists, forms and notes they shared with colleagues aren't deleted/).waitFor();
+  await dlg.getByText(/Task lists, forms, notes and calendars they shared with colleagues aren't deleted/).waitFor();
   await dlg.getByRole('button', { name: 'Delete user' }).click();
   await owner.getByText(/1 task list kept for the people they were shared with/).waitFor({ timeout: 8000 });
 });
