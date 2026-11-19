@@ -28,7 +28,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { roleFor, atLeast } from '../access.js';
 import { q, tx, FILES_DIR } from '../db.js';
-import { insertFile } from './files.js';
+import { insertFile, cleanFileLabels, FILE_LABEL_COLORS } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { indexSoon } from '../search.js';
 import { bad, uid, mimeFor } from '../util.js';
@@ -153,7 +153,7 @@ export function notesMarkdown(userId) {
  * (.mbox files, kept in a "Mail (.mbox)" folder inside it and imported into the mailbox in the background).
  * { drive: { folder, folder_id, files }, mail: { folders, started, error? } } (each only when there was some).
  */
-export async function intoDrive(user, { drive: driveEntries, mail: mailEntries, rootName, onStep = () => {} }) {
+export async function intoDrive(user, { drive: driveEntries, mail: mailEntries, rootName, onStep = () => {}, ids = null }) {
   const out = {};
   if (!driveEntries.some((x) => !x.dir) && !mailEntries.length) return out;
   if (driveEntries.length > 20000) throw bad('That Drive has more than 20,000 files and folders: upload its folders in Drive instead');
@@ -199,7 +199,9 @@ export async function intoDrive(user, { drive: driveEntries, mail: mailEntries, 
         const fid = insertFile({ owner: user.id, parentId: folderFor(cut < 0 ? '' : w.path.slice(0, cut)), name: w.path.slice(cut + 1).slice(0, 255), kind: 'file', mime: w.mailFolder !== undefined ? 'application/mbox' : mimeFor(w.path), size: w.size, storage: w.storage });
         if (w.mailFolder !== undefined) mboxes.push({ id: fid, folder: w.mailFolder, ...(w.gmail && { gmail: true }) });
         if (w.from) byFrom.set(w.from, fid);
+        if (ids && w.mailFolder === undefined) ids.set(w.path, fid);
       }
+      if (ids) for (const [dir, id] of folders) if (dir && dir !== MAILDIR) ids.set(dir, id);
       // Documents first made empty (so pages can link to each other), then filled; spreadsheets straight away.
       const docIds = new Map();
       for (const c of converts) {
@@ -230,6 +232,30 @@ export async function intoDrive(user, { drive: driveEntries, mail: mailEntries, 
     }
   }
   return out;
+}
+
+/** Drive details.json onto the files brought in (by their path in the .zip): { files } (how many got something back). */
+export function applyDriveDetails(userId, details, ids) {
+  let files = 0;
+  for (const [label, color] of Object.entries(details.label_colors && typeof details.label_colors === 'object' ? details.label_colors : {}).slice(0, 200)) {
+    if (FILE_LABEL_COLORS.includes(color) && String(label).trim()) q('INSERT INTO file_label_colors (user_id, label, color) VALUES (?, ?, ?) ON CONFLICT(user_id, label) DO NOTHING').run(userId, String(label).slice(0, 30), color);
+  }
+  for (const d of details.files.slice(0, 20000)) {
+    const id = ids.get(String(d?.path || '').replace(/\/$/, ''));
+    if (!id) continue;
+    let did = false;
+    if (d.starred) { q('INSERT OR IGNORE INTO file_stars (user_id, file_id, created_at) VALUES (?, ?, ?)').run(userId, id, Date.now()); did = true; }
+    if (/^#[0-9a-f]{6}$/i.test(d.color || '')) { q("UPDATE files SET color = ? WHERE id = ? AND kind = 'folder'").run(d.color, id); did = true; }
+    if (typeof d.description === 'string' && d.description.trim()) { q('UPDATE files SET description = ? WHERE id = ?').run(d.description.slice(0, 2000), id); did = true; }
+    if (Array.isArray(d.labels)) {
+      let labels = [];
+      try { labels = cleanFileLabels(d.labels); } catch { labels = []; }
+      for (const l of labels) q('INSERT OR IGNORE INTO file_labels (user_id, file_id, label) VALUES (?, ?, ?)').run(userId, id, l);
+      if (labels.length) did = true;
+    }
+    if (did) files++;
+  }
+  return { files };
 }
 
 export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) {
@@ -343,7 +369,11 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   const driveEntries = entries.filter((x) => x.name.startsWith('Drive/') && x.name !== 'Drive/' && !/(^|\/)(__MACOSX|\.DS_Store)/.test(x.name))
     .map((e) => ({ e, dir: e.dir, path: e.name.slice('Drive/'.length).replace(/\/$/, '') }));
   const mailEntries = files.filter((x) => /^Mail\/.+\.mbox$/i.test(x.name)).map((e) => ({ e, path: e.name.slice('Mail/'.length), folder: e.name.slice('Mail/'.length).replace(/\.mbox$/i, '') }));
-  Object.assign(out, await intoDrive(user, { drive: driveEntries, mail: mailEntries, rootName: `From your data ${new Date().toISOString().slice(0, 10)}`, onStep }));
+  const driveIds = new Map();
+  Object.assign(out, await intoDrive(user, { drive: driveEntries, mail: mailEntries, rootName: `From your data ${new Date().toISOString().slice(0, 10)}`, onStep, ids: driveIds }));
+  // Stars, folder colours, descriptions and labels, on the files and folders just brought in.
+  const details = await json('Drive details.json');
+  if (details && Array.isArray(details.files) && driveIds.size) out.drive_details = applyDriveDetails(user.id, details, driveIds);
   // Notes: its Notes/ folder (with pictures), through Import notes… (which reads only Notes/ from a Download your data .zip).
   onStep({ step: 'notes' });
   const noteEntries = files.filter((x) => x.name.startsWith('Notes/'));
@@ -450,10 +480,21 @@ export default function takeoutRoutes() {
     const pathOf = (f) => { const parts = []; let cur = f; for (let i = 0; cur && i < 64; i++) { parts.unshift(safe(cur.name)); cur = byId.get(cur.parent_id); } return parts.join('/'); };
     // Documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument (?format=odf, or the choice in Settings).
     const odf = (req.query.format || q('SELECT file_format FROM users WHERE id = ?').get(req.user.id)?.file_format) === 'odf';
+    // What Drive knows about each file and folder besides its contents (stars, folder colours, descriptions, labels): Drive details.json.
+    const starred = new Set(q('SELECT file_id FROM file_stars WHERE user_id = ?').all(me).map((r) => r.file_id));
+    const labelsOf = new Map();
+    for (const l of q('SELECT file_id, label FROM file_labels WHERE user_id = ? ORDER BY label').all(me)) labelsOf.set(l.file_id, [...(labelsOf.get(l.file_id) || []), l.label]);
+    const details = [];
+    const detailFor = (f, where) => {
+      const d = { path: where.slice('Drive/'.length), ...(starred.has(f.id) && { starred: true }), ...(f.kind === 'folder' && f.color && { color: f.color }),
+        ...(f.description && { description: f.description }), ...(labelsOf.has(f.id) && { labels: labelsOf.get(f.id) }) };
+      if (Object.keys(d).length > 1) details.push(d);
+    };
     for (const f of mine) {
-      if (f.kind === 'folder') { zip.folder(`Drive/${pathOf(f)}`); continue; }
+      if (f.kind === 'folder') { zip.folder(`Drive/${pathOf(f)}`); detailFor(f, `Drive/${pathOf(f)}`); continue; }
       const ext = (odf ? { doc: '.odt', sheet: '.ods', slides: '.odp' } : { doc: '.docx', sheet: '.xlsx', slides: '.pptx' })[f.kind] || '';
       const where = unique(`Drive/${pathOf(f)}${ext && !f.name.toLowerCase().endsWith(ext) ? ext : ''}`);
+      detailFor(f, where);
       if (f.kind === 'file') { if (f.storage) zip.file(where, fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true }); continue; }
       if (CO_EDITED.includes(f.kind)) { saveNow(f.id); f.content = q('SELECT content FROM files WHERE id = ?').get(f.id)?.content; } // what's being typed right now
       const content = JSON.parse(f.content || '{}');
@@ -468,6 +509,10 @@ export default function takeoutRoutes() {
             : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
         zip.file(where, buf);
       } catch (e) { zip.file(`${where}.error.txt`, `This file couldn't be converted: ${e.message}`); }
+    }
+    if (details.length) {
+      const colors = q('SELECT label, color FROM file_label_colors WHERE user_id = ? ORDER BY label').all(me);
+      zip.file('Drive details.json', `${JSON.stringify({ files: details, ...(colors.length && { label_colors: Object.fromEntries(colors.map((c) => [c.label, c.color])) }) }, null, 2)}\n`);
     }
     // Email: each folder as an .mbox file, written to a temporary folder first (removed once sent).
     let mailNote = 'Email: this server has no email.';
@@ -545,6 +590,7 @@ export default function takeoutRoutes() {
       'Booking pages.json   your booking pages (each comes back with a new link) (if any)',
       'Calendar subscriptions.json  the calendars you subscribe to by web address (if any)',
       'Settings.json  your own settings: working hours, world clocks, how Mail, Drive and Chat look and behave for you',
+      'Drive details.json  stars, folder colours, descriptions and labels of your Drive’s files and folders',
       'Calendars.json  your calendars besides the main one, with their colours (each event in Calendar.ics says which it is in)',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Task history.csv  who changed what on the tasks of your lists, oldest first',

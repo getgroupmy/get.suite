@@ -208,3 +208,29 @@ test('your own settings come back, each only where it’s still the default', as
   const samId = q('SELECT id FROM users WHERE username = ?').get('sam@acme.com').id;
   assert.deepEqual(importPrefs(samId, { settings: { work_hours: '{"days":[],"start":0,"end":0}', file_format: 'pdf', password_hash: 'x', is_admin: 1 } }), { added: 0 });
 });
+
+test('Drive’s stars, folder colours, descriptions and labels come back on the files brought in', async () => {
+  const folder = (await olivia('POST', '/api/files/folder', { name: 'Contracts' })).body;
+  assert.equal((await olivia('PATCH', `/api/files/${folder.id}`, { color: '#d93025', description: 'Signed ones only' })).status, 200);
+  await olivia('PUT', `/api/files/${folder.id}/star`, { starred: true });
+  const up = await fetch(`${base}/api/files/upload?name=${encodeURIComponent('lease.txt')}&parent=${folder.id}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'text/plain' }, body: 'the lease' });
+  const file = await up.json();
+  assert.ok(up.status < 300, JSON.stringify(file));
+  const fileId = file.id || file.files?.[0]?.id;
+  assert.equal((await olivia('PUT', `/api/files/${fileId}/labels`, { labels: ['Legal', 'Urgent'] })).status, 200);
+  assert.equal((await olivia('PATCH', `/api/files/${fileId}`, { description: 'Office lease, 2026' })).status, 200);
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+  assert.ok(r.status < 300);
+  const out = await r.json();
+  const { q } = await import('../src/db.js');
+  const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
+  const root = q('SELECT id FROM files WHERE id = ?').get(out.drive.folder_id);
+  const f2 = q("SELECT * FROM files WHERE owner_id = ? AND name = 'Contracts' AND parent_id = ?").get(kimId, root.id);
+  assert.deepEqual([f2.color, f2.description], ['#d93025', 'Signed ones only']);
+  assert.ok(q('SELECT 1 FROM file_stars WHERE user_id = ? AND file_id = ?').get(kimId, f2.id), 'starred');
+  const l2 = q("SELECT * FROM files WHERE owner_id = ? AND name = 'lease.txt' AND parent_id = ?").get(kimId, f2.id);
+  assert.equal(l2.description, 'Office lease, 2026');
+  assert.deepEqual(q('SELECT label FROM file_labels WHERE user_id = ? AND file_id = ? ORDER BY label').all(kimId, l2.id).map((x) => x.label), ['Legal', 'Urgent']);
+  assert.ok(out.drive_details.files >= 2);
+});
