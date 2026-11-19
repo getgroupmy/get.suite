@@ -40,3 +40,16 @@ test('custom repeats: every N days, weeks (on chosen weekdays), months or years'
   assert.equal(nextDue('2024-02-29', 'every:2:year'), '2026-02-28');
   assert.equal(nextDue('2026-11-09', 'every:2:week:1', '2026-12-01'), '2026-12-07', 'missed ones are skipped, keeping the rhythm');
 });
+
+test('weeks of the month: the first and third Monday, the last Friday, a fifth Monday', async () => {
+  const { nextDue: next, cleanRepeat: clean } = await import('../src/taskrepeat.js');
+  assert.equal(clean('monthweek:3,1:1'), 'monthweek:1,3:1');
+  assert.equal(clean('monthweek:-1:5'), 'monthweek:-1:5');
+  assert.equal(clean('monthweek:6:1'), null);
+  assert.equal(clean('monthweek:1:7'), null);
+  const run = (due, r, n) => { const out = []; for (let i = 0; i < n; i++) out.push((due = next(due, r))); return out; };
+  assert.deepEqual(run('2026-11-02', 'monthweek:1,3:1', 5), ['2026-11-16', '2026-12-07', '2026-12-21', '2027-01-04', '2027-01-18']);
+  assert.deepEqual(run('2026-11-27', 'monthweek:-1:5', 3), ['2026-12-25', '2027-01-29', '2027-02-26']);
+  assert.equal(next('2026-11-30', 'monthweek:5:1'), '2027-03-29', 'months without a fifth Monday are skipped');
+  assert.equal(next('2026-11-02', 'monthweek:1,3:1', '2027-01-10'), '2027-01-18', 'overdue: the next one from today');
+});

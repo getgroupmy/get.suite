@@ -29,7 +29,7 @@ function dayMonth(today, d, m) {
   return valid(y, m, d) ? `${y}-${pad(m)}-${pad(d)}` : null;
 }
 
-import { customRepeat, readCustom } from './taskmath.js';
+import { customRepeat, readCustom, readMonthWeek, monthWeekRepeat } from './taskmath.js';
 
 const DAY_WORDS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 const DAY_RE = '(?:sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)(?:day|nesday|rsday|urday|sday)?';
@@ -58,6 +58,39 @@ const REPEAT_WORDS = [
  * `found` lists what was understood ({ kind, text }) so the page can show it before adding.
  * `people` ([{ id, name, username }]) are who "@name" can mean; `today` is "YYYY-MM-DD".
  */
+const ORD = { first: 1, '1st': 1, second: 2, '2nd': 2, third: 3, '3rd': 3, fourth: 4, '4th': 4, fifth: 5, '5th': 5, last: -1 };
+const WD = { sun: 0, mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6 };
+const ORD_WORD = '(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)';
+/**
+ * Weeks of the month: "every first and third Monday", "on the 2nd and 4th Tue", "the last Friday of the month"
+ * → { rule: { freq: 'monthly', nth | nths, wd }, text without it }, or null.
+ */
+export function monthlyWeekdaysIn(text) {
+  const re = new RegExp(`\\s(?:every|each|on)?\\s*(?:the\\s+)?(${ORD_WORD}(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?${ORD_WORD})*)\\s+(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)[a-z]*(?:\\s+(?:of\\s+)?(?:the|each|every)\\s+month)?(?=[\\s,.]|$)`, 'i');
+  const m = re.exec(` ${text} `);
+  if (!m) return null;
+  const nths = [...new Set(m[1].toLowerCase().split(/\s*(?:,|and|&)\s*(?:the\s+)?/).map((w) => ORD[w.trim()]).filter((k) => k !== undefined))]
+    .sort((a, b) => (a === -1) - (b === -1) || a - b);
+  const wd = WD[m[2].toLowerCase().replace(/^(thu)r?s?$/, '$1').slice(0, m[2].toLowerCase().startsWith('tue') ? 3 : 3)];
+  if (!nths.length || wd === undefined) return null;
+  const rule = nths.length === 1 ? { freq: 'monthly', nth: nths[0], wd } : { freq: 'monthly', nths, wd };
+  const t = ` ${text} `;
+  return { rule, text: `${t.slice(0, m.index)} ${t.slice(m.index + m[0].length)}`.replace(/\s+/g, ' ').trim() };
+}
+
+/** The first day on or after `fromIso` (YYYY-MM-DD) that `rule` (monthly on weeks of a weekday) falls on. */
+export function firstDayOf(rule, from) {
+  const d = fromIso(from);
+  const nths = rule.nths || [rule.nth];
+  for (let i = 0; i < 400; i++) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i);
+    if (x.getDay() !== rule.wd) continue;
+    const nth = Math.ceil(x.getDate() / 7), last = x.getDate() + 7 > new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
+    if (nths.includes(nth) || (last && nths.includes(-1))) return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  }
+  return from;
+}
+
 /** "fri 1pm" → "friday 1pm": a short day name right before a time (9am, 9:30, at 9, 2-3pm) is that day. */
 export const fullDayNames = (text) => text.replace(/(^|\s)(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)(?=\s+(?:at\s+\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)?|\d{1,2}:[0-5]\d|\d{1,2}\s*(?:am|pm)|\d{1,2}(?::[0-5]\d)?\s*(?:-|–|to)\s*\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)?)(?:[\s,.]|$))/gi,
   (all, sp, d) => `${sp}${DAYS[SHORT_DAYS[d.toLowerCase()]]}`);
@@ -86,7 +119,10 @@ export function parseQuickAdd(input, { today, people = [], datesOnly = false } =
   take(/\s!(?:important)?(?=\s)/i, () => { out.important = true; out.found.push({ kind: 'important', text: 'Important' }); });
   }
   const custom = customRepeatIn(s);
-  if (custom) { s = `${s.slice(0, custom.match.index)} ${s.slice(custom.match.index + custom.match[0].length)}`; out.repeat = custom.repeat; }
+  // Weeks of the month first: "every first and third Monday", "the last Friday of the month".
+  const weeks = monthlyWeekdaysIn(s);
+  if (weeks) { s = ` ${weeks.text} `; out.repeat = monthWeekRepeat({ weeks: weeks.rule.nths || [weeks.rule.nth], wd: weeks.rule.wd }); }
+  else if (custom) { s = `${s.slice(0, custom.match.index)} ${s.slice(custom.match.index + custom.match[0].length)}`; out.repeat = custom.repeat; }
   else for (const [re, v] of REPEAT_WORDS) if (take(re, () => { out.repeat = v; })) break;
 
   // A time: "at 3pm", "3:30 pm", "15:00", "at 9".
@@ -130,6 +166,9 @@ export function parseQuickAdd(input, { today, people = [], datesOnly = false } =
     assign(p);
   });
 
+  // Weeks of the month start on the first such day from today (or from the day given).
+  const mw = readMonthWeek(out.repeat);
+  if (mw && today) out.due = firstDayOf({ nths: mw.weeks, wd: mw.wd }, out.due || today);
   // A repeat on chosen weekdays starts on the first of them from today; a time or another repeat needs a day: today.
   const onDays = readCustom(out.repeat)?.days;
   if (!out.due && onDays?.length && today) {

@@ -92,3 +92,14 @@ test('quick add: a priority', async () => {
   assert.equal(both.priority, 'medium');
   assert.equal(parseQuickAdd('Wow!high', { today: '2026-11-11' }).priority, null, 'only as its own word');
 });
+
+test('weeks of the month: "the last Friday of the month", "every first and third Monday"', async () => {
+  const { parseQuickAdd: p } = await import('./quickadd.js');
+  const { repeatText } = await import('./taskmath.js');
+  const a = p('Pay invoices the last friday of the month', { today: '2026-11-19' });
+  assert.deepEqual([a.title, a.due, a.repeat], ['Pay invoices', '2026-11-27', 'monthweek:-1:5']);
+  const b = p('Team report every first and third Monday 9am', { today: '2026-11-19' });
+  assert.deepEqual([b.title, b.due, b.due_time, b.repeat], ['Team report', '2026-12-07', '09:00', 'monthweek:1,3:1']);
+  assert.equal(repeatText('monthweek:1,3:1'), 'Monthly on the first and third Monday');
+  assert.equal(repeatText('monthweek:-1:5'), 'Monthly on the last Friday');
+});

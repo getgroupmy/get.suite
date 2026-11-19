@@ -56,7 +56,18 @@ export function customRepeat({ n, unit, days = [] }) {
 }
 
 /** "Daily", "Every 2 weeks on Mon, Thu", "Every 3 months". */
+/** Weeks of the month ("monthweek:1,3:1", the first and third Monday) as { weeks, wd }, or null. */
+export function readMonthWeek(r) {
+  const m = /^monthweek:((?:[1-5]|-1)(?:,(?:[1-5]|-1)){0,5}):([0-6])$/.exec(String(r || ''));
+  return m ? { weeks: m[1].split(',').map(Number), wd: Number(m[2]) } : null;
+}
+export const monthWeekRepeat = ({ weeks, wd }) => `monthweek:${[...new Set(weeks)].sort((a, b) => (a === -1) - (b === -1) || a - b).join(',')}:${wd}`;
+const ORDINAL = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth', '-1': 'last' };
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 export function repeatText(r) {
+  const mw = readMonthWeek(r);
+  if (mw) { const w = mw.weeks.map((k) => ORDINAL[k]); return `Monthly on the ${w.length > 1 ? `${w.slice(0, -1).join(', ')} and ${w.at(-1)}` : w[0]} ${DAY_NAMES[mw.wd]}`; }
   const plain = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' }[r];
   if (plain) return plain;
   const c = readCustom(r);

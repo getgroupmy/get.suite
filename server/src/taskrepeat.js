@@ -4,13 +4,19 @@
 // Besides daily, weekdays, weekly, monthly and yearly, a custom schedule is written
 // "every:N:unit[:days]": every N days, weeks, months or years, and for weeks on chosen weekdays
 // (0 Sunday … 6 Saturday), e.g. "every:2:week:1,4" is every other week on Monday and Thursday.
+// Weeks of the month are "monthweek:<which>:<weekday>": "monthweek:1,3:1" the first and third Monday,
+// "monthweek:-1:5" the last Friday (a fifth is skipped in months without one).
 
 export const REPEATS = ['daily', 'weekdays', 'weekly', 'monthly', 'yearly'];
 const CUSTOM = /^every:(\d{1,2}):(day|week|month|year)(?::([0-6](?:,[0-6]){0,6}))?$/;
+const MONTHWEEK = /^monthweek:((?:[1-5]|-1)(?:,(?:[1-5]|-1)){0,5}):([0-6])$/;
+const sortWeeks = (list) => [...new Set(list)].sort((a, b) => (a === -1) - (b === -1) || a - b);
 
 /** A repeat as kept (one of REPEATS, or a tidy custom one), or null when it isn't one. */
 export function cleanRepeat(v) {
   if (REPEATS.includes(v)) return v;
+  const w = MONTHWEEK.exec(String(v || ''));
+  if (w) return `monthweek:${sortWeeks(w[1].split(',').map(Number)).join(',')}:${w[2]}`;
   const m = CUSTOM.exec(String(v || ''));
   if (!m) return null;
   const n = Number(m[1]);
@@ -31,6 +37,18 @@ const DAY = 864e5;
 function* occurrences(due, repeat) {
   const { y, m, d } = parse(due);
   const start = Date.UTC(y, m, d);
+  const w = MONTHWEEK.exec(repeat);
+  if (w) {
+    const weeks = w[1].split(',').map(Number), wd = Number(w[2]);
+    for (let k = 0; k < 1200; k++) {
+      const last = new Date(Date.UTC(y, m + k + 1, 0)).getUTCDate();
+      const firstWd = new Date(Date.UTC(y, m + k, 1)).getUTCDay();
+      const first = 1 + ((wd - firstWd + 7) % 7);
+      const days = [...new Set(weeks.map((n) => (n === -1 ? first + Math.floor((last - first) / 7) * 7 : first + (n - 1) * 7)).filter((x) => x <= last))].sort((a, b) => a - b);
+      for (const day of days) { const t = Date.UTC(y, m + k, day); if (t > start) yield t; }
+    }
+    return;
+  }
   const simple = { daily: 'every:1:day', weekly: 'every:1:week', monthly: 'every:1:month', yearly: 'every:1:year' }[repeat];
   if (repeat === 'weekdays') {
     for (let t = start + DAY; ; t += DAY) { const w = new Date(t).getUTCDay(); if (w !== 0 && w !== 6) yield t; }

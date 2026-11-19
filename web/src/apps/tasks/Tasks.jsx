@@ -16,7 +16,7 @@ import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { groupPlanned, groupCompleted } from './planned.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES, assignedTo } from './taskmath.js';
+import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, readMonthWeek, monthWeekRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES, assignedTo } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
 import { historyText } from './taskhistory.js';
 import { taskKey, stepTask, afterLeaving } from './taskkeys.js';
@@ -1644,6 +1644,15 @@ function RepeatField({ task, onChange }) {
   const [editing, setEditing] = useState(null); // { n, unit, days } while the custom repeat is being chosen
   const set = (repeat) => onChange({ repeat: repeat || null, ...(!task.due && repeat && { due: localToday() }) });
   const value = editing || custom ? 'custom' : task.repeat || '';
+  // Weeks of the month, from the due date: "Monthly on the third Monday" (and "the last" in its last week).
+  const due = task.due ? new Date(`${task.due}T00:00:00`) : null;
+  const weekOpts = [];
+  if (due) {
+    const nth = Math.ceil(due.getDate() / 7), last = due.getDate() + 7 > new Date(due.getFullYear(), due.getMonth() + 1, 0).getDate();
+    weekOpts.push(monthWeekRepeat({ weeks: [nth], wd: due.getDay() }));
+    if (last) weekOpts.push(monthWeekRepeat({ weeks: [-1], wd: due.getDay() }));
+  }
+  if (readMonthWeek(task.repeat) && !weekOpts.includes(task.repeat)) weekOpts.push(task.repeat);
   return (
     <div className="field"><label htmlFor="task-repeat"><span>Repeat</span></label>
       <select id="task-repeat" value={value} onChange={(e) => {
@@ -1651,6 +1660,7 @@ function RepeatField({ task, onChange }) {
         else { setEditing(null); set(e.target.value); }
       }}>
         {REPEATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+        {weekOpts.map((v) => <option key={v} value={v}>{repeatText(v)}</option>)}
         <option value="custom">{custom ? repeatText(task.repeat) : 'Custom…'}</option>
       </select>
       {editing && (

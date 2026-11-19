@@ -4,7 +4,8 @@
 // "for 2 hours", "for an hour") set the end. A day without a time is an all-day event. "@kim" or "@Kim Park"
 // (a colleague) and email addresses become guests; the colleague's name stays in the title. "in the
 // Boardroom" or "at Lisbon" (one of the company's rooms) picks that room.
-import { parseQuickAdd, fullDayNames } from '../tasks/quickadd.js';
+import { parseQuickAdd, fullDayNames, monthlyWeekdaysIn, firstDayOf } from '../tasks/quickadd.js';
+export { monthlyWeekdaysIn };
 import { readCustom } from '../tasks/taskmath.js';
 
 const DAY = 864e5;
@@ -75,39 +76,6 @@ export function tidy(title) {
   let t = ` ${title} `;
   for (let i = 0; i < 20 && t.includes('\u2043'); i++) t = t.replace(/(?:\s*(?:,|\band\b|&|\bwith\b))*\s*\u2043\s*/i, ' ');
   return t.replace(/\(\s*\)/g, '').replace(/\s+([,.])/g, '$1').replace(/[\s,]+$/, '').replace(/\s+/g, ' ').trim();
-}
-
-const ORD = { first: 1, '1st': 1, second: 2, '2nd': 2, third: 3, '3rd': 3, fourth: 4, '4th': 4, fifth: 5, '5th': 5, last: -1 };
-const WD = { sun: 0, mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6 };
-const ORD_WORD = '(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last)';
-/**
- * Weeks of the month: "every first and third Monday", "on the 2nd and 4th Tue", "the last Friday of the month"
- * → { rule: { freq: 'monthly', nth | nths, wd }, text without it }, or null.
- */
-export function monthlyWeekdaysIn(text) {
-  const re = new RegExp(`\\s(?:every|each|on)?\\s*(?:the\\s+)?(${ORD_WORD}(?:\\s*(?:,|and|&)\\s*(?:the\\s+)?${ORD_WORD})*)\\s+(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)[a-z]*(?:\\s+(?:of\\s+)?(?:the|each|every)\\s+month)?(?=[\\s,.]|$)`, 'i');
-  const m = re.exec(` ${text} `);
-  if (!m) return null;
-  const nths = [...new Set(m[1].toLowerCase().split(/\s*(?:,|and|&)\s*(?:the\s+)?/).map((w) => ORD[w.trim()]).filter((k) => k !== undefined))]
-    .sort((a, b) => (a === -1) - (b === -1) || a - b);
-  const wd = WD[m[2].toLowerCase().replace(/^(thu)r?s?$/, '$1').slice(0, m[2].toLowerCase().startsWith('tue') ? 3 : 3)];
-  if (!nths.length || wd === undefined) return null;
-  const rule = nths.length === 1 ? { freq: 'monthly', nth: nths[0], wd } : { freq: 'monthly', nths, wd };
-  const t = ` ${text} `;
-  return { rule, text: `${t.slice(0, m.index)} ${t.slice(m.index + m[0].length)}`.replace(/\s+/g, ' ').trim() };
-}
-
-/** The first day on or after `fromIso` (YYYY-MM-DD) that `rule` (monthly on weeks of a weekday) falls on. */
-function firstDayOf(rule, from) {
-  const d = fromIso(from);
-  const nths = rule.nths || [rule.nth];
-  for (let i = 0; i < 400; i++) {
-    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + i);
-    if (x.getDay() !== rule.wd) continue;
-    const nth = Math.ceil(x.getDate() / 7), last = x.getDate() + 7 > new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
-    if (nths.includes(nth) || (last && nths.includes(-1))) return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-  }
-  return from;
 }
 
 const escape = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
