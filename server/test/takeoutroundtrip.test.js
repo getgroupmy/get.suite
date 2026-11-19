@@ -261,3 +261,28 @@ test('documents, spreadsheets and presentations come back as them, with their wo
   assert.ok(here.some((f) => f.name === 'Supplier.docx' && f.kind === 'file'), 'an uploaded Word file stays one');
   assert.ok(!here.some((f) => f.name === 'Handbook.docx'), 'the downloaded Word file isn’t left beside it');
 });
+
+test('a document’s comments and page setup come back with it', async () => {
+  const doc = (await olivia('POST', '/api/files/new', { kind: 'doc', name: 'Proposal', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The budget is ten thousand' }] }] } })).body;
+  const c = await olivia('POST', `/api/comments/${doc.id}`, { body: 'Is this enough?', anchor: { quote: 'ten thousand' } });
+  assert.ok(c.status < 300, JSON.stringify(c.body));
+  // The comment's words are marked in the document (as the editor does when you comment on them).
+  const { q: qq } = await import('../src/db.js');
+  const tid = c.body.id || c.body.comment?.id;
+  qq('UPDATE files SET content = ? WHERE id = ?').run(JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The budget is ' }, { type: 'text', text: 'ten thousand', marks: [{ type: 'comment', attrs: { id: tid } }] }] }] }), doc.id);
+  const p = await olivia('PATCH', `/api/files/${doc.id}`, { page_setup: { size: 'a4', orientation: 'landscape' } });
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+  const out = await r.json();
+  const { q } = await import('../src/db.js');
+  const back = q("SELECT * FROM files WHERE parent_id = ? AND name = 'Proposal' AND trashed = 0").get(out.drive.folder_id);
+  assert.equal(back?.kind, 'doc');
+  const comments = q('SELECT body, anchor FROM file_comments WHERE file_id = ?').all(back.id);
+  assert.equal(comments.length, 1, JSON.stringify(comments));
+  assert.match(comments[0].body, /^Is this enough\?/);
+  assert.match(comments[0].body, /Olivia Owner/, 'says who wrote it');
+  assert.match(comments[0].anchor, /ten thousand/);
+  const setup = JSON.parse(back.page_setup || '{}');
+  assert.deepEqual([setup.size, setup.orientation], ['a4', 'landscape']);
+});

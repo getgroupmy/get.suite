@@ -154,6 +154,9 @@ function wordCommentsOf(fileId) {
   for (const r of rows) if (r.thread_id && threads.has(r.thread_id)) threads.get(r.thread_id).replies.push({ author: r.author || 'Former user', at: r.created_at, text: r.body });
   return [...threads.values()];
 }
+/** What a document's, spreadsheet's or presentation's Office or OpenDocument file carries besides its contents, as Drive's
+ *  own download gives it: the page setup and the open comment threads (Download your data's copies have them too). */
+export const officeExtras = (f) => (f.kind === 'doc' ? { page: setupOf(f), comments: wordCommentsOf(f.id) } : { comments: f.kind === 'sheet' ? cellCommentsOf(f.id) : slideCommentsOf(f.id) });
 const setupOf = (f) => { if (!f.page_setup || typeof f.page_setup === 'object') return f.page_setup || null; try { return JSON.parse(f.page_setup); } catch { return null; } };
 
 /** A column's letters: 0 → A, 26 → AA. */

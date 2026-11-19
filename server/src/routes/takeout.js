@@ -28,7 +28,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { roleFor, atLeast } from '../access.js';
 import { q, tx, FILES_DIR } from '../db.js';
-import { insertFile, cleanFileLabels, FILE_LABEL_COLORS, convertToWorkspace } from './files.js';
+import { insertFile, cleanFileLabels, FILE_LABEL_COLORS, convertToWorkspace, officeExtras } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { indexSoon } from '../search.js';
 import { bad, uid, mimeFor } from '../util.js';
@@ -522,10 +522,11 @@ export default function takeoutRoutes() {
         return pic && /^image\//.test(pic.mime || '') && pic.owner_id === me ? { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime } : null;
       };
       try {
+        const extra = officeExtras(f); // page setup and comments, as Drive's own download has them
         const buf = odf
-          ? (f.kind === 'doc' ? await odtFromDoc(withoutSuggestions(content), f.name, { pictureData }) : f.kind === 'sheet' ? await odsFromSheet(content) : await odpFromDeck(content, { title: f.name, pictureData }))
-          : f.kind === 'doc' ? await wordFromDoc(withoutSuggestions(content), f.name, { pictureData })
-            : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
+          ? (f.kind === 'doc' ? await odtFromDoc(withoutSuggestions(content), f.name, { pictureData, ...extra }) : f.kind === 'sheet' ? await odsFromSheet(content, extra) : await odpFromDeck(content, { title: f.name, pictureData, ...extra }))
+          : f.kind === 'doc' ? await wordFromDoc(withoutSuggestions(content), f.name, { pictureData, ...extra })
+            : f.kind === 'sheet' ? await excelFromSheet(content, extra) : await powerPointFromDeck(content, { title: f.name, pictureData, ...extra });
         zip.file(where, buf);
       } catch (e) { zip.file(`${where}.error.txt`, `This file couldn't be converted: ${e.message}`); }
     }
