@@ -2,6 +2,7 @@ import { keptChatsOf } from '../meet.js';
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
+import { saveNow, CO_EDITED } from '../collab.js';
 import { binExport } from '../recyclebin.js';
 import { notesZipEntries, importNotes, noteTemplatesJson, importNoteTemplates } from './notes.js';
 import { importContacts } from './contacts.js';
@@ -383,6 +384,7 @@ export default function takeoutRoutes() {
       const ext = (odf ? { doc: '.odt', sheet: '.ods', slides: '.odp' } : { doc: '.docx', sheet: '.xlsx', slides: '.pptx' })[f.kind] || '';
       const where = unique(`Drive/${pathOf(f)}${ext && !f.name.toLowerCase().endsWith(ext) ? ext : ''}`);
       if (f.kind === 'file') { if (f.storage) zip.file(where, fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true }); continue; }
+      if (CO_EDITED.includes(f.kind)) { saveNow(f.id); f.content = q('SELECT content FROM files WHERE id = ?').get(f.id)?.content; } // what's being typed right now
       const content = JSON.parse(f.content || '{}');
       const pictureData = async (fileId) => {
         const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
