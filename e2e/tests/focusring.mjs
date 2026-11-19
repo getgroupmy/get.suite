@@ -107,6 +107,52 @@ await step('dialogs: a new calendar event, sharing a file', async () => {
   if (bad.length) all.push(`share: ${bad.slice(0, 8).join(' ; ')}`);
   if (all.length) throw new Error(all.join(' || '));
 });
+await step('the bell: each notification, its own buttons (read, snooze, remove) and the snooze times', async () => {
+  // Someone else shares files with Olivia, so there's something in her bell.
+  await api(page, 'POST', '/users', { local: 'ringo', domain: 'acme.com', name: 'Ringo Ring', password: 'password123' });
+  const ringo = await mk('ringo');
+  await ringo.goto(B);
+  await ringo.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'ringo@acme.com', password: 'password123' }) }));
+  const olivia = (await api(ringo, 'GET', '/users/directory')).body.find((u) => u.name === 'Olivia Owner').id;
+  for (const name of ['Budget', 'Plan']) {
+    const f = (await api(ringo, 'POST', '/files/new', { kind: 'doc', name })).body;
+    await api(ringo, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: olivia, role: 'viewer' }], message: `About ${name}` });
+  }
+  await ringo.context().close();
+  await page.goto(`${B}/home`);
+  await page.getByRole('button', { name: /^Notifications, 2 new/ }).click();
+  const panel = page.getByRole('dialog', { name: 'Notifications' });
+  await panel.getByText('Ringo Ring shared “Plan” with you').waitFor();
+  const all = [];
+  let bad = await tabThrough(16);
+  if (bad.length) all.push(`bell: ${bad.slice(0, 8).join(' ; ')}`);
+  // The snooze times, opened from the keyboard.
+  // Its buttons show once a notification has focus: Tab from it reaches Snooze.
+  await panel.locator('.bell-item').first().focus();
+  await page.keyboard.press('Tab');
+  const on = await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || '');
+  if (!/^Snooze: /.test(on)) throw new Error(`Tab from a notification went to “${on}”, not its Snooze`);
+  await page.keyboard.press('Enter');
+  await panel.getByRole('group', { name: 'Snooze until' }).waitFor();
+  bad = await tabThrough(4);
+  if (bad.length) all.push(`snooze: ${bad.slice(0, 8).join(' ; ')}`);
+  if (all.length) throw new Error(all.join(' || '));
+});
+await step('panels and views: a task open, a note open, Calendar’s week', async () => {
+  const all = [];
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Focus list' })).body;
+  const t = (await api(page, 'POST', `/tasks/lists/${list.id}/tasks`, { title: 'Focus task' })).body;
+  const note = (await api(page, 'POST', '/notes', { title: 'Focus note', body: 'x' })).body;
+  for (const [name, path, view] of [['task', `/tasks/${list.id}?task=${t.id}`], ['note', `/notes?note=${note.id}`], ['week', '/calendar', 'Week']]) {
+    await page.goto(`${B}${path}`);
+    await page.waitForTimeout(1200);
+    if (view) await page.getByRole('radio', { name: view }).click();
+    await page.evaluate(() => document.activeElement?.blur());
+    const bad = await tabThrough(40);
+    if (bad.length) all.push(`${name}: ${bad.slice(0, 8).join(' ; ')}`);
+  }
+  if (all.length) throw new Error(all.join(' || '));
+});
 await step('Mail’s search box shows focus too', async () => {
   await page.goto(`${B}/mail`);
   await page.waitForTimeout(1500);
