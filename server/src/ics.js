@@ -427,9 +427,9 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
     const freq = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }[p.FREQ];
     const days = p.BYDAY ? p.BYDAY.split(',') : [];
     const plainDays = days.every((d) => /^(SU|MO|TU|WE|TH|FR|SA)$/.test(d));
-    // Monthly on one weekday of the month: BYDAY=2MO, or BYDAY=MO;BYSETPOS=2 (Outlook), the 1st–4th or the last.
+    // Monthly on one weekday of the month: BYDAY=2MO, or BYDAY=MO;BYSETPOS=2 (Outlook), the 1st–5th or the last.
     const nthDay = freq === 'monthly' && days.length === 1 && !p.BYMONTHDAY && !p.BYMONTH
-      && (/^([+-]?[1-4]|-1)(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-4]|-1)$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
+      && (/^([+-]?[1-5]|-1)(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-5]|-1)$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
     const nth = nthDay ? +nthDay[1] : 0;
     const startDay = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDate();
     const supported = nthDay ? !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR && (nth >= 1 || nth === -1) : freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR

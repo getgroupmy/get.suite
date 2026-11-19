@@ -84,3 +84,18 @@ test('an event made on the web, retitled on a phone: everything else kept', asyn
   const volatile = ['title', 'updated_at', 'etag', 'dav_name', 'ical_uid', 'sequence', 'ics_extra', 'dtstamp'];
   assert.deepEqual(skip(after, volatile), skip(before, volatile));
 });
+
+test('a phone’s “fifth Monday of the month” repeats here too, and goes back the same', async () => {
+  const cal = `/dav/calendars/${me.id}/default/`;
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Apple Inc.//iOS 18.0//EN', 'BEGIN:VEVENT', 'UID:FIFTH-MONDAY-1',
+    'DTSTART;TZID=Europe/London:20261130T100000', 'DTEND;TZID=Europe/London:20261130T110000', 'SUMMARY:Fifth Monday social',
+    'RRULE:FREQ=MONTHLY;BYDAY=5MO', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  assert.equal((await dav('PUT', `${cal}FIFTH-MONDAY-1.ics`, { body: ics, headers: { 'content-type': 'text/calendar' } })).status, 201);
+  const ev = (await api('GET', `/api/events?from=${Date.UTC(2026, 10, 1)}&to=${Date.UTC(2027, 5, 30)}`)).body.find((e) => e.title === 'Fifth Monday social');
+  assert.deepEqual([ev.rrule.freq, ev.rrule.nth, ev.rrule.wd], ['monthly', 5, 1], 'a repeating event, not a one-off');
+  const { expand } = await import('../src/calmath.js');
+  const days = expand(ev, Date.UTC(2026, 10, 1), Date.UTC(2027, 5, 30)).map((o) => new Date(o.start).toISOString().slice(0, 10));
+  assert.deepEqual(days, ['2026-11-30', '2027-03-29', '2027-05-31']);
+  const back = (await dav('GET', `${cal}FIFTH-MONDAY-1.ics`)).text;
+  assert.match(back, /RRULE:FREQ=MONTHLY;BYDAY=5MO/);
+});

@@ -83,11 +83,11 @@ function readRule(rule) {
     if (!days.length || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw bad('Pick at least one weekday');
     out.byday = days;
   }
-  // Monthly on a weekday: { nth: 1–4 or -1 (the last), wd: 0=Sun..6 }.
+  // Monthly on a weekday: { nth: 1–5 or -1 (the last), wd: 0=Sun..6 } (a fifth: months without one are skipped).
   if (rule.nth !== undefined || rule.wd !== undefined) {
     if (rule.freq !== 'monthly') throw bad('"The second Monday" only applies to monthly repeats');
     const nth = Number(rule.nth), wd = Number(rule.wd);
-    if (![1, 2, 3, 4, -1].includes(nth) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick a weekday of the month');
+    if (![1, 2, 3, 4, 5, -1].includes(nth) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick a weekday of the month');
     out.nth = nth; out.wd = wd;
   }
   if (rule.until !== undefined && rule.until !== null) out.until = int(rule.until, 'until');

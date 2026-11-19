@@ -174,9 +174,10 @@ export function occurrenceStarts(ev, to) {
       }
       if (stop) break;
     } else if (r.freq === 'monthly' && r.nth) {
-      // Monthly on a weekday: the 1st–4th or the last (say) Monday of every month.
+      // Monthly on a weekday: the 1st–5th or the last (say) Monday of every month (months without a fifth are skipped).
       const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
       const day = nthWeekdayOf(m.getFullYear(), m.getMonth(), r.nth, r.wd);
+      if (day === null) { if (m.getTime() >= to || (r.until !== undefined && m.getTime() > r.until)) break; continue; } // no fifth one this month
       const t = at(m.getFullYear(), m.getMonth(), day).getTime();
       if (t >= to || (r.until !== undefined && t > r.until)) break;
       if (t < ev.start) continue; // earlier in the first month
@@ -194,14 +195,15 @@ export function occurrenceStarts(ev, to) {
   return out;
 }
 
-/** The day of the month that is the `nth` (1–4, or -1 for the last) weekday `wd` (0 = Sunday) of month `m` (0-based). */
+/** The day of the month that is the `nth` (1–5, or -1 for the last) weekday `wd` (0 = Sunday) of month `m` (0-based); null if there's no fifth. */
 export function nthWeekdayOf(y, m, nth, wd) {
   if (nth === -1) {
     const last = new Date(Date.UTC(y, m + 1, 0));
     return last.getUTCDate() - ((last.getUTCDay() - wd + 7) % 7);
   }
   const firstDow = new Date(Date.UTC(y, m, 1)).getUTCDay();
-  return 1 + ((wd - firstDow + 7) % 7) + (nth - 1) * 7;
+  const day = 1 + ((wd - firstDow + 7) % 7) + (nth - 1) * 7;
+  return day > new Date(Date.UTC(y, m + 1, 0)).getUTCDate() ? null : day;
 }
 
 /**
@@ -213,7 +215,7 @@ export function weekdayInMonth(t) {
   const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   return { wd: d.getDay(), nth: Math.ceil(d.getDate() / 7), last: d.getDate() + 7 > daysInMonth };
 }
-const ORDINALS = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', '-1': 'last' };
+const ORDINALS = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth', '-1': 'last' };
 
 /** The event's occurrences that touch [from, to), each a copy with its own start and end. */
 export function expand(ev, from, to) {

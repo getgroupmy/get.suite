@@ -544,7 +544,7 @@ test('repeating events: rules are checked, and series that started earlier are r
   const nth = await cal('POST', '/api/events', { title: 'Board meeting', start: jan1, end: jan1 + 36e5, rrule: { freq: 'monthly', nth: '-1', wd: 4 } });
   assert.equal(nth.status, 201, JSON.stringify(nth.body));
   assert.deepEqual(nth.body.rrule, { freq: 'monthly', nth: -1, wd: 4 });
-  for (const rrule of [{ freq: 'monthly', nth: 5, wd: 1 }, { freq: 'monthly', nth: 2, wd: 7 }, { freq: 'monthly', nth: 2 }, { freq: 'weekly', nth: 2, wd: 1 }]) {
+  for (const rrule of [{ freq: 'monthly', nth: 6, wd: 1 }, { freq: 'monthly', nth: 2, wd: 7 }, { freq: 'monthly', nth: 2 }, { freq: 'weekly', nth: 2, wd: 1 }]) {
     assert.equal((await cal('POST', '/api/events', { title: 'x', start: jan1, end: jan1 + 36e5, rrule })).status, 400, JSON.stringify(rrule));
   }
   await cal('DELETE', `/api/events/${nth.body.id}`);

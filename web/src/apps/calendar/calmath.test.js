@@ -273,3 +273,14 @@ test('printing "This week" starts on the chosen first day', async () => {
   assert.equal(printRange('week', wed, 0).from.getDate(), 8, 'Sunday');
   assert.equal(printRange('week', wed, 6).to.getDate(), 13, 'Saturday to Friday');
 });
+
+test('the fifth Monday: there in some months, skipped in others', async () => {
+  const { nthWeekdayOf: nth, expand: ex } = await import('./calmath.js');
+  assert.equal(nth(2026, 10, 5, 1), 30); // Nov 2026: Mondays 2, 9, 16, 23, 30
+  assert.equal(nth(2026, 1, 5, 1), null); // Feb 2026 has four
+  const start = new Date(2026, 10, 30, 10).getTime();
+  const ev = { id: 'x', start, end: start + 3600e3, rrule: { freq: 'monthly', nth: 5, wd: 1 } };
+  const got = ex(ev, start, new Date(2027, 11, 31).getTime()).map((o) => { const d = new Date(o.start); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; });
+  // Months of 2027 with five Mondays: March (29), May (31), August (30), November (29)
+  assert.deepEqual(got, ['2026-11-30', '2027-3-29', '2027-5-31', '2027-8-30', '2027-11-29']);
+});

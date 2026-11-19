@@ -660,8 +660,9 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - **One occurrence of a repeating event** changed on its own (on the phone, or with "This event" on the web) shows on both as part of the series. Cancelling one on the phone skips that date.
   - **Time zones** come across however the app names them: standard names (`Europe/Berlin`), Outlook's Windows names (`W. Europe Standard Time`), or a zone the app describes itself (Outlook's "Customized Time Zone"), so a 9:00 meeting stays at 9:00.
   - **The second Monday, the last Friday:** monthly repeats on a weekday go both ways (as phones and Outlook write them).
+  - **The fifth Monday:** monthly on the fifth (say) Monday goes both ways too, and is skipped in months without one, as phones and Outlook do. The web's **Repeat** offers it when an event starts on a fifth weekday.
 - **Not yet:**
-  - Repeats that Workspace can't show (such as "the fifth Monday" or "every Monday and Wednesday of the month") arrive as a one-off on the first date.
+  - Repeats that Workspace can't show (such as "every Monday and Wednesday of the month") arrive as a one-off on the first date.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
 
 **Changed on a phone, nothing else lost:** a phone's contacts or calendar app sends the whole card or event back when you change it there. What the phone doesn't know about stays as it was: a contact's extra numbers and addresses, dates, fields of your own and reminder to keep in touch; an event's colour, guests, reminders, attachments, privacy, *show as* and time zone.

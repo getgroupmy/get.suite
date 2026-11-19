@@ -1289,12 +1289,11 @@ function GuestList({ guests }) {
 
 const WEEKDAY_LETTERS = Array.from({ length: 7 }, (_, d) => new Date(2026, 10, 1 + d)); // a Sunday-first week
 /**
- * The menu's monthly choice that fits the start date: "on the second Monday" isn't offered for a
- * fifth Monday, and "on the last Friday" only in the last week of the month.
+ * The menu's monthly choice that fits the start date: "on the last Friday" only in the last week of the
+ * month ("on the fifth Monday" skips months without one).
  */
 const monthlyChoice = (freq, start) => {
   const w = weekdayInMonth(start);
-  if (freq === 'monthly-nth' && w.nth > 4) return 'monthly-last';
   if (freq === 'monthly-last' && !w.last) return 'monthly-nth';
   return freq;
 };
@@ -1805,7 +1804,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                   // "Monthly on the second Monday", and "on the last Monday" in a month's last week.
                   const start = read().start, w = weekdayInMonth(start);
                   return <>
-                    {w.nth <= 4 && <option value="monthly-nth">{describeRule({ freq: 'monthly', nth: w.nth, wd: w.wd }, start)}</option>}
+                    <option value="monthly-nth">{describeRule({ freq: 'monthly', nth: w.nth, wd: w.wd }, start)}</option>
                     {w.last && <option value="monthly-last">{describeRule({ freq: 'monthly', nth: -1, wd: w.wd }, start)}</option>}
                   </>;
                 })()}
