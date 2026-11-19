@@ -14,6 +14,7 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
+import { trackSession } from './livesessions.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
 import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc, onlyOwnSuggestions } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
@@ -345,6 +346,7 @@ export function handleCollabUpgrade(req, socket, head, user) {
   if (!f || !KINDS[f.kind] || f.trashed || !role) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
   const knownGen = new URLSearchParams(req.url.split('?')[1] || '').get('gen');
   wss.handleUpgrade(req, socket, head, (ws) => {
+    trackSession(ws, req.sessionToken);
     const room = getRoom(f.id, f.kind);
     // A kept copy of an older generation: not merged (see genOf).
     if (knownGen && knownGen !== genOf(room.doc)) { try { ws.close(4001, 'rebuilt'); } catch {} return; }

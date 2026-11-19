@@ -121,10 +121,12 @@ function connect() {
   socket = ws;
   ws.onopen = () => { retry = 0; emit({ type: 'live-connected' }); };
   ws.onmessage = (e) => { try { emit(JSON.parse(e.data)); } catch {} };
-  ws.onclose = () => {
+  ws.onclose = (e) => {
     if (socket !== ws) return;
     socket = null;
     if (!wanted) return;
+    // The session ended (signed out on another device or by an admin, or expired): say so now.
+    if (e.code === 4401) { window.dispatchEvent(new Event('nw:signed-out')); return; }
     emit({ type: 'live-disconnected' }); // the connection bar says so if it lasts
     timer = setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++));
   };

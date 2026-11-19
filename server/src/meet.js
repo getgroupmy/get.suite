@@ -5,6 +5,7 @@
 import { expand } from './calmath.js';
 import { outEvent } from './routes/calendar.js';
 import { Router } from 'express';
+import { trackSession } from './livesessions.js';
 import { insertFile } from './routes/files.js';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
@@ -353,7 +354,7 @@ export function handleMeetUpgrade(req, socket, head, user) {
   const code = decodeURIComponent(req.url.split('?')[0].split('/')[3] || '');
   const m = validCode(code) && q('SELECT * FROM meetings WHERE code = ?').get(code);
   if (!m || !mayJoin(m, user)) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
-  wss.handleUpgrade(req, socket, head, (ws) => enterRoom(ws, req, code, m, user));
+  wss.handleUpgrade(req, socket, head, (ws) => { trackSession(ws, req.sessionToken); enterRoom(ws, req, code, m, user); });
 }
 
 /**

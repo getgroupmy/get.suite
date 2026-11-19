@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws';
 import { userFromToken, tokenFromReq } from './auth.js';
 import { handleCollabUpgrade } from './collab.js';
 import { handleMeetUpgrade, handleGuestUpgrade } from './meet.js';
+import { trackSession } from './livesessions.js';
 
 /** Live push channel: userId -> Set<WebSocket>. */
 const clients = new Map();
@@ -15,7 +16,8 @@ export function attachHub(server) {
   server.on('upgrade', (req, socket, head) => {
     if (!req.url.startsWith('/ws')) return socket.destroy();
     if (req.url.startsWith('/ws/meet-guest/')) return handleGuestUpgrade(req, socket, head); // a guest without an account asks to join a meeting
-    const user = userFromToken(tokenFromReq(req));
+    req.sessionToken = tokenFromReq(req);
+    const user = userFromToken(req.sessionToken);
     if (!user || user.needs_two_factor) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
     if (req.url.startsWith('/ws/collab/')) return handleCollabUpgrade(req, socket, head, user); // co-editing a document
     if (req.url.startsWith('/ws/meet/')) return handleMeetUpgrade(req, socket, head, user); // a video meeting
@@ -24,6 +26,7 @@ export function attachHub(server) {
       const first = !set;
       if (!set) clients.set(user.id, (set = new Set()));
       set.add(ws);
+      trackSession(ws, req.sessionToken);
       if (first) announce(user.id, true);
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; });

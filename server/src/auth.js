@@ -3,6 +3,7 @@ import { cleanCalPrefs } from './calprefs.js';
 import crypto from 'node:crypto';
 import { rulesOf, passwordProblem, isExpired, breachCount } from './passwordrules.js';
 import { q } from './db.js';
+import { sweepSoon } from './livesessions.js';
 import { uid, now, parseCookies, HttpError } from './util.js';
 import { dovecotHash } from './mail/crypt.js';
 import { scheduleMailConfig } from './mail/config.js';
@@ -123,6 +124,7 @@ export function describeDevice(ua = '') {
 
 export function destroySession(token) {
   q('DELETE FROM sessions WHERE token = ?').run(token);
+  sweepSoon();
 }
 
 // Sign-in sessions (a company setting): signed out after so many minutes without using Workspace,

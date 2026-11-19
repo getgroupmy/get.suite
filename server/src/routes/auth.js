@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sweepSoon } from '../livesessions.js';
 import { rulesOf, rulesText, breachCount } from '../passwordrules.js';
 import { networkAllowed, NETWORK_REFUSED } from '../netrules.js';
 import { q, tx } from '../db.js';
@@ -290,7 +291,7 @@ export default function authRoutes({ secureCookies }) {
     tx(() => {
       q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ?, pw_leaked = NULL WHERE id = ?').run(hashPassword(pw), Date.now(), user.id);
       q('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(Date.now(), user.id); // every other link stops working too
-      q('DELETE FROM sessions WHERE user_id = ?').run(user.id); // signed out everywhere
+      q('DELETE FROM sessions WHERE user_id = ?').run(user.id); sweepSoon(); // signed out everywhere
     });
     setMailPassword(user.id, pw);
     q('UPDATE users SET mail_app_hash = NULL, mail_app_created = NULL WHERE id = ?').run(user.id); // as with an admin's reset
@@ -311,7 +312,7 @@ export default function authRoutes({ secureCookies }) {
       q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ?, pw_leaked = NULL WHERE id = ?').run(hashPassword(newPassword), Date.now(), req.user.id);
       setMailPassword(req.user.id, newPassword);
       // Sign out every other session for this user.
-      q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
+      q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req)); sweepSoon();
       audit(req, 'password.change', { target: req.user.username });
       accountChanged(req.user.id, 'password');
     }
@@ -333,7 +334,7 @@ export default function authRoutes({ secureCookies }) {
     const codes = twoFactor.confirmSetup(req.user.id, req.body.code);
     if (!codes) throw bad('That code is not right. Enter the 6-digit code your app shows now.');
     // Other devices signed in with just the password are signed out.
-    q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
+    q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req)); sweepSoon();
     audit(req, '2fa.on', { target: req.user.username });
     res.json({ recoveryCodes: codes, ...twoFactor.status(req.user.id) });
   });
@@ -457,6 +458,7 @@ export default function authRoutes({ secureCookies }) {
   });
   r.post('/sessions/sign-out-others', requireAuth, (req, res) => {
     const n = q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req)).changes;
+    sweepSoon();
     if (n) audit(req, 'session.revoke', { target: req.user.username, details: { devices: n } });
     res.json({ signedOut: n });
   });

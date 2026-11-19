@@ -1,4 +1,5 @@
 import { cleanCalPrefs, colorRulesOf } from '../calprefs.js';
+import { sweepSoon } from '../livesessions.js';
 import { securityActivity } from '../securityactivity.js';
 import { checkFull } from '../mail/storage.js';
 import { activePerDay } from '../activedays.js';
@@ -729,9 +730,9 @@ export default function userRoutes() {
       if (!u || (u.org_id !== req.user.org_id && !req.user.is_super)) { skipped.push({ name: id, reason: 'Not found' }); continue; }
       if (u.is_super && !req.user.is_super) { skipped.push({ name: u.name, reason: 'Only the platform owner can change this account' }); continue; }
       if (u.id === req.user.id && ['suspend', 'signout'].includes(action)) { skipped.push({ name: u.name, reason: action === 'suspend' ? 'You cannot suspend yourself' : 'Not your own account (use Settings → Signed-in devices)' }); continue; }
-      if (action === 'suspend') { q('UPDATE users SET disabled = 1 WHERE id = ?').run(u.id); q('DELETE FROM sessions WHERE user_id = ?').run(u.id); }
+      if (action === 'suspend') { q('UPDATE users SET disabled = 1 WHERE id = ?').run(u.id); q('DELETE FROM sessions WHERE user_id = ?').run(u.id); sweepSoon(); }
       if (action === 'restore') q('UPDATE users SET disabled = 0 WHERE id = ?').run(u.id);
-      if (action === 'signout') q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+      if (action === 'signout') { q('DELETE FROM sessions WHERE user_id = ?').run(u.id); sweepSoon(); }
       if (action === 'department') q('UPDATE users SET department = ? WHERE id = ?').run(department || null, u.id);
       orgs.add(u.org_id);
       done.push(u.username);
@@ -761,7 +762,7 @@ export default function userRoutes() {
     if (disabled !== undefined) {
       if (self) throw bad('You cannot disable yourself');
       q('UPDATE users SET disabled = ? WHERE id = ?').run(disabled ? 1 : 0, u.id);
-      if (disabled) q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+      if (disabled) { q('DELETE FROM sessions WHERE user_id = ?').run(u.id); sweepSoon(); }
       syncCompanyGroupAliases(u.org_id); // group email addresses reach active people only
     }
     if (password !== undefined) {
@@ -770,7 +771,7 @@ export default function userRoutes() {
       setMailPassword(u.id, password);
       // A reset (e.g. after a break-in) also removes the mail-app password, so only the new password works anywhere.
       q('UPDATE users SET mail_app_hash = NULL, mail_app_created = NULL WHERE id = ?').run(u.id);
-      q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+      q('DELETE FROM sessions WHERE user_id = ?').run(u.id); sweepSoon();
     }
     // Lost phone: turn off their two-step verification so they can sign in with the password and set
     // it up again. Their sessions end, so the change is noticed.
@@ -778,7 +779,7 @@ export default function userRoutes() {
       if (self) throw bad('Turn off your own two-step verification in Settings');
       disableTwoFactor(u.id);
       q('DELETE FROM passkeys WHERE user_id = ?').run(u.id); // a lost phone may hold their passkey too
-      q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+      q('DELETE FROM sessions WHERE user_id = ?').run(u.id); sweepSoon();
     }
     // Who's who (admins): title, department, phone and manager.
     const profile = readProfile(req.body);
