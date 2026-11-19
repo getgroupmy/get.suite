@@ -1,4 +1,4 @@
-// Recently deleted: a task list or a form deleted by mistake can be put back for 30 days. Deleting takes a
+// Recently deleted: a task list, form, booking page or contact group deleted by mistake can be put back for 30 days. Deleting takes a
 // copy of the item and of everything that goes with it (the rows the database would delete along with it,
 // found from the tables' own foreign keys, so a table added later is covered too), then deletes it as before.
 // Restoring puts the rows back, and links that were cleared (ON DELETE SET NULL) are set again.
@@ -7,7 +7,7 @@ import { uid, HttpError } from './util.js';
 
 q(`CREATE TABLE IF NOT EXISTS recycle_bin (
   id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,                    -- 'task_list' | 'form'
+  kind TEXT NOT NULL,                    -- 'task_list' | 'form' | 'booking_page' | 'contact_group'
   item_id TEXT NOT NULL,
   owner_id TEXT NOT NULL,
   name TEXT NOT NULL,
@@ -18,7 +18,7 @@ q(`CREATE TABLE IF NOT EXISTS recycle_bin (
 q('CREATE INDEX IF NOT EXISTS recycle_bin_owner ON recycle_bin(owner_id, deleted_at)').run();
 
 export const KEEP_DAYS = 30;
-const TABLES = { task_list: 'task_lists', form: 'forms' };
+const TABLES = { task_list: 'task_lists', form: 'forms', booking_page: 'booking_pages', contact_group: 'contact_groups' };
 
 // Which tables point at which: { parent: [{ table, from, to, onDelete }] }.
 let refs = null;

@@ -744,7 +744,11 @@ function Groups({ filter }) {
       )}
       {editing && <GroupDialog group={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deleting && <ConfirmModal title="Delete group?" message={`Delete the group “${deleting.name}”? The people in it stay in your contacts.`} onClose={() => setDeleting(null)}
-        onConfirm={async () => { await del(`/contacts/groups/${deleting.id}`); load(); }} />}
+        onConfirm={async () => {
+          const g = deleting;
+          const r = await del(`/contacts/groups/${g.id}`); load();
+          if (r?.bin_id) toast(`Group “${g.name}” deleted`, 'info', { action: { label: 'Undo', onClick: async () => { await post(`/contacts/groups/bin/${r.bin_id}/restore`); load(); } } });
+        }} />}
     </div>
   );
 }

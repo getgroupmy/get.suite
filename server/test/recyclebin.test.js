@@ -92,3 +92,28 @@ test('after 30 days it’s gone for good', async () => {
   assert.equal(purgeBin(Date.now() + 31 * 864e5), 1);
   assert.equal((await olivia('POST', `/api/tasks/bin/${del.body.bin_id}/restore`)).status, 404);
 });
+
+test('a booking page deleted and put back: its link works again', async () => {
+  const p = (await olivia('POST', '/api/bookings', { title: 'Intro call', duration: 30 })).body;
+  const token = p.token || (p.url || '').split('/').pop();
+  assert.ok(token, JSON.stringify(p));
+  const opens = async () => (await fetch(`${base}/api/public/book/${token}`)).status;
+  assert.equal(await opens(), 200);
+  const del = await olivia('DELETE', `/api/bookings/${p.id}`);
+  assert.ok(del.body.bin_id);
+  assert.notEqual(await opens(), 200, 'the link stops working');
+  assert.equal((await carol('POST', `/api/bookings/bin/${del.body.bin_id}/restore`)).status, 404);
+  assert.equal((await olivia('POST', `/api/bookings/bin/${del.body.bin_id}/restore`)).status, 200);
+  assert.equal(await opens(), 200, 'and works again');
+});
+
+test('a contact group deleted and put back, with its members', async () => {
+  const g = (await olivia('POST', '/api/contacts/groups', { name: 'Suppliers', members: [{ name: 'Ann', email: 'ann@x.example' }, { name: 'Bo', email: 'bo@y.example' }] })).body;
+  const groups = async () => JSON.stringify((await olivia('GET', '/api/contacts/groups')).body.map((x) => [x.name, x.members]));
+  const before = await groups();
+  assert.match(before, /ann@x\.example/);
+  const del = await olivia('DELETE', `/api/contacts/groups/${g.id}`);
+  assert.doesNotMatch(await groups(), /Suppliers/);
+  assert.equal((await olivia('POST', `/api/contacts/groups/bin/${del.body.bin_id}/restore`)).status, 200);
+  assert.equal(await groups(), before);
+});

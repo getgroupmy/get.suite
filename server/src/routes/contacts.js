@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { binAndDelete, restoreFromBin } from '../recyclebin.js';
 import { expand } from '../calmath.js';
 import { outEvent } from './calendar.js';
 import { q, tx } from '../db.js';
@@ -323,7 +324,12 @@ export default function contactRoutes() {
     q('UPDATE contact_groups SET name = ?, members = ? WHERE id = ?').run(name, JSON.stringify(members), g.id);
     res.json(groupsOf(req.user.id).find((x) => x.id === g.id));
   });
-  r.delete('/groups/:id', (req, res) => { q('DELETE FROM contact_groups WHERE id = ?').run(ownGroup(req).id); res.json({ ok: true }); });
+  r.delete('/groups/:id', (req, res) => { const g = ownGroup(req); res.json({ ok: true, bin_id: binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id }) }); });
+  r.post('/groups/bin/:id/restore', (req, res) => {
+    const back = restoreFromBin(req.params.id, req.user.id);
+    if (!back || back.kind !== 'contact_group') throw notFound('Not in your recently deleted groups');
+    res.json({ ok: true, id: back.item_id });
+  });
 
   // People you've emailed who aren't in your contacts.
   r.get('/other', (req, res) => res.json(otherContactsOf(req.user.id)));
