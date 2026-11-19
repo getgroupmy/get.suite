@@ -32,3 +32,8 @@ test('SUBTOTAL 109 and AGGREGATE leave out the rows a filter or Hide row hides; 
   const col = csv.trim().split(/\r?\n/).map((l) => l.split(',')[3]);
   assert.deepEqual(col.slice(0, 4), ['10', '40', '10', '100'], 'filtered and hidden: 10; filtered only: 10+30; AGGREGATE 5: 10; SUM: all');
 });
+
+test('a grand SUBTOTAL over subtotals counts each row once in a download too', async () => {
+  const csv = await delimitedFromSheet({ sheets: [{ name: 'Sheet1', cells: { A1: '10', A2: '20', A3: '=SUBTOTAL(9,A1:A2)', A4: '5', A5: '=SUBTOTAL(9,A4)', A6: '=SUBTOTAL(9,A1:A5)' } }] }, 0);
+  assert.equal(csv.trim().split(/\r?\n/)[5], '35');
+});

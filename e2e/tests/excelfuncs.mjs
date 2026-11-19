@@ -91,6 +91,12 @@ await step('a filter: SUBTOTAL(109) totals only the rows still shown; SUM all of
   const csv = await page.evaluate(async (f) => (await fetch(`/api/files/${f}/export?format=csv`)).text(), id);
   if (!/^Team,Hours,,40\r?$/m.test(csv)) throw new Error(`the CSV has ${JSON.stringify(csv.split(/\r?\n/)[0])}`);
 });
+await step('a report with subtotals: the grand SUBTOTAL counts each row once', async () => {
+  const cells3 = { A1: 'North', B1: '10', A2: 'North', B2: '20', A3: 'North total', B3: '=SUBTOTAL(9,B1:B2)', A4: 'South', B4: '5', A5: 'South total', B5: '=SUBTOTAL(9,B4)', A6: 'Grand total', B6: '=SUBTOTAL(9,B1:B5)', B7: '=SUM(B1:B5)' };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Report', content: { sheets: [{ name: 'Sheet1', cells: cells3 }] } })).body.id;
+  await page.goto(`${B}/sheets/${id}`);
+  await until(async () => (await cell('B3').innerText()) === '30' && (await cell('B6').innerText()) === '35' && (await cell('B7').innerText()) === '70'); // SUM counts the subtotals too: 10+20+30+5+5
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');

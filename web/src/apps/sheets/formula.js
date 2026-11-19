@@ -2053,6 +2053,10 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           const o = isAgg && opt && opt.k !== 'empty' ? Math.trunc(toNum(scalar(evaluate(opt)))) : 0;
           const hidden = hiddenHere();
           const skip = isAgg ? ([1, 3, 5, 7].includes(o) ? hidden.all : null) : num > 100 ? hidden.all : hidden.filtered;
+          // Other SUBTOTAL and AGGREGATE cells in the range are left out (always for SUBTOTAL, options 0–3 for AGGREGATE),
+          // so a grand total over rows with subtotals in them doesn't count anything twice.
+          const nested = !isAgg || o <= 3;
+          const isTotal = (key) => nested && typeof cells[key] === 'string' && /^=\s*(SUBTOTAL|AGGREGATE)\s*\(/i.test(cells[key]);
           const read = (a, soft) => {
             if (a.k !== 'range') { try { return evaluate(a); } catch (e) { if (soft && e instanceof FormulaError) return errorValue(e); throw e; } }
             if (!a.a || !a.b) err('#REF!');
@@ -2060,6 +2064,7 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
             for (let r = Math.min(a.a.r, a.b.r); r <= Math.max(a.a.r, a.b.r); r++) {
               if (skip?.has(r)) continue;
               for (let c = Math.min(a.a.c, a.b.c); c <= Math.max(a.a.c, a.b.c); c++) {
+                if (isTotal(cellKey(c, r))) continue;
                 try { out.push(valueOf(cellKey(c, r))); } catch (e) { if (soft && e instanceof FormulaError) out.push(errorValue(e)); else throw e; }
               }
             }

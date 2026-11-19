@@ -128,3 +128,9 @@ test('with the rows a sheet hides: SUBTOTAL 1–11 leaves out filtered rows, 101
   const plain = bookEvaluator([sheet], 0);
   assert.equal(plain('D1'), 100, 'without the hidden rows given: everything (as before)');
 });
+
+test('a grand SUBTOTAL leaves out the subtotals inside its range (and AGGREGATE with options 0–3)', () => {
+  const ev = createEvaluator({ B2: 10, B3: 20, B4: '=SUBTOTAL(9,B2:B3)', B5: 5, B6: 7, B7: '=SUBTOTAL(9,B5:B6)',
+    B8: '=SUBTOTAL(9,B2:B7)', B9: '=SUM(B2:B7)', B10: '=AGGREGATE(9,0,B2:B7)', B11: '=AGGREGATE(9,4,B2:B7)', B12: '=SUBTOTAL(2,B2:B7)' });
+  assert.deepEqual(['B4', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12'].map((k) => ev(k)), [30, 12, 42, 84, 42, 84, 4]);
+});
