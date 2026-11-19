@@ -3358,3 +3358,6 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 }
 /* The open message's buttons wrap onto a second row rather than going off the edge. */
 .reader-actions { flex-wrap: wrap; }
+/* The working-location row: each day's button fills its column and no more (its menu's wrapper too), and on a phone an unset day just shows +. */
+.tg-loc-cell > * { display: block; width: 100%; min-width: 0; }
+@media (max-width: 700px) { .tg-loc-word { display: none; } .tg-loc-btn { padding: 2px; text-align: center; } }

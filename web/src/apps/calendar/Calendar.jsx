@@ -801,7 +801,7 @@ function TimeInsights({ anchor, onClose }) {
 function LocationCell({ date, loc, onLocation }) {
   const label = new Date(`${date}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
   return (
-    <Menu align="left" trigger={(p) => <button type="button" className={`tg-loc-btn ${loc ? 'set' : ''}`} aria-label={`Working location on ${label}: ${loc ? placeText(loc) : 'not set'}`} {...p}>{loc ? placeText(loc) : '+ Location'}</button>}
+    <Menu align="left" trigger={(p) => <button type="button" className={`tg-loc-btn ${loc ? 'set' : ''}`} aria-label={`Working location on ${label}: ${loc ? placeText(loc) : 'not set'}`} {...p}>{loc ? placeText(loc) : <>+<span className="tg-loc-word"> Location</span></>}</button>}
       items={[
         ...PLACES.map(([k, icon, name]) => ({ label: `${loc?.place === k ? '✓ ' : ''}${icon} ${k === 'other' ? 'Elsewhere…' : name}`, onClick: () => onLocation(date, k) })),
         ...(loc?.from === 'day' ? [{ label: 'Back to my usual week', onClick: () => onLocation(date, null) }] : []),
