@@ -2006,7 +2006,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'pdf') { const author = q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || ''; if (f.kind === 'sheet') return pdfFromSheet(content, f.name, { author }); return f.kind === 'slides' ? (notes ? notesPdfFromDeck : pdfFromDeck)(content, f.name, { pictureData, author }) : pdfFromDoc(numbered, f.name, { pictureData, setup: setupOf(f), author }); }
     if (type === 'txt') return Buffer.from(f.kind === 'slides' ? textFromDeck(content) : textFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
-    if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [] });
+    if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [], signatures: f.kind === 'doc' ? (await import('./signatures.js')).signedRecord(f.id) : null });
     if (type === 'ods') return odsFromSheet(content, { comments: cellCommentsOf(f.id) });
     if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name, comments: slideCommentsOf(f.id) });
     if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });

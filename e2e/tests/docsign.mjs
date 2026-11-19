@@ -123,6 +123,31 @@ await step('printing the signed document adds its signatures page', async () => 
   await page.emulateMedia({ media: 'screen' });
   if (await sec.isVisible()) throw new Error('shown on screen');
 });
+await step('the signed document downloaded as OpenDocument (.odt) ends with its signatures page too', async () => {
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.getByRole('region', { name: 'Signatures' }).getByText('Signed by everyone').waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as OpenDocument (.odt)' }).click()]);
+  const fs = await import('node:fs'); const path = await import('node:path'); const { execFileSync } = await import('node:child_process');
+  const bytes = fs.readFileSync(await dl.path());
+  const JSZip = (await import('module')).createRequire(new URL('../../server/package.json', import.meta.url).pathname)('jszip');
+  const zip = await JSZip.loadAsync(bytes);
+  const xml = await zip.file('content.xml').async('string');
+  if (!/<text:h [^>]*>Signatures<\/text:h>/.test(xml) || !/Kim Park/.test(xml) || !/Document fingerprint \(SHA-256\)/.test(xml)) throw new Error('no signatures page');
+  if (!/<svg:desc>Signature of Kim Park<\/svg:desc>/.test(xml)) throw new Error('Kim\'s drawn signature is missing');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { console.log('(LibreOffice is not installed here: the file itself was checked)'); return; }
+  const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+  try { // as LibreOffice prints it: the document, then the signatures on a page of their own
+    fs.writeFileSync(path.join(dir, 'Signed.odt'), bytes);
+    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'pdf', '--outdir', dir, path.join(dir, 'Signed.odt')], { stdio: 'ignore', timeout: 120000 });
+    let pages = null;
+    try { pages = execFileSync('pdftotext', [path.join(dir, 'Signed.pdf'), '-']).toString().split('\f'); } catch { console.log('(pdftotext is not installed here)'); }
+    if (pages) {
+      const last = pages.filter((t) => t.trim()).pop();
+      if (!/^\s*Signatures/.test(last) || !/Kim Park/.test(last) || !/SHA-256/.test(last)) throw new Error(last.slice(0, 300));
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -7866,7 +7866,7 @@ test('signatures: a signer can decline with a reason; it stops and the document 
   assert.equal((await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sdx@keepco.com'] })).status, 201, 'can be sent again');
 });
 
-test('signatures: a signed document\'s Word download ends with its signatures page', async () => {
+test('signatures: a signed document\'s Word and OpenDocument downloads end with its signatures page', async () => {
   const JSZip = (await import('jszip')).default;
   const kay = client(); await login(kay, 'kay@keepco.com');
   const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Deed', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Terms.' }] }] } })).body;
@@ -7874,7 +7874,9 @@ test('signatures: a signed document\'s Word download ends with its signatures pa
     const r = await kay('GET', `/api/files/${doc.id}/export?format=docx`, undefined, { binary: true });
     return (await JSZip.loadAsync(r.body)).file('word/document.xml').async('string');
   };
+  const odtOf = async () => JSZip.loadAsync((await kay('GET', `/api/files/${doc.id}/export?format=odt`, undefined, { binary: true })).body);
   assert.doesNotMatch(await xmlOf(), />Signatures</);
+  assert.doesNotMatch(await (await odtOf()).file('content.xml').async('string'), />Signatures</);
   const made = (await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['kay@keepco.com'] })).body;
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
   await kay('POST', `/api/public/sign/${made.signers[0].my_link.split('/sign/')[1]}`, { name: 'Kay Keeper', image: png, agree: true });
@@ -7883,6 +7885,13 @@ test('signatures: a signed document\'s Word download ends with its signatures pa
   assert.match(xml, />Kay Keeper</);
   assert.match(xml, new RegExp(made.hash));
   assert.match(xml, /<w:drawing>/, 'the drawn signature');
+  const odt = await odtOf();
+  const content = await odt.file('content.xml').async('string');
+  assert.match(content, /<text:p text:style-name="PageBreak"\/><text:h text:style-name="Heading_20_1" text:outline-level="1">Signatures<\/text:h>/);
+  assert.match(content, /<draw:image xlink:href="Pictures\/1\.png"[^>]*\/><svg:title>Signature<\/svg:title><svg:desc>Signature of Kay Keeper<\/svg:desc>/, 'the drawn signature');
+  assert.match(content, new RegExp(`Document fingerprint \\(SHA-256\\): ${made.hash}`));
+  assert.match(await odt.file('META-INF/manifest.xml').async('string'), /full-path="Pictures\/1\.png" manifest:media-type="image\/png"/);
+  assert.ok(odt.file('Pictures/1.png'));
 });
 
 test('company password rules: kept by admins, applied to new passwords, and expiry asks for a new one', async () => {

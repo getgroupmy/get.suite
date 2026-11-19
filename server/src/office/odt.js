@@ -86,7 +86,7 @@ export function normalText(page) {
   return `${font} fo:font-size="${size}pt"`;
 }
 
-export async function odtFromDoc(doc, title = 'Document', { pictureData, page = null, comments = [] } = {}) {
+export async function odtFromDoc(doc, title = 'Document', { pictureData, page = null, comments = [], signatures = null } = {}) {
   doc = flattenTabs(doc);
   // Comment threads: each an annotation where its words start (its replies after it, as LibreOffice writes them),
   // ended where its words end. The text nodes carrying each thread's mark, first and last.
@@ -318,7 +318,24 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     return out;
   };
   let tableNo = 0;
-  const body = blocks(doc?.content) || '<text:p text:style-name="Standard"/>';
+  // A signed document: the signatures on a page of their own at the end, as in the Word download.
+  const signaturePage = (sig) => {
+    const stamp = (t) => `${new Date(t).toISOString().replace('T', ' ').slice(0, 16)} UTC`;
+    const small = textStyle({ size: 9, color: '#666666' });
+    let out = '<text:p text:style-name="PageBreak"/><text:h text:style-name="Heading_20_1" text:outline-level="1">Signatures</text:h>';
+    for (const sg of sig.signers || []) {
+      const png = typeof sg.image === 'string' && /^data:image\/png;base64,/.test(sg.image) ? Buffer.from(sg.image.split(',')[1], 'base64') : null;
+      if (png) { // drawn: the picture of it (5.8 by 1.7 cm, as in Word)
+        const pic = { path: `Pictures/${pictures.length + 1}.png`, data: png, mime: 'image/png' };
+        pictures.push(pic);
+        out += `<text:p text:style-name="Standard"><draw:frame draw:name="Signature ${pictures.length}" text:anchor-type="as-char" svg:width="5.82cm" svg:height="1.69cm"><draw:image xlink:href="${x(pic.path)}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/><svg:title>Signature</svg:title><svg:desc>${x(`Signature of ${sg.name || sg.email || ''}`)}</svg:desc></draw:frame></text:p>`;
+      } else out += `<text:p text:style-name="Standard"><text:span text:style-name="${textStyle({ italic: 1, size: 20 })}">${odfText(sg.name || '')}</text:span></text:p>`; // typed: the name, large, in italics
+      out += `<text:p text:style-name="SignatureLine"><text:span text:style-name="${textStyle({ bold: 1 })}">${odfText(sg.name || sg.email || '')}</text:span>${odfText(`  ${sg.email || ''}`)}</text:p>`;
+      out += `<text:p text:style-name="Standard"><text:span text:style-name="${small}">${odfText(`Signed ${stamp(sg.signed_at)}${sg.ip ? ` from ${sg.ip}` : ''} · ${png ? 'drawn' : 'typed'} signature`)}</text:span></text:p><text:p text:style-name="Standard"/>`;
+    }
+    return `${out}<text:p text:style-name="Standard"><text:span text:style-name="${textStyle({ size: 8, color: '#666666' })}">${odfText(`Signed electronically in Workspace; completed ${stamp(sig.completed_at)}. Document fingerprint (SHA-256): ${sig.hash}`)}</text:span></text:p>`;
+  };
+  const body = (blocks(doc?.content) || '<text:p text:style-name="Standard"/>') + (signatures?.signers?.length ? signaturePage(signatures) : '');
 
   const textProps = (p) => [
     p.bold && 'fo:font-weight="bold" style:font-weight-asian="bold" style:font-weight-complex="bold"',
@@ -351,7 +368,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<style:style style:name="Heading_20_${l}" style:display-name="Heading ${l}" style:family="paragraph" style:parent-style-name="Heading" style:default-outline-level="${l}" style:class="text"><style:text-properties fo:font-size="${pt}pt"/></style:style>`).join('\n')}
 <style:style style:name="Quotations" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-left="1cm" fo:padding-left="0.2cm" fo:border-left="1.5pt solid #bbbbbb"/></style:style>
 <style:style style:name="Preformatted_20_Text" style:display-name="Preformatted Text" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:text-properties style:font-name="Liberation Mono" fo:font-family="'Liberation Mono'" fo:font-size="10pt"/></style:style>
-<style:style style:name="Contents_20_Heading" style:display-name="Contents Heading" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-top="0.2cm" fo:margin-bottom="0.2cm"/><style:text-properties fo:font-size="14pt" fo:font-weight="bold"/></style:style>${[1, 2, 3, 4, 5, 6].map((l) => `<style:style style:name="Contents_20_${l}" style:display-name="Contents ${l}" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-left="${((l - 1) * 0.5).toFixed(1)}cm" fo:margin-top="0cm" fo:margin-bottom="0.1cm"/></style:style>`).join('')}<style:style style:name="Index_20_Link" style:display-name="Index Link" style:family="text"/><style:style style:name="Horizontal_20_Line" style:display-name="Horizontal Line" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:padding="0cm" fo:border-bottom="0.5pt solid #bbbbbb"/></style:style>
+<style:style style:name="SignatureLine" style:display-name="Signature Line" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:padding-top="0.05cm" fo:border-top="0.75pt solid #999999" fo:border-bottom="none" fo:border-left="none" fo:border-right="none"/></style:style><style:style style:name="Contents_20_Heading" style:display-name="Contents Heading" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-top="0.2cm" fo:margin-bottom="0.2cm"/><style:text-properties fo:font-size="14pt" fo:font-weight="bold"/></style:style>${[1, 2, 3, 4, 5, 6].map((l) => `<style:style style:name="Contents_20_${l}" style:display-name="Contents ${l}" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-left="${((l - 1) * 0.5).toFixed(1)}cm" fo:margin-top="0cm" fo:margin-bottom="0.1cm"/></style:style>`).join('')}<style:style style:name="Index_20_Link" style:display-name="Index Link" style:family="text"/><style:style style:name="Horizontal_20_Line" style:display-name="Horizontal Line" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:padding="0cm" fo:border-bottom="0.5pt solid #bbbbbb"/></style:style>
 <style:style style:name="Table_20_Contents" style:display-name="Table Contents" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"/>
 <style:style style:name="Table_20_Heading" style:display-name="Table Heading" style:family="paragraph" style:parent-style-name="Table_20_Contents" style:class="extra"><style:text-properties fo:font-weight="bold"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:text-properties fo:font-size="9pt"/></style:style>
