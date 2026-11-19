@@ -29,6 +29,12 @@ export const layoutProblems = (page) => page.evaluate(() => {
       const q = c.getBoundingClientRect();
       if (q.right > window.innerWidth + 1) { out.push(`“${(c.getAttribute('aria-label') || c.textContent || '').trim().slice(0, 30)}” beside “${text}” goes off the edge`); break; }
     }
+    // Where its words actually are (a heading's box spans the whole row, its text needn't).
+    const range = document.createRange(); range.selectNodeContents(h);
+    // Only its visible part: a heading cut off with an ellipsis reports its full width.
+    const hb = h.getBoundingClientRect(), hs = getComputedStyle(h);
+    const cut = hs.overflowX !== 'visible';
+    const words = [...range.getClientRects()].filter((x) => x.width > 0).map((x) => (cut ? { left: Math.max(x.left, hb.left), right: Math.min(x.right, hb.right), top: x.top, bottom: x.bottom, width: Math.min(x.right, hb.right) - Math.max(x.left, hb.left) } : x)).filter((x) => x.width > 0);
     // Other text drawn over its words (a label beside it that didn't make room).
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -44,12 +50,10 @@ export const layoutProblems = (page) => page.evaluate(() => {
         if (st.overflowX !== 'visible' || st.overflowY !== 'visible') { const b = a.getBoundingClientRect(); clip = { left: Math.max(clip.left, b.left), top: Math.max(clip.top, b.top), right: Math.min(clip.right, b.right), bottom: Math.min(clip.bottom, b.bottom) }; }
       }
       const visible = [...tr.getClientRects()].map((x) => ({ left: Math.max(x.left, clip.left), top: Math.max(x.top, clip.top), right: Math.min(x.right, clip.right), bottom: Math.min(x.bottom, clip.bottom), width: Math.min(x.right, clip.right) - Math.max(x.left, clip.left) }));
-      const hit = visible.find((x) => x.width > 0 && Math.abs(x.top - r.top) < r.height + 40 && [...(() => { const k = document.createRange(); k.selectNodeContents(h); return k.getClientRects(); })()].some((t) => over(t, x)));
+      const hit = visible.find((x) => x.width > 0 && Math.abs(x.top - r.top) < r.height + 40 && words.some((t) => over(t, x)));
       if (hit) { out.push(`“${text}” under the text “${n.textContent.trim().slice(0, 30)}” (${n.parentElement.tagName.toLowerCase()}.${String(n.parentElement.className).split(' ')[0]} at ${Math.round(hit.left)},${Math.round(hit.top)})`); break; }
     }
-    // Where its words actually are (a heading's box spans the whole row, its text needn't).
-    const range = document.createRange(); range.selectNodeContents(h);
-    const words = [...range.getClientRects()].filter((x) => x.width > 0);
+
     for (const c of controls) {
       if (h.contains(c) || c.contains(h)) continue;
       const q = c.getBoundingClientRect();

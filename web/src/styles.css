@@ -3361,3 +3361,6 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* The working-location row: each day's button fills its column and no more (its menu's wrapper too), and on a phone an unset day just shows +. */
 .tg-loc-cell > * { display: block; width: 100%; min-width: 0; }
 @media (max-width: 700px) { .tg-loc-word { display: none; } .tg-loc-btn { padding: 2px; text-align: center; } }
+/* A person's name in the Directory: a button, so the cell's own … would hide all of it; it gets its own …, showing as much as fits. */
+.files td.name .person-name { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+@media (max-width: 700px) { .files td.name .person-name { max-width: calc(100vw - 190px); } }
