@@ -504,7 +504,7 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
   return (
     <div className="stack">
       <div className="row wrap">
-        <strong className="grow nowrap" role="status">{fq ? `${responses.length} of ${all.length} responses` : responses.length === 1 ? '1 response' : `${responses.length} responses`}</strong>
+        <strong className="grow nowrap" style={{ flex: '1 0 auto' }} role="status">{fq ? `${responses.length} of ${all.length} responses` : responses.length === 1 ? '1 response' : `${responses.length} responses`}</strong>
         <label className="check"><input type="checkbox" checked={form.accepting} onChange={(e) => setting({ accepting: e.target.checked })} /> Accepting responses</label>
         <a className="btn" href={`/api/forms/${form.id}/responses.csv${query}`} download>Download CSV</a>
         <a className="btn" href={`/api/forms/${form.id}/responses.xlsx${query}`} download>Download Excel</a>

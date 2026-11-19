@@ -67,6 +67,13 @@ await step('setup: a channel with a thread, a list with tasks', async () => {
   const shared = SCREENS.find(([n]) => n === 'doc editor')[1].split('/').pop();
   SCREENS.push(['Share dialog', `/drive?share=${shared}`, null, 'dialog']);
   SCREENS.push(['notification settings', '/home', ['Notifications', 'Notification settings']]);
+  // More views and dialogs, for text drawn over text.
+  const taskList = SCREENS.find(([n]) => n === 'task list');
+  if (taskList) for (const v of ['Board', 'Timeline']) SCREENS.push([`Tasks ${v}`, taskList[1], v]);
+  for (const d of ['Working hours', 'Calendar settings', 'Booking pages']) SCREENS.push([`Calendar: ${d}`, '/calendar', d]);
+  const formEd = SCREENS.find(([n]) => n === 'form editor');
+  if (formEd) { SCREENS.push(['form responses', formEd[1], 'Responses (0)']); SCREENS.push(['form settings', formEd[1], 'Settings']); }
+  SCREENS.push(['new contact', '/contacts', 'New contact']);
   for (const tab of ['company', 'checkup', 'links', 'system', 'reports', 'phishing', 'announcements', 'apps', 'storage', 'activity', 'drives']) SCREENS.push([`Admin ${tab}`, `/admin?tab=${tab}`]);
 });
 for (const width of WIDTHS) {
@@ -77,7 +84,7 @@ for (const width of WIDTHS) {
       await page.waitForLoadState('networkidle').catch(() => {});
       await page.waitForTimeout(400);
       for (const what of [].concat(open || [])) { // a panel, view or dialog to open first: buttons, or a view in a switch
-        const b = page.getByRole('button', { name: what, exact: true }).or(page.getByRole('radio', { name: what, exact: true })).first();
+        const b = page.getByRole('button', { name: what, exact: true }).or(page.getByRole('radio', { name: what, exact: true })).or(page.getByRole('tab', { name: what, exact: true })).first();
         if (!(await b.count())) throw new Error(`${name}: no “${what}” to open`);
         await b.click();
         await page.waitForTimeout(500);
