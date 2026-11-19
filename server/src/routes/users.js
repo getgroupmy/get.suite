@@ -884,6 +884,10 @@ export default function userRoutes() {
       }
       req.moved = moved;
       req.handedOver = handOverWork(u.id, heir?.id, req.user.id);
+      // Links they made to files that stay (given to a colleague, or someone else's they could share) keep
+      // working, now the file owner's (who is told before one ends, and can stop it).
+      req.handedOver.links = q(`UPDATE share_links SET created_by = (SELECT owner_id FROM files WHERE files.id = share_links.file_id)
+        WHERE created_by = ? AND (SELECT owner_id FROM files WHERE files.id = share_links.file_id) != ?`).run(u.id, u.id).changes;
       // Upcoming meetings they organise (and repeating ones still going): the colleague becomes the organiser,
       // keeping the guests; past ones go with the account.
       if (eventsHeir) {

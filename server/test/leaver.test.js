@@ -79,7 +79,7 @@ test('deleted with nobody given their files: what they shared goes to Carol, the
   const w = await workOf('bob');
   const r = await admin('DELETE', `/api/users/${people.bob.id}`);
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body.handed_over, { lists: 1, forms: 1, notes: 1, calendars: 1, contacts: 1 });
+  assert.deepEqual(r.body.handed_over, { lists: 1, forms: 1, notes: 1, calendars: 1, contacts: 1, links: 0 });
   const evs = await calendarEvents(people.carol.c);
   for (const n of ['bob past offsite', 'bob next offsite']) assert.ok(evs.includes(n), `${n} on Carol's calendar (${evs})`);
   assert.ok((await contacts(admin)).includes('bob supplier'), 'the company contact, now kept by the admin');
@@ -101,7 +101,7 @@ test('deleted with their files given to Dan: Dan gets all of it, Carol keeps her
   const w = await workOf('eve');
   const r = await admin('DELETE', `/api/users/${people.eve.id}?transfer_to=${people.dan.id}`);
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(r.body.handed_over, { lists: 2, forms: 2, notes: 2, calendars: 1, contacts: 1 });
+  assert.deepEqual(r.body.handed_over, { lists: 2, forms: 2, notes: 2, calendars: 1, contacts: 1, links: 0 });
   for (const n of ['eve past offsite', 'eve next offsite']) assert.ok((await calendarEvents(people.carol.c)).includes(n), `${n} still on Carol's calendar`);
   for (const n of ['eve past offsite', 'eve next offsite']) assert.ok((await calendarEvents(people.dan.c)).includes(n), `${n} on Dan's`);
   const sup = (await people.dan.c('GET', '/api/contacts')).body.find((x) => x.name === 'eve supplier');
@@ -114,4 +114,23 @@ test('deleted with their files given to Dan: Dan gets all of it, Carol keeps her
   assert.ok((await forms(c)).includes('eve survey'), 'Carol still edits the form');
   assert.ok((await notes(c)).includes('eve shared note'), 'Carol still has the note');
   void w;
+});
+
+test('links they made keep working when their files are given to a colleague (now that colleague’s)', async () => {
+  const r0 = await admin('POST', '/api/users', { local: 'fay', domain: 'acme.com', name: 'Fay F', password: 'password123' });
+  people.fay = { id: r0.body.id };
+  const fay = await signIn('fay');
+  const res = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: JSON.stringify({ username: 'fay@acme.com', password: 'password123' }) });
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  const file = await (await fetch(`${base}/api/files/upload?name=brochure.pdf`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie }, body: 'hello' })).json();
+  const link = (await fay('POST', '/api/links', { file_id: file.id })).body;
+  assert.ok(link?.token, JSON.stringify(link));
+  const opens = async (t) => (await fetch(`${base}/api/public/links/${t}`)).status;
+  assert.equal(await opens(link.token), 200);
+  const r = await admin('DELETE', `/api/users/${people.fay.id}?transfer_to=${people.dan.id}`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.handed_over.links, 1);
+  assert.equal(await opens(link.token), 200, 'the partner’s link still opens the brochure');
+  const { q } = await import('../src/db.js');
+  assert.equal(q('SELECT created_by FROM share_links WHERE token = ?').get(link.token).created_by, people.dan.id, 'now Dan’s to manage');
 });

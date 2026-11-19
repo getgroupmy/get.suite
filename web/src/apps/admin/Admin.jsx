@@ -424,7 +424,7 @@ function Users({ orgId, setOrgId }) {
           const mail = r.mail_to ? `; their email now goes to ${r.mail_to}` : '';
           const meetings = dialog.eventsTo && r.meetings_moved ? `; ${r.meetings_moved} meeting${r.meetings_moved === 1 ? '' : 's'} given to ${users.find((x) => x.id === dialog.eventsTo)?.name}` : '';
           const h = r.handed_over || {};
-          const work = [[h.lists, 'task list'], [h.forms, 'form'], [h.notes, 'note'], [h.calendars, 'calendar'], [h.contacts, 'company contact']].filter(([n]) => n).map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`);
+          const work = [[h.lists, 'task list'], [h.forms, 'form'], [h.notes, 'note'], [h.calendars, 'calendar'], [h.contacts, 'company contact'], [h.links, 'public link']].filter(([n]) => n).map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`);
           const handed = work.length ? `; ${work.join(', ')} kept for ${dialog.heir ? users.find((x) => x.id === dialog.heir)?.name : 'the people they were shared with'}` : '';
           toast(`User deleted${given}${kept}${mail}${meetings}${handed}`); load();
         }}>
