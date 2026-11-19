@@ -29,7 +29,7 @@ import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway, accessRequestsFor } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
-import { resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
+import { recheckSoon, resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
 import { deckFromOutline } from '../decktext.js';
@@ -538,7 +538,8 @@ const SEARCH_TYPES = {
 export default function fileRoutes({ maxUploadBytes }) {
   const r = Router();
   // After any change, the search index catches up within a couple of seconds.
-  r.use((req, res, next) => { if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 300) indexSoon(); }); next(); });
+  // and anyone with the file open is checked for what they may do now (sharing, locking, trash).
+  r.use((req, res, next) => { if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 300) { indexSoon(); recheckSoon(); } }); next(); });
 
   // List: ?view=mine|shared|recent|trash|search & parent= & q= (search: & type= & owner=me|others & modified=days)
   // Suggested files at the top of My Drive (suggested.js).

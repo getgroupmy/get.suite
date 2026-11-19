@@ -189,6 +189,33 @@ function leave(room, ws) {
   try { ws.close(); } catch {}
 }
 
+// What each open connection may do is decided when it opens. When that changes (unshared, made a viewer or
+// an editor, the file locked, unlocked or trashed, a group or folder share changed), the connection closes
+// with 4000, and the editor opens again with what the person may do now (or the "no access" page).
+const rightsOf = (room, userId) => {
+  const f = q('SELECT trashed, locked_at FROM files WHERE id = ?').get(room.fileId);
+  const role = f && !f.trashed ? roleFor(room.fileId, userId) : null;
+  return { role, canEdit: !!role && atLeast(role, 'editor') && !f.locked_at, canSuggest: !!role && room.kind === 'doc' && role === 'commenter' && !f.locked_at };
+};
+/** Close the connections whose rights have changed. Returns how many. */
+export function recheckAccess() {
+  let n = 0;
+  for (const room of [...rooms.values()]) {
+    for (const [ws, c] of [...room.conns]) {
+      const cur = rightsOf(room, c.userId);
+      if (cur.role && cur.canEdit === c.canEdit && cur.canSuggest === c.canSuggest) continue;
+      n++;
+      room.conns.get(ws).canEdit = false; // nothing more from it, whatever arrives before it's closed
+      room.conns.get(ws).canSuggest = false;
+      try { ws.close(4000, cur.role ? 'access changed' : 'no access'); } catch { /* gone */ }
+    }
+  }
+  return n;
+}
+let recheckTimer = null;
+export function recheckSoon() { if (!recheckTimer) recheckTimer = setTimeout(() => { recheckTimer = null; recheckAccess(); }, 0); }
+setInterval(recheckAccess, 5000).unref();
+
 /** Everyone editing this document starts again from what's stored (after a version is restored). */
 export function resetRoom(fileId) {
   const room = rooms.get(fileId);
