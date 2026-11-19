@@ -12,7 +12,7 @@ import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
 import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import { latexToMathml, mathmlToLatex } from './mathml.js';
-import { docFromHtml, columnWidthsOf } from './word.js';
+import { docFromHtml, columnWidthsOf, widthOfPicture } from './word.js';
 
 // The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
 const ODT_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
@@ -27,12 +27,17 @@ const COLOR = /^#[0-9a-f]{6}$/i;
 
 // ---- document → .odt ----
 /** The page: paper size and orientation, margins and page colour from Page setup (A4 portrait, 2 cm, white without one). */
-export function pageLayout(page) {
-  const PAPER = { a4: [210, 297], letter: [215.9, 279.4], legal: [215.9, 355.6], a5: [148, 210] }, MARGINS = { normal: 25.4, narrow: 12.7, wide: 38.1 };
-  let [w, h] = PAPER[page?.size] || PAPER.a4;
+const PAPER_MM = { a4: [210, 297], letter: [215.9, 279.4], legal: [215.9, 355.6], a5: [148, 210] }, MARGINS_MM = { normal: 25.4, narrow: 12.7, wide: 38.1 };
+const paperOf = (page) => {
+  let [w, h] = PAPER_MM[page?.size] || PAPER_MM.a4;
   const landscape = page?.orientation === 'landscape';
   if (landscape) [w, h] = [h, w];
-  const m = page?.margin ? MARGINS[page.margin] || 20 : 20;
+  return { w, h, landscape, m: page?.margin ? MARGINS_MM[page.margin] || 20 : 20 };
+};
+/** The width between the margins, in cm (17 on A4 without Page setup). */
+export const textWidthCm = (page) => { const { w, m } = paperOf(page); return (w - 2 * m) / 10; };
+export function pageLayout(page) {
+  const { w, h, landscape, m } = paperOf(page);
   const cm = (mm) => `${+(mm / 10).toFixed(3)}cm`;
   const bg = /^#[0-9a-f]{6}$/i.test(page?.pageColor || '') ? ` fo:background-color="${page.pageColor.toLowerCase()}"` : '';
   return `fo:page-width="${cm(w)}" fo:page-height="${cm(h)}" style:print-orientation="${landscape ? 'landscape' : 'portrait'}" fo:margin-top="${cm(m)}" fo:margin-bottom="${cm(m)}" fo:margin-left="${cm(m)}" fo:margin-right="${cm(m)}"${bg}`;
@@ -160,11 +165,12 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     const id = n.attrs?.fileId;
     const p = id && picturesById.get(id);
     if (!p) return n.attrs?.alt ? odfText(`[${n.attrs.alt}]`) : '';
-    // Its size: the width chosen in the document (pixels), or as it is, at most the page's width (17 cm).
+    // Its size: the share of the page's width chosen in Docs (25%, 50%…), or as it is, at most the page's width.
     let w = 400, h = 300;
     try { const s = imageSize(p.data); w = s.width; h = s.height; } catch { /* unknown size */ }
-    const want = Number(n.attrs?.width) || w;
-    const cm = Math.min(17, want * 2.54 / 96), hcm = cm * (h / w || 0.75);
+    const share = /^(\d+(?:\.\d+)?)%$/.exec(String(n.attrs?.width || ''))?.[1];
+    const textCm = textWidthCm(page);
+    const cm = share ? Math.max(0.3, Math.min(textCm, (textCm * Number(share)) / 100)) : Math.min(textCm, (w * 2.54) / 96), hcm = cm * (h / w || 0.75);
     return `<draw:frame draw:name="${x(p.path)}" text:anchor-type="as-char" svg:width="${cm.toFixed(2)}cm" svg:height="${hcm.toFixed(2)}cm"><draw:image xlink:href="${x(p.path)}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>${n.attrs?.alt ? `<svg:desc>${x(n.attrs.alt)}</svg:desc>` : ''}</draw:frame>`;
   };
   // The pictures first (each once), so they can be placed as they're met.
@@ -219,7 +225,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       else if (t === 'codeBlock') out += `<text:p text:style-name="Preformatted_20_Text">${odfText((n.content || []).map((c) => c.text).join(''))}</text:p>`;
       else if (t === 'horizontalRule') out += '<text:p text:style-name="Horizontal_20_Line"/>';
       else if (t === 'pageBreak') out += '<text:p text:style-name="PageBreak"/>';
-      else if (t === 'image') out += `<text:p text:style-name="Standard">${picture(n)}</text:p>`;
+      else if (t === 'image') out += `<text:p text:style-name="${styleOf('Standard', { textAlign: n.attrs?.align })}">${picture(n)}</text:p>`;
       else if (t === 'table') {
         const rows = n.content || [];
         const width = Math.max(1, ...rows.map((r) => (r.content || []).reduce((k, c) => k + (c.attrs?.colspan || 1), 0)));
@@ -414,6 +420,11 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const stylesXml = (await zip.file('styles.xml')?.async('string')) || '';
   const parse = (s) => parseDocument(s, { xmlMode: true, decodeEntities: true });
   const root = parse(contentXml), stylesRoot = parse(stylesXml);
+  const lengthCm = (v) => { const m = /^([\d.]+)(cm|mm|in|pt)$/.exec(String(v || '').trim()); return m ? Number(m[1]) * { cm: 1, mm: 0.1, in: 2.54, pt: 2.54 / 72 }[m[2]] : 0; };
+  // The width between the page's margins (the first page layout with a size), for pictures' sizes.
+  const pl = /<style:page-layout-properties\b([^>]*fo:page-width=[^>]*)>/.exec(stylesXml)?.[1] || '';
+  const plv = (k) => lengthCm(new RegExp(`${k}="([^"]+)"`).exec(pl)?.[1]);
+  const textCm = plv('fo:page-width') - plv('fo:margin-left') - plv('fo:margin-right');
   // Equations: each formula object's LaTeX (ours keep it; LibreOffice Math's are read from their MathML), by its folder.
   const formulas = new Map();
   for (const f of Object.keys(zip.files).filter((n) => /^[^/]+\/content\.xml$/.test(n)).slice(0, 500)) {
@@ -501,7 +512,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         case 'text:s': out += '\u00a0'.repeat(Math.min(100, Number(c.attribs['text:c']) || 1)); break; // kept, not folded into one
         case 'text:tab': out += '\t'; break;
         case 'text:line-break': out += '<br>'; break;
-        case 'text:span': out += wrap(await inline(c), look(c.attribs['text:style-name']).tp, true); break;
+        case 'text:span': { const st = look(c.attribs['text:style-name']); out += wrap(await inline(c), st.names.some((n) => /^(visited_20_)?internet_20_link$/.test(n)) ? {} : st.tp, true); break; } // a link's own look (blue, underlined) is the link's, not formatting
         case 'text:a': { const href = bookmarkHref(c.attribs['xlink:href'] || ''); out += /^\s*javascript:/i.test(href) ? await inline(c) : `<a href="${h(href)}">${await inline(c)}</a>`; break; }
         case 'text:note': { const body = kids(c).find((k) => k.name === 'text:note-body'); out += `<sup data-footnote="" data-note="${h(textOf(body || {}).trim())}"></sup>`; break; }
         case 'draw:frame': {
@@ -511,7 +522,13 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
           const img = kids(c).find((k) => k.name === 'draw:image');
           const alt = textOf(kids(c).find((k) => k.name === 'svg:desc' || k.name === 'svg:title') || { children: [] }).trim();
           const id = img && await pictureFor(img.attribs['xlink:href']);
-          if (id) out += `<img src="pic:${id}" alt="${h(alt)}">`;
+          if (id) {
+            // Its size as a share of the page (none when it's at its own size), as Docs keeps it.
+            const wcm = lengthCm(c.attribs['svg:width']);
+            let width = null;
+            if (wcm && textCm) { const f = zip.file(String(img.attribs['xlink:href']).replace(/^\.?\//, '')); width = widthOfPicture({ px: (wcm / 2.54) * 96, pagePx: (textCm / 2.54) * 96 }, f ? await f.async('nodebuffer') : null); }
+            out += `<img src="pic:${id}" alt="${h(alt)}"${width ? ` width="${width}"` : ''}>`;
+          }
           else if (kids(c).find((k) => k.name === 'draw:text-box')) out += await inline(kids(c).find((k) => k.name === 'draw:text-box'));
           else out += '<em>[picture]</em>';
           break;
@@ -579,6 +596,8 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     const steps = quote || (own['fo:text-indent'] && /^-/.test(own['fo:text-indent'])) ? 0 : Math.min(8, Math.round((ptOf(own['fo:margin-left'], 400) || 0) / 36));
     return (css.length ? ` style="${css.join('; ')}"` : '') + (steps > 0 ? ` data-indent="${steps}"` : '');
   };
+  // An empty paragraph with only a line under it: a horizontal line (how LibreOffice keeps Word's).
+  const ruleOnly = (pp) => /solid|double|dotted|dashed/.test(pp['fo:border-bottom'] || '') && !['fo:border-top', 'fo:border-left', 'fo:border-right'].some((k) => pp[k] && pp[k] !== 'none') && !/solid|double/.test(pp['fo:border'] || '');
   const blocks = async (el, depth = 0, listStyle = null) => {
     let out = '';
     for (const c of kids(el)) {
@@ -590,13 +609,17 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const st = look(sn), named = (re) => st.names.some((n) => re.test(n));
         const raw = await inline(c);
         if (st.pp['fo:break-before'] === 'page' && out) { out += '<div data-page-break=""></div>'; if (!raw.trim()) continue; }
-        if (named(/^horizontal( |_20_|_)line$/) && !raw.replace(/<[^>]+>/g, '').trim()) { out += '<hr>'; continue; }
+        if (!raw.replace(/<[^>]+>/g, '').trim() && !/<img |data-/.test(raw) && (named(/^horizontal( |_20_|_)line$/) || ruleOnly(st.pp))) { out += '<hr>'; continue; }
         // Code: LibreOffice's "Preformatted Text", or Word's "Code" kept from a .docx.
         if (named(/preformatted|^code$|^source(_20_| )text$|^html(_20_| )code$/)) { out += `<pre><code>${raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')}</code></pre>`; continue; }
-        if (/^\s*(<img [^>]*>\s*)+$/.test(raw)) { out += raw; continue; } // a picture on its own line: no empty paragraph around it
+        if (/^\s*(<img [^>]*>\s*)+$/.test(raw)) { // a picture on its own line: no empty paragraph around it, aligned as its line
+          const al = { center: 'center', end: 'right', right: 'right' }[st.pp['fo:text-align']];
+          out += al ? raw.replace(/<img /g, `<img align="${al}" `) : raw;
+          continue;
+        }
         const lv = named(/^title$/) ? 1 : st.level;
         const { 'fo:font-weight': weight, ...look2 } = st.tp; // a whole paragraph in a colour, italic…: on its text (a heading's boldness is its own)
-        const inner = raw ? wrap(raw, lv ? look2 : st.tp) : raw;
+        const inner = raw ? wrap(raw, lv || named(/^table(_20_| )heading$/) ? look2 : st.tp) : raw; // (a header cell's too: it shows bold)
         if (lv) out += `<h${Math.min(6, lv)}${alignAttr(sn)}>${inner}</h${Math.min(6, lv)}>`;
         else if (named(/^(quotations?|quote|intense(_20_| )quote)$/)) out += `<blockquote><p>${inner}</p></blockquote>`; // (LibreOffice's, or Word's kept from a .docx)
         else out += `<p${alignAttr(sn)}>${inner}</p>`;

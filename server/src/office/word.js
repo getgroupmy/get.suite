@@ -174,6 +174,9 @@ export function wordListCounter(numberingXml = '') {
     return c[ilvl];
   };
 }
+/** A run's font that means inline code: Consolas, or another fixed-width font that isn't one of Docs' own fonts. */
+const isCodeFont = (f) => !!f && (/^consolas$/i.test(f) || (/mono|courier|consolas/i.test(f) && !WORD_FONTS[f.toLowerCase()]));
+
 export function markWordXml(xml, { numbering = '' } = {}) {
   const count = wordListCounter(numbering);
   // Tracked changes (not the self-closing ones Word puts on paragraph marks): who and when, kept as markers;
@@ -191,9 +194,10 @@ export function markWordXml(xml, { numbering = '' } = {}) {
       const n = count(/<w:numId w:val="(\d+)"/.exec(np)?.[1], /<w:ilvl w:val="(\d+)"/.exec(np)?.[1] || '0');
       return n && n !== 1 ? para.replace(/(<\/w:pPr>)/, `$1${marker(`ls:${n}`)}`) : para;
     })
-    // Inline code (Consolas, as the download writes it), outside code blocks: marked, made code afterwards.
+    // Inline code (Consolas, as the download writes it, or another fixed-width font Docs doesn't offer, as LibreOffice
+    // writes ours), outside code blocks: marked, made code afterwards.
     .replace(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g, (para) => (/<w:pStyle w:val="(?:Code|HTMLPreformatted|PreformattedText)"\/>/.test(para) ? para
-      : para.replace(/<w:r(?=[\s>])[^>]*>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>/g, (r) => (/<w:rFonts\b[^>]*w:ascii="Consolas"/.test(r) && /<w:t\b/.test(r) ? `${marker('cd')}${r}${marker('/cd')}` : r))))
+      : para.replace(/<w:r(?=[\s>])[^>]*>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>/g, (r) => (isCodeFont(/<w:rFonts\b[^>]*w:ascii="([^"]+)"/.exec(r)?.[1]) && /<w:t\b/.test(r) ? `${marker('cd')}${r}${marker('/cd')}` : r))))
     .replace(/<w:ins\b([^>]*[^/])>([\s\S]*?)<\/w:ins>/g, (m, attrs, inner) => `${marker(`i:${who(attrs)}`)}${inner}${marker('/i')}`)
     .replace(/<w:del\b([^>]*[^/])>([\s\S]*?)<\/w:del>/g, (m, attrs, inner) => `${marker(`d:${who(attrs)}`)}${inner.replace(/<w:delText\b/g, '<w:t').replace(/<\/w:delText>/g, '</w:t>')}${marker('/d')}`)
     // Comments: where each one's text starts and ends (its id kept, to find its words afterwards).
@@ -292,10 +296,11 @@ export function unmarkWordHtml(html, commentId = null) {
     .replace(re('MKcdEND'), '<code>').replace(re('MK/cdEND'), '</code>')
     .replace(re('<ol>((?:<li>)(?:<p>)?)MKls:(\\d+)END'), (m, open, n) => `<ol start="${n}">${open}`)
     .replace(re('MKls:\\d+END'), '')
-    .replace(re('<p>(?:<[^>]+>)*MKhrEND(?:</[^p][^>]*>)*</p>'), '<hr>')
+    // (the tags around a marker are its own paragraph's: never a paragraph before it, with its pictures)
+    .replace(re('<p>(?:<(?!/?p[\\s>])[^>]+>)*MKhrEND(?:</[^p][^>]*>)*</p>'), '<hr>')
     // A page break alone in its paragraph (as the download writes it, and Word mostly does): the paragraph becomes one;
     // one in the middle of a paragraph ends it there.
-    .replace(re('<p>(?:<[^>]+>)*MKpbEND(?:</[^p][^>]*>)*</p>'), '<div data-page-break></div>')
+    .replace(re('<p>(?:<(?!/?p[\\s>])[^>]+>)*MKpbEND(?:</[^p][^>]*>)*</p>'), '<div data-page-break></div>')
     .replace(re('MKpbEND'), '</p><div data-page-break></div><p>')
     .replace(re('MK[^END]*END'), '');
 }
@@ -363,15 +368,56 @@ async function withMarks(buffer) {
  * `savePicture(name, data, mime)` keeps a picture as a Drive file and gives its id; without it,
  * pictures are left out with a note.
  */
+/**
+ * The pictures in a Word file's body, in order: how wide each is drawn and the width between the page's margins
+ * (both in px), for reading a picture's size back as Docs' share of the page. Empty when they can't be lined up
+ * with what mammoth reads (old VML pictures, say).
+ */
+export async function pictureSizesOfWord(buffer) {
+  try {
+    const xml = (await (await JSZip.loadAsync(buffer)).file('word/document.xml')?.async('string')) || '';
+    if (/<v:imagedata\b/.test(xml)) return [];
+    const sect = [...xml.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g)].pop()?.[0] || '';
+    const tw = (re) => Number(re.exec(sect)?.[1]) || 0;
+    const page = tw(/<w:pgSz\b[^>]*\bw:w="(\d+)"/) - tw(/<w:pgMar\b[^>]*\bw:left="(\d+)"/) - tw(/<w:pgMar\b[^>]*\bw:right="(\d+)"/);
+    const pagePx = page > 0 ? page / 15 : PAGE_PX;
+    return [...xml.matchAll(/<w:drawing>[\s\S]*?<\/w:drawing>/g)].map(([d]) => ({ px: Number(/<wp:extent\b[^>]*\bcx="(\d+)"/.exec(d)?.[1]) / 9525 || 0, pagePx }));
+  } catch { return []; }
+}
+
+/** A picture's width in Docs: none when it's drawn at its own size (up to the page's width), else its share of the page. */
+export function widthOfPicture({ px, pagePx }, data) {
+  if (!px || !pagePx) return null;
+  let natural = 0;
+  try { natural = (data && imageSize(data).width) || 0; } catch { /* unknown: a share */ }
+  if (natural && Math.abs(px - Math.min(natural, pagePx)) <= 1.5) return null;
+  const pct = Math.round((px / pagePx) * 100);
+  if (pct >= 99) return null;
+  const near = [25, 50, 75].find((k) => Math.abs(k - pct) <= 2); // the editor's sizes, a hair off on another paper size
+  return `${Math.max(5, near || pct)}%`;
+}
+
+/** A paragraph holding only pictures is those pictures (Docs' pictures stand on their own), with its alignment. */
+export function picturesOnTheirOwn(html) {
+  return html.replace(/<p(\s[^>]*)?>\s*((?:<img [^>]*>\s*)+)<\/p>/g, (m, attrs = '', imgs) => {
+    const align = /text-align:\s*(center|right)/.exec(attrs)?.[1] || /data-text-align="(center|right)"/.exec(attrs)?.[1];
+    return align ? imgs.replace(/<img /g, `<img align="${align}" `) : imgs;
+  });
+}
+
 export async function docFromWord(buffer, { savePicture } = {}) {
-  let n = 0;
+  let n = 0, seen = 0;
+  const sizes = await pictureSizesOfWord(buffer);
   const { value: marked, messages } = await mammoth.convertToHtml({ buffer: await withMarks(buffer) }, {
     convertImage: mammoth.images.imgElement(async (image) => {
+      const width = sizes.length ? sizes[seen] : null; // in the body's order, as mammoth meets them
+      seen++;
       const mime = image.contentType || '';
       if (!savePicture || !/^image\/(png|jpeg|gif|bmp|webp)$/.test(mime)) return { src: '', alt: '[picture]' };
       try {
-        const id = await savePicture(`Picture ${++n}.${mime.split('/')[1].replace('jpeg', 'jpg')}`, await image.read(), mime);
-        return { src: `pic:${id}`, alt: image.altText || '' };
+        const data = await image.read();
+        const id = await savePicture(`Picture ${++n}.${mime.split('/')[1].replace('jpeg', 'jpg')}`, data, mime);
+        return { src: `pic:${id}`, alt: image.altText || '', ...(width && widthOfPicture(width, data) && { width: widthOfPicture(width, data) }) };
       } catch { return { src: '', alt: '[picture]' }; }
     }),
     styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'p[style-name=\'Quote\'] => blockquote > p:fresh', 'p[style-name=\'Intense Quote\'] => blockquote > p:fresh', 'p[style-name=\'Quotations\'] => blockquote > p:fresh', 'p[style-name=\'Code\'] => pre:separator(\'\\n\')', 'p[style-name=\'HTML Preformatted\'] => pre:separator(\'\\n\')', 'p[style-name=\'Preformatted Text\'] => pre:separator(\'\\n\')', 'u => u'],
@@ -385,8 +431,9 @@ export async function docFromWord(buffer, { savePicture } = {}) {
     if (!ids.has(top)) ids.set(top, crypto.randomBytes(9).toString('base64url'));
     return ids.get(top);
   };
+  
   const html = unmarkWordHtml(marked, (wid) => (wordComments.has(wid) ? commentId(wid) : null));
-  const withNotes = bookmarksFromWord(footnotesFromWord(html)).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
+  const withNotes = picturesOnTheirOwn(bookmarksFromWord(footnotesFromWord(html))).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
   // A deletion right before an insertion, by the same person at the same time, is one replacement (as Docs makes them).
   const joinReplacements = (n) => {
@@ -661,6 +708,7 @@ function sectionSetup(setup) {
   };
 }
 
+const HEADING_RUNS = { heading1: { run: { size: 32 } }, heading2: { run: { size: 26 } }, heading3: { run: { size: 24 } }, heading4: { run: {} }, heading5: { run: {} }, heading6: { run: {} } };
 const PAGE_PX = 624; // the width between the margins of an A4/Letter page, at 96 to the inch
 /**
  * A table's column widths in pixels, when any column was given one (dragged in Docs): the row that says the most,
@@ -744,7 +792,8 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     let size;
     try { size = imageSize(p.data); } catch { size = { width: 400, height: 300 }; }
     const share = /^(\d+)%$/.test(n.attrs.width || '') ? Number(n.attrs.width.slice(0, -1)) / 100 : 1;
-    const w = Math.max(16, Math.min(size.width || 400, PAGE_PX * share));
+    const textPx = page ? ((pageMm(page)[0] - 2 * (MARGINS[page.margin] || MARGINS.normal)) / 25.4) * 96 : PAGE_PX; // between the margins
+    const w = Math.max(16, Math.min(size.width || 400, textPx * share));
     const h = Math.round(w * ((size.height || 300) / (size.width || 400)));
     return new Paragraph({
       alignment: ALIGN[n.attrs.align],
@@ -846,7 +895,11 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         paras.push(new Paragraph(''));
       }
       else if (n.type === 'pageBreak') paras.push(new Paragraph({ children: [new PageBreak()] }));
-      else if (n.type === 'table') { paras.push(table(n)); paras.push(new Paragraph('')); }
+      else if (n.type === 'table') { // an empty paragraph after it only where Word needs one: before another table (or they'd merge) and at the end
+        paras.push(table(n));
+        const next = nodes[nodes.indexOf(n) + 1];
+        if (!next || next.type === 'table') paras.push(new Paragraph(''));
+      }
       else if (n.content) walk(n.content, ctx);
     }
   }
@@ -883,7 +936,11 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     numbering: { config: [...new Set([1, ...starts])].map((start) => ({ reference: `numbers-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) })) },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
     styles: {
-      ...((page?.font || page?.fontSize) && { default: { document: { run: { ...(page.font && { font: page.font }), ...(page.fontSize && { size: page.fontSize * 2 }) } } } }), // Normal text: half-points
+      default: {
+        ...((page?.font || page?.fontSize) && { document: { run: { ...(page.font && { font: page.font }), ...(page.fontSize && { size: page.fontSize * 2 }) } } }), // Normal text: half-points
+        // Headings in the text's own colour, as Docs shows them (the library's are blue, and Heading 4 italic).
+        ...HEADING_RUNS,
+      },
       paragraphStyles: [{ id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' } }, { id: 'Code', name: 'Code', basedOn: 'Normal', next: 'Normal', run: { font: 'Consolas' }, paragraph: { spacing: { after: 0 } } }], // quotes (blockquotes); code blocks
     },
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
