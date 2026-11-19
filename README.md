@@ -662,6 +662,8 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - Repeats that Workspace can't show (such as "the fifth Monday" or "every Monday and Wednesday of the month") arrive as a one-off on the first date.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
 
+**Changed on a phone, nothing else lost:** a phone's contacts or calendar app sends the whole card or event back when you change it there. What the phone doesn't know about stays as it was: a contact's extra numbers and addresses, dates, fields of your own and reminder to keep in touch; an event's colour, guests, reminders, attachments, privacy, *show as* and time zone.
+
 ## Word, Excel, PowerPoint and OpenDocument files
 
 - **Previewing:** opening a `.docx`, `.odt`, `.xlsx`, `.ods`, `.pptx` or `.odp` file in Drive (or an email or chat attachment) shows it read-only in the preview, as Docs, Sheets or Slides would (up to 20 MB; nothing is copied). Anyone it's shared with can look, view-only files included.
