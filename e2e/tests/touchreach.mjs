@@ -2,6 +2,7 @@
 // row (a tile's ⋮, a notification's buttons, a folder's menu…) must show without it. On a phone and a tablet
 // (touch, no hover), no button on the main screens is left see-through.
 import { chromium, devices } from 'playwright';
+import { textOverlaps } from './lib/layoutcheck.mjs';
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
 const browser = await chromium.launch();
@@ -120,7 +121,8 @@ await step('on a phone, buttons are big enough to tap (24×24, or room around th
       }).map((el, i) => `${(el.getAttribute('aria-label') || el.textContent || el.type || '').trim().slice(0, 30)} (${Math.round(el.getBoundingClientRect().width)}×${Math.round(el.getBoundingClientRect().height)})`);
     });
     await page.screenshot({ path: `${SP}/shots/tap-${name.replace(/\W+/g, '_')}.png` });
-    if (small.length) found.push(`${name}: ${[...new Set(small)].join(', ')}`);
+    const over = await textOverlaps(page);
+    if (small.length || over.length) found.push(`${name}: ${[...new Set(small), ...over].join(', ')}`);
   }
   if (found.length) throw new Error(found.join(' | '));
 });

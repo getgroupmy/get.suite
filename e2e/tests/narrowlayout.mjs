@@ -2,7 +2,7 @@
 // screen's heading is readable (not squeezed to a sliver, not under a button or a field). Found once by
 // chance in Chat's header with a thread open; this looks everywhere.
 import { chromium } from 'playwright';
-import { layoutProblems } from './lib/layoutcheck.mjs';
+import { layoutProblems, textOverlaps } from './lib/layoutcheck.mjs';
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
 const browser = await chromium.launch();
@@ -32,7 +32,7 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
 
-const problems = () => layoutProblems(page);
+const problems = async () => [...await layoutProblems(page), ...await textOverlaps(page)];
 
 const SCREENS = [['Home', '/home'], ['Mail', '/mail'], ['Drive', '/drive'], ['Calendar', '/calendar'], ['Chat', '/chat'], ['Tasks', '/tasks'],
   ['Contacts', '/contacts'], ['Notes', '/notes'], ['Forms', '/forms'], ['Meet', '/meet'], ['Settings', '/settings'], ['Admin', '/admin']];
@@ -84,7 +84,7 @@ for (const width of WIDTHS) {
       }
       if (wait === 'dialog') await page.getByRole('dialog').first().waitFor();
       const p = await problems();
-      if ((name === 'Calendar' && width === 820) || (name === 'Calendar Week' && width === 390)) await page.screenshot({ path: `${SP}/shots/${name.replace(/\W+/g, '_')}-${width}.png` });
+      if ((name === 'Calendar' && width === 820) || (name === 'Calendar Week' && width === 390) || (name === 'Admin system' && width === 390)) await page.screenshot({ path: `${SP}/shots/${name.replace(/\W+/g, '_')}-${width}.png` });
       if (p.length) { found.push(`${name} at ${width}px: ${p.join('; ')}`); await page.screenshot({ path: `${SP}/shots/narrow-${name.replace(/\W+/g, '_')}-${width}.png` }); }
     }
     const here = found.filter((f) => f.includes(` at ${width}px`));
@@ -123,6 +123,15 @@ await step('the check itself: a dialog taller than a phone with nothing to scrol
   await page.waitForTimeout(300);
   p = await problems();
   if (!p.some((x) => /taller than the window/.test(x))) throw new Error(`not caught: ${JSON.stringify(p)}`);
+});
+await step('the check itself: two labels squeezed into one row (a form question’s footer before its fix) are caught', async () => {
+  await page.setViewportSize({ width: 390, height: 860 });
+  await page.goto(`${B}${SCREENS.find(([n]) => n === 'form editor')[1]}`);
+  await page.locator('.form-q-foot').first().waitFor();
+  await page.addStyleTag({ content: '.form-q-foot { flex-wrap: nowrap !important; } .form-q-foot > label.check { flex: 1 1 0 !important; min-width: 0 !important; } .form-q-foot input[type=checkbox] { width: 24px !important; height: 24px !important; flex: none; }' });
+  await page.waitForTimeout(300);
+  const p = await problems();
+  if (!p.some((x) => /drawn over each other/.test(x) && /Required|Shuffle|Limit/.test(x))) throw new Error(`not caught: ${JSON.stringify(p)}`);
 });
 console.log(`checked ${SCREENS.length} screens: ${SCREENS.map(([n]) => n).join(', ')}`);
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');

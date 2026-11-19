@@ -2,7 +2,7 @@
 // name, a long channel or task) don't break the screens they show on: the page doesn't scroll sideways,
 // and the layout check (headings readable, nothing over them, nothing off the edge) passes.
 import { chromium } from 'playwright';
-import { layoutProblems } from './lib/layoutcheck.mjs';
+import { layoutProblems, textOverlaps } from './lib/layoutcheck.mjs';
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
 const browser = await chromium.launch();
@@ -71,7 +71,7 @@ for (const width of [1280, 390]) {
       if (typeof view === 'function') { await view(); await page.waitForTimeout(400); }
       else if (view) { await page.getByRole('radio', { name: view }).click(); await page.waitForTimeout(400); }
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      const p = await layoutProblems(page);
+      const p = [...await layoutProblems(page), ...await textOverlaps(page)];
       if (wide > 1) p.unshift(`the page scrolls sideways by ${wide}px`);
       if (p.length) { found.push(`${name}: ${p.join('; ')}`); await page.screenshot({ path: `${SP}/shots/long-${name.replace(/\W+/g, '_')}-${width}.png` }); }
     }

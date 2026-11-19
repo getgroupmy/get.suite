@@ -93,3 +93,58 @@ export const layoutProblems = (page) => page.evaluate(() => {
   }
   return out;
 });
+
+/**
+ * Text drawn over other text anywhere on the screen (two labels in a row too narrow for them, a name over a
+ * date…): each visible piece of text, as much of it as its boxes let show, against every other. Text in a
+ * dropdown, menu or dialog laid over the page, or under one, doesn't count. Returns sentences.
+ */
+export const textOverlaps = (page) => page.evaluate(() => {
+  const layer = (el) => el.closest('.search-results, [role="listbox"], [role="menu"], [role="dialog"], .modal-backdrop, [role="tooltip"], .toasts');
+  const pieces = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const el = n.parentElement;
+    if (!n.textContent.trim() || !el || el.closest('[aria-hidden="true"], .sr-only, svg, script, style, .ProseMirror, .tiptap, [contenteditable="true"], .mail-html, iframe')) continue;
+    const st = getComputedStyle(el);
+    if (st.visibility === 'hidden' || Number(st.opacity) === 0 || st.color === 'transparent') continue;
+    let clip = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+    let gone = false;
+    for (let a = el; a && a !== document.documentElement; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      if (s.display === 'none' || Number(s.opacity) === 0) { gone = true; break; }
+      if (s.overflowX !== 'visible' || s.overflowY !== 'visible') { const b = a.getBoundingClientRect(); clip = { left: Math.max(clip.left, b.left), top: Math.max(clip.top, b.top), right: Math.min(clip.right, b.right), bottom: Math.min(clip.bottom, b.bottom) }; }
+    }
+    if (gone) continue;
+    const r = document.createRange(); r.selectNodeContents(n);
+    for (const x of r.getClientRects()) {
+      const v = { left: Math.max(x.left, clip.left), top: Math.max(x.top, clip.top), right: Math.min(x.right, clip.right), bottom: Math.min(x.bottom, clip.bottom) };
+      if (v.right - v.left > 2 && v.bottom - v.top > 2) pieces.push({ n, el, v, layer: layer(el) });
+    }
+  }
+  // One of them laid over the other with something solid between (a panel over the page): only the top one shows.
+  const solid = (el) => { const c = getComputedStyle(el).backgroundColor; return c && c !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(c); };
+  const covered = (a, b) => {
+    const x = (Math.max(a.v.left, b.v.left) + Math.min(a.v.right, b.v.right)) / 2, y = (Math.max(a.v.top, b.v.top) + Math.min(a.v.bottom, b.v.bottom)) / 2;
+    const top = document.elementFromPoint(x, y);
+    if (!top) return false;
+    const [upper, lower] = a.el.contains(top) || top.contains(a.el) || top === a.el ? [a.el, b.el] : [b.el, a.el];
+    for (let e = top; e && !e.contains(lower); e = e.parentElement) if (e !== upper && solid(e)) return true;
+    return false;
+  };
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; i < pieces.length; i++) {
+    for (let j = i + 1; j < pieces.length; j++) {
+      const a = pieces[i], b = pieces[j];
+      if (a.n === b.n || a.layer !== b.layer) continue; // the same text (its lines), or one is on a layer over the other
+      const w = Math.min(a.v.right, b.v.right) - Math.max(a.v.left, b.v.left), h = Math.min(a.v.bottom, b.v.bottom) - Math.max(a.v.top, b.v.top);
+      // More than a sliver, both ways: line boxes of neighbouring lines may touch by a pixel or two.
+      if (w > 4 && h > Math.min(a.v.bottom - a.v.top, b.v.bottom - b.v.top) * 0.4 && !covered(a, b)) {
+        const key = `${a.n.textContent.trim().slice(0, 30)}|${b.n.textContent.trim().slice(0, 30)}`;
+        if (!seen.has(key)) { seen.add(key); out.push(`“${a.n.textContent.trim().slice(0, 30)}” and “${b.n.textContent.trim().slice(0, 30)}” drawn over each other`); }
+      }
+    }
+  }
+  return out.slice(0, 10);
+});

@@ -3382,3 +3382,6 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* A form question's footer (Required, Shuffle, Limit places, move, copy, delete): wraps onto more rows on a narrow screen instead of its labels running into each other. */
 .form-q-foot { flex-wrap: wrap; row-gap: 6px; }
 .form-q-foot > label.check { flex: 0 1 auto; min-width: 0; }
+/* Admin's lists of checks and snapshots: on a narrow screen the buttons go under the name (which keeps room), rather than squeezing it to a word a line with its date under them. */
+.health-list li.row { flex-wrap: wrap; row-gap: 6px; }
+.health-list li.row > .grow { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
