@@ -48,6 +48,10 @@ await step('setup: something in each app, and a notification', async () => {
   cookies = await page.context().cookies();
   SCREENS.push(['Drive', '/drive'], ['Drive as a grid', '/drive', 'Grid'], ['a document', `/docs/${doc.id}`], ['a presentation', `/slides/${deck.id}`], ['Tasks', `/tasks/${list.id}`],
     ['Notes', '/notes'], ['Chat', `/chat/${general}`], ['Home', '/home'], ['the bell', '/home', 'bell'], ['Contacts', '/contacts?tab=dir'], ['Calendar', '/calendar']);
+  const sheet = (await api('POST', '/files/new', { kind: 'sheet', name: 'Touch sheet' })).body;
+  const form = (await api('POST', '/forms', { title: 'Touch form' })).body;
+  SCREENS.push(['a spreadsheet', `/sheets/${sheet.id}`], ['Settings', '/settings'], ['Admin', '/admin'], ['a new event', '/calendar', 'Create'], ['Meet', '/meet']);
+  if (form?.id) SCREENS.push(['a form', `/forms/${form.id}`]);
 });
 
 // Buttons drawn see-through (opacity 0, themselves or a container), that a touch can't reveal.
@@ -100,6 +104,7 @@ await step('on a phone, buttons are big enough to tap (24×24, or room around th
     await page.waitForLoadState('networkidle').catch(() => {});
     await page.waitForTimeout(600);
     if (open === 'bell') { await page.getByRole('button', { name: /^Notifications/ }).click(); await page.getByRole('dialog', { name: 'Notifications' }).waitFor(); }
+    else if (open) { const b = page.getByRole('button', { name: open, exact: true }); if (await b.count()) { await b.first().click(); await page.waitForTimeout(400); } }
     const small = await page.evaluate(() => {
       const els = [...document.querySelectorAll('button, [role="button"], input[type="checkbox"], input[type="radio"], select')].filter((el) => {
         const r = el.getBoundingClientRect(), st = getComputedStyle(el);
@@ -114,7 +119,7 @@ await step('on a phone, buttons are big enough to tap (24×24, or room around th
         return rects.some((o, j) => j !== i && Math.max(o.left - cx, 0, cx - o.right) ** 2 + Math.max(o.top - cy, 0, cy - o.bottom) ** 2 < 12 * 12 && !els[j].contains(el) && !el.contains(els[j]));
       }).map((el, i) => `${(el.getAttribute('aria-label') || el.textContent || el.type || '').trim().slice(0, 30)} (${Math.round(el.getBoundingClientRect().width)}×${Math.round(el.getBoundingClientRect().height)})`);
     });
-    if (name.startsWith('Drive')) await page.screenshot({ path: `${SP}/shots/tap-${name.replace(/\W+/g, '_')}.png` });
+    await page.screenshot({ path: `${SP}/shots/tap-${name.replace(/\W+/g, '_')}.png` });
     if (small.length) found.push(`${name}: ${[...new Set(small)].join(', ')}`);
   }
   if (found.length) throw new Error(found.join(' | '));

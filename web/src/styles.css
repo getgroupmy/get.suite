@@ -3373,3 +3373,12 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 @media (hover: none) { .note-select { opacity: 0.45; } }
 /* Drive's tick boxes on a touch screen: big enough to tap (24px, WCAG 2.5.8), not the browser's 13px. */
 @media (pointer: coarse) { .files .check-col input[type="checkbox"], .file-tile .tile-check { width: 24px; height: 24px; margin: 0; } }
+/* Touch screens: every tick box, radio button, sheet tab's ▾ and text-like button is at least 24px to tap (WCAG 2.5.8). */
+@media (pointer: coarse) {
+  input[type="checkbox"], input[type="radio"] { width: 24px; height: 24px; flex: none; }
+  .tab-menu { min-width: 24px; }
+  .link-btn { min-height: 24px; }
+}
+/* A form question's footer (Required, Shuffle, Limit places, move, copy, delete): wraps onto more rows on a narrow screen instead of its labels running into each other. */
+.form-q-foot { flex-wrap: wrap; row-gap: 6px; }
+.form-q-foot > label.check { flex: 0 1 auto; min-width: 0; }
