@@ -164,7 +164,8 @@ export function textToItems(body) {
 export function noteMarkdown(n) {
   const lines = [];
   // Its colour, pinned or archived (when any): front matter, as Markdown notes apps keep such things.
-  const meta = [n.color && `color: "${n.color}"`, n.pinned && 'pinned: true', n.archived && 'archived: true'].filter(Boolean);
+  const meta = [n.color && `color: "${n.color}"`, n.pinned && 'pinned: true', n.archived && 'archived: true',
+    n.remind_at && `reminder: ${new Date(n.remind_at).toISOString()}`, n.remind_at && n.remind_repeat && `reminder_repeat: ${n.remind_repeat}`, n.remind_at && n.remind_tz && `reminder_zone: ${n.remind_tz}`].filter(Boolean);
   if (meta.length) lines.push('---', ...meta, '---', '');
   if (n.title) lines.push(`# ${n.title}`, '');
   if (n.items) for (const it of n.items) lines.push(`${it.indent ? '  ' : ''}- [${it.done ? 'x' : ' '}] ${it.text}`);
@@ -190,6 +191,13 @@ export function noteFromMarkdown(text, fileName = '') {
     }
   }
   const extra = { ...(COLORS.includes(meta.color) && { color: meta.color }), ...(/^(true|yes)$/i.test(meta.pinned || '') && { pinned: true }), ...(/^(true|yes)$/i.test(meta.archived || '') && { archived: true }) };
+  // A reminder still to come (with how it repeats).
+  const at = Date.parse(meta.reminder || '');
+  if (Number.isFinite(at) && at > Date.now()) {
+    extra.remind_at = at;
+    if (REPEATS.includes(meta.reminder_repeat)) extra.remind_repeat = meta.reminder_repeat;
+    if (/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(meta.reminder_zone || '')) extra.remind_tz = meta.reminder_zone;
+  }
   while (lines.length && !lines[0].trim()) lines.shift();
   if (/^#\s+\S/.test(lines[0] || '')) title = lines.shift().replace(/^#\s+/, '').trim();
   else title = String(fileName).replace(/\.(md|markdown|txt)$/i, '').trim();
@@ -282,7 +290,7 @@ export async function notesZipEntries(notes) {
     const recs = q('SELECT storage, mime FROM note_recordings WHERE note_id = ? ORDER BY created_at').all(n.id).flatMap((x, k) => {
       try { return [{ path: `${dir}/recording-${k + 1}.${RECORDING_TYPES[x.mime] || 'audio'}`, data: fs.readFileSync(path.join(FILES_DIR, x.storage)) }]; } catch { return []; }
     });
-    let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived });
+    let md = noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived, remind_at: n.remind_at, remind_repeat: n.remind_repeat, remind_tz: n.remind_tz });
     if (pics.length) md = `${md.replace(/\s*$/, '')}\n\n${pics.map((p) => `![](${encodeURI(p.path)})`).join('\n')}\n`;
     if (recs.length) md = `${md.replace(/\s*$/, '')}\n\n${recs.map((x, k) => `[🎙 Recording ${k + 1}](${encodeURI(x.path)})`).join('\n')}\n`;
     out.push({ path: names[i], data: md }, ...pics, ...recs);
@@ -471,6 +479,7 @@ export async function importNotes(user, body) {
       q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, archived, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(noteId, user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, n.color || null, n.pinned ? 1 : 0, n.archived ? 1 : 0, JSON.stringify(n.labels),
           top, n.created_at || t, n.updated_at || n.created_at || t, user.id);
+      if (n.remind_at) q('UPDATE notes SET remind_at = ?, remind_repeat = ?, remind_tz = ? WHERE id = ?').run(n.remind_at, n.remind_repeat || null, n.remind_tz || null, noteId);
       top += 1;
     }
     for (const p of pics) q('INSERT INTO note_pictures (id, note_id, storage, mime, size, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(...p, user.id, t);
@@ -819,7 +828,7 @@ export default function noteRoutes() {
   });
   r.get('/:id/export.md', (req, res) => {
     const n = load(req.params.id, req.user);
-    const note = { title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived };
+    const note = { title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]'), color: n.color, pinned: !!n.pinned, archived: !!n.archived, remind_at: n.remind_at, remind_repeat: n.remind_repeat, remind_tz: n.remind_tz };
     const name = (n.title || 'Note').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'Note';
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="note.md"; filename*=UTF-8''${encodeURIComponent(name)}.md`);

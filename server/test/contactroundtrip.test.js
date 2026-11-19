@@ -86,3 +86,18 @@ test('notes through Download (.md) and Import notes: text, checklist, labels, co
   const find = async (c, title) => (await list(c)).find((n) => n.title === title);
   for (const t of ['Shopping', 'Old idea']) assert.deepEqual(pick(await find(kim, t)), pick(await find(olivia, t)), t);
 });
+
+test('a note’s reminder (to come, repeating) through Download (.md) and Import notes; one gone by is left out', async () => {
+  const soon = Date.now() + 3 * 864e5;
+  const n = (await olivia('POST', '/api/notes', { title: 'Water the plants', body: 'All of them' })).body;
+  const r = await olivia('PATCH', `/api/notes/${n.id}`, { remind_at: soon, remind_repeat: 'weekly', remind_tz: 'Europe/London' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const text = await (await fetch(`${base}/api/notes/${n.id}/export.md`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).text();
+  assert.match(text, /reminder: \d{4}-.*\nreminder_repeat: weekly\nreminder_zone: Europe\/London/);
+  const old = text.replace(/reminder: [^\n]+/, 'reminder: 2020-01-01T09:00:00.000Z').replace('Water the plants', 'Old reminder');
+  assert.ok((await kim('POST', '/api/notes/import', { files: [{ name: 'a.md', text }, { name: 'b.md', text: old }] })).status < 300);
+  const all = (await kim('GET', '/api/notes')).body;
+  const got = (all.notes || all).find((x) => x.title === 'Water the plants');
+  assert.deepEqual([got.remind_at, got.remind_repeat], [r.body.remind_at ?? soon, 'weekly']);
+  assert.equal((all.notes || all).find((x) => x.title === 'Old reminder').remind_at, null, 'a reminder that has gone by isn’t brought back');
+});
