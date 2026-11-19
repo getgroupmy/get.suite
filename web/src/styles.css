@@ -3364,3 +3364,8 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* A person's name in the Directory: a button, so the cell's own … would hide all of it; it gets its own …, showing as much as fits. */
 .files td.name .person-name { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 @media (max-width: 700px) { .files td.name .person-name { max-width: calc(100vw - 190px); } }
+/* The bell's panel on a phone: across the screen under the top bar (anchored to the bell, its left side went off the screen). */
+@media (max-width: 700px) { .bell-panel { position: fixed; top: 60px; left: 8px; right: 8px; width: auto; max-height: calc(100vh - 76px); } }
+/* A grid tile's ⋮ menu, in its top right corner: placed by its wrapper (the button was placed against a wrapper with no width at the tile's left, out of the tile and cut off). */
+.file-tile > .menu-wrap { position: absolute; top: 4px; right: 4px; z-index: 1; }
+.file-tile > .menu-wrap > .tile-menu { position: static; }

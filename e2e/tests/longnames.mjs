@@ -43,6 +43,20 @@ await step('setup: long names everywhere', async () => {
   SCREENS.push(['Home', '/home'], ['Drive', '/drive'], ['a document', `/docs/${doc.id}`], ['Tasks', `/tasks/${list.id}`], ['a task open', `/tasks/${list.id}?task=${task.id}`],
     ['Notes', '/notes'], ['a note open', `/notes?note=${note.id}`], ['Calendar', '/calendar'], ['Calendar schedule', '/calendar', 'Schedule'], ['Contacts directory', '/contacts?tab=dir'], ['Admin users', '/admin']);
   if (folder?.id) SCREENS.push(['a folder', `/drive/folder/${folder.id}`]);
+  // The long-named colleague shares a long-named file with Olivia: her bell, and Shared with me.
+  const maxi = await (await browser.newContext()).newPage();
+  await maxi.goto(B);
+  await maxi.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'maximiliana@acme.com', password: 'password123' }) }));
+  const mapi = (method, url, body) => maxi.evaluate(async ([m, u, b]) => (await fetch('/api' + u, { method: m, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: b ? JSON.stringify(b) : undefined })).json(), [method, url, body]);
+  const olivia = (await mapi('GET', '/users/directory')).find((u) => u.name === 'Olivia Owner').id;
+  const theirs = await mapi('POST', '/files/new', { kind: 'sheet', name: `Shared_${LONG}` });
+  await mapi('PUT', `/files/${theirs.id}/shares`, { shares: [{ user_id: olivia, role: 'editor' }], message: `Please_check_${LONG}` });
+  await maxi.context().close();
+  await api('POST', '/forms', { title: `Form_${LONG}` });
+  SCREENS.push(['the bell', '/drive', async () => { await page.getByRole('button', { name: /^Notifications/ }).click(); await page.getByRole('dialog', { name: 'Notifications' }).waitFor(); }],
+    ['Shared with me', '/drive/shared'], ['Drive as a grid', '/drive', async () => { await page.getByRole('button', { name: 'Grid' }).click(); await page.waitForTimeout(300); await page.screenshot({ path: `${SP}/shots/grid-${page.viewportSize().width}.png` }); }],
+    ['searching everything', '/home', async () => { await page.getByPlaceholder('Search everything').fill('Quarterly_Report'); await page.waitForTimeout(1500); }],
+    ['Forms', '/forms'], ['Calendar week', '/calendar', 'Week'], ['Chat list', '/chat']);
   if (ch?.id) SCREENS.push(['the channel', `/chat/${ch.id}`]);
 });
 
@@ -54,7 +68,8 @@ for (const width of [1280, 390]) {
       await page.goto(`${B}${path}`);
       await page.waitForLoadState('networkidle').catch(() => {});
       await page.waitForTimeout(500);
-      if (view) { await page.getByRole('radio', { name: view }).click(); await page.waitForTimeout(400); }
+      if (typeof view === 'function') { await view(); await page.waitForTimeout(400); }
+      else if (view) { await page.getByRole('radio', { name: view }).click(); await page.waitForTimeout(400); }
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       const p = await layoutProblems(page);
       if (wide > 1) p.unshift(`the page scrolls sideways by ${wide}px`);
@@ -79,6 +94,17 @@ await step('on a phone, the Directory shows the start of a long name (not just �
   });
   await page.screenshot({ path: `${SP}/shots/directory-390.png` });
   if (shown < 100) throw new Error(`only ${Math.round(shown)}px of the name shows`);
+});
+await step('Drive’s grid: each tile’s ⋮ shows in its corner and opens its menu', async () => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.goto(`${B}/drive`);
+  if (await page.getByRole('button', { name: 'Grid' }).getAttribute('aria-pressed') !== 'true') await page.getByRole('button', { name: 'Grid' }).click();
+  const more = page.getByRole('button', { name: /^Actions for Folder_/ });
+  const inside = await more.evaluate((b) => { const r = b.getBoundingClientRect(), t = b.closest('.file-tile').getBoundingClientRect(); return r.left >= t.left && r.right <= t.right && r.top >= t.top && r.bottom <= t.bottom; });
+  if (!inside) throw new Error('the ⋮ is outside its tile');
+  await more.click();
+  await page.getByRole('menuitem', { name: /Rename/ }).waitFor();
+  await page.keyboard.press('Escape');
 });
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
