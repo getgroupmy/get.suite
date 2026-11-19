@@ -159,6 +159,8 @@ test('monthly on a weekday: BYDAY=2MO out, and in from Outlook (BYSETPOS) and ph
   assert.deepEqual(read('FREQ=MONTHLY;BYDAY=5MO'), { freq: 'monthly', nth: 5, wd: 1 });
   assert.equal(read('FREQ=MONTHLY;BYDAY=6MO'), null);
   assert.equal(read('FREQ=MONTHLY;BYDAY=-2MO'), null);
-  assert.equal(read('FREQ=MONTHLY;BYDAY=1MO,3MO'), null);
+  assert.deepEqual(read('FREQ=MONTHLY;BYDAY=1MO,3MO'), { freq: 'monthly', nths: [1, 3], wd: 1 }, 'the first and third Monday');
+  assert.deepEqual(read('FREQ=MONTHLY;BYDAY=2TH,-1TH'), { freq: 'monthly', nths: [2, -1], wd: 4 });
+  assert.equal(read('FREQ=MONTHLY;BYDAY=1MO,3TU'), null, 'different weekdays: not shown');
   assert.equal(read('FREQ=YEARLY;BYDAY=2MO;BYMONTH=5'), null);
 });

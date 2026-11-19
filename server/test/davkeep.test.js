@@ -113,3 +113,23 @@ test('“every Monday and Wednesday of the month” from a phone: those days eve
   assert.deepEqual(days, ['2026-11-02', '2026-11-04', '2026-11-09', '2026-11-11', '2026-11-16', '2026-11-18']);
   assert.match((await dav('GET', `${cal}MON-WED-MONTH-1.ics`)).text, /RRULE:FREQ=WEEKLY;.*BYDAY=MO,WE|RRULE:FREQ=WEEKLY;BYDAY=MO,WE/);
 });
+
+test('“the first and third Monday” from a phone repeats here, and goes back the same', async () => {
+  const cal = `/dav/calendars/${me.id}/default/`;
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Apple Inc.//iOS 18.0//EN', 'BEGIN:VEVENT', 'UID:FIRST-THIRD-1',
+    'DTSTART;TZID=Europe/London:20261102T180000', 'DTEND;TZID=Europe/London:20261102T200000', 'SUMMARY:Committee',
+    'RRULE:FREQ=MONTHLY;BYDAY=1MO,3MO', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  assert.equal((await dav('PUT', `${cal}FIRST-THIRD-1.ics`, { body: ics, headers: { 'content-type': 'text/calendar' } })).status, 201);
+  const ev = (await api('GET', `/api/events?from=${Date.UTC(2026, 10, 1)}&to=${Date.UTC(2027, 0, 31)}`)).body.find((e) => e.title === 'Committee');
+  assert.deepEqual(ev.rrule, { freq: 'monthly', nths: [1, 3], wd: 1 });
+  const { expand } = await import('../src/calmath.js');
+  assert.deepEqual(expand(ev, Date.UTC(2026, 10, 1), Date.UTC(2027, 0, 31)).map((o) => new Date(o.start).toISOString().slice(0, 10)),
+    ['2026-11-02', '2026-11-16', '2026-12-07', '2026-12-21', '2027-01-04', '2027-01-18']);
+  assert.match((await dav('GET', `${cal}FIRST-THIRD-1.ics`)).text, /RRULE:FREQ=MONTHLY;BYDAY=1MO,3MO/);
+  // and the same rule from the web: checked, and kept
+  const t = Date.UTC(2026, 10, 2, 18);
+  const made = await api('POST', '/api/events', { title: 'Book club', start: t, end: t + 3600e3, rrule: { freq: 'monthly', nths: [3, 1], wd: 1 } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.deepEqual(made.body.rrule.nths, [1, 3]);
+  assert.equal((await api('POST', '/api/events', { title: 'x', start: t, end: t + 1, rrule: { freq: 'monthly', nths: [7], wd: 1 } })).status, 400);
+});

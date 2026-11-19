@@ -84,7 +84,14 @@ function readRule(rule) {
     out.byday = days;
   }
   // Monthly on a weekday: { nth: 1–5 or -1 (the last), wd: 0=Sun..6 } (a fifth: months without one are skipped).
-  if (rule.nth !== undefined || rule.wd !== undefined) {
+  // Or several of one weekday: { nths: [1, 3], wd: 1 } (the first and third Monday).
+  if (rule.nths !== undefined && rule.nths !== null) {
+    if (rule.freq !== 'monthly') throw bad('"The first and third Monday" only applies to monthly repeats');
+    const nths = Array.isArray(rule.nths) ? [...new Set(rule.nths.map(Number))] : [];
+    const wd = Number(rule.wd);
+    if (!nths.length || nths.length > 5 || nths.some((k) => ![1, 2, 3, 4, 5, -1].includes(k)) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick weekdays of the month');
+    out.nths = nths.sort((a, b) => (a === -1) - (b === -1) || a - b); out.wd = wd;
+  } else if (rule.nth !== undefined || rule.wd !== undefined) {
     if (rule.freq !== 'monthly') throw bad('"The second Monday" only applies to monthly repeats');
     const nth = Number(rule.nth), wd = Number(rule.wd);
     if (![1, 2, 3, 4, 5, -1].includes(nth) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick a weekday of the month');

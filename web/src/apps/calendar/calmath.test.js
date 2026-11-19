@@ -284,3 +284,15 @@ test('the fifth Monday: there in some months, skipped in others', async () => {
   // Months of 2027 with five Mondays: March (29), May (31), August (30), November (29)
   assert.deepEqual(got, ['2026-11-30', '2027-3-29', '2027-5-31', '2027-8-30', '2027-11-29']);
 });
+
+test('the first and third Monday of each month', async () => {
+  const { expand: ex, describeRule: dr, shiftWeekdays: sw } = await import('./calmath.js');
+  const start = new Date(2026, 10, 2, 18).getTime(); // Mon 2 Nov 2026
+  const ev = { id: 'm', start, end: start + 7200e3, rrule: { freq: 'monthly', nths: [1, 3], wd: 1 } };
+  const got = ex(ev, start, new Date(2027, 1, 1).getTime()).map((o) => { const d = new Date(o.start); return `${d.getMonth() + 1}-${d.getDate()}`; });
+  assert.deepEqual(got, ['11-2', '11-16', '12-7', '12-21', '1-4', '1-18']);
+  assert.equal(dr(ev.rrule, start, 'en-GB'), 'Monthly on the first and third Monday');
+  assert.deepEqual(sw(ev.rrule, 1, start + 864e5), { freq: 'monthly', nths: [1, 3], wd: 2 });
+  const counted = { ...ev, rrule: { ...ev.rrule, count: 3 } };
+  assert.equal(ex(counted, start, new Date(2027, 11, 1).getTime()).length, 3);
+});

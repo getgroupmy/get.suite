@@ -173,6 +173,18 @@ export function occurrenceStarts(ev, to) {
         if (!take(t)) { stop = true; break; }
       }
       if (stop) break;
+    } else if (r.freq === 'monthly' && r.nths?.length) {
+      // Monthly on several of a weekday: the first and third (say) Monday of every month.
+      const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
+      if (m.getTime() >= to || (r.until !== undefined && m.getTime() > r.until)) break;
+      const days = [...new Set(r.nths.map((k) => nthWeekdayOf(m.getFullYear(), m.getMonth(), k, r.wd)).filter((d) => d !== null))].sort((a, b) => a - b);
+      let stop = false;
+      for (const day of days) {
+        const t = at(m.getFullYear(), m.getMonth(), day).getTime();
+        if (t < ev.start) continue; // earlier in the first month
+        if (!take(t)) { stop = true; break; }
+      }
+      if (stop) break;
     } else if (r.freq === 'monthly' && r.nth) {
       // Monthly on a weekday: the 1st–5th or the last (say) Monday of every month (months without a fifth are skipped).
       const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
@@ -254,6 +266,10 @@ export function describeRule(r, start, locale) {
     text += ` on ${days.join() === '1,2,3,4,5' ? 'weekdays' : names.join(', ')}`;
   }
   if (r.freq === 'monthly' && r.nth) text += ` on the ${ORDINALS[r.nth]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;
+  if (r.freq === 'monthly' && r.nths?.length) {
+    const words = r.nths.map((k) => ORDINALS[k]);
+    text += ` on the ${words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;
+  }
   if (r.count) text += `, ${r.count} times`;
   if (r.until !== undefined) text += `, until ${new Date(r.until).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   return text;
@@ -288,6 +304,8 @@ export function shiftWeekdays(rule, dayDelta, newStart) {
     const w = weekdayInMonth(newStart);
     return { ...rule, wd: w.wd, nth: (rule.nth === -1 && w.last) || w.nth > 4 ? -1 : w.nth };
   }
+  // The first and third Monday, moved a day later: the first and third Tuesday.
+  if (rule?.freq === 'monthly' && rule.nths?.length && dayDelta % 7) return { ...rule, wd: (((rule.wd + dayDelta) % 7) + 7) % 7 };
   if (!rule || rule.freq !== 'weekly' || !rule.byday?.length || dayDelta % 7 === 0) return rule;
   return { ...rule, byday: [...new Set(rule.byday.map((d) => (((d + dayDelta) % 7) + 7) % 7))].sort() };
 }
