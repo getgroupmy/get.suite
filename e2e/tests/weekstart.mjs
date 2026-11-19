@@ -83,6 +83,33 @@ await step('the event and booking page weekday pickers follow it too (Saturday f
   const labels = (await bp.locator('.booking-weekdays label').allTextContents()).map((t) => t.trim());
   if (labels[0] !== 'Sat' || labels[6] !== 'Fri') throw new Error(`booking days: ${labels.join(',')}`);
 });
+await step('another browser (nothing stored in it): the week starts on Saturday there too, weekends and week numbers as chosen', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByLabel('Show weekends').uncheck();
+  await until(async () => (await api(page, 'GET', '/auth/me')).body.user.cal_prefs.weekends === false);
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  await p2.goto(B);
+  await p2.getByLabel(/Email/).first().fill('olivia@acme.com');
+  await p2.getByLabel(/Password/).first().fill('password123');
+  await p2.getByRole('button', { name: /Sign in/ }).click();
+  await p2.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
+  await p2.goto(`${B}/calendar`);
+  if ((await p2.getByLabel('Week starts on').inputValue()) !== '6') throw new Error(`week starts on ${await p2.getByLabel('Week starts on').inputValue()}`);
+  const weekendsBox = p2.getByLabel('Show weekends');
+  if (await weekendsBox.count() && await weekendsBox.isChecked()) throw new Error('weekends shown in the other browser');
+  await ctx2.close();
+});
+await step('a browser that had chosen Monday before: kept for the account the first time', async () => {
+  // As before this was kept with accounts: nothing chosen on the server, Monday in this browser.
+  await api(page, 'PUT', '/users/me/calendar-prefs', { reset: true });
+  await page.evaluate(() => localStorage.setItem('nw.calWeekStart', '1'));
+  await page.reload();
+  await page.getByLabel('Week starts on').waitFor();
+  if ((await page.getByLabel('Week starts on').inputValue()) !== '1') throw new Error('this browser’s Monday isn’t used');
+  await until(async () => (await api(page, 'GET', '/auth/me')).body.user.cal_prefs.weekStart === 1);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

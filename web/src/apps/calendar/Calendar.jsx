@@ -212,14 +212,30 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
-  const [weekStart, setWeekStartState] = useState(() => { try { const v = Number(localStorage.getItem('nw.calWeekStart')); return [0, 1, 6].includes(v) ? v : 0; } catch { return 0; } });
-  const setWeekStart = (v) => { setWeekStartState(v); try { localStorage.setItem('nw.calWeekStart', String(v)); } catch { /* private window */ } };
-  const days = useMemo(() => visibleDays(view, anchor, weekStart), [view, anchor, weekStart]);
-  // View options, remembered in this browser: weekends in the week and month views, and week numbers.
+  const { user: me, setUser } = useAuth();
+  // How the views look: the week's first day, weekends, week numbers. Kept with your account (the same on every
+  // computer and phone browser); until you choose, what this browser had before (and that's then kept for you).
   const flag = (k, dflt) => { try { const v = localStorage.getItem(k); return v === null ? dflt : v === '1'; } catch { return dflt; } };
-  const [weekends, setWeekendsState] = useState(() => flag('nw.calWeekends', true));
-  const [weekNums, setWeekNumsState] = useState(() => flag('nw.calWeekNums', false));
-  const keep = (k, set) => (on) => { set(on); try { localStorage.setItem(k, on ? '1' : '0'); } catch { /* private window */ } };
+  const local = () => { try { const v = localStorage.getItem('nw.calWeekStart'); return v !== null && [0, 1, 6].includes(Number(v)) ? Number(v) : null; } catch { return null; } };
+  const saved = me?.cal_prefs || {};
+  const [weekStart, setWeekStartState] = useState(() => saved.weekStart ?? local() ?? 0);
+  const [weekends, setWeekendsState] = useState(() => saved.weekends ?? flag('nw.calWeekends', true));
+  const [weekNums, setWeekNumsState] = useState(() => saved.weekNumbers ?? flag('nw.calWeekNums', false));
+  const meRef = useRef(me);
+  meRef.current = me;
+  const keepPref = (body) => put('/users/me/calendar-prefs', body).then((p) => setUser({ ...meRef.current, cal_prefs: p })).catch((e) => toast(e.message, 'error'));
+  useEffect(() => {
+    // This browser's earlier choices, kept for you the first time (once each).
+    const moved = {};
+    if (saved.weekStart === null && local() !== null) moved.weekStart = local();
+    try { if (saved.weekends === null && localStorage.getItem('nw.calWeekends') !== null) moved.weekends = flag('nw.calWeekends', true); } catch { /* private window */ }
+    try { if (saved.weekNumbers === null && localStorage.getItem('nw.calWeekNums') !== null) moved.weekNumbers = flag('nw.calWeekNums', false); } catch { /* private window */ }
+    if (Object.keys(moved).length) keepPref(moved);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const setWeekStart = (v) => { setWeekStartState(v); keepPref({ weekStart: v }); };
+  setMyWeekStart(weekStart); // for the weekday pickers in events and booking pages
+  const days = useMemo(() => visibleDays(view, anchor, weekStart), [view, anchor, weekStart]);
+  const keep = (k, set) => (on) => { set(on); keepPref({ [k === 'nw.calWeekends' ? 'weekends' : 'weekNumbers']: on }); };
   const setWeekends = keep('nw.calWeekends', setWeekendsState), setWeekNums = keep('nw.calWeekNums', setWeekNumsState);
   const gridDays = useMemo(() => daysShown(view, days, weekends), [view, days, weekends]);
   // Other people's calendars (busy times only), chosen on this device.
@@ -240,7 +256,6 @@ function Calendar({ acting = null, managed = [], onPick }) {
     try { const r = await put('/location/day', { date, place, label }); setLocations((l) => ({ ...l, [date]: r.place ? r : null })); }
     catch (e) { toast(e.message, 'error'); }
   };
-  const { user: me, setUser } = useAuth();
   setColorRules(me?.cal_prefs?.colorRules); // colours by title, for drawing events (before they're drawn)
   const [showDeclined, setDeclinedState] = useState(me?.cal_prefs?.declined !== false); // invitations you said No to (faded), or hidden
   const setShowDeclined = (on) => {
@@ -1289,11 +1304,9 @@ function GuestList({ guests }) {
 
 const WEEKDAY_LETTERS = Array.from({ length: 7 }, (_, d) => new Date(2026, 10, 1 + d)); // a Sunday-first week
 /** The weekdays in the order of your week (Calendar's "Week starts on"): [weekday number, a date on it]. */
-const myWeek = () => {
-  let ws = 0;
-  try { const v = Number(localStorage.getItem('nw.calWeekStart')); if ([0, 1, 6].includes(v)) ws = v; } catch { /* the usual Sunday */ }
-  return weekOrder(ws).map((d) => [d, WEEKDAY_LETTERS[d]]);
-};
+let myWeekStart = 0;
+const setMyWeekStart = (ws) => { myWeekStart = ws; };
+const myWeek = () => weekOrder(myWeekStart).map((d) => [d, WEEKDAY_LETTERS[d]]);
 /**
  * The menu's monthly choice that fits the start date: "on the last Friday" only in the last week of the
  * month ("on the fifth Monday" skips months without one).
