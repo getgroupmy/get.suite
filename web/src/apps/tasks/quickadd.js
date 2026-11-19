@@ -58,8 +58,15 @@ const REPEAT_WORDS = [
  * `found` lists what was understood ({ kind, text }) so the page can show it before adding.
  * `people` ([{ id, name, username }]) are who "@name" can mean; `today` is "YYYY-MM-DD".
  */
+/** "fri 1pm" → "friday 1pm": a short day name right before a time (9am, 9:30, at 9, 2-3pm) is that day. */
+export const fullDayNames = (text) => text.replace(/(^|\s)(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)(?=\s+(?:at\s+\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)?|\d{1,2}:[0-5]\d|\d{1,2}\s*(?:am|pm)|\d{1,2}(?::[0-5]\d)?\s*(?:-|–|to)\s*\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)?)(?:[\s,.]|$))/gi,
+  (all, sp, d) => `${sp}${DAYS[SHORT_DAYS[d.toLowerCase()]]}`);
+
 export function parseQuickAdd(input, { today, people = [], datesOnly = false } = {}) {
   let s = ` ${String(input || '')} `;
+  // A short day name right before a time is a day ("lunch fri 1pm", "sat at 10:30"), read as the full name
+  // (times are taken out first). Elsewhere short names need "on", "by"…: "sat with Kim" stays as it is.
+  s = fullDayNames(s);
   const out = { due: null, due_time: null, repeat: null, important: false, priority: null, assignee_id: null, tags: [], found: [] };
   const take = (re, fn) => {
     const m = re.exec(s);
