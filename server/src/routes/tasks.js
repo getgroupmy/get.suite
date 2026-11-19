@@ -629,7 +629,7 @@ export default function taskRoutes() {
     q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, list.id, task.title, task.notes, task.due, task.due_time, task.start, task.assignee_id, position, task.repeat, task.repeat_until, steps, task.important ? 1 : 0, task.link_url, task.link_label, task.attachments, task.tags, req.user.id, t, t);
-    q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ? WHERE id = ?').run(task.section_id, task.estimate, task.priority, id);
+    q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ?, nonbillable = ? WHERE id = ?').run(task.section_id, task.estimate, task.priority, task.nonbillable ?? 0, id);
     changed(list);
     res.status(201).json(shape(q(`${TASK} WHERE t.id = ?`).get(id)));
   });
@@ -1138,7 +1138,7 @@ export default function taskRoutes() {
         q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           .run(id, after.list_id, after.title, after.notes, due, after.due_time, start, after.assignee_id, top, after.repeat, after.repeat_until, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.attachments, after.tags, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
-        q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ? WHERE id = ?').run(after.section_id, after.estimate, after.priority, id);
+        q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ?, nonbillable = ? WHERE id = ?').run(after.section_id, after.estimate, after.priority, after.nonbillable ?? 0, id); // (its time still not billed)
         }
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.

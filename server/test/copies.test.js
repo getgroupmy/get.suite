@@ -64,3 +64,15 @@ test('a task list’s copy keeps its colour, emoji, rate and each task’s estim
   assert.deepEqual({ ...L(copy.id) }, { ...L(list.id) });
   assert.deepEqual({ ...T(copy.id) }, { ...T(list.id) });
 });
+
+test('a duplicated task, and the next of a repeating one, stay not billable', async () => {
+  const { q } = await import('../src/db.js');
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Internal' })).body;
+  const t = (await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Team meeting', due: '2026-11-23' })).body;
+  await olivia('PATCH', `/api/tasks/tasks/${t.id}`, { repeat: 'weekly', priority: 'low' });
+  q('UPDATE tasks SET nonbillable = 1, estimate = 60 WHERE id = ?').run(t.id);
+  const dup = (await olivia('POST', `/api/tasks/tasks/${t.id}/duplicate`)).body;
+  await olivia('PATCH', `/api/tasks/tasks/${t.id}`, { done: true });
+  const next = q('SELECT next_id FROM tasks WHERE id = ?').get(t.id).next_id;
+  for (const id of [dup.id, next]) assert.deepEqual({ ...q('SELECT nonbillable, estimate, priority FROM tasks WHERE id = ?').get(id) }, { ...q('SELECT nonbillable, estimate, priority FROM tasks WHERE id = ?').get(t.id) });
+});
