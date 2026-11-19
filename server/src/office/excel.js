@@ -58,7 +58,9 @@ const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ',
   'GAUSS', 'HYPGEOM.DIST', 'LOGNORM.DIST', 'LOGNORM.INV', 'MODE.MULT', 'MUNIT', 'NEGBINOM.DIST', 'NUMBERVALUE', 'PDURATION', 'PERCENTILE.EXC',
   'PERCENTRANK.EXC', 'PERMUTATIONA', 'PHI', 'QUARTILE.EXC', 'RANK.AVG', 'RRI', 'SEC', 'SKEW.P', 'WEIBULL.DIST', 'XOR', 'VALUETOTEXT', 'ARRAYTOTEXT'];
 const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replaceAll('.', '\\.')).join('|')})(?=\\()`, 'gi');
-export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm)\./gi, (m, s) => s || '');
+// (and TRUE() / FALSE(), as LibreOffice writes them, as they're usually typed)
+export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm)\./gi, (m, s) => s || '')
+  .replace(/("(?:[^"]|"")*")|(?<![A-Za-z0-9_.])(TRUE|FALSE)\(\)/gi, (m, s, b) => s || b.toUpperCase());
 // The dynamic-array functions; FILTER and SORT also carry "_xlws." in the file.
 const ARRAY_FUNCS = { FILTER: '_xlfn._xlws.', SORT: '_xlfn._xlws.', UNIQUE: '_xlfn.', SEQUENCE: '_xlfn.' };
 const ARRAY_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${Object.keys(ARRAY_FUNCS).join('|')})(?=\\()`, 'gi');

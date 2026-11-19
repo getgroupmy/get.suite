@@ -119,6 +119,19 @@ await step('a presentation with a control character in a text box downloads as a
   const xml = await (await JSZip.loadAsync(await res.body())).file('ppt/slides/slide1.xml').async('string');
   if (/[\u0000-\u0008]/.test(xml) || !xml.includes('Pasted text')) throw new Error(xml.slice(0, 400));
 });
+await step('a PowerPoint file with its speaker notes in a plain text box (as LibreOffice writes them) opens with the notes', async () => {
+  const { powerPointFromDeck } = await import(`${ROOT}/server/src/office/powerpoint.js`);
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const z = await JSZip.loadAsync(await powerPointFromDeck({ slides: [{ id: 's1', items: [{ id: 'b1', type: 'text', x: 10, y: 10, w: 80, h: 20, text: 'Kick-off' }], notes: 'Thank everyone for coming' }] }, { title: 'K' }));
+  const name = Object.keys(z.files).find((n) => /notesSlides\/notesSlide\d+\.xml$/.test(n));
+  z.file(name, (await z.file(name).async('string')).replace(/<p:ph type="body"[^>]*\/>/, ''));
+  const up = await page.request.post(`${B}/api/files/upload?name=${encodeURIComponent('Kick-off.pptx')}`, { headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/octet-stream' }, data: await z.generateAsync({ type: 'nodebuffer' }) });
+  const made = await api(page, 'POST', `/files/${(await up.json()).id}/open-as`);
+  await page.goto(`${B}/slides/${made.body.id}`);
+  await until(async () => (await page.getByLabel('Speaker notes').inputValue().catch(() => '')) === 'Thank everyone for coming', 15000);
+  await page.goto(`${B}/sheets/${sheetId}`); // back to the sheet, for the steps after
+  await cell('A1').waitFor();
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');

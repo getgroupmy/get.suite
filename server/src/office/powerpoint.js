@@ -575,7 +575,11 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     // Speaker notes: the body text of the slide's notes page.
     const notesFile = [...rels.values()].find((t) => t.includes('notesSlides/'));
     const notesXml = notesFile && parseXml(await zip.file(notesFile)?.async('string') || '');
-    const body = notesXml && deep(notesXml, P, 'sp').find((sp) => attr(deep(sp, P, 'ph')[0], 'type') === 'body');
+    // (Some programs, LibreOffice among them, put the notes in a plain text box instead: the first shape with text that
+    // isn't the slide's picture, number, date or footer.)
+    const shapes = notesXml ? deep(notesXml, P, 'sp') : [];
+    const body = shapes.find((sp) => attr(deep(sp, P, 'ph')[0], 'type') === 'body')
+      || shapes.find((sp) => !['sldImg', 'sldNum', 'dt', 'ftr', 'hdr'].includes(attr(deep(sp, P, 'ph')[0], 'type')) && deep(sp, A, 't').some((t) => t.text.trim()));
     const notes = body ? deep(body, A, 'p').map((para) => deep(para, A, 't').map((t) => t.text).join('')).join('\n').replace(/\r\n?/g, '\n').trim().slice(0, 20000) : '';
     // Hidden slides (show="0") are skipped when presenting; transitions map to the nearest one Slides has.
     const skip = attr(xml, 'show') === '0';

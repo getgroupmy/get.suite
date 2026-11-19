@@ -113,6 +113,10 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
   const font = theme.font || 'Liberation Sans';
   const auto = [], pictures = [], fillImages = [], chartObjects = []; // (chartObjects: the charts' objects, Object 1, Object 2…)
   let n = 0;
+  // Speaker notes' frame needs a presentation style of its own, or LibreOffice reads it as an ordinary text box (and
+  // PowerPoint files it makes from ours then have no notes).
+  let notesStyleName = null;
+  const notesStyle = () => (notesStyleName ??= (auto.push('<style:style style:name="prNotes" style:family="presentation"/>'), 'prNotes'));
   const style = (family, inner, attrs = '') => { const name = `${family[0]}${++n}`; auto.push(`<style:style style:name="${name}" style:family="${family}"${attrs}>${inner}</style:style>`); return name; };
   const picPath = new Map();
   const picture = async (id) => {
@@ -231,7 +235,7 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
       }
     }
     items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).flatMap((pc) => (pc.paraIds?.length ? pc.paraIds : [pc.animId]).map((id, n) => ({ id, anim: pc.it.anim, start: n ? null : pc.it.animStart || null }))));
-    const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:class="notes" presentation:placeholder="false" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
+    const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:style-name="${notesStyle()}" presentation:class="notes" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
     const threads = (comments || []).filter((t) => t.slideId === s.id && t.text);
     pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}${slideAnnotations(threads)}</draw:page>`;
   }
