@@ -1079,7 +1079,7 @@ function useBringIn(onDone = () => {}) {
       } else r = await postBlob(`/takeout/restore?tz=${tz}`, file, 'application/zip');
       const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
       const parts = [r.drive?.files > 0 && `${n(r.drive.files, 'file', 'files')} into “${r.drive.folder}” in Drive${r.documents?.converted ? ` (${n(r.documents.converted, 'document, spreadsheet or presentation', 'documents, spreadsheets and presentations')} editable again)` : ''}`, r.mail?.started && `${n(r.mail.folders, 'mail folder', 'mail folders')} (Mail shows the import’s progress)`,
-        r.calendar && n(r.calendar.added, 'event', 'events'), r.calendars?.added && n(r.calendars.added, 'calendar', 'calendars'), r.settings?.added && n(r.settings.added, 'setting', 'settings'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
+        r.calendar && n(r.calendar.added, 'event', 'events'), r.calendars?.added && n(r.calendars.added, 'calendar', 'calendars'), r.forms?.added && `${n(r.forms.added, 'form', 'forms')} (${n(r.forms.responses, 'response', 'responses')}, new links)`, r.settings?.added && n(r.settings.added, 'setting', 'settings'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
         r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
         r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'),
         r.event_templates && n(r.event_templates.added, 'event template', 'event templates'), r.note_templates?.added && n(r.note_templates.added, 'note template', 'note templates'), r.signatures?.added && n(r.signatures.added, 'signature', 'signatures'),

@@ -286,3 +286,30 @@ test('a document’s comments and page setup come back with it', async () => {
   const setup = JSON.parse(back.page_setup || '{}');
   assert.deepEqual([setup.size, setup.orientation], ['a4', 'landscape']);
 });
+
+test('forms come back with their questions, settings and responses (a colleague’s still theirs); not doubled', async () => {
+  const f = (await olivia('POST', '/api/forms', { title: 'Lunch order', questions: [{ id: 'dish', type: 'choice', title: 'Dish', required: true, options: ['Soup', 'Salad'] }, { id: 'note', type: 'short', title: 'Anything else' }] })).body;
+  assert.ok(f.id, JSON.stringify(f));
+  assert.equal((await olivia('PUT', `/api/forms/${f.id}`, { confirmation: 'Thanks, see you at noon', one_per_person: true })).status, 200);
+  const sam = client();
+  assert.equal((await sam('POST', '/api/auth/login', { username: 'sam@acme.com', password: 'password123' })).status, 200);
+  const sent = await sam('POST', `/api/public/forms/${f.token}`, { answers: { dish: 'Soup', note: 'No onions' } });
+  assert.ok(sent.status < 300, JSON.stringify(sent.body));
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+    assert.ok(r.status < 300);
+  }
+  const { q } = await import('../src/db.js');
+  const kimId = (await kim('GET', '/api/auth/me')).body.user.id;
+  const theirs = q("SELECT * FROM forms WHERE owner_id = ? AND title = 'Lunch order'").all(kimId);
+  assert.equal(theirs.length, 1, 'once, even brought in twice');
+  assert.deepEqual(JSON.parse(theirs[0].questions).map((x) => [x.id, x.title]), [['dish', 'Dish'], ['note', 'Anything else']]);
+  assert.deepEqual([theirs[0].confirmation, theirs[0].one_per_person], ['Thanks, see you at noon', 1]);
+  assert.notEqual(theirs[0].token, f.token, 'a new link');
+  const resp = q('SELECT r.answers, u.email FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ?').all(theirs[0].id);
+  assert.deepEqual(resp.map((x) => [JSON.parse(x.answers).dish, x.email]), [['Soup', 'sam@acme.com']]);
+  // And it shows in Kim's Forms, with the response in its summary.
+  const mine = (await kim('GET', `/api/forms/${theirs[0].id}/responses`)).body;
+  assert.equal((mine.responses || mine).length, 1, JSON.stringify(mine).slice(0, 200));
+});

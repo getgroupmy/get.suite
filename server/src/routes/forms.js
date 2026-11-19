@@ -498,8 +498,53 @@ export function formsForExport(userId) {
       for (const o of qu.options || []) lines.push(`   - ${typeof o === 'object' ? o.label ?? o.text ?? JSON.stringify(o) : o}`);
     });
     const csv = responseTable(f, responsesOf(f.id)).map((row) => row.map(csvCell).join(',')).join('\r\n');
-    return { title: f.title, questions: `${lines.join('\n')}\n`, csv: `\ufeff${csv}\r\n`, responses: q('SELECT COUNT(*) AS n FROM form_responses WHERE form_id = ?').get(f.id).n };
+    return { title: f.title, questions: `${lines.join('\n')}\n`, csv: `\ufeff${csv}\r\n`, responses: q('SELECT COUNT(*) AS n FROM form_responses WHERE form_id = ?').get(f.id).n, json: formFile(f) };
   });
+}
+
+const FORM_SETTINGS = ['audience', 'accepting', 'one_per_person', 'confirmation', 'notify', 'quiz', 'show_score', 'collect_email', 'send_copy', 'allow_edit', 'max_responses', 'show_results', 'email_domains', 'progress_bar'];
+/** The whole form for Download your data (… - form.json): its questions, settings and look, and its responses (who by email). */
+function formFile(f) {
+  const raw = q('SELECT * FROM forms WHERE id = ?').get(f.id);
+  const responses = q('SELECT r.answers, r.created_at, r.email, u.email AS user_email FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at').all(f.id)
+    .map((r) => ({ answers: JSON.parse(r.answers || '{}'), at: r.created_at, ...(r.email && { email: r.email }), ...(r.user_email && { by: r.user_email }) }));
+  return `${JSON.stringify({ title: f.title, description: f.description, questions: f.questions, ...Object.fromEntries(FORM_SETTINGS.map((k) => [k, raw[k]])),
+    ...(f.theme && { theme: f.theme }), ...(raw.archived_at && { archived: true }), responses }, null, 2)}\n`;
+}
+
+/** Forms from Download your data (each … - form.json): made again as new forms of yours (with new links) with their
+ *  responses; a colleague's response is theirs again when they're here (found by email). One you already have (the same
+ *  title and questions) is left as it is. Its spreadsheet, uploads folder and chat aren't brought: those belong to the old one. */
+export function importForms(user, list) {
+  let added = 0, skipped = 0, responses = 0;
+  const allowLinks = !!q('SELECT allow_links FROM orgs WHERE id = ?').get(user.org_id)?.allow_links;
+  for (const raw of (Array.isArray(list) ? list : []).slice(0, 500)) {
+    let questions;
+    try { questions = cleanQuestions(raw?.questions || []); } catch { skipped++; continue; }
+    const title = String(raw?.title || '').trim().slice(0, 200) || 'Untitled form';
+    if (q('SELECT 1 FROM forms WHERE owner_id = ? AND title = ? AND questions = ?').get(user.id, title, JSON.stringify(questions))) { skipped++; continue; }
+    const id = uid(), t = now();
+    const b = (k, d = 0) => (raw[k] === undefined || raw[k] === null ? d : raw[k] ? 1 : 0);
+    tx(() => {
+      q(`INSERT INTO forms (id, org_id, owner_id, token, title, description, questions, audience, accepting, one_per_person, confirmation, notify, quiz, show_score, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, user.org_id, user.id, crypto.randomBytes(12).toString('base64url'), title, String(raw.description || '').slice(0, 5000), JSON.stringify(questions),
+          raw.audience === 'public' && allowLinks ? 'public' : 'org', b('accepting', 1), b('one_per_person'), String(raw.confirmation || '').slice(0, 2000), b('notify', 1), b('quiz'), b('show_score', 1), t, t);
+      const max = Number.isInteger(raw.max_responses) && raw.max_responses > 0 ? raw.max_responses : null;
+      q('UPDATE forms SET collect_email = ?, send_copy = ?, allow_edit = ?, max_responses = ?, show_results = ?, email_domains = ?, progress_bar = ?, archived_at = ? WHERE id = ?')
+        .run(b('collect_email'), b('send_copy'), b('allow_edit'), max, b('show_results'), typeof raw.email_domains === 'string' ? raw.email_domains.slice(0, 1000) : null, b('progress_bar'), raw.archived ? t : null, id);
+      if (raw.theme) { try { q('UPDATE forms SET theme = ? WHERE id = ?').run(JSON.stringify(cleanTheme(raw.theme)), id); } catch { /* a look this server doesn't have */ } }
+      for (const r of (Array.isArray(raw.responses) ? raw.responses : []).slice(0, 20000)) {
+        if (!r || typeof r.answers !== 'object') continue;
+        const who = r.by ? q('SELECT id FROM users WHERE lower(email) = lower(?) AND org_id = ?').get(String(r.by), user.org_id)?.id : null;
+        q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, email) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(uid(), id, who || null, JSON.stringify(r.answers).slice(0, 1e6), Number.isFinite(r.at) ? r.at : t, typeof r.email === 'string' ? r.email.slice(0, 320) : null);
+        responses++;
+      }
+    });
+    added++;
+  }
+  return { added, skipped, responses };
 }
 
 /** The table of responses: a header row, then one row per response. */

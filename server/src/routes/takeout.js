@@ -13,7 +13,7 @@ import { myTimeCsv } from '../tasktime.js';
 import { kudosCsv } from './kudos.js';
 import { conversationFor } from './chat.js';
 import { userSieve } from '../mail/sieve.js';
-import { formsForExport } from './forms.js';
+import { formsForExport, importForms } from './forms.js';
 import { conversationText } from '../chatexport.js';
 import express, { Router } from 'express';
 import fs from 'node:fs';
@@ -353,6 +353,13 @@ export async function restoreFrom(entries, user, tz = 'UTC', onStep = () => {}) 
   // Your own settings (working hours, world clocks, how Mail looks…), each only where it's still the default here.
   const prefs = await json('Settings.json');
   if (prefs) { const r2 = importPrefs(user.id, prefs); if (r2.added) out.settings = r2; }
+  // Forms: each made again (a new link) with its responses.
+  const formFiles = files.filter((x) => /^Forms\/.+ - form\.json$/.test(x.name));
+  if (formFiles.length) {
+    const list = [];
+    for (const f of formFiles) { try { list.push(JSON.parse((await f.buffer()).toString('utf8'))); } catch { /* not readable: left out */ } }
+    out.forms = importForms(user, list);
+  }
   // Calendars subscribed to by address (fetched again from there) and saved mail searches.
   const feeds = await json('Calendar subscriptions.json');
   if (Array.isArray(feeds) && feeds.length) out.calendar_subscriptions = importFeeds(user.id, feeds);
@@ -580,6 +587,7 @@ export default function takeoutRoutes() {
       formNames.add(base.toLowerCase());
       zip.file(`Forms/${base} - questions.md`, f.questions);
       zip.file(`Forms/${base} - responses.csv`, f.csv);
+      zip.file(`Forms/${base} - form.json`, f.json); // the whole form, for bringing it back in
     }
     const convs = conversationsOf(me);
     for (const { id } of convs) {
@@ -620,7 +628,7 @@ export default function takeoutRoutes() {
       'Notes/        each note as Markdown with its pictures (Notes → Import notes… takes them back)',
       'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',
       'Chat/         each conversation you are in, as text',
-      'Forms/        each of your forms: its questions, and its responses for a spreadsheet',
+      'Forms/        each of your forms: its questions, its responses for a spreadsheet, and the whole form (for bringing it back in)',
       'Meet chats/   the chat kept from meetings you started or were in (when its host kept it)',
       'Mail settings/ your filters (as Sieve, which most mail servers take), signatures, templates, vacation reply, labels and saved searches',
       'Calendar templates.json  your event templates, if you have any',
