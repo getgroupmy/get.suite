@@ -81,3 +81,32 @@ test('the rest of a task through CSV too: its repeat’s end, who it’s assigne
   await fetch(`${base}/api/tasks/lists/${mine.id}/import`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'text/csv' }, body: csv });
   assert.equal(pick((await olivia('GET', `/api/tasks/lists/${mine.id}/tasks`)).body)[5], null);
 });
+
+test('steps (ticked and not) through CSV', async () => {
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'With steps' })).body;
+  const t = (await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Move office' })).body;
+  for (const title of ['Book van', 'Pack boxes']) assert.ok((await olivia('POST', `/api/tasks/tasks/${t.id}/steps`, { title })).status < 300);
+  const withSteps = ((await olivia('GET', `/api/tasks/lists/${list.id}/tasks`)).body.tasks || (await olivia('GET', `/api/tasks/lists/${list.id}/tasks`)).body)[0];
+  await olivia('PATCH', `/api/tasks/tasks/${t.id}/steps/${withSteps.steps[0].id}`, { done: true });
+  const steps = async (id) => (((await olivia('GET', `/api/tasks/lists/${id}/tasks`)).body.tasks || (await olivia('GET', `/api/tasks/lists/${id}/tasks`)).body)[0].steps || []).map((x) => [x.title, x.done]);
+  const before = await steps(list.id);
+  assert.deepEqual(before, [['Book van', true], ['Pack boxes', false]]);
+  const csv = await (await fetch(`${base}/api/tasks/lists/${list.id}/export.csv`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).text();
+  const copy = (await olivia('POST', '/api/tasks/lists', { name: 'With steps copy' })).body;
+  await fetch(`${base}/api/tasks/lists/${copy.id}/import`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'text/csv' }, body: csv });
+  assert.deepEqual(await steps(copy.id), before);
+});
+
+test('sections through CSV: made in the new list, each task in its own', async () => {
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'In parts' })).body;
+  const sec = (await olivia('POST', `/api/tasks/lists/${list.id}/sections`, { name: 'Week 1' })).body;
+  const t = (await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'In week 1' })).body;
+  await olivia('PATCH', `/api/tasks/tasks/${t.id}`, { section_id: sec.id });
+  await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'No section' });
+  const csv = await (await fetch(`${base}/api/tasks/lists/${list.id}/export.csv`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).text();
+  const copy = (await olivia('POST', '/api/tasks/lists', { name: 'In parts copy' })).body;
+  await fetch(`${base}/api/tasks/lists/${copy.id}/import`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie(), 'content-type': 'text/csv' }, body: csv });
+  const { q } = await import('../src/db.js');
+  const rows = q('SELECT t.title, s.name AS section FROM tasks t LEFT JOIN task_sections s ON s.id = t.section_id WHERE t.list_id = ? ORDER BY t.title').all(copy.id).map((r) => [r.title, r.section]);
+  assert.deepEqual(rows, [['In week 1', 'Week 1'], ['No section', null]]);
+});
