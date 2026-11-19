@@ -93,7 +93,19 @@ export function CommentsPanel({ fileId, fileRole, threads, seenAt, onSeen, canEd
     } catch (e) { toast(e.message, 'error'); }
   };
   const [showResolved, setShowResolved] = useState(false);
-  const [draft, setDraft] = useState('');
+  // The new comment's words are kept for this tab (per file and spot) until posted or cancelled, so a
+  // session that ends mid-sentence, or a reload, doesn't lose them: open the same spot again and they're back.
+  const draftKey = pending ? `nw-comment-draft:${fileId}:${JSON.stringify(pending.anchor ?? null)}` : null;
+  const [draft, setDraftState] = useState('');
+  useEffect(() => {
+    let kept = '';
+    try { kept = (draftKey && sessionStorage.getItem(draftKey)) || ''; } catch { /* storage off */ }
+    setDraftState(kept);
+  }, [draftKey]);
+  const setDraft = (v) => {
+    setDraftState(v);
+    try { if (draftKey) { if (v) sessionStorage.setItem(draftKey, v); else sessionStorage.removeItem(draftKey); } } catch { /* storage off */ }
+  };
   const [replies, setReplies] = useState({});
   // "Assign to": the people @mentioned in a new comment (from the company directory).
   const [people, setPeople] = useState([]);
