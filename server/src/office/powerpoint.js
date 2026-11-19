@@ -648,7 +648,18 @@ export const numberShown = (deck, i) => !!deck?.numbers && !(deck.numbers === 's
  * `comments`: the presentation's open comment threads, [{ slideId, author, at, text, replies: [{ author, at, text }] }];
  * each goes on its slide as a PowerPoint comment, replies as replies to it.
  */
+/** Text with the characters XML can't hold left out (control characters, lone surrogates): PptxGenJS writes them as
+ *  they are, and one in a text box makes that slide unreadable (LibreOffice shows it empty, PowerPoint asks to repair). */
+const XML_BAD = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+function xmlSafe(v) {
+  if (typeof v === 'string') return v.replace(XML_BAD, '');
+  if (Array.isArray(v)) return v.map(xmlSafe);
+  if (v && typeof v === 'object' && !Buffer.isBuffer(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, xmlSafe(x)]));
+  return v;
+}
+
 export async function powerPointFromDeck(deck, { pictureData, title = 'Presentation', comments = [] } = {}) {
+  deck = xmlSafe(deck); comments = xmlSafe(comments); title = xmlSafe(title);
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE'; // 13.33 × 7.5 in, 16:9 like Slides
   pptx.title = title;

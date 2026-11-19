@@ -11,6 +11,7 @@ import JSZip from 'jszip';
 import { formulaToOds, formulaFromOds, odsFromSheet, sheetFromOds } from '../src/office/ods.js';
 import { excelFromSheet } from '../src/office/excel.js';
 import { odtFromDoc } from '../src/office/odt.js';
+import { powerPointFromDeck } from '../src/office/powerpoint.js';
 
 test('written as OpenDocument names them, and read back as Sheets does', () => {
   assert.equal(formulaToOds('=STDEV.S(A1:A3)+SUM(B1)'), 'of:=COM.MICROSOFT.STDEV.S([.A1:.A3])+SUM([.B1])');
@@ -47,5 +48,21 @@ test('LibreOffice works them out, and a file it made comes back with Sheets’ n
     execFileSync('soffice', ['--headless', '--convert-to', 'ods', '--outdir', dir, path.join(dir, 'theirs.xlsx')], { stdio: 'ignore', timeout: 120000 });
     const back = (await sheetFromOds(fs.readFileSync(path.join(dir, 'theirs.ods')))).sheets[0].cells;
     assert.deepEqual([back.B1, back.B2, back.B3, back.B5], ['=STDEV.S(A1:A3)', '=IFS(A1>3,"big",TRUE,"small")', '=TEXTJOIN("-",TRUE,A1:A3)', '=NORMSDIST(0)']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a control character in a slide leaves the PowerPoint file whole (it used to empty that slide)', async () => {
+  const deck = { slides: [{ id: 's1', items: [{ id: 'b1', type: 'text', x: 10, y: 10, w: 80, h: 20, text: 'Plan \u0001for 2027 🎉' }], notes: 'Say hello \u0007' }] };
+  const buf = await powerPointFromDeck(deck, { title: 'Plan\u0002' });
+  const z = await JSZip.loadAsync(buf);
+  for (const f of Object.keys(z.files).filter((n) => n.endsWith('.xml'))) assert.ok(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(await z.file(f).async('string')), f);
+  assert.match(await z.file('ppt/slides/slide1.xml').async('string'), /Plan for 2027 🎉/);
+  if (!soffice) return;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-pptx-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'd.pptx'), buf);
+    execFileSync('soffice', ['--headless', '--convert-to', 'odp', '--outdir', dir, path.join(dir, 'd.pptx')], { stdio: 'ignore', timeout: 120000 });
+    const content = await (await JSZip.loadAsync(fs.readFileSync(path.join(dir, 'd.odp')))).file('content.xml').async('string');
+    assert.match(content, /Plan for 2027/, 'LibreOffice reads the slide’s text');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -112,6 +112,13 @@ await step('Download as OpenDocument (.ods) names functions as LibreOffice needs
   if (!xml.includes('of:=COM.MICROSOFT.STDEV.S([.A1:.A2])') || !xml.includes('of:=COM.MICROSOFT.IFS(')) throw new Error(xml.slice(xml.indexOf('<table:table '), xml.indexOf('<table:table ') + 800));
   if (/[\u0000-\u0008]/.test(xml)) throw new Error('a control character in content.xml');
 });
+await step('a presentation with a control character in a text box downloads as a whole PowerPoint file', async () => {
+  const id = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Pasted deck', content: { slides: [{ id: 's1', items: [{ id: 'b1', type: 'text', x: 10, y: 10, w: 80, h: 20, text: 'Pasted \u0001text' }] }] } })).body.id;
+  const res = await page.request.get(`${B}/api/files/${id}/export`, { headers: { 'x-requested-with': 'nas-workspace' } });
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const xml = await (await JSZip.loadAsync(await res.body())).file('ppt/slides/slide1.xml').async('string');
+  if (/[\u0000-\u0008]/.test(xml) || !xml.includes('Pasted text')) throw new Error(xml.slice(0, 400));
+});
 await step('suggestions know them, with help', async () => {
   await cell('E7').click();
   await page.keyboard.type('=atan');
