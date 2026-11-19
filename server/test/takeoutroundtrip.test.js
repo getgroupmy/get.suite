@@ -1,0 +1,64 @@
+// Download your data, then bring that .zip back in (another account, another server): events, contacts,
+// task lists and notes come back with what they had.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-takeoutrt-'));
+process.env.DATA_DIR = dir;
+let server, base, port;
+before(async () => {
+  const { createApp } = await import('../src/app.js');
+  const { attachHub } = await import('../src/hub.js');
+  server = http.createServer(createApp());
+  attachHub(server);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  port = server.address().port;
+  base = `http://127.0.0.1:${port}`;
+});
+after(() => { server.closeAllConnections?.(); server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+function client() {
+  let cookie = '';
+  const call = async (method, url, body) => {
+    const res = await fetch(base + url, { method, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json', ...(cookie && { cookie }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const sc = res.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  call.cookie = () => cookie;
+  return call;
+}
+const olivia = client(), kim = client();
+test('the whole round trip', async () => {
+  assert.equal((await olivia('POST', '/api/auth/setup', { org_name: 'Acme', domain: 'acme.com', name: 'Olivia Owner', local: 'olivia', password: 'password123' })).status, 200);
+  await olivia('POST', '/api/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
+  assert.equal((await kim('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' })).status, 200);
+  const start = Date.UTC(2026, 11, 2, 2, 0);
+  await olivia('POST', '/api/events', { title: 'Board review', location: 'Room 4', start, end: start + 3600e3, tz: 'Asia/Kuala_Lumpur', rrule: { freq: 'monthly', nths: [1, 3], wd: 3 }, color: '#d50000', show_as: 'free', private: true });
+  await olivia('POST', '/api/contacts', { name: 'Grace Hopper', email: 'grace@navy.example', custom_fields: [{ label: 'Badge', value: 'B-42' }], dates: [{ label: 'Anniversary', date: '1930-06-15' }] });
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Routines' })).body;
+  const t = (await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Team report', due: '2026-12-07' })).body;
+  await olivia('PATCH', `/api/tasks/tasks/${t.id}`, { repeat: 'monthweek:1,3:1', repeat_until: '2027-06-30', priority: 'high' });
+  const n = (await olivia('POST', '/api/notes', { title: 'Shopping', items: [{ text: 'Milk', done: true }], color: '#fff8b8', pinned: true, labels: ['home'] })).body;
+  await olivia('PATCH', `/api/notes/${n.id}`, { remind_at: Date.now() + 5 * 864e5, remind_repeat: 'weekly' });
+
+  const zip = Buffer.from(await (await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: olivia.cookie() } })).arrayBuffer());
+  const r = await fetch(`${base}/api/takeout/restore`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie(), 'content-type': 'application/zip' }, body: zip });
+  assert.ok(r.status < 300, await r.text());
+
+  const ev = async (c) => (await c('GET', `/api/events?from=${start - 864e5}&to=${start + 90 * 864e5}`)).body.find((e) => e.title === 'Board review');
+  const pickEv = (e) => [e.location, e.tz, JSON.stringify(e.rrule), e.show_as, !!e.private, e.color];
+  assert.deepEqual(pickEv(await ev(kim)), pickEv(await ev(olivia)), 'the event');
+  const ct = async (c) => (await c('GET', '/api/contacts')).body.find((x) => x.name === 'Grace Hopper');
+  const pickCt = (x) => [x.email, JSON.stringify(x.custom_fields), JSON.stringify(x.dates)];
+  assert.deepEqual(pickCt(await ct(kim)), pickCt(await ct(olivia)), 'the contact');
+  const task = async (c) => { const ls = (await c('GET', '/api/tasks/lists')).body; const l = (ls.lists || ls).find((x) => x.name.startsWith('Routines')); const ts = (await c('GET', `/api/tasks/lists/${l.id}/tasks`)).body; return (ts.tasks || ts)[0]; };
+  const pickT = (x) => [x.title, x.due, x.repeat, x.repeat_until, x.priority];
+  assert.deepEqual(pickT(await task(kim)), pickT(await task(olivia)), 'the task');
+  const note = async (c) => { const all = (await c('GET', '/api/notes')).body; return (all.notes || all).find((x) => x.title === 'Shopping'); };
+  const pickN = (x) => [JSON.stringify(x.items.map((i) => [i.text, i.done])), JSON.stringify(x.labels), x.color, !!x.pinned, x.remind_at, x.remind_repeat];
+  assert.deepEqual(pickN(await note(kim)), pickN(await note(olivia)), 'the note');
+});
