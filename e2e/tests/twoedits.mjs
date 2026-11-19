@@ -106,6 +106,42 @@ await step('a note: text changed here, title changed elsewhere', async () => {
   if (!JSON.stringify(it).includes('Shopping for Saturday')) found.push('note: the title from elsewhere was lost');
 });
 
+await step('Admin: a job title changed here, the department set elsewhere', async () => {
+  const u = (await api('POST', '/users', { local: 'jo', domain: 'acme.com', name: 'Jo Jones', password: 'password123' })).body;
+  await page.goto(`${B}/admin`);
+  await page.getByRole('button', { name: 'Actions for Jo Jones' }).click();
+  await page.getByRole('menuitem', { name: 'Job and manager' }).click();
+  const dlg = page.getByRole('dialog').first();
+  await dlg.getByLabel('Job title').waitFor();
+  const r = await api('POST', '/users/bulk', { ids: [u.id], action: 'department', value: 'Finance' });
+  console.log('department elsewhere', r.status);
+  await dlg.getByLabel('Job title').fill('Accountant');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.waitForTimeout(1500);
+  const now = (await api('GET', '/users')).body.find((x) => x.id === u.id);
+  console.log('user now', now?.job_title, now?.department);
+  if (now?.job_title !== 'Accountant') found.push('admin: the job title here wasn’t saved');
+  if (now?.department !== 'Finance') found.push(`admin: the department set elsewhere was lost (${now?.department})`);
+});
+
+await step('a booking page: title changed here, length changed elsewhere', async () => {
+  const bp = (await api('POST', '/bookings', { title: 'Intro call', duration: 30 })).body;
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByLabel('Title').waitFor();
+  const r = await api('PATCH', `/bookings/${bp.id}`, { duration: 60 });
+  console.log('booking elsewhere', r.status);
+  await dlg.getByLabel('Title').fill('Intro call (video)');
+  await dlg.getByRole('button', { name: /^Save/ }).click();
+  await page.waitForTimeout(1500);
+  const now = (await api('GET', '/bookings')).body.find((x) => x.id === bp.id);
+  console.log('booking now', now?.title, now?.duration);
+  if (now?.title !== 'Intro call (video)') found.push('booking page: the title here wasn’t saved');
+  if (now?.duration !== 60) found.push(`booking page: the length set elsewhere was lost (${now?.duration})`);
+});
+
 await step('nothing lost', async () => { if (found.length) throw new Error(found.join(' | ')); });
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');

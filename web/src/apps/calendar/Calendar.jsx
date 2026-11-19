@@ -2288,8 +2288,12 @@ function BookingPagesDialog({ onClose }) {
     if (saving.current) return;
     saving.current = true;
     try {
-      const body = { ...p, tz: TZ, questions: (p.questions || []).filter((x) => x.label.trim()) }; // blank ones left out
-      if (p.id) await patch(`/bookings/${p.id}`, body); else await post('/bookings', body);
+      const shape = (x) => ({ ...x, tz: TZ, questions: (x.questions || []).filter((y) => y.label.trim()) }); // blank ones left out
+      const body = shape(p);
+      // Changing a page: only what was changed here, so a change made elsewhere meanwhile stays.
+      const was = p.id ? shape(editing) : null;
+      if (p.id) await patch(`/bookings/${p.id}`, Object.fromEntries(Object.entries(body).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(was[k]))));
+      else await post('/bookings', body);
       toast(p.id ? 'Booking page saved' : 'Booking page made: copy its link to share it');
       setEditing(null); load();
     } catch (e) { toast(e.message, 'error'); } finally { saving.current = false; }

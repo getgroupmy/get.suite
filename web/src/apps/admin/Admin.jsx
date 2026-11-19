@@ -1141,7 +1141,10 @@ function JobDialog({ user: u, people, onClose, onSaved }) {
   const toast = useToast();
   const [f, setF] = useState({ job_title: u.job_title || '', department: u.department || '', work_phone: u.work_phone || '', manager_id: u.manager_id || '' });
   const save = async () => {
-    try { await patch(`/users/${u.id}`, { ...f, manager_id: f.manager_id || null }); onSaved(); } catch (e) { toast(e.message, 'error'); }
+    // Only what was changed here, so a change made elsewhere meanwhile (a department set for several people) stays.
+    const was = { job_title: u.job_title || '', department: u.department || '', work_phone: u.work_phone || '', manager_id: u.manager_id || '' };
+    const changed = Object.fromEntries(Object.entries(f).filter(([k, v]) => v !== was[k]).map(([k, v]) => [k, k === 'manager_id' ? v || null : v]));
+    try { if (Object.keys(changed).length) await patch(`/users/${u.id}`, changed); onSaved(); } catch (e) { toast(e.message, 'error'); }
   };
   return (
     <Modal title={`Job and manager: ${u.name}`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
