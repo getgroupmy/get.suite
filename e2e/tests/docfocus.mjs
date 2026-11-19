@@ -76,6 +76,25 @@ await step('Typewriter (in focus mode) keeps the line being written in the middl
   await page.getByRole('menuitem', { name: 'Focus mode' }).click();
   if ((await page.getByRole('button', { name: 'Typewriter' }).getAttribute('aria-pressed')) !== 'true') throw new Error('not remembered');
 });
+await step('another browser has the same: Typewriter on and the outline open (kept with the account)', async () => {
+  await page.getByRole('button', { name: 'Exit focus mode' }).click();
+  if (!(await page.getByRole('navigation', { name: 'Outline' }).count())) await page.getByRole('button', { name: 'Outline', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Outline' }).waitFor();
+  await until(async () => { const p = (await api(page, 'GET', '/doc-prefs')).body; return p.outline === true && p.typewriter === true; });
+  const other = await mk('olivia elsewhere');
+  await signIn(other, 'olivia@acme.com');
+  const url = page.url();
+  await other.goto(url);
+  await other.locator('.ProseMirror').first().waitFor();
+  await other.getByRole('navigation', { name: 'Outline' }).waitFor({ timeout: 8000 });
+  await other.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await other.getByRole('menuitem', { name: 'Focus mode' }).click();
+  if ((await other.getByRole('button', { name: 'Typewriter' }).getAttribute('aria-pressed')) !== 'true') throw new Error('Typewriter isn’t on there');
+  await other.context().close();
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Focus mode' }).click();
+  await page.getByRole('button', { name: 'Exit focus mode' }).waitFor();
+});
 await step('Dim (in focus mode) fades all but the paragraph being written', async () => {
   await page.getByRole('button', { name: 'Typewriter' }).click(); // off: not needed here
   await page.getByRole('button', { name: 'Dim' }).click();

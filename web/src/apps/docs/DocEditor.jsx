@@ -1,3 +1,4 @@
+import { useKeptPref } from './keptpref.js';
 import { isPaused, pausedUntil, pauseUntil } from '../../pause.js';
 import { sprintText, SPRINTS } from './sprint.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -184,11 +185,9 @@ function SharedDoc({ file, setFile }) {
   // full screen, brings everything back.
   const [focusMode, setFocusMode] = useState(false);
   // Typewriter scrolling (in focus mode): the line being written stays in the middle of the screen. Remembered here.
-  const [typewriter, setTypewriterState] = useState(() => { try { return localStorage.getItem('nw-typewriter') === '1'; } catch { return false; } });
+  const [typewriter, setTypewriter] = useKeptPref('typewriter', 'nw-typewriter');
   // Dim (in focus mode): all but the paragraph being written fade. Remembered here.
-  const [dimOthers, setDimState] = useState(() => { try { return localStorage.getItem('nw-dim-others') === '1'; } catch { return false; } });
-  const setDimOthers = (on) => { setDimState(on); try { localStorage.setItem('nw-dim-others', on ? '1' : '0'); } catch { /* not remembered */ } };
-  const setTypewriter = (on) => { setTypewriterState(on); try { localStorage.setItem('nw-typewriter', on ? '1' : '0'); } catch { /* not remembered */ } };
+  const [dimOthers, setDimOthers] = useKeptPref('dim_others', 'nw-dim-others');
   useEffect(() => {
     if (!focusMode) return undefined;
     const root = document.documentElement;
@@ -563,8 +562,7 @@ function SharedDoc({ file, setFile }) {
   const { tabs: docTabs } = useTabs(editor);
   const [tabsPanel, setTabsPanel] = useState(null);
   const tabsShown = tabsPanel ?? docTabs.length > 0;
-  const [outline, setOutlineState] = useState(() => { try { return localStorage.getItem('nw-doc-outline') === '1'; } catch { return false; } });
-  const setOutline = (on) => { setOutlineState(on); try { localStorage.setItem('nw-doc-outline', on ? '1' : '0'); } catch { /* private window */ } };
+  const [outline, setOutline] = useKeptPref('outline', 'nw-doc-outline');
   useEffect(() => {
     const onKey = (e) => {
       const k = e.key.toLowerCase();
@@ -694,12 +692,10 @@ function SharedDoc({ file, setFile }) {
   // Notifications paused for the length of a sprint (when asked: remembered here), and back on when it's stopped,
   // unless they were paused anyway.
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const [sprintQuiet, setSprintQuietState] = useState(() => { try { return localStorage.getItem('nw-sprint-quiet') === '1'; } catch { return false; } });
-  const setSprintQuiet = (on) => { setSprintQuietState(on); try { localStorage.setItem('nw-sprint-quiet', on ? '1' : '0'); } catch { /* not remembered */ } };
+  const [sprintQuiet, setSprintQuiet] = useKeptPref('sprint_quiet', 'nw-sprint-quiet');
   // Colleagues see "✍️ Writing" as your status for the sprint (when asked; not over a status you've set yourself).
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const [sprintStatus, setSprintStatusState] = useState(() => { try { return localStorage.getItem('nw-sprint-status') === '1'; } catch { return false; } });
-  const setSprintStatus = (on) => { setSprintStatusState(on); try { localStorage.setItem('nw-sprint-status', on ? '1' : '0'); } catch { /* not remembered */ } };
+  const [sprintStatus, setSprintStatus] = useKeptPref('sprint_status', 'nw-sprint-status');
   const startSprint = async (minutes) => {
     let unit = 60e3; try { if (localStorage.getItem('nw-sprint-seconds') === '1') unit = 1e3; } catch { /* minutes */ } // (tests: seconds)
     const ends = Date.now() + minutes * unit;

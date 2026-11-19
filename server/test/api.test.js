@@ -5750,16 +5750,16 @@ test('chat bookmarks: links at the top of a conversation, for those in it', asyn
 test('docs writing preferences: autocorrect and your own replacements, per person', async () => {
   const { cleanPrefs } = await import('../src/routes/docprefs.js');
   assert.deepEqual(cleanPrefs({ autocorrect: 0, subs: [{ from: ' addr ', to: '12 High St' }, { from: 'two words', to: 'x' }, { from: 'addr', to: 'again' }, { from: 'empty', to: '' }] }),
-    { autocorrect: true, subs: [{ from: 'addr', to: '12 High St' }], zoom: 100, spellcheck: true, sheet_zoom: 100 }, 'only false turns it off; no spaces, repeats or empty ones');
+    { autocorrect: true, subs: [{ from: 'addr', to: '12 High St' }], zoom: 100, spellcheck: true, sheet_zoom: 100, outline: null, typewriter: null, dim_others: null, sprint_quiet: null, sprint_status: null, voice_lang: null }, 'only false turns it off; no spaces, repeats or empty ones');
   const a = client(); const b = client();
   for (const local of ['dpa', 'dpb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
   await login(a, 'dpa@acme.com'); await login(b, 'dpb@acme.com');
-  assert.deepEqual((await a('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [], zoom: 100, spellcheck: true, sheet_zoom: 100 }, 'on by default');
+  assert.deepEqual((await a('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [], zoom: 100, spellcheck: true, sheet_zoom: 100, outline: null, typewriter: null, dim_others: null, sprint_quiet: null, sprint_status: null, voice_lang: null }, 'on by default');
   const saved = (await a('PUT', '/api/doc-prefs', { subs: [{ from: 'sig', to: 'Kind regards, Ann' }] })).body;
-  assert.deepEqual(saved, { autocorrect: true, subs: [{ from: 'sig', to: 'Kind regards, Ann' }], zoom: 100, spellcheck: true, sheet_zoom: 100 });
+  assert.deepEqual(saved, { autocorrect: true, subs: [{ from: 'sig', to: 'Kind regards, Ann' }], zoom: 100, spellcheck: true, sheet_zoom: 100, outline: null, typewriter: null, dim_others: null, sprint_quiet: null, sprint_status: null, voice_lang: null });
   assert.equal((await a('PUT', '/api/doc-prefs', { autocorrect: false })).body.subs.length, 1, 'changing one keeps the other');
   assert.deepEqual((await a('GET', '/api/doc-prefs')).body.autocorrect, false);
-  assert.deepEqual((await b('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [], zoom: 100, spellcheck: true, sheet_zoom: 100 }, 'everyone has their own');
+  assert.deepEqual((await b('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [], zoom: 100, spellcheck: true, sheet_zoom: 100, outline: null, typewriter: null, dim_others: null, sprint_quiet: null, sprint_status: null, voice_lang: null }, 'everyone has their own');
   assert.equal((await client()('GET', '/api/doc-prefs')).status, 401);
 });
 

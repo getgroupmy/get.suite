@@ -1,6 +1,7 @@
 // The Voice typing bar above a document (⋮ → Voice typing, or Ctrl+Alt+V): listens and types what's said
 // where the cursor is, showing the words still being worked out. The browser does the recognising (Chrome
 // and Edge send the sound to Google's or Microsoft's service for it; Safari does it on the device).
+import { useKeptPref } from './keptpref.js';
 import { useEffect, useRef, useState } from 'react';
 import { spokenToText } from './voicetyping.js';
 
@@ -27,7 +28,7 @@ function typeInto(editor, phrase) {
 }
 
 export function VoiceTypingBar({ editor, onClose }) {
-  const [lang, setLang] = useState(() => { try { return localStorage.getItem(PREF) || ''; } catch { return ''; } }); // '' = the browser's
+  const [lang, setLang] = useKeptPref('voice_lang', PREF, { fromLocal: (v) => v, toLocal: (v) => v, fallback: '' }); // '' = the browser's
   const [heard, setHeard] = useState('');
   const [state, setState] = useState('starting'); // starting | listening | error
   const [error, setError] = useState('');
@@ -65,7 +66,7 @@ export function VoiceTypingBar({ editor, onClose }) {
     return () => { on.current = false; r.onend = null; try { r.stop(); } catch { /* not started */ } };
   }, [editor, lang]);
 
-  const pick = (v) => { setLang(v); try { localStorage.setItem(PREF, v); } catch { /* private window */ } };
+  const pick = (v) => setLang(v);
   return (
     <div className="find-bar read-aloud-bar voice-bar" role="region" aria-label="Voice typing" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }}>
       <span className="small" aria-live="polite">{state === 'error' ? <span className="error">{error}</span> : state === 'listening' ? <><span className="mic-dot" aria-hidden="true" /> Listening: speak, and it’s typed where the cursor is</> : 'Starting…'}</span>

@@ -10,6 +10,7 @@ import { api, get, post, patch, startLive, stopLive, onLive, idleMs } from './ap
 import { useMailStatus } from './mailStatus.js';
 import { useMailNotifications } from './mailNotify.js';
 import { useEventReminders } from './eventReminders.js';
+import { syncVoiceLang } from './apps/docs/keptpref.js';
 import { useTaskReminders } from './taskReminders.js';
 import Icon from './components/Icon.jsx';
 import Bell from './components/Bell.jsx';
@@ -320,6 +321,7 @@ function Shell() {
   useEffect(() => { setBadgePart('mail', unread); }, [unread]); // on the app's icon, with notifications
   const openCalendar = useCallback(() => navigate('/calendar'), [navigate]);
   useEventReminders(true, { toast, openCalendar });
+  useEffect(() => { syncVoiceLang(); }, []); // voice typing's language, kept with the account, for Meet and Slides too
   useTaskReminders({ toast, navigate });
   // Someone is calling you (a video call started in a direct message or a small private channel).
   useEffect(() => onLive((m) => {

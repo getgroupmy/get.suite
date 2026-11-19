@@ -10,7 +10,11 @@ if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'doc_prefs')) q(
 
 export const MAX_SUBS = 100;
 export const ZOOMS = [50, 75, 90, 100, 110, 125, 150, 200];
-const DEFAULTS = { autocorrect: true, subs: [], zoom: 100, spellcheck: true, sheet_zoom: 100 };
+// How the editor is laid out for you (null until chosen: then a browser's earlier choice is used, and kept here):
+// the outline panel, typewriter scrolling, dimming other paragraphs, a writing sprint's quiet and status options,
+// and the language voice typing listens for ('' for the browser's own).
+const FLAGS = ['outline', 'typewriter', 'dim_others', 'sprint_quiet', 'sprint_status'];
+const DEFAULTS = { autocorrect: true, subs: [], zoom: 100, spellcheck: true, sheet_zoom: 100, ...Object.fromEntries(FLAGS.map((k) => [k, null])), voice_lang: null };
 
 /** Preferences as stored: autocorrect on or off, up to 100 replacements { from, to } (from: 1–40 characters, no
  *  spaces), the zoom (one of ZOOMS, in %) and spell check on or off; and the zoom for spreadsheets. */
@@ -31,7 +35,9 @@ export function cleanPrefs(p) {
     const { wordGoal, ...rest } = readSetup(p.page_setup); // a word count goal is one document's
     setup = rest;
   }
-  return { autocorrect: p?.autocorrect !== false, subs, zoom: zoomOf(p?.zoom), spellcheck: p?.spellcheck !== false, sheet_zoom: zoomOf(p?.sheet_zoom), ...(setup && { page_setup: setup }) };
+  const flags = Object.fromEntries(FLAGS.map((k) => [k, typeof p?.[k] === 'boolean' ? p[k] : null]));
+  const lang = typeof p?.voice_lang === 'string' && (p.voice_lang === '' || /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/.test(p.voice_lang)) ? p.voice_lang : null;
+  return { autocorrect: p?.autocorrect !== false, subs, zoom: zoomOf(p?.zoom), spellcheck: p?.spellcheck !== false, sheet_zoom: zoomOf(p?.sheet_zoom), ...flags, voice_lang: lang, ...(setup && { page_setup: setup }) };
 }
 
 export const prefsOf = (userId) => {
