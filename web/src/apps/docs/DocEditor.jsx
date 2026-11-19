@@ -507,6 +507,8 @@ function SharedDoc({ file, setFile }) {
     const focusOnce = (synced) => {
       if (!synced) return;
       provider.off('sync', focusOnce);
+      // Already writing (clicked in while it was loading, from the copy kept on this device): leave the caret there.
+      if (editor.isFocused || editor.view?.hasFocus?.()) return;
       // Opened from a link to a heading: start there instead of at the top.
       const h = window.location.hash && headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
       const tabId = tabIdOfHash(window.location.hash); // opened from a link to a tab
