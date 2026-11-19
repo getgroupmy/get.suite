@@ -23,13 +23,16 @@ after(() => { server.closeAllConnections?.(); server.close(); fs.rmSync(dir, { r
 
 function client() {
   let cookie = '';
-  return async (method, url, body) => {
+  const call = async (method, url, body) => {
     const res = await fetch(base + url, { method, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json', ...(cookie && { cookie }) }, body: body === undefined ? undefined : JSON.stringify(body) });
     const sc = res.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
     return { status: res.status, body: await res.json().catch(() => null) };
   };
+  call.cookie = () => cookie;
+  return call;
 }
 const olivia = client();
+const oliviaCookie = () => olivia.cookie();
 let carolId, carol;
 
 test('setup', async () => {
@@ -214,4 +217,21 @@ test('on legal hold, recently deleted things aren’t purged after 30 days', asy
   await olivia('DELETE', `/api/tasks/lists/${list.id}`);
   setHold(me.id, false);
   assert.equal(purgeBin(Date.now() + 40 * 864e5), 1, 'hold lifted: purged as usual');
+});
+
+test('Download your data includes what’s in Recently deleted, with what it held', async () => {
+  const list = (await olivia('POST', '/api/tasks/lists', { name: 'Old campaign' })).body;
+  await olivia('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Brief the agency' });
+  await olivia('DELETE', `/api/tasks/lists/${list.id}`);
+  const res = await fetch(`${base}/api/takeout`, { headers: { 'x-requested-with': 'nas-workspace', cookie: oliviaCookie() } });
+  assert.equal(res.status, 200);
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(Buffer.from(await res.arrayBuffer()));
+  const f = zip.file('Recently deleted.json');
+  assert.ok(f, Object.keys(zip.files).join(', '));
+  const binned = JSON.parse(await f.async('string'));
+  const it = binned.find((x) => x.name === 'Old campaign');
+  assert.equal(it.kind, 'task_list');
+  assert.ok(it.contents.tasks.some((t) => t.title === 'Brief the agency'));
+  assert.match(await zip.file('README.txt').async('string'), /Recently deleted\.json/);
 });

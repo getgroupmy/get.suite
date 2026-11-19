@@ -106,6 +106,13 @@ export function restoreFromBin(binId, ownerId) {
 export const binOf = (ownerId, kind) => q('SELECT id, kind, item_id, name, deleted_at FROM recycle_bin WHERE owner_id = ? AND kind = ? ORDER BY deleted_at DESC').all(ownerId, kind)
   .map((x) => ({ ...x, until: x.deleted_at + KEEP_DAYS * 864e5 }));
 
+/** For Download your data: each recently deleted item with its rows, by table. */
+export const binExport = (ownerId) => q('SELECT * FROM recycle_bin WHERE owner_id = ? ORDER BY deleted_at').all(ownerId).map((e) => {
+  const byTable = {};
+  for (const { table, row } of JSON.parse(e.data).rows) (byTable[table] ||= []).push(row);
+  return { kind: e.kind, name: e.name, deleted_at: new Date(e.deleted_at).toISOString(), restorable_until: new Date(e.deleted_at + KEEP_DAYS * 864e5).toISOString(), contents: byTable };
+});
+
 export function purgeBin(t = Date.now()) {
   q('DELETE FROM bin_notices WHERE bin_id NOT IN (SELECT id FROM recycle_bin) AND sent_at IS NOT NULL').run();
   // Not while its owner is on legal hold (hold.js): kept until the hold ends (then purged at the next check, if older than 30 days).

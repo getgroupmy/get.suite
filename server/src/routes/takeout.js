@@ -2,6 +2,7 @@ import { keptChatsOf } from '../meet.js';
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
+import { binExport } from '../recyclebin.js';
 import { notesZipEntries, importNotes, noteTemplatesJson, importNoteTemplates } from './notes.js';
 import { importContacts } from './contacts.js';
 import { allListsCsv, importTaskLists } from './tasks.js';
@@ -454,6 +455,9 @@ export default function takeoutRoutes() {
       meetNames.add(base.toLowerCase());
       zip.file(`Meet chats/${base}.txt`, c.text);
     }
+    // Recently deleted lists, forms, booking pages, groups and rooms (still restorable, recyclebin.js), each with what it held.
+    const binned = binExport(me);
+    if (binned.length) zip.file('Recently deleted.json', JSON.stringify(binned, null, 2));
     zip.file('README.txt', [`Your Workspace data, ${new Date().toISOString().slice(0, 10)}`, '',
       `Drive/        your files and folders (${odf ? 'documents, spreadsheets and presentations as OpenDocument: .odt, .ods, .odp, for LibreOffice and others' : 'documents as Word, spreadsheets as Excel, presentations as PowerPoint'})`,
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
@@ -470,7 +474,8 @@ export default function takeoutRoutes() {
       'Meet chats/   the chat kept from meetings you started or were in (when its host kept it)',
       'Mail settings/ your filters (as Sieve, which most mail servers take), signatures, templates and vacation reply',
       'Calendar templates.json  your event templates, if you have any',
-      'Note templates.json  your note templates, if you have any (Notes → Templates)', mailNote].join('\r\n'));
+      'Note templates.json  your note templates, if you have any (Notes → Templates)',
+      'Recently deleted.json  task lists, forms and the like you deleted in the last 30 days (or kept by a legal hold), with what each held', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');
