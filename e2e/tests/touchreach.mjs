@@ -90,6 +90,35 @@ await step('on a phone, tapping a note’s ✓ selects it', async () => {
   await page.waitForFunction(() => document.querySelector('.note-select[aria-pressed="true"]'));
   await page.screenshot({ path: `${SP}/shots/note-picked-phone.png` });
 });
+await step('on a phone, buttons are big enough to tap (24×24, or room around them: WCAG 2.5.8)', async () => {
+  const ctx = await browser.newContext({ ...devices['Pixel 7'] });
+  await ctx.addCookies(cookies);
+  page = await ctx.newPage();
+  const found = [];
+  for (const [name, path, open] of SCREENS) {
+    await page.goto(`${B}${path}`);
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(600);
+    if (open === 'bell') { await page.getByRole('button', { name: /^Notifications/ }).click(); await page.getByRole('dialog', { name: 'Notifications' }).waitFor(); }
+    const small = await page.evaluate(() => {
+      const els = [...document.querySelectorAll('button, [role="button"], input[type="checkbox"], input[type="radio"], select')].filter((el) => {
+        const r = el.getBoundingClientRect(), st = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth && st.visibility !== 'hidden' && !el.closest('[aria-hidden="true"], .sr-only, .ProseMirror, .tiptap');
+      });
+      const rects = els.map((el) => el.getBoundingClientRect());
+      // Too small: under 24px either way, unless a 24px circle around its middle touches no other target (the spacing exception).
+      return els.filter((el, i) => {
+        const r = rects[i];
+        if (r.width >= 24 && r.height >= 24) return false;
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        return rects.some((o, j) => j !== i && Math.max(o.left - cx, 0, cx - o.right) ** 2 + Math.max(o.top - cy, 0, cy - o.bottom) ** 2 < 12 * 12 && !els[j].contains(el) && !el.contains(els[j]));
+      }).map((el, i) => `${(el.getAttribute('aria-label') || el.textContent || el.type || '').trim().slice(0, 30)} (${Math.round(el.getBoundingClientRect().width)}×${Math.round(el.getBoundingClientRect().height)})`);
+    });
+    if (name.startsWith('Drive')) await page.screenshot({ path: `${SP}/shots/tap-${name.replace(/\W+/g, '_')}.png` });
+    if (small.length) found.push(`${name}: ${[...new Set(small)].join(', ')}`);
+  }
+  if (found.length) throw new Error(found.join(' | '));
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

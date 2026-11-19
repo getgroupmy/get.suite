@@ -3371,3 +3371,5 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .file-tile > .menu-wrap > .tile-menu { position: static; }
 /* On a touch screen there's no pointing at a note: its ✓ (to select several) shows faintly all the time. */
 @media (hover: none) { .note-select { opacity: 0.45; } }
+/* Drive's tick boxes on a touch screen: big enough to tap (24px, WCAG 2.5.8), not the browser's 13px. */
+@media (pointer: coarse) { .files .check-col input[type="checkbox"], .file-tile .tile-check { width: 24px; height: 24px; margin: 0; } }
