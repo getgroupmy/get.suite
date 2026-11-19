@@ -43,6 +43,7 @@ import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './groups.js';
 import { FilterMenu } from './SheetFilter.jsx';
 import { TAB_COLOURS, tabColorOf, tabColorName } from './tabcolor.js';
+import { placesAfter, moveSheet, copySheet } from './sheetorder.js';
 import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle, ruleContext } from './condformat.js';
@@ -420,6 +421,19 @@ export default function SheetEditor() {
     const cur = dataRef.current;
     commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, ...fn(s) } : s)) });
   }
+  /** Sheets moved, copied or removed: comments on them go with them (a removed sheet's are marked as gone). */
+  function reorderSheets(next, op, to) {
+    const cur = dataRef.current;
+    const places = placesAfter(cur.sheets.length, op);
+    commitData({ ...cur, sheets: next });
+    for (const t of threads) {
+      const was = t.anchor?.sheet || 0;
+      if (!t.anchor?.cell || t.anchor.gone || places[was] === was) continue;
+      patch(`/comments/${file.id}/${t.id}`, { anchor: places[was] === null ? { ...t.anchor, gone: true } : { ...t.anchor, sheet: places[was] } }).catch(() => {});
+    }
+    setActive(to); setSel({ c: 0, r: 0 }); setAnchor(null);
+  }
+  const newSheetId = () => (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
   const setWidth = (c, w) => writeSheet((s) => ({ colWidths: { ...(s.colWidths || {}), [colName(c)]: Math.round(Math.max(MIN_W, Math.min(MAX_W, w))) } }));
   /** Hide rows or columns a..b (or show them again). The selection steps off any it hides. */
   const hideSpan = (axis, a, b, show = false) => {
@@ -1430,6 +1444,9 @@ export default function SheetEditor() {
               <Menu align="left" trigger={(p) => <button className="tab-menu" aria-label={`Options for ${s.name}`} {...p}>▾</button>} items={[
                 { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename-sheet', index: i }) },
                 { label: 'Tab colour…', onClick: () => setDialog({ type: 'tab-colour', index: i }) },
+                { label: 'Duplicate', icon: 'copy', onClick: () => { const cur = dataRef.current; reorderSheets([...cur.sheets.slice(0, i + 1), copySheet(cur.sheets[i], cur.sheets.map((x) => x.name), newSheetId), ...cur.sheets.slice(i + 1)], { copy: i }, i + 1); } },
+                i > 0 && { label: 'Move left', icon: 'left', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i - 1), { move: [i, i - 1] }, i - 1) },
+                i < data.sheets.length - 1 && { label: 'Move right', icon: 'right', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i + 1), { move: [i, i + 1] }, i + 1) },
                 data.sheets.length > 1 && { label: 'Delete', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete-sheet', index: i }) },
               ]} />
             )}
@@ -1626,8 +1643,7 @@ export default function SheetEditor() {
         <ConfirmModal title="Delete sheet?" message={`“${data.sheets[dialog.index].name}” and all its data will be deleted.`} onClose={() => setDialog(null)}
           onConfirm={async () => {
             const cur = dataRef.current;
-            commitData({ ...cur, sheets: cur.sheets.filter((_, i) => i !== dialog.index) });
-            setActive(0);
+            reorderSheets(cur.sheets.filter((_, i) => i !== dialog.index), { remove: dialog.index }, 0); // (its comments marked as gone; later sheets' follow them)
           }} />
       )}
     </div>

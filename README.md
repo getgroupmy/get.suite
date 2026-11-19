@@ -319,9 +319,15 @@ Put a status, a review stage or a priority right in the text, like *Website: In 
 
 The box at the bottom right of a spreadsheet, beside the sheet tabs, shows it smaller or bigger (50% to 200%): more rows and columns at once, or larger cells to read. It's kept with your account, so every spreadsheet opens at that size for you on any device (documents have their own zoom). The cells, charts and slicers grow and shrink together, and clicking, selecting, filling, dragging column and row edges and moving or resizing charts and slicers work as usual. It's only how you see it: column widths, printing and downloads aren't affected, and people sharing the spreadsheet keep their own size.
 
-## Tab colours (Sheets)
+## Sheet tabs (Sheets)
 
-A sheet's tab can have a colour, to find it at a glance among many (this month's in green, archived ones in grey): the tab's **▾ → Tab colour…** offers ten (red, orange, yellow, green, teal, blue, purple, pink, brown, grey), shown as a bar under the tab's name, with its name when you point at the tab; **No colour** takes it away. Everyone with the spreadsheet sees the change at once. Excel and OpenDocument (.ods) downloads keep it as each program's own tab colour, and opening an Excel or .ods file brings its tab colours in, also after LibreOffice has saved the file again.
+The ▾ on the open sheet's tab renames it, deletes it (with a question first), and:
+
+- **Duplicate:** a copy right after it, *Copy of Budget* (then *Copy of Budget 2*…), with all its cells, formatting, rules, dropdowns, notes, charts and colour. Its charts, slicers and filter views are its own (changing them leaves the original's alone), and its tables keep their colours but not their names, which are the whole file's.
+- **Move left** / **Move right:** reorder the sheets (not offered off either end). Formulas naming a sheet (`=Budget!B1*2`) keep working wherever it goes.
+- Comments stay on their sheet when sheets are copied, moved or deleted (a deleted sheet's comments are marked as such), and colleagues see the new order at once.
+
+A sheet's tab can also have a colour, to find it at a glance among many (this month's in green, archived ones in grey): the tab's **▾ → Tab colour…** offers ten (red, orange, yellow, green, teal, blue, purple, pink, brown, grey), shown as a bar under the tab's name, with its name when you point at the tab; **No colour** takes it away. Everyone with the spreadsheet sees the change at once. Excel and OpenDocument (.ods) downloads keep it as each program's own tab colour, and opening an Excel or .ods file brings its tab colours in, also after LibreOffice has saved the file again.
 
 ## Printing (Sheets)
 
