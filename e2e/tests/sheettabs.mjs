@@ -165,6 +165,24 @@ await step('Copy to a new spreadsheet: Plan, whose formula reads Budget, keeps w
   const orig = (await api(page, 'GET', `/files/${sheet.id}/content`)).body.content.sheets.find((x) => x.name === 'Plan');
   if (orig.cells.A1 !== '=Budget!B1*2') throw new Error(JSON.stringify(orig.cells));
 });
+await step('Copy to a new spreadsheet: Kim\'s picture in a cell comes as a copy that shows there', async () => {
+  const pic = await kim.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 40; c.height = 20; const g = c.getContext('2d'); g.fillStyle = '#1e88e5'; g.fillRect(0, 0, 40, 20);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return (await fetch('/api/files/upload?name=badge.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: blob })).json();
+  });
+  const kimBook = (await api(kim, 'POST', '/files/new', { kind: 'sheet', name: 'Kim badges', content: { sheets: [{ name: 'Badges', cells: { A1: `=IMAGE("drive:${pic.id}", 1)` } }] } })).body;
+  const me = (await api(page, 'GET', '/auth/me')).body.user.id;
+  await api(kim, 'PUT', `/files/${kimBook.id}/shares`, { shares: [{ user_id: me, role: 'editor' }] });
+  await page.goto(`${B}/sheets/${kimBook.id}`);
+  await until(async () => (await tabs(page)).includes('Badges'));
+  await menu('Badges', 'Copy to a new spreadsheet');
+  const t = page.locator('.toast', { hasText: 'Copied to a new spreadsheet, “Kim badges – Badges”' });
+  await t.waitFor();
+  await t.getByRole('link', { name: 'Open it' }).click();
+  await page.waitForURL((u) => !u.pathname.endsWith(kimBook.id));
+  await until(() => page.locator('[data-k="A1"] img.cell-img').evaluate((img) => img.complete && img.naturalWidth === 40).catch(() => false), 10000);
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

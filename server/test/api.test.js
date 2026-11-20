@@ -16248,3 +16248,25 @@ test('Docs: a copied tab\'s links to other places in the original go to the orig
   const body = (await owner('GET', `/api/files/${n.id}/content`)).body.content.content;
   assert.deepEqual(body[1].content.map((x) => x.marks[0].attrs.href), ['#aims', `/docs/${src.id}#spend`], 'a new document of its own too');
 });
+
+test('Sheets: a copied sheet\'s pictures in cells are copied for the spreadsheet it goes to, so they show there', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'picsam', domain: 'acme.com', name: 'Pic Sam', password: 'password123' })).status, 201);
+  const sam = client(); await login(sam, 'picsam@acme.com');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await sam('POST', '/api/files/upload?name=logo.png', png, { raw: true })).body;
+  const book = (await sam('POST', '/api/files/new', { kind: 'sheet', name: 'Sam brands', content: { sheets: [{ name: 'Logos', cells: { A1: `=IMAGE("drive:${pic.id}", 1)`, A2: 'Acme' } }] } })).body;
+  const me = (await owner('GET', '/api/auth/me')).body.user.id;
+  await sam('PUT', `/api/files/${book.id}/shares`, { shares: [{ user_id: me, role: 'editor' }] });
+  const mine = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'My brands', content: { sheets: [{ name: 'S', cells: {} }] } })).body;
+  assert.equal((await owner('GET', `/api/files/${mine.id}/pictures/${pic.id}`)).status, 404, 'Sam\'s own picture: not shown in a spreadsheet Sam can\'t edit');
+  assert.equal((await owner('POST', `/api/files/${book.id}/sheets/0/copy-to`, { target: mine.id })).status, 201);
+  const cells = (await owner('GET', `/api/files/${mine.id}/content`)).body.content.sheets[1].cells;
+  const id = /drive:([A-Za-z0-9_-]+)/.exec(cells.A1)?.[1];
+  assert.ok(id && id !== pic.id, cells.A1);
+  assert.match(cells.A1, /^=IMAGE\("drive:[A-Za-z0-9_-]+", 1\)$/);
+  assert.equal(cells.A2, 'Acme');
+  assert.equal((await owner('GET', `/api/files/${mine.id}/pictures/${id}`)).status, 200, 'the copy shows');
+  const n = (await owner('POST', `/api/files/${book.id}/sheets/0/copy-to`, { new: true })).body;
+  const c2 = (await owner('GET', `/api/files/${n.id}/content`)).body.content.sheets[0].cells.A1;
+  assert.equal((await owner('GET', `/api/files/${n.id}/pictures/${/drive:([A-Za-z0-9_-]+)/.exec(c2)[1]}`)).status, 200, 'in a new spreadsheet too');
+});

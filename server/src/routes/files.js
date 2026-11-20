@@ -2103,9 +2103,17 @@ export default function fileRoutes({ maxUploadBytes }) {
     // In another spreadsheet, formulas that read the original's other sheets (or this one by a name it no longer has
     // there) would find nothing: they come as the values they work out to.
     const standalone = (copy) => ({ ...copy, cells: cellsWithValuesFrom(srcData, index, srcData.sheets.filter((x, j) => j !== index || copy.name !== sheet.name)) });
+    // Pictures in its cells (=IMAGE("drive:…")) copied for the spreadsheet it goes to, which shows only files someone
+    // who can edit it owns; the formulas then show the copies.
+    const withPictures = (copy, target) => {
+      const files = copiedMedia(f, picturesIn('sheet', { sheets: [sheet] }), req.user, target);
+      if (!files.size) return copy;
+      const swap = (v) => (typeof v === 'string' ? v.replace(/"drive:([A-Za-z0-9_-]{4,64})"/g, (m, id) => (files.has(id) ? `"drive:${files.get(id)}"` : m)) : v);
+      return { ...copy, cells: Object.fromEntries(Object.entries(copy.cells || {}).map(([k, v]) => [k, swap(v)])) };
+    };
     if (req.body?.new) { // a spreadsheet of its own with this sheet (shown), named after it
       const copy = standalone(sheetCopyFor(sheet, []));
-      const n = newFileBeside(req, f, 'sheet', `${f.name} – ${copy.name}`, () => ({ sheets: [copy] }));
+      const n = newFileBeside(req, f, 'sheet', `${f.name} – ${copy.name}`, (nf) => ({ sheets: [withPictures(copy, nf)] }));
       audit(req, 'sheet.copy_to', { target: n.name, details: { from: f.name, sheet: copy.name, new: true } });
       return res.status(201).json({ id: n.id, name: n.name, sheet: copy.name, created: true });
     }
@@ -2117,7 +2125,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       const sheets = json?.sheets?.length ? json.sheets : [];
       if (sheets.length >= 200) return null;
       let copy = sheetCopyFor(sheet, sheets.map((x) => x.name));
-      if (t.id !== f.id) copy = standalone(copy);
+      if (t.id !== f.id) copy = withPictures(standalone(copy), t);
       name = copy.name;
       return { ...(json || {}), sheets: [...sheets, copy] };
     }, req.user.id);
