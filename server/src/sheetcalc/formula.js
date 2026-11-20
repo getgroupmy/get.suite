@@ -203,6 +203,10 @@ function wildcard(text) {
 }
 const hasWildcard = (t) => typeof t === 'string' && /(^|[^~])[*?]/.test(t);
 
+// Text in order as people read it (accents with their letter: é with e, Ä with A, before Z), ignoring case, as Excel does.
+const TEXT_ORDER = new Intl.Collator('en', { sensitivity: 'accent' });
+/** Lower-cased text a before b, b before a, or the same (-1, 1, 0): by TEXT_ORDER, then by code (ß and ss). */
+const textCompare = (a, b) => (a === b ? 0 : TEXT_ORDER.compare(a, b) || (a < b ? -1 : 1));
 function criteria(c) {
   const m = /^(<=|>=|<>|<|>|=)?(.*)$/.exec(toStr(c));
   const op = m[1] || '=';
@@ -210,6 +214,11 @@ function criteria(c) {
   if ((op === '=' || op === '<>') && hasWildcard(m[2])) { const re = wildcard(m[2]); return (v) => re.test(toStr(v)) === (op === '='); }
   return (v) => {
     const lhs = typeof rhs === 'number' ? (typeof v === 'number' ? Number(v.toPrecision(15)) : Number.NaN) : toStr(v).toLowerCase(); // (to 15 digits, as Excel compares)
+    if (typeof rhs === 'string' && op !== '=' && op !== '<>') { // "<m": text before m (in reading order); numbers aren't counted
+      if (typeof v !== 'string' || v === '') return false;
+      const c = textCompare(lhs, rhs);
+      return op === '<' ? c < 0 : op === '>' ? c > 0 : op === '<=' ? c <= 0 : c >= 0;
+    }
     switch (op) {
       case '=': return lhs === rhs;
       case '<>': return lhs !== rhs;
@@ -224,7 +233,7 @@ function criteria(c) {
 // ---- helpers for lookups, conditions and dates
 const shapeOf = (a) => (Array.isArray(a) ? { rows: a.rows ?? a.length, cols: a.cols ?? 1, at: (r, c) => a[r * (a.cols ?? 1) + c] } : { rows: 1, cols: 1, at: () => a });
 const same = (a, b) => (typeof a === 'string' && typeof b === 'string' ? a.toLowerCase() === b.toLowerCase() : a === b);
-const before = (a, b) => (typeof a === 'number' && typeof b === 'number' ? a < b : typeof a === 'string' && typeof b === 'string' ? a.toLowerCase() < b.toLowerCase() : typeof a === 'number');
+const before = (a, b) => (typeof a === 'number' && typeof b === 'number' ? a < b : typeof a === 'string' && typeof b === 'string' ? textCompare(a.toLowerCase(), b.toLowerCase()) < 0 : typeof a === 'number');
 /** MATCH's search: 0 exact (wildcards allowed), 1 the last value ≤ x in ascending order, -1 the last ≥ x in descending order. Index or -1. */
 function findIn(list, x, type) {
   if (type === 0) {
@@ -2832,17 +2841,26 @@ function mayArray(n) {
 
 const to15 = (n) => (Number.isFinite(n) ? Number(n.toPrecision(15)) : n);
 function compare(op, l, r) {
-  const bothNum = (typeof l === 'number' || l === null) && (typeof r === 'number' || r === null);
-  // Numbers compared to 15 significant digits, as Excel does (=0.1+0.2=0.3 is TRUE)
-  const a = bothNum ? to15(toNum(l)) : toStr(l).toLowerCase();
-  const b = bothNum ? to15(toNum(r)) : toStr(r).toLowerCase();
+  // Excel's order between kinds: numbers, then text, then TRUE/FALSE (a blank is 0, "" or FALSE, by the other side)
+  const kind = (v) => (typeof v === 'boolean' ? 2 : typeof v === 'number' ? 0 : 1);
+  if (l === null && r !== null) l = typeof r === 'boolean' ? false : typeof r === 'number' ? 0 : '';
+  if (r === null && l !== null) r = typeof l === 'boolean' ? false : typeof l === 'number' ? 0 : '';
+  let c;
+  if (l === null && r === null) c = 0;
+  else if (kind(l) !== kind(r)) c = kind(l) - kind(r);
+  else if (typeof l === 'number') { const a = to15(l), b = to15(r); c = a < b ? -1 : a > b ? 1 : 0; } // (to 15 significant digits: =0.1+0.2=0.3)
+  else if (typeof l === 'boolean') c = Number(l) - Number(r);
+  else {
+    const a = toStr(l).toLowerCase(), b = toStr(r).toLowerCase();
+    c = textCompare(a, b);
+  }
   switch (op) {
-    case '=': return a === b;
-    case '<>': return a !== b;
-    case '<': return a < b;
-    case '>': return a > b;
-    case '<=': return a <= b;
-    default: return a >= b;
+    case '=': return c === 0;
+    case '<>': return c !== 0;
+    case '<': return c < 0;
+    case '>': return c > 0;
+    case '<=': return c <= 0;
+    default: return c >= 0;
   }
 }
 
