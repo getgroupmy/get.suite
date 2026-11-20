@@ -201,6 +201,8 @@ const cellsOf = (args) => args.flat(Infinity);
 /** Of the values picked, the first error, raised (SUMIF and the like: an error only counts where the row is picked). */
 const picked = (vals) => { for (const v of vals) if (isErr(v)) raise(v); return vals; };
 const nums = (args) => flat(args).filter((v) => typeof v === 'number');
+/** A function's answer, #NUM! when it's no number (NaN) or too big, there and then: =1<POWER(-10, 1.5) is #NUM!, not FALSE. */
+const finite = (v) => (typeof v === 'number' && !Number.isFinite(v) ? err('#NUM!') : v);
 /** AND, OR and XOR's values: numbers and TRUE/FALSE (written as text too); other text and empty cells passed over, as
  * Excel does with text in cells (=AND(3, A2) with text in A2 is TRUE); nothing left: #VALUE!. */
 function logicals(args) {
@@ -2544,7 +2546,7 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
     const shapes = vals.map((v, i) => (lifts(which, i) && Array.isArray(v) ? shapeOf(v) : null));
     const unwrap = (v) => (isErr(v) && !TAKES_ERRORS.has(n.name) ? raise(v) : v);
     const call = (args) => (lazy ? lazy(args.map((v) => () => scalar(unwrap(v)))) : FUNCS[n.name](args.map(unwrap)));
-    if (!shapes.some(Boolean)) return call(vals);
+    if (!shapes.some(Boolean)) return finite(call(vals));
     const rows = Math.max(...shapes.map((s) => s?.rows ?? 1)), cols = Math.max(...shapes.map((s) => s?.cols ?? 1));
     if (rows * cols > MAX_REF_CELLS) err('#NUM!');
     const pick = (v, s, r, c) => (!s ? v : (s.rows !== 1 && r >= s.rows) || (s.cols !== 1 && c >= s.cols) ? { error: '#N/A' } : s.at(s.rows === 1 ? 0 : r, s.cols === 1 ? 0 : c) ?? null);
@@ -2710,7 +2712,7 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           if (own) return callOwn(own, n.args.map(evaluate));
           err('#NAME?');
         }
-        return f(n.args.map(evaluate));
+        return finite(f(n.args.map(evaluate)));
       }
       case 'bin': {
         const l = evaluate(n.left);
@@ -2775,12 +2777,13 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
   }
 
   function operate(op, l, r) {
+    const fin = (x) => (typeof x === 'number' && !Number.isFinite(x) ? err('#NUM!') : x); // (no answer, or too big: #NUM! there and then, so =1<(-8)^0.5 is #NUM!, not FALSE)
     switch (op) {
-      case '+': return dateMath('+', l, r) ?? toNum(l) + toNum(r);
-      case '-': return dateMath('-', l, r) ?? toNum(l) - toNum(r);
-      case '*': return toNum(l) * toNum(r);
-      case '/': { const d = toNum(r); if (d === 0) err('#DIV/0!'); return toNum(l) / d; }
-      case '^': return toNum(l) ** toNum(r);
+      case '+': return fin(dateMath('+', l, r) ?? toNum(l) + toNum(r));
+      case '-': return fin(dateMath('-', l, r) ?? toNum(l) - toNum(r));
+      case '*': return fin(toNum(l) * toNum(r));
+      case '/': { const d = toNum(r); if (d === 0) err('#DIV/0!'); return fin(toNum(l) / d); }
+      case '^': { const b = toNum(l), e = toNum(r); if (b === 0 && e < 0) err('#DIV/0!'); if (b === 0 && e === 0) err('#NUM!'); return fin(b ** e); } // (0^-1 #DIV/0!, 0^0 #NUM!, as in Excel)
       case '&': return toStr(l) + toStr(r);
       default: return compare(op, l, r);
     }

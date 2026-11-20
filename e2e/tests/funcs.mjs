@@ -183,6 +183,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('P24', '=ISTEXT("")&"|"&IFERROR(5+"", "err")&"|"&AND(3, P18)&"|"&ISBLANK(P25)');
   await typeIn('P25', '=""');
   await expectCells({ P24: 'TRUE|err|TRUE|FALSE' });
+  // an answer that's no number is #NUM! at once, not carried through a comparison as FALSE
+  await typeIn('P26', '=IFERROR(1<-10^1.5, "num")&"|"&IFERROR(0^0, "num")&"|"&-2^2');
+  await expectCells({ P26: 'num|num|4' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

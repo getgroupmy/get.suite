@@ -16,8 +16,9 @@ import { bookEvaluator } from '../src/sheetcalc/formula.js';
 // Not compared, where LibreOffice isn't Excel: it has no TRUE and FALSE of their own (they're 1 and 0, so TRUE<2 is TRUE,
 // COUNT counts a TRUE cell and TRUE&"" is 1), writes the IS… functions' answers as 1 and 0, gives TYPE 8 for any formula
 // cell, refuses SUM(0, "3") (Excel adds a number typed as text), AVERAGE("", …) as #DIV/0! and SWITCH(-0, …) as #VALUE!,
-// ERROR.TYPE(SQRT(-1)) as #N/A (Excel: 6, for #NUM!), and ISEVEN("3") (Excel reads the number).
-const NOT_COMPARED = /TRUE|FALSE|^=ISEVEN\("3"\)|^=COUNT\(|^=ISNUMBER|^=TYPE\(A[16]\)|^=SUM\(.*"3"|^=AVERAGE\(""|^=SWITCH\(-0|SQRT\(-1\)/;
+// ERROR.TYPE(SQRT(-1)) as #N/A (Excel: 6, for #NUM!), ISEVEN("3") (Excel reads the number), and 0^0 as 1 (Excel:
+// #NUM!).
+const NOT_COMPARED = /TRUE|FALSE|^=ISEVEN\("3"\)|^=COUNT\(|^=ISNUMBER|^=TYPE\(A[16]\)|^=SUM\(.*"3"|^=AVERAGE\(""|^=SWITCH\(-0|SQRT\(-1\)|=0\^/;
 
 test('operators and logical functions: the same answers as LibreOffice', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
   const cells = { A1: '=5', A2: 'text', A3: '', A4: '=TRUE', A5: '=1/0', A6: '="7"', A7: '=-2', A8: '=0.5' };
