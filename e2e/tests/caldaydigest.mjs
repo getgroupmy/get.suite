@@ -35,12 +35,22 @@ await step('setup: an all-day event every week on today\'s weekday, from a week 
     if (made.status !== 201) throw new Error(`${made.status} ${JSON.stringify(made.body)}`);
   }
 });
+await step('never turned on: “Show what it would say” is for today in this browser\'s zone, not the server\'s', async () => {
+  if ((await api('GET', '/users/me/digest')).body.tz) throw new Error('the summary already has a zone');
+  await page.goto(`${B}/settings`);
+  const card = page.getByRole('region', { name: 'Morning summary' });
+  await card.getByRole('button', { name: 'Show what it would say' }).click();
+  const preview = card.getByLabel('Summary preview');
+  await preview.waitFor();
+  const today = await page.evaluate(() => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).replace(',', ''));
+  await preview.getByText(`Here's ${today}.`).waitFor({ timeout: 5000 }).catch(async () => { throw new Error(`the preview says: ${(await preview.innerText()).split('\n')[0]} (today here: ${today})`); });
+  if (!/All day\s+Gym day/.test(await preview.innerText())) throw new Error('no Gym day in it');
+});
 await step('the morning summary (in Kuala Lumpur) lists the Gym day as all day today, not the Pool day', async () => {
   // (its zone, as turning it on sets: this browser's; with no email here, it stays off)
   await api('PUT', '/users/me/digest', { hour: null, tz: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone) });
   const d = (await api('GET', '/users/me/digest')).body;
   if (d.tz !== 'Asia/Kuala_Lumpur') throw new Error(`the summary's zone is ${d.tz}`);
-  // (what "Send me one now" shows; that button is there when the server has email)
   const text = (await api('POST', '/users/me/digest/send', { preview: true })).body?.text || '';
   if (!/All day\s+Gym day/.test(text)) throw new Error(`the summary says: ${text.split('\n').slice(0, 6).join(' / ')}`);
   if (/Pool day/.test(text)) throw new Error('tomorrow\'s Pool day is in today\'s summary');

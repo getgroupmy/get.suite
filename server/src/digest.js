@@ -39,12 +39,13 @@ export function localNow(t, tz) {
   return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) };
 }
 
-/** What goes in someone's summary for the local day containing t. */
-export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL || '') {
+/** What goes in someone's summary for the local day containing t (in their summary's zone; before they've set one, `zone`:
+ * the browser's when they ask for one now, else UTC). */
+export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL || '', zone = null) {
   base = String(base || '').replace(/\/+$/, '');
   const link = (path) => (base ? `\n      ${base}${path}` : '');
   const user = q('SELECT id, username, name, org_id, digest_tz FROM users WHERE id = ?').get(userId);
-  const tz = zoneOrUtc(user.digest_tz || 'UTC');
+  const tz = zoneOrUtc(user.digest_tz || zone || 'UTC');
   const { date } = localNow(t, tz);
   const [y, m, d] = date.split('-').map(Number);
   const from = zonedToUtc(y, m, d, 0, 0, 0, tz), to = zonedToUtc(y, m, d + 1, 0, 0, 0, tz);
@@ -197,9 +198,9 @@ export function driveChanges(userId, t = Date.now()) {
 }
 
 /** Send someone their summary now (from their own mailbox to itself). */
-export async function sendDigest(userId, t = Date.now(), base = process.env.PUBLIC_URL || '') {
+export async function sendDigest(userId, t = Date.now(), base = process.env.PUBLIC_URL || '', zone = null) {
   const user = q('SELECT id, username, name FROM users WHERE id = ?').get(userId);
-  const d = digestFor(userId, t, base);
+  const d = digestFor(userId, t, base, zone);
   await smtpFor(user).sendMail({ from: { name: 'Workspace', address: user.username }, to: user.username, subject: d.subject, text: d.text });
   return d;
 }

@@ -534,8 +534,9 @@ export default function userRoutes() {
   });
   r.post('/me/digest/send', async (req, res) => {
     const base = baseUrl(req); // links in it go to where this was asked from, unless PUBLIC_URL says otherwise
-    if (req.body?.preview || !mailEnabled()) return res.json({ sent: false, ...digestFor(req.user.id, Date.now(), base) });
-    res.json({ sent: true, ...(await sendDigest(req.user.id, Date.now(), base)) });
+    const zone = req.body?.tz ? zoneOrUtc(String(req.body.tz)) : null; // the browser's: today there, until the summary has a zone of its own
+    if (req.body?.preview || !mailEnabled()) return res.json({ sent: false, ...digestFor(req.user.id, Date.now(), base, zone) });
+    res.json({ sent: true, ...(await sendDigest(req.user.id, Date.now(), base, zone)) });
   });
 
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'focus_quiet')) q('ALTER TABLE users ADD COLUMN focus_quiet INTEGER NOT NULL DEFAULT 0').run();

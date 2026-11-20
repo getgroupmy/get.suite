@@ -296,7 +296,7 @@ function MorningSummary() {
         <p className="muted small" style={{ margin: 0 }}>From your own mailbox to your inbox. Not on days you're on approved time off.</p>
       </>}
       <div className="row">
-        <button type="button" className="btn small" onClick={async () => { try { const r = await post('/users/me/digest/send', { preview: !d.mail }); setPreview(r.text); if (r.sent) toast('Sent to your inbox'); } catch (e) { toast(e.message, 'error'); } }}>{d.mail ? 'Send me one now' : 'Show what it would say'}</button>
+        <button type="button" className="btn small" onClick={async () => { try { const r = await post('/users/me/digest/send', { preview: !d.mail, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); setPreview(r.text); if (r.sent) toast('Sent to your inbox'); } catch (e) { toast(e.message, 'error'); } }}>{d.mail ? 'Send me one now' : 'Show what it would say'}</button>
       </div>
       {preview && <pre className="digest-preview" aria-label="Summary preview">{preview}</pre>}
     </section>

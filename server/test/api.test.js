@@ -16728,3 +16728,19 @@ test('all-day repeats on the server: worked out in the zone they were made in, n
   const { expand: inBrowser } = await import('../src/calmath.js');
   assert.deepEqual(inBrowser({ ...made.body }, start, start + 8 * 864e5).map((o) => new Date(o.start).toISOString()), ['2026-12-07T16:00:00.000Z'], 'on this UTC clock: Monday 16:00');
 });
+
+test('the morning summary before it has a zone of its own: the day where the browser asking is, then its own zone', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const sam = client();
+  await owner('POST', '/api/users', { local: 'sam', domain: 'acme.com', name: 'Sam Syd', password: 'password123' });
+  await login(sam, 'sam@acme.com');
+  const id = (await sam('GET', '/api/auth/me')).body.user.id;
+  const t = Date.UTC(2026, 11, 13, 20); // Sunday 13 December 20:00 UTC: Monday the 14th, 4:00, in Kuala Lumpur
+  assert.match(digestFor(id, t).text, /Here's Sunday 13 December/, 'no zone at all: UTC');
+  assert.match(digestFor(id, t, '', 'Asia/Kuala_Lumpur').text, /Here's Monday 14 December/);
+  const now = await sam('POST', '/api/users/me/digest/send', { preview: true, tz: 'Asia/Kuala_Lumpur' });
+  const kl = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date()).replace(',', '');
+  assert.match(now.body.text, new RegExp(`Here's ${kl}\\.`), 'asked from Kuala Lumpur: today there');
+  await sam('PUT', '/api/users/me/digest', { hour: null, tz: 'America/New_York' });
+  assert.match(digestFor(id, t, '', 'Asia/Kuala_Lumpur').text, /Here's Sunday 13 December/, 'once it has a zone, that one');
+});
