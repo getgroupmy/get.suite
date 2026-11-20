@@ -158,6 +158,71 @@ function dateTimeParts(code) {
   });
   return { xml: out.join(''), kind: hasDate ? 'date' : hasTime ? 'time' : null };
 }
+// ---- custom number codes ("0.0,\"k\"", "#,##0.00 \"kg\"", "0;(0)", "[Red]0.00;[Blue]-0.00", "#,##0;-#,##0;\"zero\"") as
+// OpenDocument number styles, the way LibreOffice writes them: text parts, a display factor for trailing commas, a colour,
+// and for several sections a main style (the negative one, or with three the zero one) mapping to the others.
+const ODF_COLOURS = { red: '#ff0000', blue: '#0000ff', green: '#00ff00', black: '#000000', white: '#ffffff', magenta: '#ff00ff', cyan: '#00ffff', yellow: '#ffff00' };
+const splitSections = (code) => { const out = []; let cur = '', q = false, br = false; for (const ch of code) { if (ch === '"') q = !q; else if (!q && ch === '[') br = true; else if (!q && ch === ']') br = false; if (ch === ';' && !q && !br) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out; };
+/** One section of a number code as an ODF style's inside ({ kind: 'number' | 'percentage', xml }), or null when it has what isn't kept. */
+function numberSection(sec, textOnly = false) {
+  let s = sec, colour = '';
+  const head = /^\[([A-Za-z]+)\]/.exec(s);
+  if (head) { if (!ODF_COLOURS[head[1].toLowerCase()]) return null; colour = `<style:text-properties fo:color="${ODF_COLOURS[head[1].toLowerCase()]}"/>`; s = s.slice(head[0].length); }
+  if (/\[|@|[eE][+-]|\?|\//.test(s.replace(/"[^"]*"/g, ''))) return null; // conditions, text, exponents, fractions: not kept
+  const parts = []; let text = '', number = null, pct = false;
+  const flush = () => { if (text) parts.push(`<number:text>${x(text)}</number:text>`); text = ''; };
+  for (let i = 0; i < s.length;) {
+    const ch = s[i];
+    if (ch === '"') { const j = s.indexOf('"', i + 1); text += s.slice(i + 1, j < 0 ? s.length : j); i = j < 0 ? s.length : j + 1; continue; }
+    if (ch === '\\') { text += s[i + 1] ?? ''; i += 2; continue; }
+    if (ch === '_') { text += ' '; i += 2; continue; }
+    if (ch === '*') { i += 2; continue; }
+    if (!number && /[#0.]/.test(ch)) {
+      const m = /^[#0,]*(?:\.[#0]*)?,*/.exec(s.slice(i))[0];
+      const [intPart, fracPart = ''] = m.replace(/,+$/, '').split('.');
+      const scale = (/,+$/.exec(m) || [''])[0].length;
+      flush();
+      const dp = (fracPart.match(/[#0]/g) || []).length, minDp = (fracPart.match(/0/g) || []).length;
+      number = `<number:number number:decimal-places="${dp}" number:min-decimal-places="${minDp}" number:min-integer-digits="${(intPart.match(/0/g) || []).length}"${intPart.includes(',') ? ' number:grouping="true"' : ''}${scale ? ` number:display-factor="${1000 ** scale}"` : ''}/>`;
+      parts.push(number);
+      i += m.length;
+      continue;
+    }
+    if (ch === '%') pct = true;
+    text += ch; i++;
+  }
+  flush();
+  if (!number && !textOnly) return null;
+  return { kind: number ? (pct ? 'percentage' : 'number') : null, xml: colour + parts.join('') }; // (a later section can be text alone: "zero")
+}
+/** A custom number code as ODF number styles (the sub-styles, then the main one), or null when it can't be kept. */
+function numberCodeStyles(code, name) {
+  const secs = splitSections(String(code || '')).slice(0, 3).map((sec, i) => numberSection(sec, i > 0));
+  if (!secs.length || secs.some((s) => !s) || new Set(secs.map((s) => s.kind).filter(Boolean)).size > 1) return null;
+  const kind = secs[0].kind, style = (n, inner, sub) => `<number:${kind}-style style:name="${n}"${sub ? ' style:volatile="true"' : ''}>${inner}</number:${kind}-style>`;
+  if (secs.length === 1) return style(name, secs[0].xml);
+  if (secs.length === 2) return style(`${name}P0`, secs[0].xml, true) + style(name, `${secs[1].xml}<style:map style:condition="value()&gt;=0" style:apply-style-name="${name}P0"/>`);
+  return style(`${name}P0`, secs[0].xml, true) + style(`${name}P1`, secs[1].xml, true)
+    + style(name, `${secs[2].xml}<style:map style:condition="value()&gt;0" style:apply-style-name="${name}P0"/><style:map style:condition="value()&lt;0" style:apply-style-name="${name}P1"/>`);
+}
+/** An ODF number or percentage style back as one section of a code ("#,##0.0,\"k\""). */
+function sectionFromStyle(el) {
+  let code = '';
+  for (const k of el.children || []) {
+    if (k.type !== 'tag') continue;
+    if (k.name === 'style:text-properties') { const c = String(k.attribs?.['fo:color'] || '').toLowerCase(); const n = Object.entries(ODF_COLOURS).find(([, v]) => v === c)?.[0]; if (n) code = `[${n[0].toUpperCase()}${n.slice(1)}]${code}`; }
+    else if (k.name === 'number:number') {
+      const a = k.attribs || {}, dp = Number(a['number:decimal-places'] || 0), minDp = Math.min(dp, Number(a['number:min-decimal-places'] ?? dp)), minInt = Number(a['number:min-integer-digits'] ?? 1);
+      const int = a['number:grouping'] === 'true' ? `#,##${minInt ? '0' : '#'}` : minInt ? '0'.repeat(minInt) : '#';
+      const factor = Number(a['number:display-factor'] || 1);
+      code += `${int}${dp ? `.${'0'.repeat(minDp)}${'#'.repeat(dp - minDp)}` : ''}${','.repeat(factor >= 1000 ? Math.round(Math.log10(factor) / 3) : 0)}`;
+    } else if (k.name === 'number:text') {
+      const t = textOf(k), [, lead, mid, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(t);
+      code += lead + (mid === '' || /^[()\-+$€£¥%:/.]*$/.test(mid) ? mid : `"${mid.replace(/"/g, '')}"`) + trail; // (spaces outside the quotes, as usually written)
+    }
+  }
+  return code;
+}
 /** ODF date-style or time-style parts back as a custom code ("dd/mm/yyyy hh:mm"), or null. */
 function codeFromParts(el) {
   let code = '';
@@ -196,11 +261,14 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
   const tables = tablesOf(sheets);
   const cellStyles = new Map(), dataStyles = new Map(), colStyles = new Map(), rowStyles = new Map();
   const dataStyle = (f) => {
-    if (f.num === 'custom') { // a code of dates and times: an ODF date or time style (others: not kept in .ods yet)
+    if (f.num === 'custom') { // a code of dates and times: an ODF date or time style; of numbers: number styles
+      const key = `c${[...String(f.code)].map((ch) => ch.charCodeAt(0).toString(36)).join('')}`.slice(0, 60) + String(dataStyles.size);
+      const known = [...dataStyles.entries()].find(([, v]) => v.code === f.code);
+      if (known) return `N_${known[0]}`;
       const p = dateTimeParts(f.code);
-      if (!p?.kind) return null;
-      const key = `c${[...String(f.code)].map((ch) => ch.charCodeAt(0).toString(36)).join('')}`.slice(0, 60);
-      if (!dataStyles.has(key)) dataStyles.set(key, `<number:${p.kind}-style style:name="N_${key}">${p.xml}</number:${p.kind}-style>`);
+      const xml = p?.kind ? `<number:${p.kind}-style style:name="N_${key}">${p.xml}</number:${p.kind}-style>` : numberCodeStyles(f.code, `N_${key}`);
+      if (!xml) return null; // (sections with conditions, text, fractions, exponents: not kept in .ods)
+      dataStyles.set(key, Object.assign(new String(xml), { code: f.code }));
       return `N_${key}`;
     }
     if (!DATA_STYLES[f.num]) return null;
@@ -450,13 +518,31 @@ export async function sheetFromOds(buffer) {
         const sym = textOf(tags(el, 'number:currency-symbol')[0] || { children: [] }).trim();
         const dp = n['number:decimal-places'] !== undefined ? Math.min(10, Number(n['number:decimal-places'])) : undefined;
         const ds = kind !== 'date' ? undefined : parts.includes('number:day-of-week') ? 'long' : parts[0] === 'number:year' ? 'iso' : parts.includes('number:day') ? (tags(el, 'number:month')[0]?.attribs['number:textual'] === 'true' ? undefined : 'short') : 'month';
+        if (kind === 'number' || kind === 'percentage') numberEls.set(el.attribs['style:name'], el);
         if (kind === 'time' || (kind === 'date' && parts.includes('number:hours'))) { const code = codeFromParts(el); if (code) { dataStyles.set(el.attribs['style:name'], { num: 'custom', code }); readStyles(el); continue; } }
         dataStyles.set(el.attribs['style:name'], kind === 'number' ? { num: 'number', ...(dp !== undefined && { dp }) } : kind === 'percentage' ? { num: 'percent', ...(dp !== undefined && { dp }) } : kind === 'currency' ? { num: 'currency', cur: { '€': 'EUR', $: 'USD', '£': 'GBP', '¥': 'JPY', RM: 'MYR' }[sym] || sym || 'MYR', ...(dp !== undefined && { dp }) } : kind === 'date' ? { num: 'date', ...(ds && { ds }) } : {});
       }
       readStyles(el);
     }
   };
+  const numberEls = new Map();
   readStyles(stylesRoot); readStyles(root);
+  // Number styles beyond a plain number or percentage: back as the custom code they were (sections from their maps)
+  for (const [name, el] of numberEls) {
+    const own = (el.children || []).filter((k) => k.type === 'tag');
+    const maps = own.filter((k) => k.name === 'style:map');
+    const isPct = el.name === 'number:percentage-style';
+    const extraText = own.some((k) => k.name === 'number:text' && !(isPct && textOf(k).trim() === '%')); // (a percentage's own % is just that)
+    const plain = !maps.length && !extraText && !own.some((k) => k.name === 'style:text-properties') && !own.some((k) => k.name === 'number:number' && k.attribs['number:display-factor']);
+    if (plain || el.attribs['style:volatile'] === 'true') continue;
+    const sub = (cond) => { const m = maps.find((k) => k.attribs['style:condition'] === cond); const e = m && numberEls.get(m.attribs['style:apply-style-name']); return e ? sectionFromStyle(e) : null; };
+    const main = sectionFromStyle(el);
+    let code;
+    if (!maps.length) code = main;
+    else if (sub('value()>=0') !== null) code = `${sub('value()>=0')};${main}`;
+    else if (sub('value()>0') !== null && sub('value()<0') !== null) code = `${sub('value()>0')};${sub('value()<0')};${main}`;
+    if (code) dataStyles.set(name, { num: 'custom', code });
+  }
   const formatOf = (name) => {
     const f = {};
     const chain = [];

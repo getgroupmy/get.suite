@@ -199,6 +199,13 @@ await step('and in the .ods download, as OpenDocument dates and times', async ()
   if (!xml.includes('office:date-value="2026-11-20T14:30:00"')) throw new Error('the date and time (R6)');
   if (!xml.includes('office:time-value="PT14H30M00S"')) throw new Error('the time (R3)');
   if (!/<number:time-style[^>]*><number:hours\/>.*?<number:am-pm\/>/.test(xml)) throw new Error('its h:mm AM/PM style');
+  // custom number codes: a spreadsheet with some, downloaded as .ods, has them as number styles
+  const custom = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Codes', content: { sheets: [{ name: 'S', colWidths: {}, cells: { A1: '1234.5', A2: '-5' },
+    formats: { A1: { num: 'custom', code: '0.0,"k"' }, A2: { num: 'custom', code: '0;(0)' } } }] } })).body;
+  const b64 = await page.evaluate(async (id) => { const r = await fetch(`/api/files/${id}/export?format=ods`); const a = new Uint8Array(await r.arrayBuffer()); let t = ''; for (const x of a) t += String.fromCharCode(x); return btoa(t); }, custom.id);
+  const cx = await (await JSZip.loadAsync(Buffer.from(b64, 'base64'))).file('content.xml').async('string');
+  if (!/number:display-factor="1000"\/><number:text>k<\/number:text>/.test(cx)) throw new Error('0.0,"k" as a display factor and text');
+  if (!/<number:text>\(<\/number:text><number:number [^>]*\/><number:text>\)<\/number:text><style:map style:condition="value\(\)&gt;=0"/.test(cx)) throw new Error('0;(0) as two sections');
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
