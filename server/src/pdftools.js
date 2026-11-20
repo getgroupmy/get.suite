@@ -1,6 +1,7 @@
 // PDF tools in Drive: several PDFs and pictures combined into one PDF, and chosen pages of a PDF
 // taken out into a new one (pdf-lib, all in this process). Nothing is changed in the originals.
 import { PDFDocument, degrees, StandardFonts, rgb } from 'pdf-lib';
+import { withFallbackFonts } from './office/pdffonts.js';
 
 export const MAX_PAGES = 2000;
 
@@ -117,19 +118,27 @@ export async function organize(bytes, list) {
   return out.save();
 }
 
-/** Text the standard PDF fonts can write (Latin-1); anything else becomes '?'. */
-const latin = (s) => String(s ?? '').replace(/[^\x20-\x7e\xa0-\xff]/g, '?');
+/**
+ * Fonts for writing on a signed PDF: Latin-1 in the standard ones, anything else (a signer's name in Chinese, Tamil,
+ * Greek…) from the fonts installed on the server (pdffonts.js); '?' only where none has it. `text` is all that's written.
+ */
+async function signingFonts(doc, text) {
+  const S = { font: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold), italic: await doc.embedFont(StandardFonts.TimesRomanItalic) };
+  const fonts = await withFallbackFonts(doc, text, S.font);
+  const safe = (t) => [...String(t ?? '')].map((ch) => { if (/^[\x20-\x7e\xa0-\xff]$/.test(ch)) return ch; return /\s/.test(ch) ? ' ' : fonts.drawable(ch) ? ch : '?'; }).join('');
+  return { fonts, safe, font: fonts.wrap(S.font), bold: fonts.wrap(S.bold, true), italic: fonts.wrap(S.italic) };
+}
 /**
  * The PDF with a Signatures page (or more) added at the end: for each signer their signature (drawn picture,
  * or the name in italics when typed), name, email, when and from where, and the fingerprint of the PDF signed.
  */
 export async function withSignaturesPage(bytes, { title, hash, signers }) {
   const doc = await PDFDocument.load(bytes);
-  const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold), italic = await doc.embedFont(StandardFonts.TimesRomanItalic);
+  const { fonts, safe: latin, font, bold, italic } = await signingFonts(doc, JSON.stringify({ title, signers: signers.map((s) => [s.name, s.email]) }));
   const [W, H] = [595.28, 841.89], M = 56;
   let page = null, y = 0;
   const newPage = () => {
-    page = doc.addPage([W, H]); y = H - M;
+    page = fonts.page(doc.addPage([W, H])); y = H - M;
     page.drawText('Signatures', { x: M, y: y - 18, size: 20, font: bold }); y -= 44;
     page.drawText(latin(title).slice(0, 90), { x: M, y, size: 11, font }); y -= 16;
     page.drawText(`Fingerprint (SHA-256) of the PDF signed: ${hash}`, { x: M, y, size: 7.5, font, color: rgb(0.35, 0.35, 0.35) }); y -= 28;
@@ -147,6 +156,7 @@ export async function withSignaturesPage(bytes, { title, hash, signers }) {
     page.drawText(latin(`${s.name} <${s.email}>`), { x: M, y, size: 10.5, font: bold }); y -= 14;
     page.drawText(latin(`Signed ${new Date(s.signed_at).toUTCString()}${s.ip ? ` from ${s.ip}` : ''}${s.image ? ' (drawn)' : ' (typed)'}`), { x: M, y, size: 9, font, color: rgb(0.3, 0.3, 0.3) }); y -= 24;
   }
+  fonts.finish();
   return doc.save();
 }
 
@@ -157,8 +167,8 @@ export async function withSignaturesPage(bytes, { title, hash, signers }) {
  */
 export async function fillFields(bytes, fields, signers) {
   const doc = await PDFDocument.load(bytes);
-  const pages = doc.getPages();
-  const italic = await doc.embedFont(StandardFonts.TimesRomanItalic), plain = await doc.embedFont(StandardFonts.Helvetica);
+  const { fonts, safe: latin, italic, font: plain } = await signingFonts(doc, JSON.stringify(Object.values(signers).map((s) => s?.name || '')));
+  const pages = doc.getPages().map((p) => fonts.page(p));
   const ink = rgb(0.1, 0.14, 0.49);
   for (const f of fields) {
     const s = signers[f.email], page = pages[f.page];
@@ -180,5 +190,6 @@ export async function fillFields(bytes, fields, signers) {
       page.drawText(text, { ...along(0, (at.h - size) / 2 + size * 0.25), size, font: italic, color: ink, rotate: degrees(at.rot) });
     }
   }
+  fonts.finish();
   return doc.save();
 }

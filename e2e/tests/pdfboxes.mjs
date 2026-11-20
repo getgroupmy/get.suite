@@ -77,7 +77,7 @@ await step('Kim sees where to sign, and signs', async () => {
   await kim.goto(`${B}/drive/signatures`);
   await kim.getByRole('link', { name: 'Sign', exact: true }).first().click();
   await kim.getByLabel('Your signature goes here', { exact: true }).waitFor({ timeout: 20000 });
-  await kim.getByLabel('Your full name').fill('Kim Park');
+  await kim.getByLabel('Your full name').fill('Kim Park 朴金'); // (a name in Korean letters too: on the Signatures page as written)
   await kim.getByLabel('Draw your signature').scrollIntoViewIfNeeded();
   const c = await kim.getByLabel('Draw your signature').boundingBox();
   await kim.mouse.move(c.x + 20, c.y + 80); await kim.mouse.down();
@@ -101,6 +101,16 @@ await step('the signed PDF has Kim\'s signature in the box', async () => {
   }, [i, fx, fy]);
   const there = await inkNear(2, 0.7, 0.8), date = await inkNear(2, 0.7, 0.9), not = await inkNear(1, 0.7, 0.8);
   if (there < 20 || date < 5 || not > 0) throw new Error(`ink ${there} / date ${date} / page 1 ${not}`);
+});
+await step('the Signatures page at its end has Kim\'s name as written, Korean letters too (not ?)', async () => {
+  const list = await page.evaluate(async () => (await (await fetch('/api/files', { headers: { 'x-requested-with': 'nas-workspace' } })).json()));
+  const f = (list.files || list).find((x) => x.name === 'Lease (signed).pdf');
+  if (!f) throw new Error('no signed copy');
+  const bytes = await page.evaluate(async (id) => Array.from(new Uint8Array(await (await fetch(`/api/files/${id}/raw`, { headers: { 'x-requested-with': 'nas-workspace' } })).arrayBuffer())), f.id);
+  let text = null;
+  try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-', '-'], { input: Buffer.from(bytes) }).toString(); } catch { /* not installed */ }
+  if (text === null) return;
+  if (!/Signatures/.test(text) || !text.includes('Kim Park 朴金')) throw new Error(`the signatures page reads: ${text.slice(-300)}`);
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
