@@ -57,10 +57,10 @@ const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ',
   'COT', 'CSC', 'CSCH', 'ECMA.CEILING', 'F.DIST', 'F.DIST.RT', 'F.INV', 'F.INV.RT', 'F.TEST', 'FLOOR.MATH', 'GAMMA', 'GAMMA.DIST', 'GAMMA.INV',
   'GAUSS', 'HYPGEOM.DIST', 'LOGNORM.DIST', 'LOGNORM.INV', 'MODE.MULT', 'MUNIT', 'NEGBINOM.DIST', 'NUMBERVALUE', 'PDURATION', 'PERCENTILE.EXC',
   'PERCENTRANK.EXC', 'PERMUTATIONA', 'PHI', 'QUARTILE.EXC', 'RANK.AVG', 'RRI', 'SEC', 'SKEW.P', 'WEIBULL.DIST', 'XOR', 'VALUETOTEXT', 'ARRAYTOTEXT',
-  'SECH', 'COTH', 'BITLSHIFT', 'BITRSHIFT', 'SHEET', 'SHEETS', 'REGEXTEST', 'PERCENTOF'];
+  'SECH', 'COTH', 'BITLSHIFT', 'BITRSHIFT', 'SHEET', 'SHEETS', 'REGEXTEST', 'PERCENTOF', 'GROUPBY'];
 const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replaceAll('.', '\\.')).join('|')})(?=\\()`, 'gi');
 // (and TRUE() / FALSE(), as LibreOffice writes them, as they're usually typed)
-export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm)\./gi, (m, s) => s || '')
+export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm|eta)\./gi, (m, s) => s || '')
   .replace(/("(?:[^"]|"")*")|(?<![A-Za-z0-9_.])(TRUE|FALSE)\(\)/gi, (m, s, b) => s || b.toUpperCase());
 // The dynamic-array functions; FILTER and SORT also carry "_xlws." in the file.
 const ARRAY_FUNCS = { FILTER: '_xlfn._xlws.', SORT: '_xlfn._xlws.', UNIQUE: '_xlfn.', SEQUENCE: '_xlfn.' };
@@ -94,7 +94,11 @@ const withParamPrefix = (f) => {
   if (!names.size) return f;
   return f.replace(/("(?:[^"]|"")*")|(?<![A-Z0-9_.!$'])([A-Z_][A-Z0-9_]*)(?![A-Z0-9_.(!])/gi, (m, s, name) => s || (names.has(name.toUpperCase()) ? `_xlpm.${name}` : name));
 };
-export const formulaToExcel = (f) => withParamPrefix(String(f)).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`)
+// A function given by its name alone, as an argument (=GROUPBY(A2:A9, C2:C9, SUM), =BYROW(A1:C3, MAX)): Excel writes _xleta.SUM.
+const ETA_FUNCS = ['SUM', 'AVERAGE', 'COUNT', 'COUNTA', 'MAX', 'MIN', 'PRODUCT', 'MEDIAN', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'MODE.SNGL', 'PERCENTOF', 'ARRAYTOTEXT', 'CONCAT'];
+const ETA_RE = new RegExp(`("(?:[^"]|"")*")|(?<=[(,]\\s*)(${ETA_FUNCS.map((n) => n.replaceAll('.', '\\.')).join('|')})(?=\\s*[,)])`, 'gi');
+const withEta = (f) => f.replace(ETA_RE, (m, s, name) => s || `_xleta.${name.toUpperCase()}`);
+export const formulaToExcel = (f) => withEta(withParamPrefix(String(f))).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`)
   .replace(ARRAY_RE, (m, s, name) => s || `${ARRAY_FUNCS[name.toUpperCase()]}${name.toUpperCase()}`);
 
 /**

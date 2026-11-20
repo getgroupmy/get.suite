@@ -34,3 +34,10 @@ test('a downloaded .xlsx has them so', async () => {
   assert.match(xml, /<f>_xlfn\.AGGREGATE\(9,6,A1\)<\/f>/);
   assert.match(xml, /<f>_xlfn\.F\.DIST\.RT\(1,2,3\)<\/f>/);
 });
+
+test('a function given by its name (GROUPBY(…, SUM)) is _xleta.SUM in the file, and read back plainly', () => {
+  assert.equal(formulaToExcel('GROUPBY(A2:A9, C2:C9, SUM, 3, 0)'), '_xlfn.GROUPBY(A2:A9, C2:C9, _xleta.SUM, 3, 0)');
+  assert.equal(formulaToExcel('BYROW(A1:C3,STDEV.S)'), '_xlfn.BYROW(A1:C3,_xleta.STDEV.S)');
+  assert.equal(formulaToExcel('SUM(A1:A3)+MAX(1,2)&"(SUM)"'), 'SUM(A1:A3)+MAX(1,2)&"(SUM)"', 'called functions and text stay as they are');
+  assert.equal(formulaFromExcel('_xlfn.GROUPBY(A2:A9,C2:C9,_xleta.SUM)'), 'GROUPBY(A2:A9,C2:C9,SUM)');
+});

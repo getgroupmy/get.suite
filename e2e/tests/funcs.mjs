@@ -114,6 +114,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('A31', '=ROUND(BESSELJ(1.9, 2), 6)');
   await typeIn('A32', '=ROUND(BESSELK(1.5, 1), 6)');
   await expectCells({ A31: '0.329926', A32: '0.277388' });
+  // GROUPBY: the fruit's amounts summed per item, with a total
+  await typeIn('K1', '=GROUPBY(A2:A4, B2:B4, SUM)');
+  await expectCells({ K1: 'banana', L1: '0', K2: 'fig', L2: '80', K3: 'pear', L3: '120', K4: 'Total', L4: '200' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

@@ -437,3 +437,23 @@ test('Bessel functions and ACCRINTM: Excel\'s examples and known values', () => 
   near(one('=ACCRINTM(DATE(2008,4,1), DATE(2008,6,15), 0.1, 1000, 3)'), 20.54794521);
   assert.deepEqual(one('=ACCRINTM(DATE(2008,6,15), DATE(2008,4,1), 0.1, 1000, 3)'), { error: '#NUM!' });
 });
+test('GROUPBY: summed per group with headers, totals, sorting and a filter; a function given by its name', () => {
+  const cells = { A1: 'Region', B1: 'Rep', C1: 'Sales', A2: 'North', B2: 'Ann', C2: '100', A3: 'South', B3: 'Bo', C3: '50', A4: 'north', B4: 'Cy', C4: '30', A5: 'East', B5: 'Ann', C5: '70', A6: 'South', B6: 'Ann', C6: '20' };
+  const table = (f, cols) => {
+    const v = ev({ ...cells, F1: f }), out = [];
+    for (let r = 1; r < 10; r++) { const row = cols.map((c) => v(`${c}${r}`)); if (row.every((x) => x === null || x === undefined)) break; out.push(row); }
+    return out;
+  };
+  assert.deepEqual(table('=GROUPBY(A1:A6, C1:C6, SUM)', ['F', 'G']),
+    [['Region', 'Sales'], ['East', 70], ['North', 130], ['South', 70], ['Total', 270]], 'headers found, groups in order (any case), a total');
+  assert.deepEqual(table('=GROUPBY(A2:A6, C2:C6, AVERAGE, 0, 0)', ['F', 'G']), [['East', 70], ['North', 65], ['South', 35]]);
+  assert.deepEqual(table('=GROUPBY(A1:A6, C1:C6, COUNT, 3, -1, -2)', ['F', 'G']),
+    [['Region', 'Sales'], ['Total', 5], ['North', 2], ['South', 2], ['East', 1]], 'total on top, most first');
+  assert.deepEqual(table('=GROUPBY(A1:B6, C1:C6, SUM, 3, 0)', ['F', 'G', 'H']),
+    [['Region', 'Rep', 'Sales'], ['East', 'Ann', 70], ['North', 'Ann', 100], ['north', 'Cy', 30], ['South', 'Ann', 20], ['South', 'Bo', 50]], 'two fields');
+  assert.deepEqual(table('=GROUPBY(A2:A6, C2:C6, LAMBDA(x, MAX(x)*2), 0, 0, , B2:B6="Ann")', ['F', 'G']), [['East', 140], ['North', 200], ['South', 40]], 'a LAMBDA, and only Ann\'s rows');
+  assert.deepEqual(one('=GROUPBY(A2:A6, C2:C5, SUM)', cells), { error: '#VALUE!' }, 'different sizes');
+  assert.deepEqual(one('=GROUPBY(A2:A6, C2:C6, SUMM)', cells), { error: '#NAME?' });
+  const b = ev({ ...cells, F1: '=BYROW(A2:C3, COUNTA)' });
+  assert.deepEqual([b('F1'), b('F2')], [3, 3], 'a function by its name works in BYROW too');
+});

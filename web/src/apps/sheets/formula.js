@@ -403,7 +403,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN', 'ARRAYFORMULA', 'MMULT', 'SORTN', 'TREND', 'GROWTH', 'LINEST', 'LOGEST']);
+const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'GROUPBY', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN', 'ARRAYFORMULA', 'MMULT', 'SORTN', 'TREND', 'GROWTH', 'LINEST', 'LOGEST']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -1970,6 +1970,50 @@ const liftsArray = (n) => n.name in LIFT && n.args.some((a, i) => lifts(LIFT[n.n
  * column; REDUCE(start, range, LAMBDA(total, v, …)) and SCAN (every step); MAKEARRAY(rows, cols, LAMBDA(r, c, …)).
  */
 const LAMBDA_USERS = {
+  // GROUPBY(row_fields, values, function, [field_headers], [total_depth], [sort_order], [filter_array]): the values
+  // summed up (or averaged, counted…: a LAMBDA or a function's name such as SUM) for each different row field.
+  GROUPBY: (args, { evaluate, lambdaArg }) => {
+    if (args.length < 3 || args.length > 7) err('#N/A');
+    const opt = (i) => (args[i] && args[i].k !== 'empty' ? scalarOf(evaluate(args[i])) : null);
+    let keys = rowsOf(evaluate(args[0])), vals = rowsOf(evaluate(args[1]));
+    const f = lambdaArg(args[2], 1);
+    if (keys.length !== vals.length || !keys.length) err('#VALUE!');
+    const hasHeaders = (v) => typeof v[0][0] === 'string' && v.length > 1 && typeof v[1][0] === 'number';
+    const headerMode = opt(3) === null ? (hasHeaders(vals) ? 3 : 0) : Math.trunc(toNum(opt(3)));
+    if (![0, 1, 3].includes(headerMode)) err('#VALUE!');
+    const total = opt(4) === null ? 1 : Math.trunc(toNum(opt(4)));
+    if (![0, 1, -1].includes(total) && !(Math.abs(total) === 2 && keys[0].length === 1)) err('#VALUE!');
+    let heads = null;
+    if (headerMode) { heads = [...keys[0], ...vals[0]]; keys = keys.slice(1); vals = vals.slice(1); }
+    if (args[6] && args[6].k !== 'empty') {
+      const keep = rowsOf(evaluate(args[6])).map((r) => toBool(r[0] ?? false));
+      if (keep.length !== keys.length) err('#VALUE!');
+      keys = keys.filter((_, i) => keep[i]); vals = vals.filter((_, i) => keep[i]);
+    }
+    if (!keys.length) err('#CALC!');
+    const groups = new Map();
+    keys.forEach((k, i) => {
+      const id = JSON.stringify(k.map((v) => (typeof v === 'string' ? v.toLowerCase() : v ?? '')));
+      if (!groups.has(id)) groups.set(id, { keys: k, rows: [] });
+      groups.get(id).rows.push(vals[i]);
+    });
+    const width = vals[0].length;
+    const sum = (rows) => Array.from({ length: width }, (_, j) => scalarOf(f(grid(rows.map((r) => [r[j] ?? null])))));
+    let out = [...groups.values()].map((g) => [...g.keys, ...sum(g.rows)]);
+    const by = opt(5) === null ? null : Math.trunc(toNum(opt(5)));
+    if (by !== null && (by === 0 || Math.abs(by) > keys[0].length + width)) err('#VALUE!');
+    out.sort((a, b) => {
+      if (by !== null) return Math.sign(by) * order(a[Math.abs(by) - 1], b[Math.abs(by) - 1]);
+      for (let c = 0; c < keys[0].length; c++) { const d = order(a[c], b[c]); if (d) return d; }
+      return 0;
+    });
+    if (total) {
+      const row = ['Total', ...Array(keys[0].length - 1).fill(null), ...sum(vals)];
+      out = total > 0 ? [...out, row] : [row, ...out];
+    }
+    if (headerMode === 3) out = [heads, ...out];
+    return grid(out);
+  },
   MAP: (args, { evaluate, lambdaArg }) => {
     if (args.length < 2) err('#N/A');
     const ranges = args.slice(0, -1).map(evaluate).map(shapeOf), f = lambdaArg(args[args.length - 1], ranges.length);
@@ -2459,7 +2503,13 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
     fn.arity = params.length;
     return fn;
   }
-  const lambdaArg = (a, arity) => { const f = evaluate(a); if (typeof f !== 'function' || !f.isLambda || f.arity !== arity) err('#VALUE!'); return f; };
+  const lambdaArg = (a, arity) => {
+    // A function's own name, as Excel lets you give one (=GROUPBY(A2:A9, C2:C9, SUM), =BYROW(A1:C3, MAX))
+    if (a?.k === 'name' && FUNCS[a.v] && !named.has(a.v) && !scopes.some((sc) => sc.has(a.v))) {
+      const fn = FUNCS[a.v];
+      return (...xs) => fn(xs);
+    }
+    const f = evaluate(a); if (typeof f !== 'function' || !f.isLambda || f.arity !== arity) err('#VALUE!'); return f; };
   // A named function of the spreadsheet (⋮ → Named functions): its formula, with its argument names
   // set to what it's given and nothing else in scope (it works the same wherever it's used).
   let ownDepth = 0;
