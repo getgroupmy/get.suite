@@ -135,6 +135,25 @@ await step('⋮ → Make a copy…: named, shared with the same people, with its
   const cs = (await api(page, 'GET', `/comments/${id}`)).body;
   if (cs.length !== 1 || cs[0].body !== 'Check the date') throw new Error('comments: ' + JSON.stringify(cs));
 });
+await step('Make a copy… into a folder of your choosing', async () => {
+  const folder = (await api(page, 'POST', '/files/folder', { name: 'Copies kept' })).body;
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Memo to file', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Keep this' }] }] } })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.locator('.ProseMirror').getByText('Keep this').waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Make a copy…' }).click();
+  const d = page.getByRole('dialog', { name: 'Make a copy' });
+  await d.getByRole('group', { name: 'Folder' }).getByText('Next to this one').waitFor();
+  await d.getByRole('button', { name: 'Change…' }).click();
+  await d.getByRole('list', { name: 'Folders' }).getByRole('button', { name: /Copies kept/ }).click();
+  await d.getByRole('button', { name: 'Put it in Copies kept' }).click();
+  await d.getByRole('group', { name: 'Folder' }).getByText('Copies kept').waitFor();
+  await d.getByRole('button', { name: 'Make a copy' }).click();
+  await page.waitForURL((u) => /\/docs\//.test(u.pathname) && !u.pathname.endsWith(doc.id));
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const f = (await api(page, 'GET', `/files/${id}`)).body;
+  if (f.parent_id !== folder.id || f.name !== 'Copy of Memo to file') throw new Error(JSON.stringify([f.parent_id, f.name]));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

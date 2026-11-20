@@ -16609,3 +16609,15 @@ test('Make a copy… with "Copy comments": the open threads and their replies, t
   const plain = (await owner('POST', `/api/files/${doc.id}/copy`, {})).body;
   assert.equal((await owner('GET', `/api/comments/${plain.id}`)).body.length, 0);
 });
+
+test('Make a copy… where you choose: My Drive (parent_id null) or another folder, instead of next to the original', async () => {
+  const a = (await owner('POST', '/api/files/folder', { name: 'Copy from here' })).body;
+  const b = (await owner('POST', '/api/files/folder', { name: 'Copy to here' })).body;
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Placed memo', parent_id: a.id })).body;
+  assert.equal((await owner('POST', `/api/files/${doc.id}/copy`, {})).body.parent_id, a.id, 'next to it by default');
+  const top = (await owner('POST', `/api/files/${doc.id}/copy`, { parent_id: null, name: 'Top copy' })).body;
+  assert.equal(top.parent_id ?? null, null, 'My Drive');
+  assert.equal(top.name, 'Top copy');
+  const there = (await owner('POST', `/api/files/${doc.id}/copy`, { parent_id: b.id })).body;
+  assert.deepEqual([there.parent_id, there.name], [b.id, 'Placed memo'], 'elsewhere it keeps its name');
+});
