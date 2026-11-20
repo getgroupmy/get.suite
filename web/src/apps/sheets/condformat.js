@@ -6,7 +6,7 @@ import { parseRange } from './charts.js';
 export const CONDITIONS = [
   ['gt', 'Greater than'], ['gte', 'Greater than or equal to'], ['lt', 'Less than'], ['lte', 'Less than or equal to'],
   ['between', 'Between'], ['eq', 'Equal to'], ['ne', 'Not equal to'],
-  ['contains', 'Text contains'], ['notContains', 'Text does not contain'], ['starts', 'Text starts with'],
+  ['contains', 'Text contains'], ['notContains', 'Text does not contain'], ['starts', 'Text starts with'], ['ends', 'Text ends with'],
   ['empty', 'Is empty'], ['notEmpty', 'Is not empty'], ['error', 'Is an error'],
   ['duplicate', 'Duplicate values'], ['unique', 'Unique values'], ['top', 'Top (how many)'], ['bottom', 'Bottom (how many)'],
   ['dateToday', 'Date is today'], ['datePast', 'Date is in the past'], ['dateNext7', 'Date is in the next 7 days'], ['datePast7', 'Date is in the past 7 days'],
@@ -46,7 +46,7 @@ export function scaleColour(colours, x, lo, hi) {
 }
 /** Dark text on light colours, light on dark, so a shaded cell stays readable. */
 const textOn = (bg) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(bg.slice(i, i + 2), 16)); return 0.299 * r + 0.587 * g + 0.114 * b < 140 ? '#ffffff' : null; };
-export const NEEDS_VALUE = new Set(['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'ne', 'contains', 'notContains', 'starts', 'top', 'bottom', 'formula', 'dateBefore', 'dateAfter']);
+export const NEEDS_VALUE = new Set(['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'ne', 'contains', 'notContains', 'starts', 'ends', 'top', 'bottom', 'formula', 'dateBefore', 'dateAfter']);
 export const DATE_RULES = new Set(['dateToday', 'datePast', 'dateNext7', 'datePast7', 'dateThisMonth', 'dateBefore', 'dateAfter']);
 /** Today on this computer, as Sheets writes dates ("2026-11-09"). */
 export const localToday = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -148,6 +148,7 @@ export function matches(rule, v, ctx = {}) {
     case 'contains': return text(v).toLowerCase().includes(text(rule.value).toLowerCase());
     case 'notContains': return !text(v).toLowerCase().includes(text(rule.value).toLowerCase());
     case 'starts': return text(v).toLowerCase().startsWith(text(rule.value).toLowerCase());
+    case 'ends': return text(v).toLowerCase().endsWith(text(rule.value).toLowerCase());
     default: return false;
   }
 }

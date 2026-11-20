@@ -1,11 +1,11 @@
 // Dates with a time, times on their own and their formats in .ods files: written as OpenDocument dates and times
 // (with date and time styles from the format codes) and read back the same, also after LibreOffice saves the file again.
+import { soffice, hasSoffice } from './soffice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import JSZip from 'jszip';
 import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
 
@@ -27,12 +27,11 @@ test('a date and time and a time are OpenDocument dates and times, with their fo
   check((await sheetFromOds(buf)).sheets[0]);
 });
 
-const soffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); return true; } catch { return false; } })();
-test('through LibreOffice: saved again by it, the dates, times and formats come back the same', { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+test('through LibreOffice: saved again by it, the dates, times and formats come back the same', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'odsdates-'));
   fs.writeFileSync(path.join(dir, 'in.ods'), await odsFromSheet(book));
   fs.mkdirSync(path.join(dir, 'out'));
-  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 'in.ods')], { stdio: 'ignore', timeout: 120000 });
+  soffice([`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'out'), path.join(dir, 'in.ods')]);
   check((await sheetFromOds(fs.readFileSync(path.join(dir, 'out', 'in.ods')))).sheets[0]);
   fs.rmSync(dir, { recursive: true, force: true });
 });

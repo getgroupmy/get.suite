@@ -1,10 +1,10 @@
 // Files made in LibreOffice (or by it from ours) come back whole: speaker notes, formulas as usually typed.
+import { soffice, hasSoffice } from './soffice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import JSZip from 'jszip';
 import { odpFromDeck, deckFromOdp } from '../src/office/odp.js';
 import { powerPointFromDeck, deckFromPowerPoint } from '../src/office/powerpoint.js';
@@ -33,12 +33,11 @@ test('TRUE() and FALSE() (as LibreOffice writes them in .xlsx) come in as TRUE a
   assert.equal(formulaFromExcel('_xlfn.XOR(FALSE(),true())'), 'XOR(FALSE,TRUE)');
 });
 
-const soffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); return true; } catch { return false; } })();
-test('through LibreOffice: our .odp saved by it as .pptx keeps its notes', { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+test('through LibreOffice: our .odp saved by it as .pptx keeps its notes', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lofiles-'));
   try {
     fs.writeFileSync(path.join(dir, 'd.odp'), await odpFromDeck(deck, { title: 'D' }));
-    execFileSync('soffice', ['--headless', '--convert-to', 'pptx', '--outdir', dir, path.join(dir, 'd.odp')], { stdio: 'ignore', timeout: 120000 });
+    soffice(['--headless', '--convert-to', 'pptx', '--outdir', dir, path.join(dir, 'd.odp')]);
     const back = await deckFromPowerPoint(fs.readFileSync(path.join(dir, 'd.pptx')), {});
     assert.equal(back.slides[0].notes, 'Speaker notes here');
     const notes = await (await JSZip.loadAsync(fs.readFileSync(path.join(dir, 'd.pptx')))).file('ppt/notesSlides/notesSlide1.xml').async('string');
@@ -77,17 +76,17 @@ test('an .odt’s page: the layout its master page uses (LibreOffice writes an e
   assert.deepEqual([page.size, page.orientation], ['a4', 'landscape']);
 });
 
-test('through LibreOffice: a document (quote, code, landscape, page numbers) saved by it as .odt and .docx comes back whole', { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+test('through LibreOffice: a document (quote, code, landscape, page numbers) saved by it as .odt and .docx comes back whole', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lodoc-'));
   try {
     const page = { size: 'a4', orientation: 'landscape', margin: 'normal', header: 'Acme', footer: 'Confidential', numbers: true };
     fs.writeFileSync(path.join(dir, 'd.docx'), await wordFromDoc(qdoc, 'Q', { page }));
-    execFileSync('soffice', ['--headless', '--convert-to', 'odt', '--outdir', dir, path.join(dir, 'd.docx')], { stdio: 'ignore', timeout: 120000 });
+    soffice(['--headless', '--convert-to', 'odt', '--outdir', dir, path.join(dir, 'd.docx')]);
     const odt = fs.readFileSync(path.join(dir, 'd.odt'));
     assert.deepEqual(kinds((await docFromOdt(odt, {})).doc), ['blockquote', 'codeBlock']);
     const p = await pageOfOdt(odt);
     assert.deepEqual([p.size, p.orientation, p.header, p.footer, p.numbers], ['a4', 'landscape', 'Acme', 'Confidential', true]);
-    execFileSync('soffice', ['--headless', '--convert-to', 'docx:MS Word 2007 XML', '--outdir', path.join(dir, 'w'), path.join(dir, 'd.docx')], { stdio: 'ignore', timeout: 120000 });
+    soffice(['--headless', '--convert-to', 'docx:MS Word 2007 XML', '--outdir', path.join(dir, 'w'), path.join(dir, 'd.docx')]);
     assert.deepEqual(kinds((await docFromWord(fs.readFileSync(path.join(dir, 'w', 'd.docx')), {})).doc), ['blockquote', 'codeBlock']);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -106,15 +105,15 @@ test('a TRUE or FALSE cell LibreOffice saved as the formula TRUE() comes in as t
   assert.deepEqual([back.A1, back.A2, back.A3], ['TRUE', 'FALSE', '=NOT(FALSE)'], 'a real formula stays one');
 });
 
-test('through LibreOffice: tick boxes stay values and dropdowns keep their whole range (.xlsx and .ods)', { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+test('through LibreOffice: tick boxes stay values and dropdowns keep their whole range (.xlsx and .ods)', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-losheet-'));
   try {
     const data = { sheets: [{ name: 'Tracker', cells: { A1: 'Status', B1: 'Paid', A2: 'Open', B2: 'TRUE', A3: 'Done', B3: 'FALSE' },
       validations: [{ id: 'v', range: 'A2:A9', type: 'list', values: ['Open', 'Done'], strict: true }, { id: 'w', range: 'B2:B9', type: 'checkbox' }] }] };
     fs.writeFileSync(path.join(dir, 'ours.ods'), await odsFromSheet(data));
     fs.writeFileSync(path.join(dir, 'ours.xlsx'), await xlOut(data));
-    execFileSync('soffice', ['--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'o'), path.join(dir, 'ours.ods')], { stdio: 'ignore', timeout: 120000 });
-    execFileSync('soffice', ['--headless', '--convert-to', 'xlsx:Calc MS Excel 2007 XML', '--outdir', path.join(dir, 'x'), path.join(dir, 'ours.xlsx')], { stdio: 'ignore', timeout: 120000 });
+    soffice(['--headless', '--convert-to', 'ods', '--outdir', path.join(dir, 'o'), path.join(dir, 'ours.ods')]);
+    soffice(['--headless', '--convert-to', 'xlsx:Calc MS Excel 2007 XML', '--outdir', path.join(dir, 'x'), path.join(dir, 'ours.xlsx')]);
     for (const back of [(await sheetFromOds(fs.readFileSync(path.join(dir, 'o', 'ours.ods')))).sheets[0], (await sheetFromExcel(fs.readFileSync(path.join(dir, 'x', 'ours.xlsx')))).sheets[0]]) {
       assert.deepEqual([back.cells.B2, back.cells.B3], ['TRUE', 'FALSE']);
       assert.deepEqual(back.validations.map((v) => v.range).sort(), ['A2:A9', 'B2:B9']);

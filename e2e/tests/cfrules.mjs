@@ -97,6 +97,24 @@ await step('OpenDocument (.ods) keeps the rules: the reopened copy colours the s
   await page.goto(`${B}/sheets/${opened.id}`);
   await until(async () => (await bg('A2')) === live.A2 && (await bg('B4')) === live.B4 && (await bg('A3')) === live.A3);
 });
+await step('Text ends with: the cells ending so are coloured (any case)', async () => {
+  const id = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Files', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'report.PDF', A2: 'notes.txt', A3: 'scan.pdf', A4: 'pdf list' } }] } })).body.id;
+  await page.goto(`${B}/sheets/${id}`);
+  await cell('A4').getByText('pdf list').waitFor();
+  await cell('A1').click();
+  await page.getByRole('button', { name: 'Conditional formatting', exact: true }).click();
+  const dlg = page.getByRole('dialog', { name: 'Conditional formatting' });
+  const add = dlg.getByRole('button', { name: 'Add a rule' });
+  if (await add.count()) await add.click();
+  await dlg.getByLabel('Apply to cells').fill('A1:A4');
+  await dlg.getByLabel('When the value is').selectOption({ label: 'Text ends with' });
+  await dlg.getByLabel('Value', { exact: true }).fill('.pdf');
+  await dlg.getByRole('button', { name: 'Green', exact: true }).click();
+  await dlg.getByRole('button', { name: 'Add rule' }).click();
+  await page.keyboard.press('Escape');
+  await until(async () => (await bg('A1')) === GREEN && (await bg('A3')) === GREEN);
+  for (const k of ['A2', 'A4']) if (WHITE.indexOf(await bg(k)) < 0) throw new Error(`${k} doesn't end with .pdf: ${await bg(k)}`);
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

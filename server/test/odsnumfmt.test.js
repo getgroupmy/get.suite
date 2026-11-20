@@ -1,11 +1,11 @@
 // Custom number codes in .ods files: written as OpenDocument number styles the way LibreOffice writes them (text,
 // scaling, colours, sections), read back as the codes they were, and shown by LibreOffice as Sheets shows them.
+import { soffice, hasSoffice } from './soffice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
 import { formatCode } from '../src/sheetcalc/numfmt.js';
 
@@ -26,11 +26,10 @@ test('custom number codes go into .ods as number styles and come back as the sam
   assert.equal(other.formats?.A1, undefined);
 });
 
-const soffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); return true; } catch { return false; } })();
-test('LibreOffice shows them as Sheets does', { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+test('LibreOffice shows them as Sheets does', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'odsnum-'));
   fs.writeFileSync(path.join(dir, 'n.ods'), await odsFromSheet(book));
-  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,true', '--outdir', dir, path.join(dir, 'n.ods')], { stdio: 'ignore', timeout: 120000 });
+  soffice([`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,true', '--outdir', dir, path.join(dir, 'n.ods')]);
   const shown = fs.readFileSync(path.join(dir, 'n.csv'), 'utf8').trim().split(/\r?\n/).map((l) => l.replace(/^"|"$/g, ''));
   assert.deepEqual(shown, CASES.map(([code, v]) => formatCode(v, code).text));
   fs.rmSync(dir, { recursive: true, force: true });

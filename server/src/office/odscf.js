@@ -41,6 +41,7 @@ export function rulesToCalcext(rules, sheetName, formulaToOds, prefix = 'CF') {
     else if (r.when === 'contains') inner = cond(`contains-text(${quote(r.value)})`);
     else if (r.when === 'notContains') inner = cond(`not-contains-text(${quote(r.value)})`);
     else if (r.when === 'starts') inner = cond(`begins-with(${quote(r.value)})`);
+    else if (r.when === 'ends') inner = cond(`ends-with(${quote(r.value)})`);
     else if (r.when === 'empty') inner = f(`LEN(TRIM(${first}))=0`);
     else if (r.when === 'notEmpty') inner = f(`LEN(TRIM(${first}))>0`);
     else if (r.when === 'error') inner = cond('is-error');
@@ -100,7 +101,7 @@ export function rulesFromCalcext(el, { tags, look, formulaFromOds }) {
         let k;
         if ((k = /^(>=|<=|!=|>|<|=)(.*)$/.exec(v))) rule = { when: { '>': 'gt', '>=': 'gte', '<': 'lt', '<=': 'lte', '=': 'eq', '!=': 'ne' }[k[1]], value: unquote(k[2].trim()) };
         else if ((k = /^between\((.*)\)$/.exec(v))) { const [a, b] = args(k[1]); rule = { when: 'between', value: unquote(a), value2: unquote(b ?? '') }; }
-        else if ((k = /^(contains-text|not-contains-text|begins-with)\((.*)\)$/.exec(v))) rule = { when: { 'contains-text': 'contains', 'not-contains-text': 'notContains', 'begins-with': 'starts' }[k[1]], value: unquote(k[2].trim()) };
+        else if ((k = /^(contains-text|not-contains-text|begins-with|ends-with)\((.*)\)$/.exec(v))) rule = { when: { 'contains-text': 'contains', 'not-contains-text': 'notContains', 'begins-with': 'starts', 'ends-with': 'ends' }[k[1]], value: unquote(k[2].trim()) };
         else if (v === 'is-error') rule = { when: 'error' };
         else if (v === 'duplicate' || v === 'unique') rule = { when: v };
         else if ((k = /^(top|bottom)-elements\((\d+)\)$/.exec(v))) rule = { when: k[1], value: k[2] };

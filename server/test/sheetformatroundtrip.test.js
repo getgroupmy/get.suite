@@ -1,12 +1,12 @@
 // A sheet's look through files: formats (bold, italic, underline, strikethrough, colours, borders, alignment, wrap,
 // currency), column widths, a row height, merged cells, frozen rows/columns, hidden rows/columns, a conditional format and
 // a note come back the same from our own .xlsx and .ods, and after LibreOffice saves them again.
+import { soffice, hasSoffice } from './soffice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { excelFromSheet, sheetFromExcel } from '../src/office/excel.js';
 import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
 
@@ -24,12 +24,11 @@ for (const [ext, write, read] of [['xlsx', excelFromSheet, sheetFromExcel], ['od
   });
 }
 
-const soffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); return true; } catch { return false; } })();
 for (const [ext, write, read] of [['xlsx', excelFromSheet, sheetFromExcel], ['ods', odsFromSheet, sheetFromOds]]) {
-  test(`through LibreOffice (.${ext}): saved again by it, the look comes back the same`, { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+  test(`through LibreOffice (.${ext}): saved again by it, the look comes back the same`, { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fmtrt-'));
     fs.writeFileSync(path.join(dir, `in.${ext}`), await write({ sheets: [sheet()] }));
-    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', ext, '--outdir', path.join(dir, 'out'), path.join(dir, `in.${ext}`)], { stdio: 'ignore', timeout: 120000 });
+    soffice([`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', ext, '--outdir', path.join(dir, 'out'), path.join(dir, `in.${ext}`)]);
     const got = look((await read(fs.readFileSync(path.join(dir, 'out', `in.${ext}`)))).sheets[0]);
     // LibreOffice without a window writes no view settings into .ods, where frozen rows and columns are kept (it does in .xlsx)
     const expected = { ...want };

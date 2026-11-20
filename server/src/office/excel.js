@@ -603,7 +603,7 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
   });
   // Charts: added to the finished file (the library has none), with each sheet's name as written.
   const named = (data.sheets || []).map((s, i) => ({ ...s, xlName: wb.worksheets[i]?.name || s.name }));
-  return withThreads(await withCharts(await withTables(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named), named), (data.sheets || []).map((s, i) => threadsFor(comments, i, s)));
+  return withThreads(await withCharts(await withTables(await withFilterNames(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named), named), named), (data.sheets || []).map((s, i) => threadsFor(comments, i, s)));
 }
 
 // ---- named functions (⋮ → Named functions): Excel keeps them as defined names holding a LAMBDA,
@@ -612,6 +612,23 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
 const xmlText = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const fromXml = (t) => String(t).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 const OWN_NAME = /^[A-Z][A-Z0-9_.]{0,39}$/i, OWN_PARAM = /^[A-Z_][A-Z0-9_]{0,29}$/i;
+
+/**
+ * Each sheet's filter also as the hidden name Excel gives an AutoFilter (_xlnm._FilterDatabase): other programs
+ * (LibreOffice among them) take the filter from it, and without it leave the filter out when they save the file again.
+ */
+export async function withFilterNames(buffer, sheets) {
+  const list = (sheets || []).map((s, i) => ({ s, i })).filter(({ s }) => s.filter?.range && /^[A-Z]+\d+:[A-Z]+\d+$/.test(s.filter.range));
+  if (!list.length) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  let xml = await zip.file('xl/workbook.xml').async('string');
+  const abs = (r) => r.split(':').map((p) => p.replace(/^([A-Z]+)(\d+)$/, '$$$1$$$2')).join(':');
+  const defs = list.map(({ s, i }) => `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">${xmlText(`'${String(s.name).replace(/'/g, "''")}'!${abs(s.filter.range)}`)}</definedName>`).join('');
+  // (function replacements: "$A$1" in the names must not be read as replacement patterns)
+  xml = /<definedNames>/.test(xml) ? xml.replace('<definedNames>', () => `<definedNames>${defs}`) : xml.replace(/<\/sheets>/, () => `</sheets><definedNames>${defs}</definedNames>`);
+  zip.file('xl/workbook.xml', xml);
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
 
 /** The workbook's file with its named functions added as Excel defined names. */
 export async function withFunctions(buffer, functions) {
@@ -624,8 +641,8 @@ export async function withFunctions(buffer, functions) {
     const lambda = formulaToExcel(`LAMBDA(${[...f.params, body].join(', ')})`);
     return `<definedName name="${xmlText(f.name.toUpperCase())}"${f.description ? ` comment="${xmlText(String(f.description).slice(0, 255))}"` : ''}>${xmlText(lambda)}</definedName>`;
   }).join('');
-  xml = /<definedNames>/.test(xml) ? xml.replace('</definedNames>', `${defs}</definedNames>`)
-    : xml.replace(/(<\/sheets>)/, `$1<definedNames>${defs}</definedNames>`);
+  xml = /<definedNames>/.test(xml) ? xml.replace('</definedNames>', () => `${defs}</definedNames>`) // (functions: a "$A$1" in a body isn't a pattern)
+    : xml.replace(/<\/sheets>/, () => `</sheets><definedNames>${defs}</definedNames>`);
   zip.file('xl/workbook.xml', xml);
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
@@ -1012,6 +1029,7 @@ function ruleToExcel(r) {
     contains: `NOT(ISERROR(SEARCH(${quoted(r.value)},${cell})))`,
     notContains: `ISERROR(SEARCH(${quoted(r.value)},${cell}))`,
     starts: `LEFT(${cell},LEN(${quoted(r.value)}))=${quoted(r.value)}`,
+    ends: `RIGHT(${cell},LEN(${quoted(r.value)}))=${quoted(r.value)}`,
     empty: `LEN(TRIM(${cell}))=0`,
     notEmpty: `LEN(TRIM(${cell}))>0`,
     error: `ISERROR(${cell})`,
@@ -1048,10 +1066,11 @@ function ruleFromExcel(x) {
   if ((m = new RegExp(`^NOT\\(ISERROR\\(SEARCH\\(${str},[A-Z]+\\d+\\)\\)\\)$`, 'i').exec(f))) return { when: 'contains', value: un(m[1]) };
   if ((m = new RegExp(`^ISERROR\\(SEARCH\\(${str},[A-Z]+\\d+\\)\\)$`, 'i').exec(f))) return { when: 'notContains', value: un(m[1]) };
   if ((m = new RegExp(`^LEFT\\([A-Z]+\\d+,LEN\\(${str}\\)\\)=${str}$`, 'i').exec(f))) return { when: 'starts', value: un(m[1]) };
+  if ((m = new RegExp(`^RIGHT\\([A-Z]+\\d+,LEN\\(${str}\\)\\)=${str}$`, 'i').exec(f))) return { when: 'ends', value: un(m[1]) };
   if (/^LEN\(TRIM\([A-Z]+\d+\)\)=0$/i.test(f)) return { when: 'empty' };
   if (/^LEN\(TRIM\([A-Z]+\d+\)\)>0$/i.test(f)) return { when: 'notEmpty' };
   if (/^ISERROR\([A-Z]+\d+\)$/i.test(f)) return { when: 'error' };
-  if (x.type === 'containsText' && x.text !== undefined) return { when: { notContains: 'notContains', beginsWith: 'starts' }[x.operator] || 'contains', value: String(x.text) };
+  if (x.type === 'containsText' && x.text !== undefined) return { when: { notContains: 'notContains', beginsWith: 'starts', endsWith: 'ends' }[x.operator] || 'contains', value: String(x.text) };
   if ((m = /^AND\(ISNUMBER\([A-Z]+\d+\),[A-Z]+\d+<TODAY\(\)\)$/i.exec(f))) return { when: 'datePast' };
   if ((m = /^AND\(ISNUMBER\([A-Z]+\d+\),[A-Z]+\d+>=TODAY\(\),[A-Z]+\d+<=TODAY\(\)\+7\)$/i.exec(f))) return { when: 'dateNext7' };
   if ((m = /^AND\(ISNUMBER\([A-Z]+\d+\),[A-Z]+\d+([<>])(?:TODAY\(\)|DATE\((\d+),(\d+),(\d+)\))\)$/i.exec(f))) {

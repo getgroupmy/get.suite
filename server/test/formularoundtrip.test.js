@@ -1,12 +1,12 @@
 // Formulas through LibreOffice: a book written as .xlsx and as .ods, saved again by LibreOffice in the same format and read
 // back, has the same formulas (references, sheets with spaces, a named range, newer functions, text with quotes, LET…).
 // And formulas read from files are tidied: function names in capitals, sheet names as the sheets are named.
+import { soffice, hasSoffice } from './soffice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { excelFromSheet, sheetFromExcel } from '../src/office/excel.js';
 import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
 import { tidyFormula } from '../src/office/formulatidy.js';
@@ -27,12 +27,11 @@ test('formulas read from files: function names in capitals, sheet names as the s
   assert.equal(tidyFormula('=Rate*A1', names), '=Rate*A1', 'names left as they are');
 });
 
-const soffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); return true; } catch { return false; } })();
 for (const [ext, write, read] of [['xlsx', excelFromSheet, sheetFromExcel], ['ods', odsFromSheet, sheetFromOds]]) {
-  test(`through LibreOffice (.${ext}): the formulas and the named range come back as they were`, { skip: !soffice && 'LibreOffice isn’t installed here' }, async () => {
+  test(`through LibreOffice (.${ext}): the formulas and the named range come back as they were`, { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fxrt-'));
     fs.writeFileSync(path.join(dir, `in.${ext}`), await write(book()));
-    execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', ext, '--outdir', path.join(dir, 'out'), path.join(dir, `in.${ext}`)], { stdio: 'ignore', timeout: 120000 });
+    soffice([`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', ext, '--outdir', path.join(dir, 'out'), path.join(dir, `in.${ext}`)]);
     const back = await read(fs.readFileSync(path.join(dir, 'out', `in.${ext}`)));
     const main = back.sheets.find((s) => s.name === 'Main');
     assert.deepEqual(FX.map((f, i) => main.cells[`C${i + 1}`]), FX);
