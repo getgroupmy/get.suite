@@ -16289,3 +16289,25 @@ test('Slides: copy several slides at once, in the presentation\'s order, to anot
   // One by its own address still works
   assert.equal((await owner('POST', `/api/files/${src.id}/slides/a/copy-to`, { target: dst.id })).body.slide, 4);
 });
+
+test('tasks: copy a task to another of your lists (at its top, no section there, for nobody if they aren\'t on it); the original stays', async () => {
+  const a = client(), c = client();
+  for (const [local, name] of [['tcopa', 'Copy Ann'], ['tcopc', 'Copy Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tcopa@acme.com'); await login(c, 'tcopc@acme.com');
+  const dir = (await a('GET', '/api/users/directory')).body;
+  const catId = dir.find((u) => u.username === 'tcopc@acme.com').id;
+  const shared = (await a('POST', '/api/tasks/lists', { name: 'Team copy' })).body.id;
+  await a('PUT', `/api/tasks/lists/${shared}/members`, { user_ids: [catId] });
+  const mine = (await a('POST', '/api/tasks/lists', { name: 'Mine copy' })).body.id;
+  const first = (await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Already here' })).body;
+  const sec = (await a('POST', `/api/tasks/lists/${shared}/sections`, { name: 'Now' })).body;
+  const t = (await a('POST', `/api/tasks/lists/${shared}/tasks`, { title: 'Book the hall', notes: 'Ask for the big one', due: '2026-12-01', assignee_id: catId, section_id: sec.id })).body;
+  const r = await a('POST', `/api/tasks/tasks/${t.id}/duplicate`, { list_id: mine });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.list_id, r.body.title, r.body.notes, r.body.due, r.body.section_id ?? null, r.body.assignee_id ?? null], [mine, 'Book the hall', 'Ask for the big one', '2026-12-01', null, null]);
+  const order = (await a('GET', `/api/tasks/lists/${mine}/tasks`)).body.filter((x) => !x.done).map((x) => x.id);
+  assert.deepEqual(order, [r.body.id, first.id], 'at the top');
+  assert.ok((await a('GET', `/api/tasks/lists/${shared}/tasks`)).body.some((x) => x.id === t.id), 'the original stays');
+  // Cat isn't on Ann's own list: can't copy there
+  assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/duplicate`, { list_id: mine })).status, 404);
+});

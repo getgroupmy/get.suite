@@ -619,17 +619,23 @@ export default function taskRoutes() {
   });
   // Duplicate a task: a copy just below it, not done, with its notes, steps (unticked), due date, start, repeat,
   // who it's for, star, tags, link and files; not its comments, time or what waits on it.
+  // { list_id }: to the top of another of your lists instead (Copy to…), without a section there, and for nobody when
+  // whoever it was for isn't on that list.
   r.post('/tasks/:id/duplicate', (req, res) => {
-    const { task, list } = taskFor(req);
-    if (q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n >= MAX_TASKS) throw bad('This list is full');
-    const below = q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL AND position > ?').get(list.id, task.position).p;
-    const position = below === null ? task.position + 1 : (task.position + below) / 2;
+    const { task, list: from } = taskFor(req);
+    const other = req.body?.list_id && req.body.list_id !== from.id;
+    const list = other ? loadList(String(req.body.list_id), req.user) : from;
+    if (q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n >= MAX_TASKS) throw bad(other ? `“${list.name}” is full` : 'This list is full');
+    const below = other ? null : q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL AND position > ?').get(list.id, task.position).p;
+    const position = other ? (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(list.id).p ?? 1) - 1
+      : below === null ? task.position + 1 : (task.position + below) / 2;
+    const assignee = other && task.assignee_id && !peopleOn(list).includes(task.assignee_id) ? null : task.assignee_id;
     const id = uid(), t = now();
     const steps = task.steps ? JSON.stringify(JSON.parse(task.steps).map((x) => ({ ...x, id: uid(), done: false }))) : null;
     q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, list.id, task.title, task.notes, task.due, task.due_time, task.start, task.assignee_id, position, task.repeat, task.repeat_until, steps, task.important ? 1 : 0, task.link_url, task.link_label, task.attachments, task.tags, req.user.id, t, t);
-    q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ?, nonbillable = ? WHERE id = ?').run(task.section_id, task.estimate, task.priority, task.nonbillable ?? 0, id);
+      .run(id, list.id, task.title, task.notes, task.due, task.due_time, task.start, assignee, position, task.repeat, task.repeat_until, steps, task.important ? 1 : 0, task.link_url, task.link_label, task.attachments, task.tags, req.user.id, t, t);
+    q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ?, nonbillable = ? WHERE id = ?').run(other ? null : task.section_id, task.estimate, task.priority, task.nonbillable ?? 0, id);
     changed(list);
     res.status(201).json(shape(q(`${TASK} WHERE t.id = ?`).get(id)));
   });

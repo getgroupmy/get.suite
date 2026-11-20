@@ -538,6 +538,21 @@ export default function Tasks() {
               <option value="">Move to…</option>
               {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
+            <select aria-label="Copy the selected tasks to" value="" disabled={!picked.size} onChange={async (e) => {
+              const to = e.target.value;
+              if (!to) return;
+              // Each copy goes to the top there: last first, so they keep this list's order.
+              const ids = (tasks || []).filter((t) => picked.has(t.id)).map((t) => t.id).reverse();
+              let n = 0;
+              try {
+                for (const id of ids) { await post(`/tasks/tasks/${id}/duplicate`, { list_id: to }); n++; }
+                toast(`${nTasks(n)} copied to ${lists.find((l) => l.id === to)?.name}`);
+                setPicked(new Set());
+              } catch (err) { toast(n ? `${nTasks(n)} copied; then: ${err.message}` : err.message, 'error'); }
+            }}>
+              <option value="">Copy to…</option>
+              {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
             <button type="button" className="btn small" disabled={!picked.size} title="Links to these tasks in a Chat conversation's message box (they show as task cards)" onClick={() => setChatting((tasks || []).filter((t) => picked.has(t.id)))}><Icon name="chat" size={16} /> Send in Chat…</button>
             {mail?.enabled && <button type="button" className="btn small" disabled={!picked.size} title="A new email with just these tasks in it, as a list's email has them" onClick={() => emailList(true, picked)}><Icon name="mail" size={16} /> Email</button>}
             <button type="button" className="btn small" disabled={!picked.size} title="Just these tasks, printed (or saved as PDF) as a list prints"
@@ -1305,6 +1320,16 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
         <button type="button" className="btn" onClick={async () => {
           try { await post(`/tasks/tasks/${task.id}/duplicate`); toast('Duplicated: the copy is just below'); } catch (e) { toast(e.message, 'error'); }
         }}><Icon name="copy" size={16} /> Duplicate</button>
+        {(lists || []).some((l) => l.id !== task.list_id) && (
+          <select aria-label="Copy this task to" value="" onChange={async (e) => {
+            const to = e.target.value;
+            if (!to) return;
+            try { await post(`/tasks/tasks/${task.id}/duplicate`, { list_id: to }); toast(`Copied to ${lists.find((l) => l.id === to)?.name}`); } catch (err) { toast(err.message, 'error'); }
+          }}>
+            <option value="">Copy to…</option>
+            {lists.filter((l) => l.id !== task.list_id).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        )}
         <button type="button" className="btn danger" onClick={onDelete}><Icon name="trash" size={16} /> Delete task</button>
       </div>
     </aside>

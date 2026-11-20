@@ -118,6 +118,25 @@ await step('Mark done, move, and delete with a confirmation', async () => {
   await page.getByRole('button', { name: 'Done selecting' }).click();
   await page.getByRole('toolbar', { name: 'Change the selected tasks' }).waitFor({ state: 'detached' });
 });
+await step('Copy to… another list: several from the bar (in this list\'s order), one from its details; the originals stay', async () => {
+  const copies = (await api(page, 'POST', '/tasks/lists', { name: 'Copies' })).body.id;
+  for (const title of ['Alpha', 'Beta']) await api(page, 'POST', `/tasks/lists/${later}/tasks`, { title });
+  await page.goto(`${B}/tasks/${later}`);
+  await page.getByText('Beta', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await choose('Alpha', 'Beta');
+  await page.getByRole('toolbar', { name: 'Change the selected tasks' }).getByLabel('Copy the selected tasks to').selectOption({ label: 'Copies' });
+  await page.locator('.toast', { hasText: '2 tasks copied to Copies' }).last().waitFor();
+  const shown = (await tasksOf(later)).filter((t) => !t.done).map((t) => t.title);
+  if (shown.join() !== 'Beta,Alpha,Print flyers') throw new Error(`the originals: ${shown}`);
+  if ((await tasksOf(copies)).map((t) => t.title).join() !== 'Beta,Alpha') throw new Error(JSON.stringify((await tasksOf(copies)).map((t) => t.title)));
+  await page.getByRole('button', { name: 'Done selecting' }).click();
+  await page.getByText('Print flyers', { exact: true }).click();
+  await page.getByLabel('Copy this task to').selectOption({ label: 'Copies' });
+  await page.locator('.toast', { hasText: 'Copied to Copies' }).last().waitFor();
+  if ((await tasksOf(copies)).map((t) => t.title).join() !== 'Print flyers,Beta,Alpha') throw new Error('one copied, at the top');
+  if (!(await tasksOf(later)).some((t) => t.title === 'Print flyers')) throw new Error('the original stays');
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
