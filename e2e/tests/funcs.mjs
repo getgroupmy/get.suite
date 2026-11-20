@@ -94,6 +94,10 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('A21', '=PERCENTOF(B2, B2:B4)');
   await typeIn('A22', '=BITLSHIFT(5, 3)');
   await expectCells({ A19: '1/1', A20: 'TRUE', A21: '0.6', A22: '40' });
+  // complex numbers
+  await typeIn('A23', '=IMPRODUCT(COMPLEX(3, 4), "5-3i")');
+  await typeIn('A24', '=IMABS("3+4i")');
+  await expectCells({ A23: '27+11i', A24: '5' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

@@ -457,6 +457,40 @@ function stack(arrays, across) {
 
 // ---- helpers for reshaping arrays and for numbers in other bases
 const given = (v) => v !== undefined && v !== null;
+
+// ---- complex numbers, written as Excel writes them: "3+4i", "-2.5j", "i", "7"
+const NUM_RE = String.raw`(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`;
+const COMPLEX_RE = new RegExp(`^([+-]?${NUM_RE})?(?:([+-])(${NUM_RE})?([ij]))?$|^([+-]?)(${NUM_RE})?([ij])$`);
+/** A complex number from text or a number: { re, im, suffix } (#NUM! when it isn't one). */
+function complexOf(v) {
+  if (typeof v === 'number') return { re: v, im: 0, suffix: null };
+  if (typeof v === 'boolean') err('#VALUE!');
+  const t = toStr(v).trim();
+  if (t === '') return { re: 0, im: 0, suffix: null };
+  const m = COMPLEX_RE.exec(t);
+  if (!m) err('#NUM!');
+  if (m[7]) return { re: 0, im: (m[5] === '-' ? -1 : 1) * (m[6] ? Number(m[6]) : 1), suffix: m[7] }; // only an imaginary part
+  if (m[1] === undefined && !m[4]) err('#NUM!');
+  return { re: m[1] !== undefined ? Number(m[1]) : 0, im: m[4] ? (m[2] === '-' ? -1 : 1) * (m[3] ? Number(m[3]) : 1) : 0, suffix: m[4] || null };
+}
+const complexNum = (x) => { const r = Number(x.toPrecision(15)); return (Object.is(r, -0) ? 0 : r).toString().toUpperCase(); };
+/** Back as text, as Excel shows it ("8+i", "-4i", "1.5"). */
+function complexText(re, im, suffix = 'i') {
+  if (!Number.isFinite(re) || !Number.isFinite(im)) err('#NUM!');
+  const r = Number(re.toPrecision(15)), i = Number(im.toPrecision(15));
+  if (!i) return complexNum(r);
+  const imag = `${i === 1 ? '' : i === -1 ? '-' : complexNum(i)}${suffix || 'i'}`;
+  return r ? `${complexNum(r)}${i > 0 ? '+' : ''}${imag}` : imag;
+}
+/** The suffix the result takes: the arguments' (#VALUE! when they mix i and j). */
+function suffixOf(zs) {
+  const s = [...new Set(zs.map((z) => z.suffix).filter(Boolean))];
+  if (s.length > 1) err('#VALUE!');
+  return s[0] || 'i';
+}
+const complexFn = (f) => ([z]) => { const c = complexOf(scalarOf(z)); const [re, im] = f(c); return complexText(re, im, c.suffix); };
+const cAbs = (c) => Math.hypot(c.re, c.im);
+const cLn = (c) => { if (!c.re && !c.im) err('#NUM!'); return [Math.log(cAbs(c)), Math.atan2(c.im, c.re)]; };
 const isErrorText = (v) => typeof v === 'string' && /^#(N\/A|NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|CALC!|SPILL!)$/.test(v);
 const MAX_CELLS = 10000;
 const MAX_REF_CELLS = 100000; // the most cells OFFSET or INDIRECT can point at
@@ -1031,6 +1065,43 @@ const FUNCS = {
   FACTDOUBLE: ([v]) => { const n = Math.trunc(toNum(v)); if (n < -1) err('#NUM!'); let f = 1; for (let i = n; i > 1; i -= 2) f *= i; return f; },
   MULTINOMIAL: (a) => { const n = nums(a).map(Math.trunc); if (n.some((x) => x < 0)) err('#NUM!'); return Math.round(factorial(n.reduce((s, x) => s + x, 0)) / n.reduce((p, x) => p * factorial(x), 1)); },
   SERIESSUM: ([x, n, m, coef]) => { const v = toNum(x), a = toNum(n), b = toNum(m); return nums([coef]).reduce((s, c, i) => s + c * v ** (a + i * b), 0); },
+  // complex numbers (text such as "3+4i")
+  COMPLEX: ([re, im, suffix]) => {
+    const s = given(suffix) && suffix !== '' ? toStr(suffix) : 'i';
+    if (s !== 'i' && s !== 'j') err('#VALUE!');
+    return complexText(toNum(re), toNum(im ?? 0), s);
+  },
+  IMREAL: ([z]) => complexOf(scalarOf(z)).re,
+  IMAGINARY: ([z]) => complexOf(scalarOf(z)).im,
+  IMABS: ([z]) => cAbs(complexOf(scalarOf(z))),
+  IMARGUMENT: ([z]) => { const c = complexOf(scalarOf(z)); if (!c.re && !c.im) err('#DIV/0!'); return Math.atan2(c.im, c.re); },
+  IMCONJUGATE: complexFn((c) => [c.re, -c.im]),
+  IMSUM: (args) => { const zs = flat(args).filter((v) => v !== null && v !== undefined).map(complexOf); return complexText(zs.reduce((s, z) => s + z.re, 0), zs.reduce((s, z) => s + z.im, 0), suffixOf(zs)); },
+  IMSUB: ([a, b]) => { const x = complexOf(scalarOf(a)), y = complexOf(scalarOf(b)); return complexText(x.re - y.re, x.im - y.im, suffixOf([x, y])); },
+  IMPRODUCT: (args) => {
+    const zs = flat(args).filter((v) => v !== null && v !== undefined).map(complexOf);
+    let re = 1, im = 0;
+    for (const z of zs) [re, im] = [re * z.re - im * z.im, re * z.im + im * z.re];
+    return complexText(re, im, suffixOf(zs));
+  },
+  IMDIV: ([a, b]) => {
+    const x = complexOf(scalarOf(a)), y = complexOf(scalarOf(b)), d = y.re ** 2 + y.im ** 2;
+    if (!d) err('#NUM!');
+    return complexText((x.re * y.re + x.im * y.im) / d, (x.im * y.re - x.re * y.im) / d, suffixOf([x, y]));
+  },
+  IMPOWER: ([z, n]) => {
+    const c = complexOf(scalarOf(z)), p = toNum(n), r = cAbs(c);
+    if (!r) { if (p <= 0) err('#NUM!'); return '0'; }
+    const t = Math.atan2(c.im, c.re) * p, m = r ** p;
+    return complexText(m * Math.cos(t), m * Math.sin(t), c.suffix);
+  },
+  IMSQRT: complexFn((c) => { const r = Math.sqrt(cAbs(c)), t = Math.atan2(c.im, c.re) / 2; return [r * Math.cos(t), r * Math.sin(t)]; }),
+  IMEXP: complexFn((c) => [Math.exp(c.re) * Math.cos(c.im), Math.exp(c.re) * Math.sin(c.im)]),
+  IMLN: complexFn(cLn),
+  IMLOG10: complexFn((c) => cLn(c).map((x) => x / Math.LN10)),
+  IMLOG2: complexFn((c) => cLn(c).map((x) => x / Math.LN2)),
+  IMSIN: complexFn((c) => [Math.sin(c.re) * Math.cosh(c.im), Math.cos(c.re) * Math.sinh(c.im)]),
+  IMCOS: complexFn((c) => [Math.cos(c.re) * Math.cosh(c.im), -Math.sin(c.re) * Math.sinh(c.im)]),
   DELTA: ([a, b]) => (toNum(a) === toNum(b ?? 0) ? 1 : 0),
   'CEILING.MATH': ([v, sig, mode]) => { const x = toNum(v), g = Math.abs(toNum(sig ?? 1)) || 0; if (!g) return 0; return x < 0 && mode !== undefined && toNum(mode) ? Math.floor(x / g + 1e-12) * g : Math.ceil(x / g - 1e-12) * g; },
   'FLOOR.MATH': ([v, sig, mode]) => { const x = toNum(v), g = Math.abs(toNum(sig ?? 1)) || 0; if (!g) return 0; return x < 0 && mode !== undefined && toNum(mode) ? Math.ceil(x / g - 1e-12) * g : Math.floor(x / g + 1e-12) * g; },
