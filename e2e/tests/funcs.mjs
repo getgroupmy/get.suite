@@ -173,6 +173,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('P20', '1');
   await typeIn('P21', '2');
   await expectCells({ P17: '1|none' });
+  // LARGE of k 1.5 is the largest (it showed nothing); MODE of a tie is the first in the range
+  await typeIn('P22', '=LARGE(P20:P21, 1.5)&"|"&MODE(3, 1, 4, 1, 3)');
+  await expectCells({ P22: '2|3' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

@@ -1139,8 +1139,9 @@ const FUNCS = {
   MINIFS: ([range, ...a]) => { const ok = multi(a, range); const n = picked(cellsOf([range]).filter((_, i) => ok(i))).filter((v) => typeof v === 'number'); return n.length ? Math.min(...n) : 0; },
   COUNTBLANK: (a) => cellsOf(a).filter((v) => v === null || v === '').length,
   PRODUCT: (a) => nums(a).reduce((s, n) => s * n, 1),
-  LARGE: ([range, k]) => { const n = nums([range]).sort((x, y) => y - x); const i = toNum(k) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
-  SMALL: ([range, k]) => { const n = nums([range]).sort((x, y) => x - y); const i = toNum(k) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
+  // (k a whole number: 1.5 is the first; it gave nothing at all)
+  LARGE: ([range, k]) => { const n = nums([range]).sort((x, y) => y - x); const i = Math.trunc(toNum(k)) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
+  SMALL: ([range, k]) => { const n = nums([range]).sort((x, y) => x - y); const i = Math.trunc(toNum(k)) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
   // numbers
   ROUNDUP: ([v, d]) => roundTo(v, d, Math.ceil),
   ROUNDDOWN: ([v, d]) => roundTo(v, d, Math.floor),
@@ -1382,11 +1383,12 @@ const FUNCS = {
   },
   // more statistics
   MODE: (a) => {
+    // the value seen most often; of several, the one that comes first in the range (as Excel: 3 in 3, 1, 1, 3)
     const counts = new Map();
-    let best = null, most = 1;
-    for (const x of nums(a)) { const c = (counts.get(x) || 0) + 1; counts.set(x, c); if (c > most) { most = c; best = x; } }
-    if (best === null) err('#N/A'); // nothing repeats
-    return best;
+    for (const x of nums(a)) counts.set(x, (counts.get(x) || 0) + 1);
+    const most = Math.max(0, ...counts.values());
+    if (most < 2) err('#N/A'); // nothing repeats
+    return [...counts].find(([, c]) => c === most)[0];
   },
   'MODE.SNGL': (a) => FUNCS.MODE(a),
   PERCENTILE: ([range, k]) => percentile(range, k),
