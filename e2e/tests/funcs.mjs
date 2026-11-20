@@ -134,6 +134,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('P1', '50%');
   await typeIn('P2', '=ROUND(-2.5, 0)&"/"&ROUND(2.675, 2)&"/"&P1*2');
   await expectCells({ P2: '-3/2.68/1' });
+  // TEXT with times, sections and fractions
+  await typeIn('P3', '=TEXT(TIME(14, 30, 0), "h:mm AM/PM")&"|"&TEXT(-5, "0;(0)")&"|"&TEXT(1.5, "# ?/?")');
+  await expectCells({ P3: '2:30 PM|(5)|1 1/2' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

@@ -188,7 +188,7 @@ test('TEXT formats numbers and dates', () => {
   assert.equal(g('B8'), 'Saturday 7 November 2026');
   assert.equal(g('B9'), 'Nov 26');
   assert.equal(g('B10'), '1234.57');
-  assert.equal(g('B11'), '2');
+  assert.equal(g('B11'), '2.', 'the decimal point stays, as in Excel and Google Sheets (and in cells formatted 0.##)');
 });
 
 test('working days and DATEDIF', () => {

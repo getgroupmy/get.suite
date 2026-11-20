@@ -568,3 +568,23 @@ test('ROUND takes halves away from zero on the number as written; text such as "
   assert.equal(one('=VALUE("50%")'), 0.5);
   assert.equal(one('=VALUE("$1,234.50")'), 1234.5);
 });
+test('TEXT with the full number-format codes: times, AM/PM, sections, conditions, thousands, fractions; text left alone', () => {
+  const c = { A1: '2026-11-20', A2: '2026-03-05 14:30' };
+  const is = (f, want) => assert.equal(one(f, c), want, f);
+  is('=TEXT(A2, "hh:mm")', '14:30');
+  is('=TEXT(A2, "h:mm AM/PM")', '2:30 PM');
+  is('=TEXT(TIME(14, 30, 0), "h:mm")', '14:30');
+  is('=TEXT(A1, "dddd")', 'Friday');
+  is('=TEXT(-5, "0;(0)")', '(5)');
+  is('=TEXT(0, "0;-0;""zero""")', 'zero');
+  is('=TEXT(1234.5, "0.0,""k""")', '1.2k');
+  is('=TEXT(1234567, "[>=1000000]0.0,,""M"";0")', '1.2M');
+  is('=TEXT("5", "000")', '005');
+  is('=TEXT("abc", "0.00")', 'abc');
+  is('=TEXT(1/3, "# ?/?")', ' 1/3');
+  is('=TEXT(1.5, "# ?/?")', '1 1/2');
+  is('=TEXT(1.5, "?/?")', '3/2');
+  is('=TEXT(2.375, "# ?/8")', '2 3/8');
+  is('=TEXT(-1.25, "# ?/?")', '-1 1/4');
+  is('=TEXT(3.14159, "# ???/???")', '3  16/113');
+});
