@@ -457,6 +457,15 @@ function stack(arrays, across) {
 
 // ---- helpers for reshaping arrays and for numbers in other bases
 const given = (v) => v !== undefined && v !== null;
+/** For securities: settlement and maturity (as days), the fraction of a year between them by the day count, and the days. */
+function securityTerm(settlement, maturity, basis) {
+  const s = Math.floor(dateMs(settlement) / DAY_MS), m = Math.floor(dateMs(maturity) / DAY_MS), b = given(basis) && basis !== '' ? Math.trunc(toNum(basis)) : 0;
+  if (s >= m || b < 0 || b > 4) err('#NUM!');
+  return { years: yearFrac(s * DAY_MS, m * DAY_MS, b), days: m - s };
+}
+const positiveNum = (v) => { const x = toNum(v); if (x <= 0) err('#NUM!'); return x; };
+/** Treasury bills: days to maturity (a year at most). */
+const tbillDays = (settlement, maturity) => { const { days } = securityTerm(settlement, maturity, 0); if (days > 366) err('#NUM!'); return days; };
 
 // ---- complex numbers, written as Excel writes them: "3+4i", "-2.5j", "i", "7"
 const NUM_RE = String.raw`(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`;
@@ -1478,6 +1487,26 @@ Object.assign(FUNCS, {
     const u = given(unit) ? Math.trunc(toNum(unit)) : 1, x = toNum(t);
     if (u < 1 || u > 3 || x < 0) err('#NUM!');
     return serialDate((Date.UTC(1970, 0, 1) - EXCEL_EPOCH) / DAY_MS + x / [1, 1e3, 1e6][u - 1] / 86400);
+  },
+  // discounted securities and Treasury bills
+  DISC: ([s, m, pr, redemption, basis]) => { const p = positiveNum(pr), r = positiveNum(redemption); return (r - p) / r / securityTerm(s, m, basis).years; },
+  INTRATE: ([s, m, investment, redemption, basis]) => { const i = positiveNum(investment), r = positiveNum(redemption); return (r - i) / i / securityTerm(s, m, basis).years; },
+  RECEIVED: ([s, m, investment, discount, basis]) => {
+    const i = positiveNum(investment), d = positiveNum(discount), left = 1 - d * securityTerm(s, m, basis).years;
+    if (left <= 0) err('#NUM!');
+    return i / left;
+  },
+  PRICEDISC: ([s, m, discount, redemption, basis]) => { const d = positiveNum(discount), r = positiveNum(redemption); return r - d * r * securityTerm(s, m, basis).years; },
+  YIELDDISC: ([s, m, pr, redemption, basis]) => { const p = positiveNum(pr), r = positiveNum(redemption); return (r - p) / p / securityTerm(s, m, basis).years; },
+  TBILLPRICE: ([s, m, discount]) => { const d = positiveNum(discount), p = 100 * (1 - (d * tbillDays(s, m)) / 360); if (p <= 0) err('#NUM!'); return p; },
+  TBILLYIELD: ([s, m, pr]) => { const p = positiveNum(pr); return ((100 - p) / p) * (360 / tbillDays(s, m)); },
+  TBILLEQ: ([s, m, discount]) => {
+    const d = positiveNum(discount), n = tbillDays(s, m);
+    if (n <= 182) return (365 * d) / (360 - d * n);
+    const price = 100 * (1 - (d * n) / 360); // over half a year: the bond-equivalent yield of that price
+    if (price <= 0) err('#NUM!');
+    const a = (n / 365 - 0.5) / 2, b = n / 365, c = (price - 100) / price; // price × (1 + y/2)(1 + y(n/365 − ½)) = 100
+    return (-b + Math.sqrt(b * b - 4 * a * c)) / (2 * a);
   },
   YEARFRAC: ([start, end, basis]) => { const b = given(basis) ? Math.trunc(toNum(basis)) : 0; if (b < 0 || b > 4) err('#NUM!'); return yearFrac(dateMs(start), dateMs(end), b); },
   // text and information

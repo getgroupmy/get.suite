@@ -382,3 +382,20 @@ test('older names (FDIST, FINV, WEIBULL, GAMMADIST…), BETA.INV and PROB give E
   assert.deepEqual(one('=PROB(A1:A4, B1:B3, 1)', c), { error: '#N/A' });
   assert.deepEqual(one('=PROB(A1:A4, B1:B4, 1)', { ...c, B4: '0.5' }), { error: '#NUM!' }, "chances that don't add up to 1");
 });
+test('discounted securities and Treasury bills: DISC, INTRATE, RECEIVED, PRICEDISC, YIELDDISC, TBILLPRICE, TBILLYIELD, TBILLEQ', () => {
+  near(one('=DISC(DATE(2018,7,1), DATE(2048,1,1), 97.975, 100, 1)'), 0.000686384, 1e-6);
+  near(one('=INTRATE(DATE(2008,2,15), DATE(2008,5,15), 1000000, 1014420, 2)'), 0.05768);
+  near(one('=RECEIVED(DATE(2008,2,15), DATE(2008,5,15), 1000000, 0.0575, 2)'), 1014584.654, 1e-9);
+  near(one('=PRICEDISC(DATE(2008,2,16), DATE(2008,3,1), 0.0525, 100, 2)'), 99.79583333);
+  near(one('=YIELDDISC(DATE(2008,2,16), DATE(2008,3,1), 99.795, 100, 2)'), 0.052822572);
+  near(one('=TBILLPRICE(DATE(2008,3,31), DATE(2008,6,1), 0.09)'), 98.45);
+  near(one('=TBILLYIELD(DATE(2008,3,31), DATE(2008,6,1), 98.45)'), 0.091416963);
+  near(one('=TBILLEQ(DATE(2008,3,31), DATE(2008,6,1), 0.0914)'), 0.094151494);
+  // over half a year: the yield y where price × (1 + y/2)(1 + y(days/365 − ½)) = 100
+  const y = one('=TBILLEQ(DATE(2008,3,31), DATE(2008,12,1), 0.0914)'), n = 245, price = 100 * (1 - (0.0914 * n) / 360);
+  near(price * (1 + y / 2) * (1 + y * (n / 365 - 0.5)), 100, 1e-9);
+  assert.deepEqual(one('=TBILLEQ(DATE(2008,3,31), DATE(2009,6,1), 0.0914)'), { error: '#NUM!' }, 'over a year');
+  assert.deepEqual(one('=DISC(DATE(2008,3,1), DATE(2008,2,1), 97, 100)'), { error: '#NUM!' }, 'maturity first');
+  assert.deepEqual(one('=DISC(DATE(2008,2,1), DATE(2008,3,1), 97, 100, 5)'), { error: '#NUM!' }, 'no such day count');
+  assert.deepEqual(one('=DISC(DATE(2008,2,1), DATE(2008,3,1), 0, 100)'), { error: '#NUM!' });
+});

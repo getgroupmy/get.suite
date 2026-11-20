@@ -102,6 +102,10 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('A25', '=ROUND(FDIST(15.2068649, 6, 4), 4)');
   await typeIn('A26', '=ROUND(BETA.INV(0.685470581, 8, 10, 1, 3), 4)');
   await expectCells({ A25: '0.01', A26: '2' });
+  // discounted securities and Treasury bills
+  await typeIn('A27', '=TBILLPRICE(DATE(2008,3,31), DATE(2008,6,1), 0.09)');
+  await typeIn('A28', '=ROUND(PRICEDISC(DATE(2008,2,16), DATE(2008,3,1), 0.0525, 100, 2), 5)');
+  await expectCells({ A27: '98.45', A28: '99.79583' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {
