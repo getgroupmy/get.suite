@@ -16831,3 +16831,23 @@ test('repeating on days of the month (the 1st and 15th, the last day) and in sev
     assert.equal((await dm('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
   }
 });
+
+test('search finds PDFs and OpenDocument files by the words inside them', async () => {
+  const { indexPending } = await import('../src/search.js');
+  const { pdfFromDoc } = await import('../src/office/pdfdoc.js');
+  const { odtFromDoc } = await import('../src/office/odt.js');
+  const { odsFromSheet } = await import('../src/office/ods.js');
+  const pq = client();
+  await owner('POST', '/api/users', { local: 'pdfsearch', domain: 'acme.com', name: 'Pia Search', password: 'password123' });
+  await login(pq, 'pdfsearch@acme.com');
+  const P = (t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] });
+  const pdf = (await pq('POST', '/api/files/upload?name=lease.pdf', await pdfFromDoc({ type: 'doc', content: [P('The Kuching warehouse lease runs to 2031.'), P('Привет партнёрам')] }, 'Lease'), { raw: true })).body;
+  const odt = (await pq('POST', '/api/files/upload?name=minutes.odt', await odtFromDoc({ type: 'doc', content: [P('Minutes about the rambutan harvest')] }, 'Minutes'), { raw: true })).body;
+  const ods = (await pq('POST', '/api/files/upload?name=stock.ods', await odsFromSheet({ sheets: [{ name: 'Sheet1', cells: { A1: 'Durian crates', B1: '42' } }] }), { raw: true })).body;
+  while (await indexPending()) { /* until everything is indexed */ }
+  const find = async (words) => (await pq('GET', `/api/files?view=search&q=${encodeURIComponent(words)}`)).body.map((f) => f.id);
+  assert.deepEqual(await find('kuching lease'), [pdf.id], 'a PDF by its words');
+  assert.deepEqual(await find('партнёрам'), [pdf.id], 'in Cyrillic too');
+  assert.deepEqual(await find('rambutan'), [odt.id], 'an OpenDocument text');
+  assert.deepEqual(await find('durian'), [ods.id], 'an OpenDocument spreadsheet');
+});

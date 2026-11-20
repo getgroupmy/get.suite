@@ -99,3 +99,10 @@ for (const [cp, forms] of Object.entries(FORMS)) for (const f of forms) BASE.set
 for (const [alef, forms] of Object.entries(LAM_ALEF)) for (const f of forms) BASE.set(f, [0x0644, Number(alef)]);
 /** The characters a presentation-form glyph stands for ([cp] for anything else). */
 export const logicalOf = (cp) => BASE.get(cp) || [cp];
+
+/** A line put in the other order without joining letters (a line read back from a PDF: from as seen to as written). */
+export function reorder(text, rtl = isRtlText(text)) {
+  const s = String(text ?? '');
+  if (!hasRtl(s)) return s;
+  return visualOrder([...s], dirOf, rtl).map(({ unit, rtl: r }) => (r && MIRROR[unit] ? MIRROR[unit] : unit)).join('');
+}

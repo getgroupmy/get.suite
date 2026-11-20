@@ -69,6 +69,19 @@ await step('a presentation matched by its words says which slide, and opens ther
   await page.locator('[data-k="C3"]').getByText('Kuching flights').waitFor();
   await until(async () => (await page.getByLabel('Name box').inputValue()) === 'C3');
 });
+await step('an uploaded PDF is found by the words inside it, with them marked', async () => {
+  // a PDF made the way another program would hand it over: uploaded as a file
+  const { pdfFromDoc } = await import(new URL('../../server/src/office/pdfdoc.js', import.meta.url).href);
+  const bytes = await pdfFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The tenancy for the Sibu depot ends in March.' }] }] }, 'Tenancy');
+  await page.evaluate(async (b) => fetch('/api/files/upload?name=Tenancy.pdf', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/octet-stream' }, body: new Uint8Array(b) }), Array.from(bytes));
+  await page.waitForTimeout(2500); // the index catches up
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Search everything').fill('sibu depot');
+  await page.getByLabel('Search everything').press('Enter');
+  const row = page.locator('.files tbody tr').filter({ hasText: 'Tenancy.pdf' });
+  await row.waitFor({ timeout: 10000 });
+  await row.locator('mark', { hasText: 'Sibu' }).waitFor();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

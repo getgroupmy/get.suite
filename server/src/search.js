@@ -10,6 +10,11 @@ import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
 import { q, FILES_DIR } from './db.js';
 import { deckFromPowerPoint } from './office/powerpoint.js';
+import { textOfPdf } from './office/pdftext.js';
+import { docFromOdt } from './office/odt.js';
+import { sheetFromOds } from './office/ods.js';
+import { deckFromOdp } from './office/odp.js';
+import { docFromRtf } from './office/rtf.js';
 import { chipText, dateText, eventLines } from './office/chiptext.js';
 
 q("CREATE VIRTUAL TABLE IF NOT EXISTS file_text USING fts5(file_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
@@ -18,6 +23,7 @@ q('CREATE TABLE IF NOT EXISTS file_text_state (file_id TEXT PRIMARY KEY, version
 q('CREATE TABLE IF NOT EXISTS file_text_redone (name TEXT PRIMARY KEY)').run();
 const redoOnce = (name, where) => { if (q('SELECT 1 FROM file_text_redone WHERE name = ?').get(name)) return; q(`DELETE FROM file_text_state WHERE file_id IN (SELECT id FROM files WHERE ${where})`).run(); q('INSERT INTO file_text_redone (name) VALUES (?)').run(name); };
 redoOnce('doc-suggestions', "kind = 'doc' AND content LIKE '%suggestInsert%'"); // (pending suggestions were run into the text: "MarchApril")
+redoOnce('pdf-odf-text', "kind = 'file' AND (mime = 'application/pdf' OR name LIKE '%.pdf' OR name LIKE '%.odt' OR name LIKE '%.ods' OR name LIKE '%.odp' OR name LIKE '%.rtf')"); // (read for their words since)
 
 const MAX_TEXT = 200_000; // characters kept per file
 const MAX_READ = 20 * 1024 * 1024; // larger uploads aren't read
@@ -89,6 +95,12 @@ export async function textOf(f) {
       return out.join('\n');
     }
     if (/\.pptx$/i.test(name)) return slidesText(await deckFromPowerPoint(fs.readFileSync(file), { savePicture: async () => null }));
+    // PDFs by their words (pdftext.js); OpenDocument files as the documents, spreadsheets and presentations they open as
+    if (f.mime === 'application/pdf' || /\.pdf$/i.test(name)) return await textOfPdf(fs.readFileSync(file));
+    if (/\.odt$/i.test(name)) return docSearchText((await docFromOdt(fs.readFileSync(file), { savePicture: async () => null })).doc);
+    if (/\.ods$/i.test(name)) return sheetText(await sheetFromOds(fs.readFileSync(file)));
+    if (/\.odp$/i.test(name)) return slidesText(await deckFromOdp(fs.readFileSync(file), { savePicture: async () => null }));
+    if (/\.rtf$/i.test(name)) return docSearchText(docFromRtf(fs.readFileSync(file)));
   } catch { /* unreadable: nothing to index */ }
   return '';
 }
