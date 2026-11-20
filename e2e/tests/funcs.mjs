@@ -110,6 +110,10 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('A29', '=ROUND(PRICE(DATE(2008,2,15), DATE(2017,11,15), 0.0575, 0.065, 100, 2, 0), 5)');
   await typeIn('A30', '=COUPNCD(DATE(2011,1,25), DATE(2011,11,15), 2, 1)');
   await expectCells({ A29: '94.63436', A30: '2011-05-15' });
+  // Bessel functions
+  await typeIn('A31', '=ROUND(BESSELJ(1.9, 2), 6)');
+  await typeIn('A32', '=ROUND(BESSELK(1.5, 1), 6)');
+  await expectCells({ A31: '0.329926', A32: '0.277388' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

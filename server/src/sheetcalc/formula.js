@@ -513,6 +513,48 @@ function maturityTerms(settlement, maturity, issue, basis) {
   const B = yearDays(b, new Date(s).getUTCFullYear());
   return { dim: dayCount(i, m, b) / B, a: dayCount(i, s, b) / B, dsm: dayCount(s, m, b) / B };
 }
+// ---- Bessel functions of whole orders, from their integral forms (accurate to about 1e-12)
+/** Simpson's rule over [a, b] with n (even) steps. */
+function simpson(f, a, b, n) {
+  const h = (b - a) / n;
+  let s = f(a) + f(b);
+  for (let i = 1; i < n; i++) s += (i % 2 ? 4 : 2) * f(a + i * h);
+  return (s * h) / 3;
+}
+/** J_n(x) = 1/π ∫₀^π cos(nτ − x sin τ) dτ (periodic, so the trapezoid rule is very accurate). */
+function besselJ(x, n) {
+  const m = 2 * Math.ceil(Math.abs(x) + n + 40);
+  let s = 0;
+  for (let i = 0; i < m; i++) { const t = (2 * Math.PI * i) / m; s += Math.cos(n * t - x * Math.sin(t)); }
+  return s / m;
+}
+/** I_n(x) = Σ (x/2)^(2k+n) / (k! (k+n)!). */
+function besselI(x, n) {
+  let term = (x / 2) ** n / Math.exp(lnGamma(n + 1)), s = term;
+  for (let k = 1; k < 500 && Math.abs(term) > 1e-17 * Math.abs(s); k++) { term *= (x * x) / 4 / (k * (k + n)); s += term; }
+  return s;
+}
+/** K_n(x) = ∫₀^∞ e^(−x cosh t) cosh(nt) dt, x > 0. */
+function besselK(x, n) {
+  let end = 1;
+  while (x * Math.cosh(end) - n * end < 750) end += 1;
+  return simpson((t) => Math.exp(-x * Math.cosh(t) + n * t) / 2 + Math.exp(-x * Math.cosh(t) - n * t) / 2, 0, end, 4000);
+}
+/** Y_n(x) = 1/π ∫₀^π sin(x sin θ − nθ) dθ − 1/π ∫₀^∞ (e^(nt) + (−1)^n e^(−nt)) e^(−x sinh t) dt, x > 0. */
+function besselY(x, n) {
+  const first = simpson((t) => Math.sin(x * Math.sin(t) - n * t), 0, Math.PI, 4000 + 2 * Math.ceil(x));
+  let end = 1;
+  while (x * Math.sinh(end) - n * end < 750) end += 1;
+  const sign = n % 2 ? -1 : 1;
+  const second = simpson((t) => Math.exp(n * t - x * Math.sinh(t)) + sign * Math.exp(-n * t - x * Math.sinh(t)), 0, end, 8000);
+  return (first - second) / Math.PI;
+}
+/** A Bessel function's x and whole order n (n ≥ 0; x > 0 when it must be). */
+const besselArgs = (x, n, positiveX) => {
+  const v = toNum(x), k = Math.trunc(toNum(n));
+  if (k < 0 || (positiveX && v <= 0)) err('#NUM!');
+  return [v, k];
+};
 const positiveNum = (v) => { const x = toNum(v); if (x <= 0) err('#NUM!'); return x; };
 /** Treasury bills: days to maturity (a year at most). */
 const tbillDays = (settlement, maturity) => { const { days } = securityTerm(settlement, maturity, 0); if (days > 366) err('#NUM!'); return days; };
@@ -1124,6 +1166,10 @@ const FUNCS = {
   FACTDOUBLE: ([v]) => { const n = Math.trunc(toNum(v)); if (n < -1) err('#NUM!'); let f = 1; for (let i = n; i > 1; i -= 2) f *= i; return f; },
   MULTINOMIAL: (a) => { const n = nums(a).map(Math.trunc); if (n.some((x) => x < 0)) err('#NUM!'); return Math.round(factorial(n.reduce((s, x) => s + x, 0)) / n.reduce((p, x) => p * factorial(x), 1)); },
   SERIESSUM: ([x, n, m, coef]) => { const v = toNum(x), a = toNum(n), b = toNum(m); return nums([coef]).reduce((s, c, i) => s + c * v ** (a + i * b), 0); },
+  BESSELJ: ([x, n]) => besselJ(...besselArgs(x, n, false)),
+  BESSELI: ([x, n]) => besselI(...besselArgs(x, n, false)),
+  BESSELK: ([x, n]) => besselK(...besselArgs(x, n, true)),
+  BESSELY: ([x, n]) => besselY(...besselArgs(x, n, true)),
   // complex numbers (text such as "3+4i")
   COMPLEX: ([re, im, suffix]) => {
     const s = given(suffix) && suffix !== '' ? toStr(suffix) : 'i';
@@ -1571,6 +1617,12 @@ Object.assign(FUNCS, {
     return bondDuration(c, r, y) / (1 + y / c.f);
   },
   // securities paying their interest at maturity
+  ACCRINTM: ([issue, settlement, rate, par, basis]) => {
+    const i = Math.floor(dateMs(issue) / DAY_MS) * DAY_MS, s = Math.floor(dateMs(settlement) / DAY_MS) * DAY_MS;
+    const r = positiveNum(rate), p = given(par) && par !== '' ? positiveNum(par) : 1000, b = given(basis) && basis !== '' ? Math.trunc(toNum(basis)) : 0;
+    if (i >= s || b < 0 || b > 4) err('#NUM!');
+    return p * r * yearFrac(i, s, b);
+  },
   PRICEMAT: ([s, m, issue, rate, yld, basis]) => {
     const r = toNum(rate), y = toNum(yld), t = maturityTerms(s, m, issue, basis);
     if (r < 0 || y < 0) err('#NUM!');

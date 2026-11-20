@@ -419,3 +419,21 @@ test('bonds: COUPPCD, COUPNCD, COUPNUM, COUPDAYS, COUPDAYBS, COUPDAYSNC, PRICE, 
   near(one('=PRICEMAT(DATE(2008,2,15), DATE(2008,4,13), DATE(2007,11,11), 0.061, 0.061, 0)'), 99.98449888);
   near(one('=YIELDMAT(DATE(2008,3,15), DATE(2008,11,3), DATE(2007,11,8), 0.0625, 100.0123, 0)'), 0.060954334);
 });
+test('Bessel functions and ACCRINTM: Excel\'s examples and known values', () => {
+  near(one('=BESSELJ(1.9, 2)'), 0.329925728, 1e-8);
+  near(one('=BESSELY(2.5, 1)'), 0.145918138, 1e-8);
+  near(one('=BESSELI(1.5, 1)'), 0.981666428, 1e-8);
+  near(one('=BESSELK(1.5, 1)'), 0.277387804, 1e-8);
+  near(one('=BESSELJ(0, 0)'), 1, 1e-12);
+  near(one('=BESSELY(0.1, 0)'), -1.534238651, 1e-8);
+  near(one('=BESSELY(10, 5)'), 0.135403048, 1e-8);
+  near(one('=BESSELK(20, 0)'), 5.741237815e-10, 1e-8);
+  near(one('=BESSELJ(-2, 3)'), -0.128943249, 1e-8); // odd orders: J₃(−x) = −J₃(x)
+  near(one('=BESSELI(-2, 3)'), -0.212739959, 1e-8);
+  near(one('=BESSELJ(1, 2.9)'), one('=BESSELJ(1, 2)'), 1e-12); // the order is cut to a whole number
+  assert.deepEqual(one('=BESSELY(0, 1)'), { error: '#NUM!' });
+  assert.deepEqual(one('=BESSELK(-1, 1)'), { error: '#NUM!' });
+  assert.deepEqual(one('=BESSELJ(1, -1)'), { error: '#NUM!' });
+  near(one('=ACCRINTM(DATE(2008,4,1), DATE(2008,6,15), 0.1, 1000, 3)'), 20.54794521);
+  assert.deepEqual(one('=ACCRINTM(DATE(2008,6,15), DATE(2008,4,1), 0.1, 1000, 3)'), { error: '#NUM!' });
+});
