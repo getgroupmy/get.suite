@@ -626,3 +626,13 @@ test("a ' in front keeps what follows as text, without the ' (as in Excel): '1-2
   const v = ev({ A1: "'1-2", A2: "'007", A3: "'=1+1", Z1: '=LEN(A2)&"|"&ISTEXT(A2)&"|"&COUNT(A2)' });
   assert.deepEqual([v('A1'), v('A2'), v('A3'), v('Z1')], ['1-2', '007', '=1+1', '3|TRUE|0']);
 });
+test('numbers are compared to 15 significant digits, as in Excel: =0.1+0.2=0.3 is TRUE', () => {
+  const c = { A1: '=0.1+0.2', A2: '0.3' };
+  assert.equal(one('=0.1+0.2=0.3'), true);
+  assert.equal(one('=0.1+0.2<>0.3'), false);
+  assert.equal(one('=0.1+0.2>0.3'), false);
+  assert.equal(one('=A1=A2', c), true);
+  assert.equal(one('=COUNTIF(A1:A2, 0.3)', c), 2);
+  assert.equal(one('=IF(0.1*3=0.3, "y", "n")'), 'y');
+  assert.equal(one('=1=1.0000000001'), false, 'a real difference still counts');
+});

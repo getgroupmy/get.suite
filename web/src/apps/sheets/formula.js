@@ -209,7 +209,7 @@ function criteria(c) {
   const rhs = m[2] !== '' && !Number.isNaN(Number(m[2])) ? Number(m[2]) : m[2].toLowerCase();
   if ((op === '=' || op === '<>') && hasWildcard(m[2])) { const re = wildcard(m[2]); return (v) => re.test(toStr(v)) === (op === '='); }
   return (v) => {
-    const lhs = typeof rhs === 'number' ? (typeof v === 'number' ? v : Number.NaN) : toStr(v).toLowerCase();
+    const lhs = typeof rhs === 'number' ? (typeof v === 'number' ? Number(v.toPrecision(15)) : Number.NaN) : toStr(v).toLowerCase(); // (to 15 digits, as Excel compares)
     switch (op) {
       case '=': return lhs === rhs;
       case '<>': return lhs !== rhs;
@@ -2828,10 +2828,12 @@ function mayArray(n) {
   }
 }
 
+const to15 = (n) => (Number.isFinite(n) ? Number(n.toPrecision(15)) : n);
 function compare(op, l, r) {
   const bothNum = (typeof l === 'number' || l === null) && (typeof r === 'number' || r === null);
-  const a = bothNum ? toNum(l) : toStr(l).toLowerCase();
-  const b = bothNum ? toNum(r) : toStr(r).toLowerCase();
+  // Numbers compared to 15 significant digits, as Excel does (=0.1+0.2=0.3 is TRUE)
+  const a = bothNum ? to15(toNum(l)) : toStr(l).toLowerCase();
+  const b = bothNum ? to15(toNum(r)) : toStr(r).toLowerCase();
   switch (op) {
     case '=': return a === b;
     case '<>': return a !== b;

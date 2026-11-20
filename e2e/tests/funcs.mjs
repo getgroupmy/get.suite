@@ -143,6 +143,10 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // a value typed into SUM counts; text in cells doesn't
   await typeIn('P5', '=SUM(B2:B4, "5")&"|"&SUM(A2:B4)&"|"&COUNT("1", TRUE, A2)');
   await expectCells({ P5: '205|200|2' });
+  await typeIn('P6', '=IF(0.1+0.2=0.3, "equal", "not")&"|"&COUNTIF(P7:P8, 0.3)');
+  await typeIn('P7', '=0.1+0.2');
+  await typeIn('P8', '0.3');
+  await expectCells({ P6: 'equal|2' }); // compared to 15 digits, as Excel does
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');
