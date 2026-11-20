@@ -17,7 +17,7 @@ import { readSlackExport, slackEmoji } from '../slackimport.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
-import { q, tx, FILES_DIR } from '../db.js';
+import { q, tx, FILES_DIR, fold } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
@@ -1127,10 +1127,10 @@ export default function chatRoutes() {
     const me = req.user.id;
     const esc = (w) => w.replace(/[%_!]/g, (x) => `!${x}`);
     // The message, and an email shared in it (its subject, sender and text).
-    const text = "LOWER(m.body || COALESCE(' ' || json_extract(m.email, '$.subject') || ' ' || COALESCE(json_extract(m.email, '$.from.name'), '') || ' ' || COALESCE(json_extract(m.email, '$.from.address'), '') || ' ' || COALESCE(json_extract(m.email, '$.text'), ''), ''))";
+    const text = "fold(m.body || COALESCE(' ' || json_extract(m.email, '$.subject') || ' ' || COALESCE(json_extract(m.email, '$.from.name'), '') || ' ' || COALESCE(json_extract(m.email, '$.from.address'), '') || ' ' || COALESCE(json_extract(m.email, '$.text'), ''), ''))";
     const where = ['m.deleted_at IS NULL'], args = [];
-    for (const w of [...p.words, ...p.phrases]) { where.push(`${text} LIKE ? ESCAPE '!'`); args.push(`%${esc(w)}%`); }
-    for (const w of p.without) { where.push(`${text} NOT LIKE ? ESCAPE '!'`); args.push(`%${esc(w)}%`); }
+    for (const w of [...p.words, ...p.phrases]) { where.push(`${text} LIKE ? ESCAPE '!'`); args.push(`%${esc(fold(w))}%`); } // (accents don't matter)
+    for (const w of p.without) { where.push(`${text} NOT LIKE ? ESCAPE '!'`); args.push(`%${esc(fold(w))}%`); }
     // A person, by "me", their username or the start of any word of their name.
     const person = (col, v) => {
       if (v === 'me') { args.push(me); return `${col} = ?`; }

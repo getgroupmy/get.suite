@@ -102,7 +102,7 @@ await step('a word suggested in a document is found; the snippet reads the text 
   const text = await opt().innerText();
   if (/PortoValencia/.test(text)) throw new Error(`snippet runs the words together: ${text}`);
 });
-await step('accents don\'t matter: "cafe" finds a task and a note with café, "zoe" a contact Zoë', async () => {
+await step('accents don\'t matter: "cafe" finds a task and a note with café, "zoe" a contact Zoë, "montreal" an event, a message and a file', async () => {
   const list = (await api(page, 'GET', '/tasks/lists')).body.find?.((l) => l.name === 'Work')?.id || (await api(page, 'POST', '/tasks/lists', { name: 'Accents' })).body.id;
   await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Reserve the Café Olé terrace' });
   await api(page, 'POST', '/notes', { title: 'Café Olé menu', body: 'Croissants' });
@@ -113,6 +113,16 @@ await step('accents don\'t matter: "cafe" finds a task and a note with café, "z
   await results().getByRole('group', { name: 'Notes' }).getByText('Café Olé menu').waitFor();
   await box().fill('zoe bronte');
   await results().getByRole('group', { name: 'Contacts' }).getByText('Zoë Brontë').waitFor();
+  // events, chat messages and file names too
+  const t = Date.now() + 864e5;
+  await api(page, 'POST', '/events', { title: 'Réunion à Montréal', start: t, end: t + 36e5 });
+  const ch = (await api(page, 'GET', '/chat/channels')).body.channels[0];
+  await api(page, 'POST', `/chat/channels/${ch.id}/messages`, { body: 'Montréal crêperie at noon?', files: [] });
+  await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Montréal notes' });
+  await box().fill('montreal');
+  await results().getByRole('group', { name: 'Events' }).getByText('Réunion à Montréal').waitFor();
+  await results().getByRole('group', { name: 'Chat' }).getByText(/crêperie/).waitFor();
+  await results().getByRole('group', { name: 'Files' }).getByText('Montréal notes').waitFor();
   await page.keyboard.press('Escape');
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }

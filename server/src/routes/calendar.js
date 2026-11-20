@@ -5,7 +5,7 @@ import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import { expand, wallClock, fromWallClock } from '../calmath.js';
-import { q, tx } from '../db.js';
+import { q, tx, fold } from '../db.js';
 import { uid, str, int, bad, notFound, HttpError, forbidden } from '../util.js';
 import { canReach } from '../tenancy.js';
 import { sendTo } from '../hub.js';
@@ -763,9 +763,9 @@ export default function calendarRoutes() {
   // Search your events (and invitations) by words in the title, place or notes. Each result is
   // dated by its next time (repeating events) or its own; coming ones first, then past ones, newest first.
   r.get('/search', (req, res) => {
-    const words = String(req.query.q || '').toLowerCase().match(/[\p{L}\p{N}@._'-]+/gu)?.slice(0, 8) || [];
+    const words = fold(String(req.query.q || '')).match(/[\p{L}\p{N}@._'-]+/gu)?.slice(0, 8) || []; // (accents don't matter)
     if (!words.length) return res.json([]);
-    const like = words.map(() => "LOWER(COALESCE(e.title, '') || ' ' || COALESCE(e.location, '') || ' ' || COALESCE(e.description, '')) LIKE ? ESCAPE '!'");
+    const like = words.map(() => "fold(COALESCE(e.title, '') || ' ' || COALESCE(e.location, '') || ' ' || COALESCE(e.description, '')) LIKE ? ESCAPE '!'");
     const rows = q(`SELECT e.*, g.status AS my_status FROM events e LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
                     WHERE (e.owner_id = ? OR g.user_id IS NOT NULL) AND ${like.join(' AND ')} ORDER BY e.start DESC LIMIT 500`)
       .all(req.user.id, req.user.id, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`));

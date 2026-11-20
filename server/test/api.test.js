@@ -16674,3 +16674,15 @@ test('searches where accents don\'t matter: tasks, notes, and address suggestion
   assert.ok((await owner('GET', '/api/contacts/suggest?q=angstrom')).body.some((p) => p.email === 'zoe.a@example.com'));
   assert.ok((await owner('GET', '/api/contacts/suggest?q=zoe%20')).body.some((p) => p.email === 'zoe.a@example.com'));
 });
+
+test('more searches where accents don\'t matter: events, chat messages, and files by name', async () => {
+  const t = Date.now() + 864e5;
+  await owner('POST', '/api/events', { title: 'Réunion à Montréal', start: t, end: t + 36e5 });
+  assert.ok((await owner('GET', '/api/events/search?q=reunion%20montreal')).body.some((e) => e.title === 'Réunion à Montréal'));
+  const ch = (await owner('GET', '/api/chat/channels')).body.channels[0];
+  await owner('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Déjà vu at the crêperie', files: [] });
+  assert.ok((await owner('GET', '/api/chat/search?q=deja%20creperie')).body.some((m) => m.body === 'Déjà vu at the crêperie'));
+  assert.equal((await owner('GET', '/api/chat/search?q=deja%20-creperie')).body.some((m) => m.body === 'Déjà vu at the crêperie'), false, 'leaving words out too');
+  const f = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Café Noël menu' })).body;
+  assert.ok((await owner('GET', '/api/files?view=search&q=cafe%20noel')).body.some((x) => x.id === f.id), 'by its name');
+});

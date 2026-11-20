@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
-import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
+import { q, tx, FILES_DIR, TMP_DIR, fold } from '../db.js';
 import { contentMatches, indexSoon, docText, textOf } from '../search.js';
 import { countText, readingMinutes } from '../wordcount.js';
 import { readSetup, withHeadingNumbers } from '../pagesetup.js';
@@ -663,7 +663,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       rows.sort((a, b) => (b.trashed_at || 0) - (a.trashed_at || 0));
     } else if (view === 'search') {
       // By name, or by the words inside (documents, spreadsheets, presentations, text and Office files).
-      const term = `%${String(req.query.q || '').replace(/[%_\\]/g, (c) => '\\' + c)}%`;
+      const term = `%${fold(String(req.query.q || '')).replace(/[%_\\]/g, (c) => '\\' + c)}%`; // (accents don't matter)
       const inside = contentMatches(req.query.q);
       const ids = JSON.stringify([...inside.keys()]);
       // Filters: the kind of file, whose it is, and when it last changed.
@@ -684,14 +684,14 @@ export default function fileRoutes({ maxUploadBytes }) {
                   UNION SELECT f3.id FROM files f3 JOIN acc ON f3.parent_id = acc.id WHERE f3.trashed = 0)
                 SELECT ${COLS} ${FROM}
                 WHERE (f.owner_id = ? OR f.id IN (SELECT id FROM acc)) AND f.trashed = 0
-                  AND (f.name LIKE ? ESCAPE '\\' OR f.description LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
+                  AND (fold(f.name) LIKE ? ESCAPE '\\' OR fold(f.description) LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
                   ${extra.map((x) => `AND (${x})`).join(' ')}
                 ${ORDER} LIMIT 200`).all(me, org, me, term, term, ids, org, org, ...args)
         .map((f) => ({ ...f, role: f.owner_id === me ? 'owner' : roleFor(f.id, me) })).filter((f) => f.role); // a trashed folder above, or sharing switched off between companies
 
       // Name matches first, then the best content matches; each content match says where it matched.
       const rank = new Map([...inside.keys()].map((id, i) => [id, i]));
-      const byName = (f) => f.name.toLowerCase().includes(String(req.query.q || '').toLowerCase());
+      const byName = (f) => fold(f.name).includes(fold(String(req.query.q || '')));
       rows = rows.map((f) => (inside.has(f.id) && !byName(f) ? { ...f, match: inside.get(f.id) } : f))
         .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
       // A presentation or spreadsheet matched inside: where (the slide, or the sheet and cell), to open it there.
