@@ -151,6 +151,20 @@ await step('Copy to a new spreadsheet: Budget as a spreadsheet of its own', asyn
   await until(async () => same(await tabs(page), ['Budget']));
   await page.locator('[data-k="B1"]').getByText('900').waitFor();
 });
+await step('Copy to a new spreadsheet: Plan, whose formula reads Budget, keeps what it shows (1800), not an error', async () => {
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await until(async () => (await tabs(page)).includes('Plan'));
+  await menu('Plan', 'Copy to a new spreadsheet');
+  const t = page.locator('.toast', { hasText: 'Copied to a new spreadsheet, “Quarter – Plan”' });
+  await t.waitFor();
+  await t.getByRole('link', { name: 'Open it' }).click();
+  await page.waitForURL((u) => !u.pathname.endsWith(sheet.id));
+  await until(async () => same(await tabs(page), ['Plan']));
+  await page.locator('[data-k="A1"]').getByText('1800').waitFor();
+  // and in the original, still the formula
+  const orig = (await api(page, 'GET', `/files/${sheet.id}/content`)).body.content.sheets.find((x) => x.name === 'Plan');
+  if (orig.cells.A1 !== '=Budget!B1*2') throw new Error(JSON.stringify(orig.cells));
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

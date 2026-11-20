@@ -23,29 +23,42 @@ export function formulaResults(data, index) {
 }
 
 /**
+ * Sheet `index` of `data`'s cells, with each formula that reads one of `read` (sheets of `data`, by name: Plan!B2,
+ * 'Old plan'!A1, Plan!Total) given as the value it works out to (#REF! when there's none to give). Others stay
+ * formulas: a sheet's own names are its own, so a bare name never reads another sheet.
+ */
+export function cellsWithValuesFrom(data, index, read) {
+  const s = data?.sheets?.[index];
+  const cells = s?.cells || {};
+  if (!read.length) return cells;
+  const esc = (t) => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const bare = read.filter((x) => /^[A-Za-z_][A-Za-z0-9_.]*$/.test(x.name)).map((x) => esc(x.name));
+  const parts = [
+    `'(?:${read.map((x) => esc(x.name.replace(/'/g, "''"))).join('|')})'!`,
+    ...(bare.length ? [`(?<![A-Za-z0-9_.'])(?:${bare.join('|')})!`] : []),
+  ];
+  const reads = new RegExp(parts.join('|'), 'i');
+  let result = null;
+  return Object.fromEntries(Object.entries(cells).map(([k, v]) => {
+    if (typeof v !== 'string' || !v.startsWith('=') || !reads.test(v)) return [k, v];
+    result ??= formulaResults(data, index);
+    const r = result(k);
+    return [k, !r ? '#REF!' : 'number' in r ? String(r.number) : 'bool' in r ? (r.bool ? 'TRUE' : 'FALSE') : 'error' in r ? r.error : r.text.startsWith('=') ? ` ${r.text}` : r.text];
+  }));
+}
+
+/**
  * A spreadsheet as published: its shown sheets only (a hidden one's cells aren't given out), with each formula that
- * reads a hidden sheet (by its name, or a named range on it) given as the value it works out to, so the page shows
+ * reads a hidden sheet (Hidden!A1, Hidden!Total) given as the value it works out to, so the page shows
  * what the spreadsheet does.
  */
 export function publishedBook(data) {
   const all = data?.sheets || [];
   const hidden = all.filter((s) => s.hidden);
-  const esc = (t) => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const names = hidden.flatMap((s) => Object.keys(s.names || {}));
-  const reads = hidden.length ? new RegExp(`(?:'?(?:${hidden.map((s) => esc(s.name).replace(/'/g, "''")).join('|')})'?!)${names.length ? `|(?<![A-Za-z0-9_.!])(?:${names.map(esc).join('|')})(?![A-Za-z0-9_.(])` : ''}`, 'i') : null;
   const sheets = [];
   all.forEach((s, i) => {
     if (s.hidden && all.some((o) => !o.hidden)) return;
-    let cells = s.cells || {};
-    if (reads) {
-      const result = formulaResults(data, i);
-      cells = Object.fromEntries(Object.entries(cells).map(([k, v]) => {
-        if (typeof v !== 'string' || !v.startsWith('=') || !reads.test(v)) return [k, v];
-        const r = result(k);
-        return [k, !r ? '#REF!' : 'number' in r ? String(r.number) : 'bool' in r ? (r.bool ? 'TRUE' : 'FALSE') : 'error' in r ? r.error : r.text.startsWith('=') ? ` ${r.text}` : r.text];
-      }));
-    }
-    sheets.push({ ...s, cells });
+    sheets.push({ ...s, cells: cellsWithValuesFrom(data, i, hidden) });
   });
   return sheets;
 }

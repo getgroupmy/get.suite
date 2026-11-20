@@ -16089,6 +16089,18 @@ test('Sheets: copy a sheet to another spreadsheet you can edit (by its name, or 
   assert.equal((await owner('POST', `/api/files/${src.id}/sheets/1/copy-to`, { target: dst.id })).status, 423);
   sheets = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.sheets;
   assert.deepEqual(sheets.map((s) => s.name), ['Summary', 'Budget', 'Copy of Budget']);
+  // Formulas reading the original's other sheets come as their values there; into the same spreadsheet they stay formulas
+  const linked = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Linked', content: { sheets: [
+    { name: 'Totals', cells: { A1: '=Rates!A1*10', A2: '=A1+1' } }, { name: 'Rates', cells: { A1: '3' } },
+  ] } })).body;
+  const into = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Into', content: { sheets: [{ name: 'S', cells: {} }] } })).body;
+  assert.equal((await owner('POST', `/api/files/${linked.id}/sheets/0/copy-to`, { target: into.id })).status, 201);
+  const there = (await owner('GET', `/api/files/${into.id}/content`)).body.content.sheets.find((x) => x.name === 'Totals');
+  assert.deepEqual(there.cells, { A1: '30', A2: '=A1+1' });
+  const fresh = (await owner('POST', `/api/files/${linked.id}/sheets/0/copy-to`, { new: true })).body;
+  assert.equal((await owner('GET', `/api/files/${fresh.id}/content`)).body.content.sheets[0].cells.A1, '30', 'in a new spreadsheet too');
+  await owner('POST', `/api/files/${linked.id}/sheets/0/copy-to`, { target: linked.id });
+  assert.equal((await owner('GET', `/api/files/${linked.id}/content`)).body.content.sheets[2].cells.A1, '=Rates!A1*10');
 });
 
 test('Slides: copy a slide to another presentation you can edit, its pictures and video copied for it, not a link to another slide', async () => {

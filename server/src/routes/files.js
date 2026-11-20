@@ -50,7 +50,7 @@ import { rtfFromDoc, docFromRtf } from '../office/rtf.js';
 import { pdfFromDoc } from '../office/pdfdoc.js';
 import { pdfFromDeck, notesPdfFromDeck } from '../office/slidepdf.js';
 import { pdfFromSheet } from '../office/sheetpdf.js';
-import { delimitedFromSheet, sheetReadingText, formulaResults } from '../office/sheetvalues.js';
+import { delimitedFromSheet, sheetReadingText, formulaResults, cellsWithValuesFrom } from '../office/sheetvalues.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -2089,10 +2089,15 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.kind !== 'sheet') throw bad('Only a spreadsheet has sheets');
     saveNow(f.id); // what's being typed right now goes in too
-    const sheet = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}')?.sheets?.[Number(req.params.index)];
+    const srcData = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const index = Number(req.params.index);
+    const sheet = srcData?.sheets?.[index];
     if (!sheet || !/^\d+$/.test(req.params.index)) throw notFound('No such sheet');
+    // In another spreadsheet, formulas that read the original's other sheets (or this one by a name it no longer has
+    // there) would find nothing: they come as the values they work out to.
+    const standalone = (copy) => ({ ...copy, cells: cellsWithValuesFrom(srcData, index, srcData.sheets.filter((x, j) => j !== index || copy.name !== sheet.name)) });
     if (req.body?.new) { // a spreadsheet of its own with this sheet (shown), named after it
-      const copy = sheetCopyFor(sheet, []);
+      const copy = standalone(sheetCopyFor(sheet, []));
       const n = newFileBeside(req, f, 'sheet', `${f.name} – ${copy.name}`, () => ({ sheets: [copy] }));
       audit(req, 'sheet.copy_to', { target: n.name, details: { from: f.name, sheet: copy.name, new: true } });
       return res.status(201).json({ id: n.id, name: n.name, sheet: copy.name, created: true });
@@ -2104,7 +2109,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     changeSheet(t.id, (json) => {
       const sheets = json?.sheets?.length ? json.sheets : [];
       if (sheets.length >= 200) return null;
-      const copy = sheetCopyFor(sheet, sheets.map((x) => x.name));
+      let copy = sheetCopyFor(sheet, sheets.map((x) => x.name));
+      if (t.id !== f.id) copy = standalone(copy);
       name = copy.name;
       return { ...(json || {}), sheets: [...sheets, copy] };
     }, req.user.id);
