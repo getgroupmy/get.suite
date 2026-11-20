@@ -157,6 +157,14 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('Q4', '=SUM(Q1:Q2)&"|"&Q3*8');
   await expectCells({ Q1: '1,234', Q2: '$5.50', Q3: '12.5%', Q4: '1239.5|1' });
   if (await cell('Q3').evaluate((td) => getComputedStyle(td).textAlign) !== 'right') throw new Error('a number lines up on the right');
+  // dates and times typed as people write them are dates, shown as typed
+  await typeIn('R1', '20/11/2026');
+  await typeIn('R2', '25 Dec 2026');
+  await typeIn('R3', '2:30 PM');
+  await typeIn('R4', '=R2-R1&"|"&TEXT(R1, "dddd")&"|"&HOUR(R3)');
+  await expectCells({ R1: '20/11/2026', R2: '25 Dec 2026', R3: '2:30 PM', R4: '35|Friday|14' });
+  await typeIn('R5', "'1-2");
+  await expectCells({ R5: '1-2' }); // a ' in front: kept as text, the ' not shown
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

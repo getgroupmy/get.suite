@@ -70,7 +70,7 @@ import { importBook, importWeb, onImports, refreshImports, refreshWeb } from './
 import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
-import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber } from './cellformat.js';
+import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber, typedDate } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -876,7 +876,7 @@ export default function SheetEditor() {
     if (check.error) { toast(check.error, 'error'); if (!keep) cancelEdit(); return; }
     if (check.warning) toast(`${check.warning}. It's kept, marked in red.`);
     // A number typed with %, thousands or a currency sign is kept as the number, in that format (unless the cell has one)
-    const typed = typeof check.value === 'string' && !check.value.startsWith('=') ? typedNumber(check.value) : null;
+    const typed = typeof check.value === 'string' && !check.value.startsWith('=') ? typedNumber(check.value) ?? typedDate(check.value) : null;
     if (typed) writeTyped(key, String(typed.value), formats[key]?.num ? null : typed.fmt);
     else writeCells({ [key]: check.value });
     closing.current = true;

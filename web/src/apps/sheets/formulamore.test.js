@@ -622,3 +622,7 @@ test('a value typed into SUM, AVERAGE, COUNT… itself counts as in Excel; text 
   is('=SUM({1,"2",TRUE})', 1); // an array constant is like a range
   is('=MAX("2026-12-25", "2026-01-01")', '2026-12-25'); // dates stay dates
 });
+test("a ' in front keeps what follows as text, without the ' (as in Excel): '1-2, '007, '=1+1", () => {
+  const v = ev({ A1: "'1-2", A2: "'007", A3: "'=1+1", Z1: '=LEN(A2)&"|"&ISTEXT(A2)&"|"&COUNT(A2)' });
+  assert.deepEqual([v('A1'), v('A2'), v('A3'), v('Z1')], ['1-2', '007', '=1+1', '3|TRUE|0']);
+});

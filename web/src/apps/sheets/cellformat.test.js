@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatNumber, mergeFormat, cellStyle, decimals, typedNumber } from './cellformat.js';
+import { formatNumber, mergeFormat, cellStyle, decimals, typedNumber, typedDate } from './cellformat.js';
 
 const sp = (s) => s.replace(/[  ]/g, ' ');
 test('number formats show the value without changing it', () => {
@@ -95,4 +95,20 @@ test('typedNumber: numbers written with %, thousands or a currency become the nu
   assert.deepEqual(typedNumber('£-3.5'), { value: -3.5, fmt: { num: 'currency', cur: 'GBP', dp: 1 } });
   assert.deepEqual(typedNumber('RM 12'), { value: 12, fmt: { num: 'currency', cur: 'MYR', dp: 0 } });
   for (const t of ['1234', '12.5', 'abc', '1,23', '12,3456', '$5%', '5 apples', '', '2026-11-20', '1.234,5']) assert.equal(typedNumber(t), null, t);
+});
+
+test('typedDate: dates and times typed as people write them become dates, shown as typed', () => {
+  assert.deepEqual(typedDate('20/11/2026'), { value: '2026-11-20', fmt: { num: 'date', ds: 'short' } });
+  assert.deepEqual(typedDate('11/20/2026'), { value: '2026-11-20', fmt: { num: 'date', ds: 'short' } }, 'month first when only that makes sense');
+  assert.deepEqual(typedDate('3/4/2026'), { value: '2026-04-03', fmt: { num: 'date', ds: 'short' } }, 'day first otherwise');
+  assert.deepEqual(typedDate('20 Nov 2026'), { value: '2026-11-20', fmt: { num: 'date', ds: 'medium' } });
+  assert.deepEqual(typedDate('Nov 20, 2026'), { value: '2026-11-20', fmt: { num: 'date', ds: 'medium' } });
+  assert.deepEqual(typedDate('20.11.2026'), { value: '2026-11-20', fmt: { num: 'date', ds: 'short' } });
+  assert.deepEqual(typedDate('20/11/2026 14:30'), { value: '2026-11-20 14:30', fmt: { num: 'custom', code: 'dd/mm/yyyy hh:mm' } });
+  assert.deepEqual(typedDate('20/11/2026 2:30 pm'), { value: '2026-11-20 14:30', fmt: { num: 'custom', code: 'dd/mm/yyyy h:mm AM/PM' } });
+  assert.deepEqual(typedDate('14:30'), { value: 14.5 / 24, fmt: { num: 'custom', code: 'hh:mm' } });
+  assert.deepEqual(typedDate('2:30 PM'), { value: 14.5 / 24, fmt: { num: 'custom', code: 'h:mm AM/PM' } });
+  for (const t of ['2026-11-20', '1.5', '12.25', 'hello', '31/04/2026', '5', '99:99', '']) assert.equal(typedDate(t), null, t);
+  assert.equal(formatNumber('2026-11-20 14:30', typedDate('20/11/2026 14:30').fmt), '20/11/2026 14:30');
+  assert.equal(formatNumber(14.5 / 24, typedDate('2:30 PM').fmt), '2:30 PM');
 });

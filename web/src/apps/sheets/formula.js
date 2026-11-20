@@ -2255,6 +2255,7 @@ const IMPORT_DEPTH = 3;
 /** Convert a raw cell entry into a literal value. */
 export function literal(raw) {
   if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw === 'string' && raw.startsWith("'")) return raw.slice(1); // typed with ' in front: text as it is ('1-2, '007), as in Excel
   const t = String(raw).trim();
   if (/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(t)) return Number(t);
   if (/^true$/i.test(t)) return true;

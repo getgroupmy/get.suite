@@ -2,6 +2,7 @@
 // keys a format may have. Formats live per sheet in `formats` ({ A1: { b, i, u, s (strikethrough), wrap, bd (borders: sides from "tblr"),
 // color, fill, align, va (vertical: top, middle or bottom), rot (text rotation: ROTATIONS), num, dp, cur, code (num 'custom': a format code, numfmt.js) } }).
 import { formatCode, cleanCode } from './numfmt.js';
+import { parseDateText, parseTimeText } from './statmath.js';
 
 export const NUMBER_FORMATS = [['', 'Automatic'], ['number', 'Number'], ['currency', 'Currency'], ['percent', 'Percent'], ['date', 'Date'], ['custom', 'Custom…']];
 /** How a date shows (fmt.ds), with an example. */
@@ -32,6 +33,31 @@ export function typedNumber(text) {
   if (neg1 || neg2) value = -value;
   const fmt = pct ? { num: 'percent', dp } : sign ? { num: 'currency', cur: CURRENCY_SIGNS[sign], dp } : { num: 'number', dp };
   return { value, fmt };
+}
+
+/**
+ * A date or time typed the way people write them, as Excel and Google Sheets take it: "20/11/2026" (day first, or
+ * month first when only that makes sense), "20 Nov 2026", "Nov 20, 2026", "20/11/2026 14:30", "14:30", "2:30 PM".
+ * The value as dates are kept ("2026-11-20", "2026-11-20 14:30", a time as a fraction of a day) and a format that
+ * shows it as typed, or null ("2026-11-20" is already a date; "1.5" stays a number).
+ */
+export function typedDate(text) {
+  const t = String(text ?? '').trim();
+  if (!t || /^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}(?::\d{2})?)?$/.test(t)) return null;
+  const two = (n) => String(n).padStart(2, '0');
+  const time = parseTimeText(t);
+  const datePart = t.replace(/(?:^|\s+|T)\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?\s*([ap]\.?m\.?)?\s*$/i, '').trim();
+  const hm = time === null ? '' : (() => { const mins = Math.round(time * 1440); return `${two(Math.floor(mins / 60) % 24)}:${two(mins % 60)}`; })();
+  const ampm = /[ap]\.?m\.?\s*$/i.test(t);
+  if (time !== null && datePart === '') return { value: time, fmt: { num: 'custom', code: ampm ? 'h:mm AM/PM' : 'hh:mm' } };
+  // a date: with / or - (a "." only with a year: "1.5" is a number), or a month's name
+  const words = /[A-Za-z]{3}/.test(datePart);
+  if (!words && !/^\d{1,4}[/-]\d{1,2}(?:[/-]\d{2,4})?$/.test(datePart) && !/^\d{1,2}\.\d{1,2}\.\d{2,4}$/.test(datePart)) return null;
+  const ms = parseDateText(datePart);
+  if (ms === null) return null;
+  const day = new Date(ms).toISOString().slice(0, 10);
+  if (time !== null) return { value: `${day} ${hm}`, fmt: { num: 'custom', code: words ? `d mmm yyyy ${ampm ? 'h:mm AM/PM' : 'hh:mm'}` : `dd/mm/yyyy ${ampm ? 'h:mm AM/PM' : 'hh:mm'}` } };
+  return { value: day, fmt: { num: 'date', ds: words ? 'medium' : 'short' } };
 }
 
 export function decimals(fmt) {
