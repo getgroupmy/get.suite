@@ -361,3 +361,24 @@ test('complex numbers: COMPLEX, IMREAL, IMSUM, IMPRODUCT, IMDIV, IMPOWER, IMSQRT
   assert.deepEqual(one('=IMREAL("abc")'), { error: '#NUM!' });
   assert.deepEqual(one('=IMREAL("3+4")'), { error: '#NUM!' });
 });
+test('older names (FDIST, FINV, WEIBULL, GAMMADIST…), BETA.INV and PROB give Excel\'s documented answers', () => {
+  near(one('=BETA.INV(0.685470581, 8, 10, 1, 3)'), 2, 1e-8);
+  near(one('=BETAINV(0.685470581, 8, 10, 1, 3)'), 2, 1e-8);
+  near(one('=BETADIST(2, 8, 10, 1, 3)'), 0.685470581, 1e-8);
+  assert.deepEqual(one('=BETA.INV(1, 8, 10)'), { error: '#NUM!' });
+  near(one('=FDIST(15.2068649, 6, 4)'), 0.01, 1e-7);
+  near(one('=FINV(0.01, 6, 4)'), 15.2068649, 1e-7);
+  near(one('=FTEST({6,7,9,15,21}, {20,28,31,38,40})'), 0.648317847, 1e-8);
+  near(one('=WEIBULL(105, 20, 100, TRUE)'), 0.929581, 1e-6);
+  near(one('=WEIBULL(105, 20, 100, FALSE)'), 0.035589, 1e-5);
+  near(one('=HYPGEOMDIST(1, 4, 8, 20)'), 0.363261, 1e-6);
+  near(one('=NEGBINOMDIST(10, 5, 0.25)'), 0.055049, 1e-5);
+  near(one('=GAMMADIST(10.00001131, 9, 2, FALSE)'), 0.032639, 1e-5);
+  near(one('=GAMMADIST(10.00001131, 9, 2, TRUE)'), 0.068094, 1e-5);
+  near(one('=GAMMAINV(0.068094, 9, 2)'), 10.0000112, 1e-6);
+  const c = { A1: '0', A2: '1', A3: '2', A4: '3', B1: '0.2', B2: '0.3', B3: '0.1', B4: '0.4' };
+  near(one('=PROB(A1:A4, B1:B4, 2)', c), 0.1);
+  near(one('=PROB(A1:A4, B1:B4, 1, 3)', c), 0.8);
+  assert.deepEqual(one('=PROB(A1:A4, B1:B3, 1)', c), { error: '#N/A' });
+  assert.deepEqual(one('=PROB(A1:A4, B1:B4, 1)', { ...c, B4: '0.5' }), { error: '#NUM!' }, "chances that don't add up to 1");
+});

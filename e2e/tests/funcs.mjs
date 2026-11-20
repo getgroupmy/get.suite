@@ -98,6 +98,10 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('A23', '=IMPRODUCT(COMPLEX(3, 4), "5-3i")');
   await typeIn('A24', '=IMABS("3+4i")');
   await expectCells({ A23: '27+11i', A24: '5' });
+  // older names, as in files from Excel 2007
+  await typeIn('A25', '=ROUND(FDIST(15.2068649, 6, 4), 4)');
+  await typeIn('A26', '=ROUND(BETA.INV(0.685470581, 8, 10, 1, 3), 4)');
+  await expectCells({ A25: '0.01', A26: '2' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

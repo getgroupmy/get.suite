@@ -1664,6 +1664,33 @@ Object.assign(FUNCS, {
     for (let i = 0; i <= k; i++) t += pmf(i);
     return Math.min(1, t);
   },
+  // Excel 2007's names for these, as older files have them
+  FDIST: (a) => FUNCS['F.DIST.RT'](a),
+  FINV: (a) => FUNCS['F.INV.RT'](a),
+  FTEST: (a) => FUNCS['F.TEST'](a),
+  GAMMADIST: (a) => FUNCS['GAMMA.DIST'](a),
+  GAMMAINV: (a) => FUNCS['GAMMA.INV'](a),
+  WEIBULL: (a) => FUNCS['WEIBULL.DIST'](a),
+  HYPGEOMDIST: ([k, n, K, N]) => FUNCS['HYPGEOM.DIST']([k, n, K, N, false]),
+  NEGBINOMDIST: ([f, s, p]) => FUNCS['NEGBINOM.DIST']([f, s, p, false]),
+  BETADIST: ([x, a, b, lo, hi]) => FUNCS['BETA.DIST']([x, a, b, true, lo, hi]),
+  'BETA.INV': ([p, alpha, beta, lo, hi]) => {
+    const q = toNum(p), a = toNum(alpha), b = toNum(beta), A = given(lo) ? toNum(lo) : 0, B = given(hi) ? toNum(hi) : 1;
+    if (q <= 0 || q >= 1 || a <= 0 || b <= 0 || B <= A) err('#NUM!');
+    let x0 = 0, x1 = 1;
+    for (let i = 0; i < 200 && x1 - x0 > 1e-15; i++) { const m = (x0 + x1) / 2; if (betaI(a, b, m) < q) x0 = m; else x1 = m; }
+    return A + ((x0 + x1) / 2) * (B - A);
+  },
+  BETAINV: (a) => FUNCS['BETA.INV'](a),
+  // PROB(values, probabilities, lower, [upper]): the chance a value falls from lower to upper (or is lower).
+  PROB: ([xs, ps, lower, upper]) => {
+    const x = flat([xs]), p = flat([ps]);
+    if (x.length !== p.length) err('#N/A');
+    const pairs = x.map((v, i) => [v, p[i]]).filter(([v, q]) => typeof v === 'number' && typeof q === 'number');
+    if (pairs.some(([, q]) => q < 0 || q > 1) || Math.abs(pairs.reduce((s, [, q]) => s + q, 0) - 1) > 1e-9) err('#NUM!');
+    const lo = toNum(lower), hi = given(upper) ? toNum(upper) : lo;
+    return pairs.reduce((s, [v, q]) => s + (v >= lo && v <= hi ? q : 0), 0);
+  },
   'BINOM.INV': ([n, p, alpha]) => {
     const k = Math.trunc(toNum(n)), q = toNum(p), a = toNum(alpha);
     if (k < 0 || q < 0 || q > 1 || a <= 0 || a >= 1) err('#NUM!');
