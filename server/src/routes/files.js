@@ -1333,6 +1333,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     checkQuota(req.user.org_id, row.size || 0, req.user.id);
     const name = req.body?.name ? cleanName(req.body.name) : row.name;
     const id = insertFile({ owner: req.user.id, parentId, name, kind: row.kind, size: row.size, content: row.content, activity: { action: 'copy', details: { from: `the template ${row.name}` } } });
+    const own = contentWithOwnMedia(row, row.content, req.user, { parent_id: parentId }); // the template's pictures, yours to show
+    if (own !== row.content) q('UPDATE files SET content = ? WHERE id = ?').run(own, id);
     notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
@@ -1367,6 +1369,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       let storage = null;
       if (r.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, r.storage), path.join(FILES_DIR, storage)); }
       const id = insertFile({ owner: user.id, parentId: parent, name, kind: r.kind, mime: r.mime, size: r.size, storage, content: r.content, activity: { action: 'copy', details: { from: r.name } } });
+      const own = contentWithOwnMedia(r, r.content, user, { parent_id: parent }); // its pictures, yours to show
+      if (own !== r.content) q('UPDATE files SET content = ? WHERE id = ?').run(own, id);
       // A folder's colour, and any item's description; a document's page setup (size, margins) too.
       if (r.color || r.description || r.page_setup) q('UPDATE files SET color = ?, description = ?, page_setup = ? WHERE id = ?').run(r.kind === 'folder' ? r.color : null, r.description, r.page_setup, id);
       for (const c of children) put(c, id, c.row.name);
@@ -1930,6 +1934,20 @@ export default function fileRoutes({ maxUploadBytes }) {
     }
     if (copied.size) notifyPlace(parentId, user);
     return copied;
+  };
+  /**
+   * A copy of a whole document, spreadsheet or presentation (Make a copy, a template) belongs to `user`: the pictures,
+   * videos and sounds in it that someone else owns wouldn't show there, so they're copied for `user` and `content`
+   * (stored JSON) given back pointing at the copies. Ids are long random strings, so replacing them is safe.
+   */
+  const contentWithOwnMedia = (src, content, user, target) => {
+    if (!content || !EDITABLE.includes(src.kind)) return content;
+    let parsed; try { parsed = JSON.parse(content); } catch { return content; }
+    const theirs = [...picturesIn(src.kind, parsed)].filter((id) => q('SELECT owner_id FROM files WHERE id = ?').get(id)?.owner_id !== user.id);
+    if (!theirs.length) return content;
+    let out = content;
+    for (const [from, to] of copiedMedia(src, theirs, user, target)) out = out.split(from).join(to);
+    return out;
   };
 
   /**

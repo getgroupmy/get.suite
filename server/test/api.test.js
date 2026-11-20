@@ -16333,3 +16333,36 @@ test('tasks: files on a task moved or copied to another list can be opened by th
   assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/duplicate`, { list_id: withDan })).status, 201);
   assert.equal((await d('GET', `/api/files/${doc.id}`)).status, 200, 'copied: Dan can open it');
 });
+
+test('Make a copy, or a file from a template: pictures someone else owns are copied for you, so they show in yours', async () => {
+  const bea = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'copybea', domain: 'acme.com', name: 'Copy Bea', password: 'password123' })).status, 201);
+  await login(bea, 'copybea@acme.com');
+  const beaId = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'copybea@acme.com').id;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=owner-pic.png', png, { raw: true })).body;
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Pictured memo', content: { type: 'doc', content: [{ type: 'image', attrs: { fileId: pic.id } }] } })).body;
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Pictured deck', content: { slides: [{ id: 's', bgImage: pic.id, items: [{ id: 'i', type: 'image', fileId: pic.id, x: 0, y: 0, w: 10, h: 10 }] }] } })).body;
+  for (const f of [doc, deck]) await owner('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: beaId, role: 'viewer' }] });
+  // Bea's copy of the memo
+  const c1 = (await bea('POST', `/api/files/${doc.id}/copy`, {})).body;
+  const id1 = (await bea('GET', `/api/files/${c1.id}/content`)).body.content.content[0].attrs.fileId;
+  assert.notEqual(id1, pic.id, 'a copy of the picture');
+  assert.equal((await bea('GET', `/api/files/${c1.id}/pictures/${id1}`)).status, 200);
+  // ... and of the deck: both places it's used point at one copy
+  const c2 = (await bea('POST', `/api/files/${deck.id}/copy`, {})).body;
+  const sl = (await bea('GET', `/api/files/${c2.id}/content`)).body.content.slides[0];
+  assert.notEqual(sl.bgImage, pic.id);
+  assert.equal(sl.items[0].fileId, sl.bgImage);
+  assert.equal((await bea('GET', `/api/files/${c2.id}/pictures/${sl.bgImage}`)).status, 200);
+  // Your own copy of your own: the same picture (nothing to copy)
+  const c3 = (await owner('POST', `/api/files/${doc.id}/copy`, {})).body;
+  assert.equal((await owner('GET', `/api/files/${c3.id}/content`)).body.content.content[0].attrs.fileId, pic.id);
+  // A company template with a picture
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/template`, { template: true })).status, 200);
+  const used = (await bea('POST', `/api/files/templates/${doc.id}/use`, {})).body;
+  const id4 = (await bea('GET', `/api/files/${used.id}/content`)).body.content.content[0].attrs.fileId;
+  assert.notEqual(id4, pic.id);
+  assert.equal((await bea('GET', `/api/files/${used.id}/pictures/${id4}`)).status, 200, 'from a template too');
+  await owner('PUT', `/api/files/${doc.id}/template`, { template: false });
+});

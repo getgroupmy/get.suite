@@ -72,6 +72,25 @@ await step('Kim, a viewer, can read it but isn\'t offered downloading, printing 
   if (await kim.getByRole('menuitem', { name: 'Download' }).count()) throw new Error('Download offered');
   if (await kim.getByRole('menuitem', { name: 'Make a copy' }).count()) throw new Error('copy offered');
 }, kim);
+await step('Kim makes a copy of a document with Olivia\'s picture in it: the picture shows in Kim\'s copy', async () => {
+  const pic = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 48; c.height = 24; const g = c.getContext('2d'); g.fillStyle = '#43a047'; g.fillRect(0, 0, 48, 24);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return (await fetch('/api/files/upload?name=green.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: blob })).json();
+  });
+  const memo = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Pictured memo', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'See the chart' }] }, { type: 'image', attrs: { fileId: pic.id, alt: 'Green chart' } }] } })).body;
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  await api(page, 'PUT', `/files/${memo.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await kim.goto(`${B}/drive/shared`);
+  const row = kim.locator('tr', { hasText: 'Pictured memo' });
+  await row.waitFor();
+  await row.getByRole('button').last().click();
+  await kim.getByRole('menuitem', { name: 'Make a copy' }).click();
+  const copy = await until(async () => (await api(kim, 'GET', '/files')).body.find((f) => /Pictured memo/.test(f.name)));
+  await kim.goto(`${B}/docs/${copy.id}`);
+  await kim.locator('.ProseMirror').getByText('See the chart').waitFor();
+  await until(() => kim.locator('.ProseMirror img[alt="Green chart"]').evaluate((i) => i.complete && i.naturalWidth === 48).catch(() => false), 10000);
+}, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
