@@ -1865,8 +1865,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     const deck = loadFile(req.params.id, req.user);
     if (!['slides', 'doc', 'sheet'].includes(deck.kind)) throw notFound();
     const pic = String(req.params.pic);
-    const { content } = q('SELECT content FROM files WHERE id = ?').get(deck.id);
-    const used = picturesIn(deck.kind, JSON.parse(content || '{}')).has(pic)
+    const inSaved = () => picturesIn(deck.kind, JSON.parse(q('SELECT content FROM files WHERE id = ?').get(deck.id).content || '{}')).has(pic);
+    // Open and changed live (a colleague's new picture, a copied slide): save it first, then look.
+    const used = inSaved() || (saveNow(deck.id), inSaved())
       // Just put in and not saved yet: the person who added it can see their own picture.
       || q("SELECT 1 FROM files WHERE id = ? AND owner_id = ?").get(pic, req.user.id);
     const f = used && q('SELECT * FROM files WHERE id = ? AND kind = ? AND trashed = 0').get(pic, 'file');
@@ -1891,22 +1892,57 @@ export default function fileRoutes({ maxUploadBytes }) {
     const content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}');
     const chosen = (content.slides || []).filter((sl) => want.includes(sl.id));
     if (!chosen.length) throw notFound('Those slides aren’t in that presentation any more');
-    const parentId = deck.parent_id && atLeast(roleFor(deck.parent_id, req.user.id) || '', 'editor') ? deck.parent_id : null;
-    const copied = new Map(); // old picture id -> new
-    const pics = [...picturesIn('slides', { slides: chosen })].map((pid) => q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pid)).filter(Boolean);
-    checkQuota(req.user.org_id, pics.reduce((n, f) => n + (f.size || 0), 0), req.user.id);
-    for (const f of pics) {
-      // Only pictures this presentation could show (owned by someone who can edit it), like the deck does.
-      if (!/^image\//.test(f.mime || '') || !atLeast(roleFor(src.id, f.owner_id) || '', 'editor')) continue;
+    const slides = copiedSlides(src, chosen, req.user, deck);
+    res.json({ slides, theme: content.theme || null });
+  });
+
+  /**
+   * Slides of `src` as slides for presentation `deck`: new ids, and their pictures, videos and sound copied for `user`
+   * (beside the deck when they can add files there), as `deck` will show only files someone who can edit it owns.
+   * Only those `src` could show itself are copied (owned by someone who can edit it); others are left out.
+   */
+  const copiedSlides = (src, chosen, user, deck) => {
+    const parentId = deck.parent_id && atLeast(roleFor(deck.parent_id, user.id) || '', 'editor') ? deck.parent_id : null;
+    const copied = new Map(); // old file id -> new
+    const media = [...picturesIn('slides', { slides: chosen })].map((pid) => q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pid)).filter(Boolean);
+    checkQuota(user.org_id, media.reduce((n, f) => n + (f.size || 0), 0), user.id);
+    for (const f of media) {
+      if (!/^(image|video|audio)\//.test(f.mime || '') || !atLeast(roleFor(src.id, f.owner_id) || '', 'editor')) continue;
       const storage = uid();
       fs.copyFileSync(path.join(FILES_DIR, f.storage), path.join(FILES_DIR, storage));
-      copied.set(f.id, insertFile({ owner: req.user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: `${f.name} in ${src.name}` } } }));
+      copied.set(f.id, insertFile({ owner: user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: `${f.name} in ${src.name}` } } }));
     }
     const fresh = () => crypto.randomBytes(6).toString('base64url');
+    const withFile = (it) => ['image', 'video', 'audio'].includes(it.type) && it.fileId;
     const slides = chosen.map(({ bgImage, ...sl }) => ({ ...JSON.parse(JSON.stringify(sl)), id: fresh(), ...(bgImage && copied.has(bgImage) && { bgImage: copied.get(bgImage) }),
-      items: (sl.items || []).flatMap((it) => (it.type === 'image' && it.fileId && !copied.has(it.fileId) ? [] : [{ ...it, id: fresh(), ...(it.type === 'image' && it.fileId ? { fileId: copied.get(it.fileId) } : {}) }])) }));
-    if (copied.size) notifyPlace(parentId, req.user);
-    res.json({ slides, theme: content.theme || null });
+      items: (sl.items || []).flatMap((it) => (withFile(it) && !copied.has(it.fileId) ? [] : [{ ...JSON.parse(JSON.stringify(it)), id: fresh(), ...(withFile(it) ? { fileId: copied.get(it.fileId) } : {}) }]))
+        .map((it) => (it.link?.slide ? (({ link, ...rest }) => rest)(it) : it)) })); // (a link to another slide of that presentation: not one here)
+    if (copied.size) notifyPlace(parentId, user);
+    return slides;
+  };
+
+  // Copy one slide to the end of another presentation (or the same one), for someone who can edit both; open there,
+  // it arrives live.
+  r.post('/:id/slides/:slide/copy-to', (req, res) => {
+    const src = loadFile(req.params.id, req.user, 'editor');
+    if (src.kind !== 'slides') throw bad('Only a presentation has slides');
+    saveNow(src.id);
+    const slide = (JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}').slides || []).find((sl) => sl.id === req.params.slide);
+    if (!slide) throw notFound('No such slide');
+    const t = loadFile(String(req.body?.target || ''), req.user, 'editor');
+    if (t.kind !== 'slides' || q('SELECT trashed FROM files WHERE id = ?').get(t.id)?.trashed) throw bad('Choose a presentation to copy it to');
+    notLocked(t);
+    const [copy] = copiedSlides(src, [slide], req.user, t);
+    let at = null;
+    changeDeck(t.id, (deck) => {
+      const slides = deck?.slides || [];
+      if (slides.length >= 500) return null;
+      at = slides.length + 1;
+      return { ...(deck || {}), slides: [...slides, copy] };
+    }, req.user.id);
+    if (!at) throw bad('That presentation has as many slides as it can hold');
+    audit(req, 'slide.copy_to', { target: t.name, details: { from: src.name, slide: at } });
+    res.status(201).json({ id: t.id, name: t.name, slide: at, slide_id: copy.id });
   });
 
   // Open a Word, Excel or PowerPoint file as a Docs, Sheets or Slides copy, next to it if you can

@@ -78,6 +78,32 @@ await step('import two slides (one with a picture) from a colleague\'s presentat
   const f = (await api(page, 'GET', `/files/${img.fileId}`)).body;
   if (f.name !== 'red.png' || img.fileId === (await api(kim, 'GET', `/files/${src.id}/content`)).body.content.slides[1].items[1].fileId) throw new Error(JSON.stringify(f));
 });
+await step('Copy to another presentation…: slide 2 (with its picture) into “Board”, which Kim has open, where it arrives at once', async () => {
+  const board = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Board' })).body;
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  await api(page, 'PUT', `/files/${board.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  await kim.goto(`${B}/slides/${board.id}`);
+  await kim.getByRole('button', { name: 'Slide 1', exact: true }).waitFor();
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  await page.getByRole('button', { name: 'Options for slide 2' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to another presentation…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Copy slide 2 to a presentation' });
+  await dlg.getByLabel('Search your files').fill('Board');
+  await dlg.getByRole('button', { name: /Board/ }).click();
+  await page.locator('.toast', { hasText: 'Copied to “Board” as slide 2' }).waitFor();
+  await kim.getByRole('button', { name: 'Slide 2', exact: true }).waitFor({ timeout: 10000 });
+  await kim.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  await kim.locator('.slide-stage').getByText('Kim numbers').waitFor();
+  await until(() => kim.evaluate(() => [...document.querySelectorAll('.slide-stage img')].some((i) => i.naturalWidth > 0)), 10000);
+  const b = (await api(page, 'GET', `/files/${board.id}/content`)).body.content;
+  const img = b.slides[1].items.find((x) => x.type === 'image');
+  if (!img || img.fileId === (await deckNow()).slides[1].items.find((x) => x.type === 'image').fileId) throw new Error('the picture should be a copy');
+  if ((await deckNow()).slides.length !== 3) throw new Error('the original changed');
+  await page.locator('.toast', { hasText: 'Copied to' }).getByRole('button', { name: 'Open it' }).click();
+  await page.waitForURL(new RegExp(`/slides/${board.id}`));
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

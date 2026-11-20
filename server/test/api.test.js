@@ -16090,3 +16090,37 @@ test('Sheets: copy a sheet to another spreadsheet you can edit (by its name, or 
   sheets = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.sheets;
   assert.deepEqual(sheets.map((s) => s.name), ['Summary', 'Budget', 'Copy of Budget']);
 });
+
+test('Slides: copy a slide to another presentation you can edit, its pictures and video copied for it, not a link to another slide', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=chart.png', png, { raw: true })).body;
+  const vid = (await owner('POST', '/api/files/upload?name=demo.mp4', Buffer.from('fake mp4'), { raw: true })).body;
+  const src = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Sales pitch', content: { theme: 'light', slides: [
+    { id: 's1', items: [{ id: 't', type: 'text', x: 5, y: 5, w: 50, h: 10, text: 'Results' }, { id: 'p', type: 'image', fileId: pic.id, x: 5, y: 20, w: 40, h: 40 }, { id: 'v', type: 'video', fileId: vid.id, name: 'demo.mp4', x: 50, y: 20, w: 40, h: 30 }, { id: 'l', type: 'shape', shape: 'rect', x: 5, y: 70, w: 10, h: 10, link: { slide: 's2' } }] },
+    { id: 's2', items: [] },
+  ] } })).body;
+  const dst = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Board deck', content: { theme: 'light', slides: [{ id: 'b1', items: [] }] } })).body;
+  const r = await owner('POST', `/api/files/${src.id}/slides/s1/copy-to`, { target: dst.id });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.id, r.body.name, r.body.slide], [dst.id, 'Board deck', 2]);
+  const slides = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.slides;
+  assert.equal(slides.length, 2);
+  const [t, p, v, l] = slides[1].items;
+  assert.equal(t.text, 'Results');
+  assert.notEqual(slides[1].id, 's1');
+  assert.ok(p.fileId && p.fileId !== pic.id, 'its own copy of the picture');
+  assert.ok(v.fileId && v.fileId !== vid.id, 'and of the video');
+  assert.equal(l.link, undefined, 'a link to a slide of the other presentation: left out');
+  assert.equal((await owner('GET', `/api/files/${dst.id}/pictures/${p.fileId}`, undefined, { binary: true })).status, 200, 'the board deck shows it');
+  // Not to a presentation you can only view, not from someone else's, not a slide that isn't there, not to a locked one
+  assert.equal((await owner('POST', '/api/users', { local: 'slidecb', domain: 'acme.com', name: 'Slide Cee', password: 'password123' })).status, 201);
+  const cee = client(); await login(cee, 'slidecb@acme.com');
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  await owner('PUT', `/api/files/${dst.id}/shares`, { shares: [{ user_id: dir.find((u) => u.username === 'slidecb@acme.com').id, role: 'viewer' }] });
+  const hers = (await cee('POST', '/api/files/new', { kind: 'slides', name: 'Hers', content: { theme: 'light', slides: [{ id: 'h1', items: [] }] } })).body;
+  assert.equal((await cee('POST', `/api/files/${hers.id}/slides/h1/copy-to`, { target: dst.id })).status, 403);
+  assert.equal((await cee('POST', `/api/files/${src.id}/slides/s1/copy-to`, { target: hers.id })).status, 404);
+  assert.equal((await owner('POST', `/api/files/${src.id}/slides/nope/copy-to`, { target: dst.id })).status, 404);
+  await owner('PUT', `/api/files/${dst.id}/lock`, { locked: true });
+  assert.equal((await owner('POST', `/api/files/${src.id}/slides/s2/copy-to`, { target: dst.id })).status, 423);
+});

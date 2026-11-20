@@ -575,6 +575,7 @@ export default function SlidesEditor() {
               {!readOnly && (
                 <Menu trigger={(p) => <button type="button" className="icon-btn thumb-menu" aria-label={`Options for slide ${i + 1}`} {...p}><Icon name="more" size={16} /></button>} items={[
                   { label: 'Duplicate', onClick: slideAction((d) => duplicateSlide(d, i)) },
+                  { label: 'Copy to another presentation…', onClick: () => setDialog({ type: 'copy-slide-to', slide: deck.slides[i].id, number: i + 1 }) },
                   i > 0 && { label: 'Move up', onClick: () => { change((d) => moveSlide(d, i, i - 1)); goTo(i - 1); } },
                   i < deck.slides.length - 1 && { label: 'Move down', onClick: () => { change((d) => moveSlide(d, i, i + 1)); goTo(i + 1); } },
                   '-',
@@ -633,6 +634,15 @@ export default function SlidesEditor() {
       {dialog === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => (
         <div className="deck-preview">{(content?.slides || []).map((sl, n) => <div key={sl.id || n} className="deck-preview-slide"><span className="muted small">{n + 1}</span><SlideView slide={sl} theme={themeOf(content)} deckId={file.id} /></div>)}</div>
       )} renderChanges={(content) => <SlideChanges before={content} after={deckRef.current} theme={theme} deckId={file.id} />} />}
+      {dialog?.type === 'copy-slide-to' && <DrivePicker title={`Copy slide ${dialog.number} to a presentation`} empty="No presentations you can edit." accept={(x) => x.kind === 'slides' && (x.role === 'owner' || x.role === 'editor')}
+        onClose={() => setDialog(null)} onPick={async (t) => {
+          const slide = dialog.slide;
+          setDialog(null);
+          try {
+            const r = await post(`/files/${id}/slides/${encodeURIComponent(slide)}/copy-to`, { target: t.id });
+            toast(`Copied to “${r.name}” as slide ${r.slide}`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/slides/${r.id}`; } } });
+          } catch (e) { toast(e.message || 'Couldn’t copy the slide', 'error'); }
+        }} />}
       {dialog?.type === 'import-file' && <DrivePicker title="Import slides from a presentation" accept={(x) => x.kind === 'slides' && x.id !== id} empty="No other presentations found."
         onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'import-pick', file: x })} />}
       {dialog?.type === 'import-pick' && <ImportSlides from={dialog.file} onClose={() => setDialog(null)} onImport={async (ids) => {
