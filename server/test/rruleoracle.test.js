@@ -209,3 +209,44 @@ test('a time the clocks skip comes an hour later, not an hour early', () => {
   const [, skipped, next] = occurrenceStarts({ start, end: start + 36e5, all_day: 0, tz: 'America/New_York', rrule: { freq: 'daily', count: 3 } }, Infinity);
   assert.deepEqual([local(skipped, 'America/New_York'), local(next, 'America/New_York')], ['2027-03-14T03:30', '2027-03-15T02:30']);
 });
+
+test('any RRULE at all (random mixes of BYDAY, BYMONTH, BYMONTHDAY, BYSETPOS, BYYEARDAY, BYWEEKNO, WKST): read as a repeat only when its dates are dateutil\'s', { skip: !hasDateutil && 'python-dateutil isn’t installed here' }, () => {
+  // What can't be shown comes in as a one-off on its first date; what's read as a repeat must not lose or add dates.
+  // (Monthly or yearly BYDAY mixing plain and numbered weekdays, MO,3SA, is left out: dateutil 2.9 returns no dates for
+  // it, where RFC 5545 has every Monday and the third Saturday, as we do.)
+  let seed = 3; const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const some = (a, max = 3) => [...new Set(Array.from({ length: 1 + Math.floor(rnd() * max) }, () => pick(a)))];
+  const cases = [];
+  for (let k = 0; k < 2500; k++) {
+    const d = new Date(Date.UTC(2026, Math.floor(rnd() * 12), 1 + Math.floor(rnd() * 28), 9));
+    const dt = `${d.toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`;
+    const parts = [`FREQ=${pick(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'])}`];
+    if (rnd() < 0.3) parts.push(`INTERVAL=${pick([2, 3])}`);
+    if (rnd() < 0.5) parts.push(`BYDAY=${some(D.map((x) => pick(['', '', '1', '2', '-1', '-2', '3', '5']) + x)).join(',')}`);
+    if (rnd() < 0.3) parts.push(`BYMONTH=${some([1, 2, 3, 6, 9, 11, 12]).join(',')}`);
+    if (rnd() < 0.3) parts.push(`BYMONTHDAY=${some([1, 15, -1, 31, 30, 10, -2]).join(',')}`);
+    if (rnd() < 0.15) parts.push(`BYSETPOS=${some([1, -1, 2]).join(',')}`);
+    if (rnd() < 0.05) parts.push(`BYYEARDAY=${pick([1, 100, -1])}`);
+    if (rnd() < 0.05) parts.push(`BYWEEKNO=${pick([1, 20, -1])}`);
+    if (rnd() < 0.1) parts.push(`WKST=${pick(D)}`);
+    parts.push(`COUNT=${2 + Math.floor(rnd() * 10)}`);
+    const rule = parts.join(';');
+    const bd = (/BYDAY=([^;]*)/.exec(rule) || [, ''])[1].split(',').filter(Boolean);
+    if (/MONTHLY|YEARLY/.test(rule) && bd.some((x) => /^[A-Z]/.test(x)) && bd.some((x) => /^[-\d]/.test(x))) continue;
+    const ics = vevent([`DTSTART:${dt}`, `DTEND:${dt}`, `RRULE:${rule}`]);
+    const ev = parseIcsEvent(ics, { tz: 'UTC' });
+    if (!ev?.rrule) continue;
+    cases.push({ ics, tz: 'UTC', to: '2060-01-01T00:00', ours: occurrenceStarts({ ...ev, tz: 'UTC' }, Date.UTC(2060, 0, 1)).map((t) => local(t, 'UTC')) });
+  }
+  assert.ok(cases.length > 400, `${cases.length} read as repeats`);
+  const theirs = dateutil(cases);
+  const bad = cases.filter((c, i) => JSON.stringify(c.ours) !== JSON.stringify(theirs[i]));
+  assert.equal(bad.length, 0, bad.slice(0, 3).map((c) => `${c.ics.match(/DTSTART:.*|RRULE:.*/g).join(' ')}: ours ${c.ours.slice(0, 3)}`).join('\n'));
+});
+
+test('a numbered weekday with BYSETPOS (BYDAY=3MO;BYSETPOS=2: the second of one, so none) isn\'t read as the third Monday', () => {
+  const ev = parseIcsEvent(vevent(['DTSTART:20260624T090000Z', 'DTEND:20260624T100000Z', 'RRULE:FREQ=MONTHLY;BYDAY=3MO;BYSETPOS=2;COUNT=5']), { tz: 'UTC' });
+  assert.equal(ev.rrule, null, 'a one-off, not the third Monday every month');
+  assert.deepEqual(parseIcsEvent(vevent(['DTSTART:20260615T090000Z', 'DTEND:20260615T100000Z', 'RRULE:FREQ=MONTHLY;BYDAY=MO;BYSETPOS=3']), { tz: 'UTC' }).rrule, { freq: 'monthly', nth: 3, wd: 1 }, 'MO;BYSETPOS=3 still is');
+});

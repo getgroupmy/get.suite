@@ -62,6 +62,17 @@ await step('November shows it on Monday the 23rd; it says "Monthly on the second
   const ev = (await api('GET', `/events?from=${t0}&to=${t0 + 90 * 864e5}`)).body.find((e) => e.title === 'Monthly review');
   if (JSON.stringify(ev?.rrule) !== JSON.stringify({ freq: 'monthly', nth: -2, wd: 1 })) throw new Error(`the repeat became ${JSON.stringify(ev?.rrule)}`);
 });
+await step('BYDAY=3MO;BYSETPOS=2 (the second of a set of one: no dates) comes in as a one-off, not as every third Monday', async () => {
+  await page.goto(`${B}/calendar`);
+  const tz = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:odd@x', `DTSTART;TZID=${tz}:20261124T100000`, `DTEND;TZID=${tz}:20261124T110000`, 'SUMMARY:Odd rule',
+    'RRULE:FREQ=MONTHLY;BYDAY=3MO;BYSETPOS=2;COUNT=5', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+  await page.getByLabel('Calendar file to import').first().setInputFiles({ name: 'odd.ics', mimeType: 'text/calendar', buffer: Buffer.from(ics) });
+  await page.getByText('1 event imported').waitFor();
+  const t0 = await page.evaluate(() => new Date(2026, 10, 1).getTime());
+  const ev = (await api('GET', `/events?from=${t0}&to=${t0 + 90 * 864e5}`)).body.find((e) => e.title === 'Odd rule');
+  if (!ev || ev.rrule !== null) throw new Error(`came in as ${JSON.stringify(ev?.rrule)}`);
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

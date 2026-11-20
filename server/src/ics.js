@@ -446,7 +446,7 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
     if (freq === 'monthly' && days.length && plainDays && !(+p.INTERVAL > 1) && !p.BYSETPOS && !p.BYMONTHDAY && !p.BYMONTH) freq = 'weekly';
     // Monthly on one weekday of the month: BYDAY=2MO, or BYDAY=MO;BYSETPOS=2 (Outlook), the 1st–5th or the last.
     const nthDay = freq === 'monthly' && days.length === 1 && !p.BYMONTHDAY && !p.BYMONTH
-      && (/^(\+?[1-5]|-[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-5]|-[1-5])$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
+      && ((!p.BYSETPOS && /^(\+?[1-5]|-[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0])) || (p.BYSETPOS && /^([1-5]|-[1-5])$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
     const nth = nthDay ? +nthDay[1] : 0;
     // Several of one weekday: BYDAY=1MO,3MO (the first and third Monday).
     const several = freq === 'monthly' && days.length > 1 && !p.BYSETPOS && !p.BYMONTHDAY && !p.BYMONTH && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
@@ -466,7 +466,7 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
       ? [...new Set(days.map((d) => DAY_NAMES.indexOf(d)))].sort((a, b) => a - b) : null;
     // Yearly on a weekday of one month: BYMONTH=11;BYDAY=4TH (the fourth Thursday of November), or BYDAY=TH;BYSETPOS=4.
     const yearDay = freq === 'yearly' && days.length === 1 && p.BYMONTH && /^(1[0-2]|[1-9])$/.test(p.BYMONTH) && !p.BYMONTHDAY && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
-      && (/^(\+?[1-5]|-[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-5]|-[1-5])$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
+      && ((!p.BYSETPOS && /^(\+?[1-5]|-[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0])) || (p.BYSETPOS && /^([1-5]|-[1-5])$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
     const startDay = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDate();
     const startMonth = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCMonth() + 1;
     // Monthly on days of the month (BYMONTHDAY=1,15; -1 the last day), without weekdays.
