@@ -70,7 +70,7 @@ import { importBook, importWeb, onImports, refreshImports, refreshWeb } from './
 import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
-import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber, typedDate } from './cellformat.js';
+import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber, typedDate, typedCells } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -1138,9 +1138,10 @@ export default function SheetEditor() {
       const text = await input.files[0].text();
       const u = {};
       parseCsv(text).forEach((row, r) => row.forEach((v, c) => { if (v !== '') u[cellKey(c, r)] = v; }));
+      const { cells: typedU, formats } = typedCells(u); // amounts and dates as numbers and dates, as when typed
       const cur = dataRef.current;
       const name = input.files[0].name.replace(/\.csv$/i, '').slice(0, 30) || 'Imported';
-      commitData({ ...cur, sheets: [...cur.sheets, { name, cells: u, colWidths: {} }] });
+      commitData({ ...cur, sheets: [...cur.sheets, { name, cells: typedU, colWidths: {}, ...(Object.keys(formats).length && { formats }) }] });
       setActive(cur.sheets.length);
     };
     input.click();

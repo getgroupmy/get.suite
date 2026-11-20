@@ -58,6 +58,21 @@ await step('Settings: Convert uploads; a .docx uploaded in Drive becomes a docum
   await page.locator('.ProseMirror h1', { hasText: 'Supplier contract' }).waitFor();
   await page.locator('.ProseMirror', { hasText: 'Payment within 30 days.' }).waitFor();
 });
+await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
+  await page.goto(`${B}/drive`);
+  const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'Orders.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Orders'));
+  await page.goto(`${B}/sheets/${f.id}`);
+  const cell = (k) => page.locator(`.grid td[data-k="${k}"]`);
+  await cell('B2').waitFor();
+  const shown = async () => Promise.all(['B2', 'C2', 'D2', 'B3', 'C3', 'D3'].map(async (k) => (await cell(k).innerText()).trim()));
+  await until(async () => JSON.stringify(await shown()) === JSON.stringify(['$1,250.00', '40%', '05/12/2026', '1,234', '12.5%', '20 Dec 2026']));
+  await cell('E2').click();
+  await page.keyboard.type('=B2+B3&"|"&(D3-D2)');
+  await page.keyboard.press('Enter');
+  await until(async () => (await cell('E2').innerText()).trim() === '2484|15');
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

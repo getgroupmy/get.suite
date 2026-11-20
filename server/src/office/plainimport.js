@@ -4,6 +4,7 @@
 import { docFromHtml } from './word.js';
 import { mathmlToLatex } from './mathml.js';
 import { parseCsv } from '../contactfiles.js';
+import { typedCells } from '../sheetcalc/cellformat.js';
 import { colName } from './sheetnames.js';
 
 const decode = (buf) => { const s = Buffer.from(buf).toString('utf8'); return s.replace(/^﻿/, '').replace(/\r\n?/g, '\n'); };
@@ -53,7 +54,9 @@ export async function docFromWebPage(buf, { savePicture } = {}) {
 export function sheetFromDelimited(buf, name, sep = ',') {
   const text = decode(buf);
   const rows = sep === '\t' ? text.replace(/\n$/, '').split('\n').map((l) => l.split('\t')) : parseCsv(text, { keepEmpty: true });
-  const cells = {};
-  rows.slice(0, 50000).forEach((row, r) => row.slice(0, 500).forEach((v, c) => { if (v !== '') cells[`${colName(c)}${r + 1}`] = v; }));
-  return { sheets: [{ name: String(name || 'Sheet1').slice(0, 100) || 'Sheet1', cells }] };
+  const raw = {};
+  rows.slice(0, 50000).forEach((row, r) => row.slice(0, 500).forEach((v, c) => { if (v !== '') raw[`${colName(c)}${r + 1}`] = v; }));
+  // "$1,250.00", "40%", "05/12/2026" as numbers and dates in their formats, as when typed in Sheets
+  const { cells, formats } = typedCells(raw);
+  return { sheets: [{ name: String(name || 'Sheet1').slice(0, 100) || 'Sheet1', cells, ...(Object.keys(formats).length && { formats }) }] };
 }

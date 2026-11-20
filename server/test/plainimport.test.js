@@ -40,3 +40,15 @@ test('CSV and TSV files as a spreadsheet of one sheet', () => {
   assert.deepEqual(sheetFromDelimited(Buffer.from('a\tb\n1,5\t"2"\n'), 'T', '\t'), { sheets: [{ name: 'T', cells: { A1: 'a', B1: 'b', A2: '1,5', B2: '"2"' } }] });
   assert.equal(sheetFromDelimited(Buffer.from(''), '').sheets[0].name, 'Sheet1');
 });
+
+test('a CSV opened as a spreadsheet: amounts and dates as written become numbers and dates in their formats', () => {
+  const book = sheetFromDelimited(Buffer.from('Item,Price,Share,Due,Code\nDesk,"$1,250.00",40%,05/12/2026,007\nLamp,"1,234",12.5%,20 Dec 2026,A-1\n'), 'Orders');
+  const { cells, formats } = book.sheets[0];
+  assert.deepEqual([cells.B2, cells.C2, cells.D2, cells.B3, cells.C3, cells.D3, cells.E3], ['1250', '0.4', '2026-12-05', '1234', '0.125', '2026-12-20', 'A-1']);
+  assert.deepEqual(formats.B2, { num: 'currency', cur: 'USD', dp: 2 });
+  assert.deepEqual(formats.C3, { num: 'percent', dp: 1 });
+  assert.deepEqual(formats.D2, { num: 'date', ds: 'short' });
+  assert.deepEqual(formats.D3, { num: 'date', ds: 'medium' });
+  assert.equal(formats.A2, undefined);
+  assert.equal(cells.E2, '007'); // left as written
+});

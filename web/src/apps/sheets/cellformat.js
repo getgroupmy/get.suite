@@ -60,6 +60,21 @@ export function typedDate(text) {
   return { value: day, fmt: { num: 'date', ds: words ? 'medium' : 'short' } };
 }
 
+/**
+ * Cells read from a file (CSV, TSV) or pasted: { A1: "$1,250.00", B1: "20/11/2026", … } → { cells, formats }, the
+ * numbers and dates written as people write them turned into numbers and dates with the matching format.
+ */
+export function typedCells(raw) {
+  const cells = {}, formats = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const typed = typeof v === 'string' && !v.startsWith('=') ? typedNumber(v) ?? typedDate(v) : null;
+    if (!typed) { cells[k] = v; continue; }
+    cells[k] = String(typed.value);
+    formats[k] = typed.fmt;
+  }
+  return { cells, formats };
+}
+
 export function decimals(fmt) {
   if (Number.isInteger(fmt?.dp)) return fmt.dp;
   if (fmt?.num === 'currency') return new Intl.NumberFormat('en', { style: 'currency', currency: fmt.cur || 'MYR' }).resolvedOptions().maximumFractionDigits;
