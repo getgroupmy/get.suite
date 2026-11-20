@@ -104,6 +104,26 @@ await step('importing a colleague\'s question with their picture: it comes as a 
   await until(() => page.locator('img[alt="Purple logo"]').evaluate((i) => i.complete && i.naturalWidth === 60).catch(() => false), 10000);
   await kim.close();
 });
+await step('Kim leaves Olivia\'s form after adding a picture to it: the picture still shows on it', async () => {
+  const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
+  const form = (await api(page, 'POST', '/forms', { title: 'Office survey' })).body;
+  await api(page, 'POST', `/forms/${form.id}/editors`, { email: 'kim@acme.com' });
+  const pic = await kim.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 52; c.height = 26; const g = c.getContext('2d'); g.fillStyle = '#3949ab'; g.fillRect(0, 0, 52, 26);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return (await fetch('/api/files/upload?name=indigo.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: blob })).json();
+  });
+  await api(kim, 'PUT', `/forms/${form.id}`, { questions: [{ id: 'desk', type: 'short', title: 'Which desk?', image: pic.id, image_alt: 'Floor map' }] });
+  await kim.goto(`${B}/forms/${form.id}`);
+  await kim.getByRole('textbox', { name: 'Form title' }).waitFor();
+  await kim.getByRole('button', { name: 'More' }).click();
+  await kim.getByRole('menuitem', { name: 'Leave this form' }).click();
+  await kim.waitForURL(/\/forms$/);
+  await kim.close();
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('textbox', { name: 'Form title' }).waitFor();
+  await until(() => page.locator('img[alt="Floor map"]').evaluate((i) => i.complete && i.naturalWidth === 52).catch(() => false), 10000);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

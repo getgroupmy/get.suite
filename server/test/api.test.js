@@ -16478,3 +16478,27 @@ test('sharing: someone taken off a document (or made a viewer) — their picture
   assert.equal((await owner('GET', `/api/files/${nd}`)).body.parent_id, folder.id, 'beside the document, in its owner\'s folder');
   assert.equal((await owner('GET', `/api/files/${d.id}/pictures/${nd}`)).status, 200);
 });
+
+test('forms: an editor taken off a form — the pictures they put on it stay, as copies of the owner\'s', async () => {
+  const ed = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'formoffed', domain: 'acme.com', name: 'Form Off', password: 'password123' })).status, 201);
+  await login(ed, 'formoffed@acme.com');
+  const edId = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'formoffed@acme.com').id;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const mine = (await owner('POST', '/api/files/upload?name=owner-form.png', png, { raw: true })).body;
+  const theirs = (await ed('POST', '/api/files/upload?name=editor-form.png', png, { raw: true })).body;
+  const form = (await owner('POST', '/api/forms', { title: 'Team form' })).body;
+  await owner('POST', `/api/forms/${form.id}/editors`, { email: 'formoffed@acme.com' });
+  await ed('PUT', `/api/forms/${form.id}`, { questions: [
+    { id: 'a', type: 'short', title: 'Theirs', image: theirs.id },
+    { id: 'b', type: 'short', title: 'Mine', image: mine.id },
+  ], theme: { header: theirs.id } });
+  assert.equal((await owner('DELETE', `/api/forms/${form.id}/editors/${edId}`)).status, 200);
+  const f = (await owner('GET', `/api/forms/${form.id}`)).body;
+  const [a, b] = f.questions;
+  assert.ok(a.image && a.image !== theirs.id, 'a copy');
+  assert.equal(f.theme.header, a.image, 'the header uses the same copy');
+  assert.equal(b.image, mine.id, 'the owner\'s own stays');
+  assert.equal((await owner('GET', `/api/forms/${form.id}/pictures/${a.image}`)).status, 200);
+  assert.equal((await owner('GET', `/api/files/${a.image}`)).body.role, 'owner');
+});

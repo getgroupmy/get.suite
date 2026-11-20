@@ -1006,8 +1006,17 @@ export default function formRoutes() {
   r.delete('/:id/editors/:userId', (req, res) => {
     const f = ownForm(req.params.id, req.user);
     if (f.role !== 'owner' && req.params.userId !== req.user.id) throw forbidden('Only the owner can do that');
+    const srcTeam = teamOf(f);
     q('DELETE FROM form_editors WHERE form_id = ? AND user_id = ?').run(f.id, req.params.userId);
     q('DELETE FROM form_email_me WHERE form_id = ? AND user_id = ?').run(f.id, req.params.userId);
+    // Pictures they put on it stop showing once they're not on its team: copies of the owner's instead.
+    const ownerRow = q('SELECT * FROM users WHERE id = ?').get(f.owner_id);
+    const use = picturesFor(teamOf(f), srcTeam, ownerRow, f.title);
+    const questions = questionsWithPictures(f.questions, use);
+    const theme = f.theme?.header ? { ...f.theme, header: use(f.theme.header) || undefined } : f.theme;
+    if (JSON.stringify(questions) !== JSON.stringify(f.questions) || JSON.stringify(theme) !== JSON.stringify(f.theme)) {
+      q('UPDATE forms SET questions = ?, theme = ? WHERE id = ?').run(JSON.stringify(questions), theme ? JSON.stringify(theme) : null, f.id);
+    }
     sendTo([req.params.userId], { type: 'form-changed', form_id: f.id, removed: true });
     changed(f, req.user.id);
     res.json(editorsOf(f.id));
