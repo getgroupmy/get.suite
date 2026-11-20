@@ -113,6 +113,10 @@ await step('Copy link to slide: the link opens the presentation on that slide', 
   await page.goto(`${B}/drive`);
   await page.goto(url);
   await page.getByText('Slide 3 of 5').waitFor();
+  // A link to another of its slides opened while it's open moves there
+  const fifth = (await api(page, 'GET', `/files/${deck.id}/content`)).body.content.slides[4];
+  await page.evaluate((sid) => { window.location.hash = `#slide=${sid}`; }, fifth.id);
+  await page.getByText('Slide 5 of 5').waitFor();
   await page.goto(`${B}/drive`); // (a new page: the same address with another #… only moves within it)
   await page.goto(`${B}/slides/${deck.id}#slide=gone-slide`);
   await page.locator('.toast', { hasText: 'That slide is no longer in the presentation' }).waitFor();

@@ -1,5 +1,5 @@
 import { pasteSpecial, PASTE_MODES } from './paste.js';
-import { placeInHash, placeLink } from '../../components/placelink.js';
+import { placeParams, placeLink } from '../../components/placelink.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, patch, post, put } from '../../api.js';
@@ -242,16 +242,21 @@ export default function SheetEditor() {
     if (!fvSeen.current) { fvSeen.current = true; if (at !== active) setActive(at); return; }
     if (at !== active) setFv(null);
   }, [data, active, fv]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Opened from a link to one of its sheets (#sheet=its name): that sheet, once the spreadsheet is in.
+  // Opened from a link to one of its sheets (#sheet=its name), or to cells on it (&range=B2:C4): there, once the
+  // spreadsheet is in (and again when such a link is opened while it's open).
   const sheetJumped = useRef(false);
+  const jumpRef = useRef(null);
+  const goToRef = useRef(null); // goTo (below), for a link's range
   useEffect(() => {
     if (sheetJumped.current || !data?.sheets) return;
     sheetJumped.current = true;
-    const name = placeInHash(window.location.hash, 'sheet');
-    if (!name) return;
-    const at = data.sheets.findIndex((x) => x.name === name);
-    if (at >= 0) setActive(at); else toast(`There’s no sheet called “${name}” any more`, 'error');
+    jumpRef.current?.();
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const on = () => jumpRef.current?.();
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, []);
   const hide = sheet?.hide || null; // rows and columns hidden by hand
   const groups = sheet?.groups || null; // grouped rows and columns (collapsed ones are hidden too)
   const slicers = sheet?.slicers || {};
@@ -1116,6 +1121,14 @@ export default function SheetEditor() {
   const selText = anchor && (range.c1 !== range.c2 || range.r1 !== range.r2) ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey;
   // The name box: the selection's name if it has one; type a cell, a range or a name to go there.
   const selName = Object.entries(names || {}).find(([, t]) => t === selText)?.[0];
+  jumpRef.current = () => {
+    const p = placeParams(window.location.hash);
+    if (!p.sheet || !data?.sheets) return;
+    const at = data.sheets.findIndex((x) => x.name === p.sheet);
+    if (at < 0) { toast(`There’s no sheet called “${p.sheet}” any more`, 'error'); return; }
+    if (at !== active) setActive(at);
+    if (p.range) setTimeout(() => goToRef.current?.(p.range), 0); // once that sheet is showing
+  };
   const goTo = (text) => {
     const t = cleanTarget(targetOf(names, text) || text);
     if (!t) { toast(`There's no cell or named range called “${text}”`, 'error'); return false; }
@@ -1125,6 +1138,7 @@ export default function SheetEditor() {
     requestAnimationFrame(() => { gridRef.current?.querySelector(`[data-k="${cellKey(a.c, a.r)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); gridRef.current?.focus(); });
     return true;
   };
+  goToRef.current = goTo;
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
   // Other people's selected cells on this sheet: outlined in their colour.
   const theirs = new Map(others.filter((p) => p.id !== user.id && p.sel?.sheet === active).map((p) => [p.sel.k, p]));
@@ -1206,6 +1220,10 @@ export default function SheetEditor() {
     : [{ label: 'Insert note', icon: 'edit', onClick: () => editNote(selKey) }];
   noteItems.push({ label: 'Insert picture in cell…', icon: 'image', onClick: () => setDialog({ type: 'picture', key: selKey }) });
   noteItems.push({ label: 'Show edit history', icon: 'clock', onClick: () => setDialog({ type: 'cellhistory', key: selKey }) });
+  noteItems.push({ label: selText.includes(':') ? 'Copy link to this range' : 'Copy link to this cell', icon: 'link', onClick: async () => {
+    const url = placeLink(window.location.origin, `/sheets/${file.id}`, 'sheet', sheetName(active), { range: selText });
+    try { await navigator.clipboard.writeText(url); toast(`Link to ${selText} copied`); } catch { window.prompt('Copy this link', url); }
+  } });
   const pasteItems = PASTE_MODES.map(([mode, label]) => ({ label: `Paste special: ${label.toLowerCase()}`, onClick: () => pasteAs(mode), disabled: !clip.current }));
   const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...pasteItems, '-', ...noteItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */

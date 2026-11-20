@@ -136,16 +136,24 @@ export default function SlidesEditor() {
     setPanel(true);
     setPending({ anchor: { slide: deck.slides[slideIndex].id }, label: `slide ${slideIndex + 1}`, onCreated: () => setPending(null), onCancel: () => setPending(null) });
   };
-  // Opened from a link to one of its slides (#slide=…): that slide, once the presentation is in.
+  // Opened from a link to one of its slides (#slide=…): that slide, once the presentation is in (and again when a
+  // link to another of its slides is opened while it's open).
   const slideJumped = useRef(false);
+  const jumpToSlide = () => {
+    const sid = placeInHash(window.location.hash, 'slide');
+    if (!sid || !deckRef.current?.slides) return;
+    const at = deckRef.current.slides.findIndex((x) => x.id === sid);
+    if (at >= 0) { setCurrent(at); setSelected(null); setEditing(null); } else toast('That slide is no longer in the presentation', 'error');
+  };
   useEffect(() => {
     if (slideJumped.current || !deck?.slides) return;
     slideJumped.current = true;
-    const sid = placeInHash(window.location.hash, 'slide');
-    if (!sid) return;
-    const at = deck.slides.findIndex((x) => x.id === sid);
-    if (at >= 0) setCurrent(at); else toast('That slide is no longer in the presentation', 'error');
+    jumpToSlide();
   }, [deck]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    window.addEventListener('hashchange', jumpToSlide);
+    return () => window.removeEventListener('hashchange', jumpToSlide);
+  }); // (each render: the latest jumpToSlide)
   const goTo = (i) => { setCurrent(Math.max(0, Math.min(deckRef.current.slides.length - 1, i))); setSelected(null); setEditing(null); };
   // Opened from a mention (?comment=…): go to that comment's slide once it's known.
   const jumped = useRef(false);

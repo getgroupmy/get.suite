@@ -196,6 +196,25 @@ await step('Copy link to sheet: the link opens the spreadsheet on that sheet', a
   // Plan's A1 is =Budget!B1*2: the sheet that opens is Plan
   await page.locator('[data-k="A1"]').getByText('1800').waitFor();
 });
+await step('Copy link to this range: opening it selects those cells on that sheet; a link opened while it\'s open moves there', async () => {
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await until(async () => (await tabs(page)).includes('Budget'));
+  await page.locator('.sheet-tab > button:first-child', { hasText: /^Budget$/ }).click();
+  await page.locator('[data-k="A1"]').click();
+  await page.locator('[data-k="B1"]').click({ modifiers: ['Shift'] });
+  await page.locator('[data-k="B1"]').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Copy link to this range' }).click();
+  await page.locator('.toast', { hasText: 'Link to A1:B1 copied' }).waitFor();
+  const url = await page.evaluate(() => navigator.clipboard.readText());
+  if (url !== `${B}/sheets/${sheet.id}#sheet=Budget&range=A1%3AB1`) throw new Error(url);
+  await page.goto(`${B}/drive`);
+  await page.goto(url);
+  await until(async () => (await page.getByLabel('Name box').inputValue()) === 'A1:B1', 10000);
+  // While it's open: another sheet's cell
+  await page.evaluate(() => { window.location.hash = '#sheet=Plan&range=A1'; });
+  await page.locator('[data-k="A1"]').getByText('1800').waitFor();
+  await until(async () => (await page.getByLabel('Name box').inputValue()) === 'A1');
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
