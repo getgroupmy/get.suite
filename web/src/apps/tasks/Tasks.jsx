@@ -1,3 +1,4 @@
+import { has } from '../../fold.js';
 import { unreachable, changeAdd, patchKeptTask, appendKept, offlineId, keepDelete } from '../offlinedocs.js';
 // Tasks: your to-do lists and the ones colleagues share with you. Add a task with Enter, tick it
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
@@ -1343,7 +1344,7 @@ function ShareList({ list, me, onClose, onSaved }) {
   const [chosen, setChosen] = useState(new Set(list.members.map((m) => m.id)));
   const [filter, setFilter] = useState('');
   useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
-  const shown = people.filter((p) => p.id !== me.id && `${p.name} ${p.username}`.toLowerCase().includes(filter.toLowerCase()));
+  const shown = people.filter((p) => p.id !== me.id && has(`${p.name} ${p.username}`, filter));
   const [message, setMessage] = useState(''); // for the people added now
   const adding = [...chosen].filter((id) => !list.members.some((m) => m.id === id));
   async function save() {

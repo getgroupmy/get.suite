@@ -1,3 +1,4 @@
+import { has } from '../../fold.js';
 import WorldClock from './WorldClock.jsx';
 import { unreachable, changeAdd, appendKept, offlineId, eventsCovering, keepChange } from '../offlinedocs.js';
 import { liveText } from '../meet/meetmath.js';
@@ -2404,7 +2405,7 @@ function CoHosts({ value, onChange }) {
   const [q, setQ] = useState('');
   useEffect(() => { get('/users/directory').then((l) => setPeople(l.filter((x) => x.id !== user.id))).catch(() => {}); }, [user.id]);
   const chosen = people.filter((x) => value.includes(x.id));
-  const matches = q.trim() ? people.filter((x) => !value.includes(x.id) && `${x.name} ${x.username}`.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 5) : [];
+  const matches = q.trim() ? people.filter((x) => !value.includes(x.id) && has(`${x.name} ${x.username}`, q.trim())).slice(0, 5) : [];
   return (
     <fieldset className="stack" style={{ gap: 6 }}><legend className="small muted">Also take bookings (shared by a team: each booking goes to whoever is free, the one with the fewest)</legend>
       {chosen.length > 0 && <ul className="cohost-chips" aria-label="Co-hosts">{chosen.map((x) => (

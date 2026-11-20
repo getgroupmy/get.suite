@@ -16683,6 +16683,10 @@ test('more searches where accents don\'t matter: events, chat messages, and file
   await owner('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Déjà vu at the crêperie', files: [] });
   assert.ok((await owner('GET', '/api/chat/search?q=deja%20creperie')).body.some((m) => m.body === 'Déjà vu at the crêperie'));
   assert.equal((await owner('GET', '/api/chat/search?q=deja%20-creperie')).body.some((m) => m.body === 'Déjà vu at the crêperie'), false, 'leaving words out too');
+  assert.equal((await owner('POST', '/api/users', { local: 'zoechat', domain: 'acme.com', name: 'Zoë Lindqvist', password: 'password123' })).status, 201);
+  const zoe = client(); await login(zoe, 'zoechat@acme.com');
+  await zoe('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Bonjour from Zoë', files: [] });
+  assert.ok((await owner('GET', '/api/chat/search?q=bonjour%20from:zoe')).body.some((m) => m.body === 'Bonjour from Zoë'), 'from: a name, accents aside');
   const f = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Café Noël menu' })).body;
   assert.ok((await owner('GET', '/api/files?view=search&q=cafe%20noel')).body.some((x) => x.id === f.id), 'by its name');
 });

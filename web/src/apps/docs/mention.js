@@ -1,5 +1,6 @@
 // People in a document: typing "@" and a name puts in a chip for a colleague; they're notified
 // (or, if they can't open the document, its owner is offered to share it with them).
+import { has } from '../../fold.js';
 import { Node } from '@tiptap/core';
 
 export const Mention = Node.create({
@@ -27,7 +28,7 @@ export function mentionQuery(textBefore, cursor) {
 /** People matching what's typed (name or address), at most six, names starting with it first. */
 export function matchPeople(people, query) {
   const q = query.toLowerCase();
-  return people.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(q))
+  return people.filter((p) => has(`${p.name} ${p.username}`, q))
     .sort((a, b) => (b.name.toLowerCase().startsWith(q) - a.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name))
     .slice(0, 6);
 }

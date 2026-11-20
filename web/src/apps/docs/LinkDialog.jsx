@@ -1,5 +1,6 @@
 // The link box (Docs, 🔗 or Ctrl+K): a web or email address, or a heading or bookmark in this document.
 // On a link already there, it changes or removes it; with nothing selected, it adds the link's text too.
+import { has } from '../../fold.js';
 import { useMemo, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import { placesOf, cleanHref, describeHref } from './linkplaces.js';
@@ -13,7 +14,7 @@ export function LinkDialog({ editor, onClose }) {
   const places = useMemo(() => placesOf(editor.state.doc), [editor]);
   const typed = href.trim().toLowerCase();
   const shown = typed && !typed.startsWith('#') && /\s|^[^.:/@]*$/.test(typed)
-    ? places.filter((p) => p.text.toLowerCase().includes(typed)) // typing words narrows the list
+    ? places.filter((p) => has(p.text, typed)) // typing words narrows the list
     : places;
 
   const apply = (value, label) => {

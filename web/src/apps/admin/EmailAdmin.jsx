@@ -1,3 +1,4 @@
+import { has } from '../../fold.js';
 import { useCallback, useEffect, useState } from 'react';
 import { get, post, patch, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -291,7 +292,7 @@ function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
   const [members, setMembers] = useState(new Set((box?.members || []).map((m) => m.id)));
   const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
-  const shown = people.filter((p) => !filter || `${p.name} ${p.username}`.toLowerCase().includes(filter.toLowerCase())).slice(0, 100);
+  const shown = people.filter((p) => !filter || has(`${p.name} ${p.username}`, filter)).slice(0, 100);
   return (
     <Modal title={box ? `Edit ${box.address}` : 'Add shared mailbox'} onClose={onClose}>
       <form className="stack" onSubmit={async (e) => {

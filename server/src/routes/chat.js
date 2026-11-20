@@ -1134,15 +1134,16 @@ export default function chatRoutes() {
     // A person, by "me", their username or the start of any word of their name.
     const person = (col, v) => {
       if (v === 'me') { args.push(me); return `${col} = ?`; }
-      args.push(req.user.org_id, `${esc(v)}%`, `${esc(v)}%`, `% ${esc(v)}%`);
-      return `${col} IN (SELECT id FROM users WHERE org_id = ? AND (LOWER(username) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!'))`;
+      const f = esc(fold(v)); // (accents don't matter: from:zoe finds Zoë)
+      args.push(req.user.org_id, `${f}%`, `${f}%`, `% ${f}%`);
+      return `${col} IN (SELECT id FROM users WHERE org_id = ? AND (LOWER(username) LIKE ? ESCAPE '!' OR fold(name) LIKE ? ESCAPE '!' OR fold(name) LIKE ? ESCAPE '!'))`;
     };
     if (p.from.length) where.push(`(${p.from.map((v) => person('m.user_id', v)).join(' OR ')})`);
     if (p.in.length) {
       where.push(`(${p.in.map((v) => {
         const name = v.replace(/^#/, '');
-        args.push(`${esc(name)}%`);
-        const ch = "(c.dm_key IS NULL AND LOWER(c.name) LIKE ? ESCAPE '!')";
+        args.push(`${esc(fold(name))}%`);
+        const ch = "(c.dm_key IS NULL AND fold(c.name) LIKE ? ESCAPE '!')";
         if (v.startsWith('#')) return ch;
         args.push(me);
         return `${ch} OR (c.dm_key IS NOT NULL AND EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id != ? AND ${person('cm.user_id', name)}))`;

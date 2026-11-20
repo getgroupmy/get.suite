@@ -1,6 +1,7 @@
 // File chips in a document: typing "@" and part of a file's name offers files from Drive; the one picked
 // goes in as a small pill (its icon and name) that opens the file. Kept as { id, name, kind, mime }, so
 // downloads and search see the name even for readers who can't open the file.
+import { has } from '../../fold.js';
 import { Node } from '@tiptap/core';
 
 /** The icon for a file chip, by what the file is. */
@@ -30,7 +31,7 @@ export function matchFiles(files, query, { exclude = null, max = 5 } = {}) {
   const q = String(query || '').trim().toLowerCase();
   if (q.length < 2) return [];
   return (files || [])
-    .filter((f) => f && f.id !== exclude && String(f.name || '').toLowerCase().includes(q))
+    .filter((f) => f && f.id !== exclude && has(f.name, q))
     .map((f) => ({ f, at: String(f.name).toLowerCase().indexOf(q) }))
     .sort((a, b) => (a.at === 0 ? 0 : 1) - (b.at === 0 ? 0 : 1) || (b.f.updated_at || 0) - (a.f.updated_at || 0))
     .slice(0, max)

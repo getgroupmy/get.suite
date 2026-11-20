@@ -1,5 +1,6 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
+import { has } from '../../fold.js';
 import { mergeList } from './listmerge.js';
 import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { REQUEST_KINDS } from '../drive/requestkinds.js';
@@ -38,7 +39,7 @@ function FormList() {
   const [show, setShow] = useState('all'); // all | open | closed | shared | archived
   const shown = (forms || []).filter((f) => (show === 'archived' ? f.archived_at : !f.archived_at)
     && (show !== 'open' || !f.closed) && (show !== 'closed' || f.closed) && (show !== 'shared' || f.owner_name)
-    && (!find.trim() || f.title.toLowerCase().includes(find.trim().toLowerCase())));
+    && (!find.trim() || has(f.title, find.trim())));
   const [templates, setTemplates] = useState([]);
   const [bin, setBin] = useState(false);
   useEffect(() => { get('/forms/templates').then(setTemplates).catch(() => {}); }, []);

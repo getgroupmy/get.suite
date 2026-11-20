@@ -1,3 +1,4 @@
+import { has } from '../../fold.js';
 import { unreachable, keepChange, keepDelete, appendKept, patchKeptItem } from '../offlinedocs.js';
 import { replaceInBox } from '../../components/replacements.js';
 import { useReplacements, currentReplacements } from '../../components/useReplacements.js';
@@ -2187,7 +2188,7 @@ function NewChannel({ people, onClose, onMade }) {
 
 function PeoplePicker({ people, chosen, onChange, label = 'Who can see it' }) {
   const [find, setFind] = useState('');
-  const shown = people.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(find.toLowerCase()));
+  const shown = people.filter((p) => has(`${p.name} ${p.username}`, find));
   const [groups, setGroups] = useState([]);
   useEffect(() => { get('/groups').then(setGroups).catch(() => {}); }, []);
   const known = new Set(people.map((p) => p.id));

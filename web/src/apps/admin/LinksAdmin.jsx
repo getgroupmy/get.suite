@@ -1,6 +1,7 @@
 // Admin → Share links: every link for people without an account that someone in the company made (files and
 // folders, and file requests), with who made it, until when it works, whether it has a password and how often it
 // was opened. An admin can stop any of them; whoever made it is told.
+import { has } from '../../fold.js';
 import { useCallback, useEffect, useState } from 'react';
 import { get, post, del, formatDate } from '../../api.js';
 import { useAuth } from '../../App.jsx';
@@ -16,7 +17,7 @@ export default function LinksAdmin() {
   const [stoppingAll, setStoppingAll] = useState(false);
   const people = [...new Map((links || []).map((l) => [l.created_by, l.owner_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   const [find, setFind] = useState(''); // part of a file's or folder's name
-  const shown = (links || []).filter((l) => (!by || l.created_by === by) && (!find.trim() || String(l.file_name).toLowerCase().includes(find.trim().toLowerCase())));
+  const shown = (links || []).filter((l) => (!by || l.created_by === by) && (!find.trim() || has(l.file_name, find.trim())));
   const byName = people.find(([id]) => id === by)?.[1];
   const { user } = useAuth();
   const [enforcing, setEnforcing] = useState(false);

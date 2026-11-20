@@ -124,6 +124,18 @@ await step('accents don\'t matter: "cafe" finds a task and a note with café, "z
   await results().getByRole('group', { name: 'Chat' }).getByText(/crêperie/).waitFor();
   await results().getByRole('group', { name: 'Files' }).getByText('Montréal notes').waitFor();
   await page.keyboard.press('Escape');
+  // Filters on the page too: Contacts, and @mentions in Chat
+  await page.goto(`${B}/contacts`);
+  await page.getByLabel('Filter contacts').fill('zoe bronte');
+  await page.getByText('Zoë Brontë').first().waitFor();
+  if (await page.getByText('Zed Zephyrson').count()) throw new Error('filter let others through');
+  await api(page, 'POST', '/users', { local: 'zoel', domain: 'acme.com', name: 'Zoë Lindqvist', password: 'password123' });
+  const general = (await api(page, 'GET', '/chat/channels')).body.channels[0].id;
+  await page.goto(`${B}/chat/${general}`);
+  await page.getByLabel('Message', { exact: true }).click();
+  await page.keyboard.type('@zoe');
+  await page.getByRole('listbox', { name: 'People to mention' }).getByRole('option', { name: /Zoë Lindqvist/ }).waitFor();
+  await page.getByLabel('Message', { exact: true }).fill('');
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

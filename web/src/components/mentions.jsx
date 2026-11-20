@@ -1,5 +1,6 @@
 // Typing "@" plus a few letters in a text box suggests colleagues; picking one puts "@their@address "
 // in the text. Used by comments and Chat. Mentions are written as "@" followed by the email address.
+import { has } from '../fold.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { get } from '../api.js';
 import { Avatar } from './ui.jsx';
@@ -29,7 +30,7 @@ export function useMentions(ref, value, onChange, { groups = false } = {}) {
     return () => { live = false; };
   }, [groups]);
   useLayoutEffect(() => { if (caretTo.current != null && ref.current) { ref.current.setSelectionRange(caretTo.current, caretTo.current); caretTo.current = null; } }, [value, ref]);
-  const matches = at ? all.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(at.query.toLowerCase())).slice(0, 6) : [];
+  const matches = at ? all.filter((p) => has(`${p.name} ${p.username}`, at.query)).slice(0, 6) : [];
   const track = (text, caret) => {
     const m = /(^|\s)@([\w.+-]*)$/.exec(text.slice(0, caret));
     setAt(m ? { start: caret - m[2].length - 1, query: m[2] } : null);

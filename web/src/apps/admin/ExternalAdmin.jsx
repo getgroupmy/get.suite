@@ -1,6 +1,7 @@
 // Admin → Shared outside: the company's files and folders shared with people at other companies,
 // by company, with who shared what with whom. Stop one share, or everything with one company;
 // whoever shared it is told.
+import { has } from '../../fold.js';
 import { useCallback, useEffect, useState } from 'react';
 import { get, post, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -27,7 +28,7 @@ export default function ExternalAdmin({ allowExternal, limitDays }) {
   const weekAhead = Date.now() + 7 * 864e5;
   const endingSoon = (data?.items || []).filter((x) => x.expires_at && x.expires_at <= weekAhead).length;
   const shown = (data?.items || []).filter((x) => (!soon || (x.expires_at && x.expires_at <= weekAhead)) && (!company || x.with_org_id === company)
-    && (!words || `${x.file_name} ${x.owner_name} ${x.owner_email} ${x.with_name} ${x.with_email}`.toLowerCase().includes(words)));
+    && (!words || has(`${x.file_name} ${x.owner_name} ${x.owner_email} ${x.with_name} ${x.with_email}`, words)));
   const picked = data?.companies.find((c) => c.id === company);
   return (
     <div className="stack" style={{ maxWidth: 1100 }}>

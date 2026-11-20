@@ -1,3 +1,4 @@
+import { has } from '../../fold.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { unreachable, changeAdd, appendKept, offlineId, keepChange, keepDelete } from '../offlinedocs.js';
 import { contactKey } from './contactkeys.js';
@@ -142,7 +143,7 @@ export default function Contacts() {
   const dayName = (iso) => (iso === isoDay(new Date()) ? 'today' : `on ${new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long' })}`);
   const whereOk = (c) => tab !== 'dir' || !whereFilter || (whereFilter === 'none' ? !whereToday[c.id] : whereToday[c.id]?.place === whereFilter);
 
-  const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && v.toLowerCase().includes(filter.toLowerCase()));
+  const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && has(v, filter));
   const [sort, setSort] = useState('first'); // your own way of sorting your contacts
   useEffect(() => { get('/contacts/view').then((r) => setSort(r.sort)).catch(() => {}); }, []);
   const chooseSort = async (next) => { setSort(next); try { await put('/contacts/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
@@ -366,7 +367,7 @@ function ContactsTrash({ filter, onRestored }) {
   if (!data) return null;
   if (!data.contacts.length) return <Empty icon="trash" title="Trash is empty">Contacts you delete (here or on your phone) stay here for {data.days} days, so you can put them back.</Empty>;
   const f = filter.toLowerCase();
-  const shown = data.contacts.filter((c) => !f || [c.name, c.email, c.phone, c.company].some((v) => (v || '').toLowerCase().includes(f)));
+  const shown = data.contacts.filter((c) => !f || [c.name, c.email, c.phone, c.company].some((v) => has(v, f)));
   const daysLeft = (c) => Math.max(1, Math.ceil((c.gone_at - Date.now()) / 86400000));
   const restore = async (c) => { try { await post(`/contacts/trash/${c.id}/restore`); toast(`${c.name} put back`); load(); onRestored(); } catch (e) { toast(e.message, 'error'); } };
   const forget = async (c) => { try { await del(`/contacts/trash/${c.id}`); toast(`${c.name} deleted for good`); load(); } catch (e) { toast(e.message, 'error'); } };
@@ -406,7 +407,7 @@ function OtherContacts({ filter, onAdded }) {
   if (!list) return null;
   if (!list.length) return <Empty icon="person" title="No other contacts">People you email who aren't in your contacts show up here, and are suggested when you write.</Empty>;
   const f = filter.toLowerCase();
-  const shown = list.filter((c) => !f || c.email.includes(f) || (c.name || '').toLowerCase().includes(f));
+  const shown = list.filter((c) => !f || c.email.includes(f) || has(c.name, f));
   const add = async (c) => {
     try { await post('/contacts', { name: c.name || c.email.split('@')[0], email: c.email }); toast(`${c.name || c.email} added to your contacts`); load(); onAdded(); } catch (e) { toast(e.message, 'error'); }
   };
@@ -441,7 +442,7 @@ function Frequent({ filter, onAdded }) {
   if (!list) return null;
   if (!list.length) return <Empty icon="person" title="Nobody yet">The people you email most from Workspace show up here, most often first.</Empty>;
   const f = filter.toLowerCase();
-  const shown = list.filter((c) => !f || c.email.includes(f) || (c.name || '').toLowerCase().includes(f));
+  const shown = list.filter((c) => !f || c.email.includes(f) || has(c.name, f));
   const add = async (c) => {
     try { await post('/contacts', { name: c.name || c.email.split('@')[0], email: c.email }); toast(`${c.name || c.email} added to your contacts`); load(); onAdded(); } catch (e) { toast(e.message, 'error'); }
   };
@@ -528,7 +529,7 @@ function KeepInTouch({ filter }) {
   const load = () => get('/contacts/keep-in-touch').then(setList).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!list) return null;
-  const shown = list.filter((c) => !filter || `${c.name} ${c.email || ''}`.toLowerCase().includes(filter.toLowerCase()));
+  const shown = list.filter((c) => !filter || has(`${c.name} ${c.email || ''}`, filter));
   if (!list.length) return <Empty icon="person" title="Nobody to catch up with">Choose how often to keep in touch in a contact's window (Edit → Keep in touch). When it's been longer, they show up here.</Empty>;
   return (
     <ul className="keep-in-touch" aria-label="Keep in touch">
@@ -712,7 +713,7 @@ function Groups({ filter }) {
   const [deleting, setDeleting] = useState(null);
   const load = () => get('/contacts/groups').then(setGroups).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const shown = (groups || []).filter((g) => !filter || g.name.toLowerCase().includes(filter.toLowerCase()) || g.members.some((m) => `${m.name} ${m.email}`.toLowerCase().includes(filter.toLowerCase())));
+  const shown = (groups || []).filter((g) => !filter || has(g.name, filter) || g.members.some((m) => has(`${m.name} ${m.email}`, filter)));
   return (
     <div className="stack">
       <div className="row"><button type="button" className="btn primary" onClick={() => setEditing({ name: '', members: [] })}><Icon name="plus" size={18} /> New group</button>
@@ -781,7 +782,7 @@ function GroupDialog({ group, onClose, onSaved }) {
 /** Who reports to whom: the Directory as a tree (filtering shows the matching people with their managers). */
 function OrgChart({ people, filter, onMessage, me, onOpen }) {
   const f = filter.trim().toLowerCase();
-  const hit = (p) => !f || [p.name, p.job_title, p.department, p.username].some((v) => v && v.toLowerCase().includes(f));
+  const hit = (p) => !f || [p.name, p.job_title, p.department, p.username].some((v) => v && has(v, f));
   const keep = new Set();
   if (f) for (const p of people) if (hit(p)) { keep.add(p.id); for (const m of chainOf(people, p.id)) keep.add(m.id); }
   const tree = orgTree(f ? people.filter((p) => keep.has(p.id)) : people);
