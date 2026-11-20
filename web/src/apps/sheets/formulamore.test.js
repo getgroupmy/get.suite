@@ -636,3 +636,12 @@ test('numbers are compared to 15 significant digits, as in Excel: =0.1+0.2=0.3 i
   assert.equal(one('=IF(0.1*3=0.3, "y", "n")'), 'y');
   assert.equal(one('=1=1.0000000001'), false, 'a real difference still counts');
 });
+test('TRIM takes off spaces only; FIXED and DOLLAR round halves away from zero, as written (as Excel)', () => {
+  assert.equal(one('=TRIM(CHAR(9)&"a  b")'), '\ta b');
+  assert.equal(one('=TRIM("  a   b  ")'), 'a b');
+  assert.equal(one('=FIXED(-1234.5, 0, TRUE)'), '-1235');
+  assert.equal(one('=FIXED(2.5, 0)'), '3');
+  assert.equal(one('=FIXED(1234.567, 1)'), '1,234.6');
+  assert.equal(one('=DOLLAR(-1.005, 2)'), '($1.01)');
+  assert.equal(one('=DOLLAR(1234.5)'), '$1,234.50');
+});

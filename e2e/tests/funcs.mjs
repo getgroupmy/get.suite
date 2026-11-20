@@ -147,6 +147,8 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('P7', '=0.1+0.2');
   await typeIn('P8', '0.3');
   await expectCells({ P6: 'equal|2' }); // compared to 15 digits, as Excel does
+  await typeIn('P9', '=FIXED(-1234.5, 0, TRUE)&"|"&DOLLAR(-1.005, 2)&"|"&LEN(TRIM(CHAR(9)&"a  b"))');
+  await expectCells({ P9: '-1235|($1.01)|4' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

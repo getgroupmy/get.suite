@@ -918,7 +918,7 @@ const FUNCS = {
   LEN: ([v]) => toStr(v).length,
   UPPER: ([v]) => toStr(v).toUpperCase(),
   LOWER: ([v]) => toStr(v).toLowerCase(),
-  TRIM: ([v]) => toStr(v).trim().replace(/\s+/g, ' '),
+  TRIM: ([v]) => toStr(v).replace(/^ +| +$/g, '').replace(/ {2,}/g, ' '), // spaces only, as Excel (tabs and line breaks stay)
   LEFT: ([v, n]) => toStr(v).slice(0, toNum(n ?? 1)),
   RIGHT: ([v, n]) => { const s = toStr(v); return s.slice(Math.max(0, s.length - toNum(n ?? 1))); },
   AND: (a) => flat(a).every(toBool),
@@ -957,12 +957,12 @@ const FUNCS = {
   // DOLLAR(value, [places]): as money text, $1,234.57 (negative in brackets, as spreadsheets show it); places below 0 round to tens, hundreds…
   DOLLAR: ([v, places]) => {
     const d = places === undefined ? 2 : Math.trunc(toNum(places));
-    const n = roundTo(toNum(v), d, Math.round);
+    const n = FUNCS.ROUND([v, d]); // (halves away from zero, as written: -1.005 → -1.01)
     const [w, f] = Math.abs(n).toFixed(Math.max(0, d)).split('.');
     const txt = `$${w.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${f !== undefined ? `.${f}` : ''}`;
     return n < 0 ? `(${txt})` : txt;
   },
-  FIXED: ([v, places, noCommas]) => { const d = places === undefined ? 2 : toNum(places); const n = roundTo(v, d, Math.round); const txt = Math.abs(n).toFixed(Math.max(0, d)); const [w, f] = txt.split('.'); return `${n < 0 ? '-' : ''}${toBool(noCommas ?? false) ? w : w.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${f !== undefined ? `.${f}` : ''}`; },
+  FIXED: ([v, places, noCommas]) => { const d = places === undefined ? 2 : toNum(places); const n = FUNCS.ROUND([v, d]); const txt = Math.abs(n).toFixed(Math.max(0, d)); const [w, f] = txt.split('.'); return `${n < 0 ? '-' : ''}${toBool(noCommas ?? false) ? w : w.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${f !== undefined ? `.${f}` : ''}`; },
   COUNTUNIQUE: (a) => new Set(flat(a).filter((v) => v !== null && v !== '' && v !== undefined).map((v) => (typeof v === 'string' ? `s:${v.toLowerCase()}` : `${typeof v}:${v}`))).size,
   // Choosing and finding.
   CHOOSE: ([i, ...options]) => { const n = Math.floor(toNum(scalarOf(i))); if (n < 1 || n > options.length) err('#VALUE!'); return options[n - 1] ?? null; },
