@@ -1073,6 +1073,7 @@ const FUNCS = {
   IRR: ([flows, guess]) => { const f = nums([flows]); if (!f.some((x) => x > 0) || !f.some((x) => x < 0)) err('#NUM!'); return solve((r) => f.reduce((s, x, i) => s + x / (1 + r) ** i, 0), guess === undefined ? 0.1 : toNum(guess)); },
   RATE: ([n, payment, pv, fv, type, guess]) => {
     const N = toNum(n), P = toNum(payment), V = toNum(pv), F = toNum(fv ?? 0), T = toNum(type ?? 0) ? 1 : 0;
+    if (N <= 0) err('#NUM!'); // (no periods: no rate, as in Excel)
     return solve((r) => (Math.abs(r) < 1e-12 ? V + P * N + F : V * (1 + r) ** N + P * (1 + r * T) * (((1 + r) ** N - 1) / r) + F), guess === undefined ? 0.1 : toNum(guess));
   },
   NPER: ([rate, payment, pv, fv, type]) => {

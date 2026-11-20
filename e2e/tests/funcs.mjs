@@ -176,6 +176,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // LARGE of k 1.5 is the largest (it showed nothing); MODE of a tie is the first in the range
   await typeIn('P22', '=LARGE(P20:P21, 1.5)&"|"&MODE(3, 1, 4, 1, 3)');
   await expectCells({ P22: '2|3' });
+  // depreciation part-way through a period declines smoothly; no rate for a negative number of periods
+  await typeIn('P23', '=ROUND(DDB(10000, 1000, 5, 2.5), 2)&"|"&IFERROR(RATE(-5, 1000, 250000), "none")');
+  await expectCells({ P23: '1859.03|none' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

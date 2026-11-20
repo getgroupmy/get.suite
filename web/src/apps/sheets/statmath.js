@@ -170,6 +170,11 @@ export const capitalPart = (rate, per, n, pv, fv = 0, type = 0) => payment(rate,
 
 /** Double-declining (or any factor) balance depreciation in one period. */
 export function ddb(cost, salvage, life, period, factor = 2) {
+  if (!Number.isInteger(period)) {
+    // a part-way period (2.5): the book value declines smoothly, as Excel and LibreOffice work it out (it was period 3's)
+    const r = Math.min(1, factor / life), before = cost * (1 - (1 - r) ** (period - 1));
+    return Math.max(0, Math.min(cost * r * (1 - r) ** (period - 1), cost - salvage - before));
+  }
   let book = cost, dep = 0;
   for (let p = 1; p <= Math.ceil(period); p++) {
     dep = Math.min(book * (factor / life), Math.max(0, book - salvage));
