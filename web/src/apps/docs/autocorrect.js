@@ -19,6 +19,26 @@ export function substitute(word, subs) {
   return (subs || []).find((s) => s.from === word)?.to ?? null;
 }
 
+/** The input rule for your own replacements: the word is replaced when a space or punctuation follows it. */
+const subsRule = (on, subs) => new InputRule({
+  find: /(?:^|\s)(\S+)([\s.,;:!?])$/,
+  handler: ({ state, range, match }) => {
+    if (!on()) return null;
+    const to = substitute(match[1], subs());
+    if (to === null) return null;
+    // range covers the space (or line start) before the word, the word and the mark just typed: only the word changes
+    const start = range.from + match[0].length - match[1].length - match[2].length;
+    state.tr.insertText(to, start, start + match[1].length);
+  },
+});
+
+/** Only your own replacements (Mail's message box): options.subs() is read each time. */
+export const Replacements = Extension.create({
+  name: 'replacements',
+  addOptions() { return { subs: () => [] }; },
+  addInputRules() { return [subsRule(() => true, () => this.options.subs())]; },
+});
+
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
 /** The extension: options.enabled() and options.subs() are read each time, so changes apply at once. */
@@ -47,17 +67,7 @@ export const Autocorrect = Extension.create({
       },
     }));
     // Your own: the word is replaced when a space or punctuation follows it.
-    rules.push(new InputRule({
-      find: /(?:^|\s)(\S+)([\s.,;:!?])$/,
-      handler: ({ state, range, match }) => {
-        if (!on()) return null;
-        const to = substitute(match[1], this.options.subs());
-        if (to === null) return null;
-        // range covers the space (or line start) before the word, the word and the mark just typed: only the word changes
-        const start = range.from + match[0].length - match[1].length - match[2].length;
-        state.tr.insertText(to, start, start + match[1].length);
-      },
-    }));
+    rules.push(subsRule(on, () => this.options.subs()));
     return rules;
   },
 });

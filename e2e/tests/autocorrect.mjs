@@ -84,15 +84,40 @@ await step('Capitalisation changes the selected text and keeps its formatting', 
   await page.screenshot({ path: `${SP}/shots/autocorrect.png` });
   await until(async () => JSON.stringify(await saved()).includes('THE PLAN FOR '));
 });
+await step('your replacements work in Chat\'s message box too (Mail: mailtpl.mjs)', async () => {
+  const general = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  await page.goto(`${B}/chat/${general}`);
+  const box = page.getByLabel('Message', { exact: true });
+  await box.click();
+  await page.keyboard.type('Meet at addr, by the door');
+  await until(async () => (await box.inputValue()) === 'Meet at 12 High Street, Leeds, by the door');
+  // Typed in the middle, the caret stays where it was going
+  await page.keyboard.press('Home');
+  await page.keyboard.type('Hi addr ');
+  await until(async () => (await box.inputValue()) === 'Hi 12 High Street, Leeds Meet at 12 High Street, Leeds, by the door');
+  // Not a word that only starts with it
+  await box.fill('');
+  await page.keyboard.type('address ');
+  await until(async () => (await box.inputValue()) === 'address ');
+  await box.fill('');
+});
 await step('with autocorrect off, typing stays as it is', async () => {
   await api(page, 'PUT', '/doc-prefs', { autocorrect: false });
-  await page.reload();
+  await page.goto(`${B}/docs/${docId}`);
   await page.locator('.ProseMirror').getByText('Send it to').waitFor();
   await page.locator('.ProseMirror').click();
   await page.keyboard.press('Control+End');
   await page.keyboard.press('Enter');
   await page.keyboard.type('plain -- "quotes"');
   await until(async () => (await text()).includes('plain -- "quotes"'));
+  // and your replacements are off in Chat too
+  const general = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  await page.goto(`${B}/chat/${general}`);
+  const box = page.getByLabel('Message', { exact: true });
+  await box.click();
+  await page.keyboard.type('addr ');
+  await page.waitForTimeout(300);
+  if ((await box.inputValue()) !== 'addr ') throw new Error(await box.inputValue());
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

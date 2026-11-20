@@ -59,6 +59,18 @@ await step('no templates yet: Import templates… reads a templates.json; Export
   await page.getByRole('menuitem', { name: 'Late', exact: true }).click();
   await page.getByText('Ten minutes late.').first().waitFor();
 });
+await step('your own replacements from Docs → Preferences work in the message box', async () => {
+  await api(page, 'PUT', '/doc-prefs', { subs: [{ from: 'addr', to: '12 High Street, Leeds' }] });
+  await page.goto(`${B}/mail`);
+  const body = page.getByRole('textbox', { name: 'Message' });
+  // (the earlier step's draft opens again; otherwise a new message)
+  await page.waitForTimeout(800);
+  if (!(await body.count())) await page.getByRole('button', { name: 'Compose' }).click();
+  await body.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type(' Please send it to addr. Thanks');
+  await until(async () => (await body.innerText()).includes('Please send it to 12 High Street, Leeds. Thanks'));
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

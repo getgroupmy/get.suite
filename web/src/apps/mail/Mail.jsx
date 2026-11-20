@@ -1,4 +1,6 @@
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
+import { Replacements } from '../docs/autocorrect.js';
+import { useReplacements } from '../../components/useReplacements.js';
 import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
 import { mailSentences } from './readmail.js';
 import { pictureHasQr, picturesOf, pdfHasQr, pdfsOf } from './qrscan.js';
@@ -2204,6 +2206,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   }
 
   const emojiKeys = useRef(null); // the :emoji list's keys, while it's open
+  const subsRef = useReplacements();
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https' } }),
@@ -2219,6 +2222,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       TextAlign.configure({ types: ['paragraph'], alignments: ['left', 'center', 'right'] }),
       Indent,
       SignatureBlock,
+      // Your own replacements from Docs → Preferences ("addr" → your address)
+      Replacements.configure({ subs: () => subsRef.current }),
     ],
     content: initialHtml,
     editorProps: {
