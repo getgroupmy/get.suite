@@ -2,7 +2,7 @@
 // working cell by cell over ranges (=LEN(A1:A3)), checked against the values Excel gives.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEvaluator } from './formula.js';
+import { createEvaluator, bookEvaluator } from './formula.js';
 import { parseDateText, parseTimeText, yearFrac, normInv, tInv, gammaP, betaI } from './statmath.js';
 
 const ev = (cells) => createEvaluator(cells);
@@ -275,4 +275,31 @@ test('DOLLAR: money text with thousands separators, negatives in brackets, place
   assert.equal(one('=DOLLAR(1234.567, -2)'), '$1,200');
   assert.equal(one('=DOLLAR(0.5)'), '$0.50');
   assert.equal(one('=DOLLAR(1000000)'), '$1,000,000.00');
+});
+test('ISDATE, EPOCHTODATE, ISREF and CELL', () => {
+  assert.equal(one('=ISDATE(DATE(2026, 1, 2))'), true);
+  assert.equal(one('=ISDATE("2026-11-20 14:30")'), true);
+  assert.equal(one('=ISDATE("hello")'), false);
+  assert.equal(one('=ISDATE(5)'), false);
+  assert.equal(one('=EPOCHTODATE(1700000000)'), '2023-11-14 22:13:20');
+  assert.equal(one('=EPOCHTODATE(1700000000000, 2)'), '2023-11-14 22:13:20');
+  assert.equal(one('=EPOCHTODATE(86400000000, 3)'), '1970-01-02');
+  assert.deepEqual(one('=EPOCHTODATE(-1)'), { error: '#NUM!' });
+  assert.deepEqual(one('=EPOCHTODATE(1, 4)'), { error: '#NUM!' });
+  assert.equal(one('=ISREF(A1)'), true);
+  assert.equal(one('=ISREF(B2:C3)'), true);
+  assert.equal(one('=ISREF(OFFSET(A1, 1, 1))'), true);
+  assert.equal(one('=ISREF(5)'), false);
+  assert.equal(one('=ISREF("A1")'), false);
+  const cells = { A1: 'hi', A2: '42' };
+  assert.equal(one('=CELL("address", B3:C4)', cells), '$B$3');
+  assert.equal(one('=CELL("row", B3)', cells), 3);
+  assert.equal(one('=CELL("col", C9)', cells), 3);
+  assert.equal(one('=CELL("contents", A1:A3)', cells), 'hi');
+  assert.equal(one('=CELL("contents", OFFSET(A1, 1, 0))', cells), 42);
+  assert.deepEqual([one('=CELL("type", A1)', cells), one('=CELL("type", A2)', cells), one('=CELL("type", A9)', cells)], ['l', 'v', 'b']);
+  assert.deepEqual(one('=CELL("width", A1)', cells), { error: '#VALUE!' });
+  const book = bookEvaluator([{ name: 'Main', cells: { A1: '=CELL("address", \'Q4 sales\'!B2)', A2: '=CELL("contents", \'Q4 sales\'!B2:C3)', A3: '=ISREF(\'Q4 sales\'!B2)' } },
+    { name: 'Q4 sales', cells: { B2: '7' } }], 0);
+  assert.deepEqual([book('A1'), book('A2'), book('A3')], ["'Q4 sales'!$B$2", 7, true]);
 });

@@ -1382,6 +1382,13 @@ Object.assign(FUNCS, {
   DATEVALUE: ([v]) => (dateMs(v) - EXCEL_EPOCH) / DAY_MS,
   TIMEVALUE: ([v]) => { if (typeof v === 'number') return v - Math.floor(v); const t = parseTimeText(toStr(v)); if (t === null) err('#VALUE!'); return t; },
   TO_DATE: ([v]) => (typeof v === 'number' ? serialDate(v) : v),
+  ISDATE: ([v]) => dateSerial(v) !== null,
+  // A Unix time (seconds since 1 January 1970, UTC; unit 2 for milliseconds, 3 for microseconds) as a date and time.
+  EPOCHTODATE: ([t, unit]) => {
+    const u = given(unit) ? Math.trunc(toNum(unit)) : 1, x = toNum(t);
+    if (u < 1 || u > 3 || x < 0) err('#NUM!');
+    return serialDate((Date.UTC(1970, 0, 1) - EXCEL_EPOCH) / DAY_MS + x / [1, 1e3, 1e6][u - 1] / 86400);
+  },
   YEARFRAC: ([start, end, basis]) => { const b = given(basis) ? Math.trunc(toNum(basis)) : 0; if (b < 0 || b > 4) err('#NUM!'); return yearFrac(dateMs(start), dateMs(end), b); },
   // text and information
   ISURL: ([v]) => typeof v === 'string' && /^(https?|ftp):\/\/[^\s/$.?#][^\s]*$|^(www\.)[^\s.]+\.[^\s]+$/i.test(v.trim()),
@@ -1722,10 +1729,10 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE', 'ISFORMULA', 'FORMULATEXT']);
+const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ISFORMULA', 'FORMULATEXT'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 /**
@@ -2094,6 +2101,24 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           const raw = cells[cellKey(at.c, at.r)];
           const isFormula = typeof raw === 'string' && raw.startsWith('=');
           return n.name === 'ISFORMULA' ? isFormula : isFormula ? raw : err('#N/A');
+        }
+        if (n.name === 'ISREF') { // whether it's a reference (A1, Data!B2:C4, a named range, OFFSET, INDIRECT), not a value
+          if (n.args.length !== 1) err('#N/A');
+          try { refOf(n.args[0]); return true; } catch { return false; }
+        }
+        if (n.name === 'CELL') { // CELL("address" | "row" | "col" | "contents" | "type", a reference): about its top left cell
+          if (n.args.length !== 2) err('#N/A');
+          const what = toStr(scalar(evaluate(n.args[0]))).trim().toLowerCase();
+          const at = refOf(n.args[1]);
+          if (what === 'row') return at.a.r + 1;
+          if (what === 'col') return at.a.c + 1;
+          if (what === 'address') return `${at.sheet ? `${sheetPrefix(at.sheet)}!` : ''}$${colName(at.a.c)}$${at.a.r + 1}`;
+          if (what !== 'contents' && what !== 'type') err('#VALUE!');
+          const v = evaluate(n.args[1].k === 'range' || n.args[1].k === 'xref' || n.args[1].k === 'call'
+            ? { k: at.sheet ? 'xref' : 'ref', sheet: at.sheet, ref: at.a, a: at.a, b: at.a, one: true } : n.args[1]);
+          const top = Array.isArray(v) ? (Array.isArray(v[0]) ? v[0][0] : v[0]) : v;
+          if (what === 'contents') return top ?? '';
+          return top === null || top === undefined || top === '' ? 'b' : typeof top === 'string' ? 'l' : 'v';
         }
         const f = FUNCS[n.name];
         if (!f) {
