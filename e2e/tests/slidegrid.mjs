@@ -100,6 +100,23 @@ await step('choose several in the grid and copy them to another presentation, or
   if (await page.getByRole('button', { name: 'Slide 3', exact: true }).count()) throw new Error('more than the two');
   if ((await order()) !== 'S1,S2,S3,S4,S5') throw new Error('the original changed');
 });
+await step('Copy link to slide: the link opens the presentation on that slide', async () => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByRole('button', { name: 'Slide 3', exact: true }).click();
+  await page.getByRole('button', { name: 'Options for slide 3' }).click();
+  await page.getByRole('menuitem', { name: 'Copy link to slide' }).click();
+  await page.locator('.toast', { hasText: 'Link to slide 3 copied' }).waitFor();
+  const url = await page.evaluate(() => navigator.clipboard.readText());
+  const third = (await api(page, 'GET', `/files/${deck.id}/content`)).body.content.slides[2];
+  if (url !== `${B}/slides/${deck.id}#slide=${third.id}`) throw new Error(url);
+  await page.goto(`${B}/drive`);
+  await page.goto(url);
+  await page.getByText('Slide 3 of 5').waitFor();
+  await page.goto(`${B}/drive`); // (a new page: the same address with another #… only moves within it)
+  await page.goto(`${B}/slides/${deck.id}#slide=gone-slide`);
+  await page.locator('.toast', { hasText: 'That slide is no longer in the presentation' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

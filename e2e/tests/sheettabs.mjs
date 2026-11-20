@@ -183,6 +183,19 @@ await step('Copy to a new spreadsheet: Kim\'s picture in a cell comes as a copy 
   await page.waitForURL((u) => !u.pathname.endsWith(kimBook.id));
   await until(() => page.locator('[data-k="A1"] img.cell-img').evaluate((img) => img.complete && img.naturalWidth === 40).catch(() => false), 10000);
 });
+await step('Copy link to sheet: the link opens the spreadsheet on that sheet', async () => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await until(async () => (await tabs(page)).includes('Plan'));
+  await menu('Plan', 'Copy link to sheet');
+  await page.locator('.toast', { hasText: 'Link to “Plan” copied' }).waitFor();
+  const url = await page.evaluate(() => navigator.clipboard.readText());
+  if (url !== `${B}/sheets/${sheet.id}#sheet=Plan`) throw new Error(url);
+  await page.goto(`${B}/drive`);
+  await page.goto(url);
+  // Plan's A1 is =Budget!B1*2: the sheet that opens is Plan
+  await page.locator('[data-k="A1"]').getByText('1800').waitFor();
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

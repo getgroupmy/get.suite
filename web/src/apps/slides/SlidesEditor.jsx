@@ -1,5 +1,6 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
+import { placeInHash, placeLink } from '../../components/placelink.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Captions, { canCaption } from './Captions.jsx';
 import { SlideFind } from './SlideFind.jsx';
@@ -135,6 +136,16 @@ export default function SlidesEditor() {
     setPanel(true);
     setPending({ anchor: { slide: deck.slides[slideIndex].id }, label: `slide ${slideIndex + 1}`, onCreated: () => setPending(null), onCancel: () => setPending(null) });
   };
+  // Opened from a link to one of its slides (#slide=…): that slide, once the presentation is in.
+  const slideJumped = useRef(false);
+  useEffect(() => {
+    if (slideJumped.current || !deck?.slides) return;
+    slideJumped.current = true;
+    const sid = placeInHash(window.location.hash, 'slide');
+    if (!sid) return;
+    const at = deck.slides.findIndex((x) => x.id === sid);
+    if (at >= 0) setCurrent(at); else toast('That slide is no longer in the presentation', 'error');
+  }, [deck]); // eslint-disable-line react-hooks/exhaustive-deps
   const goTo = (i) => { setCurrent(Math.max(0, Math.min(deckRef.current.slides.length - 1, i))); setSelected(null); setEditing(null); };
   // Opened from a mention (?comment=…): go to that comment's slide once it's known.
   const jumped = useRef(false);
@@ -584,6 +595,10 @@ export default function SlidesEditor() {
               {!readOnly && (
                 <Menu trigger={(p) => <button type="button" className="icon-btn thumb-menu" aria-label={`Options for slide ${i + 1}`} {...p}><Icon name="more" size={16} /></button>} items={[
                   { label: 'Duplicate', onClick: slideAction((d) => duplicateSlide(d, i)) },
+                  { label: 'Copy link to slide', icon: 'link', onClick: async () => {
+                    const url = placeLink(window.location.origin, `/slides/${id}`, 'slide', deck.slides[i].id);
+                    try { await navigator.clipboard.writeText(url); toast(`Link to slide ${i + 1} copied`); } catch { window.prompt('Copy this link', url); }
+                  } },
                   { label: 'Copy to another presentation…', onClick: () => setDialog({ type: 'copy-slide-to', slide: deck.slides[i].id, number: i + 1 }) },
                   { label: 'Copy to a new presentation', onClick: async () => {
                     try {

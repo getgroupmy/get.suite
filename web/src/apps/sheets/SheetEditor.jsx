@@ -1,4 +1,5 @@
 import { pasteSpecial, PASTE_MODES } from './paste.js';
+import { placeInHash, placeLink } from '../../components/placelink.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, patch, post, put } from '../../api.js';
@@ -241,6 +242,16 @@ export default function SheetEditor() {
     if (!fvSeen.current) { fvSeen.current = true; if (at !== active) setActive(at); return; }
     if (at !== active) setFv(null);
   }, [data, active, fv]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opened from a link to one of its sheets (#sheet=its name): that sheet, once the spreadsheet is in.
+  const sheetJumped = useRef(false);
+  useEffect(() => {
+    if (sheetJumped.current || !data?.sheets) return;
+    sheetJumped.current = true;
+    const name = placeInHash(window.location.hash, 'sheet');
+    if (!name) return;
+    const at = data.sheets.findIndex((x) => x.name === name);
+    if (at >= 0) setActive(at); else toast(`There’s no sheet called “${name}” any more`, 'error');
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   const hide = sheet?.hide || null; // rows and columns hidden by hand
   const groups = sheet?.groups || null; // grouped rows and columns (collapsed ones are hidden too)
   const slicers = sheet?.slicers || {};
@@ -1468,6 +1479,10 @@ export default function SheetEditor() {
                 { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename-sheet', index: i }) },
                 { label: 'Tab colour…', onClick: () => setDialog({ type: 'tab-colour', index: i }) },
                 data.sheets.filter((x) => !x.hidden).length > 1 && { label: 'Hide sheet', onClick: () => { writeSheet(() => ({ hidden: true })); const next = data.sheets.findIndex((x, j) => j !== i && !x.hidden); setActive(next); setSel({ c: 0, r: 0 }); setAnchor(null); } },
+                { label: 'Copy link to sheet', icon: 'link', onClick: async () => {
+                  const url = placeLink(window.location.origin, `/sheets/${file.id}`, 'sheet', s.name);
+                  try { await navigator.clipboard.writeText(url); toast(`Link to “${s.name}” copied`); } catch { window.prompt('Copy this link', url); }
+                } },
                 { label: 'Copy to another spreadsheet…', onClick: () => setDialog({ type: 'copy-to', index: i }) },
                 { label: 'Copy to a new spreadsheet', onClick: async () => {
                   try {
