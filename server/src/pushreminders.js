@@ -3,7 +3,7 @@
 // repeating ones too) go to their devices. Not to someone who has Workspace open right now: the open
 // app shows its own (eventReminders.js), so it isn't shown twice. Each is sent once.
 import { q } from './db.js';
-import { expand } from './calmath.js';
+import { expand } from './calserver.js';
 import { outEvent } from './routes/calendar.js';
 import { pushTo } from './push.js';
 import { onlineUserIds } from './hub.js';

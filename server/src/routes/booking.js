@@ -13,7 +13,7 @@ import { sendTo } from '../hub.js';
 import { zoneOrUtc } from '../ics.js';
 import { hoursOf, withinHours, hoursText } from '../workhours.js';
 import { freeSlots as openSlots } from '../freeslots.js';
-import { expand } from '../calmath.js';
+import { expand } from '../calserver.js';
 import { seesDetails, sharesOf, setShares } from '../calshare.js';
 import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.js';
 import { mailEnabled } from '../mail/config.js';

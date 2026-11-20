@@ -94,7 +94,9 @@ function zoneFormat(tz) {
   return fmts.get(tz);
 }
 /** The zone a repeating event is worked out in: its own (timed events), else this browser's. */
-const zoneOf = (ev) => (!ev.all_day && ev.tz && zoneFormat(ev.tz) ? ev.tz : localZone());
+// An all-day event runs midnight to midnight where it's seen (in a browser: its own zone); the server, on another clock,
+// says where with dayZone (the zone it was made in).
+const zoneOf = (ev) => (!ev.all_day && ev.tz && zoneFormat(ev.tz) ? ev.tz : ev.all_day && ev.dayZone && zoneFormat(ev.dayZone) ? ev.dayZone : localZone());
 /** { y, m (0-11), d, h, mi, s, ms, wd } of `t` in zone `tz`. */
 export function wallClock(t, tz) {
   if (tz === localZone()) { const d = new Date(t); return { y: d.getFullYear(), m: d.getMonth(), d: d.getDate(), h: d.getHours(), mi: d.getMinutes(), s: d.getSeconds(), ms: d.getMilliseconds(), wd: d.getDay() }; }

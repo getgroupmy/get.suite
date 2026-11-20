@@ -3,7 +3,7 @@
 // most lately. Only files you can still open; at most 8.
 import { q } from './db.js';
 import { roleFor } from './access.js';
-import { expand } from './calmath.js';
+import { expand } from './calserver.js';
 import { outEvent } from './routes/calendar.js';
 
 const DAY = 864e5;

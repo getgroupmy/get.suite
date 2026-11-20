@@ -16706,3 +16706,25 @@ test('activity log search: accents don\'t matter (a file named Résumé Noël fo
   const e = (await owner('GET', '/api/audit?q=resume%20noel')).body.entries;
   assert.ok(e.some((x) => x.target === 'Résumé Noël'), JSON.stringify(e.slice(0, 2)));
 });
+
+test('all-day repeats on the server: worked out in the zone they were made in, not on the server\'s clock', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const { expand } = await import('../src/calserver.js');
+  const kim = client();
+  await owner('POST', '/api/users', { local: 'kl', domain: 'acme.com', name: 'Kim Lee', password: 'password123' });
+  await login(kim, 'kl@acme.com');
+  await kim('PUT', '/api/users/me/digest', { hour: null, tz: 'Asia/Kuala_Lumpur' });
+  // Every Monday, all day, from Monday 7 December in Kuala Lumpur (midnight there: 16:00 on Sunday UTC)
+  const start = Date.UTC(2026, 11, 6, 16);
+  const made = await kim('POST', '/api/events', { title: 'Gym day', start, end: start + 864e5 - 1, all_day: 1, tz: 'Asia/Kuala_Lumpur', rrule: { freq: 'weekly', byday: [1] } });
+  assert.equal(made.status, 201);
+  const kl = (t) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(t));
+  assert.deepEqual(expand(made.body, start, start + 15 * 864e5).map((o) => `${kl(o.start)}–${kl(o.end)}`), ['Mon 7, 00:00–Mon 7, 23:59', 'Mon 14, 00:00–Mon 14, 23:59', 'Mon 21, 00:00–Mon 21, 23:59']);
+  assert.equal('dayZone' in expand(made.body, start, start + 864e5)[0], false, 'nothing extra on what\'s handed on');
+  // The morning summary on Monday 14 December (9:00 there) has it; on Tuesday the 15th it doesn't.
+  assert.match(digestFor(made.body.owner_id, Date.UTC(2026, 11, 14, 1)).text, /Here's Monday 14 December[\s\S]*All day {2}Gym day/);
+  assert.doesNotMatch(digestFor(made.body.owner_id, Date.UTC(2026, 11, 15, 1)).text, /Gym day/);
+  // In a browser (no dayZone) an all-day event is still worked out in the browser's own zone, as before.
+  const { expand: inBrowser } = await import('../src/calmath.js');
+  assert.deepEqual(inBrowser({ ...made.body }, start, start + 8 * 864e5).map((o) => new Date(o.start).toISOString()), ['2026-12-07T16:00:00.000Z'], 'on this UTC clock: Monday 16:00');
+});

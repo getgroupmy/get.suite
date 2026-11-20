@@ -4,7 +4,7 @@
 // their own mailbox to itself, so it needs this server's email to be on.
 import { workloadOf } from './taskworkload.js';
 import { q } from './db.js';
-import { expand } from './calmath.js';
+import { expand } from './calserver.js';
 import { zonedToUtc, zoneOrUtc } from './ics.js';
 import { outEvent } from './routes/calendar.js';
 import { mailEnabled } from './mail/config.js';

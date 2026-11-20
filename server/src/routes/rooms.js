@@ -6,7 +6,7 @@ import express, { Router } from 'express';
 import { parseCsv } from '../contactfiles.js';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
-import { expand } from '../calmath.js';
+import { expand } from '../calserver.js';
 import { outEvent, touch } from './calendar.js';
 import { notify } from '../notifications.js';
 

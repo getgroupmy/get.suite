@@ -3,7 +3,7 @@
 // planned, and the event's window can open the task.
 import { q } from './db.js';
 import { uid, now, bad } from './util.js';
-import { expand } from './calmath.js';
+import { expand } from './calserver.js';
 import { outEvent, touch } from './routes/calendar.js';
 
 if (!q('PRAGMA table_info(events)').all().some((c) => c.name === 'task_id')) q('ALTER TABLE events ADD COLUMN task_id TEXT').run();

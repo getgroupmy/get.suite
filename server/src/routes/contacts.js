@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { binAndDelete, restoreFromBin } from '../recyclebin.js';
-import { expand } from '../calmath.js';
+import { expand } from '../calserver.js';
 import { outEvent } from './calendar.js';
 import { q, tx, fold } from '../db.js';
 import express from 'express';
