@@ -165,7 +165,13 @@ const toNum = (v) => {
   if (Number.isNaN(n)) err('#VALUE!');
   return n;
 };
-const toStr = (v) => (v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : isErr(v) ? raise(v) : String(v));
+/** A number as text, as Excel writes it: 15 significant digits (0.1+0.2 is "0.3"), exponents as E+21 and E-07. */
+export const numText = (n) => {
+  if (!Number.isFinite(n)) return String(n);
+  const r = Number(n.toPrecision(15));
+  return String(Object.is(r, -0) ? 0 : r).replace(/e([+-])(\d+)$/, (m, sign, d) => `E${sign}${d.padStart(2, '0')}`);
+};
+const toStr = (v) => (v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : isErr(v) ? raise(v) : typeof v === 'number' ? numText(v) : String(v));
 const toBool = (v) => (typeof v === 'string' ? v.toUpperCase() === 'TRUE' || (v !== '' && v.toUpperCase() !== 'FALSE' && toNum(v) !== 0) : !!toNum(v));
 const flat = (args) => { const out = args.flat(Infinity); for (const v of out) if (isErr(v)) raise(v); return out; };
 const nums = (args) => flat(args).filter((v) => typeof v === 'number');
@@ -403,7 +409,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'GROUPBY', 'PIVOTBY', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN', 'ARRAYFORMULA', 'MMULT', 'SORTN', 'TREND', 'GROWTH', 'LINEST', 'LOGEST']);
+const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'GROUPBY', 'PIVOTBY', 'TRIMRANGE', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN', 'ARRAYFORMULA', 'MMULT', 'SORTN', 'TREND', 'GROWTH', 'LINEST', 'LOGEST']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -457,6 +463,8 @@ function stack(arrays, across) {
 
 // ---- helpers for reshaping arrays and for numbers in other bases
 const given = (v) => v !== undefined && v !== null;
+/** What a LAMBDA's parameter holds when it isn't given (ISOMITTED is TRUE for it; it reads as an empty cell). */
+const OMITTED = Symbol('omitted');
 /** For securities: settlement and maturity (as days), the fraction of a year between them by the day count, and the days. */
 function securityTerm(settlement, maturity, basis) {
   const s = Math.floor(dateMs(settlement) / DAY_MS), m = Math.floor(dateMs(maturity) / DAY_MS), b = given(basis) && basis !== '' ? Math.trunc(toNum(basis)) : 0;
@@ -1678,6 +1686,20 @@ Object.assign(FUNCS, {
   },
   // arrays
   ARRAYFORMULA: ([v]) => v,
+  // TRIMRANGE(range, [rows], [columns]): the range without its empty rows and columns at the edges
+  // (0 none, 1 at the start, 2 at the end, 3 both, the default).
+  TRIMRANGE: ([range, tr, tc]) => {
+    const rows = rowsOf(range), how = (v) => { const k = given(v) && v !== '' ? Math.trunc(toNum(v)) : 3; if (k < 0 || k > 3) err('#VALUE!'); return k; };
+    const r = how(tr), c = how(tc), blank = (v) => v === null || v === undefined || v === '';
+    let top = 0, bottom = rows.length - 1, left = 0, right = (rows[0]?.length ?? 0) - 1;
+    const emptyRow = (i) => rows[i].every(blank), emptyCol = (j) => rows.every((row) => blank(row[j]));
+    if (r & 1) while (top <= bottom && emptyRow(top)) top++;
+    if (r & 2) while (bottom >= top && emptyRow(bottom)) bottom--;
+    if (c & 1) while (left <= right && emptyCol(left)) left++;
+    if (c & 2) while (right >= left && emptyCol(right)) right--;
+    if (top > bottom || left > right) err('#REF!');
+    return grid(rows.slice(top, bottom + 1).map((row) => row.slice(left, right + 1)));
+  },
   MMULT: ([a, b]) => {
     const x = rowsOf(a), y = rowsOf(b);
     if (!x.length || !y.length || x[0].length !== y.length) err('#VALUE!');
@@ -2107,10 +2129,10 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL', 'SHEET', 'SHEETS']);
+const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL', 'SHEET', 'SHEETS', 'ISOMITTED']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL', 'SHEET', 'SHEETS'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL', 'SHEET', 'SHEETS', 'ISOMITTED'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 /**
@@ -2412,7 +2434,7 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
         if (!other) err('#REF!');
         return other.named(n.v);
       }
-      case 'name': { for (let i = scopes.length - 1; i >= 0; i--) if (scopes[i].has(n.v)) return scopes[i].get(n.v); return namedValue(n.v); }
+      case 'name': { for (let i = scopes.length - 1; i >= 0; i--) if (scopes[i].has(n.v)) { const v = scopes[i].get(n.v); return v === OMITTED ? null : v; } return namedValue(n.v); }
       case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
@@ -2467,7 +2489,14 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           if (!at) err('#REF!');
           return (n.name === 'ROW' ? at.r : at.c) + 1;
         }
-        if (n.name === 'ROWS' || n.name === 'COLUMNS') { const s = shapeOf(evaluate(n.args[0])); return n.name === 'ROWS' ? s.rows : s.cols; }
+        if (n.name === 'ROWS' || n.name === 'COLUMNS') {
+          const a = n.args[0];
+          if (a && (a.k === 'ref' || a.k === 'range' || a.k === 'xref')) { // a reference's size, whatever is in its cells (errors too)
+            const r = refOf(a);
+            return n.name === 'ROWS' ? r.b.r - r.a.r + 1 : r.b.c - r.a.c + 1;
+          }
+          const s = shapeOf(evaluate(a)); return n.name === 'ROWS' ? s.rows : s.cols;
+        }
         if (n.name === 'LET' || n.name === 'LAMBDA' || LAMBDA_USERS[n.name]) return withNames(n);
         if (liftsArray(n)) return lifted(n);
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
@@ -2491,6 +2520,20 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           if (which === null || which === undefined) return 1; // a spreadsheet of one sheet
           const at = names.indexOf(String(which).toUpperCase());
           return at >= 0 ? at + 1 : err('#N/A');
+        }
+        if (n.name === 'ISOMITTED') { // whether a LAMBDA's parameter was left out: =LAMBDA(x, [y], IF(ISOMITTED(y), x, x*y))
+          const a = n.args[0];
+          if (n.args.length !== 1) err('#N/A');
+          if (a?.k !== 'name') return false;
+          for (let i = scopes.length - 1; i >= 0; i--) if (scopes[i].has(a.v)) return scopes[i].get(a.v) === OMITTED;
+          return false;
+        }
+        // A LAMBDA given a name with LET, called by it: =LET(add, LAMBDA(a, b, a+b), add(2, 3))
+        for (let i = scopes.length - 1; i >= 0; i--) {
+          if (!scopes[i].has(n.name)) continue;
+          const fn = scopes[i].get(n.name);
+          if (typeof fn !== 'function' || !fn.isLambda) err('#VALUE!');
+          return fn(...n.args.map((a) => (a.k === 'empty' ? undefined : evaluate(a))));
         }
         if (n.name === 'ISREF') { // whether it's a reference (A1, Data!B2:C4, a named range, OFFSET, INDIRECT), not a value
           if (n.args.length !== 1) err('#N/A');
@@ -2537,9 +2580,9 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
     if (!args.length) err('#VALUE!');
     const params = args.slice(0, -1).map(paramName), body = args[args.length - 1], closure = scopes;
     const fn = (...vals) => {
-      if (vals.length !== params.length) err('#N/A');
+      if (vals.length > params.length) err('#VALUE!');
       const saved = scopes;
-      scopes = [...closure, new Map(params.map((p, i) => [p, vals[i]]))];
+      scopes = [...closure, new Map(params.map((p, i) => [p, vals[i] === undefined ? OMITTED : vals[i]]))]; // (left out: ISOMITTED)
       try { return evaluate(body); } finally { scopes = saved; }
     };
     fn.isLambda = true;

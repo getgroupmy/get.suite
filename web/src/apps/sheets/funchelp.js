@@ -435,6 +435,8 @@ export const HELP = {
   ISURL: ['value', 'Whether the value is a web address'],
   ISEMAIL: ['value', 'Whether the value is an email address'],
   ISDATE: ['value', 'Whether the value is a date'],
+  ISOMITTED: ['parameter', 'In a LAMBDA: whether that parameter was left out when it was called'],
+  TRIMRANGE: ['range, [rows], [columns]', 'The range without its empty rows and columns at the edges (0 none, 1 start, 2 end, 3 both)'],
   SHEET: ['[value]', 'Which sheet it is (1 for the first): this one, a reference\'s, or the one named'],
   SHEETS: ['[reference]', 'How many sheets the spreadsheet has'],
   REGEXTEST: ['text, pattern, [case_sensitivity]', 'Whether the text matches a regular expression (1 ignores case)'],

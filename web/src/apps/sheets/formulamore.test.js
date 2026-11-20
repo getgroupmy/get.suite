@@ -473,3 +473,37 @@ test('PIVOTBY: a row per row field, a column per column field, totals both ways'
   assert.deepEqual(one('=PIVOTBY(A1:B6, B1:B6, C1:C6, SUM)', cells), { error: '#VALUE!' }, 'one row field');
   assert.deepEqual(one('=PIVOTBY(A2:A6, B2:B5, C2:C6, SUM)', cells), { error: '#VALUE!' });
 });
+test('a LAMBDA named with LET is called by its name; parameters can be left out (ISOMITTED); TRIMRANGE', () => {
+  assert.equal(one('=LET(add, LAMBDA(a, b, a+b), add(2, 3))'), 5);
+  assert.equal(one('=LET(f, LAMBDA(x, LET(g, LAMBDA(y, x*y), g(3))), f(4))'), 12, 'a LAMBDA inside, using the outer one\'s x');
+  assert.equal(one('=LET(sq, LAMBDA(x, x*x), SUM(MAP(B2:C2, sq)))', { B2: '3', C2: '4' }), 25, 'given to MAP by its name');
+  assert.equal(one('=LET(f, LAMBDA(x, y, IF(ISOMITTED(y), x*10, x+y)), f(2))'), 20);
+  assert.equal(one('=LET(f, LAMBDA(x, y, IF(ISOMITTED(y), x*10, x+y)), f(2, ))'), 20, 'an empty argument is left out too');
+  assert.equal(one('=LET(f, LAMBDA(x, y, IF(ISOMITTED(y), x*10, x+y)), f(2, 5))'), 7);
+  assert.deepEqual(one('=LET(f, LAMBDA(x, y, x+y), f(1, 2, 3))'), { error: '#VALUE!' }, 'too many');
+  assert.deepEqual(one('=LET(n, 5, n(2))'), { error: '#VALUE!' }, 'not a LAMBDA');
+  assert.equal(one('=ISOMITTED(A1)'), false);
+  const cells = { B2: '1', C2: '2', C3: '4' };
+  assert.equal(one('=ROWS(TRIMRANGE(A1:E9))&"x"&COLUMNS(TRIMRANGE(A1:E9))', cells), '2x2');
+  assert.equal(one('=SUM(TRIMRANGE(A1:E9))', cells), 7);
+  assert.equal(one('=ROWS(TRIMRANGE(A1:E9, 2, 0))', cells), 3, 'only empty rows at the end');
+  assert.equal(one('=COLUMNS(TRIMRANGE(A1:E9, 0, 1))', cells), 4, 'only empty columns at the start');
+  assert.deepEqual(one('=TRIMRANGE(F1:G3)', cells), { error: '#REF!' }, 'nothing left');
+  assert.deepEqual(one('=TRIMRANGE(A1:E9, 4)', cells), { error: '#VALUE!' });
+});
+test('numbers turned into text have 15 significant digits, as in Excel (0.1+0.2 joins as 0.3)', () => {
+  assert.equal(one('="x"&(0.1+0.2)'), 'x0.3');
+  assert.equal(one('=CONCATENATE(100*1.1)'), '110');
+  assert.equal(one('=LEN(0.1+0.2)'), 3);
+  assert.equal(one('=""&1/3'), '0.333333333333333');
+  assert.equal(one('=TEXTJOIN(",", TRUE, 0.1+0.2, 1/3)'), '0.3,0.333333333333333');
+  assert.equal(one('=""&1E+21'), '1E+21');
+  assert.equal(one('=""&1.234E-7'), '1.234E-07');
+  assert.equal(one('=LEFT(12345, 2)'), '12');
+});
+test('ROWS and COLUMNS of a reference count its size even with an error in it, as in Excel', () => {
+  const cells = { A1: '1', A2: '=1/0' };
+  assert.equal(one('=ROWS(A1:B9)', cells), 9);
+  assert.equal(one('=COLUMNS(A1:C9)', cells), 3);
+  assert.equal(one('=ROWS(A2)', cells), 1);
+});
