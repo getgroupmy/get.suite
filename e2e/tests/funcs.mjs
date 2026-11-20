@@ -143,6 +143,20 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // a value typed into SUM counts; text in cells doesn't
   await typeIn('P5', '=SUM(B2:B4, "5")&"|"&SUM(A2:B4)&"|"&COUNT("1", TRUE, A2)');
   await expectCells({ P5: '205|200|2' });
+  // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
+  await typeIn('Q1', '1,234');
+  await typeIn('Q2', '$5.50');
+  await page.waitForTimeout(800); // (edits close together are one Undo step)
+  await typeIn('Q3', '12.5%');
+  await expectCells({ Q3: '12.5%' });
+  await cell('Q3').click();
+  await page.keyboard.press('Control+z'); // Q3's number and its format together, in one step
+  await until(async () => (await text('Q3')) === '' && (await text('Q2')) === '$5.50');
+  await page.keyboard.press('Control+y');
+  await until(async () => (await text('Q3')) === '12.5%');
+  await typeIn('Q4', '=SUM(Q1:Q2)&"|"&Q3*8');
+  await expectCells({ Q1: '1,234', Q2: '$5.50', Q3: '12.5%', Q4: '1239.5|1' });
+  if (await cell('Q3').evaluate((td) => getComputedStyle(td).textAlign) !== 'right') throw new Error('a number lines up on the right');
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatNumber, mergeFormat, cellStyle, decimals } from './cellformat.js';
+import { formatNumber, mergeFormat, cellStyle, decimals, typedNumber } from './cellformat.js';
 
 const sp = (s) => s.replace(/[  ]/g, ' ');
 test('number formats show the value without changing it', () => {
@@ -82,4 +82,17 @@ test('text rotation: only the known ways, cleared like the rest', () => {
   assert.deepEqual(mergeFormat({}, { rot: 'up' }), { rot: 'up' });
   assert.deepEqual(mergeFormat({ rot: 'up' }, { rot: 'sideways' }), { rot: 'up' });
   assert.equal(mergeFormat({ rot: 'tiltup' }, { rot: null }), null);
+});
+
+test('typedNumber: numbers written with %, thousands or a currency become the number and its format', () => {
+  assert.deepEqual(typedNumber('50%'), { value: 0.5, fmt: { num: 'percent', dp: 0 } });
+  assert.deepEqual(typedNumber('33.3%'), { value: 0.333, fmt: { num: 'percent', dp: 1 } });
+  assert.deepEqual(typedNumber('-5%'), { value: -0.05, fmt: { num: 'percent', dp: 0 } });
+  assert.deepEqual(typedNumber('1,234'), { value: 1234, fmt: { num: 'number', dp: 0 } });
+  assert.deepEqual(typedNumber('1,234,567.50'), { value: 1234567.5, fmt: { num: 'number', dp: 2 } });
+  assert.deepEqual(typedNumber('$1,234.50'), { value: 1234.5, fmt: { num: 'currency', cur: 'USD', dp: 2 } });
+  assert.deepEqual(typedNumber('-€5'), { value: -5, fmt: { num: 'currency', cur: 'EUR', dp: 0 } });
+  assert.deepEqual(typedNumber('£-3.5'), { value: -3.5, fmt: { num: 'currency', cur: 'GBP', dp: 1 } });
+  assert.deepEqual(typedNumber('RM 12'), { value: 12, fmt: { num: 'currency', cur: 'MYR', dp: 0 } });
+  for (const t of ['1234', '12.5', 'abc', '1,23', '12,3456', '$5%', '5 apples', '', '2026-11-20', '1.234,5']) assert.equal(typedNumber(t), null, t);
 });

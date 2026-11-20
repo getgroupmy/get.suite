@@ -14,6 +14,26 @@ export const VALIGNS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 /** Default decimals for a format (currency: the currency's own, e.g. none for yen). */
+const CURRENCY_SIGNS = { $: 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY', RM: 'MYR', 'S$': 'SGD', 'A$': 'AUD', '₹': 'INR', '฿': 'THB', Rp: 'IDR' };
+/**
+ * A number typed the way people write them, as Excel and Google Sheets take it: "50%" (0.5, as a percentage),
+ * "1,234.50" (with thousands), "$1,234.50", "€5", "RM 12" (a currency), "-$5". The number and the format it
+ * suggests ({ num, dp, cur }), or null for anything else (plain numbers are already numbers).
+ */
+export function typedNumber(text) {
+  const m = /^\s*(-)?\s*(RM|S\$|A\$|Rp|[$€£¥₹฿])?\s*(-)?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+)\s*(%)?\s*$/.exec(String(text ?? ''));
+  if (!m) return null;
+  const [, neg1, sign, neg2, digits, pct] = m;
+  if (sign && pct) return null;
+  if (!sign && !pct && !digits.includes(',')) return null; // a plain number
+  const dp = (digits.split('.')[1] || '').length;
+  let value = Number(digits.replaceAll(',', ''));
+  if (pct) value = Number((value / 100).toPrecision(15));
+  if (neg1 || neg2) value = -value;
+  const fmt = pct ? { num: 'percent', dp } : sign ? { num: 'currency', cur: CURRENCY_SIGNS[sign], dp } : { num: 'number', dp };
+  return { value, fmt };
+}
+
 export function decimals(fmt) {
   if (Number.isInteger(fmt?.dp)) return fmt.dp;
   if (fmt?.num === 'currency') return new Intl.NumberFormat('en', { style: 'currency', currency: fmt.cur || 'MYR' }).resolvedOptions().maximumFractionDigits;

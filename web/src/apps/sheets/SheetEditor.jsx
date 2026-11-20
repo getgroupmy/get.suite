@@ -70,7 +70,7 @@ import { importBook, importWeb, onImports, refreshImports, refreshWeb } from './
 import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
-import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour } from './cellformat.js';
+import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -350,6 +350,20 @@ export default function SheetEditor() {
       const nextCells = { ...s.cells };
       for (const [k, v] of Object.entries(updates)) { if (v === '' || v == null) delete nextCells[k]; else nextCells[k] = v; }
       return { ...s, cells: nextCells };
+    });
+    commitData({ ...cur, sheets });
+  }
+
+  /** One cell's value and (when given) its number format, in one step (one Undo). */
+  function writeTyped(key, value, fmt) {
+    if (readOnly) return;
+    if (dataRef.current.sheets[active]?.pivot) { toast('This sheet is a pivot table: change it with Edit pivot table above', 'error'); return; }
+    const cur = dataRef.current;
+    const sheets = cur.sheets.map((s, i) => {
+      if (i !== active) return s;
+      if (!fmt) return { ...s, cells: { ...s.cells, [key]: value } };
+      const m = mergeFormat(s.formats?.[key], fmt);
+      return { ...s, cells: { ...s.cells, [key]: value }, formats: { ...(s.formats || {}), [key]: m } };
     });
     commitData({ ...cur, sheets });
   }
@@ -861,7 +875,10 @@ export default function SheetEditor() {
     const check = checkEntry(withChoices(validationAt(validations, key), valueOf), draft);
     if (check.error) { toast(check.error, 'error'); if (!keep) cancelEdit(); return; }
     if (check.warning) toast(`${check.warning}. It's kept, marked in red.`);
-    writeCells({ [key]: check.value });
+    // A number typed with %, thousands or a currency sign is kept as the number, in that format (unless the cell has one)
+    const typed = typeof check.value === 'string' && !check.value.startsWith('=') ? typedNumber(check.value) : null;
+    if (typed) writeTyped(key, String(typed.value), formats[key]?.num ? null : typed.fmt);
+    else writeCells({ [key]: check.value });
     closing.current = true;
     setEditing(null);
     if (typeof check.value === 'string' && check.value && !check.value.startsWith('=')) lastTyped.current = { c: sel.c, r: sel.r, sheet: active }; else lastTyped.current = null;
