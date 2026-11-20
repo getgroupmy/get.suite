@@ -16270,3 +16270,22 @@ test('Sheets: a copied sheet\'s pictures in cells are copied for the spreadsheet
   const c2 = (await owner('GET', `/api/files/${n.id}/content`)).body.content.sheets[0].cells.A1;
   assert.equal((await owner('GET', `/api/files/${n.id}/pictures/${/drive:([A-Za-z0-9_-]+)/.exec(c2)[1]}`)).status, 200, 'in a new spreadsheet too');
 });
+
+test('Slides: copy several slides at once, in the presentation\'s order, to another presentation or a new one', async () => {
+  const t = (id, text) => ({ id, items: [{ id: `${id}i`, type: 'text', text, x: 0, y: 0, w: 50, h: 10 }] });
+  const src = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Many slides', content: { slides: [t('a', 'One'), t('b', 'Two'), t('c', 'Three'), t('d', 'Four')] } })).body;
+  const dst = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Many target', content: { slides: [t('x', 'Mine')] } })).body;
+  let r = await owner('POST', `/api/files/${src.id}/slides/copy-to`, { slides: ['d', 'b'], target: dst.id });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.slide, r.body.count], [2, 2]);
+  const texts = (id) => owner('GET', `/api/files/${id}/content`).then((x) => x.body.content.slides.map((sl) => sl.items[0].text));
+  assert.deepEqual(await texts(dst.id), ['Mine', 'Two', 'Four'], 'in the original\'s order');
+  r = await owner('POST', `/api/files/${src.id}/slides/copy-to`, { slides: ['a', 'c'], new: true });
+  assert.equal(r.body.name, 'Many slides – 2 slides');
+  assert.deepEqual(await texts(r.body.id), ['One', 'Three']);
+  assert.equal((await owner('POST', `/api/files/${src.id}/slides/copy-to`, { slides: ['a', 'nope'], target: dst.id })).status, 404, 'all of them, or none');
+  assert.equal((await owner('POST', `/api/files/${src.id}/slides/copy-to`, { slides: [], target: dst.id })).status, 400);
+  assert.deepEqual(await texts(dst.id), ['Mine', 'Two', 'Four']);
+  // One by its own address still works
+  assert.equal((await owner('POST', `/api/files/${src.id}/slides/a/copy-to`, { target: dst.id })).body.slide, 4);
+});

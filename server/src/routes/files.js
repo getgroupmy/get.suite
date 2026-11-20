@@ -1983,39 +1983,51 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Copy one slide to the end of another presentation (or the same one), for someone who can edit both; open there,
   // it arrives live.
-  r.post('/:id/slides/:slide/copy-to', (req, res) => {
+  /**
+   * Copy slides (ids, in the presentation's order) to the end of another presentation (or the same one) for someone
+   * who can edit both, open there, they arrive live; or { new: true }: to a presentation of their own beside it,
+   * looking the same (its theme and master). Answers { id, name, slide (where the first went), count, slide_id }.
+   */
+  const copySlidesTo = (req, res, ids) => {
     const src = loadFile(req.params.id, req.user, 'editor');
     if (src.kind !== 'slides') throw bad('Only a presentation has slides');
     saveNow(src.id);
-    const slide = (JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}').slides || []).find((sl) => sl.id === req.params.slide);
-    if (!slide) throw notFound('No such slide');
-    if (req.body?.new) { // a presentation of its own with this slide, looking the same (its theme and master)
-      const deck = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}');
-      const number = deck.slides.findIndex((sl) => sl.id === slide.id) + 1;
-      let copy;
-      const n = newFileBeside(req, src, 'slides', `${src.name} – slide ${number}`, (nf) => {
-        [copy] = copiedSlides(src, [slide], req.user, nf);
+    const deck = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}');
+    const want = new Set(ids.map(String));
+    const chosen = (deck.slides || []).filter((sl) => want.has(sl.id));
+    if (!chosen.length || chosen.length !== want.size) throw notFound('No such slide');
+    if (chosen.length > 100) throw bad('Copy at most 100 slides at a time');
+    if (req.body?.new) {
+      const numbers = chosen.map((sl) => deck.slides.indexOf(sl) + 1);
+      let copies;
+      const n = newFileBeside(req, src, 'slides', numbers.length === 1 ? `${src.name} – slide ${numbers[0]}` : `${src.name} – ${numbers.length} slides`, (nf) => {
+        copies = copiedSlides(src, chosen, req.user, nf);
         const logo = deck.master?.logo && copiedMedia(src, [deck.master.logo], req.user, nf).get(deck.master.logo);
         const master = deck.master && { ...deck.master, ...(deck.master.logo && { logo: logo || undefined }) };
-        return { ...deck, ...(master && { master }), slides: [copy] };
+        return { ...deck, ...(master && { master }), slides: copies };
       });
-      audit(req, 'slide.copy_to', { target: n.name, details: { from: src.name, slide: 1, new: true } });
-      return res.status(201).json({ id: n.id, name: n.name, slide: 1, slide_id: copy.id, created: true });
+      audit(req, 'slide.copy_to', { target: n.name, details: { from: src.name, slide: 1, count: copies.length, new: true } });
+      return res.status(201).json({ id: n.id, name: n.name, slide: 1, count: copies.length, slide_id: copies[0].id, created: true });
     }
     const t = loadFile(String(req.body?.target || ''), req.user, 'editor');
     if (t.kind !== 'slides' || q('SELECT trashed FROM files WHERE id = ?').get(t.id)?.trashed) throw bad('Choose a presentation to copy it to');
     notLocked(t);
-    const [copy] = copiedSlides(src, [slide], req.user, t);
+    const copies = copiedSlides(src, chosen, req.user, t);
     let at = null;
-    changeDeck(t.id, (deck) => {
-      const slides = deck?.slides || [];
-      if (slides.length >= 500) return null;
+    changeDeck(t.id, (d) => {
+      const slides = d?.slides || [];
+      if (slides.length + copies.length > 500) return null;
       at = slides.length + 1;
-      return { ...(deck || {}), slides: [...slides, copy] };
+      return { ...(d || {}), slides: [...slides, ...copies] };
     }, req.user.id);
     if (!at) throw bad('That presentation has as many slides as it can hold');
-    audit(req, 'slide.copy_to', { target: t.name, details: { from: src.name, slide: at } });
-    res.status(201).json({ id: t.id, name: t.name, slide: at, slide_id: copy.id });
+    audit(req, 'slide.copy_to', { target: t.name, details: { from: src.name, slide: at, count: copies.length } });
+    res.status(201).json({ id: t.id, name: t.name, slide: at, count: copies.length, slide_id: copies[0].id });
+  };
+  r.post('/:id/slides/:slide/copy-to', (req, res) => copySlidesTo(req, res, [req.params.slide]));
+  r.post('/:id/slides/copy-to', (req, res) => {
+    if (!Array.isArray(req.body?.slides) || !req.body.slides.length) throw bad('Choose the slides to copy');
+    copySlidesTo(req, res, req.body.slides);
   });
 
   // Open a Word, Excel or PowerPoint file as a Docs, Sheets or Slides copy, next to it if you can

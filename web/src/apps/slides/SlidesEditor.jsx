@@ -541,6 +541,15 @@ export default function SlidesEditor() {
               <span className="muted small grow">{picked.size > 1 ? `${picked.size} slides selected` : 'Drag slides to put them in order. Ctrl or Shift-click to choose several.'}</span>
               <button type="button" className="btn small" disabled={!picked.size} onClick={() => { const list = pickedList(); change((d) => duplicateSlides(d, list)); const at = list[list.length - 1] + 1; setPicked(new Set(list.map((_, k) => at + k))); }}>Duplicate</button>
               <button type="button" className="btn small" disabled={!picked.size} onClick={() => { const list = pickedList(); const skip = !list.every((i) => deck.slides[i].skip); change((d) => ({ ...d, slides: d.slides.map((x, i) => (list.includes(i) ? { ...x, skip: skip || undefined } : x)) })); }}>Skip / show</button>
+              <Menu trigger={(p) => <button type="button" className="btn small" disabled={!picked.size} {...p}>Copy to ▾</button>} items={[
+                { label: 'Another presentation…', onClick: () => setDialog({ type: 'copy-slide-to', slides: pickedList().map((i) => deck.slides[i].id) }) },
+                { label: 'A new presentation', onClick: async () => {
+                  try {
+                    const r = await post(`/files/${id}/slides/copy-to`, { slides: pickedList().map((i) => deck.slides[i].id), new: true });
+                    toast(`Copied to a new presentation, “${r.name}”`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/slides/${r.id}`; } } });
+                  } catch (e) { toast(e.message || 'Couldn’t copy the slides', 'error'); }
+                } },
+              ]} />
               <button type="button" className="btn small danger" disabled={!picked.size} onClick={() => setDialog({ type: 'delete-slides', list: pickedList() })}>Delete</button>
             </div>
           )}
@@ -640,13 +649,13 @@ export default function SlidesEditor() {
       {dialog === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => (
         <div className="deck-preview">{(content?.slides || []).map((sl, n) => <div key={sl.id || n} className="deck-preview-slide"><span className="muted small">{n + 1}</span><SlideView slide={sl} theme={themeOf(content)} deckId={file.id} /></div>)}</div>
       )} renderChanges={(content) => <SlideChanges before={content} after={deckRef.current} theme={theme} deckId={file.id} />} />}
-      {dialog?.type === 'copy-slide-to' && <DrivePicker title={`Copy slide ${dialog.number} to a presentation`} empty="No presentations you can edit." accept={(x) => x.kind === 'slides' && (x.role === 'owner' || x.role === 'editor')}
+      {dialog?.type === 'copy-slide-to' && <DrivePicker title={dialog.slides ? `Copy ${dialog.slides.length} slides to a presentation` : `Copy slide ${dialog.number} to a presentation`} empty="No presentations you can edit." accept={(x) => x.kind === 'slides' && (x.role === 'owner' || x.role === 'editor')}
         onClose={() => setDialog(null)} onPick={async (t) => {
-          const slide = dialog.slide;
+          const { slide, slides } = dialog;
           setDialog(null);
           try {
-            const r = await post(`/files/${id}/slides/${encodeURIComponent(slide)}/copy-to`, { target: t.id });
-            toast(`Copied to “${r.name}” as slide ${r.slide}`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/slides/${r.id}`; } } });
+            const r = slides ? await post(`/files/${id}/slides/copy-to`, { slides, target: t.id }) : await post(`/files/${id}/slides/${encodeURIComponent(slide)}/copy-to`, { target: t.id });
+            toast(r.count > 1 ? `Copied ${r.count} slides to “${r.name}”, from slide ${r.slide}` : `Copied to “${r.name}” as slide ${r.slide}`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/slides/${r.id}`; } } });
           } catch (e) { toast(e.message || 'Couldn’t copy the slide', 'error'); }
         }} />}
       {dialog?.type === 'import-file' && <DrivePicker title="Import slides from a presentation" accept={(x) => x.kind === 'slides' && x.id !== id} empty="No other presentations found."

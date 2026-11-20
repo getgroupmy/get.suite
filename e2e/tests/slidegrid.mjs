@@ -74,6 +74,32 @@ await step('double-click opens a slide; the side list can be dragged too', async
   await side.getByRole('listitem').nth(4).dragTo(side.getByRole('listitem').nth(0), { targetPosition: { x: 40, y: 3 } });
   await until(async () => (await order()) === 'S1,S2,S3,S4,S5');
 });
+await step('choose several in the grid and copy them to another presentation, or a new one', async () => {
+  const board = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Board deck', content: { slides: [{ id: 'b1', items: [text('Mine')] }] } })).body;
+  const g = page.getByRole('list', { name: 'All slides' });
+  if (!(await g.count())) await page.getByRole('button', { name: '⊞ Grid view' }).click();
+  await g.getByRole('button', { name: 'Slide 2' }).click();
+  await g.getByRole('button', { name: 'Slide 4' }).click({ modifiers: ['Control'] });
+  await page.getByText('2 slides selected').waitFor();
+  const bar = page.getByRole('toolbar', { name: 'Selected slides' });
+  await bar.getByRole('button', { name: 'Copy to ▾' }).click();
+  await page.getByRole('menuitem', { name: 'Another presentation…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Copy 2 slides to a presentation' });
+  await dlg.getByLabel('Search your files').fill('Board deck');
+  await dlg.getByRole('button', { name: /Board deck/ }).click();
+  await page.locator('.toast', { hasText: 'Copied 2 slides to “Board deck”, from slide 2' }).waitFor();
+  const texts = async (id) => (await api(page, 'GET', `/files/${id}/content`)).body.content.slides.map((x) => x.items[0]?.text).join(',');
+  await until(async () => (await texts(board.id)) === 'Mine,S2,S4');
+  await bar.getByRole('button', { name: 'Copy to ▾' }).click();
+  await page.getByRole('menuitem', { name: 'A new presentation' }).click();
+  const t = page.locator('.toast', { hasText: 'Copied to a new presentation, “Pitch – 2 slides”' });
+  await t.waitFor();
+  await t.getByRole('button', { name: 'Open it' }).click();
+  await page.waitForURL((u) => !u.pathname.endsWith(deck.id));
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).waitFor();
+  if (await page.getByRole('button', { name: 'Slide 3', exact: true }).count()) throw new Error('more than the two');
+  if ((await order()) !== 'S1,S2,S3,S4,S5') throw new Error('the original changed');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
