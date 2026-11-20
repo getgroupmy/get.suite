@@ -5632,7 +5632,7 @@ test('forms: pictures on questions, seen by everyone who can fill the form in', 
   assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${unused.id}`)).status, 200, 'now used by an option');
 });
 
-test('forms: import questions from another form (new ids, section jumps kept with their sections, pictures only when they can show)', async () => {
+test('forms: import questions from another form (new ids, section jumps kept with their sections, others\' pictures copied for you)', async () => {
   const a = client(); const b = client();
   for (const local of ['fimpa', 'fimpb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
   await login(a, 'fimpa@acme.com'); await login(b, 'fimpb@acme.com');
@@ -5660,13 +5660,15 @@ test('forms: import questions from another form (new ids, section jumps kept wit
   assert.notEqual(diet.id, 'diet', 'a new id');
   assert.deepEqual(diet.goto, { Any: 'submit' });
   assert.deepEqual(diet.option_images, { Veg: mine.id }, 'A\'s own picture can show on A\'s form');
-  // All of them: the jump now points at the copied section; B's picture is left off.
+  // All of them: the jump now points at the copied section; B's picture comes as a copy of A's, which shows there.
   const all = (await a('POST', `/api/forms/${target.id}/import`, { from: src.id })).body;
   assert.equal(all.imported, 4);
-  assert.equal(all.pictures_left_off, 1);
+  assert.equal(all.pictures_left_off, 0);
   assert.equal(all.questions.length, 6);
   const [, , name, diet2, sec, kind] = all.questions;
-  assert.equal(name.title, 'Your name'); assert.equal(name.required, true); assert.equal(name.image, undefined);
+  assert.equal(name.title, 'Your name'); assert.equal(name.required, true);
+  assert.ok(name.image && name.image !== theirs.id, 'a copy of B\'s picture');
+  assert.equal((await a('GET', `/api/forms/${target.id}/pictures/${name.image}`)).status, 200, 'it shows on A\'s form');
   assert.equal(diet2.goto.Veg, sec.id);
   assert.equal(sec.after, 'submit');
   assert.equal(kind.title, 'Which?');
@@ -16365,4 +16367,28 @@ test('Make a copy, or a file from a template: pictures someone else owns are cop
   assert.notEqual(id4, pic.id);
   assert.equal((await bea('GET', `/api/files/${used.id}/pictures/${id4}`)).status, 200, 'from a template too');
   await owner('PUT', `/api/files/${doc.id}/template`, { template: false });
+});
+
+test('forms: an editor\'s copy of a form has the owner\'s pictures (and header) as copies of the editor\'s own, which show', async () => {
+  const ed = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'formcopyed', domain: 'acme.com', name: 'Form Editor', password: 'password123' })).status, 201);
+  await login(ed, 'formcopyed@acme.com');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=form-pic.png', png, { raw: true })).body;
+  const form = (await owner('POST', '/api/forms', { title: 'Pictured form' })).body;
+  await owner('PUT', `/api/forms/${form.id}`, { questions: [
+    { id: 'q1', type: 'short', title: 'Name', image: pic.id, image_alt: 'Logo' },
+    { id: 'q2', type: 'choice', title: 'Pick', options: ['A', 'B'], option_images: { A: pic.id } },
+  ], theme: { header: pic.id } });
+  assert.equal((await owner('POST', `/api/forms/${form.id}/editors`, { email: 'formcopyed@acme.com' })).status < 300, true);
+  const copy = (await ed('POST', `/api/forms/${form.id}/copy`)).body;
+  const [q1, q2] = copy.questions;
+  assert.ok(q1.image && q1.image !== pic.id);
+  assert.equal(q1.image_alt, 'Logo');
+  assert.equal(q2.option_images.A, q1.image, 'one copy for both');
+  assert.equal(copy.theme?.header, q1.image, 'the header too');
+  assert.equal((await ed('GET', `/api/forms/${copy.id}/pictures/${q1.image}`)).status, 200);
+  // The owner's own copy keeps the same pictures
+  const mine = (await owner('POST', `/api/forms/${form.id}/copy`)).body;
+  assert.equal(mine.questions[0].image, pic.id);
 });

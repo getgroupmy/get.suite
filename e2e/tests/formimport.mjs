@@ -76,6 +76,34 @@ await step('they\'re on the form, the jump goes to the copied section, and they 
   await page.getByRole('button', { name: 'Next' }).click();
   await page.getByRole('heading', { name: 'Veg details' }).waitFor();
 });
+await step('importing a colleague\'s question with their picture: it comes as a copy of yours, and shows on your form', async () => {
+  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
+  const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
+  const pic = await kim.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 60; c.height = 30; const g = c.getContext('2d'); g.fillStyle = '#8e24aa'; g.fillRect(0, 0, 60, 30);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return (await fetch('/api/files/upload?name=purple.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: blob })).json();
+  });
+  const kf = (await api(kim, 'POST', '/forms', { title: 'Kim survey' })).body;
+  await api(kim, 'PUT', `/forms/${kf.id}`, { questions: [{ id: 'logo', type: 'short', title: 'Which logo?', image: pic.id, image_alt: 'Purple logo' }] });
+  await api(kim, 'POST', `/forms/${kf.id}/editors`, { email: 'olivia@acme.com' });
+  await page.goto(`${B}/forms/${target.id}`);
+  await page.getByRole('textbox', { name: 'Form title' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Import questions…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Import questions' });
+  await dlg.getByLabel('From the form').selectOption({ label: 'Kim survey (Kim Park)' });
+  await dlg.getByRole('list', { name: 'Questions to import' }).getByText('Which logo?').waitFor();
+  await dlg.getByRole('button', { name: 'Import 1' }).click();
+  await page.getByText('1 question added at the end').waitFor();
+  const f = (await api(page, 'GET', `/forms/${target.id}`)).body;
+  const q = f.questions.find((x) => x.title === 'Which logo?');
+  if (!q.image || q.image === pic.id) throw new Error('not a copy: ' + q.image);
+  await page.reload(); // (in the editor: it's on the form's second page for people filling it in)
+  await page.getByRole('textbox', { name: 'Form title' }).waitFor();
+  await until(() => page.locator('img[alt="Purple logo"]').evaluate((i) => i.complete && i.naturalWidth === 60).catch(() => false), 10000);
+  await kim.close();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

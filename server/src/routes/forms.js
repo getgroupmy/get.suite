@@ -20,6 +20,7 @@ import { userFromToken, tokenFromReq } from '../auth.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
 import { insertFile, receiveUpload, cleanName } from './files.js';
+import { checkQuota } from '../tenancy.js';
 import { changeSheet } from '../collab.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -682,6 +683,40 @@ function sendPicture(form, picId, res, ownerSeesNew = null) {
   res.sendFile(path.join(FILES_DIR, file.storage));
 }
 
+/**
+ * Pictures for questions (and a header) going into a form `team` can show: ones its people own stay; ones only the
+ * original form's team (`srcTeam`) owns are copied for `user`, in their Drive; others are left off. Gives
+ * (pic) => the id to use, or null to leave it off. Copies are made once each.
+ */
+function picturesFor(team, srcTeam, user, fromTitle) {
+  const made = new Map();
+  return (pic) => {
+    const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pic);
+    if (!f || !PICTURE_TYPES.test(f.mime || '')) return null;
+    if (team.includes(f.owner_id)) return f.id;
+    if (!srcTeam.includes(f.owner_id)) return null; // the original couldn't show it either
+    if (!made.has(f.id)) {
+      checkQuota(user.org_id, f.size || 0, user.id);
+      const storage = uid();
+      try { fs.copyFileSync(path.join(FILES_DIR, f.storage), path.join(FILES_DIR, storage)); } catch { made.set(f.id, null); return null; }
+      made.set(f.id, insertFile({ owner: user.id, parentId: null, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: `${f.name} in the form ${fromTitle}` } } }));
+    }
+    return made.get(f.id);
+  };
+}
+/** Questions with their pictures as `use` gives them (left off when it gives null). Counts what was left off in `left.n`. */
+function questionsWithPictures(questions, use, left = { n: 0 }) {
+  return questions.map((qu) => {
+    const c = structuredClone(qu);
+    if (c.image) { const id = use(c.image); if (id) c.image = id; else { delete c.image; delete c.image_alt; left.n++; } }
+    if (c.option_images) {
+      for (const [o, pic] of Object.entries(c.option_images)) { const id = use(pic); if (id) c.option_images[o] = id; else { delete c.option_images[o]; left.n++; } }
+      if (!Object.keys(c.option_images).length) delete c.option_images;
+    }
+    return c;
+  });
+}
+
 const summaryRow = (f, me) => {
   const responses = countOf(f.id);
   return { id: f.id, title: f.title, token: f.token, audience: f.audience, accepting: !!f.accepting, closed: closedReason(f, Date.now(), responses),
@@ -881,18 +916,14 @@ export default function formRoutes() {
     const taken = new Set(f.questions.map((qu) => qu.id));
     const ids = new Map();
     for (const qu of picked) { let id; do id = crypto.randomBytes(5).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x'); while (taken.has(id)); taken.add(id); ids.set(qu.id, id); }
-    const team = new Set(teamOf(f));
-    const pictureOk = (pic) => !!q("SELECT 1 FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pic) && team.has(q('SELECT owner_id FROM files WHERE id = ?').get(pic).owner_id);
-    let picturesLeft = 0;
-    const copied = picked.map((qu) => {
-      const c = structuredClone(qu);
-      c.id = ids.get(qu.id);
+    const left = { n: 0 };
+    const copied = questionsWithPictures(picked, picturesFor(teamOf(f), teamOf(from), req.user, from.title), left).map((c) => {
+      c.id = ids.get(c.id);
       if (c.goto) { for (const [o, to] of Object.entries(c.goto)) { if (to !== 'submit') { if (ids.has(to)) c.goto[o] = ids.get(to); else delete c.goto[o]; } } }
       if (c.after && c.after !== 'submit') { if (ids.has(c.after)) c.after = ids.get(c.after); else delete c.after; }
-      if (c.image && !pictureOk(c.image)) { delete c.image; delete c.image_alt; picturesLeft++; }
-      if (c.option_images) for (const [o, pic] of Object.entries(c.option_images)) if (!pictureOk(pic)) { delete c.option_images[o]; picturesLeft++; }
       return c;
     });
+    const picturesLeft = left.n;
     const questions = cleanQuestions([...f.questions, ...copied]);
     q('UPDATE forms SET questions = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(questions), now(), f.id);
     changed(f, req.user.id);
@@ -904,11 +935,15 @@ export default function formRoutes() {
     const f = ownForm(req.params.id, req.user);
     const id = uid();
     const t = now();
+    // Yours: pictures someone else on the original's team owns are copied for you, so they show in it.
+    const use = picturesFor([req.user.id], teamOf(f), req.user, f.title);
+    const questions = questionsWithPictures(f.questions, use);
+    const theme = f.theme && { ...f.theme, ...(f.theme.header && { header: use(f.theme.header) || undefined }) };
     q(`INSERT INTO forms (id, org_id, owner_id, token, title, description, questions, audience, accepting, one_per_person, confirmation, notify, quiz, show_score, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), `Copy of ${f.title}`.slice(0, 200), f.description, JSON.stringify(f.questions),
+      .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), `Copy of ${f.title}`.slice(0, 200), f.description, JSON.stringify(questions),
         f.audience === 'public' && !req.user.allow_links ? 'org' : f.audience, f.one_per_person ? 1 : 0, f.confirmation, f.notify ? 1 : 0, f.quiz ? 1 : 0, f.show_score ? 1 : 0, t, t);
-    if (f.theme) q('UPDATE forms SET theme = ? WHERE id = ?').run(JSON.stringify(f.theme), id); // the same look
+    if (theme) q('UPDATE forms SET theme = ? WHERE id = ?').run(JSON.stringify(theme), id); // the same look
     // The same settings: what's asked of people and what happens with their answers. (Not what belongs to the
     // original: its spreadsheet, uploads folder, chat, open/close dates, invitations and results link.)
     const raw = q('SELECT collect_email, send_copy, allow_edit, max_responses, show_results, email_domains, progress_bar, task_list, task_title FROM forms WHERE id = ?').get(f.id);
