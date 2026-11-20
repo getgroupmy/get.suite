@@ -165,6 +165,8 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await expectCells({ R1: '20/11/2026', R2: '25 Dec 2026', R3: '2:30 PM', R4: '35|Friday|14' });
   await typeIn('R5', "'1-2");
   await expectCells({ R5: '1-2' }); // a ' in front: kept as text, the ' not shown
+  await typeIn('R6', '20/11/2026 14:30');
+  await expectCells({ R6: '20/11/2026 14:30' });
   // pasted from another program (tab-separated): numbers and dates as written there become numbers and dates
   await cell('S1').click();
   await page.evaluate((text) => { const dt = new DataTransfer(); dt.setData('text/plain', text); document.querySelector('.grid-wrap').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); },
@@ -184,6 +186,9 @@ await step('newer functions are written the way Excel expects in the .xlsx downl
   if (!xml.includes('_xlfn.NORM.S.INV(0.975)')) throw new Error(xml.match(/<f>[^<]*NORM[^<]*<\/f>/)?.[0] || 'no NORM formula');
   if (!xml.includes('_xlfn.T.INV.2T(0.05,10)') && !xml.includes('_xlfn.T.INV.2T(0.05, 10)')) throw new Error(xml.match(/<f>[^<]*T\.INV[^<]*<\/f>/)?.[0] || 'no T.INV');
   if (!/<f>[^<]*IPMT\(/.test(xml) || /_xlfn\.IPMT/.test(xml)) throw new Error('IPMT is an old function: no prefix');
+  // typed dates, a date and time, and a time are Excel dates and times (numbers), not text
+  const num = (k) => new RegExp(`<c r="${k}" s="\\d+"><v>([\\d.]+)</v>`).exec(xml)?.[1];
+  if (num('R1') !== '46346' || !/^46346\.6041/.test(num('R6') || '') || !/^0\.6041/.test(num('R3') || '')) throw new Error(JSON.stringify([num('R1'), num('R6'), num('R3')]));
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();

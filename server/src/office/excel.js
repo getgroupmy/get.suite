@@ -25,6 +25,7 @@ export function numFromExcel(fmt) {
   const dp = (/\.(0+)/.exec(main) || [, ''])[1].length;
   // Dates: d, m and y parts (without digit placeholders); the closest of our styles.
   const bare = main.replace(/"[^"]*"|\[[^\]]*\]/g, '').toLowerCase();
+  if (/h/.test(bare) && !/[0#]/.test(bare)) return { num: 'custom', code: String(fmt).slice(0, 120) }; // a time, or a date and time: as written
   if (/[dy]/.test(bare) && /m/.test(bare) && !/[0#]/.test(bare)) {
     const ds = /dddd|mmmm/.test(bare) ? 'long' : !/d/.test(bare) ? 'month' : /^y/.test(bare) ? 'iso' : /mmm/.test(bare) ? 'medium' : 'short';
     return { num: 'date', ...(ds !== 'medium' && { ds }) };
@@ -122,7 +123,14 @@ function cellText(cell) {
       const f = `=${formulaFromExcel(v.formula || cell.formula)}`;
       return /^=(TRUE|FALSE)$/i.test(f) ? f.slice(1).toUpperCase() : f; // a tick-box value LibreOffice saves as =TRUE(): the value itself
     }
-    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    if (v instanceof Date) {
+      const fmt = String(cell.numFmt || '').replace(/"[^"]*"|\[[^\]]*\]/g, '').toLowerCase();
+      const iso = v.toISOString(), time = iso.slice(11, 19);
+      // A time on its own (h:mm, h:mm AM/PM): the fraction of a day, as the time functions take it
+      if (/h|ss/.test(fmt) && !/[dy]/.test(fmt) && v.getTime() < Date.UTC(1900, 0, 1)) return String(Math.round(((v.getTime() - Date.UTC(1899, 11, 30)) / 864e5) * 1e10) / 1e10);
+      if (time === '00:00:00') return iso.slice(0, 10);
+      return `${iso.slice(0, 10)} ${time.endsWith(':00') ? time.slice(0, 5) : time}`; // a date and time
+    }
     if (v.richText) return v.richText.map((r) => r.text).join('');
     if ('text' in v) return linkCell(v); // a link in the cell
     if ('error' in v) return String(v.error);
@@ -449,6 +457,7 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
       else if (v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(v.trim())) cell.value = Number(v);
       else if (/^(TRUE|FALSE)$/i.test(v)) cell.value = /^TRUE$/i.test(v);
       else if (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))) { cell.value = new Date(`${v}T00:00:00Z`); cell.numFmt = 'yyyy-mm-dd'; } // a real date in Excel
+      else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v) && !Number.isNaN(Date.parse(`${v.replace(' ', 'T')}Z`))) { cell.value = new Date(`${v.replace(' ', 'T')}Z`); cell.numFmt = 'yyyy-mm-dd hh:mm'; } // a date and time
       else cell.value = v;
     }
     for (const r of s.hide?.rows || []) {

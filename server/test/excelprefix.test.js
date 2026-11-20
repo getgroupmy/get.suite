@@ -42,3 +42,16 @@ test('a function given by its name (GROUPBY(…, SUM)) is _xleta.SUM in the file
   assert.equal(formulaFromExcel('_xlfn.GROUPBY(A2:A9,C2:C9,_xleta.SUM)'), 'GROUPBY(A2:A9,C2:C9,SUM)');
   assert.equal(formulaToExcel('PIVOTBY(A2:A9,B2:B9,C2:C9,AVERAGE)'), '_xlfn.PIVOTBY(A2:A9,B2:B9,C2:C9,_xleta.AVERAGE)');
 });
+
+test('dates with a time, and times on their own, go to Excel as real dates and times and come back so', async () => {
+  const { sheetFromExcel } = await import('../src/office/excel.js');
+  const book = { sheets: [{ name: 'S', cells: { A1: '2026-11-20', A2: '2026-11-20 14:30', A3: String(14.5 / 24) },
+    formats: { A1: { num: 'date', ds: 'short' }, A2: { num: 'custom', code: 'dd/mm/yyyy hh:mm' }, A3: { num: 'custom', code: 'h:mm AM/PM' } } }] };
+  const buf = await excelFromSheet(book);
+  const xml = await (await JSZip.loadAsync(buf)).file('xl/worksheets/sheet1.xml').async('string');
+  assert.match(xml, /<c r="A2" s="\d+"><v>46346\.604166/, 'a number (a date and time), not text');
+  const back = (await sheetFromExcel(buf)).sheets[0];
+  assert.deepEqual([back.cells.A1, back.cells.A2, Number(back.cells.A3).toFixed(6)], ['2026-11-20', '2026-11-20 14:30', (14.5 / 24).toFixed(6)]);
+  assert.deepEqual(back.formats.A2, { num: 'custom', code: 'dd/mm/yyyy hh:mm' });
+  assert.deepEqual(back.formats.A3, { num: 'custom', code: 'h:mm AM/PM' });
+});
