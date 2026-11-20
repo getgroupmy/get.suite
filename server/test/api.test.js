@@ -16802,3 +16802,16 @@ test('repeating on a weekday counted from the end of the month (the second-to-la
     assert.equal((await rc('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
   }
 });
+
+test('repeating yearly on a weekday of a month (the fourth Thursday of November): kept, checked, in the calendar file', async () => {
+  const yc = client();
+  await owner('POST', '/api/users', { local: 'yearly', domain: 'acme.com', name: 'Yera Lee', password: 'password123' });
+  await login(yc, 'yearly@acme.com');
+  const start = Date.UTC(2026, 10, 26, 12);
+  const made = await yc('POST', '/api/events', { title: 'Thanksgiving lunch', start, end: start + 36e5, tz: 'UTC', rrule: { freq: 'yearly', nth: 4, wd: 4, month: 10 } });
+  assert.deepEqual([made.status, made.body.rrule], [201, { freq: 'yearly', nth: 4, wd: 4, month: 10 }]);
+  assert.match((await yc('GET', `/api/events/${made.body.id}/ics`)).body, /RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=4TH/);
+  for (const rrule of [{ freq: 'yearly', nth: 4, wd: 4 }, { freq: 'yearly', nth: 4, wd: 4, month: 12 }, { freq: 'yearly', nth: 9, wd: 4, month: 1 }]) {
+    assert.equal((await yc('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
+  }
+});

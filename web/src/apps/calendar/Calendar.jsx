@@ -1320,12 +1320,16 @@ const myWeek = () => weekOrder(myWeekStart).map((d) => [d, WEEKDAY_LETTERS[d]]);
 const monthlyChoice = (freq, start) => {
   const w = weekdayInMonth(start);
   if (freq === 'monthly-last' && !w.last) return 'monthly-nth';
+  if (freq === 'yearly-last' && !w.last) return w.nth <= 4 ? 'yearly-nth' : 'yearly';
+  if (freq === 'yearly-nth' && w.nth > 4) return w.last ? 'yearly-last' : 'yearly';
   return freq;
 };
 const ruleFromForm = (r, start) => {
   if (r.freq === 'none') return null;
   const freq = monthlyChoice(r.freq, start);
-  const out = { freq: freq.startsWith('monthly') ? 'monthly' : freq };
+  const out = { freq: freq.startsWith('monthly') ? 'monthly' : freq.startsWith('yearly') ? 'yearly' : freq };
+  if (freq === 'yearly-nth' || freq === 'yearly-last') { const w = weekdayInMonth(start); out.nth = freq === 'yearly-last' ? -1 : w.nth; out.wd = w.wd; out.month = new Date(start).getMonth(); }
+  if (freq === 'yearly-kept') Object.assign(out, r.ynth); // (from a phone or a holiday calendar: kept as it is)
   if (freq === 'monthly-mdays') {
     // Chosen days of the month: the first Monday and the third Tuesday. All on one weekday, it's the usual rule for that.
     const w = weekdayInMonth(start);
@@ -1662,9 +1666,9 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   const [autoReply, setAutoReply] = useState(false);
   const r0 = event.rrule;
   const [rep, setRep] = useState({
-    freq: r0?.setpos ? (r0.setdays?.join() !== '1,2,3,4,5' || ![1, -1].includes(r0.setpos) ? 'monthly-setpos' : r0.setpos === -1 ? 'monthly-lastweekday' : 'monthly-firstweekday') : r0?.mdays?.length ? 'monthly-mdays' : r0?.nths?.length ? 'monthly-nths' : r0?.nth ? (r0.nth < -1 ? 'monthly-fromend' : r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
+    freq: r0?.freq === 'yearly' && r0.nth ? 'yearly-kept' : r0?.setpos ? (r0.setdays?.join() !== '1,2,3,4,5' || ![1, -1].includes(r0.setpos) ? 'monthly-setpos' : r0.setpos === -1 ? 'monthly-lastweekday' : 'monthly-firstweekday') : r0?.mdays?.length ? 'monthly-mdays' : r0?.nths?.length ? 'monthly-nths' : r0?.nth ? (r0.nth < -1 ? 'monthly-fromend' : r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
     ends: r0?.until !== undefined ? 'on' : r0?.count ? 'after' : 'never',
-    nths: r0?.nths || null, wd: r0?.wd, nth: r0?.nth, wkst: r0?.wkst, setpos: r0?.setpos, setdays: r0?.setdays, // the first and third Monday (from a phone): kept as it is
+    nths: r0?.nths || null, wd: r0?.wd, nth: r0?.nth, ynth: r0?.freq === 'yearly' && r0.nth ? { nth: r0.nth, wd: r0.wd, month: r0.month } : null, wkst: r0?.wkst, setpos: r0?.setpos, setdays: r0?.setdays, // the first and third Monday (from a phone): kept as it is
     mdays: r0?.mdays || null, // the first Monday and the third Tuesday (from a phone or Outlook): kept as it is
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
@@ -1857,6 +1861,15 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                   </>;
                 })()}
                 <option value="yearly">Yearly</option>
+                {(() => {
+                  // "Yearly on the fourth Thursday of November", and "on the last Monday of May" in a month's last week
+                  const start = read().start, w = weekdayInMonth(start), m = new Date(start).getMonth();
+                  return <>
+                    {w.nth <= 4 && <option value="yearly-nth">{describeRule({ freq: 'yearly', nth: w.nth, wd: w.wd, month: m }, start)}</option>}
+                    {w.last && <option value="yearly-last">{describeRule({ freq: 'yearly', nth: -1, wd: w.wd, month: m }, start)}</option>}
+                    {rep.ynth && <option value="yearly-kept">{describeRule({ freq: 'yearly', ...rep.ynth }, start)}</option>}
+                  </>;
+                })()}
               </select></label>
             {rep.freq !== 'none' && <label className="field"><span>Every</span>
               <input type="number" min="1" max="99" value={rep.interval} onChange={setR('interval')} aria-label="Repeat every" style={{ width: 80 }} /></label>}

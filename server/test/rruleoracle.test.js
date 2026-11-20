@@ -54,6 +54,7 @@ function randomEvents(seed, n, allDay = false) {
     if (freq === 'weekly' && rnd() < 0.7) r.byday = [...new Set(Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => Math.floor(rnd() * 7)))].sort();
     if (r.byday && r.interval > 1 && rnd() < 0.5) r.wkst = pick([1, 1, 3, 6]);
     if (freq === 'monthly') { const v = rnd(); if (v < 0.3) { r.nth = pick([1, 2, 3, 4, 5, -1, -2, -3, -5]); r.wd = Math.floor(rnd() * 7); } else if (v < 0.5) { r.nths = pick([[1, 3], [2, -1], [-3, -1]]); r.wd = Math.floor(rnd() * 7); } else if (v < 0.65) { r.setpos = pick([1, 2, -1, -1]); r.setdays = pick([[1, 2, 3, 4, 5], [0, 6], [1, 3, 5]]); } }
+    if (freq === 'yearly' && rnd() < 0.5) { r.nth = pick([1, 2, 4, -1, -2, 5]); r.wd = Math.floor(rnd() * 7); r.month = Math.floor(rnd() * 12); }
     if (rnd() < 0.5) r.count = 1 + Math.floor(rnd() * 15); else if (0.5 > rnd()) r.until = start + Math.floor(rnd() * 400) * 864e5;
     if (allDay && r.until !== undefined) r.until += 864e5 - 1; // to the end of that day, as the editor saves it
     out.push(allDay ? { start, end: start + 864e5 - 1, all_day: 1, title: 'x', tz, rrule: r } : { start, end: start + 36e5, all_day: 0, title: 'x', tz, rrule: r });
@@ -133,6 +134,25 @@ test('counted from the end of the month (BYDAY=-2MO, the second-to-last Monday; 
     const ev = parseIcsEvent(ics, { tz: 'UTC' });
     assert.ok(ev.rrule, `read as a repeat: ${rule}`);
     cases.push({ ics, tz: 'UTC', to: '2036-01-01T00:00', ours: occurrenceStarts({ ...ev, tz: 'UTC' }, Infinity).map((t) => local(t, 'UTC')) });
+  }
+  const theirs = dateutil(cases);
+  const bad = cases.filter((c, i) => JSON.stringify(c.ours) !== JSON.stringify(theirs[i]));
+  assert.equal(bad.length, 0, bad.slice(0, 3).map((c) => `${c.ics.match(/DTSTART:.*|RRULE:.*/g).join(' ')}: ours ${c.ours.slice(0, 3)}`).join('\n'));
+});
+
+test('yearly on a weekday of a month (BYMONTH=11;BYDAY=4TH, the fourth Thursday of November), read as dateutil reads it', { skip: !hasDateutil && 'python-dateutil isn’t installed here' }, () => {
+  let seed = 31; const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const cases = [];
+  for (let k = 0; k < 150; k++) {
+    const dt = `2026${String(1 + Math.floor(rnd() * 12)).padStart(2, '0')}${String(1 + Math.floor(rnd() * 28)).padStart(2, '0')}T090000Z`;
+    const wd = pick(D), mo = 1 + Math.floor(rnd() * 12), n = pick(['1', '2', '4', '5', '-1', '-2']);
+    const by = pick([`BYMONTH=${mo};BYDAY=${n}${wd}`, `BYDAY=${n}${wd};BYMONTH=${mo}`, `BYMONTH=${mo};BYDAY=${wd};BYSETPOS=${n}`]);
+    const rule = `FREQ=YEARLY${pick(['', ';INTERVAL=2'])};${by};COUNT=${2 + Math.floor(rnd() * 6)}`;
+    const ics = vevent([`DTSTART:${dt}`, `DTEND:${dt}`, `RRULE:${rule}`]);
+    const ev = parseIcsEvent(ics, { tz: 'UTC' });
+    assert.ok(ev.rrule?.month !== undefined, `read as a yearly repeat: ${rule}`);
+    cases.push({ ics, tz: 'UTC', to: '2060-01-01T00:00', ours: occurrenceStarts({ ...ev, tz: 'UTC' }, Date.UTC(2060, 0, 1)).map((t) => local(t, 'UTC')) });
   }
   const theirs = dateutil(cases);
   const bad = cases.filter((c, i) => JSON.stringify(c.ours) !== JSON.stringify(theirs[i]));

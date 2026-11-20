@@ -115,7 +115,7 @@ function mdaysByday(mdays) {
 
 function firstStart(e, zone) {
   const r = e.rrule;
-  const weekly = r?.freq === 'weekly' && r.byday?.length, nth = r?.freq === 'monthly' && (r.nth || r.nths?.length || r.mdays?.length || r.setdays?.length);
+  const weekly = r?.freq === 'weekly' && r.byday?.length, nth = (r?.freq === 'monthly' && (r.nth || r.nths?.length || r.mdays?.length || r.setdays?.length)) || (r?.freq === 'yearly' && r.nth);
   if (!weekly && !nth) return e.start;
   // The calendar's own first occurrence (skipped dates still count): with an interval, the series' weeks or
   // months are counted from the event's start, so moving DTSTART to the next listed day must keep that phase.
@@ -148,6 +148,7 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
     if (r.freq === 'weekly' && r.byday?.length) rule.push(`BYDAY=${r.byday.map((d) => DAYS[d]).join(',')}`);
     if (r.freq === 'weekly' && r.interval > 1 && r.byday?.length) rule.push(`WKST=${DAYS[r.wkst || 0]}`); // our weeks run Sunday to Saturday unless the rule says (RFC 5545's default is Monday)
     if (r.freq === 'monthly' && r.nth) rule.push(`BYDAY=${r.nth}${DAYS[r.wd]}`); // 2MO: the second Monday; -1FR: the last Friday
+    if (r.freq === 'yearly' && r.nth) rule.push(`BYMONTH=${(r.month ?? 0) + 1}`, `BYDAY=${r.nth}${DAYS[r.wd]}`); // the fourth Thursday of November
     if (r.freq === 'monthly' && r.nths?.length) rule.push(`BYDAY=${r.nths.map((k) => `${k}${DAYS[r.wd]}`).join(',')}`); // 1MO,3MO
     if (r.freq === 'monthly' && r.mdays?.length) rule.push(`BYDAY=${mdaysByday(r.mdays)}`); // 1MO,3TU (or MO,WE: every Monday and Wednesday)
     if (r.freq === 'monthly' && r.setpos && r.setdays?.length) rule.push(`BYDAY=${[...r.setdays].sort((a, b) => a - b).map((d) => DAYS[d]).join(',')}`, `BYSETPOS=${r.setpos}`); // the last weekday of the month
@@ -461,14 +462,18 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
     // The first or last (say) of several plain weekdays: BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1, the last weekday of the month.
     const setDays = freq === 'monthly' && days.length > 1 && plainDays && p.BYSETPOS && /^([1-4]|-1)$/.test(p.BYSETPOS) && !p.BYMONTHDAY && !p.BYMONTH && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
       ? [...new Set(days.map((d) => DAY_NAMES.indexOf(d)))].sort((a, b) => a - b) : null;
+    // Yearly on a weekday of one month: BYMONTH=11;BYDAY=4TH (the fourth Thursday of November), or BYDAY=TH;BYSETPOS=4.
+    const yearDay = freq === 'yearly' && days.length === 1 && p.BYMONTH && /^(1[0-2]|[1-9])$/.test(p.BYMONTH) && !p.BYMONTHDAY && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
+      && (/^(\+?[1-5]|-[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-5]|-[1-5])$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
     const startDay = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDate();
     const supported = nthDay ? !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR && nth !== 0 : freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
       && (!p.BYMONTHDAY || (freq !== 'daily' && freq !== 'weekly' && p.BYMONTHDAY.split(',').length === 1 && +p.BYMONTHDAY === startDay))
       && (!p.BYMONTH || freq === 'yearly');
-    if (supported || nthsOf || mdaysOf || setDays) {
+    if (supported || nthsOf || mdaysOf || setDays || yearDay) {
       const rule = { freq };
       if (+p.INTERVAL > 1) rule.interval = Math.min(99, +p.INTERVAL);
-      if (setDays) { rule.setpos = +p.BYSETPOS; rule.setdays = setDays; }
+      if (yearDay) { rule.nth = +yearDay[1]; rule.wd = DAY_NAMES.indexOf(yearDay[2]); rule.month = +p.BYMONTH - 1; }
+      else if (setDays) { rule.setpos = +p.BYSETPOS; rule.setdays = setDays; }
       else if (nthsOf) { rule.nths = nthsOf; rule.wd = DAY_NAMES.indexOf(several[0][2]); }
       else if (mdaysOf) rule.mdays = mdaysOf;
       else if (nthDay) { rule.nth = nth; rule.wd = DAY_NAMES.indexOf(nthDay[2]); }

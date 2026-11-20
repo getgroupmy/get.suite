@@ -117,6 +117,11 @@ function readRule(rule) {
     const wd = Number(rule.wd);
     if (!nths.length || nths.length > 10 || nths.some((k) => !NTHS.includes(k)) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick weekdays of the month');
     out.nths = nths.sort((a, b) => (a < 0) - (b < 0) || a - b); out.wd = wd;
+  } else if (rule.freq === 'yearly' && (rule.nth !== undefined || rule.wd !== undefined)) {
+    // Yearly on a weekday of a month: { nth, wd, month: 0–11 } (the fourth Thursday of November).
+    const nth = Number(rule.nth), wd = Number(rule.wd), month = Number(rule.month);
+    if (!NTHS.includes(nth) || !Number.isInteger(wd) || wd < 0 || wd > 6 || !Number.isInteger(month) || month < 0 || month > 11) throw bad('Pick a weekday of the month');
+    out.nth = nth; out.wd = wd; out.month = month;
   } else if (rule.nth !== undefined || rule.wd !== undefined) {
     if (rule.freq !== 'monthly') throw bad('"The second Monday" only applies to monthly repeats');
     const nth = Number(rule.nth), wd = Number(rule.wd);

@@ -216,6 +216,15 @@ export function occurrenceStarts(ev, to) {
       if (t >= to || (r.until !== undefined && t > r.until)) break;
       if (t < ev.start) continue; // earlier in the first month
       if (!take(t)) break;
+    } else if (r.freq === 'yearly' && r.nth) {
+      // Yearly on a weekday of a month: the fourth Thursday of November, the last Monday of May.
+      const m = at(first.getFullYear() + i * every, r.month ?? first.getMonth(), 1);
+      const day = nthWeekdayOf(m.getFullYear(), m.getMonth(), r.nth, r.wd);
+      if (day === null) { if (m.getTime() >= to || (r.until !== undefined && m.getTime() > r.until)) break; continue; } // (a fifth one: not every year)
+      const t = at(m.getFullYear(), m.getMonth(), day).getTime();
+      if (t >= to || (r.until !== undefined && t > r.until)) break;
+      if (t < ev.start) continue; // earlier in the first year
+      if (!take(t)) break;
     } else if (r.freq === 'monthly' && r.nth) {
       // Monthly on a weekday: the 1st–5th or the last (say) Monday of every month (months without a fifth are skipped).
       const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
@@ -309,6 +318,7 @@ export function describeRule(r, start, locale) {
     text += ` on ${days.join() === '1,2,3,4,5' ? 'weekdays' : names.join(', ')}`;
   }
   if (r.freq === 'monthly' && r.nth) text += ` on the ${ORDINALS[r.nth]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;
+  if (r.freq === 'yearly' && r.nth) text += ` on the ${ORDINALS[r.nth]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })} of ${new Date(2026, r.month ?? new Date(start).getMonth(), 1).toLocaleDateString(locale, { month: 'long' })}`;
   if (r.freq === 'monthly' && r.setpos && r.setdays?.length) {
     const days = [...r.setdays].sort((a, b) => a - b).join();
     const what = days === '1,2,3,4,5' ? 'weekday' : days === '0,6' ? 'weekend day' : `of ${r.setdays.map((d) => new Date(2026, 10, 1 + d).toLocaleDateString(locale, { weekday: 'short' })).join(', ')}`;
@@ -357,6 +367,10 @@ export function resizeEnd(ev, minDelta, minMinutes = 15) {
  */
 export function shiftWeekdays(rule, dayDelta, newStart) {
   // Monthly on a weekday follows the new date: moved to the third Tuesday, it's the third Tuesday.
+  if (rule?.freq === 'yearly' && rule.nth && newStart !== undefined && dayDelta) { // the fourth Thursday of November, moved: that day's place in its month
+    const w = weekdayInMonth(newStart), d = new Date(newStart), left = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - d.getDate();
+    return { ...rule, wd: w.wd, month: d.getMonth(), nth: rule.nth < 0 ? -(Math.floor(left / 7) + 1) : w.nth > 4 ? -1 : w.nth };
+  }
   if (rule?.freq === 'monthly' && rule.nth && newStart !== undefined && dayDelta) {
     const w = weekdayInMonth(newStart);
     // (counted from the month's end, it stays so: moved to the second-to-last Thursday, it's that)
