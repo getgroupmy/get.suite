@@ -16851,3 +16851,26 @@ test('search finds PDFs and OpenDocument files by the words inside them', async 
   assert.deepEqual(await find('rambutan'), [odt.id], 'an OpenDocument text');
   assert.deepEqual(await find('durian'), [ods.id], 'an OpenDocument spreadsheet');
 });
+
+test('search in Chinese and Japanese: a word inside a run of characters, in files and in comments', async () => {
+  const { indexPending } = await import('../src/search.js');
+  const cj = client();
+  await owner('POST', '/api/users', { local: 'cjk', domain: 'acme.com', name: 'Chen Jia', password: 'password123' });
+  await login(cj, 'cjk@acme.com');
+  const P = (t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] });
+  const doc = (await cj('POST', '/api/files/new', { kind: 'doc', name: 'Notes', content: { type: 'doc', content: [P('第三季度销售报告已经完成。'), P('日本語のテキストです')] } })).body;
+  const other = (await cj('POST', '/api/files/new', { kind: 'doc', name: 'Other', content: { type: 'doc', content: [P('告报 in the wrong order')] } })).body;
+  while (await indexPending()) { /* until everything is indexed */ }
+  const find = async (words) => (await cj('GET', `/api/files?view=search&q=${encodeURIComponent(words)}`)).body;
+  const hits = await find('销售报告');
+  assert.deepEqual(hits.map((f) => f.id), [doc.id], 'found inside 第三季度销售报告已经完成');
+  assert.match(hits[0].match, /\u0001销售报告\u0002已经完成/, 'the extract as written, the words marked, no spaces put in');
+  assert.deepEqual((await find('テキスト')).map((f) => f.id), [doc.id], 'Japanese too');
+  assert.deepEqual((await find('报告')).map((f) => f.id), [doc.id], 'not 告报 (the other order)');
+  assert.ok(other.id);
+  // comments
+  const c = await cj('POST', `/api/comments/${doc.id}`, { body: '请检查预算表格', anchor: { quote: '销售报告' }, id: 'thread-cjk-1' });
+  assert.ok([200, 201].includes(c.status), JSON.stringify(c.body));
+  const found = (await cj('GET', `/api/comments/search?q=${encodeURIComponent('预算')}`)).body;
+  assert.equal(found.length, 1, 'a comment found by a word inside it');
+});

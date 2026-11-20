@@ -11,7 +11,7 @@ import { myFirstList } from './tasks.js';
 import { canReach } from '../tenancy.js';
 import { sendTo } from '../hub.js';
 import { sendDirect } from './chat.js';
-import { ftsQuery } from '../search.js';
+import { ftsQuery, ftsText } from '../search.js';
 import { markCommentInDocument } from '../collab.js';
 
 q(`CREATE TABLE IF NOT EXISTS file_comments (
@@ -44,6 +44,9 @@ q('CREATE INDEX IF NOT EXISTS file_comments_unindexed ON file_comments(mentions_
 // Their words, for Search everything (full-text, accents ignored), filled in the same lazy way; gone with the comment.
 q("CREATE VIRTUAL TABLE IF NOT EXISTS comment_text USING fts5(comment_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
 q('CREATE TRIGGER IF NOT EXISTS comment_text_gone AFTER DELETE ON file_comments BEGIN DELETE FROM comment_text WHERE comment_id = old.id; END').run();
+// Comments indexed before Chinese and Japanese were indexed a character to a word: indexed again, once.
+q('CREATE TABLE IF NOT EXISTS file_text_redone (name TEXT PRIMARY KEY)').run();
+if (!q("SELECT 1 FROM file_text_redone WHERE name = 'comments-cjk'").get()) { try { q('UPDATE file_comments SET mentions_indexed = 0').run(); } catch { /* not there yet */ } q("INSERT INTO file_text_redone (name) VALUES ('comments-cjk')").run(); }
 
 // Emoji reactions on comments (👍 instead of a "Thanks!" reply): one of each emoji per person.
 q(`CREATE TABLE IF NOT EXISTS file_comment_reactions (
@@ -187,7 +190,7 @@ export function indexMentions() {
     for (const r of rows) {
       q('DELETE FROM file_comment_mentions WHERE comment_id = ?').run(r.id);
       q('DELETE FROM comment_text WHERE comment_id = ?').run(r.id);
-      q('INSERT INTO comment_text (comment_id, body) VALUES (?, ?)').run(r.id, String(r.body));
+      q('INSERT INTO comment_text (comment_id, body) VALUES (?, ?)').run(r.id, ftsText(r.body)); // (Chinese and Japanese a character to a word: search.js)
       for (const name of new Set([...String(r.body).matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))) q('INSERT OR IGNORE INTO file_comment_mentions (comment_id, username) VALUES (?, ?)').run(r.id, name);
       q('UPDATE file_comments SET mentions_indexed = 1 WHERE id = ?').run(r.id);
     }
