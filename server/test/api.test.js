@@ -16311,3 +16311,25 @@ test('tasks: copy a task to another of your lists (at its top, no section there,
   // Cat isn't on Ann's own list: can't copy there
   assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/duplicate`, { list_id: mine })).status, 404);
 });
+
+test('tasks: files on a task moved or copied to another list can be opened by the people there', async () => {
+  const a = client(), c = client(), d = client();
+  for (const [local, name] of [['tmfa', 'Move Ann'], ['tmfc', 'Move Cat'], ['tmfd', 'Move Dan']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tmfa@acme.com'); await login(c, 'tmfc@acme.com'); await login(d, 'tmfd@acme.com');
+  const dir = (await a('GET', '/api/users/directory')).body;
+  const idOf = (u) => dir.find((x) => x.username === u).id;
+  const mine = (await a('POST', '/api/tasks/lists', { name: 'Ann private' })).body.id;
+  const withCat = (await a('POST', '/api/tasks/lists', { name: 'With Cat' })).body.id;
+  await a('PUT', `/api/tasks/lists/${withCat}/members`, { user_ids: [idOf('tmfc@acme.com')] });
+  const withDan = (await a('POST', '/api/tasks/lists', { name: 'With Dan' })).body.id;
+  await a('PUT', `/api/tasks/lists/${withDan}/members`, { user_ids: [idOf('tmfd@acme.com')] });
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Brief for the hall' })).body;
+  const t = (await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Book the hall' })).body;
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/attachments`, { file_id: doc.id })).status, 201);
+  assert.equal((await c('GET', `/api/files/${doc.id}`)).status, 404, 'not Cat\'s to open yet');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { list_id: withCat })).status, 200);
+  assert.equal((await c('GET', `/api/files/${doc.id}`)).status, 200, 'moved: Cat can open it');
+  assert.equal((await d('GET', `/api/files/${doc.id}`)).status, 404);
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/duplicate`, { list_id: withDan })).status, 201);
+  assert.equal((await d('GET', `/api/files/${doc.id}`)).status, 200, 'copied: Dan can open it');
+});

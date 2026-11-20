@@ -635,6 +635,7 @@ export default function taskRoutes() {
     q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, list.id, task.title, task.notes, task.due, task.due_time, task.start, assignee, position, task.repeat, task.repeat_until, steps, task.important ? 1 : 0, task.link_url, task.link_label, task.attachments, task.tags, req.user.id, t, t);
+    if (other) shareAttachments(list, [task]); // its files, for the people on that list
     q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ?, nonbillable = ? WHERE id = ?').run(other ? null : task.section_id, task.estimate, task.priority, task.nonbillable ?? 0, id);
     changed(list);
     res.status(201).json(shape(q(`${TASK} WHERE t.id = ?`).get(id)));
@@ -1155,7 +1156,7 @@ export default function taskRoutes() {
       }
     });
     changed(list);
-    if (target !== list) changed(target);
+    if (target !== list) { changed(target); shareAttachments(target, [q('SELECT attachments FROM tasks WHERE id = ?').get(task.id)]); } // its files, for the people there
     if (b.done && !task.done_at) notifyUnblocked(task, req.user);
     // A task from an assigned comment: ticking it off resolves the comment thread (and un-ticking reopens it).
     if (b.done !== undefined && !!b.done !== !!task.done_at) {

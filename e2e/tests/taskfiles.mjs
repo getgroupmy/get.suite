@@ -74,6 +74,24 @@ await step('Kim, on the list, sees the files live and can open them', async () =
   await d.getByRole('button', { name: 'Remove floorplan.pdf' }).click();
   await openTask(page, 'Move office').getByText('📎 1').waitFor();
 }, kim);
+await step('a task copied to a list Kim is on brings its file, and Kim can open it there', async () => {
+  const own = (await api(page, 'POST', '/tasks/lists', { name: 'Olivia own' })).body.id;
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const shared = (await api(page, 'POST', '/tasks/lists', { name: 'With Kim' })).body.id;
+  await api(page, 'PUT', `/tasks/lists/${shared}/members`, { user_ids: [kimId] });
+  const plan = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Seating plan' })).body;
+  const t = (await api(page, 'POST', `/tasks/lists/${own}/tasks`, { title: 'Arrange seats' })).body;
+  await api(page, 'POST', `/tasks/tasks/${t.id}/attachments`, { file_id: plan.id });
+  await page.goto(`${B}/tasks/${own}`);
+  await openTask(page, 'Arrange seats').locator('.task-main').click();
+  await page.getByRole('complementary', { name: 'Task details' }).getByLabel('Copy this task to').selectOption({ label: 'With Kim' });
+  await page.locator('.toast', { hasText: 'Copied to With Kim' }).last().waitFor();
+  await kim.goto(`${B}/tasks/${shared}`);
+  await openTask(kim, 'Arrange seats').locator('.task-main').click();
+  const link = kim.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: 'Seating plan' });
+  await link.waitFor();
+  if ((await api(kim, 'GET', `/files/${plan.id}`)).status !== 200) throw new Error('Kim cannot open it');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
