@@ -16815,3 +16815,19 @@ test('repeating yearly on a weekday of a month (the fourth Thursday of November)
     assert.equal((await yc('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
   }
 });
+
+test('repeating on days of the month (the 1st and 15th, the last day) and in several months a year: kept, checked, in the calendar file', async () => {
+  const dm = client();
+  await owner('POST', '/api/users', { local: 'daysofmonth', domain: 'acme.com', name: 'Day Month', password: 'password123' });
+  await login(dm, 'daysofmonth@acme.com');
+  const start = Date.UTC(2026, 11, 15, 9);
+  const pay = await dm('POST', '/api/events', { title: 'Payday', start, end: start + 36e5, tz: 'UTC', rrule: { freq: 'monthly', monthdays: [15, -1, 15] } });
+  assert.deepEqual([pay.status, pay.body.rrule], [201, { freq: 'monthly', monthdays: [15, -1] }]);
+  assert.match((await dm('GET', `/api/events/${pay.body.id}/ics`)).body, /RRULE:FREQ=MONTHLY;BYMONTHDAY=15,-1/);
+  const q4 = await dm('POST', '/api/events', { title: 'Quarterly review', start, end: start + 36e5, tz: 'UTC', rrule: { freq: 'yearly', months: [11, 2, 5, 8] } });
+  assert.deepEqual(q4.body.rrule, { freq: 'yearly', months: [2, 5, 8, 11] });
+  assert.match((await dm('GET', `/api/events/${q4.body.id}/ics`)).body, /RRULE:FREQ=YEARLY;BYMONTH=3,6,9,12/);
+  for (const rrule of [{ freq: 'monthly', monthdays: [0] }, { freq: 'monthly', monthdays: [32] }, { freq: 'weekly', monthdays: [1] }, { freq: 'yearly', months: [12] }, { freq: 'monthly', months: [1] }]) {
+    assert.equal((await dm('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
+  }
+});

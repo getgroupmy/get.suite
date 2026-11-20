@@ -216,6 +216,32 @@ export function occurrenceStarts(ev, to) {
       if (t >= to || (r.until !== undefined && t > r.until)) break;
       if (t < ev.start) continue; // earlier in the first month
       if (!take(t)) break;
+    } else if (r.freq === 'monthly' && r.monthdays?.length) {
+      // Monthly on days of the month: the 1st and 15th; -1 the last day (-2 the day before it); days a month lacks are skipped.
+      const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
+      if (m.getTime() >= to || (r.until !== undefined && m.getTime() > r.until)) break;
+      const n = new Date(Date.UTC(m.getFullYear(), m.getMonth() + 1, 0)).getUTCDate();
+      const days = [...new Set(r.monthdays.map((d) => (d < 0 ? n + 1 + d : d)).filter((d) => d >= 1 && d <= n))].sort((a, b) => a - b);
+      let stop = false;
+      for (const day of days) {
+        const t = at(m.getFullYear(), m.getMonth(), day).getTime();
+        if (t < ev.start) continue; // earlier in the first month
+        if (!take(t)) { stop = true; break; }
+      }
+      if (stop) break;
+    } else if (r.freq === 'yearly' && r.months?.length) {
+      // Yearly in some months, on the start's day of the month: the 15th of March, June, September and December.
+      const y0 = at(first.getFullYear() + i * every, 0, 1);
+      if (y0.getTime() >= to || (r.until !== undefined && y0.getTime() > r.until)) break;
+      let stop = false;
+      for (const mo of [...r.months].sort((a, b) => a - b)) {
+        const d = at(y0.getFullYear(), mo, first.getDate());
+        if (d.getMonth() !== mo) continue; // (no 31st in June)
+        const t = d.getTime();
+        if (t < ev.start) continue; // earlier in the first year
+        if (!take(t)) { stop = true; break; }
+      }
+      if (stop) break;
     } else if (r.freq === 'yearly' && r.nth) {
       // Yearly on a weekday of a month: the fourth Thursday of November, the last Monday of May.
       const m = at(first.getFullYear() + i * every, r.month ?? first.getMonth(), 1);
@@ -318,6 +344,14 @@ export function describeRule(r, start, locale) {
     text += ` on ${days.join() === '1,2,3,4,5' ? 'weekdays' : names.join(', ')}`;
   }
   if (r.freq === 'monthly' && r.nth) text += ` on the ${ORDINALS[r.nth]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;
+  const th = (d) => `${d}${[11, 12, 13].includes(d % 100) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[d % 10] || 'th'}`; // 1st, 2nd, 11th, 23rd
+  const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0]);
+  if (r.freq === 'monthly' && r.monthdays?.length) { // the 1st and 15th; the last day, the second-to-last day
+    text += ` on the ${and([...r.monthdays].sort((a, b) => (a < 0) - (b < 0) || a - b).map((d) => (d < 0 ? `${ORDINALS[d] || `${th(-d)}-to-last`} day` : th(d))))}`;
+  }
+  if (r.freq === 'yearly' && r.months?.length) { // the 15th of March, June, September and December
+    text += ` on the ${th(new Date(start).getDate())} of ${and([...r.months].sort((a, b) => a - b).map((m) => new Date(2026, m, 1).toLocaleDateString(locale, { month: 'long' })))}`;
+  }
   if (r.freq === 'yearly' && r.nth) text += ` on the ${ORDINALS[r.nth]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })} of ${new Date(2026, r.month ?? new Date(start).getMonth(), 1).toLocaleDateString(locale, { month: 'long' })}`;
   if (r.freq === 'monthly' && r.setpos && r.setdays?.length) {
     const days = [...r.setdays].sort((a, b) => a - b).join();

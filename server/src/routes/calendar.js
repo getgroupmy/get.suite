@@ -95,6 +95,17 @@ function readRule(rule) {
   // Monthly on a weekday: { nth: 1–5 or -1 (the last), wd: 0=Sun..6 } (a fifth: months without one are skipped).
   // Or several of one weekday: { nths: [1, 3], wd: 1 } (the first and third Monday).
   // Or weekdays of the month, mixed: { mdays: [[1, 1], [3, 2]] } (the first Monday and the third Tuesday).
+  // Monthly on days of the month: { monthdays: [1, 15] } (-1 the last day); yearly in some months: { months: [2, 5, 8, 11] }.
+  if (rule.monthdays !== undefined && rule.monthdays !== null) {
+    const md = Array.isArray(rule.monthdays) ? [...new Set(rule.monthdays.map(Number))] : [];
+    if (out.freq !== 'monthly' || !md.length || md.length > 31 || md.some((d) => !Number.isInteger(d) || d === 0 || d < -31 || d > 31)) throw bad('Pick days of the month');
+    out.monthdays = md.sort((a, b) => (a < 0) - (b < 0) || a - b);
+  }
+  if (rule.months !== undefined && rule.months !== null) {
+    const ms = Array.isArray(rule.months) ? [...new Set(rule.months.map(Number))] : [];
+    if (out.freq !== 'yearly' || !ms.length || ms.some((m) => !Number.isInteger(m) || m < 0 || m > 11)) throw bad('Pick months of the year');
+    out.months = ms.sort((a, b) => a - b);
+  }
   // The first or last (say) of some weekdays each month: { setpos: 1–4 or -1, setdays: [1, 2, 3, 4, 5] } (the last weekday).
   if (rule.setpos !== undefined && rule.setpos !== null) {
     const pos = Number(rule.setpos), sd = Array.isArray(rule.setdays) ? [...new Set(rule.setdays.map(Number))].sort((a, b) => a - b) : [];
