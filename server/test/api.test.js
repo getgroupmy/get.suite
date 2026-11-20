@@ -16532,3 +16532,26 @@ test('groups: someone taken out of a group that edits a document — their pictu
   assert.notEqual(ids[1], pic2.id, 'the second copied too');
   assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${ids[1]}`)).status, 200);
 });
+
+test('a share running out: the pictures that editor added stay, as the owner\'s copies', async () => {
+  const { expireShares } = await import('../src/shareexpiry.js');
+  const zed = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'expzed', domain: 'acme.com', name: 'Exp Zed', password: 'password123' })).status, 201);
+  await login(zed, 'expzed@acme.com');
+  const zid = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'expzed@acme.com').id;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await zed('POST', '/api/files/upload?name=exp-pic.png', png, { raw: true })).body;
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Until tomorrow' })).body;
+  const tomorrow = Date.now() + 864e5;
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: zid, role: 'editor', expires_at: tomorrow }] })).status, 200);
+  const cur = (await zed('GET', `/api/files/${doc.id}/content`)).body;
+  await zed('PUT', `/api/files/${doc.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'image', attrs: { fileId: pic.id } }] } });
+  // Its time is up (as when the sweep finds it, which can be a minute after: already without access then)
+  const { q } = await import('../src/db.js');
+  q('UPDATE shares SET expires_at = ? WHERE file_id = ? AND user_id = ?').run(Date.now() - 1000, doc.id, zid);
+  assert.ok(expireShares() >= 1);
+  assert.equal((await zed('GET', `/api/files/${doc.id}`)).status, 404, 'access ended');
+  const now = (await owner('GET', `/api/files/${doc.id}/content`)).body.content.content[0].attrs.fileId;
+  assert.notEqual(now, pic.id);
+  assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${now}`)).status, 200);
+});
