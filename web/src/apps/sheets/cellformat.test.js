@@ -112,3 +112,15 @@ test('typedDate: dates and times typed as people write them become dates, shown 
   assert.equal(formatNumber('2026-11-20 14:30', typedDate('20/11/2026 14:30').fmt), '20/11/2026 14:30');
   assert.equal(formatNumber(14.5 / 24, typedDate('2:30 PM').fmt), '2:30 PM');
 });
+
+test('decimal commas (a CSV file with semicolons, as Excel saves in much of Europe)', () => {
+  const dc = (t) => typedNumber(t, { decimalComma: true });
+  assert.deepEqual(dc('1,5'), { value: 1.5, fmt: { num: 'number', dp: 1 } });
+  assert.deepEqual(dc('1.234,50'), { value: 1234.5, fmt: { num: 'number', dp: 2 } });
+  assert.deepEqual(dc('-2,25 €'), { value: -2.25, fmt: { num: 'currency', cur: 'EUR', dp: 2 } });
+  assert.deepEqual(dc('€ 3,5'), { value: 3.5, fmt: { num: 'currency', cur: 'EUR', dp: 1 } });
+  assert.deepEqual(dc('12,5 %'), { value: 0.125, fmt: { num: 'percent', dp: 1 } });
+  assert.deepEqual(dc('1.234'), { value: 1234, fmt: { num: 'number', dp: 0 } }, 'a thousands point');
+  for (const t of ['15', 'abc', '1.5', '€ 3,5 €', '']) assert.equal(dc(t), null, t);
+  assert.equal(typedNumber('1,5'), null, 'without it, 1,5 is left as it is');
+});

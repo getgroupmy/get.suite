@@ -52,3 +52,11 @@ test('a CSV opened as a spreadsheet: amounts and dates as written become numbers
   assert.equal(formats.A2, undefined);
   assert.equal(cells.E2, '007'); // left as written
 });
+
+test('a semicolon CSV (as Excel saves in much of Europe): its columns, and decimal commas as numbers', () => {
+  const s = sheetFromDelimited(Buffer.from('﻿Item;Price;Total\r\n"Paper, A4";1,5;1.234,50 €\r\nInk;2,25;12,5 %\r\nDue;05.12.2026;15\r\n'), 'Prices').sheets[0];
+  assert.deepEqual(s.cells, { A1: 'Item', B1: 'Price', C1: 'Total', A2: 'Paper, A4', B2: '1.5', C2: '1234.5', A3: 'Ink', B3: '2.25', C3: '0.125', A4: 'Due', B4: '2026-12-05', C4: '15' });
+  assert.deepEqual(s.formats, { B2: { num: 'number', dp: 1 }, C2: { num: 'currency', cur: 'EUR', dp: 2 }, B3: { num: 'number', dp: 2 }, C3: { num: 'percent', dp: 1 }, B4: { num: 'date', ds: 'short' } });
+  // a comma file: commas are thousands, as before
+  assert.deepEqual(sheetFromDelimited(Buffer.from('Item,Price\nPaper,"1,234.50"\n'), 'P').sheets[0].cells, { A1: 'Item', B1: 'Price', A2: 'Paper', B2: '1234.5' });
+});

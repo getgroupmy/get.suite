@@ -19,9 +19,24 @@ const CURRENCY_SIGNS = { $: 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY', RM: '
 /**
  * A number typed the way people write them, as Excel and Google Sheets take it: "50%" (0.5, as a percentage),
  * "1,234.50" (with thousands), "$1,234.50", "€5", "RM 12" (a currency), "-$5". The number and the format it
- * suggests ({ num, dp, cur }), or null for anything else (plain numbers are already numbers).
+ * suggests ({ num, dp, cur }), or null for anything else (plain numbers are already numbers). { decimalComma }: as
+ * written in much of Europe, "1.234,50" and "1,5" (from a CSV file separated with semicolons).
  */
-export function typedNumber(text) {
+export function typedNumber(text, { decimalComma = false } = {}) {
+  if (decimalComma) { // as written in much of Europe (a ";" CSV file): "1,5", "1.234,50", "-2,25 €", "12,5 %"
+    const e = /^\s*(-)?\s*(RM|S\$|A\$|Rp|[$€£¥₹฿])?\s*(-)?\s*(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+,\d+|,\d+)\s*(%|RM|S\$|A\$|Rp|[$€£¥₹฿])?\s*$/.exec(String(text ?? ''));
+    if (e) {
+      const [, neg1, sign1, neg2, digits, tail] = e;
+      const pct = tail === '%', sign = sign1 || (pct ? null : tail);
+      if ((sign1 && tail) || (sign && pct)) return null;
+      const dp = (digits.split(',')[1] || '').length;
+      let value = Number(digits.replaceAll('.', '').replace(',', '.'));
+      if (pct) value = Number((value / 100).toPrecision(15));
+      if (neg1 || neg2) value = -value;
+      return { value, fmt: pct ? { num: 'percent', dp } : sign ? { num: 'currency', cur: CURRENCY_SIGNS[sign], dp } : { num: 'number', dp } };
+    }
+    if (/^\s*-?\d+\.\d{1,2}\s*$/.test(String(text ?? ''))) return null; // (no "1.5" read either way: left as it is)
+  }
   const m = /^\s*(-)?\s*(RM|S\$|A\$|Rp|[$€£¥₹฿])?\s*(-)?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+)\s*(%)?\s*$/.exec(String(text ?? ''));
   if (!m) return null;
   const [, neg1, sign, neg2, digits, pct] = m;
@@ -64,10 +79,10 @@ export function typedDate(text) {
  * Cells read from a file (CSV, TSV) or pasted: { A1: "$1,250.00", B1: "20/11/2026", … } → { cells, formats }, the
  * numbers and dates written as people write them turned into numbers and dates with the matching format.
  */
-export function typedCells(raw) {
+export function typedCells(raw, { decimalComma = false } = {}) {
   const cells = {}, formats = {};
   for (const [k, v] of Object.entries(raw)) {
-    const typed = typeof v === 'string' && !v.startsWith('=') ? typedNumber(v) ?? typedDate(v) : null;
+    const typed = typeof v === 'string' && !v.startsWith('=') ? typedNumber(v, { decimalComma }) ?? typedDate(v) : null;
     if (!typed) { cells[k] = v; continue; }
     cells[k] = String(typed.value);
     formats[k] = typed.fmt;

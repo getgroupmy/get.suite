@@ -3,7 +3,7 @@
 // our web page download writes them as footnotes), and CSV / TSV files as spreadsheets.
 import { docFromHtml } from './word.js';
 import { mathmlToLatex } from './mathml.js';
-import { parseCsv } from '../contactfiles.js';
+import { parseCsv, csvSeparator } from '../contactfiles.js';
 import { typedCells } from '../sheetcalc/cellformat.js';
 import { colName } from './sheetnames.js';
 
@@ -56,7 +56,8 @@ export function sheetFromDelimited(buf, name, sep = ',') {
   const rows = sep === '\t' ? text.replace(/\n$/, '').split('\n').map((l) => l.split('\t')) : parseCsv(text, { keepEmpty: true });
   const raw = {};
   rows.slice(0, 50000).forEach((row, r) => row.slice(0, 500).forEach((v, c) => { if (v !== '') raw[`${colName(c)}${r + 1}`] = v; }));
-  // "$1,250.00", "40%", "05/12/2026" as numbers and dates in their formats, as when typed in Sheets
-  const { cells, formats } = typedCells(raw);
+  // "$1,250.00", "40%", "05/12/2026" as numbers and dates in their formats, as when typed in Sheets (and in a file with
+  // semicolons, as Excel saves them in much of Europe, decimal commas: "1.234,50")
+  const { cells, formats } = typedCells(raw, { decimalComma: sep !== '\t' && csvSeparator(text.replace(/^\uFEFF/, '')) === ';' });
   return { sheets: [{ name: String(name || 'Sheet1').slice(0, 100) || 'Sheet1', cells, ...(Object.keys(formats).length && { formats }) }] };
 }

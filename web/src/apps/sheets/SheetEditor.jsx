@@ -71,7 +71,7 @@ import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber, typedDate, typedCells } from './cellformat.js';
-import { parseCsv } from './csvread.js'; // (the same reader as the server's: semicolon files, a byte-order mark)
+import { parseCsv, csvSeparator } from './csvread.js'; // (the same reader as the server's: semicolon files, a byte-order mark)
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -1145,7 +1145,8 @@ export default function SheetEditor() {
       const text = await input.files[0].text();
       const u = {};
       parseCsv(text).forEach((row, r) => row.forEach((v, c) => { if (v !== '') u[cellKey(c, r)] = v; }));
-      const { cells: typedU, formats } = typedCells(u); // amounts and dates as numbers and dates, as when typed
+      // amounts and dates as numbers and dates, as when typed (a ";" file: decimal commas, 1.234,50)
+      const { cells: typedU, formats } = typedCells(u, { decimalComma: csvSeparator(text.replace(/^\uFEFF/, '')) === ';' });
       const cur = dataRef.current;
       const name = input.files[0].name.replace(/\.csv$/i, '').slice(0, 30) || 'Imported';
       commitData({ ...cur, sheets: [...cur.sheets, { name, cells: typedU, colWidths: {}, ...(Object.keys(formats).length && { formats }) }] });

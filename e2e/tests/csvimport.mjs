@@ -1,6 +1,7 @@
 // Sheets → ⋮ → Import CSV as new sheet, with a file as Excel saves it in much of Europe: semicolons, a byte-order mark,
 // a name with a comma in quotes, decimal commas, a line break in a quoted field. Before, the browser split on commas
-// only: "Smith" and " John" in two cells, the rest of each row in one, and the mark inside A1.
+// only: "Smith" and " John" in two cells, the rest of each row in one, and the mark inside A1. Its decimal commas come
+// in as numbers (before, as text that sums to nothing).
 import { chromium } from 'playwright';
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
@@ -49,12 +50,14 @@ await step('a semicolon file comes in as its columns', async () => {
   await until(async () => (await text('A2')) === 'Smith, John', 8000).catch(() => {});
   const got = {};
   for (const k of ['A1', 'B1', 'C1', 'A2', 'B2', 'C2', 'A3', 'B3', 'C3']) got[k] = await text(k);
-  const want = { A1: 'Name', B1: 'Amount', C1: 'Note', A2: 'Smith, John', B2: '1,5', C2: 'two lines', A3: 'Jones', B3: '2,25', C3: 'say "hi"' }; // (the grid shows a line break as a space)
+  const want = { A1: 'Name', B1: 'Amount', C1: 'Note', A2: 'Smith, John', B2: '1.5', C2: 'two lines', A3: 'Jones', B3: '2.25', C3: 'say "hi"' }; // (the grid shows a line break as a space)
   for (const [k, v] of Object.entries(want)) if (got[k] !== v) throw new Error(`${k}: ${JSON.stringify(got[k])}, not ${JSON.stringify(v)} (all: ${JSON.stringify(got)})`);
   // and kept: the line break in the cell, and the new sheet named after the file
   let saved;
   await until(async () => { saved = (await api(page, 'GET', `/files/${sheet.id}/content`)).body?.content?.sheets?.find((x) => x.name === 'prices'); return !!saved; });
-  if (saved.cells.C2 !== 'two\nlines' || saved.cells.A1 !== 'Name') throw new Error(`saved ${JSON.stringify(saved.cells)}`);
+  if (saved.cells.C2 !== 'two\nlines' || saved.cells.A1 !== 'Name' || saved.cells.B2 !== '1.5') throw new Error(`saved ${JSON.stringify(saved.cells)}`);
+  await typeIn('D2', '=SUM(B2:B3)');
+  await until(async () => (await text('D2')) === '3.75', 5000).catch(async () => { throw new Error(`=SUM(B2:B3) shows ${await text('D2')}`); });
 });
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
