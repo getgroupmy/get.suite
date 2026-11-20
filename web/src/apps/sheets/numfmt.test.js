@@ -63,3 +63,14 @@ test('fractions in cells: # ?/?, # ??/16, ?/?, 0 ?/8, with text around and in a 
   assert.equal(t(2.5, '# ?/? "in"'), '2 1/2 in');
   assert.equal(t(3.14159, '# ???/???'), '3  16/113');
 });
+
+test('engineering notation: with # in the whole part the exponent is a multiple of its places (as Excel)', () => {
+  const t = (v, code) => formatCode(v, code).text;
+  assert.equal(t(1234.567, '##0.0E+0'), '1.2E+3');
+  assert.equal(t(1234567, '##0.0E+0'), '1.2E+6');
+  assert.equal(t(12345, '##0.0E+0'), '12.3E+3');
+  assert.equal(t(0.00123, '##0.0E+0'), '1.2E-3');
+  assert.equal(t(-1234.567, '##0.0E+0'), '-1.2E+3');
+  assert.equal(t(1234.567, '0.00E+00'), '1.23E+03');
+  assert.equal(t(1234.567, '00.0E+0'), '12.3E+2');
+});

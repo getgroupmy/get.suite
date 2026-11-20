@@ -167,7 +167,9 @@ function formatNumberCode(n, toks, negSection) {
   let exp = 0;
   if (eAt >= 0 && x !== 0) {
     const intDigits = Math.max(1, intPlaces.length);
-    exp = Math.floor(Math.log10(x)) - (intDigits - 1);
+    // With # in the whole part ("##0.0E+0", engineering), the exponent is a multiple of its places (1.2E+3, 12.3E+3);
+    // with only 0s ("00.0E+0"), the whole part fills them (12.3E+2).
+    exp = intPlaces.includes('#') && intDigits > 1 ? Math.floor(Math.floor(Math.log10(x)) / intDigits) * intDigits : Math.floor(Math.log10(x)) - (intDigits - 1);
     x /= 10 ** exp;
   }
   const fixed = x.toFixed(Math.min(20, decPlaces.length));

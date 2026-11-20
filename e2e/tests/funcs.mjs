@@ -208,12 +208,12 @@ await step('and in the .ods download, as OpenDocument dates and times', async ()
   if (!/<number:text>\(<\/number:text><number:number [^>]*\/><number:text>\)<\/number:text><style:map style:condition="value\(\)&gt;=0"/.test(cx)) throw new Error('0;(0) as two sections');
 });
 await step('a cell formatted as a fraction or with a condition shows it so', async () => {
-  const f = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Fractions', content: { sheets: [{ name: 'S', colWidths: {}, cells: { A1: '1.5', A2: '-1.25', A3: '150', A4: '50' },
-    formats: { A1: { num: 'custom', code: '# ?/?' }, A2: { num: 'custom', code: '# ?/?;(# ?/?)' }, A3: { num: 'custom', code: '[>100]0;0.00' }, A4: { num: 'custom', code: '[>100]0;0.00' } } }] } })).body;
+  const f = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Fractions', content: { sheets: [{ name: 'S', colWidths: {}, cells: { A1: '1.5', A2: '-1.25', A3: '150', A4: '50', A5: '12345' },
+    formats: { A1: { num: 'custom', code: '# ?/?' }, A2: { num: 'custom', code: '# ?/?;(# ?/?)' }, A3: { num: 'custom', code: '[>100]0;0.00' }, A4: { num: 'custom', code: '[>100]0;0.00' }, A5: { num: 'custom', code: '##0.0E+0' } } }] } })).body;
   await page.goto(`${B}/sheets/${f.id}`);
   await cell('A1').waitFor();
   await until(async () => (await text('A1')) === '1 1/2');
-  await expectCells({ A2: '(1 1/4)', A3: '150', A4: '50.00' });
+  await expectCells({ A2: '(1 1/4)', A3: '150', A4: '50.00', A5: '12.3E+3' }); // engineering notation: exponents in threes
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
