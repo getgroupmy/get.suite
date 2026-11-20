@@ -62,3 +62,11 @@ test('text in shapes is found and replaced; lines without text are not', () => {
   assert.equal(replaceInDeck(d, m, 'Revenue').slides[0].items[0].text, 'Revenue up');
   assert.equal(replaceInDeck(d, findInDeck(d, 'Sales up').matches, '').slides[0].items[0].text, undefined, 'a shape left without text has none');
 });
+
+test('accents don\'t matter in a presentation\'s find unless matchDiacritics', () => {
+  const deck = { slides: [{ id: 's', items: [{ id: 'i', type: 'text', text: 'Le café, the cafe' }] }] };
+  assert.equal(findInDeck(deck, 'cafe').matches.length, 2);
+  assert.equal(findInDeck(deck, 'cafe', { matchDiacritics: true }).matches.length, 1);
+  const m = findInDeck(deck, 'cafe').matches[0];
+  assert.deepEqual([m.from, m.to], [3, 7], 'the word as written');
+});

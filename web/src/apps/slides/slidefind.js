@@ -1,6 +1,6 @@
 // Find and replace (Slides): the text of every text box, table cell and speaker note, slide by slide,
-// searched with the same options as Docs (match case, whole words, regular expressions).
-import { findPattern, replacementFor } from '../docs/findReplace.js';
+// searched with the same options as Docs (match case, whole words, regular expressions, match diacritics).
+import { findPattern, replacementFor, matchesInText } from '../docs/findReplace.js';
 
 /** Every piece of text in the deck, in reading order: { slide, item, cell: [r, c] | null, notes, text }. */
 export function placesOf(deck) {
@@ -20,13 +20,12 @@ const MAX = 5000;
 /** The matches of `term`, in reading order: { slide, item, cell, notes, from, to, text, groups }, or { error }. */
 export function findInDeck(deck, term, options = {}) {
   if (!term) return { matches: [] };
-  const { re, error } = findPattern(term, options);
+  const { error } = findPattern(term, options);
   if (error) return { matches: [], error };
   const matches = [];
   for (const p of placesOf(deck)) {
-    for (const m of p.text.matchAll(re)) {
-      if (!m[0]) continue; // an empty match (say, "a*") finds nothing
-      matches.push({ ...p, from: m.index, to: m.index + m[0].length, groups: [...m] });
+    for (const m of matchesInText(p.text, term, options)) { // (accents don't matter unless asked)
+      matches.push({ ...p, from: m.from, to: m.to, groups: m.groups });
       if (matches.length >= MAX) return { matches };
     }
   }

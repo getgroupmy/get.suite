@@ -11,16 +11,17 @@ export function SlideFind({ deck, replacing, canEdit, onGo, onReplace, onClose }
   const [matchCase, setMatchCase] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [regex, setRegex] = useState(false);
+  const [matchDiacritics, setMatchDiacritics] = useState(false); // off: cafe finds café
   const [showReplace, setShowReplace] = useState(replacing && canEdit);
   const [current, setCurrent] = useState(0);
   const input = useRef();
-  const { matches, error } = useMemo(() => findInDeck(deck, term, { matchCase, wholeWord, regex }), [deck, term, matchCase, wholeWord, regex]);
+  const { matches, error } = useMemo(() => findInDeck(deck, term, { matchCase, wholeWord, regex, matchDiacritics }), [deck, term, matchCase, wholeWord, regex, matchDiacritics]);
   const n = matches.length;
   const at = n ? Math.min(current, n - 1) : 0;
   const m = matches[at];
 
   useEffect(() => { setShowReplace((r) => r || (replacing && canEdit)); input.current?.select(); }, [replacing, canEdit]);
-  useEffect(() => { setCurrent(0); }, [term, matchCase, wholeWord, regex]);
+  useEffect(() => { setCurrent(0); }, [term, matchCase, wholeWord, regex, matchDiacritics]);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
@@ -57,6 +58,7 @@ export function SlideFind({ deck, replacing, canEdit, onGo, onReplace, onClose }
         <button type="button" className="icon-btn" aria-label="Next match" disabled={!n} onClick={() => show(at + 1)}><Icon name="right" size={18} /></button>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Whole words</label>
+        <label className="check small"><input type="checkbox" checked={matchDiacritics} disabled={regex} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
         <label className="check small" title="Search with a pattern, e.g. \d{4}; replace with $1, $2… for its parts"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression</label>
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>

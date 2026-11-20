@@ -118,6 +118,17 @@ await step('Escape closes; the menu opens it; a viewer finds but cannot replace'
   await v.getByRole('button', { name: 'Slide 3', exact: true }).and(v.locator('[aria-current=true]')).waitFor();
   if (await vb.getByRole('button', { name: /Replace/ }).count()) throw new Error('viewer can replace');
 });
+await step('accents don\'t matter in Find unless Match diacritics is ticked', async () => {
+  const d2 = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Menu deck', content: { theme: 'light', slides: [{ id: 'm1', items: [{ id: 'mt', type: 'text', role: 'title', x: 10, y: 10, w: 80, h: 20, size: 40, text: 'Le café et le cafe' }] }] } })).body;
+  await page.goto(`${B}/slides/${d2.id}`);
+  await page.locator('.slide-stage .slide-text', { hasText: 'Le café' }).waitFor();
+  await page.keyboard.press('Control+f');
+  await bar().getByLabel('Find', { exact: true }).fill('cafe');
+  await until(async () => (await count()) === '1 of 2');
+  await bar().getByLabel('Match diacritics').check();
+  await until(async () => (await count()) === '1 of 1');
+  await page.keyboard.press('Escape');
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

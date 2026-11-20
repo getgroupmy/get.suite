@@ -33,3 +33,13 @@ test('replacing changes entries but leaves formulas alone unless asked', () => {
   assert.equal(r.count, 3);
   assert.equal(r.skipped, 1); // B3 shows "apple tart" through its formula
 });
+
+test('accents don\'t matter in a sheet\'s find unless matchDiacritics; replacing takes the word as written', () => {
+  const cells = { A1: 'Café', A2: 'cafe crème', A3: 'tea' };
+  const shown = (k) => cells[k];
+  assert.deepEqual(findCells(cells, shown, 'cafe').map((m) => m.key), ['A1', 'A2']);
+  assert.deepEqual(findCells(cells, shown, 'café', { matchDiacritics: true }).map((m) => m.key), ['A1']);
+  assert.deepEqual(findCells(cells, shown, 'cafe', { wholeCell: true }).map((m) => m.key), ['A1'], 'the whole cell, accents aside');
+  assert.equal(replaceEntry('cafe crème', 'creme', 'cream'), 'cafe cream');
+  assert.equal(replaceEntry('Café', 'café', 'Bar', { matchDiacritics: true }), 'Bar');
+});

@@ -12,21 +12,22 @@ export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, o
   const [replace, setReplace] = useState('');
   const [matchCase, setMatchCase] = useState(false);
   const [wholeCell, setWholeCell] = useState(false);
+  const [matchDiacritics, setMatchDiacritics] = useState(false); // off: cafe finds café
   const [formulas, setFormulas] = useState(false);
   const [showReplace, setShowReplace] = useState(replacing && canEdit);
   const [current, setCurrent] = useState(0);
   const input = useRef();
-  const opts = { matchCase, wholeCell, formulas };
+  const opts = { matchCase, wholeCell, formulas, matchDiacritics };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const matches = useMemo(() => findCells(cells, shown, term, opts, hidden), [cells, shown, term, matchCase, wholeCell, formulas, hidden]);
+  const matches = useMemo(() => findCells(cells, shown, term, opts, hidden), [cells, shown, term, matchCase, wholeCell, formulas, matchDiacritics, hidden]);
   const at = matches.length ? Math.min(current, matches.length - 1) : 0;
 
   useEffect(() => { setShowReplace((r) => r || (replacing && canEdit)); input.current?.select(); }, [replacing, canEdit]);
-  useEffect(() => { setCurrent(0); }, [term, matchCase, wholeCell, formulas]);
+  useEffect(() => { setCurrent(0); }, [term, matchCase, wholeCell, formulas, matchDiacritics]);
   useEffect(() => { onHits({ keys: new Set(matches.map((m) => m.key)), current: matches[at]?.key }); }, [matches, at]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => onHits(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // Go to the first match as the search changes.
-  useEffect(() => { if (matches[0]) onGo(matches[0]); }, [term, matchCase, wholeCell, formulas]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (matches[0]) onGo(matches[0]); }, [term, matchCase, wholeCell, formulas, matchDiacritics]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -71,6 +72,7 @@ export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, o
         <button type="button" className="icon-btn" aria-label="Next match" disabled={!n} onClick={() => show(at + 1)}><Icon name="right" size={18} /></button>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeCell} onChange={(e) => setWholeCell(e.target.checked)} /> Whole cell</label>
+        <label className="check small"><input type="checkbox" checked={matchDiacritics} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
         <label className="check small"><input type="checkbox" checked={formulas} onChange={(e) => setFormulas(e.target.checked)} /> Search formulas</label>
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>

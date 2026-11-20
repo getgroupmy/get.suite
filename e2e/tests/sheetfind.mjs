@@ -115,5 +115,18 @@ await step('viewers can find but not replace', async () => {
   await ctx.close();
 });
 
+await step('accents don\'t matter in Find unless Match diacritics is ticked', async () => {
+  const waitFor = async (fn) => { for (let end = Date.now() + 8000; !(await fn()); await page.waitForTimeout(150)) if (Date.now() > end) throw new Error('timed out'); };
+  const s2 = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Menu sheet', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Café', A2: 'cafe au lait', A3: 'tea' } }] } })).body;
+  await page.goto(`${B}/sheets/${s2.id}`);
+  await cell('A3').click();
+  await page.keyboard.press('Control+f');
+  await bar.getByLabel('Find', { exact: true }).fill('cafe');
+  await waitFor(async () => (await count()) === '1 of 2');
+  await bar.getByLabel('Match diacritics').check();
+  await waitFor(async () => (await count()) === '1 of 1');
+  await page.keyboard.press('Escape');
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

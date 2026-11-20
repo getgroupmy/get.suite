@@ -12,10 +12,11 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * The pattern for what's searched: { re } or { error } when a regular expression isn't valid.
  * With `regex` the term is a regular expression (JavaScript's, with Unicode); otherwise plain text.
  */
-export function findPattern(term, { matchCase = false, wholeWord = false, regex = false } = {}) {
+export function findPattern(term, { matchCase = false, wholeWord = false, regex = false, wholeText = false } = {}) {
   const body = regex ? term : escapeRe(term);
   try {
-    const re = new RegExp(`${wholeWord ? '(?<![\\p{L}\\p{N}_])(?:' : ''}${body}${wholeWord ? ')(?![\\p{L}\\p{N}_])' : ''}`, `gu${matchCase ? '' : 'i'}`);
+    // wholeText: the whole of the text, nothing else (a sheet's "Match entire cell")
+    const re = new RegExp(wholeText ? `^(?:${body})$` : `${wholeWord ? '(?<![\\p{L}\\p{N}_])(?:' : ''}${body}${wholeWord ? ')(?![\\p{L}\\p{N}_])' : ''}`, `gu${matchCase ? '' : 'i'}`);
     return { re };
   } catch {
     return { error: 'That isn’t a valid regular expression' };
@@ -43,15 +44,34 @@ export function foldAccents(text) {
 }
 
 /**
+ * Where `term` occurs in a piece of text: [{ from, to, groups }] (positions in the text as written). Accents don't
+ * matter unless `matchDiacritics`, or with a regular expression (then the text is read exactly).
+ */
+export function matchesInText(text, term, options = {}) {
+  if (!term) return [];
+  const fold = !options.matchDiacritics && !options.regex;
+  const { re } = findPattern(fold ? foldAccents(term).text : term, options);
+  if (!re) return [];
+  const folded = fold ? foldAccents(text) : null;
+  const out = [];
+  for (const m of (folded ? folded.text : text).matchAll(re)) {
+    if (!m[0].length) continue; // an empty match (say, "a*") finds nothing
+    const from = folded ? folded.from[m.index] : m.index;
+    let last = folded ? folded.from[m.index + m[0].length - 1] : m.index + m[0].length - 1;
+    if (folded) while (last + 1 < text.length && /\p{M}/u.test(text[last + 1])) last++; // and accents written as marks after it
+    out.push({ from, to: last + 1, groups: [...m] });
+  }
+  return out;
+}
+
+/**
  * Where `term` occurs in the document: [{ from, to, groups }]. Matches stay inside one block (paragraph,
  * heading, cell); `matchCase`, `wholeWord` and `regex` work as in other editors. Accents don't matter
  * (cafe finds café) unless `matchDiacritics`, or with a regular expression.
  */
 export function findMatches(doc, term, options = {}) {
   if (!term) return [];
-  const fold = !options.matchDiacritics && !options.regex;
-  const { re } = findPattern(fold ? foldAccents(term).text : term, options);
-  if (!re) return [];
+  if (!findPattern(term, options).re) return [];
   const out = [];
   doc.descendants((node, pos) => {
     if (!node.isTextblock) return true;
@@ -62,15 +82,10 @@ export function findMatches(doc, term, options = {}) {
       if (child.isText) { for (let i = 0; i < child.text.length; i++) at.push(pos + 1 + offset + i); text += child.text; }
       else { at.push(null); text += '￼'; } // a picture or line break: never part of a match
     });
-    const folded = fold ? foldAccents(text) : null;
-    for (const m of (folded ? folded.text : text).matchAll(re)) {
-      if (!m[0].length || m[0].includes('￼')) continue;
+    for (const m of matchesInText(text, term, options)) {
+      if (text.slice(m.from, m.to).includes('￼')) continue;
       if (out.length >= 5000) break;
-      // (folded: back to the characters as written, the whole of the last one)
-      const start = folded ? folded.from[m.index] : m.index;
-      let last = folded ? folded.from[m.index + m[0].length - 1] : m.index + m[0].length - 1;
-      if (folded) while (last + 1 < text.length && /\p{M}/u.test(text[last + 1])) last++; // and its accents written as marks after it
-      out.push({ from: at[start], to: at[last] + 1, ...(options.regex && { groups: [...m] }) });
+      out.push({ from: at[m.from], to: at[m.to - 1] + 1, ...(options.regex && { groups: m.groups }) });
     }
     return false;
   });
