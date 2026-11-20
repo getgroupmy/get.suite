@@ -231,12 +231,14 @@ function findIn(list, x, type) {
     const re = hasWildcard(x) ? wildcard(x) : null;
     return list.findIndex((v) => (re ? typeof v === 'string' && re.test(v) : same(v, x)));
   }
-  let found = -1;
-  for (let i = 0; i < list.length; i++) {
-    const v = list[i];
-    if (v === null || v === '' || isErr(v)) continue;
-    if (same(v, x)) return i;
-    if (type > 0 ? before(v, x) : before(x, v)) found = i; else break;
+  // A binary search, as Excel's (so unsorted data gives the same answer as there, and of equal values the last):
+  // the last value ≤ x (type 1, ascending) or ≥ x (type -1, descending). Empty and error cells are passed over.
+  const at = [];
+  for (let i = 0; i < list.length; i++) { const v = list[i]; if (v !== null && v !== '' && v !== undefined && !isErr(v)) at.push(i); }
+  let lo = 0, hi = at.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1, v = list[at[mid]];
+    if (same(v, x) || (type > 0 ? before(v, x) : before(x, v))) { found = at[mid]; lo = mid + 1; } else hi = mid - 1;
   }
   return found;
 }
@@ -871,10 +873,19 @@ const FUNCS = {
     if (!out.length) return ifEmpty === undefined ? err('#CALC!') : ifEmpty;
     return grid(out);
   },
-  UNIQUE: ([array]) => {
+  // UNIQUE(array, [by_col], [exactly_once]): each different row (or column) once, or only those there just once.
+  UNIQUE: ([array, byCol, once]) => {
+    const cols = given(byCol) && byCol !== '' && toBool(byCol);
+    let rows = rowsOf(array);
+    if (cols) rows = (rows[0] || []).map((_, c) => rows.map((r) => r[c]));
+    const key = (row) => JSON.stringify(row.map((v) => (typeof v === 'string' ? v.toLowerCase() : v)));
+    const count = new Map();
+    for (const row of rows) count.set(key(row), (count.get(key(row)) || 0) + 1);
     const seen = new Set();
-    const out = rowsOf(array).filter((row) => { const k = JSON.stringify(row.map((v) => (typeof v === 'string' ? v.toLowerCase() : v))); if (seen.has(k)) return false; seen.add(k); return true; });
-    return grid(out);
+    let out = rows.filter((row) => { const k = key(row); if (seen.has(k)) return false; seen.add(k); return true; });
+    if (given(once) && once !== '' && toBool(once)) out = out.filter((row) => count.get(key(row)) === 1);
+    if (!out.length) err('#CALC!');
+    return grid(cols ? out[0].map((_, r) => out.map((col) => col[r])) : out);
   },
   SORT: ([array, by, dir]) => {
     const rows = rowsOf(array);
@@ -2039,6 +2050,9 @@ const LIFT = Object.fromEntries([
     + 'ISBLANK ISNUMBER ISTEXT ISURL ISEMAIL ISNONTEXT ISLOGICAL ISDATE ISNA ISERR NOT ENCODEURL ROMAN ARABIC DEC2BIN DEC2HEX DEC2OCT BIN2DEC HEX2DEC OCT2DEC BASE DECIMAL '
     + 'NORM.DIST NORM.S.DIST NORM.INV NORM.S.INV STANDARDIZE BINOM.DIST POISSON.DIST EXPON.DIST T.DIST T.INV IF IFERROR IFNA ISERROR IFS SWITCH').split(' ').map((n) => [n, null]),
   ['VLOOKUP', [0]], ['HLOOKUP', [0]], ['MATCH', [0]], ['XMATCH', [0]], ['COUNTIF', [1]], ['SUMIF', [1]], ['AVERAGEIF', [1]],
+  // a list of k or of conditions: one answer each (=SUM(LARGE(A1:A9, {1,2,3})), =SUM(SUMIFS(C:C, B:B, {"IT","HR"})))
+  ['LARGE', [1]], ['SMALL', [1]], ['COUNTIFS', [1, 3, 5, 7, 9, 11]], ['SUMIFS', [2, 4, 6, 8, 10, 12]], ['AVERAGEIFS', [2, 4, 6, 8, 10, 12]],
+  ['MAXIFS', [2, 4, 6, 8, 10, 12]], ['MINIFS', [2, 4, 6, 8, 10, 12]],
 ].filter(([n]) => FUNCS[n] || LAZY[n]));
 const lifts = (which, i) => !which || which.includes(i);
 /** Whether a call works cell by cell over an argument that may be several cells. */

@@ -588,3 +588,21 @@ test('TEXT with the full number-format codes: times, AM/PM, sections, conditions
   is('=TEXT(-1.25, "# ?/?")', '-1 1/4');
   is('=TEXT(3.14159, "# ???/???")', '3  16/113');
 });
+test('approximate lookups search as Excel does (binary search); lists of k and of conditions; UNIQUE by column and exactly once', () => {
+  const c = { A2: 'Ann', B2: 'IT', C2: '100', A3: 'Bob', B3: 'HR', C3: '80', A4: 'Cy', B4: 'IT', C4: '120', A5: 'Di', B5: 'Ops', C5: '90' };
+  const is = (f, want) => assert.deepEqual(one(f, c), want, f);
+  is('=VLOOKUP(85, C2:C5, 1, TRUE)', 80); // unsorted: Excel's answer
+  is('=MATCH(2, {1,2,2,3}, 1)', 3); // of equal values, the last
+  is('=MATCH(2.5, {1,2,3}, 1)', 2);
+  is('=MATCH(2.5, {3,2,1}, -1)', 1);
+  is('=MATCH(0, {1,2,3}, 1)', { error: '#N/A' });
+  is('=LOOKUP(4, {1,3,5}, {"a","b","c"})', 'b');
+  is('=SUM(SUMIFS(C2:C5, B2:B5, {"IT","HR"}))', 300);
+  is('=SUM(COUNTIFS(B2:B5, {"IT","Ops"}))', 3);
+  is('=SUM(LARGE(C2:C5, {1,2}))', 220);
+  is('=AVERAGE(SMALL(C2:C5, {1,2}))', 85);
+  is('=COUNTA(UNIQUE(B2:B5, , TRUE))', 2);
+  is('=TEXTJOIN(",", , UNIQUE(B2:B5, FALSE, TRUE))', 'HR,Ops');
+  is('=COLUMNS(UNIQUE({1,2,1,3}, TRUE))', 3);
+  is('=UNIQUE({1;1}, , TRUE)', { error: '#CALC!' }); // the one value is there twice
+});

@@ -137,6 +137,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // TEXT with times, sections and fractions
   await typeIn('P3', '=TEXT(TIME(14, 30, 0), "h:mm AM/PM")&"|"&TEXT(-5, "0;(0)")&"|"&TEXT(1.5, "# ?/?")');
   await expectCells({ P3: '2:30 PM|(5)|1 1/2' });
+  // lists of k and of conditions; an approximate VLOOKUP on unsorted amounts gives Excel's answer
+  await typeIn('P4', '=SUM(LARGE(B2:B4, {1,2}))&"|"&SUM(SUMIFS(B2:B4, A2:A4, {"pear","fig"}))&"|"&VLOOKUP(100, B2:B4, 1, TRUE)');
+  await expectCells({ P4: '200|200|0' }); // 120, 80, 0 unsorted: the halving search ends on 0, as Excel's does
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {
