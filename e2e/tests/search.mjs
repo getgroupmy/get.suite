@@ -48,6 +48,23 @@ await step('search in Drive finds a document by the words inside it, with where 
   await page.getByText('The board approved').waitFor();
 });
 
+await step('a presentation matched by its words says which slide, and opens there; a spreadsheet, which cell', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Expansion deck', content: { slides: [{ id: 'e1', items: [{ id: 'i1', type: 'text', text: 'Hello', x: 0, y: 0, w: 50, h: 10 }] }, { id: 'e2', items: [{ id: 'i2', type: 'text', text: 'Opening in Kuching next spring', x: 0, y: 0, w: 50, h: 10 }] }] } });
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Travel ledger', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'x' } }, { name: 'Trips', cells: { C3: 'Kuching flights' } }] } });
+  await page.waitForTimeout(2500); // the index catches up
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Search everything').fill('kuching');
+  await page.getByLabel('Search everything').press('Enter');
+  const rows = page.locator('.files tbody tr');
+  await rows.filter({ hasText: 'Expansion deck' }).getByText('Slide 2').waitFor();
+  await rows.filter({ hasText: 'Travel ledger' }).getByText('Trips · C3').waitFor();
+  await rows.filter({ hasText: 'Expansion deck' }).locator('td.name').dblclick();
+  await page.getByText('Slide 2 of 2').waitFor();
+  await page.goBack();
+  await rows.filter({ hasText: 'Travel ledger' }).locator('td.name').dblclick();
+  await page.locator('[data-k="C3"]').getByText('Kuching flights').waitFor();
+  await until(async () => (await page.getByLabel('Name box').inputValue()) === 'C3');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

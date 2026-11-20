@@ -54,7 +54,8 @@ export async function searchAll(text) {
   const has = (...xs) => xs.some((x) => String(x || '').toLowerCase().includes(low));
   return [
     ['Files', (Array.isArray(files) ? files : files.files || []).map((f) => ({ key: `f${f.id}`, icon: FILE_ICON[f.kind] || 'file', title: f.name,
-      sub: f.owner_name ? `${f.owner_name} · ${when(f.updated_at)}` : when(f.updated_at), to: FILE_LINK[f.kind]?.(f) || `/drive/search?q=${encodeURIComponent(f.name)}` }))],
+      sub: [f.place_words, f.owner_name, when(f.updated_at)].filter(Boolean).join(' · '),
+      to: FILE_LINK[f.kind] ? `${FILE_LINK[f.kind](f)}${f.place || ''}` : `/drive/search?q=${encodeURIComponent(f.name)}` }))], // (at the slide or cell the words are on)
     ['Mail', mail.map((m) => ({ key: `m${m.folder}${m.uid}`, icon: 'mail', title: m.subject || '(no subject)',
       sub: `${m.folder === 'Sent' ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || '')}${m.date ? ` · ${when(m.date)}` : ''}`,
       to: `/mail/${encodeURIComponent(m.folder)}/${m.uid}` }))],

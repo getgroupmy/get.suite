@@ -1,4 +1,5 @@
 import { jsonFromDoc, jsonFromSheetDoc, jsonFromDeckDoc } from '../collabdoc.js';
+import { placeOfMatch } from '../matchplace.js';
 import { headingsOfDoc } from '../office/anchors.js';
 import { mediaShowingIn, keepMediaShowing } from '../mediahome.js';
 import { prefsOf } from './docprefs.js';
@@ -693,6 +694,13 @@ export default function fileRoutes({ maxUploadBytes }) {
       const byName = (f) => f.name.toLowerCase().includes(String(req.query.q || '').toLowerCase());
       rows = rows.map((f) => (inside.has(f.id) && !byName(f) ? { ...f, match: inside.get(f.id) } : f))
         .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
+      // A presentation or spreadsheet matched inside: where (the slide, or the sheet and cell), to open it there.
+      for (const f of rows) {
+        if (!f.match || (f.kind !== 'slides' && f.kind !== 'sheet')) continue;
+        let json; try { json = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'); } catch { continue; }
+        const at = placeOfMatch(f.kind, json, req.query.q);
+        if (at) { f.place = at.hash; f.place_words = at.words; }
+      }
     } else throw bad('Unknown view');
     // Shortcuts in this folder (or your My Drive), unless asked to leave them out.
     if (view === 'mine' && !req.query.noshortcuts) rows = [...rows, ...shortcutsIn(req.query.parent || null, req.user)];

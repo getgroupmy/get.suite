@@ -16640,3 +16640,20 @@ test('a place in a file, in words (for Chat cards): a slide\'s number, a tab\'s 
   const other = client(); await login(other, 'placenone@acme.com');
   assert.equal((await other('GET', `/api/files/${deck.id}/place?slide=pa`)).status, 404, 'not theirs to open');
 });
+
+test('search: a presentation or spreadsheet matched by its words says where (a slide, a sheet and cell), to open it there', async () => {
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Quarterly pitch', content: { slides: [{ id: 'q1', items: [{ type: 'text', text: 'Hello' }] }, { id: 'q2', items: [{ type: 'text', text: 'Zanzibar expansion' }] }] } })).body;
+  const book = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Ledger', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'x' } }, { name: 'Trips', cells: { B4: 'Zanzibar flights' } }] } })).body;
+  let r;
+  for (let i = 0; i < 40; i++) { // (indexed in the background)
+    r = (await owner('GET', '/api/files?view=search&q=zanzibar')).body;
+    if (r.some((f) => f.id === deck.id) && r.some((f) => f.id === book.id)) break;
+    await new Promise((ok) => setTimeout(ok, 100));
+  }
+  const d = r.find((f) => f.id === deck.id), b = r.find((f) => f.id === book.id);
+  assert.deepEqual([d.place, d.place_words], ['#slide=q2', 'Slide 2']);
+  assert.deepEqual([b.place, b.place_words], ['#sheet=Trips&range=B4', 'Trips · B4']);
+  // Found by its name: no place
+  const byName = (await owner('GET', '/api/files?view=search&q=ledger')).body.find((f) => f.id === book.id);
+  assert.equal(byName.place, undefined);
+});
