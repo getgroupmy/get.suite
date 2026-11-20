@@ -190,6 +190,16 @@ await step('newer functions are written the way Excel expects in the .xlsx downl
   const num = (k) => new RegExp(`<c r="${k}" s="\\d+"><v>([\\d.]+)</v>`).exec(xml)?.[1];
   if (num('R1') !== '46346' || !/^46346\.6041/.test(num('R6') || '') || !/^0\.6041/.test(num('R3') || '')) throw new Error(JSON.stringify([num('R1'), num('R6'), num('R3')]));
 });
+await step('and in the .ods download, as OpenDocument dates and times', async () => {
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as OpenDocument (.ods)' }).click()]);
+  const file = `${SP}/funcs-dl.ods`;
+  await dl.saveAs(file);
+  const xml = await (await JSZip.loadAsync(fs.readFileSync(file))).file('content.xml').async('string');
+  if (!xml.includes('office:date-value="2026-11-20T14:30:00"')) throw new Error('the date and time (R6)');
+  if (!xml.includes('office:time-value="PT14H30M00S"')) throw new Error('the time (R3)');
+  if (!/<number:time-style[^>]*><number:hours\/>.*?<number:am-pm\/>/.test(xml)) throw new Error('its h:mm AM/PM style');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

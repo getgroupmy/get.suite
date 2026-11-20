@@ -134,6 +134,51 @@ const DATA_STYLES = {
     long: '<number:day-of-week number:style="long"/><number:text>, </number:text><number:day/><number:text> </number:text><number:month number:textual="true" number:style="long"/><number:text> </number:text><number:year number:style="long"/>',
   }[f.ds] || '<number:day/><number:text> </number:text><number:month number:textual="true"/><number:text> </number:text><number:year number:style="long"/>'}</number:date-style>`,
 };
+/** A custom code of dates and times only ("dd/mm/yyyy hh:mm", "h:mm AM/PM"): its parts as ODF number:… elements, or null. */
+function dateTimeParts(code) {
+  const c = String(code || '');
+  const bare = c.replace(/"[^"]*"/g, '').toLowerCase();
+  if (!/[dmyhs]/.test(bare) || /[0#?@%]/.test(bare)) return null;
+  const toks = c.match(/"[^"]*"|\\.|yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s|AM\/PM|am\/pm|[^"\\ydmhsAa]+|./gi) || [];
+  const out = [];
+  let afterHour = false, hasDate = false, hasTime = false;
+  toks.forEach((t, i) => {
+    const l = t.toLowerCase();
+    const nextIsSec = toks.slice(i + 1).find((x) => /^[a-z]/i.test(x))?.toLowerCase().startsWith('s');
+    if (l === 'yyyy' || l === 'yy') { out.push(`<number:year${l === 'yyyy' ? ' number:style="long"' : ''}/>`); hasDate = true; }
+    else if (l === 'dddd' || l === 'ddd') { out.push(`<number:day-of-week${l === 'dddd' ? ' number:style="long"' : ''}/>`); hasDate = true; }
+    else if (l === 'dd' || l === 'd') { out.push(`<number:day${l === 'dd' ? ' number:style="long"' : ''}/>`); hasDate = true; }
+    else if (/^m{1,4}$/.test(l) && (afterHour || nextIsSec) && l.length <= 2) { out.push(`<number:minutes${l === 'mm' ? ' number:style="long"' : ''}/>`); hasTime = true; }
+    else if (/^m{1,4}$/.test(l)) { out.push(l.length >= 3 ? `<number:month number:textual="true"${l === 'mmmm' ? ' number:style="long"' : ''}/>` : `<number:month${l === 'mm' ? ' number:style="long"' : ''}/>`); hasDate = true; }
+    else if (l === 'hh' || l === 'h') { out.push(`<number:hours${l === 'hh' ? ' number:style="long"' : ''}/>`); hasTime = true; afterHour = true; return; }
+    else if (l === 'ss' || l === 's') { out.push(`<number:seconds${l === 'ss' ? ' number:style="long"' : ''}/>`); hasTime = true; }
+    else if (l === 'am/pm') out.push('<number:am-pm/>');
+    else out.push(`<number:text>${x(t.startsWith('"') ? t.slice(1, -1) : t.startsWith('\\') ? t.slice(1) : t)}</number:text>`);
+    if (!/^[^a-z]*$/i.test(t)) afterHour = false;
+  });
+  return { xml: out.join(''), kind: hasDate ? 'date' : hasTime ? 'time' : null };
+}
+/** ODF date-style or time-style parts back as a custom code ("dd/mm/yyyy hh:mm"), or null. */
+function codeFromParts(el) {
+  let code = '';
+  for (const k of el.children || []) {
+    if (k.type !== 'tag') continue;
+    const long = k.attribs?.['number:style'] === 'long';
+    if (k.name === 'number:year') code += long ? 'yyyy' : 'yy';
+    else if (k.name === 'number:month') code += k.attribs?.['number:textual'] === 'true' ? (long ? 'mmmm' : 'mmm') : long ? 'mm' : 'm';
+    else if (k.name === 'number:day') code += long ? 'dd' : 'd';
+    else if (k.name === 'number:day-of-week') code += long ? 'dddd' : 'ddd';
+    else if (k.name === 'number:hours') code += long ? 'hh' : 'h';
+    else if (k.name === 'number:minutes') code += long ? 'mm' : 'm';
+    else if (k.name === 'number:seconds') code += long ? 'ss' : 's';
+    else if (k.name === 'number:am-pm') code += 'AM/PM';
+    else if (k.name === 'number:text') { const t = textOf(k); code += /^[\s/:.,-]*$/.test(t) ? t : `"${t.replace(/"/g, '')}"`; }
+  }
+  return code || null;
+}
+/** A day and time as kept here ("2026-11-20 14:30") or a time as a fraction of a day, as ODF writes them. */
+const isDayTime = (v) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v) && !Number.isNaN(Date.parse(`${v.replace(' ', 'T')}Z`));
+const odfTime = (fraction) => { const s = Math.round(fraction * 86400); return `PT${Math.floor(s / 3600)}H${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}M${String(s % 60).padStart(2, '0')}S`; };
 const isNum = (v) => v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(String(v).trim());
 const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
 
@@ -151,6 +196,13 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
   const tables = tablesOf(sheets);
   const cellStyles = new Map(), dataStyles = new Map(), colStyles = new Map(), rowStyles = new Map();
   const dataStyle = (f) => {
+    if (f.num === 'custom') { // a code of dates and times: an ODF date or time style (others: not kept in .ods yet)
+      const p = dateTimeParts(f.code);
+      if (!p?.kind) return null;
+      const key = `c${[...String(f.code)].map((ch) => ch.charCodeAt(0).toString(36)).join('')}`.slice(0, 60);
+      if (!dataStyles.has(key)) dataStyles.set(key, `<number:${p.kind}-style style:name="N_${key}">${p.xml}</number:${p.kind}-style>`);
+      return `N_${key}`;
+    }
     if (!DATA_STYLES[f.num]) return null;
     const key = `${f.num}_${f.dp ?? ''}_${f.cur || ''}_${f.ds || ''}`.replace(/[^\w]/g, '');
     if (!dataStyles.has(key)) dataStyles.set(key, DATA_STYLES[f.num]({ ...f, key }));
@@ -281,6 +333,9 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
             else if (res && 'text' in res && res.text !== '') { attrs.push('office:value-type="string"'); inner = `<text:p>${x(res.text)}</text:p>`; }
             else if (res && 'error' in res) { attrs.push('office:value-type="string"'); inner = `<text:p>${x(res.error)}</text:p>`; }
             else if (f.num === 'percent') attrs.push('office:value-type="percentage"');
+          } else if (isNum(v) && f.num === 'custom' && dateTimeParts(f.code)?.kind === 'time' && Number(v) >= 0 && Number(v) < 1) {
+            attrs.push(`office:value-type="time" office:time-value="${odfTime(Number(v))}"`); // a time of day
+            inner = `<text:p>${x(v)}</text:p>`;
           } else if (isNum(v)) {
             const type = f.num === 'percent' ? 'percentage' : f.num === 'currency' ? 'currency' : 'float';
             attrs.push(`office:value-type="${type}" office:value="${Number(v)}"${type === 'currency' ? ` office:currency="${x(f.cur || 'MYR')}"` : ''}`);
@@ -288,6 +343,9 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
           } else if (/^(TRUE|FALSE)$/i.test(v)) {
             attrs.push(`office:value-type="boolean" office:boolean-value="${/^TRUE$/i.test(v)}"`);
             inner = `<text:p>${v.toUpperCase()}</text:p>`;
+          } else if (isDayTime(v)) {
+            attrs.push(`office:value-type="date" office:date-value="${v.replace(' ', 'T')}${v.length === 16 ? ':00' : ''}"`);
+            inner = `<text:p>${v}</text:p>`;
           } else if (isDay(v)) {
             if (!f.num) { // shown as a date, not a number of days
               const st = `table:style-name="${cellStyle({ ...f, num: 'date', ds: 'iso' })}"`;
@@ -392,6 +450,7 @@ export async function sheetFromOds(buffer) {
         const sym = textOf(tags(el, 'number:currency-symbol')[0] || { children: [] }).trim();
         const dp = n['number:decimal-places'] !== undefined ? Math.min(10, Number(n['number:decimal-places'])) : undefined;
         const ds = kind !== 'date' ? undefined : parts.includes('number:day-of-week') ? 'long' : parts[0] === 'number:year' ? 'iso' : parts.includes('number:day') ? (tags(el, 'number:month')[0]?.attribs['number:textual'] === 'true' ? undefined : 'short') : 'month';
+        if (kind === 'time' || (kind === 'date' && parts.includes('number:hours'))) { const code = codeFromParts(el); if (code) { dataStyles.set(el.attribs['style:name'], { num: 'custom', code }); readStyles(el); continue; } }
         dataStyles.set(el.attribs['style:name'], kind === 'number' ? { num: 'number', ...(dp !== undefined && { dp }) } : kind === 'percentage' ? { num: 'percent', ...(dp !== undefined && { dp }) } : kind === 'currency' ? { num: 'currency', cur: { '€': 'EUR', $: 'USD', '£': 'GBP', '¥': 'JPY', RM: 'MYR' }[sym] || sym || 'MYR', ...(dp !== undefined && { dp }) } : kind === 'date' ? { num: 'date', ...(ds && { ds }) } : {});
       }
       readStyles(el);
@@ -506,8 +565,13 @@ export async function sheetFromOds(buffer) {
             if (formula) { v = formulaFromOds(formula); if (/^=(TRUE|FALSE)$/i.test(v)) v = v.slice(1).toUpperCase(); } // (=TRUE(): LibreOffice's way of saving a TRUE cell)
             else if (type === 'float' || type === 'percentage' || type === 'currency') v = String(Number(cell.attribs['office:value']));
             else if (type === 'boolean') v = cell.attribs['office:boolean-value'] === 'true' ? 'TRUE' : 'FALSE';
-            else if (type === 'date') v = String(cell.attribs['office:date-value'] || '').slice(0, 10);
-            else if (type === 'time') v = textOf({ children: tags(cell, 'text:p') });
+            else if (type === 'date') {
+              const dv = String(cell.attribs['office:date-value'] || ''), t = /T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(dv);
+              v = t && !(t[1] === '00' && t[2] === '00' && (t[3] || '00') === '00') ? `${dv.slice(0, 10)} ${t[1]}:${t[2]}${t[3] && t[3] !== '00' ? `:${t[3]}` : ''}` : dv.slice(0, 10);
+            } else if (type === 'time') {
+              const m = /^-?PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?$/.exec(cell.attribs['office:time-value'] || '');
+              v = m ? String(Math.round(((Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0)) / 86400) * 1e10) / 1e10) : textOf({ children: tags(cell, 'text:p') });
+            }
             else {
               const ps = tags(cell, 'text:p');
               if (ps.length) v = ps.map(textOf).join('\n');
