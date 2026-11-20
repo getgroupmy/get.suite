@@ -659,6 +659,8 @@ function SharedDoc({ file, setFile }) {
   useEffect(() => {
     if (!editor) return undefined;
     const go = () => {
+      const tabId = tabIdOfHash(window.location.hash); // a link to one of its tabs
+      if (tabId) { openTab(editor, tabId); return; }
       const h = headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
       if (h) goToHeading(editor, h); else goToBookmark(editor, bookmarkIdOf(window.location.hash));
     };

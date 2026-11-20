@@ -59,6 +59,12 @@ await step('a link to a tab opens the document there', async () => {
   await page.goto(`${B}/docs/${id}#tab=money`);
   await ed().getByText('Rent and staff come to four thousand.').waitFor({ state: 'visible' });
   if (await ed().getByText('Open two shops this spring.').isVisible()) throw new Error('first tab shown');
+  // A link to another of its tabs opened while it's open goes there
+  await page.evaluate(() => { window.location.hash = '#tab=plan'; });
+  await ed().getByText('Open two shops this spring.').waitFor({ state: 'visible' });
+  if (await ed().getByText('Rent and staff come to four thousand.').isVisible()) throw new Error('still on Budget');
+  await page.evaluate(() => { window.location.hash = '#tab=money'; }); // (back, as the steps after expect)
+  await ed().getByText('Rent and staff come to four thousand.').waitFor({ state: 'visible' });
 });
 await step('a comment in a tab is kept there, and opening it from the list opens its tab', async () => {
   await ed().getByText('Rent and staff come to four thousand.').click();
