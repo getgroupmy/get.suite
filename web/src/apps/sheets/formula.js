@@ -263,6 +263,8 @@ function toDate(v) {
   return Date.UTC(+m[1], +m[2] - 1, +m[3]);
 }
 const dateText = (ms) => new Date(ms).toISOString().slice(0, 10);
+/** The date and time on this computer's clock, "2026-11-21 07:30" (TODAY and NOW: where you are, not UTC). */
+const localNow = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 /** When every value given (leaving out empty cells) is a date: their day numbers, for MIN and MAX of dates. */
 function onlyDates(args) {
   const vals = args.flat(Infinity).filter((v) => v !== null && v !== undefined && v !== '');
@@ -1036,7 +1038,7 @@ const FUNCS = {
     if (a / b <= 0) err('#NUM!');
     return Math.log(a / b) / Math.log(1 + r);
   },
-  TODAY: () => new Date().toISOString().slice(0, 10),
+  TODAY: () => localNow().slice(0, 10), // today where you are (as in Excel), not in UTC
   // lookups
   // LOOKUP(x, sorted list, [results]): the last one at or below x; without results, a table's first column
   // (or row, when it's wider than tall) is searched and its last column (or row) given back.
@@ -1298,7 +1300,7 @@ const FUNCS = {
   DAYS: ([end, start]) => Math.round((toDate(end) - toDate(start)) / DAY_MS),
   EDATE: ([start, months]) => { const d = new Date(toDate(start)); const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months), 1)); const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate(); return dateText(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), Math.min(d.getUTCDate(), last))); },
   EOMONTH: ([start, months]) => { const d = new Date(toDate(start)); return dateText(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months) + 1, 0)); },
-  NOW: () => new Date().toISOString().slice(0, 16).replace('T', ' '),
+  NOW: () => localNow(),
   // statistics
   'STDEV': (a) => Math.sqrt(variance(a, true)),
   'STDEV.S': (a) => Math.sqrt(variance(a, true)),
