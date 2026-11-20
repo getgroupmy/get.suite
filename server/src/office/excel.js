@@ -250,6 +250,9 @@ export async function notesOfXlsx(buffer) {
 }
 
 export async function sheetFromExcel(buffer) {
+  // Which program saved it (docProps/app.xml): LibreOffice writes some defaults out that Excel leaves unsaid
+  const appXml = await (await JSZip.loadAsync(buffer).catch(() => null))?.file('docProps/app.xml')?.async('string').catch(() => '');
+  const fromLibreOffice = /<Application>\s*LibreOffice/i.test(appXml || '');
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   const noteSheets = await notesOfXlsx(buffer);
@@ -295,7 +298,7 @@ export async function sheetFromExcel(buffer) {
         const fill = cell.fill?.type === 'pattern' && cell.fill.pattern === 'solid' ? hex(cell.fill.fgColor?.argb) : null;
         if (fill && fill !== '#ffffff') f.fill = fill;
         if (['left', 'center', 'right'].includes(cell.alignment?.horizontal)) f.align = cell.alignment.horizontal;
-        if (['top', 'middle', 'bottom'].includes(cell.alignment?.vertical)) f.va = cell.alignment.vertical; // only when set in the file
+        if (['top', 'middle', 'bottom'].includes(cell.alignment?.vertical) && !(fromLibreOffice && cell.alignment.vertical === 'bottom')) f.va = cell.alignment.vertical; // only when set in the file (LibreOffice writes bottom, Excel's default, on every cell it styles)
         const tr = cell.alignment?.textRotation; // degrees (-90…90; 91–180 as written by some programs: below the line), or 'vertical'
         const rot = tr === 'vertical' || tr === 255 ? 'stack' : tr === 90 ? 'up' : tr === -90 || tr === 180 ? 'down' : (tr > 0 && tr < 90) ? 'tiltup' : ((tr < 0 && tr > -90) || (tr > 90 && tr < 180)) ? 'tiltdown' : null;
         if (rot) f.rot = rot;
@@ -312,7 +315,8 @@ export async function sheetFromExcel(buffer) {
         if (last && last.axis === axis && last.to === i - 1) { last.to = i; last.collapsed = last.collapsed && m.get(i); } else groups.push({ axis, from: i, to: i, collapsed: m.get(i) });
       }
     }
-    ws.columns?.forEach((col, i) => { if (col?.width && Math.abs(col.width - 8.43) > 0.5) colWidths[colName(i)] = Math.round(col.width * 7 + 5); });
+    // A width set (not Excel's standard 8.43, nor the 9 a hidden column is given without one of its own)
+    ws.columns?.forEach((col, i) => { if (col?.width && Math.abs(col.width - 8.43) > 0.02 && !(col.hidden && col.width === 9)) colWidths[colName(i)] = Math.round(col.width * 7 + 5); });
     // Rows set taller or shorter than Excel's standard 15 points (pixels here: points ÷ 0.75).
     const rowHeights = {};
     ws.eachRow({ includeEmpty: true }, (row, n) => {
@@ -517,7 +521,7 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
       const lines = [t.text, ...t.replies.map((r) => `Reply${r.author ? ` (${r.author})` : ''}:\n    ${r.text}`)];
       ws.getCell(t.cell).note = `[Threaded comment]\n\nYour version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel. Learn more: https://go.microsoft.com/fwlink/?linkid=870924\n\nComment:\n    ${lines.join('\n')}`;
     }
-    for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round((px - 5) / 7));
+    for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round(((px - 5) / 7) * 100) / 100); // (in characters, not rounded: 60px is 7.86, not 8)
     for (const [n, px] of Object.entries(s.rowHeights || {})) if (/^\d+$/.test(n) && Number(n) >= 1 && Number(n) <= 10000 && Number(px) > 0) ws.getRow(Number(n)).height = Math.round(Number(px) * 0.75 * 10) / 10; // pixels → points
     if (s.frozen?.rows || s.frozen?.cols) ws.views = [{ state: 'frozen', xSplit: s.frozen.cols || 0, ySplit: s.frozen.rows || 0 }];
     // Conditional formatting, in the order Sheets tries the rules (Excel's priority).

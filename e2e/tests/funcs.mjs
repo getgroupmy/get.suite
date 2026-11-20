@@ -221,6 +221,12 @@ await step('a cell formatted as a fraction or with a condition shows it so', asy
   await until(async () => (await text('A1')) === '1 1/2');
   await expectCells({ A2: '(1 1/4)', A3: '150', A4: '50.00', A5: '12.3E+3' }); // engineering notation: exponents in threes
 });
+await step('a narrow column keeps its width in the .xlsx download', async () => {
+  const f = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Widths', content: { sheets: [{ name: 'S', cells: { A1: 'a', C1: 'c' }, colWidths: { A: 150, C: 60 } }] } })).body;
+  const b64 = await page.evaluate(async (id) => { const r = await fetch(`/api/files/${id}/export?format=xlsx`); const a = new Uint8Array(await r.arrayBuffer()); let t = ''; for (const x of a) t += String.fromCharCode(x); return btoa(t); }, f.id);
+  const xml = await (await JSZip.loadAsync(Buffer.from(b64, 'base64'))).file('xl/worksheets/sheet1.xml').async('string');
+  if (!/<col min="3" max="3" width="7.86"/.test(xml)) throw new Error(xml.match(/<cols>.*?<\/cols>/)?.[0] || 'no cols'); // (was 8: read back as Excel's standard width, so lost)
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
