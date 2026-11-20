@@ -160,6 +160,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // a fractional number of digits is taken as whole (as Excel does), and a tiny amount still rounds up
   await typeIn('P14', '=ROUNDUP(2.5, -0.5)&"|"&ROUNDUP(1E-10, 1)&"|"&TRUNC(7, 0.5)&"|"&CHAR(65.9)&"|"&IFERROR(CEILING(2.5, -1), "no")');
   await expectCells({ P14: '3|0.1|7|A|no' });
+  // text read as numbers: (5) is -5, a time of day, a date's day number; counts of characters taken as whole numbers
+  await typeIn('P15', '=("(5)"+0)&"|"&VALUE("2:30 PM")*24&"|"&VALUE("2026-11-20")&"|"&LEFT("Hello", 1.9)&"|"&PROPER("İstanbul")');
+  await expectCells({ P15: '-5|14.5|46346|H|İstanbul' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

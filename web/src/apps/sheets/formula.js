@@ -163,9 +163,21 @@ const toNum = (v) => {
   if (typeof v === 'number') return v;
   if (typeof v === 'boolean') return v ? 1 : 0;
   const n = Number(v);
-  if (Number.isNaN(n)) { const m = numberInText(v); if (m === null) err('#VALUE!'); return m; }
+  if (Number.isNaN(n)) { const m = textNumber(v); if (m === null) err('#VALUE!'); return m; }
   return n;
 };
+/** Text as a number the way Excel's arithmetic and VALUE read it: "1,234", "50%", "(5)" (-5), "14:30" or "2:30 PM" (a
+ * time of day), "2026-11-20" (a date's day number); null when it's none of these. */
+function textNumber(v) {
+  const t = String(v);
+  const n = numberInText(t);
+  if (n !== null) return n;
+  const paren = /^\s*\((.*)\)\s*$/.exec(t);
+  if (paren) { const inner = numberInText(paren[1]); return inner === null || /^\s*[-+]/.test(paren[1]) ? null : -inner; }
+  const d = dateSerial(t);
+  if (d !== null) return d;
+  return /\d:\d/.test(t) ? parseTimeText(t.trim()) : null;
+}
 /** Text Excel turns into a number in arithmetic: "50%" (0.5), "1,234.5", "$5", "-€1,000" (or null). */
 function numberInText(v) {
   const m = /^\s*([-+]?)\s*[$€£]?\s*(\d{1,3}(?:,\d{3})+(?:\.\d*)?|\d+\.?\d*|\.\d+)(?:[eE]([-+]?\d+))?\s*(%?)\s*$/.exec(String(v));
@@ -187,6 +199,12 @@ const cellsOf = (args) => args.flat(Infinity);
 /** Of the values picked, the first error, raised (SUMIF and the like: an error only counts where the row is picked). */
 const picked = (vals) => { for (const v of vals) if (isErr(v)) raise(v); return vals; };
 const nums = (args) => flat(args).filter((v) => typeof v === 'number');
+/** A count of characters (LEFT, RIGHT, MID): the whole number, refused when negative. */
+const count = (n) => { const k = Math.trunc(toNum(n)); if (k < 0) err('#VALUE!'); return k; };
+/** FIND and SEARCH's start: the whole number, from 1 to one past the end. */
+const startAt = (start, text) => { const st = Math.trunc(toNum(start ?? 1)); if (st < 1 || st > text.length + 1) err('#VALUE!'); return st - 1; };
+/** One character in lower case, kept as one (İ's lower case is i and a dot above: kept as İ's own i). */
+const lower1 = (ch) => { const l = ch.toLowerCase(); return l.length === ch.length ? l : ch === 'İ' ? 'i' : l; };
 
 /** Text with * (anything) and ? (one character) as a whole-text, any-case pattern; ~ escapes them. */
 function wildcard(text) {
@@ -211,7 +229,8 @@ function criteria(c) {
   const m = /^(<=|>=|<>|<|>|=)?(.*)$/.exec(toStr(c));
   const op = m[1] || '=';
   const rhs = m[2] !== '' && !Number.isNaN(Number(m[2])) ? Number(m[2]) : m[2].toLowerCase();
-  if ((op === '=' || op === '<>') && hasWildcard(m[2])) { const re = wildcard(m[2]); return (v) => re.test(toStr(v)) === (op === '='); }
+  // (a wildcard matches text only, as in Excel: "*" counts the cells with text, not empty ones or numbers)
+  if ((op === '=' || op === '<>') && hasWildcard(m[2])) { const re = wildcard(m[2]); return (v) => (typeof v === 'string' && re.test(v)) === (op === '='); }
   return (v) => {
     const lhs = typeof rhs === 'number' ? (typeof v === 'number' ? Number(v.toPrecision(15)) : Number.NaN) : toStr(v).toLowerCase(); // (to 15 digits, as Excel compares)
     if (typeof rhs === 'string' && op !== '=' && op !== '<>') { // "<m": text before m (in reading order); numbers aren't counted
@@ -933,11 +952,11 @@ const FUNCS = {
   CONCAT: (a) => flat(a).map(toStr).join(''),
   CONCATENATE: (a) => flat(a).map(toStr).join(''),
   LEN: ([v]) => toStr(v).length,
-  UPPER: ([v]) => toStr(v).toUpperCase(),
+  UPPER: ([v]) => toStr(v).replace(/[^ß]+/g, (t) => t.toUpperCase()), // (ß stays: Excel doesn't make STRASSE of Straße)
   LOWER: ([v]) => toStr(v).toLowerCase(),
   TRIM: ([v]) => toStr(v).replace(/^ +| +$/g, '').replace(/ {2,}/g, ' '), // spaces only, as Excel (tabs and line breaks stay)
-  LEFT: ([v, n]) => toStr(v).slice(0, toNum(n ?? 1)),
-  RIGHT: ([v, n]) => { const s = toStr(v); return s.slice(Math.max(0, s.length - toNum(n ?? 1))); },
+  LEFT: ([v, n]) => toStr(v).slice(0, count(n ?? 1)), // (a count of 1.9 is 1, as in Excel; -1 is #VALUE!)
+  RIGHT: ([v, n]) => { const s = toStr(v), k = count(n ?? 1); return k ? s.slice(-k) : ''; },
   AND: (a) => flat(a).every(toBool),
   OR: (a) => flat(a).some(toBool),
   NOT: ([v]) => !toBool(v),
@@ -1119,25 +1138,27 @@ const FUNCS = {
   SIGN: ([v]) => Math.sign(toNum(v)),
   PI: () => Math.PI,
   // text
-  MID: ([v, start, n]) => { const st = toNum(start); if (st < 1 || toNum(n) < 0) err('#VALUE!'); return toStr(v).slice(st - 1, st - 1 + toNum(n)); },
+  MID: ([v, start, n]) => { const st = Math.trunc(toNum(start)), k = count(n); if (st < 1) err('#VALUE!'); return toStr(v).slice(st - 1, st - 1 + k); },
   SUBSTITUTE: ([v, from, to, nth]) => {
     const t = toStr(v), f = toStr(from), r = toStr(to);
     if (!f) return t;
     if (nth === undefined) return t.split(f).join(r);
+    if (Math.trunc(toNum(nth)) < 1) err('#VALUE!'); // (the 0th: no such thing, as in Excel)
     let i = -1;
     for (let k = 0; k < toNum(nth); k++) { i = t.indexOf(f, i + 1); if (i < 0) return t; }
     return t.slice(0, i) + r + t.slice(i + f.length);
   },
-  FIND: ([what, within, start]) => { const i = toStr(within).indexOf(toStr(what), toNum(start ?? 1) - 1); if (i < 0) err('#VALUE!'); return i + 1; },
+  FIND: ([what, within, start]) => { const t = toStr(within), st = startAt(start, t); const i = t.indexOf(toStr(what), st); if (i < 0) err('#VALUE!'); return i + 1; },
   SEARCH: ([what, within, start]) => {
-    const t = toStr(within), st = toNum(start ?? 1) - 1, w = toStr(what);
+    const t = toStr(within), st = startAt(start, t), w = toStr(what);
     const re = new RegExp(wildcard(w).source.slice(1, -1), 'i'); // the same pattern, anywhere
     const m = re.exec(t.slice(st));
     if (!m) err('#VALUE!');
     return st + m.index + 1;
   },
-  VALUE: ([v]) => { if (typeof v === 'number') return v; const t = toStr(v).trim(), n = numberInText(t) ?? Number(t.replace(/,/g, '')); if (t === '' || Number.isNaN(n)) err('#VALUE!'); return n; },
-  PROPER: ([v]) => toStr(v).toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()),
+  VALUE: ([v]) => { if (typeof v === 'number') return v; const t = toStr(v).trim(), n = t === '' ? null : textNumber(t) ?? (Number.isNaN(Number(t)) ? null : Number(t)); if (n === null) err('#VALUE!'); return n; },
+  // (letter by letter, so İ stays one letter: "İstanbul", not İStanbul from the two characters i̇ that lower case gives it)
+  PROPER: ([v]) => [...toStr(v)].map((ch, i, all) => (i > 0 && /\p{L}/u.test(all[i - 1]) ? lower1(ch) : ch.toUpperCase().length === 1 ? ch.toUpperCase() : ch)).join(''),
   REPT: ([v, n]) => { const k = toNum(n); if (k < 0) err('#VALUE!'); return toStr(v).repeat(Math.min(k, 10000)); },
   EXACT: ([a, b]) => toStr(a) === toStr(b),
   // ISBETWEEN(value, lower, upper, [lower_inclusive], [upper_inclusive]): numbers, dates or text (compared as text).
