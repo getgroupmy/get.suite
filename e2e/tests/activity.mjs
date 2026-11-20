@@ -109,6 +109,17 @@ await step('an item’s name in a folder’s activity opens it; Show older bring
   await dlg.getByRole('button', { name: 'Show less' }).waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
+await step('the admin activity log\'s search: accents don\'t matter (resume noel finds Résumé Noël)', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const f = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Résumé Noël' })).body;
+  await api(page, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await page.goto(`${B}/admin?tab=activity`);
+  await page.getByLabel('Search activity').fill('resume noel');
+  await page.locator('tbody tr', { hasText: 'Résumé Noël' }).first().waitFor();
+  for (let end = Date.now() + 8000; await page.locator('tbody tr', { hasText: 'Board pack' }).count(); await page.waitForTimeout(150)) { // (the list catches up as you type)
+    if (Date.now() > end) throw new Error('the search let others through');
+  }
+});
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
 process.exit(failed ? 1 : 0);

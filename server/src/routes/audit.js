@@ -1,7 +1,7 @@
 // The activity log for company admins (the platform owner can look at any company). Newest first,
 // a page at a time, or all of it as CSV. Mounted at /api/audit.
 import { Router } from 'express';
-import { q } from '../db.js';
+import { q, fold } from '../db.js';
 import { requireAdmin } from '../auth.js';
 import { bad } from '../util.js';
 import { ACTIONS } from '../audit.js';
@@ -24,8 +24,8 @@ export default function auditRoutes() {
       for (const a of acts) args.push(a, `${a}.%`);
     }
     if (req.query.q) {
-      const like = `%${String(req.query.q).toLowerCase().replace(/[%_!]/g, (c) => `!${c}`)}%`;
-      where.push("(LOWER(COALESCE(actor_name, '')) LIKE ? ESCAPE '!' OR LOWER(COALESCE(target, '')) LIKE ? ESCAPE '!' OR COALESCE(ip, '') LIKE ? ESCAPE '!')");
+      const like = `%${fold(String(req.query.q)).replace(/[%_!]/g, (c) => `!${c}`)}%`; // (accents don't matter)
+      where.push("(fold(COALESCE(actor_name, '')) LIKE ? ESCAPE '!' OR fold(COALESCE(target, '')) LIKE ? ESCAPE '!' OR COALESCE(ip, '') LIKE ? ESCAPE '!')");
       args.push(like, like, like);
     }
     if (req.query.from) { where.push('at >= ?'); args.push(Number(req.query.from)); }

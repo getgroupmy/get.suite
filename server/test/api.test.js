@@ -16690,3 +16690,12 @@ test('more searches where accents don\'t matter: events, chat messages, and file
   const f = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Café Noël menu' })).body;
   assert.ok((await owner('GET', '/api/files?view=search&q=cafe%20noel')).body.some((x) => x.id === f.id), 'by its name');
 });
+
+test('activity log search: accents don\'t matter (a file named Résumé Noël found by resume noel)', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'auditrenee', domain: 'acme.com', name: 'Renée Auditée', password: 'password123' })).status, 201);
+  const rid = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'auditrenee@acme.com').id;
+  const f = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Résumé Noël' })).body;
+  await owner('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: rid, role: 'viewer' }] });
+  const e = (await owner('GET', '/api/audit?q=resume%20noel')).body.entries;
+  assert.ok(e.some((x) => x.target === 'Résumé Noël'), JSON.stringify(e.slice(0, 2)));
+});
