@@ -21,6 +21,13 @@ for c in json.load(sys.stdin):
     ev = c['ics'].replace('\\r\\n ', '').split('\\r\\n'); ev = ev[ev.index('BEGIN:VEVENT'):]
     ds = [l for l in ev if l.startswith('DTSTART')][0]; rr = [l for l in ev if l.startswith('RRULE:')][0]
     tz = ZoneInfo(c['tz']); UTC = ZoneInfo('UTC')
+    if ds.startswith('DTSTART;VALUE=DATE:'):  # all day: dates
+        start = datetime.strptime(ds[19:27], '%Y%m%d'); end = datetime.strptime(c['to'][:10], '%Y-%m-%d')
+        got = []
+        for o in rrulestr(rr[6:], dtstart=start):
+            if o >= end or len(got) > 2000: break
+            got.append(o.strftime('%Y-%m-%d'))
+        out.append(got); continue
     m = re.match(r'DTSTART;TZID=([^:]+):(\\d{8}T\\d{6})', ds)
     start = datetime.strptime(m.group(2), '%Y%m%dT%H%M%S').replace(tzinfo=ZoneInfo(m.group(1))) if m else datetime.strptime(ds[8:23], '%Y%m%dT%H%M%S').replace(tzinfo=UTC)
     end = datetime.strptime(c['to'], '%Y-%m-%dT%H:%M').replace(tzinfo=tz)
@@ -32,22 +39,24 @@ for c in json.load(sys.stdin):
 print(json.dumps(out))`;
 const dateutil = (cases) => JSON.parse(execFileSync('python3', ['-c', PY], { input: JSON.stringify(cases), encoding: 'utf8' }));
 
-function randomEvents(seed, n) {
+function randomEvents(seed, n, allDay = false) {
   const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const out = [];
   for (let k = 0; k < n; k++) {
     const tz = pick(['Europe/London', 'America/New_York', 'Asia/Kuala_Lumpur', 'Australia/Sydney']);
     const mo = Math.floor(rnd() * 12), d = 1 + Math.floor(rnd() * 28), h = pick([0, 1, 2, 9, 23]), mi = pick([0, 30]);
-    let start = Date.UTC(2026, mo, d, h, mi); // that wall-clock time in tz
-    for (let i = 0; i < 3; i++) { const [ly, lm, ld, lh, lmi] = local(start, tz).split(/[-T:]/).map(Number); start += Date.UTC(2026, mo, d, h, mi) - Date.UTC(ly, lm - 1, ld, lh, lmi); }
+    const [hh, mm] = allDay ? [0, 0] : [h, mi]; // all day: midnight there
+    let start = Date.UTC(2026, mo, d, hh, mm); // that wall-clock time in tz
+    for (let i = 0; i < 3; i++) { const [ly, lm, ld, lh, lmi] = local(start, tz).split(/[-T:]/).map(Number); start += Date.UTC(2026, mo, d, hh, mm) - Date.UTC(ly, lm - 1, ld, lh, lmi); }
     const freq = pick(['daily', 'weekly', 'weekly', 'monthly', 'monthly', 'monthly', 'yearly']);
     const r = { freq, interval: pick([1, 1, 2, 3]) };
     if (freq === 'weekly' && rnd() < 0.7) r.byday = [...new Set(Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => Math.floor(rnd() * 7)))].sort();
     if (r.byday && r.interval > 1 && rnd() < 0.5) r.wkst = pick([1, 1, 3, 6]);
     if (freq === 'monthly') { const v = rnd(); if (v < 0.3) { r.nth = pick([1, 2, 3, 4, 5, -1]); r.wd = Math.floor(rnd() * 7); } else if (v < 0.5) { r.nths = [1, 3]; r.wd = Math.floor(rnd() * 7); } }
     if (rnd() < 0.5) r.count = 1 + Math.floor(rnd() * 15); else if (0.5 > rnd()) r.until = start + Math.floor(rnd() * 400) * 864e5;
-    out.push({ start, end: start + 36e5, all_day: 0, title: 'x', tz, rrule: r });
+    if (allDay && r.until !== undefined) r.until += 864e5 - 1; // to the end of that day, as the editor saves it
+    out.push(allDay ? { start, end: start + 864e5 - 1, all_day: 1, title: 'x', tz, rrule: r } : { start, end: start + 36e5, all_day: 0, title: 'x', tz, rrule: r });
   }
   return out;
 }
@@ -57,12 +66,24 @@ test('the RRULE written for an event gives the dates the calendar shows (every o
   const cases = events.map((ev) => { const to = ev.start + 800 * 864e5; return { tz: ev.tz, to: local(to, ev.tz), ics: buildIcs(ev, { uid: 'u', tz: ev.tz, now: 0 }), ours: occurrenceStarts(ev, to).map((t) => local(t, ev.tz)) }; });
   const theirs = dateutil(cases);
   const bad = cases.map((c, i) => ({ c, i })).filter(({ c, i }) => JSON.stringify(c.ours) !== JSON.stringify(theirs[i]));
-  assert.equal(bad.length, 0, bad.slice(0, 3).map(({ c, i }) => `${JSON.stringify(events[i].rrule)} in ${c.tz}: ours ${c.ours.slice(0, 3)}, dateutil ${theirs[i].slice(0, 3)}`).join('\n'));
+  assert.equal(bad.length, 0, bad.slice(0, 3).map(({ c, i }) => { const k = c.ours.findIndex((x, j) => x !== theirs[i][j]); return `${JSON.stringify(events[i].rrule)} in ${c.tz}: from #${k} ours ${c.ours.slice(k, k + 3)} (${c.ours.length}), dateutil ${theirs[i].slice(k, k + 3)} (${theirs[i].length})`; }).join('\n'));
   // ...and read back, the rule gives them again
   for (const c of cases) {
     const back = parseIcsEvent(c.ics, { tz: c.tz });
     assert.deepEqual(occurrenceStarts(back, Date.parse(`${c.to}Z`) + 2 * 864e5).map((t) => local(t, c.tz)).filter((x) => x < c.to), c.ours);
   }
+});
+
+test('all-day repeats: the file\'s dates are the days the calendar shows, in the person\'s own zone', { skip: !hasDateutil && 'python-dateutil isn’t installed here' }, () => {
+  // The browser shows an all-day event from midnight in its own zone; the server writing the file may be on another clock.
+  const events = randomEvents(31, 200, true);
+  const cases = events.map((ev) => {
+    const to = ev.start + 800 * 864e5;
+    return { tz: ev.tz, to: local(to, ev.tz), ics: buildIcs(ev, { uid: 'u', tz: ev.tz, now: 0 }), ours: occurrenceStarts({ ...ev, all_day: 0 }, to).map((t) => local(t, ev.tz).slice(0, 10)).filter((x) => x < local(to, ev.tz).slice(0, 10)) };
+  });
+  const theirs = dateutil(cases);
+  const bad = cases.map((c, i) => ({ c, i })).filter(({ c, i }) => JSON.stringify(c.ours) !== JSON.stringify(theirs[i]));
+  assert.equal(bad.length, 0, bad.slice(0, 3).map(({ c, i }) => { const k = c.ours.findIndex((x, j) => x !== theirs[i][j]); return `${JSON.stringify(events[i].rrule)} in ${c.tz}: from #${k} ours ${c.ours.slice(k, k + 3)} (${c.ours.length}), dateutil ${theirs[i].slice(k, k + 3)} (${theirs[i].length})`; }).join('\n'));
 });
 
 test('weekly rules from phones and Outlook (with or without WKST) give dateutil\'s dates', { skip: !hasDateutil && 'python-dateutil isn’t installed here' }, () => {

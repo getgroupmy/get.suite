@@ -119,7 +119,8 @@ function firstStart(e, zone) {
   if (!weekly && !nth) return e.start;
   // The calendar's own first occurrence (skipped dates still count): with an interval, the series' weeks or
   // months are counted from the event's start, so moving DTSTART to the next listed day must keep that phase.
-  const [t] = occurrenceStarts({ ...e, ...(!e.all_day && { tz: zone }), exdates: [], rrule: { ...r, count: 1, until: undefined } }, Infinity);
+  // (In the zone the file is for, all-day events too: their start is midnight there, not on this server's clock.)
+  const [t] = occurrenceStarts({ ...e, all_day: 0, tz: zone, exdates: [], rrule: { ...r, count: 1, until: undefined } }, Infinity);
   return t ?? e.start;
 }
 
