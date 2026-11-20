@@ -73,6 +73,19 @@ await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are num
   await page.keyboard.press('Enter');
   await until(async () => (await cell('E2').innerText()).trim() === '2484|15');
 });
+await step('a spreadsheet file whose formulas have small-letter functions and sheet names comes in tidied', async () => {
+  const { odsFromSheet } = await import(`${ROOT}/server/src/office/ods.js`);
+  const buf = await odsFromSheet({ sheets: [{ name: 'Main', cells: { A1: '2', B1: '=sum(Other!A1:A2)*2', B2: '=max(other!A1:A2)' } }, { name: 'Other', cells: { A1: '1', A2: '3' } }] });
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'Mixed case.ods', mimeType: 'application/vnd.oasis.opendocument.spreadsheet', buffer: buf });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Mixed case'));
+  const content = await until(async () => { const r = (await api(page, 'GET', `/files/${f.id}/content`)).body; const c = r?.content ?? r; return c?.sheets ? c : typeof c === 'string' ? JSON.parse(c) : null; });
+  const cells = content.sheets.find((x) => x.name === 'Main').cells;
+  if (cells.B1 !== '=SUM(Other!A1:A2)*2' || cells.B2 !== '=MAX(Other!A1:A2)') throw new Error(JSON.stringify(cells));
+  await page.goto(`${B}/sheets/${f.id}`);
+  const cell = (k) => page.locator(`.grid td[data-k="${k}"]`);
+  await until(async () => (await cell('B1').innerText()).trim() === '8' && (await cell('B2').innerText()).trim() === '3');
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

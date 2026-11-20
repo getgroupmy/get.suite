@@ -1,5 +1,6 @@
 // Excel files <-> Sheets: every worksheet, with values and formulas, bold/italic/underline, text and
 // fill colours, alignment, number formats (number, currency, percent, decimals) and column widths.
+import { tidyBook } from './formulatidy.js';
 import ExcelJS from 'exceljs';
 import { formulaResults } from './sheetvalues.js';
 import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
@@ -404,6 +405,7 @@ export async function sheetFromExcel(buffer) {
   for (const s of sheets) delete s._ws;
   const functions = await functionsOfXlsx(buffer);
   const book = { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }], ...(functions.length && { functions }) };
+  tidyBook(book); // (function names in capitals, sheet names as the sheets have them)
   if (threads.length) sheetComments.set(book, threads);
   return book;
 }

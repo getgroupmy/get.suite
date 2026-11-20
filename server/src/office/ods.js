@@ -2,6 +2,7 @@
 // formulas (OpenFormula: [.A1:.B2], [$Other.C3], ";" between arguments), bold/italic/underline/strike,
 // text and fill colour, alignment, wrapping, borders, number formats (number, percent, currency, date),
 // column widths and row heights, merged cells, hidden rows and columns, notes and frozen rows/columns.
+import { tidyBook } from './formulatidy.js';
 import JSZip from 'jszip';
 import { parseDocument } from 'htmlparser2';
 import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
@@ -791,7 +792,7 @@ export async function sheetFromOds(buffer) {
     }
   }
   if (!out.length) out.push({ name: 'Sheet1', cells: {}, colWidths: {} });
-  const book = { sheets: out };
+  const book = tidyBook({ sheets: out }); // (function names in capitals, sheet names as the sheets have them)
   odsComments.set(book, threads);
   return book;
 }
