@@ -154,7 +154,7 @@ await step('Make a copy… into a folder of your choosing', async () => {
   const f = (await api(page, 'GET', `/files/${id}`)).body;
   if (f.parent_id !== folder.id || f.name !== 'Copy of Memo to file') throw new Error(JSON.stringify([f.parent_id, f.name]));
 });
-await step('Kim, a viewer, can copy a link to a slide and to a sheet (and nothing else in those menus)', async () => {
+await step('Kim, a viewer, can copy a link to a slide, a sheet and a cell (and nothing else in those menus)', async () => {
   await kim.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
   const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
   const deck = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Read-only deck', content: { slides: [{ id: 'r1', items: [] }, { id: 'r2', items: [] }] } })).body;
@@ -172,6 +172,12 @@ await step('Kim, a viewer, can copy a link to a slide and to a sheet (and nothin
   await kim.getByRole('button', { name: 'Options for Two' }).click();
   await kim.getByRole('menuitem', { name: 'Copy link to sheet' }).click();
   await until(async () => (await kim.evaluate(() => navigator.clipboard.readText())) === `${B}/sheets/${book.id}#sheet=Two`);
+  // Right-click a cell: only its link
+  await kim.locator('[data-k="A1"]').click({ button: 'right' });
+  const cellItems = await kim.getByRole('menu', { name: 'Cell actions' }).getByRole('menuitem').allInnerTexts();
+  if (cellItems.map((t) => t.trim()).join('|') !== 'Copy link to this cell') throw new Error(cellItems.join('|'));
+  await kim.getByRole('menuitem', { name: 'Copy link to this cell' }).click();
+  await until(async () => (await kim.evaluate(() => navigator.clipboard.readText())) === `${B}/sheets/${book.id}#sheet=Two&range=A1`);
 }, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

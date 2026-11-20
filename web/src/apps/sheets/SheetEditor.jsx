@@ -1225,15 +1225,17 @@ export default function SheetEditor() {
     : [{ label: 'Insert note', icon: 'edit', onClick: () => editNote(selKey) }];
   noteItems.push({ label: 'Insert picture in cell…', icon: 'image', onClick: () => setDialog({ type: 'picture', key: selKey }) });
   noteItems.push({ label: 'Show edit history', icon: 'clock', onClick: () => setDialog({ type: 'cellhistory', key: selKey }) });
-  noteItems.push({ label: selText.includes(':') ? 'Copy link to this range' : 'Copy link to this cell', icon: 'link', onClick: async () => {
+  // A link that opens the spreadsheet with these cells selected (viewers have it too: the only item in their menu).
+  const cellLinkItem = { label: selText.includes(':') ? 'Copy link to this range' : 'Copy link to this cell', icon: 'link', onClick: async () => {
     const url = placeLink(window.location.origin, `/sheets/${file.id}`, 'sheet', sheetName(active), { range: selText });
     try { await navigator.clipboard.writeText(url); toast(`Link to ${selText} copied`); } catch { window.prompt('Copy this link', url); }
-  } });
+  } };
+  noteItems.push(cellLinkItem);
   const pasteItems = PASTE_MODES.map(([mode, label]) => ({ label: `Paste special: ${label.toLowerCase()}`, onClick: () => pasteAs(mode), disabled: !clip.current }));
-  const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...pasteItems, '-', ...noteItems, '-', ...sortItems];
+  const ctxItems = readOnly ? [cellLinkItem] : ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...pasteItems, '-', ...noteItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
   const openMenu = (e, kind) => {
-    if (readOnly) return;
+    if (readOnly && kind !== 'cell') return; // (viewers: a cell's link only)
     e.preventDefault();
     let { clientX: x, clientY: y } = e;
     if (!x && !y) { const td = gridRef.current?.querySelector(`[data-k="${cellKey(sel.c, sel.r)}"]`)?.getBoundingClientRect(); x = td ? td.left + 20 : 200; y = td ? td.bottom : 200; }
