@@ -25,6 +25,7 @@ import { planImport, readablePassword, usersCsv } from '../userimport.js';
 import { sendTo } from '../hub.js';
 import { hoursOf, setHours, readHours, hoursText, withinHours, quietUntil } from '../workhours.js';
 import { insertFile, uniqueName, keepDriveFiles } from './files.js';
+import { rehomeSharedMedia } from '../mediahome.js';
 import { focusUntil, calendarStatus, baseUrl } from './calendar.js';
 import { placeOn } from './location.js';
 import { awayOfIds, afterHoursOfIds } from '../mail/afterhours.js';
@@ -872,6 +873,7 @@ export default function userRoutes() {
     const mailHeir = colleague(req.query.mail_to, 'email');
     const eventsHeir = colleague(req.query.events_to, 'meetings');
     const kept = keepDriveFiles(u.id, heir?.id, req.user.id); // what they added to shared drives stays there
+    const media = rehomeSharedMedia(u.id); // pictures in colleagues' files stay there, now those colleagues'
     const blobs = tx(() => {
       let moved = 0;
       if (heir) {
@@ -915,7 +917,7 @@ export default function userRoutes() {
     syncCompanyGroupAliases(u.org_id); // their groups' email addresses no longer include them
     scheduleMailConfig();
     audit(req, 'user.delete', { org: u.org_id, target: u.username, details: { ...(heir && { files_to: heir.name, items: req.moved }), ...(mailHeir && { mail_to: mailHeir.username }), ...(eventsHeir && { meetings_to: eventsHeir.name, meetings: req.eventsMoved }) } });
-    res.json({ ok: true, handed_over: req.handedOver, files_moved: req.moved || 0, drive_items_kept: kept, mail_to: mailHeir?.username || null, meetings_moved: req.eventsMoved || 0 });
+    res.json({ ok: true, handed_over: req.handedOver, files_moved: req.moved || 0, drive_items_kept: kept, pictures_kept: media.given + media.copied, mail_to: mailHeir?.username || null, meetings_moved: req.eventsMoved || 0 });
   });
 
   return r;

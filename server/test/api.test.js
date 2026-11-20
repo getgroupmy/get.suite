@@ -16392,3 +16392,43 @@ test('forms: an editor\'s copy of a form has the owner\'s pictures (and header) 
   const mine = (await owner('POST', `/api/forms/${form.id}/copy`)).body;
   assert.equal(mine.questions[0].image, pic.id);
 });
+
+test('deleting an account: its pictures in colleagues\' documents and forms stay, now theirs (copies when several use one)', async () => {
+  const zed = client(), pat = client();
+  for (const [local, name] of [['delzed', 'Zed Gone'], ['delpat', 'Pat Stays']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(zed, 'delzed@acme.com'); await login(pat, 'delpat@acme.com');
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  const idOf = (u) => dir.find((x) => x.username === u).id;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await zed('POST', '/api/files/upload?name=zed-chart.png', png, { raw: true })).body;
+  const lonely = (await zed('POST', '/api/files/upload?name=zed-only.png', png, { raw: true })).body;
+  // Olivia's document and Pat's presentation, both with Zed's picture (Zed edits both)
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Olivia report' })).body;
+  const deck = (await pat('POST', '/api/files/new', { kind: 'slides', name: 'Pat deck' })).body;
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: idOf('delzed@acme.com'), role: 'editor' }] });
+  await pat('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: idOf('delzed@acme.com'), role: 'editor' }] });
+  let cur = (await zed('GET', `/api/files/${doc.id}/content`)).body;
+  await zed('PUT', `/api/files/${doc.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'image', attrs: { fileId: pic.id } }] } });
+  cur = (await zed('GET', `/api/files/${deck.id}/content`)).body;
+  await zed('PUT', `/api/files/${deck.id}/content`, { version: cur.file.version, content: { slides: [{ id: 's', items: [{ id: 'i', type: 'image', fileId: pic.id, x: 0, y: 0, w: 10, h: 10 }] }] } });
+  // Olivia's form, Zed an editor, with Zed's picture as its header
+  const form = (await owner('POST', '/api/forms', { title: 'Olivia form' })).body;
+  await owner('POST', `/api/forms/${form.id}/editors`, { email: 'delzed@acme.com' });
+  await zed('PUT', `/api/forms/${form.id}`, { theme: { header: pic.id } });
+  assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${pic.id}`)).status, 200);
+  // Zed's account goes (nobody to give the files to)
+  const del = await owner('DELETE', `/api/users/${idOf('delzed@acme.com')}`);
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal(del.body.pictures_kept, 2, 'Olivia gets it, Pat a copy');
+  const f = (await owner('GET', `/api/files/${pic.id}`)).body;
+  assert.equal(f.name, 'zed-chart.png');
+  assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${pic.id}`)).status, 200, 'still shows in Olivia\'s document');
+  assert.equal((await owner('GET', `/api/forms/${form.id}`)).body.theme.header, pic.id, 'the form is unchanged…');
+  assert.equal((await owner('GET', `/api/forms/${form.id}/pictures/${pic.id}`)).status, 200, '…and its header shows');
+  const now = (await pat('GET', `/api/files/${deck.id}/content`)).body.content.slides[0].items[0].fileId;
+  assert.notEqual(now, pic.id, 'Pat\'s deck points at Pat\'s own copy');
+  assert.equal((await pat('GET', `/api/files/${deck.id}/pictures/${now}`)).status, 200);
+  assert.equal((await owner('GET', `/api/files/${lonely.id}`)).status, 404, 'one nobody else used goes with the account');
+  const folder = (await owner('GET', '/api/files')).body.find((x) => x.name === 'Pictures from Zed Gone');
+  assert.ok(folder, 'in a folder of its own');
+});

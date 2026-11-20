@@ -89,6 +89,32 @@ await step('offboarding: their email and the meetings they organise go to a coll
   const evs = (await api(kim, 'GET', `/events?from=${start - 1}&to=${start + 36e5}`)).body;
   if (!evs.some((e) => e.id === ev.id && e.role === 'organizer')) throw new Error(JSON.stringify(evs));
 });
+await step('deleting someone whose picture is in a colleague\'s document: it still shows there', async () => {
+  await api(page, 'POST', '/users', { local: 'rae', domain: 'acme.com', name: 'Rae Moving', password: 'password123' });
+  const rp = await mk('rae'); await signIn(rp, 'rae@acme.com');
+  const raeId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'rae@acme.com').id;
+  const report = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Quarter report' })).body;
+  await api(page, 'PUT', `/files/${report.id}/shares`, { shares: [{ user_id: raeId, role: 'editor' }] });
+  const pic = await rp.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 32; const g = c.getContext('2d'); g.fillStyle = '#fb8c00'; g.fillRect(0, 0, 64, 32);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return (await fetch('/api/files/upload?name=orange.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: blob })).json();
+  });
+  const cur = (await api(rp, 'GET', `/files/${report.id}/content`)).body;
+  await api(rp, 'PUT', `/files/${report.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Sales went up' }] }, { type: 'image', attrs: { fileId: pic.id, alt: 'Orange chart' } }] } });
+  await rp.close();
+  await page.goto(`${B}/admin`);
+  await page.getByRole('button', { name: 'Actions for Rae Moving' }).click();
+  await page.getByRole('menuitem', { name: 'Delete user and their files' }).click();
+  const d = page.getByRole('dialog', { name: 'Delete Rae Moving?' });
+  await d.getByRole('button', { name: 'Delete user' }).click();
+  await page.getByText(/User deleted/).first().waitFor();
+  await page.goto(`${B}/docs/${report.id}`);
+  await page.locator('.ProseMirror').getByText('Sales went up').waitFor();
+  await until(() => page.locator('.ProseMirror img[alt="Orange chart"]').evaluate((i) => i.complete && i.naturalWidth === 64).catch(() => false), 10000);
+  await page.goto(`${B}/drive`);
+  await page.getByText('Pictures from Rae Moving').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
