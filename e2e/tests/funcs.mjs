@@ -157,6 +157,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // TEXT with General, digits around a dash, elapsed hours and a scientific carry
   await typeIn('P13', '=TEXT(1234.5, "General")&"|"&TEXT(42, "000-000")&"|"&TEXT(1.5, "[h]:mm")&"|"&TEXT(99.995, "0.00E+00")');
   await expectCells({ P13: '1234.5|000-042|36:00|1.00E+02' });
+  // a fractional number of digits is taken as whole (as Excel does), and a tiny amount still rounds up
+  await typeIn('P14', '=ROUNDUP(2.5, -0.5)&"|"&ROUNDUP(1E-10, 1)&"|"&TRUNC(7, 0.5)&"|"&CHAR(65.9)&"|"&IFERROR(CEILING(2.5, -1), "no")');
+  await expectCells({ P14: '3|0.1|7|A|no' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

@@ -309,7 +309,9 @@ function dateMath(op, l, r) {
   if (a !== null) return serialDate(a - toNum(r));
   return toNum(l) - b; // a number minus a date: just numbers
 }
-const roundTo = (v, d, how) => { const f = 10 ** toNum(d ?? 0); const x = toNum(v) * f; return how(Math.abs(x) + 1e-9 * (how === Math.floor ? 1 : -1)) * Math.sign(x) / f; };
+// ROUNDUP and ROUNDDOWN: digits taken as a whole number (Excel drops the fraction: 0.5 is 0), the product to 15 digits so
+// 0.1+0.2 isn't rounded up past 0.3, while a tiny 1E-10 still rounds up to 0.1.
+const roundTo = (v, d, how) => { const f = 10 ** Math.trunc(toNum(d ?? 0)); const x = toNum(v) * f; return how(Number(Math.abs(x).toPrecision(15))) * Math.sign(x) / f; };
 
 // ---- helpers for statistics, TEXT, working days and loans
 function variance(a, sample) {
@@ -344,7 +346,7 @@ function percentile(a, k) {
   return lo + 1 < n.length ? n[lo] + (at - lo) * (n[lo + 1] - n[lo]) : n[lo];
 }
 const gcd2 = (a, b) => { a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; };
-const whole = (v) => { const n = Math.trunc(toNum(v)); if (n < 0) err('#NUM!'); return n; };
+const whole = (v) => { const x = toNum(v); if (x < 0) err('#NUM!'); return Math.trunc(x); }; // (-0.5 is negative too: #NUM!)
 const factorial = (n) => { if (n > 170) err('#NUM!'); let f = 1; for (let i = 2; i <= n; i++) f *= i; return f; };
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -722,7 +724,9 @@ function toBase(v, radix, places, signedDigits = 0) {
   const out = n.toString(radix).toUpperCase();
   if (!given(places)) return out;
   const p = Math.trunc(toNum(places));
-  if (p < out.length || p > 255) err('#NUM!');
+  if (p < 0 || p > 255) err('#NUM!');
+  if (Math.trunc(toNum(v)) < 0) return out; // (a negative number is all ten digits: places is ignored, as in Excel)
+  if (p < out.length) err('#NUM!');
   return out.padStart(p, '0');
 }
 /** A number written in another base, back to a number; 10-digit values with the top digit set are negative (two's complement). */
@@ -1110,8 +1114,8 @@ const FUNCS = {
   // numbers
   ROUNDUP: ([v, d]) => roundTo(v, d, Math.ceil),
   ROUNDDOWN: ([v, d]) => roundTo(v, d, Math.floor),
-  CEILING: ([v, sig]) => { const g = toNum(sig ?? 1); if (!g) return 0; return Math.ceil(toNum(v) / g - 1e-12) * g; },
-  FLOOR: ([v, sig]) => { const g = toNum(sig ?? 1); if (!g) err('#DIV/0!'); return Math.floor(toNum(v) / g + 1e-12) * g; },
+  CEILING: ([v, sig]) => { const g = toNum(sig ?? 1); if (!g) return 0; if (toNum(v) > 0 && g < 0) err('#NUM!'); return Math.ceil(toNum(v) / g - 1e-12) * g; },
+  FLOOR: ([v, sig]) => { const g = toNum(sig ?? 1); if (!g) err('#DIV/0!'); if (toNum(v) > 0 && g < 0) err('#NUM!'); return Math.floor(toNum(v) / g + 1e-12) * g; },
   SIGN: ([v]) => Math.sign(toNum(v)),
   PI: () => Math.PI,
   // text
@@ -1236,7 +1240,7 @@ const FUNCS = {
   },
   // Counting.
   COMBINA: ([n, k]) => { const a = whole(n), b = whole(k); if (!a && !b) return 1; return FUNCS.COMBIN([a + b - 1, b]); },
-  FACTDOUBLE: ([v]) => { const n = Math.trunc(toNum(v)); if (n < -1) err('#NUM!'); let f = 1; for (let i = n; i > 1; i -= 2) f *= i; return f; },
+  FACTDOUBLE: ([v]) => { const n = Math.trunc(toNum(v)); if (n < 0) err('#NUM!'); let f = 1; for (let i = n; i > 1; i -= 2) f *= i; return f; },
   MULTINOMIAL: (a) => { const n = nums(a).map(Math.trunc); if (n.some((x) => x < 0)) err('#NUM!'); return Math.round(factorial(n.reduce((s, x) => s + x, 0)) / n.reduce((p, x) => p * factorial(x), 1)); },
   SERIESSUM: ([x, n, m, coef]) => { const v = toNum(x), a = toNum(n), b = toNum(m); return nums([coef]).reduce((s, c, i) => s + c * v ** (a + i * b), 0); },
   BESSELJ: ([x, n]) => besselJ(...besselArgs(x, n, false)),
@@ -1374,7 +1378,7 @@ const FUNCS = {
   LOG: ([v, base]) => { const n = toNum(v), b = toNum(base ?? 10); if (n <= 0 || b <= 0 || b === 1) err('#NUM!'); return b === 10 ? Math.log10(n) : b === 2 ? Math.log2(n) : Math.log(n) / Math.log(b); },
   LOG10: ([v]) => { const n = toNum(v); if (n <= 0) err('#NUM!'); return Math.log10(n); },
   EXP: ([v]) => Math.exp(toNum(v)),
-  TRUNC: ([v, d]) => { const f = 10 ** toNum(d ?? 0); return Math.trunc(toNum(v) * f) / f; },
+  TRUNC: ([v, d]) => { const f = 10 ** Math.trunc(toNum(d ?? 0)); return Math.trunc(Number((toNum(v) * f).toPrecision(15))) / f; }, // (=TRUNC(7, 0.5) is 7)
   ISODD: ([v]) => Math.abs(Math.trunc(toNum(v))) % 2 === 1,
   ISEVEN: ([v]) => Math.abs(Math.trunc(toNum(v))) % 2 === 0,
   RAND: () => Math.random(),
@@ -1421,7 +1425,7 @@ const FUNCS = {
     return row;
   },
   TEXT: ([v, fmt]) => formatText(v, fmt),
-  CHAR: ([v]) => { const n = toNum(v); if (n < 1 || n > 0x10ffff) err('#VALUE!'); return String.fromCodePoint(n); },
+  CHAR: ([v]) => { const n = Math.trunc(toNum(v)); if (n < 1 || n > 0x10ffff) err('#VALUE!'); return String.fromCodePoint(n); },
   CODE: ([v]) => { const t = toStr(v); if (!t) err('#VALUE!'); return t.codePointAt(0); },
   // working days and date differences
   NETWORKDAYS: ([start, end, holidays]) => {
