@@ -13,7 +13,7 @@ export function CleanupDialog({ sheet, range, value, readOnly, onFix, onClose })
   return (
     <Modal title="Cleanup suggestions" onClose={onClose}
       footer={<>{list.length > 1 && !readOnly && <button type="button" className="btn primary" onClick={fixAll}>Fix all</button>}<button type="button" className="btn" onClick={onClose}>Close</button></>}>
-      <p className="muted small" style={{ marginTop: 0 }}>Looking at {rangeText(range)}. Only text is changed: numbers, dates and formulas are left as they are.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>Looking at {rangeText(range)}. Only text is changed: numbers, dates and formulas are left as they are (text that is a number or a date can be made one).</p>
       <label className="check"><input type="checkbox" checked={header} onChange={(e) => setHeader(e.target.checked)} /> The first row has headings (left alone)</label>
       {!list.length && <p className="cleanup-none">✓ Nothing to tidy here.</p>}
       <ul className="cleanup-list">
@@ -23,9 +23,10 @@ export function CleanupDialog({ sheet, range, value, readOnly, onFix, onClose })
               {s.kind === 'spaces' && <><strong>Extra spaces</strong><div className="muted small">{plural(s.count, 'cell')} with spaces at the ends or doubled inside</div></>}
               {s.kind === 'spelling' && <><strong>Column {s.col}: the same value written differently</strong>
                 <div className="muted small">{s.groups.slice(0, 4).map((g) => `${g.forms.map((f) => `“${f}”`).join(', ')} → “${g.to}”`).join('; ')}{s.groups.length > 4 ? ` and ${s.groups.length - 4} more` : ''}</div></>}
+              {s.kind === 'numbers' && <><strong>Numbers and dates kept as text</strong><div className="muted small">{plural(s.count, 'cell')} such as “{s.example}”, which sums and sorting pass over</div></>}
               {s.kind === 'duplicates' && <><strong>Duplicate rows</strong><div className="muted small">{plural(s.count, 'row')} the same as one above</div></>}
             </div>
-            {!readOnly && <button type="button" className="btn small" aria-label={s.kind === 'spelling' ? `Fix column ${s.col}` : s.kind === 'spaces' ? 'Fix extra spaces' : 'Remove duplicate rows'} onClick={() => onFix(s, header)}>
+            {!readOnly && <button type="button" className="btn small" aria-label={s.kind === 'spelling' ? `Fix column ${s.col}` : s.kind === 'spaces' ? 'Fix extra spaces' : s.kind === 'numbers' ? 'Make them numbers and dates' : 'Remove duplicate rows'} onClick={() => onFix(s, header)}>
               {s.kind === 'duplicates' ? 'Remove' : 'Fix'}</button>}
           </li>
         ))}

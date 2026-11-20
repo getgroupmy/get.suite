@@ -66,6 +66,22 @@ await step('Fix all: spaces tidied, then duplicate rows removed; then nothing le
   if (c.C5 !== '=C2*2' || c.A6 !== 'South') throw new Error(JSON.stringify(c)); // row 6 (a repeat of row 2) went; the rows below moved up
   await dlg().getByRole('button', { name: 'Close' }).last().click();
 });
+await step('numbers and dates kept as text (an older sheet): suggested, and made numbers and dates that add up', async () => {
+  const old = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Old costs', content: { sheets: [{ name: 'Sheet1', colWidths: {}, cells: {
+    A1: 'Cost', B1: 'Paid', A2: '$1,250.00', B2: '20/11/2026', A3: '$80.50', B3: '25 Dec 2026', A4: '=SUM(A2:A3)' } }] } })).body;
+  await page.goto(`${B}/sheets/${old.id}`);
+  await cell('A2').waitFor();
+  if ((await cell('A4').innerText()).trim() !== '0') throw new Error('text added up already?');
+  await cell('A2').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Cleanup suggestions…' }).click();
+  await dlg().getByText('Numbers and dates kept as text').waitFor();
+  await dlg().getByText('4 cells such as “$1,250.00”').waitFor();
+  await dlg().getByRole('button', { name: 'Make them numbers and dates' }).click();
+  await page.getByText('4 cells made numbers and dates').waitFor();
+  await dlg().getByRole('button', { name: 'Close' }).last().click();
+  await until(async () => (await cell('A4').innerText()).trim() === '1330.5');
+  if ((await cell('A2').innerText()).trim() !== '$1,250.00' || (await cell('B3').innerText()).trim() !== '25 Dec 2026') throw new Error('shown as before');
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

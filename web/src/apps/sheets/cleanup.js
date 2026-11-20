@@ -3,9 +3,12 @@
 //  - spaces: extra spaces at the ends or doubled inside ("  Acme  Ltd ");
 //  - spelling: the same value written differently in a column ("north", "North", "NORTH"), made like
 //    the most common one;
-//  - duplicates: rows repeating an earlier one (as Remove duplicates finds them).
+//  - duplicates: rows repeating an earlier one (as Remove duplicates finds them);
+//  - numbers: numbers and dates kept as text ("1,234", "50%", "$5.00", "20/11/2026", from before they were read
+//    as typed, or from elsewhere), which sums and sorting pass over.
 import { cellKey, colName } from './formula.js';
 import { removeDuplicates, mapText, trimText } from './data.js';
+import { typedNumber, typedDate, mergeFormat } from './cellformat.js';
 
 const isText = (v) => typeof v === 'string' && v !== '' && !v.startsWith('=') && !/^[-+]?(\d[\d,]*\.?\d*|\.\d+)(e[-+]?\d+)?%?$/i.test(v.trim());
 const fold = (v) => trimText(v).toLowerCase();
@@ -45,6 +48,9 @@ export function cleanupSuggestions(sheet, range, value, { header = false } = {})
     });
     if (mixed.length) out.push({ kind: 'spelling', col: colName(c), c, groups: mixed, count: mixed.reduce((n, g) => n + g.cells, 0) });
   }
+  // Numbers and dates kept as text.
+  const asNumbers = numbersAsText(sheet, range, { header });
+  if (asNumbers.length) out.push({ kind: 'numbers', count: asNumbers.length, example: asNumbers[0].raw });
   // Duplicate rows (a dry run of Remove duplicates).
   const dup = removeDuplicates(sheet, range, { header, value });
   if (dup.removed) out.push({ kind: 'duplicates', count: dup.removed });
@@ -56,6 +62,31 @@ export function fixSpelling(sheet, range, suggestion, { header = false } = {}) {
   const to = new Map(suggestion.groups.map((g) => [fold(g.to), g.to]));
   const r1 = header ? range.r1 + 1 : range.r1;
   return mapText(sheet, { c1: suggestion.c, c2: suggestion.c, r1, r2: range.r2 }, (v) => (to.has(fold(v)) && trimText(v) !== to.get(fold(v)) ? to.get(fold(v)) : v));
+}
+
+/** The cells holding a number or date as text: [{ key, raw, value, fmt }]. */
+function numbersAsText(sheet, range, { header = false } = {}) {
+  const cells = sheet.cells || {}, out = [];
+  for (let r = header ? range.r1 + 1 : range.r1; r <= range.r2; r++) {
+    for (let c = range.c1; c <= range.c2; c++) {
+      const key = cellKey(c, r), raw = cells[key];
+      if (typeof raw !== 'string' || raw === '' || raw.startsWith('=') || raw.startsWith("'")) continue;
+      const t = typedNumber(raw) ?? typedDate(raw);
+      if (t) out.push({ key, raw, ...t });
+    }
+  }
+  return out;
+}
+
+/** Turn numbers and dates kept as text into numbers and dates, in the matching format where a cell has none: { cells, formats, changed }. */
+export function fixNumbers(sheet, range, { header = false } = {}) {
+  const cells = { ...(sheet.cells || {}) }, formats = { ...(sheet.formats || {}) };
+  const list = numbersAsText(sheet, range, { header });
+  for (const { key, value, fmt } of list) {
+    cells[key] = String(value);
+    if (!formats[key]?.num) formats[key] = mergeFormat(formats[key], fmt);
+  }
+  return { cells, formats, changed: list.length };
 }
 
 /** Tidy the spaces: { cells, changed }. */

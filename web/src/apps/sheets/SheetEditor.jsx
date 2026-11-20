@@ -18,7 +18,7 @@ import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
 import { removeDuplicates, splitColumn, trimText, changeCase, mapText, shuffleRows } from './data.js';
-import { fixSpaces, fixSpelling } from './cleanup.js';
+import { fixSpaces, fixSpelling, fixNumbers } from './cleanup.js';
 import { CleanupDialog } from './SheetCleanup.jsx';
 import { DedupeDialog, SplitDialog, SmartFillDialog } from './SheetData.jsx';
 import { planSmartFill, describeFill } from './smartfill.js';
@@ -619,6 +619,12 @@ export default function SheetEditor() {
     if (readOnly) return;
     if (s.kind === 'duplicates') { dedupe(g, { header }); return; }
     const cur = dataRef.current;
+    if (s.kind === 'numbers') {
+      const out = fixNumbers(cur.sheets[active], g, { header });
+      if (out.changed) commitData({ ...cur, sheets: cur.sheets.map((x, i) => (i === active ? { ...x, cells: out.cells, formats: out.formats } : x)) });
+      toast(`${out.changed} cell${out.changed === 1 ? '' : 's'} made numbers and dates`);
+      return;
+    }
     const out = s.kind === 'spaces' ? fixSpaces(cur.sheets[active], g, { header }) : fixSpelling(cur.sheets[active], g, s, { header });
     if (out.changed) commitData({ ...cur, sheets: cur.sheets.map((x, i) => (i === active ? { ...x, cells: out.cells } : x)) });
     toast(s.kind === 'spaces' ? `Tidied the spaces in ${out.changed} cell${out.changed === 1 ? '' : 's'}` : `Column ${s.col}: ${out.changed} cell${out.changed === 1 ? '' : 's'} made the same`);
