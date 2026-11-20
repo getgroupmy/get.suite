@@ -5,6 +5,7 @@
 import { q } from './db.js';
 import { uid, now, str, bad, notFound } from './util.js';
 import { colName } from './office/sheetnames.js';
+import { csvCell } from './csvcell.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_time (
   id TEXT PRIMARY KEY,
@@ -152,7 +153,7 @@ export function billingOf(body) {
   return { rate: Math.round(rate * 100) / 100, currency };
 }
 
-export const csvCell = (v) => { const s = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+export { csvCell }; // (csvcell.js)
 /** All your time entries, oldest first, as CSV (Download your data): when, how long, on what, and a note. */
 export function myTimeCsv(userId, at = now()) {
   const rows = q(`SELECT e.*, t.title, l.name AS list_name FROM task_time e JOIN tasks t ON t.id = e.task_id LEFT JOIN task_lists l ON l.id = t.list_id

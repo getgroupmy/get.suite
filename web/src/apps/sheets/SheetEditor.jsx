@@ -71,7 +71,8 @@ import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber, typedDate, typedCells } from './cellformat.js';
-import { parseCsv, csvSeparator } from './csvread.js'; // (the same reader as the server's: semicolon files, a byte-order mark)
+import { parseCsv, csvSeparator } from './csvread.js';
+import { csvCell } from '../../csvcell.js'; // (the same reader as the server's: semicolon files, a byte-order mark)
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -1126,7 +1127,7 @@ export default function SheetEditor() {
       const row = [];
       for (let c = 0; c <= maxC; c++) {
         const v = display(evaluate(cellKey(c, r)));
-        row.push(sep === '\t' ? v.replace(/[\t\r\n]+/g, ' ') : /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v); // (tab-separated: no tabs or line breaks inside a value)
+        row.push(sep === '\t' ? v.replace(/[\t\r\n]+/g, ' ') : csvCell(v, { guard: false })); // (tab-separated: no tabs or line breaks inside a value; the sheet's own values as they are)
       }
       out.push(row.join(sep));
     }

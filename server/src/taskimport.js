@@ -2,6 +2,7 @@
 // downloaded from Workspace itself. The first row names the columns; only a task column is needed.
 import { cleanRepeat } from './taskrepeat.js';
 import { parseCsv } from './contactfiles.js';
+import { csvCell } from './csvcell.js';
 
 export const MAX_TASK_IMPORT = 1000;
 
@@ -140,7 +141,7 @@ export function splitByList(text) {
   const head = rows[0].map((h) => h.trim().toLowerCase());
   const at = ['list', 'list name', 'tasklist', 'project'].map((n) => head.indexOf(n)).find((i) => i >= 0) ?? -1;
   if (at < 0) return null;
-  const cell = (v) => { const x = String(v ?? ''); return /[",\r\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+  const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
   const line = (r) => r.map(cell).join(',');
   const groups = new Map();
   for (const r of rows.slice(1)) {

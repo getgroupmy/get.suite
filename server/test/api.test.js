@@ -16760,3 +16760,14 @@ test('out of office from the vacation reply with no first day: from today where 
   assert.equal(new Date(ev.start).toISOString(), '2026-11-20T16:00:00.000Z', 'midnight starting Saturday 21 November there');
   assert.equal(new Date(ev.end + 1).toISOString(), '2026-11-25T16:00:00.000Z', 'to the end of Wednesday the 25th there');
 });
+
+test('CSV exports: a contact whose name is a formula comes out as text, phone numbers and amounts as they are', async () => {
+  const cc = client();
+  await owner('POST', '/api/users', { local: 'csvinj', domain: 'acme.com', name: 'Cas Vee', password: 'password123' });
+  await login(cc, 'csvinj@acme.com');
+  await cc('POST', '/api/contacts', { name: '=HYPERLINK("http://evil.example","Click me")', email: 'evil@example.com', phone: '+60 12-345 6789', company: '@SUM(1)' });
+  const text = (await cc('GET', '/api/contacts/export?format=csv')).body;
+  const line = text.split('\r\n').find((l) => l.includes('evil@example.com'));
+  assert.equal(line.split(',evil@example.com')[0], `"'=HYPERLINK(""http://evil.example"",""Click me"")"`, 'a ' + "' in front: Excel shows it as text");
+  assert.match(line, /,\+60 12-345 6789,'@SUM\(1\),/, 'the phone number as it is; the company kept from running');
+});

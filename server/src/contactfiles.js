@@ -8,6 +8,7 @@ import { cleanMore } from './contactmore.js';
 export const MAX_IMPORT = 5000;
 
 import { parseCsv, csvSeparator } from './sheetcalc/csvread.js';
+import { csvCell } from './csvcell.js';
 
 export { parseCsv, csvSeparator };
 
@@ -106,7 +107,7 @@ export function contactsFromFile(text) {
   return { contacts: csv };
 }
 
-const csvField = (v) => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+const csvField = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
 /** Contacts as a CSV that Gmail, Outlook and spreadsheets read. */
 export function contactsToCsv(list) {
   // Other addresses and numbers as Gmail writes them ("E-mail 2 - Type", "E-mail 2 - Value"…), as many as the most anyone has.

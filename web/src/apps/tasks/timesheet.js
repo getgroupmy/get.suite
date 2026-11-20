@@ -1,5 +1,6 @@
 // The timesheet: your tracked time on each task, for each day of a week.
 // Timers are split at local midnight; time added by hand belongs to the day it was added for (its date, as typed).
+import { csvCell } from '../../csvcell.js';
 
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -59,7 +60,7 @@ export const hm = (min) => (min ? `${Math.floor(min / 60)}:${String(min % 60).pa
 
 /** CSV for Excel or Sheets: Task, each day (hours, decimal), Total. */
 export function timesheetCsv(sheet) {
-  const q = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  const q = (v) => csvCell(v); // (task titles kept from running as formulas)
   const h = (m) => (m ? (Math.round((m / 60) * 100) / 100).toString() : '');
   const lines = [['Task', ...sheet.days.map((d) => d.date), 'Total (h)']];
   for (const r of sheet.rows) lines.push([r.title, ...r.cells.map(h), h(r.total)]);

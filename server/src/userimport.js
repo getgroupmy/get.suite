@@ -7,6 +7,7 @@ import { rulesOf, passwordProblem } from './passwordrules.js';
 import { parseCsv } from './contactfiles.js';
 import { validAddress } from './tenancy.js';
 import { q } from './db.js';
+import { csvCell } from './csvcell.js';
 
 export const MAX_IMPORT_USERS = 500;
 const COLS = {
@@ -84,11 +85,7 @@ export function planImport(text, { orgId, domain }) {
 
 // ---- the other way: the company's people as a CSV (for audits, payroll, moving elsewhere) ----
 // Cells that a spreadsheet would read as a formula (=, +, -, @ first) get a leading ' so they stay text.
-const cell = (v) => {
-  let s = String(v ?? '');
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
+const cell = (v) => csvCell(v); // (csvcell.js)
 const day = (t) => (t ? new Date(t).toISOString().slice(0, 10) : '');
 
 /** Rows of { name, username, is_admin, disabled, two_factor, storage_used, created_at, last_active }. */

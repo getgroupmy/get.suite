@@ -59,6 +59,15 @@ await step('LinkedIn’s Connections.csv imports, its notes lines skipped', asyn
   const t = await row.innerText();
   if (!t.includes('Head of Sales') || !t.includes('Globex') || !t.includes('linkedin.com/in/noradiaz') || !t.includes('nora@example.com')) throw new Error(t);
 });
+await step('Export → CSV: a contact whose name is a formula comes out as text (CSV injection), the phone number as it is', async () => {
+  await page.evaluate(() => fetch('/api/contacts', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' },
+    body: JSON.stringify({ name: '=HYPERLINK("http://evil.example","Click me")', email: 'evil@example.com', phone: '+60 12-345 6789' }) }));
+  await page.reload();
+  await page.getByRole('button', { name: 'Export' }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /^CSV/ }).click()]);
+  const line = require('node:fs').readFileSync(await dl.path(), 'utf8').split('\r\n').find((l) => l.includes('evil@example.com')) || '';
+  if (!line.startsWith(`"'=HYPERLINK(""http://evil.example"",""Click me"")",evil@example.com,+60 12-345 6789,`)) throw new Error(`the line is: ${line}`);
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

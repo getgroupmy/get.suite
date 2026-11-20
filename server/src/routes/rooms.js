@@ -9,6 +9,7 @@ import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { expand } from '../calserver.js';
 import { outEvent, touch } from './calendar.js';
 import { notify } from '../notifications.js';
+import { csvCell } from '../csvcell.js';
 
 q(`CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -230,7 +231,6 @@ export function roomsFromCsv(text) {
   });
   return { rooms, problems };
 }
-const csvCell = (v) => (/[",\n;]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
 
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 

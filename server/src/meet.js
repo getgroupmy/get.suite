@@ -18,6 +18,7 @@ import { audit } from './audit.js';
 import { sendTo } from './hub.js';
 import { canReach } from './tenancy.js';
 import { roleFor } from './access.js';
+import { csvCell } from './csvcell.js';
 
 q(`CREATE TABLE IF NOT EXISTS meetings (
   code TEXT PRIMARY KEY,
@@ -171,7 +172,7 @@ export function meetRoutes() {
     if (!m || (m.created_by !== req.user.id && !q('SELECT 1 FROM meeting_attendance WHERE code = ? AND user_id = ?').get(m.code, req.user.id))) throw notFound();
     const people = attendanceOf(m.code);
     if (req.query.format === 'csv') {
-      const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${s.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : s; };
+      const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
       const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
       const rows = [['Name', 'Email', 'First joined (UTC)', 'Last left (UTC)', 'Minutes', 'Times joined'],
         ...people.map((p) => [p.name, p.email, iso(p.first), p.here ? 'still there' : iso(p.last), minutes(p.ms), p.times])];

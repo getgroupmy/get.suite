@@ -7,6 +7,7 @@ import { requireAdmin } from '../auth.js';
 import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
+import { csvCell } from '../csvcell.js';
 
 /** Every share from someone in `orgId` to someone outside it that still works, newest file first. */
 export function externalShares(orgId, at = Date.now()) {
@@ -63,7 +64,7 @@ export function externalShareRoutes() {
   });
   // The same list as a spreadsheet (CSV), for an audit.
   r.get('/export.csv', (req, res) => {
-    const cell = (v) => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+    const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
     const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
     const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit' };
     const rows = externalShares(req.user.org_id);

@@ -18,6 +18,7 @@ import * as guard from '../security/guard.js';
 import { receiveUpload, insertFile, cleanName } from './files.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
+import { csvCell } from '../csvcell.js';
 
 const LINKABLE = ['file', 'folder'];
 const MAX_EXPIRY_DAYS = 365;
@@ -223,7 +224,7 @@ export function linkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
 
   // The same list as a spreadsheet (CSV), for an audit: every link, expired ones too.
   r.get('/all.csv', requireAdmin, (req, res) => {
-    const cell = (v) => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; return /[",\n\r]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+    const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
     const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
     const rows = q(`SELECT l.*, f.name AS file_name, f.kind AS file_kind, f.trashed, u.name AS owner_name, u.username AS owner_email
                     FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by

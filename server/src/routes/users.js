@@ -29,6 +29,7 @@ import { rehomeSharedMedia } from '../mediahome.js';
 import { focusUntil, calendarStatus, baseUrl } from './calendar.js';
 import { placeOn } from './location.js';
 import { awayOfIds, afterHoursOfIds } from '../mail/afterhours.js';
+import { csvCell } from '../csvcell.js';
 
 // Who's who: a job title, department and work phone for each person, and who they report to (set by
 // an admin). The Directory shows them, with an org chart.
@@ -706,7 +707,7 @@ export default function userRoutes() {
       video_meetings: calls.get(u.id) || 0, video_minutes: Math.round((callMs.get(u.id) || 0) / 60e3) }));
     const active = rows.filter((r) => r.last_active && r.last_active >= from).length;
     if (req.query.format === 'csv') {
-      const cell = (v) => { const t = String(v ?? ''); return /[",\n]/.test(t) || /^[=+\-@]/.test(t) ? `"${t.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : t; };
+      const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
       const lines = [['Name', 'Email', 'Last active (UTC)', 'Files created', 'Files edited', 'Chat messages', 'Meetings organised', 'Tasks done', 'Video meetings joined', 'Minutes in video meetings', 'Suspended'],
         ...rows.map((r) => [r.name, r.email, r.last_active ? new Date(r.last_active).toISOString().slice(0, 16).replace('T', ' ') : 'never', r.files_created, r.files_edited, r.chat_messages, r.meetings, r.tasks_done, r.video_meetings, r.video_minutes, r.disabled ? 'yes' : ''])];
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');

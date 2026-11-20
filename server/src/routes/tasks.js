@@ -25,6 +25,7 @@ import { recordActivity } from '../fileactivity.js';
 import { insertFile } from './files.js';
 import { scheduleTask, blocksOf, clashes } from '../taskblocks.js';
 import { recordChanges, historyOf, forgetGoneHistory, listActivity } from '../taskhistory.js';
+import { csvCell } from '../csvcell.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
@@ -189,7 +190,6 @@ export function tagsOf(input) {
 }
 const MAX_STEPS = 100, MAX_ATTACHMENTS = 20;
 // A cell as a spreadsheet reads it: quoted when needed, and text that would start a formula made plain.
-const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 /** Tasks as CSV rows: what each is, its state, dates, who it's for, its steps and tags. */
 export function tasksTable(tasks) {
   const head = ['Task', 'Status', 'Due', 'Time', 'Start', 'Assigned to', 'Important', 'Tags', 'Steps done', 'Steps', 'Notes', 'Completed'];

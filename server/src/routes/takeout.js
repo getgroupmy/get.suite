@@ -53,10 +53,10 @@ import { excelFromSheet } from '../office/excel.js';
 import { powerPointFromDeck } from '../office/powerpoint.js';
 import { withoutSuggestions } from '../office/suggestions.js';
 import { docFromNotion, sheetFromNotionCsv } from '../migrate/notion.js';
+import { csvCell } from '../csvcell.js';
 
 const MAX_BYTES = 10 * 1024 ** 3; // stored files; beyond this, download Drive in parts
 const safe = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 150) || 'untitled';
-const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
 
 /** Where a comment is: the quoted text, a cell, a slide. */

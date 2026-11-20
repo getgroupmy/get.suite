@@ -8,6 +8,7 @@ import { setReminders } from './reminders.js';
 import { icsOf, syncOverrides } from './dav.js';
 import { parseCsv } from './contactfiles.js';
 import { createHash } from 'node:crypto';
+import { csvCell } from './csvcell.js';
 
 export const MAX_IMPORT = 5000;
 
@@ -176,7 +177,7 @@ export function exportCalendarCsv(userId, only, zone = 'UTC') {
     .formatToParts(new Date(ms)).map((p) => [p.type, p.value]));
   const day = (p) => `${p.month}/${p.day}/${p.year}`;
   const time = (p) => `${p.hour}:${p.minute} ${p.dayPeriod}`;
-  const cell = (v) => { const s = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+  const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
   const freq = { DAILY: 'Daily', WEEKLY: 'Weekly', MONTHLY: 'Monthly', YEARLY: 'Yearly' };
   const rows = [['Subject', 'Start Date', 'Start Time', 'End Date', 'End Time', 'All day event', 'Description', 'Location', 'Repeats']];
   for (const e of events) {

@@ -5,8 +5,9 @@ import { q, fold } from '../db.js';
 import { requireAdmin } from '../auth.js';
 import { bad } from '../util.js';
 import { ACTIONS } from '../audit.js';
+import { csvCell } from '../csvcell.js';
 
-const csv = (v) => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+const csv = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
 
 export default function auditRoutes() {
   const r = Router();

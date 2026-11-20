@@ -23,6 +23,7 @@ import ExternalAdmin from './ExternalAdmin.jsx';
 import AppsAdmin from './AppsAdmin.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { readFeatures } from '../calendar/roomfit.js';
+import { csvCell } from '../../csvcell.js';
 
 /** Bring a Slack workspace's export (.zip) into Chat: its public channels, messages and threads. */
 function SlackImport() {
@@ -471,10 +472,10 @@ function ImportUsers({ orgId, domains, onClose, onDone }) {
   };
   const good = rows?.filter((r) => !r.error) || [];
   const download = () => {
-    const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = [['Name', 'Email', 'Password'], ...done.rows.filter((r) => r.created).map((r) => [r.name, r.email, r.password || '(the one in your file)'])];
+    // (names kept from running as formulas; a password exactly as it is)
+    const lines = [['Name', 'Email', 'Password'], ...done.rows.filter((r) => r.created).map((r) => [csvCell(r.name), csvCell(r.email), csvCell(r.password || '(the one in your file)', { guard: false })])];
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([lines.map((l) => l.map(q).join(',')).join('\r\n')], { type: 'text/csv' }));
+    a.href = URL.createObjectURL(new Blob([lines.map((l) => l.join(',')).join('\r\n')], { type: 'text/csv' }));
     a.download = 'new-users.csv';
     a.click();
     URL.revokeObjectURL(a.href);

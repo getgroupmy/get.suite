@@ -31,6 +31,7 @@ import { channelChoice, postAsBot } from './chat.js';
 import { taskListChoice, addTaskFor } from './tasks.js';
 import { hookOf, setHook, removeHook, newSecret, deliver, deliverNow, hookPayload } from '../formhooks.js';
 import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
+import { csvCell as csvCellOf } from '../csvcell.js';
 
 q(`CREATE TABLE IF NOT EXISTS forms (
   id TEXT PRIMARY KEY,
@@ -479,11 +480,7 @@ export function publicSummary(questions, responses) {
 
 /** One answer as text, for CSV and spreadsheets. */
 const asText = (a) => (Array.isArray(a) ? a.map((x) => (x && typeof x === 'object' ? x.name : x)).join('; ') : a == null ? '' : String(a));
-const csvCell = (v) => {
-  let s = String(v ?? '');
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // don't let a spreadsheet run an answer as a formula
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
+const csvCell = (v) => csvCellOf(v); // don't let a spreadsheet run an answer as a formula (csvcell.js)
 
 const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, show_results: !!f.show_results, collect_email: !!f.collect_email, send_copy: !!f.send_copy, progress_bar: !!f.progress_bar, auto_remind: !!f.auto_remind, theme: themeOf(f) });
 const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, r.email, u.name AS user_name, u.username AS user_email
