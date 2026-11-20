@@ -4,8 +4,9 @@ import { findKey, findPattern, replacementFor } from './findReplace.js';
 import { revealTabAt } from './doctabsext.js';
 import Icon from '../../components/Icon.jsx';
 
-export function FindBar({ editor, replacing, canEdit, onClose }) {
-  const [term, setTerm] = useState(() => { const { from, to } = editor.state.selection; const t = editor.state.doc.textBetween(from, to, ' '); return t.length < 80 ? t : ''; });
+export function FindBar({ editor, replacing, canEdit, onClose, initialTerm = null }) {
+  // Opened from a search's result (#find=…): its word; else what's selected.
+  const [term, setTerm] = useState(() => { if (initialTerm) return initialTerm; const { from, to } = editor.state.selection; const t = editor.state.doc.textBetween(from, to, ' '); return t.length < 80 ? t : ''; });
   const [replace, setReplace] = useState('');
   const [matchCase, setMatchCase] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
@@ -22,10 +23,17 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
     const first = findKey.getState(editor.state)?.matches?.[0];
     if (first) revealTabAt(editor, first.from);
   }, [editor, term, matchCase, wholeWord, regex]);
+  // With a word to find given, go to its first match as soon as the document's text has it.
+  const goFirst = useRef(!!initialTerm);
   useEffect(() => {
-    const f = () => refresh((n) => n + 1);
+    const f = () => {
+      refresh((n) => n + 1);
+      if (goFirst.current && findKey.getState(editor.state)?.matches?.length) { goFirst.current = false; showRef.current?.(0); }
+    };
+    f();
+    const stop = setTimeout(() => { goFirst.current = false; }, 15000);
     editor.on('transaction', f);
-    return () => { editor.off('transaction', f); editor.view.dispatch(editor.state.tr.setMeta(findKey, { term: '' })); };
+    return () => { clearTimeout(stop); editor.off('transaction', f); editor.view.dispatch(editor.state.tr.setMeta(findKey, { term: '' })); };
   }, [editor]);
 
   // Escape closes it from anywhere (focus may be in the document, or nowhere after a button went grey).
@@ -45,6 +53,8 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
     revealTabAt(editor, matches[n].from); // a match in another tab opens that tab
     requestAnimationFrame(() => editor.view.dom.querySelector('.find-match.current')?.scrollIntoView({ block: 'center' }));
   };
+  const showRef = useRef(null);
+  showRef.current = show;
   // Each replace is its own step for Undo, not merged with typing or another replace just before it.
   const ownStep = () => editor.state.plugins.find((p) => p.key.startsWith('y-undo$'))?.getState(editor.state)?.undoManager?.stopCapturing();
   const replaceOne = () => {

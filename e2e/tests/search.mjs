@@ -46,6 +46,10 @@ await step('search in Drive finds a document by the words inside it, with where 
   await page.screenshot({ path: `${SP}/shots/search.png` });
   await rows.filter({ hasText: 'Board minutes' }).locator('td.name').dblclick();
   await page.getByText('The board approved').waitFor();
+  // A document opens with its find bar on the word, at the first match
+  if ((await page.getByRole('search', { name: 'Find in document' }).getByLabel('Find', { exact: true }).inputValue()) !== 'penang') throw new Error('find bar');
+  await page.locator('.find-match.current', { hasText: /Penang/i }).waitFor();
+  await page.keyboard.press('Escape');
 });
 
 await step('a presentation matched by its words says which slide, and opens there; a spreadsheet, which cell', async () => {

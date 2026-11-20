@@ -1,4 +1,5 @@
 import { useKeptPref } from './keptpref.js';
+import { placeInHash } from '../../components/placelink.js';
 import { isPaused, pausedUntil, pauseUntil } from '../../pause.js';
 import { sprintText, SPRINTS } from './sprint.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -152,6 +153,9 @@ const colorFor = (id) => CARET_COLORS[[...String(id)].reduce((a, ch) => (a * 31 
  * (Yjs), with each person's cursor shown. The server keeps and saves the shared document.
  */
 const ZOOMS = [50, 75, 90, 100, 110, 125, 150, 200];
+
+/** The word in a search result's link (#find=…), or null. */
+const findOfHash = (hash) => { const t = placeInHash(hash, 'find'); return t && t.length <= 100 ? t : null; };
 
 export default function DocEditor() {
   const { id } = useParams();
@@ -546,7 +550,7 @@ function SharedDoc({ file, setFile }) {
   const showSuggestion = (sg) => editor.chain().setTextSelection({ from: sg.from, to: sg.to }).scrollIntoView().run();
   const [active, setActive] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
-  const [finding, setFinding] = useState(null); // { replace, n }
+  const [finding, setFinding] = useState(null); // { replace, n, term? }
   const [reading, setReading] = useState(null); // Read aloud: { key, list } (the sentences from the cursor when it started)
   const startReadingRef = useRef(() => {}); // for the keyboard shortcut, which is set up once
   const [voiceTyping, setVoiceTyping] = useState(false);
@@ -640,6 +644,11 @@ function SharedDoc({ file, setFile }) {
   const lit = [...open.map((t) => t.id), ...(pending ? [pending.id] : [])];
   const highlight = `${lit.map((id) => `.paper [data-comment="${id}"]`).join(',') || '.none'}{background:rgba(251,188,4,.28);border-bottom:2px solid rgba(251,188,4,.9);cursor:pointer}${active ? `.paper [data-comment="${active}"]{background:rgba(251,188,4,.55)}` : ''}`;
 
+  // Opened from a search's result (#find=…): the find bar, at that word's first match.
+  useEffect(() => {
+    const term = editor && findOfHash(window.location.hash);
+    if (term) setFinding({ replace: false, n: 1, term });
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
   // Opened from a link to a heading (/docs/…#budget): go there once the document's text has arrived.
   useEffect(() => {
     if (!editor || !window.location.hash) return undefined;
@@ -659,6 +668,8 @@ function SharedDoc({ file, setFile }) {
   useEffect(() => {
     if (!editor) return undefined;
     const go = () => {
+      const term = findOfHash(window.location.hash); // from a search's result: find its word
+      if (term) { setFinding((f) => ({ replace: false, n: (f?.n || 0) + 1, term })); return; }
       const tabId = tabIdOfHash(window.location.hash); // a link to one of its tabs
       if (tabId) { openTab(editor, tabId); return; }
       const h = headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
@@ -870,7 +881,7 @@ function SharedDoc({ file, setFile }) {
           revealTabAt(editor, s.from);
           try { editor.view.domAtPos(s.from).node?.parentElement?.scrollIntoView?.({ block: 'nearest' }); } catch { /* not shown */ }
         }} />}
-      {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
+      {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} initialTerm={finding.term || null} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
         {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setTabsPanel(false)} />}
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}

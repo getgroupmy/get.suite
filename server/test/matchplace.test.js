@@ -22,5 +22,5 @@ test('in a spreadsheet: the first cell (row by row) with the first word, not for
   ] };
   assert.deepEqual(placeOfMatch('sheet', book, 'rent'), { hash: '#sheet=Costs%20Q3&range=A2', words: 'Costs Q3 · A2' });
   assert.equal(placeOfMatch('sheet', book, 'zzz'), null);
-  assert.equal(placeOfMatch('doc', {}, 'rent'), null, 'documents: not here');
+  assert.deepEqual(placeOfMatch('doc', {}, 'Penang trip'), { hash: '#find=Penang', words: null }, 'a document: find its first word');
 });

@@ -1,5 +1,6 @@
-// Where in a presentation or spreadsheet a search's words are (Search everything, Drive's search): the first
-// slide with all of them, or the first cell with the first of them, as a place link's hash and words for it.
+// Where in a presentation, spreadsheet or document a search's words are (Search everything, Drive's search): the
+// first slide with all of them, the first cell with the first of them, or (a document) its find bar on the first word,
+// as a place link's hash and words for it.
 
 // As search reads words: any case, accents left out (cafe finds café), the start of a word enough.
 const fold = (t) => String(t || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
@@ -18,6 +19,10 @@ export function placeOfMatch(kind, json, query) {
     const slides = json?.slides || [];
     const at = slides.findIndex((s) => { const t = slideText(s); return words.every((w) => has(t, w)); });
     return at < 0 ? null : { hash: `#slide=${encodeURIComponent(slides[at].id)}`, words: `Slide ${at + 1}` };
+  }
+  if (kind === 'doc') { // the find bar, searching for the first word as typed (the others may be anywhere)
+    const first = String(query || '').match(/[\p{L}\p{N}]+/u)?.[0];
+    return first ? { hash: `#find=${encodeURIComponent(first)}`, words: null } : null;
   }
   if (kind === 'sheet') {
     for (const s of json?.sheets || []) {

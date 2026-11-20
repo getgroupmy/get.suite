@@ -696,10 +696,10 @@ export default function fileRoutes({ maxUploadBytes }) {
         .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
       // A presentation or spreadsheet matched inside: where (the slide, or the sheet and cell), to open it there.
       for (const f of rows) {
-        if (!f.match || (f.kind !== 'slides' && f.kind !== 'sheet')) continue;
+        if (!f.match || !['slides', 'sheet', 'doc'].includes(f.kind)) continue;
         let json; try { json = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'); } catch { continue; }
         const at = placeOfMatch(f.kind, json, req.query.q);
-        if (at) { f.place = at.hash; f.place_words = at.words; }
+        if (at) { f.place = at.hash; if (at.words) f.place_words = at.words; }
       }
     } else throw bad('Unknown view');
     // Shortcuts in this folder (or your My Drive), unless asked to leave them out.

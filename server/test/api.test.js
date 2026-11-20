@@ -16653,6 +16653,11 @@ test('search: a presentation or spreadsheet matched by its words says where (a s
   const d = r.find((f) => f.id === deck.id), b = r.find((f) => f.id === book.id);
   assert.deepEqual([d.place, d.place_words], ['#slide=q2', 'Slide 2']);
   assert.deepEqual([b.place, b.place_words], ['#sheet=Trips&range=B4', 'Trips · B4']);
+  // A document: its find bar, on the first word
+  const memo = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Memo', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Off to Zanzibar soon' }] }] } })).body;
+  let m;
+  for (let i = 0; i < 40 && !m; i++) { m = (await owner('GET', '/api/files?view=search&q=Zanzibar%20soon')).body.find((f) => f.id === memo.id); if (!m) await new Promise((ok) => setTimeout(ok, 100)); }
+  assert.deepEqual([m.place, m.place_words], ['#find=Zanzibar', undefined]);
   // Found by its name: no place
   const byName = (await owner('GET', '/api/files?view=search&q=ledger')).body.find((f) => f.id === book.id);
   assert.equal(byName.place, undefined);
