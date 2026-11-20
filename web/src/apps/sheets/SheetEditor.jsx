@@ -1129,6 +1129,11 @@ export default function SheetEditor() {
     if (at !== active) setActive(at);
     if (p.range) setTimeout(() => goToRef.current?.(p.range), 0); // once that sheet is showing
   };
+  // A link that opens the spreadsheet on that sheet, for sending to someone (viewers too).
+  const copySheetLink = async (name) => {
+    const url = placeLink(window.location.origin, `/sheets/${file.id}`, 'sheet', name);
+    try { await navigator.clipboard.writeText(url); toast(`Link to “${name}” copied`); } catch { window.prompt('Copy this link', url); }
+  };
   const goTo = (text) => {
     const t = cleanTarget(targetOf(names, text) || text);
     if (!t) { toast(`There's no cell or named range called “${text}”`, 'error'); return false; }
@@ -1492,15 +1497,14 @@ export default function SheetEditor() {
             onDragEnd={() => { dragTab.current = null; setDropAt(null); }}
             onDrop={(e) => { const from = dragTab.current; dragTab.current = null; setDropAt(null); if (from === null || from === i) return; e.preventDefault(); reorderSheets(moveSheet(dataRef.current.sheets, from, i), { move: [from, i] }, i); }}>
             <button onClick={() => { setActive(i); setSel({ c: 0, r: 0 }); setAnchor(null); }} {...(tabColorOf(s.tabColor) && { title: `Tab colour: ${tabColorName(s.tabColor)}`, 'data-tab-colour': tabColorOf(s.tabColor) })}>{s.name}</button>
+            {i === active && readOnly && <Menu align="left" trigger={(p) => <button className="tab-menu" aria-label={`Options for ${s.name}`} {...p}>▾</button>}
+              items={[{ label: 'Copy link to sheet', icon: 'link', onClick: () => copySheetLink(s.name) }]} />}
             {i === active && !readOnly && (
               <Menu align="left" trigger={(p) => <button className="tab-menu" aria-label={`Options for ${s.name}`} {...p}>▾</button>} items={[
                 { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename-sheet', index: i }) },
                 { label: 'Tab colour…', onClick: () => setDialog({ type: 'tab-colour', index: i }) },
                 data.sheets.filter((x) => !x.hidden).length > 1 && { label: 'Hide sheet', onClick: () => { writeSheet(() => ({ hidden: true })); const next = data.sheets.findIndex((x, j) => j !== i && !x.hidden); setActive(next); setSel({ c: 0, r: 0 }); setAnchor(null); } },
-                { label: 'Copy link to sheet', icon: 'link', onClick: async () => {
-                  const url = placeLink(window.location.origin, `/sheets/${file.id}`, 'sheet', s.name);
-                  try { await navigator.clipboard.writeText(url); toast(`Link to “${s.name}” copied`); } catch { window.prompt('Copy this link', url); }
-                } },
+                { label: 'Copy link to sheet', icon: 'link', onClick: () => copySheetLink(s.name) },
                 { label: 'Copy to another spreadsheet…', onClick: () => setDialog({ type: 'copy-to', index: i }) },
                 { label: 'Copy to a new spreadsheet', onClick: async () => {
                   try {

@@ -154,6 +154,25 @@ await step('Make a copy… into a folder of your choosing', async () => {
   const f = (await api(page, 'GET', `/files/${id}`)).body;
   if (f.parent_id !== folder.id || f.name !== 'Copy of Memo to file') throw new Error(JSON.stringify([f.parent_id, f.name]));
 });
+await step('Kim, a viewer, can copy a link to a slide and to a sheet (and nothing else in those menus)', async () => {
+  await kim.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const deck = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Read-only deck', content: { slides: [{ id: 'r1', items: [] }, { id: 'r2', items: [] }] } })).body;
+  const book = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Read-only book', content: { sheets: [{ name: 'One', cells: {} }, { name: 'Two', cells: { A1: 'x' } }] } })).body;
+  for (const f of [deck, book]) await api(page, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await kim.goto(`${B}/slides/${deck.id}`);
+  await kim.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  await kim.getByRole('button', { name: 'Options for slide 2' }).click();
+  const items = await kim.getByRole('menuitem').allInnerTexts();
+  if (items.map((t) => t.trim()).join('|') !== 'Copy link to slide') throw new Error(items.join('|'));
+  await kim.getByRole('menuitem', { name: 'Copy link to slide' }).click();
+  await until(async () => (await kim.evaluate(() => navigator.clipboard.readText())) === `${B}/slides/${deck.id}#slide=r2`);
+  await kim.goto(`${B}/sheets/${book.id}`);
+  await kim.locator('.sheet-tab > button:first-child', { hasText: /^Two$/ }).click();
+  await kim.getByRole('button', { name: 'Options for Two' }).click();
+  await kim.getByRole('menuitem', { name: 'Copy link to sheet' }).click();
+  await until(async () => (await kim.evaluate(() => navigator.clipboard.readText())) === `${B}/sheets/${book.id}#sheet=Two`);
+}, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

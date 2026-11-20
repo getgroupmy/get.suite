@@ -154,6 +154,11 @@ export default function SlidesEditor() {
     window.addEventListener('hashchange', jumpToSlide);
     return () => window.removeEventListener('hashchange', jumpToSlide);
   }); // (each render: the latest jumpToSlide)
+  // A link that opens the presentation on slide i, for sending to someone (viewers too).
+  const copySlideLink = async (i) => {
+    const url = placeLink(window.location.origin, `/slides/${id}`, 'slide', deckRef.current.slides[i].id);
+    try { await navigator.clipboard.writeText(url); toast(`Link to slide ${i + 1} copied`); } catch { window.prompt('Copy this link', url); }
+  };
   const goTo = (i) => { setCurrent(Math.max(0, Math.min(deckRef.current.slides.length - 1, i))); setSelected(null); setEditing(null); };
   // Opened from a mention (?comment=…): go to that comment's slide once it's known.
   const jumped = useRef(false);
@@ -600,13 +605,12 @@ export default function SlidesEditor() {
               <button type="button" className="thumb" aria-label={`Slide ${i + 1}`} aria-current={i === slideIndex ? 'true' : undefined} onClick={() => goTo(i)}>
                 <SlideView slide={s} theme={theme} deckId={id} number={numberShown(deck, i) ? i + 1 : null} />
               </button>
+              {readOnly && <Menu trigger={(p) => <button type="button" className="icon-btn thumb-menu" aria-label={`Options for slide ${i + 1}`} {...p}><Icon name="more" size={16} /></button>}
+                items={[{ label: 'Copy link to slide', icon: 'link', onClick: () => copySlideLink(i) }]} />}
               {!readOnly && (
                 <Menu trigger={(p) => <button type="button" className="icon-btn thumb-menu" aria-label={`Options for slide ${i + 1}`} {...p}><Icon name="more" size={16} /></button>} items={[
                   { label: 'Duplicate', onClick: slideAction((d) => duplicateSlide(d, i)) },
-                  { label: 'Copy link to slide', icon: 'link', onClick: async () => {
-                    const url = placeLink(window.location.origin, `/slides/${id}`, 'slide', deck.slides[i].id);
-                    try { await navigator.clipboard.writeText(url); toast(`Link to slide ${i + 1} copied`); } catch { window.prompt('Copy this link', url); }
-                  } },
+                  { label: 'Copy link to slide', icon: 'link', onClick: () => copySlideLink(i) },
                   { label: 'Copy to another presentation…', onClick: () => setDialog({ type: 'copy-slide-to', slide: deck.slides[i].id, number: i + 1 }) },
                   { label: 'Copy to a new presentation', onClick: async () => {
                     try {
