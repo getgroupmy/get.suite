@@ -1957,8 +1957,8 @@ Object.assign(FUNCS, {
     return Math.exp(0.5 * a * Math.log(a * v) + 0.5 * b * Math.log(b) - 0.5 * (a + b) * Math.log(a * v + b) - Math.log(v) - (lnGamma(a / 2) + lnGamma(b / 2) - lnGamma((a + b) / 2)));
   },
   'F.DIST.RT': ([x, d1, d2]) => { const v = toNum(x); if (v < 0) err('#NUM!'); return 1 - fCdf(v, degrees(d1), degrees(d2)); },
-  'F.INV': ([p, d1, d2]) => { const q = toNum(p); if (q < 0 || q > 1) err('#NUM!'); const a = degrees(d1), b = degrees(d2); return inverse((x) => fCdf(x, a, b), q, 0, 10); },
-  'F.INV.RT': ([p, d1, d2]) => { const q = toNum(p); if (q < 0 || q > 1) err('#NUM!'); const a = degrees(d1), b = degrees(d2); return inverse((x) => fCdf(x, a, b), 1 - q, 0, 10); },
+  'F.INV': ([p, d1, d2]) => { const q = toNum(p); if (q < 0 || q > 1) err('#NUM!'); const a = degrees(d1), b = degrees(d2); return q === 0 ? 0 : inverse((x) => fCdf(x, a, b), q, 0, 10); }, // (probability 0: exactly 0, not a solver's 2.8E-13)
+  'F.INV.RT': ([p, d1, d2]) => { const q = toNum(p); if (q < 0 || q > 1) err('#NUM!'); const a = degrees(d1), b = degrees(d2); return q === 1 ? 0 : inverse((x) => fCdf(x, a, b), 1 - q, 0, 10); },
   'F.TEST': ([r1, r2]) => {
     const x = nums([r1]), y = nums([r2]);
     if (x.length < 2 || y.length < 2) err('#DIV/0!');
@@ -1967,7 +1967,7 @@ Object.assign(FUNCS, {
     const f = vx / vy, c = fCdf(f, x.length - 1, y.length - 1);
     return 2 * Math.min(c, 1 - c);
   },
-  'CHISQ.INV': ([p, df]) => { const q = toNum(p); if (q < 0 || q >= 1) err('#NUM!'); const d = degrees(df); return inverse((x) => chiCdf(x, d), q, 0, d + 10); },
+  'CHISQ.INV': ([p, df]) => { const q = toNum(p); if (q < 0 || q >= 1) err('#NUM!'); const d = degrees(df); return q === 0 ? 0 : inverse((x) => chiCdf(x, d), q, 0, d + 10); },
   'CHISQ.INV.RT': ([p, df]) => { const q = toNum(p); if (q <= 0 || q > 1) err('#NUM!'); const d = degrees(df); return inverse((x) => chiCdf(x, d), 1 - q, 0, d + 10); },
   CHIINV: (a) => FUNCS['CHISQ.INV.RT'](a),
   'GAMMA.DIST': ([x, alpha, beta, cumulative]) => {
@@ -1975,7 +1975,7 @@ Object.assign(FUNCS, {
     if (v < 0) err('#NUM!');
     return toBool(cumulative) ? gammaCdf(v, a, b) : (v === 0 ? (a < 1 ? Infinity : a === 1 ? 1 / b : 0) : Math.exp((a - 1) * Math.log(v) - v / b - lnGamma(a) - a * Math.log(b)));
   },
-  'GAMMA.INV': ([p, alpha, beta]) => { const q = toNum(p); if (q < 0 || q >= 1) err('#NUM!'); const a = positive(alpha), b = positive(beta); return inverse((x) => gammaCdf(x, a, b), q, 0, a * b + 10 * b); },
+  'GAMMA.INV': ([p, alpha, beta]) => { const q = toNum(p); if (q < 0 || q >= 1) err('#NUM!'); const a = positive(alpha), b = positive(beta); return q === 0 ? 0 : inverse((x) => gammaCdf(x, a, b), q, 0, a * b + 10 * b); },
   LOGINV: ([p, mean, sd]) => Math.exp(toNum(mean) + positive(sd) * normInv(probability(p))),
   'LOGNORM.INV': ([p, mean, sd]) => Math.exp(toNum(mean) + positive(sd) * normInv(probability(p))),
   LOGNORMDIST: ([x, mean, sd]) => FUNCS['LOGNORM.DIST']([x, mean, sd, true]),
@@ -1989,7 +1989,8 @@ Object.assign(FUNCS, {
   },
   'NEGBINOM.DIST': ([f, s, p, cumulative]) => {
     const k = Math.trunc(toNum(f)), r = Math.trunc(toNum(s)), q = toNum(p);
-    if (k < 0 || r < 1 || q <= 0 || q >= 1) err('#NUM!');
+    if (k < 0 || r < 1 || q < 0 || q > 1) err('#NUM!'); // (a chance of 0 or 1 is allowed, as in Excel: never, or at once)
+    if (q === 0 || q === 1) return q === 1 ? 1 * (toBool(cumulative) || k === 0) : 0;
     const pmf = (i) => Math.exp(lnChoose(i + r - 1, i) + r * Math.log(q) + i * Math.log(1 - q));
     if (!toBool(cumulative)) return pmf(k);
     let t = 0;
@@ -2025,7 +2026,7 @@ Object.assign(FUNCS, {
   },
   'BINOM.INV': ([n, p, alpha]) => {
     const k = Math.trunc(toNum(n)), q = toNum(p), a = toNum(alpha);
-    if (k < 0 || q < 0 || q > 1 || a <= 0 || a >= 1) err('#NUM!');
+    if (k < 0 || q < 0 || q > 1 || a < 0 || a > 1) err('#NUM!'); // (alpha of 0 or 1, trials of 0: allowed, as in Excel)
     for (let i = 0; i <= k; i++) if (binomCdf(i, k, q) >= a - 1e-12) return i;
     return k;
   },

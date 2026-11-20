@@ -189,6 +189,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // ROW of a range gives every row's number in an array formula
   await typeIn('P27', '=SUMPRODUCT(ROW(P20:P21)*P20:P21)');
   await expectCells({ P27: '62' });
+  // inverse distributions of probability 0 are exactly 0; BINOM.INV takes alpha 0
+  await typeIn('P28', '=F.INV(0, 5, 10)&"|"&GAMMA.INV(0, 5, 2)&"|"&BINOM.INV(10, 0.5, 0)');
+  await expectCells({ P28: '0|0|0' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');
