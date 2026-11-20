@@ -122,8 +122,12 @@ function offsetMin(t, tz) {
 export function fromWallClock(y, m, d, h, mi, s, ms, tz) {
   if (tz === localZone()) return new Date(y, m, d, h, mi, s, ms).getTime();
   const guess = Date.UTC(y, m, d, h, mi, s, ms);
-  let t = guess - offsetMin(guess, tz) * 6e4;
-  t = guess - offsetMin(t, tz) * 6e4;
+  const o1 = offsetMin(guess, tz);
+  const o2 = offsetMin(guess - o1 * 6e4, tz);
+  const t = guess - o2 * 6e4;
+  // A time the clocks skip (2:30 when they go from 2:00 to 3:00): read in the offset before the change, so
+  // it comes out an hour later (3:30), as RFC 5545 has it, not an hour early.
+  if (o1 !== o2 && offsetMin(t, tz) !== o2) return guess - Math.min(o1, o2) * 6e4;
   return t;
 }
 
@@ -148,7 +152,10 @@ export function occurrenceStarts(ev, to) {
     return { getTime: () => t, getFullYear: () => day.getUTCFullYear(), getMonth: () => day.getUTCMonth(), getDate: () => day.getUTCDate(), getDay: () => day.getUTCDay() };
   };
   const first = at(w0.y, w0.m, w0.d);
-  const startOfWeek = (d) => at(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());
+  // Weeks run Sunday to Saturday, or from the rule's own week start (wkst: 1 = Monday, from a phone or Outlook),
+  // which matters for every other week on several days: Sunday is the end of a Monday week, not the start.
+  const ws = r.wkst || 0;
+  const startOfWeek = (d) => at(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() - ws + 7) % 7));
   const every = r.interval || 1;
   const out = [];
   let n = 0;
@@ -164,11 +171,11 @@ export function occurrenceStarts(ev, to) {
     if (r.freq === 'daily') {
       if (!take(at(first.getFullYear(), first.getMonth(), first.getDate() + i * every).getTime())) break;
     } else if (r.freq === 'weekly') {
-      const days = r.byday?.length ? r.byday : [first.getDay()];
+      const days = (r.byday?.length ? r.byday : [first.getDay()]).map((wd) => (wd - ws + 7) % 7).sort((a, b) => a - b);
       const week = startOfWeek(first);
       let stop = false;
-      for (const wd of days) {
-        const t = at(week.getFullYear(), week.getMonth(), week.getDate() + i * 7 * every + wd).getTime();
+      for (const k of days) { // days into the week
+        const t = at(week.getFullYear(), week.getMonth(), week.getDate() + i * 7 * every + k).getTime();
         if (t < ev.start) continue; // days earlier in the first week
         if (!take(t)) { stop = true; break; }
       }

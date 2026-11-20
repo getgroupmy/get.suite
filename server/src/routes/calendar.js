@@ -83,6 +83,12 @@ function readRule(rule) {
     if (!days.length || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw bad('Pick at least one weekday');
     out.byday = days;
   }
+  // The day weeks start on (1 = Monday … 6; Sunday when not set), for every other week on several days.
+  if (rule.wkst !== undefined && rule.wkst !== null && rule.wkst !== 0) {
+    const ws = Number(rule.wkst);
+    if (!Number.isInteger(ws) || ws < 1 || ws > 6) throw bad('Unknown week start');
+    if (out.freq === 'weekly' && out.interval > 1 && out.byday?.length) out.wkst = ws;
+  }
   // Monthly on a weekday: { nth: 1–5 or -1 (the last), wd: 0=Sun..6 } (a fifth: months without one are skipped).
   // Or several of one weekday: { nths: [1, 3], wd: 1 } (the first and third Monday).
   // Or weekdays of the month, mixed: { mdays: [[1, 1], [3, 2]] } (the first Monday and the third Tuesday).

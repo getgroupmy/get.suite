@@ -6,6 +6,7 @@
 // for everyone in that zone across clock changes. All-day events use plain dates.
 
 import { WINDOWS_ZONES } from './windowszones.js';
+import { occurrenceStarts } from './calmath.js';
 
 const pad = (n, w = 2) => String(n).padStart(w, '0');
 const DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -116,15 +117,10 @@ function firstStart(e, zone) {
   const r = e.rrule;
   const weekly = r?.freq === 'weekly' && r.byday?.length, nth = r?.freq === 'monthly' && (r.nth || r.nths?.length || r.mdays?.length);
   if (!weekly && !nth) return e.start;
-  for (let i = 0; i < (nth ? 62 : 7); i++) {
-    const t = e.start + i * 864e5;
-    // Whole days in wall-clock time: correct the step if the clocks changed in between.
-    const fixed = t + (offsetAt(e.start, zone) - offsetAt(t, zone)) * 6e4;
-    const p = parts(fixed, zone);
-    if (weekly ? r.byday.includes(p.wd) : r.mdays?.length ? ruleDays(p.y, p.mo, mdaysByday(r.mdays)).includes(p.d)
-      : p.wd === r.wd && ruleDays(p.y, p.mo, (r.nths || [r.nth]).map((k) => `${k}${DAYS[r.wd]}`).join(',')).includes(p.d)) return fixed;
-  }
-  return e.start;
+  // The calendar's own first occurrence (skipped dates still count): with an interval, the series' weeks or
+  // months are counted from the event's start, so moving DTSTART to the next listed day must keep that phase.
+  const [t] = occurrenceStarts({ ...e, ...(!e.all_day && { tz: zone }), exdates: [], rrule: { ...r, count: 1, until: undefined } }, Infinity);
+  return t ?? e.start;
 }
 
 /**
@@ -149,6 +145,7 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
     const rule = [`FREQ=${r.freq.toUpperCase()}`];
     if (r.interval > 1) rule.push(`INTERVAL=${r.interval}`);
     if (r.freq === 'weekly' && r.byday?.length) rule.push(`BYDAY=${r.byday.map((d) => DAYS[d]).join(',')}`);
+    if (r.freq === 'weekly' && r.interval > 1 && r.byday?.length) rule.push(`WKST=${DAYS[r.wkst || 0]}`); // our weeks run Sunday to Saturday unless the rule says (RFC 5545's default is Monday)
     if (r.freq === 'monthly' && r.nth) rule.push(`BYDAY=${r.nth}${DAYS[r.wd]}`); // 2MO: the second Monday; -1FR: the last Friday
     if (r.freq === 'monthly' && r.nths?.length) rule.push(`BYDAY=${r.nths.map((k) => `${k}${DAYS[r.wd]}`).join(',')}`); // 1MO,3MO
     if (r.freq === 'monthly' && r.mdays?.length) rule.push(`BYDAY=${mdaysByday(r.mdays)}`); // 1MO,3TU (or MO,WE: every Monday and Wednesday)
@@ -470,6 +467,11 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
       else if (mdaysOf) rule.mdays = mdaysOf;
       else if (nthDay) { rule.nth = nth; rule.wd = DAY_NAMES.indexOf(nthDay[2]); }
       else if (days.length) rule.byday = [...new Set(days.map((d) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(d)))].sort();
+      // Every other week on several days: which day the weeks start on (Monday when the rule doesn't say).
+      const wkst = p.WKST ? DAY_NAMES.indexOf(p.WKST.toUpperCase()) : 1;
+      // Only kept where it changes the dates: a listed day (or the start's) before that day, in Sunday-to-Saturday terms.
+      const startWd = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDay();
+      if (freq === 'weekly' && rule.interval && rule.byday?.length && wkst > 0 && [...rule.byday, startWd].some((d) => d < wkst)) rule.wkst = wkst;
       if (p.COUNT) rule.count = Math.max(1, Math.min(999, +p.COUNT));
       else if (p.UNTIL) { const u = parseWhen({ value: p.UNTIL, params: {} }, out.tz); if (u) rule.until = u.date ? u.ms + 864e5 - 1 : u.ms; }
       out.rrule = rule;

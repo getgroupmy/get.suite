@@ -544,7 +544,14 @@ test('repeating events: rules are checked, and series that started earlier are r
   const nth = await cal('POST', '/api/events', { title: 'Board meeting', start: jan1, end: jan1 + 36e5, rrule: { freq: 'monthly', nth: '-1', wd: 4 } });
   assert.equal(nth.status, 201, JSON.stringify(nth.body));
   assert.deepEqual(nth.body.rrule, { freq: 'monthly', nth: -1, wd: 4 });
-  for (const rrule of [{ freq: 'monthly', nth: 6, wd: 1 }, { freq: 'monthly', nth: 2, wd: 7 }, { freq: 'monthly', nth: 2 }, { freq: 'weekly', nth: 2, wd: 1 }]) {
+  // The day weeks start on (from a phone or Outlook: Monday), kept for every other week on set days, dropped where it can't matter.
+  const mondayWeeks = await cal('POST', '/api/events', { title: 'Fortnightly', start: jan1, end: jan1 + 36e5, rrule: { freq: 'weekly', interval: 2, byday: [0, 1], wkst: 1 } });
+  assert.deepEqual([mondayWeeks.status, mondayWeeks.body.rrule], [201, { freq: 'weekly', interval: 2, byday: [0, 1], wkst: 1 }]);
+  await cal('DELETE', `/api/events/${mondayWeeks.body.id}`);
+  const everyWeek = await cal('POST', '/api/events', { title: 'Weekly', start: jan1, end: jan1 + 36e5, rrule: { freq: 'weekly', byday: [0, 1], wkst: 1 } });
+  assert.deepEqual(everyWeek.body.rrule, { freq: 'weekly', byday: [0, 1] }, 'every week: the week start doesn\'t matter');
+  await cal('DELETE', `/api/events/${everyWeek.body.id}`);
+  for (const rrule of [{ freq: 'monthly', nth: 6, wd: 1 }, { freq: 'monthly', nth: 2, wd: 7 }, { freq: 'monthly', nth: 2 }, { freq: 'weekly', nth: 2, wd: 1 }, { freq: 'weekly', interval: 2, byday: [1], wkst: 9 }]) {
     assert.equal((await cal('POST', '/api/events', { title: 'x', start: jan1, end: jan1 + 36e5, rrule })).status, 400, JSON.stringify(rrule));
   }
   await cal('DELETE', `/api/events/${nth.body.id}`);

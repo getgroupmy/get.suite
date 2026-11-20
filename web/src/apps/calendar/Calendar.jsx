@@ -1339,6 +1339,7 @@ const ruleFromForm = (r, start) => {
   else if (freq !== 'monthly' && freq.startsWith('monthly')) { const w = weekdayInMonth(start); out.nth = freq === 'monthly-last' ? -1 : w.nth; out.wd = w.wd; }
   if (Number(r.interval) > 1) out.interval = Number(r.interval);
   if (r.freq === 'weekly') out.byday = r.byday.length ? r.byday : [new Date(start).getDay()];
+  if (r.freq === 'weekly' && out.interval > 1 && r.wkst) out.wkst = r.wkst; // weeks from Monday (from a phone or Outlook): kept
   if (r.ends === 'on' && r.until) out.until = fromInputs(r.until, '23:59') + 59999;
   if (r.ends === 'after') out.count = Math.max(1, Math.min(999, Number(r.count) || 1));
   return out;
@@ -1660,7 +1661,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   const [rep, setRep] = useState({
     freq: r0?.mdays?.length ? 'monthly-mdays' : r0?.nths?.length ? 'monthly-nths' : r0?.nth ? (r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
     ends: r0?.until !== undefined ? 'on' : r0?.count ? 'after' : 'never',
-    nths: r0?.nths || null, wd: r0?.wd, // the first and third Monday (from a phone): kept as it is
+    nths: r0?.nths || null, wd: r0?.wd, wkst: r0?.wkst, // the first and third Monday (from a phone): kept as it is
     mdays: r0?.mdays || null, // the first Monday and the third Tuesday (from a phone or Outlook): kept as it is
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });

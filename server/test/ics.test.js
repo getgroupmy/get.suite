@@ -35,7 +35,7 @@ test('repeating events: local time with a VTIMEZONE, rule, skipped dates', () =>
   const l = lines(ics);
   assert.ok(l.includes('DTSTART;TZID=America/New_York:20261105T090000'), l.find((x) => x.startsWith('DTSTART;TZID')));
   assert.ok(l.includes('DTEND;TZID=America/New_York:20261105T100000'));
-  assert.ok(l.includes('RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;UNTIL=20270601T000000Z'));
+  assert.ok(l.includes('RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;WKST=SU;UNTIL=20270601T000000Z'));
   assert.ok(l.includes('EXDATE;TZID=America/New_York:20261119T090000'));
   assert.ok(l.includes('BEGIN:VTIMEZONE') && l.includes('TZID:America/New_York'));
   // Spring forward on 14 March 2027 at 2:00 local.
