@@ -1,4 +1,5 @@
 import { jsonFromDoc, jsonFromSheetDoc, jsonFromDeckDoc } from '../collabdoc.js';
+import { mediaShowingIn, keepMediaShowing } from '../mediahome.js';
 import { prefsOf } from './docprefs.js';
 import * as Y from 'yjs';
 import { announceFileState } from '../chatgone.js';
@@ -2683,6 +2684,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const had = new Set(q('SELECT user_id FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => x.user_id));
     const ownerOrgId = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id)?.org_id;
     const endsBefore = new Map(q('SELECT user_id, expires_at FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => [x.user_id, x.expires_at])); // read before they're cleared below
+    const showing = mediaShowingIn(f.id); // pictures that show because whoever added them can edit
     tx(() => {
       // People shared with one by one; access through groups is worked out again after (syncShares).
       q('UPDATE shares SET direct_role = NULL, expires_at = NULL WHERE file_id = ?').run(f.id);
@@ -2710,6 +2712,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       }
       syncShares(f.id);
     });
+    keepMediaShowing(showing); // someone taken off (or made a viewer): their pictures in it stay, as the owner's copies
     sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
     for (const x of list) q('DELETE FROM access_requests WHERE file_id = ? AND user_id = ?').run(f.id, x.user_id); // asked, and now has it
     const nameOf = (id) => q('SELECT username FROM users WHERE id = ?').get(id)?.username || id;

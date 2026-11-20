@@ -16432,3 +16432,49 @@ test('deleting an account: its pictures in colleagues\' documents and forms stay
   const folder = (await owner('GET', '/api/files')).body.find((x) => x.name === 'Pictures from Zed Gone');
   assert.ok(folder, 'in a folder of its own');
 });
+
+test('sharing: someone taken off a document (or made a viewer) — their pictures in it stay, as copies of its owner\'s', async () => {
+  const zed = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'sharezed', domain: 'acme.com', name: 'Share Zed', password: 'password123' })).status, 201);
+  await login(zed, 'sharezed@acme.com');
+  const zid = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'sharezed@acme.com').id;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await zed('POST', '/api/files/upload?name=zed-share.png', png, { raw: true })).body;
+  const withPic = async (name, kind = 'doc') => {
+    const f = (await owner('POST', '/api/files/new', { kind, name })).body;
+    await owner('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: zid, role: 'editor' }] });
+    const cur = (await zed('GET', `/api/files/${f.id}/content`)).body;
+    const content = kind === 'doc' ? { type: 'doc', content: [{ type: 'image', attrs: { fileId: pic.id } }] } : { slides: [{ id: 's', items: [{ id: 'i', type: 'image', fileId: pic.id, x: 0, y: 0, w: 9, h: 9 }] }] };
+    assert.equal((await zed('PUT', `/api/files/${f.id}/content`, { version: cur.file.version, content })).status, 200);
+    return f;
+  };
+  const idIn = async (f) => { const c = (await owner('GET', `/api/files/${f.id}/content`)).body.content; return c.slides ? c.slides[0].items[0].fileId : c.content[0].attrs.fileId; };
+  // Taken off
+  const a = await withPic('Share off');
+  assert.equal((await owner('PUT', `/api/files/${a.id}/shares`, { shares: [] })).status, 200);
+  const na = await idIn(a);
+  assert.notEqual(na, pic.id);
+  assert.equal((await owner('GET', `/api/files/${na}`)).body.role, 'owner', 'the copy is the document owner\'s');
+  assert.equal((await owner('GET', `/api/files/${a.id}/pictures/${na}`)).status, 200);
+  // Made a viewer (a presentation)
+  const b = await withPic('Share viewer', 'slides');
+  await owner('PUT', `/api/files/${b.id}/shares`, { shares: [{ user_id: zid, role: 'viewer' }] });
+  const nb = await idIn(b);
+  assert.notEqual(nb, pic.id);
+  assert.equal((await zed('GET', `/api/files/${b.id}/pictures/${nb}`)).status, 200, 'Zed, a viewer now, still sees it');
+  // Still an editor: nothing changes
+  const c = await withPic('Share stays');
+  await owner('PUT', `/api/files/${c.id}/shares`, { shares: [{ user_id: zid, role: 'editor' }] });
+  assert.equal(await idIn(c), pic.id);
+  // Through a folder: taken off the folder
+  const folder = (await owner('POST', '/api/files/folder', { name: 'Share folder' })).body;
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'In the folder', parent_id: folder.id })).body;
+  await owner('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: zid, role: 'editor' }] });
+  let cur = (await zed('GET', `/api/files/${d.id}/content`)).body;
+  await zed('PUT', `/api/files/${d.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'image', attrs: { fileId: pic.id } }] } });
+  await owner('PUT', `/api/files/${folder.id}/shares`, { shares: [] });
+  const nd = await idIn(d);
+  assert.notEqual(nd, pic.id);
+  assert.equal((await owner('GET', `/api/files/${nd}`)).body.parent_id, folder.id, 'beside the document, in its owner\'s folder');
+  assert.equal((await owner('GET', `/api/files/${d.id}/pictures/${nd}`)).status, 200);
+});

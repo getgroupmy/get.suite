@@ -8,7 +8,8 @@ import path from 'node:path';
 import { q, FILES_DIR } from './db.js';
 import { uid } from './util.js';
 import { insertFile, uniqueName, picturesIn } from './routes/files.js';
-import { saveAll, resetRoom } from './collab.js';
+import { saveAll, saveNow, resetRoom } from './collab.js';
+import { roleFor, atLeast } from './access.js';
 
 const parse = (t) => { try { return JSON.parse(t || '{}'); } catch { return {}; } };
 const formUses = (f, id) => f.theme?.includes(id) || parse(f.questions).some?.((qu) => qu.image === id || Object.values(qu.option_images || {}).includes(id));
@@ -58,4 +59,57 @@ export function rehomeSharedMedia(userId) {
     }
   }
   return { given, copied };
+}
+
+const EDITABLE = ['doc', 'sheet', 'slides'];
+/** The documents, spreadsheets and presentations a sharing change on `fileId` reaches: it, or those inside it (2000 at most). */
+function reachedBy(fileId) {
+  return q(`WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id WHERE f.trashed = 0)
+            SELECT f.id, f.kind, f.owner_id, f.content FROM files f JOIN t ON t.id = f.id WHERE f.kind IN ('doc', 'sheet', 'slides') AND f.trashed = 0 LIMIT 2000`).all(fileId);
+}
+
+/**
+ * Before sharing on `fileId` changes: in each document it reaches, the pictures, videos and sounds that show because
+ * their owner (not its own) can edit it. Give the result to keepMediaShowing() after the change.
+ */
+export function mediaShowingIn(fileId) {
+  const out = [];
+  for (const d of reachedBy(fileId)) {
+    if (!EDITABLE.includes(d.kind)) continue;
+    saveNow(d.id);
+    const content = q('SELECT content FROM files WHERE id = ?').get(d.id).content;
+    const theirs = [...picturesIn(d.kind, parse(content))]
+      .map((id) => q("SELECT id, owner_id FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(id))
+      .filter((m) => m && m.owner_id !== d.owner_id && atLeast(roleFor(d.id, m.owner_id) || '', 'editor'));
+    if (theirs.length) out.push({ doc: d, media: theirs });
+  }
+  return out;
+}
+
+/**
+ * After the change: media whose owner can no longer edit the document (taken off it, or made a viewer) would stop
+ * showing there; each is copied for the document's owner (beside it when theirs, else in their Drive) and the document
+ * points at the copy. Returns how many were copied.
+ */
+export function keepMediaShowing(before) {
+  let n = 0;
+  for (const { doc, media } of before) {
+    const lost = media.filter((m) => !atLeast(roleFor(doc.id, m.owner_id) || '', 'editor'));
+    if (!lost.length) continue;
+    const parent = q('SELECT parent_id FROM files WHERE id = ?').get(doc.id)?.parent_id;
+    const parentId = parent && q('SELECT owner_id FROM files WHERE id = ?').get(parent)?.owner_id === doc.owner_id ? parent : null;
+    saveNow(doc.id);
+    let content = q('SELECT content FROM files WHERE id = ?').get(doc.id).content;
+    for (const m of lost) {
+      const f = q('SELECT * FROM files WHERE id = ?').get(m.id);
+      const storage = uid();
+      try { fs.copyFileSync(path.join(FILES_DIR, f.storage), path.join(FILES_DIR, storage)); } catch { continue; }
+      const copy = insertFile({ owner: doc.owner_id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: f.name } } });
+      content = content.split(m.id).join(copy);
+      n++;
+    }
+    q('UPDATE files SET content = ?, ydoc = NULL WHERE id = ?').run(content, doc.id);
+    resetRoom(doc.id); // anyone with it open loads it again
+  }
+  return n;
 }

@@ -91,6 +91,28 @@ await step('Kim makes a copy of a document with Olivia\'s picture in it: the pic
   await kim.locator('.ProseMirror').getByText('See the chart').waitFor();
   await until(() => kim.locator('.ProseMirror img[alt="Green chart"]').evaluate((i) => i.complete && i.naturalWidth === 48).catch(() => false), 10000);
 }, kim);
+await step('Olivia takes Kim off a document Kim added a picture to: it still shows there', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const plan = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Team plan' })).body;
+  await api(page, 'PUT', `/files/${plan.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  const pic = await kim.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 56; c.height = 28; const g = c.getContext('2d'); g.fillStyle = '#00897b'; g.fillRect(0, 0, 56, 28);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return (await fetch('/api/files/upload?name=teal.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: blob })).json();
+  });
+  const cur = (await api(kim, 'GET', `/files/${plan.id}/content`)).body;
+  await api(kim, 'PUT', `/files/${plan.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Our plan' }] }, { type: 'image', attrs: { fileId: pic.id, alt: 'Teal map' } }] } });
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Team plan' }).click();
+  await page.getByRole('menuitem', { name: 'Share' }).click();
+  const d = page.getByRole('dialog', { name: /Share “Team plan”/ });
+  await d.getByRole('button', { name: 'Remove Kim Park' }).click();
+  await d.getByRole('button', { name: 'Save' }).click();
+  await d.waitFor({ state: 'detached' });
+  await page.goto(`${B}/docs/${plan.id}`);
+  await page.locator('.ProseMirror').getByText('Our plan').waitFor();
+  await until(() => page.locator('.ProseMirror img[alt="Teal map"]').evaluate((i) => i.complete && i.naturalWidth === 56).catch(() => false), 10000);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
