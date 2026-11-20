@@ -93,6 +93,29 @@ await step('deleting the group', async () => {
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByText('No groups yet.').waitFor();
 });
+await step('Kim taken out of a group that edits a document she added a picture to: it still shows there', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const g = (await api(page, 'POST', '/groups', { name: 'Designers' })).body;
+  await api(page, 'PUT', `/groups/${g.id}/members`, { user_ids: [kimId] });
+  const book = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Brand book' })).body;
+  await api(page, 'PUT', `/files/${book.id}/groups`, { groups: [{ group_id: g.id, role: 'editor' }] });
+  const pic = await kim.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 44; c.height = 22; const x = c.getContext('2d'); x.fillStyle = '#c0ca33'; x.fillRect(0, 0, 44, 22);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return (await fetch('/api/files/upload?name=lime.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: blob })).json();
+  });
+  const cur = (await api(kim, 'GET', `/files/${book.id}/content`)).body;
+  await api(kim, 'PUT', `/files/${book.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Our colours' }] }, { type: 'image', attrs: { fileId: pic.id, alt: 'Lime swatch' } }] } });
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  const item = page.getByRole('listitem', { name: 'Group Designers' });
+  await item.getByRole('button', { name: 'Members' }).click();
+  await item.getByRole('list', { name: 'People in Designers' }).getByRole('checkbox', { name: /Kim Park/ }).uncheck();
+  await until(async () => (await api(page, 'GET', `/files/${book.id}/content`)).body.content.content[1].attrs.fileId !== pic.id);
+  await page.goto(`${B}/docs/${book.id}`);
+  await page.locator('.ProseMirror').getByText('Our colours').waitFor();
+  await until(() => page.locator('.ProseMirror img[alt="Lime swatch"]').evaluate((i) => i.complete && i.naturalWidth === 44).catch(() => false), 10000);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

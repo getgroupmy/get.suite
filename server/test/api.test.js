@@ -16502,3 +16502,33 @@ test('forms: an editor taken off a form — the pictures they put on it stay, as
   assert.equal((await owner('GET', `/api/forms/${form.id}/pictures/${a.image}`)).status, 200);
   assert.equal((await owner('GET', `/api/files/${a.image}`)).body.role, 'owner');
 });
+
+test('groups: someone taken out of a group that edits a document — their pictures in it stay, as the owner\'s copies', async () => {
+  const zed = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'groupzed', domain: 'acme.com', name: 'Group Zed', password: 'password123' })).status, 201);
+  await login(zed, 'groupzed@acme.com');
+  const zid = (await owner('GET', '/api/users/directory')).body.find((u) => u.username === 'groupzed@acme.com').id;
+  const g = (await owner('POST', '/api/groups', { name: 'Picture crew' })).body;
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [zid] });
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Group doc' })).body;
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/groups`, { groups: [{ group_id: g.id, role: 'editor' }] })).status, 200);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await zed('POST', '/api/files/upload?name=group-pic.png', png, { raw: true })).body;
+  const cur = (await zed('GET', `/api/files/${doc.id}/content`)).body;
+  assert.equal((await zed('PUT', `/api/files/${doc.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'image', attrs: { fileId: pic.id } }] } })).status, 200);
+  assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${pic.id}`)).status, 200);
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [] });
+  const now = (await owner('GET', `/api/files/${doc.id}/content`)).body.content.content[0].attrs.fileId;
+  assert.notEqual(now, pic.id);
+  assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${now}`)).status, 200, 'still shows');
+  // Back in the group, Zed adds another; then the document stops being shared with the group
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [zid] });
+  const pic2 = (await zed('POST', '/api/files/upload?name=group-pic2.png', png, { raw: true })).body;
+  const cur2 = (await zed('GET', `/api/files/${doc.id}/content`)).body;
+  await zed('PUT', `/api/files/${doc.id}/content`, { version: cur2.file.version, content: { type: 'doc', content: [...cur2.content.content, { type: 'image', attrs: { fileId: pic2.id } }] } });
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/groups`, { groups: [] })).status, 200);
+  const ids = (await owner('GET', `/api/files/${doc.id}/content`)).body.content.content.map((n) => n.attrs.fileId);
+  assert.equal(ids[0], now, 'the first as it was');
+  assert.notEqual(ids[1], pic2.id, 'the second copied too');
+  assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${ids[1]}`)).status, 200);
+});

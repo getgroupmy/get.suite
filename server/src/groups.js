@@ -14,6 +14,7 @@ import { scheduleMailConfig } from './mail/config.js';
 import { sendTo } from './hub.js';
 import { audit } from './audit.js';
 import { notify as bell } from './notifications.js';
+import { mediaShowingIn, keepMediaShowing } from './mediahome.js';
 
 q(`CREATE TABLE IF NOT EXISTS groups (
   id TEXT PRIMARY KEY,
@@ -59,8 +60,17 @@ export const MAX_GROUPS = 200;
 /** How a group is @mentioned in Chat: its name in lower case with dashes ("Marketing team" -> marketing-team). */
 export const groupSlug = (name) => String(name || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-/** Bring the effective shares of one file in line with its direct and group shares. Returns who gained access. */
+/**
+ * Bring the effective shares of one file in line with its direct and group shares. Returns who gained access.
+ * Someone who can no longer edit a document this reaches (out of a group, say) leaves their pictures in it showing.
+ */
 export function sync(fileId) {
+  const showing = mediaShowingIn(fileId);
+  const gained = syncRows(fileId);
+  keepMediaShowing(showing);
+  return gained;
+}
+function syncRows(fileId) {
   const f = q('SELECT owner_id FROM files WHERE id = ?').get(fileId);
   if (!f) return [];
   const want = new Map(); // user -> role from groups
