@@ -1932,6 +1932,20 @@ export default function fileRoutes({ maxUploadBytes }) {
     return copied;
   };
 
+  /**
+   * "Copy to a new …": a new file of `kind` for `user`, named `name`, holding `content` (from `fill(file)`, given the
+   * new file's row so its pictures can be copied for it), beside `src` when they can add files there.
+   */
+  const newFileBeside = (req, src, kind, name, fill) => {
+    const parentId = src.parent_id && atLeast(roleFor(src.parent_id, req.user.id) || '', 'editor') ? src.parent_id : null;
+    const id = insertFile({ owner: req.user.id, parentId, name: cleanName(name), kind, content: JSON.stringify(EMPTY[kind]), size: 0 });
+    const content = JSON.stringify(fill(q('SELECT * FROM files WHERE id = ?').get(id)));
+    q('UPDATE files SET content = ?, size = ? WHERE id = ?').run(content, Buffer.byteLength(content), id);
+    indexSoon();
+    notifyPlace(parentId, req.user);
+    return loadFile(id, req.user);
+  };
+
   // Copy one tab of a document to the end of another document (or the same one), for someone who can edit both;
   // open there, it arrives live. Its pictures are copied for it.
   r.post('/:id/doc-tabs/:tab/copy-to', (req, res) => {
@@ -1941,10 +1955,15 @@ export default function fileRoutes({ maxUploadBytes }) {
     const srcJson = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}');
     const tab = tabOf(srcJson, req.params.tab);
     if (!tab) throw notFound('No such tab');
+    const title = String(tab.attrs?.title || '') || `Tab ${(srcJson.content || []).filter((n) => n.type === 'docTab').indexOf(tab) + 1}`;
+    if (req.body?.new) { // a document of its own: what's in the tab
+      const n = newFileBeside(req, src, 'doc', `${src.name} – ${title}`, (nf) => ({ type: 'doc', content: tabContentCopy(tab, copiedMedia(src, picturesIn('doc', tab), req.user, nf)) }));
+      audit(req, 'doc.tab_copy_to', { target: n.name, details: { from: src.name, tab: title, new: true } });
+      return res.status(201).json({ id: n.id, name: n.name, tab: null, created: true });
+    }
     const t = loadFile(String(req.body?.target || ''), req.user, 'editor');
     if (t.kind !== 'doc' || q('SELECT trashed FROM files WHERE id = ?').get(t.id)?.trashed) throw bad('Choose a document to copy it to');
     notLocked(t);
-    const title = String(tab.attrs?.title || '') || `Tab ${(srcJson.content || []).filter((n) => n.type === 'docTab').indexOf(tab) + 1}`;
     const files = copiedMedia(src, picturesIn('doc', tab), req.user, t);
     const copy = { type: 'docTab', attrs: { title }, content: tabContentCopy(tab, files) };
     const newId = () => crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x').slice(0, 8);
@@ -1963,6 +1982,19 @@ export default function fileRoutes({ maxUploadBytes }) {
     saveNow(src.id);
     const slide = (JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}').slides || []).find((sl) => sl.id === req.params.slide);
     if (!slide) throw notFound('No such slide');
+    if (req.body?.new) { // a presentation of its own with this slide, looking the same (its theme and master)
+      const deck = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}');
+      const number = deck.slides.findIndex((sl) => sl.id === slide.id) + 1;
+      let copy;
+      const n = newFileBeside(req, src, 'slides', `${src.name} – slide ${number}`, (nf) => {
+        [copy] = copiedSlides(src, [slide], req.user, nf);
+        const logo = deck.master?.logo && copiedMedia(src, [deck.master.logo], req.user, nf).get(deck.master.logo);
+        const master = deck.master && { ...deck.master, ...(deck.master.logo && { logo: logo || undefined }) };
+        return { ...deck, ...(master && { master }), slides: [copy] };
+      });
+      audit(req, 'slide.copy_to', { target: n.name, details: { from: src.name, slide: 1, new: true } });
+      return res.status(201).json({ id: n.id, name: n.name, slide: 1, slide_id: copy.id, created: true });
+    }
     const t = loadFile(String(req.body?.target || ''), req.user, 'editor');
     if (t.kind !== 'slides' || q('SELECT trashed FROM files WHERE id = ?').get(t.id)?.trashed) throw bad('Choose a presentation to copy it to');
     notLocked(t);
@@ -2059,6 +2091,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     saveNow(f.id); // what's being typed right now goes in too
     const sheet = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}')?.sheets?.[Number(req.params.index)];
     if (!sheet || !/^\d+$/.test(req.params.index)) throw notFound('No such sheet');
+    if (req.body?.new) { // a spreadsheet of its own with this sheet (shown), named after it
+      const copy = sheetCopyFor(sheet, []);
+      const n = newFileBeside(req, f, 'sheet', `${f.name} – ${copy.name}`, () => ({ sheets: [copy] }));
+      audit(req, 'sheet.copy_to', { target: n.name, details: { from: f.name, sheet: copy.name, new: true } });
+      return res.status(201).json({ id: n.id, name: n.name, sheet: copy.name, created: true });
+    }
     const t = loadFile(String(req.body?.target || ''), req.user, 'editor');
     if (t.kind !== 'sheet' || q('SELECT trashed FROM files WHERE id = ?').get(t.id)?.trashed) throw bad('Choose a spreadsheet to copy it to');
     notLocked(t);

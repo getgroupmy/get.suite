@@ -16170,3 +16170,53 @@ test('Docs: copy a tab to another document you can edit, its pictures copied for
   await owner('PUT', `/api/files/${dst.id}/lock`, { locked: true });
   assert.equal((await owner('POST', `/api/files/${src.id}/doc-tabs/ta/copy-to`, { target: dst.id })).status, 423);
 });
+
+test('Copy to a new file: a tab, a sheet or a slide as a document, spreadsheet or presentation of its own, beside the original', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const folder = (await owner('POST', '/api/files/folder', { name: 'Split here' })).body;
+  const pic = (await owner('POST', `/api/files/upload?name=split.png&parent=${folder.id}`, png, { raw: true })).body;
+  const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+  // A tab
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Split handbook', parent_id: folder.id, content: { type: 'doc', content: [
+    { type: 'docTab', attrs: { id: 'ta', title: 'Welcome' }, content: [para('Hi')] },
+    { type: 'docTab', attrs: { id: 'tb', title: 'Leave' }, content: [para('Ask first'), { type: 'image', attrs: { fileId: pic.id } }] },
+  ] } })).body;
+  let r = await owner('POST', `/api/files/${doc.id}/doc-tabs/tb/copy-to`, { new: true });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Split handbook – Leave');
+  assert.equal(r.body.created, true);
+  const f = (await owner('GET', `/api/files/${r.body.id}`)).body;
+  assert.equal(f.parent_id, folder.id, 'beside the original');
+  assert.equal(f.kind, 'doc');
+  const body = (await owner('GET', `/api/files/${r.body.id}/content`)).body.content.content;
+  assert.deepEqual(body[0], para('Ask first'), 'the tab\'s text, no tabs');
+  assert.notEqual(body[1].attrs.fileId, pic.id);
+  assert.equal((await owner('GET', `/api/files/${r.body.id}/pictures/${body[1].attrs.fileId}`)).status, 200, 'its own copy of the picture shows');
+  // A sheet
+  const book = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Q3 split', content: { sheets: [{ name: 'Notes', cells: {} }, { name: 'Budget', hidden: true, cells: { A1: 'Rent', B1: '900' } }] } })).body;
+  r = await owner('POST', `/api/files/${book.id}/sheets/1/copy-to`, { new: true });
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.name, r.body.sheet], ['Q3 split – Budget', 'Budget']);
+  const sheets = (await owner('GET', `/api/files/${r.body.id}/content`)).body.content.sheets;
+  assert.deepEqual(sheets.map((x) => [x.name, x.hidden, x.cells]), [['Budget', undefined, { A1: 'Rent', B1: '900' }]], 'just it, shown');
+  // A slide, with the deck's look
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Split pitch', content: { theme: 'ocean', master: { logo: pic.id, corner: 'tr' }, slides: [
+    { id: 's1', items: [{ id: 'i1', type: 'text', text: 'Hello', x: 0, y: 0, w: 50, h: 10 }] },
+    { id: 's2', items: [{ id: 'i2', type: 'text', text: 'Numbers', x: 0, y: 0, w: 50, h: 10 }] },
+  ] } })).body;
+  r = await owner('POST', `/api/files/${deck.id}/slides/s2/copy-to`, { new: true });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.name, 'Split pitch – slide 2');
+  const d = (await owner('GET', `/api/files/${r.body.id}/content`)).body.content;
+  assert.equal(d.theme, 'ocean');
+  assert.equal(d.slides.length, 1);
+  assert.equal(d.slides[0].items[0].text, 'Numbers');
+  assert.notEqual(d.master.logo, pic.id, 'its own copy of the logo');
+  assert.equal((await owner('GET', `/api/files/${r.body.id}/pictures/${d.master.logo}`)).status, 200);
+  // Only someone who can edit the original
+  assert.equal((await owner('POST', '/api/users', { local: 'splitbo', domain: 'acme.com', name: 'Split Bo', password: 'password123' })).status, 201);
+  const bo = client(); await login(bo, 'splitbo@acme.com');
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  await owner('PUT', `/api/files/${book.id}/shares`, { shares: [{ user_id: dir.find((u) => u.username === 'splitbo@acme.com').id, role: 'viewer' }] });
+  assert.equal((await bo('POST', `/api/files/${book.id}/sheets/0/copy-to`, { new: true })).status, 403);
+});

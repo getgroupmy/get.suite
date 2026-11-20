@@ -55,6 +55,12 @@ export function DocTabs({ editor, canEdit, onClose, fileId, onCopied }) {
                 canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', tab: t }) },
                 canEdit && { label: 'Duplicate', onClick: () => duplicateTab(editor, t.id) },
                 canEdit && fileId && { label: 'Copy to another document…', onClick: () => setDialog({ type: 'copy-to', tab: t }) },
+                canEdit && fileId && { label: 'Copy to a new document', onClick: async () => {
+                  try {
+                    const r = await post(`/files/${fileId}/doc-tabs/${encodeURIComponent(t.id)}/copy-to`, { new: true });
+                    toast(`Copied to a new document, “${r.name}”`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/docs/${r.id}`; } } });
+                  } catch (e) { toast(e.message || 'Couldn’t copy the tab', 'error'); }
+                } },
                 canEdit && i > 0 && { label: 'Move up', onClick: () => moveTab(editor, t.id, -1) },
                 canEdit && i < list.length - 1 && { label: 'Move down', onClick: () => moveTab(editor, t.id, 1) },
                 canEdit && list.length > 1 && '-',

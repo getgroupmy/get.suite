@@ -576,6 +576,12 @@ export default function SlidesEditor() {
                 <Menu trigger={(p) => <button type="button" className="icon-btn thumb-menu" aria-label={`Options for slide ${i + 1}`} {...p}><Icon name="more" size={16} /></button>} items={[
                   { label: 'Duplicate', onClick: slideAction((d) => duplicateSlide(d, i)) },
                   { label: 'Copy to another presentation…', onClick: () => setDialog({ type: 'copy-slide-to', slide: deck.slides[i].id, number: i + 1 }) },
+                  { label: 'Copy to a new presentation', onClick: async () => {
+                    try {
+                      const r = await post(`/files/${id}/slides/${encodeURIComponent(deck.slides[i].id)}/copy-to`, { new: true });
+                      toast(`Copied to a new presentation, “${r.name}”`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/slides/${r.id}`; } } });
+                    } catch (e) { toast(e.message || 'Couldn’t copy the slide', 'error'); }
+                  } },
                   i > 0 && { label: 'Move up', onClick: () => { change((d) => moveSlide(d, i, i - 1)); goTo(i - 1); } },
                   i < deck.slides.length - 1 && { label: 'Move down', onClick: () => { change((d) => moveSlide(d, i, i + 1)); goTo(i + 1); } },
                   '-',

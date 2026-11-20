@@ -140,6 +140,17 @@ await step('Copy to another spreadsheet…: Budget into “Annual”, which Kim 
   await until(async () => same(await tabs(page), ['Summary', 'Budget']));
   if (!viewOnly.id) throw new Error('setup');
 });
+await step('Copy to a new spreadsheet: Budget as a spreadsheet of its own', async () => {
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  await until(async () => (await tabs(page)).includes('Budget'));
+  await menu('Budget', 'Copy to a new spreadsheet');
+  const t = page.locator('.toast', { hasText: 'Copied to a new spreadsheet' });
+  await t.waitFor();
+  await t.getByRole('link', { name: 'Open it' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await until(async () => same(await tabs(page), ['Budget']));
+  await page.locator('[data-k="B1"]').getByText('900').waitFor();
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

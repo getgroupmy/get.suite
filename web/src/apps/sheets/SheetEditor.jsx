@@ -1469,6 +1469,12 @@ export default function SheetEditor() {
                 { label: 'Tab colour…', onClick: () => setDialog({ type: 'tab-colour', index: i }) },
                 data.sheets.filter((x) => !x.hidden).length > 1 && { label: 'Hide sheet', onClick: () => { writeSheet(() => ({ hidden: true })); const next = data.sheets.findIndex((x, j) => j !== i && !x.hidden); setActive(next); setSel({ c: 0, r: 0 }); setAnchor(null); } },
                 { label: 'Copy to another spreadsheet…', onClick: () => setDialog({ type: 'copy-to', index: i }) },
+                { label: 'Copy to a new spreadsheet', onClick: async () => {
+                  try {
+                    const r = await post(`/files/${file.id}/sheets/${i}/copy-to`, { new: true });
+                    toast(<>Copied to a new spreadsheet, “{r.name}”. <a href={`/sheets/${r.id}`}>Open it</a></>);
+                  } catch (e) { toast(e.message || 'Couldn’t copy the sheet'); }
+                } },
                 { label: 'Duplicate', icon: 'copy', onClick: () => { const cur = dataRef.current; reorderSheets([...cur.sheets.slice(0, i + 1), copySheet(cur.sheets[i], cur.sheets.map((x) => x.name), newSheetId), ...cur.sheets.slice(i + 1)], { copy: i }, i + 1); } },
                 i > 0 && { label: 'Move left', icon: 'left', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i - 1), { move: [i, i - 1] }, i - 1) },
                 i < data.sheets.length - 1 && { label: 'Move right', icon: 'right', onClick: () => reorderSheets(moveSheet(dataRef.current.sheets, i, i + 1), { move: [i, i + 1] }, i + 1) },

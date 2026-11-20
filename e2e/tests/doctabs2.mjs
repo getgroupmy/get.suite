@@ -123,6 +123,18 @@ await step('Copy to another document…: Budget into “Archive” (no tabs yet)
   await ed().getByText('Rent and staff come to four thousand.').waitFor({ state: 'visible' });
   await kim.close();
 });
+await step('Copy to a new document: the Plan tab as a document of its own', async () => {
+  await page.goto(`${B}/docs/${id}`);
+  await ed().getByText('Open two shops this spring.').waitFor({ state: 'visible' });
+  await panel().getByRole('button', { name: 'Options for tab Plan' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a new document' }).click();
+  const t = page.locator('.toast', { hasText: 'Copied to a new document, “Spring – Plan”' });
+  await t.waitFor();
+  await t.getByRole('button', { name: 'Open it' }).click();
+  await page.waitForURL((u) => !u.pathname.endsWith(id));
+  await ed().getByText('Open two shops this spring.').waitFor({ state: 'visible' });
+  if (await ed().getByText('Rent and staff come to four thousand.').count()) throw new Error('another tab came too');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

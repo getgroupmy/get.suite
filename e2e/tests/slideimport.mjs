@@ -104,6 +104,18 @@ await step('Copy to another presentation…: slide 2 (with its picture) into “
   await page.waitForURL(new RegExp(`/slides/${board.id}`));
   await page.getByRole('button', { name: 'Slide 2', exact: true }).waitFor();
 });
+await step('Copy to a new presentation: slide 3 as a presentation of its own', async () => {
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByRole('button', { name: 'Slide 3', exact: true }).click();
+  await page.getByRole('button', { name: 'Options for slide 3' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a new presentation' }).click();
+  const t = page.locator('.toast', { hasText: 'Copied to a new presentation, “Review – slide 3”' });
+  await t.waitFor();
+  await t.getByRole('button', { name: 'Open it' }).click();
+  await page.waitForURL((u) => !u.pathname.endsWith(deck.id));
+  await page.locator('.slide-stage').getByText('Kim thanks').waitFor();
+  if (await page.getByRole('button', { name: 'Slide 2', exact: true }).count()) throw new Error('more than the one slide');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
