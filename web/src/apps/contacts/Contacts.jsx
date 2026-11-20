@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { unreachable, changeAdd, appendKept, offlineId, keepChange, keepDelete } from '../offlinedocs.js';
 import { contactKey } from './contactkeys.js';
 import { stepTask } from '../tasks/taskkeys.js';
+import { localToday } from '../tasks/taskmath.js';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
@@ -508,7 +509,7 @@ function ContactLog({ contact, onChanged }) {
       <form className="row wrap" style={{ gap: 6 }} onSubmit={add}>
         <input aria-label="What happened" placeholder="Talked about the renewal…" value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} style={{ flex: '1 1 100%' }} />
         <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}>{LOG_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        <input type="date" aria-label="When (today if empty)" value={when} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setWhen(e.target.value)} />
+        <input type="date" aria-label="When (today if empty)" value={when} max={localToday()} onChange={(e) => setWhen(e.target.value)} />
         <button className="btn small" disabled={!text.trim()}>Add</button>
       </form>
       {entries && !entries.length && <p className="muted small">Nothing logged yet. Calls and meetings you log count for Keep in touch.</p>}

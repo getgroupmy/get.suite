@@ -16,6 +16,7 @@ import { Attendance, KeptChat, useMeetPast } from '../../components/MeetHistory.
 import { savedDevices, saveDevices, deviceAsks, deviceLists, canPickSpeaker, meterPercent, mutedTalkWatch } from './devices.js';
 import { meetKey } from './meetkeys.js';
 import { noPhotos } from '../../components/photos.js';
+import { localToday } from '../tasks/taskmath.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
 
@@ -495,7 +496,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     recorder.current = null;
     mesh.current?.setState({ rec: false });
     setSaving(true);
-    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+    const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+    const stamp = `${localToday(d)} ${p2(d.getHours())}.${p2(d.getMinutes())}`; // the time where you are
     try { const f = await r.stop(`${info?.title || code} ${stamp}`); toast(`Saved “${f.name}” to Meet recordings in your Drive`); }
     catch (e) { toast(`The recording couldn’t be saved: ${e.message}`, 'error'); }
     finally { setSaving(false); }

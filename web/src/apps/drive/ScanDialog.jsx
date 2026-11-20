@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import { Modal, useToast } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { jpegsToPdf } from './scanpdf.js';
+import { localToday } from '../tasks/taskmath.js';
 
 const LONGEST = 1800; // pixels on the long side
 
@@ -40,7 +41,7 @@ export default function ScanDialog({ onClose, onDone }) {
   const [pages, setPages] = useState([]);
   const [bw, setBw] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [name, setName] = useState(`Scan ${new Date().toISOString().slice(0, 10)}`);
+  const [name, setName] = useState(`Scan ${localToday()}`);
   const redo = async (files, blackWhite) => {
     setBusy(true);
     try { setPages(await Promise.all(files.map((f) => toPage(f, blackWhite)))); } catch { toast('That picture couldn’t be read', 'error'); }

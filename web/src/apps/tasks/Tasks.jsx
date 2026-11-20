@@ -962,12 +962,12 @@ function TaskTime({ task }) {
             <Menu trigger={(p) => <button type="button" className="btn small" title="Time a set while on this task; it stops by itself and tells you" {...p}>◎ Focus</button>}
               items={[15, 25, 50, 90].map((m) => ({ label: `${m} minutes`, onClick: () => act(() => post(`/tasks/tasks/${task.id}/timer`, { minutes: m }), `Focus for ${m} minutes: the timer stops by itself`) }))} />
           </>}
-        {!adding && <button type="button" className="link-btn small" onClick={() => setAdding({ duration: '', day: new Date().toISOString().slice(0, 10), note: '' })}>Add time</button>}
+        {!adding && <button type="button" className="link-btn small" onClick={() => setAdding({ duration: '', day: localToday(), note: '' })}>Add time</button>}
       </div>
       {adding && (
         <form className="row wrap task-time-add" style={{ gap: 6 }} onSubmit={(e) => { e.preventDefault(); act(() => post(`/tasks/tasks/${task.id}/time`, adding)).then((ok) => ok && setAdding(null)); }}>
           <input aria-label="How long" placeholder="1h 30m" value={adding.duration} size={8} autoFocus onChange={(e) => setAdding({ ...adding, duration: e.target.value })} />
-          <input aria-label="Day" type="date" value={adding.day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setAdding({ ...adding, day: e.target.value })} />
+          <input aria-label="Day" type="date" value={adding.day} max={localToday()} onChange={(e) => setAdding({ ...adding, day: e.target.value })} />
           <input aria-label="What for (optional)" placeholder="What for (optional)" value={adding.note} maxLength={300} onChange={(e) => setAdding({ ...adding, note: e.target.value })} />
           <button className="btn small primary">Add</button><button type="button" className="btn small" onClick={() => setAdding(null)}>Cancel</button>
         </form>
@@ -1128,7 +1128,7 @@ function Workload({ list = null, onClose, onPick }) {
 
 function TimeReport({ list, onClose, onRate }) {
   const navigate = useNavigate();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday(); // (where you are: in Kuala Lumpur at 7am it's already today, still yesterday in UTC)
   const [range, setRange] = useState({ from: `${today.slice(0, 8)}01`, to: today });
   const [rep, setRep] = useState(null);
   const [error, setError] = useState('');
