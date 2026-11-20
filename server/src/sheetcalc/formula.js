@@ -463,6 +463,56 @@ function securityTerm(settlement, maturity, basis) {
   if (s >= m || b < 0 || b > 4) err('#NUM!');
   return { years: yearFrac(s * DAY_MS, m * DAY_MS, b), days: m - s };
 }
+/**
+ * A bond paying coupons `frequency` times a year (1, 2 or 4) up to maturity: the coupon dates around settlement
+ * (stepping back from maturity, last days of months kept as such), how many are left, and the days of the period
+ * by the day count (as Excel works them out).
+ */
+function coupons(settlement, maturity, frequency, basis) {
+  const s = Math.floor(dateMs(settlement) / DAY_MS) * DAY_MS, m = Math.floor(dateMs(maturity) / DAY_MS) * DAY_MS;
+  const f = Math.trunc(toNum(frequency)), b = given(basis) && basis !== '' ? Math.trunc(toNum(basis)) : 0;
+  if (s >= m || ![1, 2, 4].includes(f) || b < 0 || b > 4) err('#NUM!');
+  const md = new Date(m), y = md.getUTCFullYear(), mo = md.getUTCMonth(), d = md.getUTCDate();
+  const lastDay = (yy, mm) => new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate();
+  const eom = d === lastDay(y, mo);
+  const back = (k) => { const t = mo - (k * 12) / f, yy = y + Math.floor(t / 12), mm = ((t % 12) + 12) % 12; return Date.UTC(yy, mm, eom ? lastDay(yy, mm) : Math.min(d, lastDay(yy, mm))); };
+  let k = 1;
+  while (back(k) > s) k++;
+  const pcd = back(k), ncd = back(k - 1), days30 = (a, z) => Math.round(yearFrac(a, z, b) * 360);
+  const periodDays = b === 1 ? Math.round((ncd - pcd) / DAY_MS) : b === 3 ? 365 / f : 360 / f;
+  const sinceLast = b === 0 || b === 4 ? days30(pcd, s) : Math.round((s - pcd) / DAY_MS);
+  const toNext = b === 0 || b === 4 ? periodDays - sinceLast : Math.round((ncd - s) / DAY_MS);
+  return { f, b, pcd, ncd, count: k, periodDays, sinceLast, toNext };
+}
+/** A bond's price per 100 from its yield (Excel's PRICE). */
+function bondPrice(c, rate, yld, redemption) {
+  const coupon = (100 * rate) / c.f, frac = c.toNext / c.periodDays, accrued = coupon * (c.sinceLast / c.periodDays);
+  if (c.count === 1) return (redemption + coupon) / (1 + frac * (yld / c.f)) - accrued;
+  let p = redemption / (1 + yld / c.f) ** (c.count - 1 + frac);
+  for (let k = 1; k <= c.count; k++) p += coupon / (1 + yld / c.f) ** (k - 1 + frac);
+  return p - accrued;
+}
+/** Macaulay duration in years. */
+function bondDuration(c, rate, yld) {
+  const coupon = (100 * rate) / c.f, frac = c.toNext / c.periodDays;
+  let pv = 0, weighted = 0;
+  for (let k = 1; k <= c.count; k++) {
+    const t = k - 1 + frac, cash = coupon + (k === c.count ? 100 : 0), v = cash / (1 + yld / c.f) ** t;
+    pv += v; weighted += t * v;
+  }
+  return weighted / pv / c.f;
+}
+/** Days from a to z by the day count, and the days of its year (for PRICEMAT and YIELDMAT). */
+const dayCount = (a, z, b) => (b === 0 || b === 4 ? Math.round(yearFrac(a, z, b) * 360) : Math.round((z - a) / DAY_MS));
+const yearDays = (b, y) => (b === 3 ? 365 : b === 1 ? (isLeapYear(y) ? 366 : 365) : 360);
+const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+function maturityTerms(settlement, maturity, issue, basis) {
+  const s = Math.floor(dateMs(settlement) / DAY_MS) * DAY_MS, m = Math.floor(dateMs(maturity) / DAY_MS) * DAY_MS, i = Math.floor(dateMs(issue) / DAY_MS) * DAY_MS;
+  const b = given(basis) && basis !== '' ? Math.trunc(toNum(basis)) : 0;
+  if (s >= m || i > s || b < 0 || b > 4) err('#NUM!');
+  const B = yearDays(b, new Date(s).getUTCFullYear());
+  return { dim: dayCount(i, m, b) / B, a: dayCount(i, s, b) / B, dsm: dayCount(s, m, b) / B };
+}
 const positiveNum = (v) => { const x = toNum(v); if (x <= 0) err('#NUM!'); return x; };
 /** Treasury bills: days to maturity (a year at most). */
 const tbillDays = (settlement, maturity) => { const { days } = securityTerm(settlement, maturity, 0); if (days > 366) err('#NUM!'); return days; };
@@ -1487,6 +1537,49 @@ Object.assign(FUNCS, {
     const u = given(unit) ? Math.trunc(toNum(unit)) : 1, x = toNum(t);
     if (u < 1 || u > 3 || x < 0) err('#NUM!');
     return serialDate((Date.UTC(1970, 0, 1) - EXCEL_EPOCH) / DAY_MS + x / [1, 1e3, 1e6][u - 1] / 86400);
+  },
+  // bonds paying coupons: the coupon dates and days around settlement, price, yield and duration
+  COUPPCD: ([s, m, f, basis]) => dateText(coupons(s, m, f, basis).pcd),
+  COUPNCD: ([s, m, f, basis]) => dateText(coupons(s, m, f, basis).ncd),
+  COUPNUM: ([s, m, f, basis]) => coupons(s, m, f, basis).count,
+  COUPDAYS: ([s, m, f, basis]) => coupons(s, m, f, basis).periodDays,
+  COUPDAYBS: ([s, m, f, basis]) => coupons(s, m, f, basis).sinceLast,
+  COUPDAYSNC: ([s, m, f, basis]) => coupons(s, m, f, basis).toNext,
+  PRICE: ([s, m, rate, yld, redemption, f, basis]) => {
+    const r = toNum(rate), y = toNum(yld), red = positiveNum(redemption);
+    if (r < 0 || y < 0) err('#NUM!');
+    return bondPrice(coupons(s, m, f, basis), r, y, red);
+  },
+  YIELD: ([s, m, rate, pr, redemption, f, basis]) => {
+    const r = toNum(rate), p = positiveNum(pr), red = positiveNum(redemption), c = coupons(s, m, f, basis);
+    if (r < 0) err('#NUM!');
+    let lo = 0, hi = 1;
+    while (bondPrice(c, r, hi, red) > p) { hi *= 2; if (hi > 1e6) err('#NUM!'); }
+    if (bondPrice(c, r, lo, red) < p) err('#NUM!'); // (a price above every yield's: a negative yield)
+    for (let i = 0; i < 200 && hi - lo > 1e-15; i++) { const mid = (lo + hi) / 2; if (bondPrice(c, r, mid, red) > p) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  },
+  DURATION: ([s, m, coupon, yld, f, basis]) => {
+    const r = toNum(coupon), y = toNum(yld);
+    if (r < 0 || y < 0) err('#NUM!');
+    return bondDuration(coupons(s, m, f, basis), r, y);
+  },
+  MDURATION: ([s, m, coupon, yld, f, basis]) => {
+    const r = toNum(coupon), y = toNum(yld);
+    if (r < 0 || y < 0) err('#NUM!');
+    const c = coupons(s, m, f, basis);
+    return bondDuration(c, r, y) / (1 + y / c.f);
+  },
+  // securities paying their interest at maturity
+  PRICEMAT: ([s, m, issue, rate, yld, basis]) => {
+    const r = toNum(rate), y = toNum(yld), t = maturityTerms(s, m, issue, basis);
+    if (r < 0 || y < 0) err('#NUM!');
+    return (100 + t.dim * r * 100) / (1 + t.dsm * y) - t.a * r * 100;
+  },
+  YIELDMAT: ([s, m, issue, rate, pr, basis]) => {
+    const r = toNum(rate), p = positiveNum(pr), t = maturityTerms(s, m, issue, basis);
+    if (r < 0) err('#NUM!');
+    return ((1 + t.dim * r) / (p / 100 + t.a * r) - 1) / t.dsm;
   },
   // discounted securities and Treasury bills
   DISC: ([s, m, pr, redemption, basis]) => { const p = positiveNum(pr), r = positiveNum(redemption); return (r - p) / r / securityTerm(s, m, basis).years; },

@@ -399,3 +399,23 @@ test('discounted securities and Treasury bills: DISC, INTRATE, RECEIVED, PRICEDI
   assert.deepEqual(one('=DISC(DATE(2008,2,1), DATE(2008,3,1), 97, 100, 5)'), { error: '#NUM!' }, 'no such day count');
   assert.deepEqual(one('=DISC(DATE(2008,2,1), DATE(2008,3,1), 0, 100)'), { error: '#NUM!' });
 });
+test('bonds: COUPPCD, COUPNCD, COUPNUM, COUPDAYS, COUPDAYBS, COUPDAYSNC, PRICE, YIELD, DURATION, MDURATION, PRICEMAT, YIELDMAT (Excel\'s examples)', () => {
+  const A = 'DATE(2011,1,25), DATE(2011,11,15), 2, 1';
+  assert.equal(one(`=COUPDAYBS(${A})`), 71);
+  assert.equal(one(`=COUPDAYS(${A})`), 181);
+  assert.equal(one(`=COUPDAYSNC(${A})`), 110);
+  assert.equal(one(`=COUPNCD(${A})`), '2011-05-15');
+  assert.equal(one(`=COUPNUM(${A})`), 2);
+  assert.equal(one(`=COUPPCD(${A})`), '2010-11-15');
+  assert.equal(one('=COUPDAYBS(DATE(2011,1,25), DATE(2011,11,15), 2)'), 70, '30/360');
+  assert.equal(one('=COUPPCD(DATE(2011,3,15), DATE(2012,2,29), 4)'), '2011-02-28', 'maturing on the last of a month: coupons on the last of theirs');
+  assert.deepEqual(one('=COUPNUM(DATE(2011,1,25), DATE(2011,11,15), 3)'), { error: '#NUM!' }, 'frequency 1, 2 or 4');
+  assert.deepEqual(one('=COUPNUM(DATE(2012,1,25), DATE(2011,11,15), 2)'), { error: '#NUM!' }, 'settlement after maturity');
+  near(one('=PRICE(DATE(2008,2,15), DATE(2017,11,15), 0.0575, 0.065, 100, 2, 0)'), 94.63436162);
+  near(one('=YIELD(DATE(2008,2,15), DATE(2016,11,15), 0.0575, 95.04287, 100, 2, 0)'), 0.065, 1e-6);
+  near(one('=YIELD(DATE(2008,2,15), DATE(2017,11,15), 0.0575, PRICE(DATE(2008,2,15), DATE(2017,11,15), 0.0575, 0.065, 100, 2, 0), 100, 2, 0)'), 0.065, 1e-9);
+  near(one('=DURATION(DATE(2018,7,1), DATE(2048,1,1), 0.08, 0.09, 2, 1)'), 10.9191453);
+  near(one('=MDURATION(DATE(2008,1,1), DATE(2016,1,1), 0.08, 0.09, 2, 1)'), 5.73567, 1e-6);
+  near(one('=PRICEMAT(DATE(2008,2,15), DATE(2008,4,13), DATE(2007,11,11), 0.061, 0.061, 0)'), 99.98449888);
+  near(one('=YIELDMAT(DATE(2008,3,15), DATE(2008,11,3), DATE(2007,11,8), 0.0625, 100.0123, 0)'), 0.060954334);
+});
