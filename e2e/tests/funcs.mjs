@@ -124,6 +124,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('A33', '=LET(tax, LAMBDA(x, rate, x * IF(ISOMITTED(rate), 1.2, 1 + rate)), tax(100) & "/" & tax(100, 0.1))');
   await typeIn('A34', '=ROWS(TRIMRANGE(H1:I30))&"/"&ROWS(A1:B20)');
   await expectCells({ A33: '120/110', A34: '2/20' });
+  // A14 holds #NUM!: COUNT, MATCH and VLOOKUP over ranges with it still work, as in Excel
+  await typeIn('A35', '=COUNT(A8:A14)&"/"&MATCH("fig", A1:A20, 0)&"/"&VLOOKUP("fig", A1:B20, 2, FALSE)');
+  await expectCells({ A35: '4/3/80' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

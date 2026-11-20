@@ -174,6 +174,10 @@ export const numText = (n) => {
 const toStr = (v) => (v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : isErr(v) ? raise(v) : typeof v === 'number' ? numText(v) : String(v));
 const toBool = (v) => (typeof v === 'string' ? v.toUpperCase() === 'TRUE' || (v !== '' && v.toUpperCase() !== 'FALSE' && toNum(v) !== 0) : !!toNum(v));
 const flat = (args) => { const out = args.flat(Infinity); for (const v of out) if (isErr(v)) raise(v); return out; };
+/** All the values, errors among them left as they are (for COUNT, COUNTIF, MATCH… which look past them, as in Excel). */
+const cellsOf = (args) => args.flat(Infinity);
+/** Of the values picked, the first error, raised (SUMIF and the like: an error only counts where the row is picked). */
+const picked = (vals) => { for (const v of vals) if (isErr(v)) raise(v); return vals; };
 const nums = (args) => flat(args).filter((v) => typeof v === 'number');
 
 /** Text with * (anything) and ? (one character) as a whole-text, any-case pattern; ~ escapes them. */
@@ -222,7 +226,7 @@ function findIn(list, x, type) {
   let found = -1;
   for (let i = 0; i < list.length; i++) {
     const v = list[i];
-    if (v === null || v === '') continue;
+    if (v === null || v === '' || isErr(v)) continue;
     if (same(v, x)) return i;
     if (type > 0 ? before(v, x) : before(x, v)) found = i; else break;
   }
@@ -234,10 +238,10 @@ const scalarOf = (v) => (Array.isArray(v) ? (v.length === 1 ? v[0] : err("#VALUE
 function multi(pairs, other) {
   if (!pairs.length || pairs.length % 2) err('#VALUE!');
   const tests = [];
-  for (let i = 0; i < pairs.length; i += 2) tests.push([flat([pairs[i]]), criteria(pairs[i + 1])]);
+  for (let i = 0; i < pairs.length; i += 2) tests.push([cellsOf([pairs[i]]), criteria(pairs[i + 1])]);
   const n = tests[0][0].length;
-  if (tests.some(([r]) => r.length !== n) || (other && flat([other]).length !== n)) err('#VALUE!'); // all the same size
-  return (i) => tests.every(([r, t]) => t(r[i]));
+  if (tests.some(([r]) => r.length !== n) || (other && cellsOf([other]).length !== n)) err('#VALUE!'); // all the same size
+  return (i) => tests.every(([r, t]) => !isErr(r[i]) && t(r[i])); // (a cell with an error matches nothing)
 }
 const DAY_MS = 864e5;
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
@@ -408,6 +412,8 @@ function order(a, b) {
   if (ra === 1) return a.toLowerCase().localeCompare(b.toLowerCase());
   return Number(a) - Number(b);
 }
+/** Functions answering FALSE (ISNONTEXT: TRUE) for an error rather than giving it: =ISNUMBER(A1:A9) over a range with one. */
+const TAKES_ERRORS = new Set(['ISNUMBER', 'ISTEXT', 'ISBLANK', 'ISLOGICAL', 'ISNONTEXT', 'ISDATE', 'ISEMAIL', 'ISURL']);
 /** Functions that give back several cells, which spill into the cells beside and below. */
 const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'GROUPBY', 'PIVOTBY', 'TRIMRANGE', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN', 'ARRAYFORMULA', 'MMULT', 'SORTN', 'TREND', 'GROWTH', 'LINEST', 'LOGEST']);
 
@@ -854,12 +860,12 @@ const FUNCS = {
     const m = n.length >> 1;
     return n.length % 2 ? n[m] : (n[m - 1] + n[m]) / 2;
   },
-  COUNT: (a) => nums(a).length,
-  COUNTA: (a) => flat(a).filter((v) => v !== null && v !== '').length,
-  COUNTIF: ([range, c]) => flat([range]).filter(criteria(c)).length,
+  COUNT: (a) => cellsOf(a).filter((v) => typeof v === 'number').length,
+  COUNTA: (a) => cellsOf(a).filter((v) => v !== null && v !== '').length,
+  COUNTIF: ([range, c]) => { const test = criteria(c); return cellsOf([range]).filter((v) => !isErr(v) && test(v)).length; },
   SUMIF: ([range, c, sumRange]) => {
-    const r = flat([range]); const s = sumRange ? flat([sumRange]) : r; const test = criteria(c);
-    return r.reduce((acc, v, i) => (test(v) && typeof s[i] === 'number' ? acc + s[i] : acc), 0);
+    const r = cellsOf([range]); const s = sumRange ? cellsOf([sumRange]) : r; const test = criteria(c);
+    return picked(r.map((v, i) => (!isErr(v) && test(v) ? s[i] : null))).reduce((acc, v) => (typeof v === 'number' ? acc + v : acc), 0);
   },
   ROUND: ([v, d]) => { const f = 10 ** toNum(d ?? 0); return Math.round(toNum(v) * f) / f; },
   ABS: ([v]) => Math.abs(toNum(v)),
@@ -996,7 +1002,7 @@ const FUNCS = {
   // (or row, when it's wider than tall) is searched and its last column (or row) given back.
   LOOKUP: ([x, range, results]) => {
     const v = scalarOf(x);
-    let keys = flat([range]), out = results === undefined ? null : flat([results]);
+    let keys = cellsOf([range]), out = results === undefined ? null : cellsOf([results]);
     if (!out && Array.isArray(range) && range.rows > 1 && range.cols > 1) {
       const { rows, cols } = range;
       if (cols > rows) { keys = range.slice(0, cols); out = range.slice((rows - 1) * cols); }
@@ -1007,7 +1013,7 @@ const FUNCS = {
     const from = out || keys;
     return i < from.length ? from[i] : err('#N/A');
   },
-  MATCH: ([x, range, type]) => { const t = type === undefined ? 1 : Math.sign(toNum(type)); const i = findIn(flat([range]), scalarOf(x), t); return i < 0 ? notFound() : i + 1; },
+  MATCH: ([x, range, type]) => { const t = type === undefined ? 1 : Math.sign(toNum(type)); const i = findIn(cellsOf([range]), scalarOf(x), t); return i < 0 ? notFound() : i + 1; },
   INDEX: ([range, row, col]) => {
     const s = shapeOf(range);
     let r = toNum(row ?? 1), c = col === undefined ? 1 : toNum(col);
@@ -1032,13 +1038,13 @@ const FUNCS = {
     return i < 0 ? notFound() : s.at(r - 1, i);
   },
   // conditions over ranges
-  COUNTIFS: (a) => { const ok = multi(a); return flat([a[0]]).filter((_, i) => ok(i)).length; },
-  SUMIFS: ([sum, ...a]) => { const ok = multi(a, sum); const s = flat([sum]); return s.reduce((acc, v, i) => (ok(i) && typeof v === 'number' ? acc + v : acc), 0); },
-  AVERAGEIF: ([range, c, avg]) => { const r = flat([range]); const s = avg ? flat([avg]) : r; const t = criteria(c); const n = s.filter((v, i) => t(r[i]) && typeof v === 'number'); if (!n.length) err('#DIV/0!'); return n.reduce((x, y) => x + y, 0) / n.length; },
-  AVERAGEIFS: ([avg, ...a]) => { const ok = multi(a, avg); const n = flat([avg]).filter((v, i) => ok(i) && typeof v === 'number'); if (!n.length) err('#DIV/0!'); return n.reduce((x, y) => x + y, 0) / n.length; },
-  MAXIFS: ([range, ...a]) => { const ok = multi(a, range); const n = flat([range]).filter((v, i) => ok(i) && typeof v === 'number'); return n.length ? Math.max(...n) : 0; },
-  MINIFS: ([range, ...a]) => { const ok = multi(a, range); const n = flat([range]).filter((v, i) => ok(i) && typeof v === 'number'); return n.length ? Math.min(...n) : 0; },
-  COUNTBLANK: (a) => flat(a).filter((v) => v === null || v === '').length,
+  COUNTIFS: (a) => { const ok = multi(a); return cellsOf([a[0]]).filter((_, i) => ok(i)).length; },
+  SUMIFS: ([sum, ...a]) => { const ok = multi(a, sum); return picked(cellsOf([sum]).filter((_, i) => ok(i))).reduce((acc, v) => (typeof v === 'number' ? acc + v : acc), 0); },
+  AVERAGEIF: ([range, c, avg]) => { const r = cellsOf([range]); const s = avg ? cellsOf([avg]) : r; const t = criteria(c); const n = picked(s.filter((v, i) => !isErr(r[i]) && t(r[i]))).filter((v) => typeof v === 'number'); if (!n.length) err('#DIV/0!'); return n.reduce((x, y) => x + y, 0) / n.length; },
+  AVERAGEIFS: ([avg, ...a]) => { const ok = multi(a, avg); const n = picked(cellsOf([avg]).filter((_, i) => ok(i))).filter((v) => typeof v === 'number'); if (!n.length) err('#DIV/0!'); return n.reduce((x, y) => x + y, 0) / n.length; },
+  MAXIFS: ([range, ...a]) => { const ok = multi(a, range); const n = picked(cellsOf([range]).filter((_, i) => ok(i))).filter((v) => typeof v === 'number'); return n.length ? Math.max(...n) : 0; },
+  MINIFS: ([range, ...a]) => { const ok = multi(a, range); const n = picked(cellsOf([range]).filter((_, i) => ok(i))).filter((v) => typeof v === 'number'); return n.length ? Math.min(...n) : 0; },
+  COUNTBLANK: (a) => cellsOf(a).filter((v) => v === null || v === '').length,
   PRODUCT: (a) => nums(a).reduce((s, n) => s * n, 1),
   LARGE: ([range, k]) => { const n = nums([range]).sort((x, y) => y - x); const i = toNum(k) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
   SMALL: ([range, k]) => { const n = nums([range]).sort((x, y) => x - y); const i = toNum(k) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
@@ -1979,7 +1985,7 @@ const LIFT = Object.fromEntries([
   ...('LEN UPPER LOWER PROPER TRIM CLEAN LEFT RIGHT MID FIND SEARCH SUBSTITUTE REPT EXACT VALUE TEXT CHAR CODE FIXED REGEXMATCH REGEXREPLACE UNICODE UNICHAR DOLLAR ISBETWEEN '
     + 'ABS SIGN SQRT POWER MOD INT ROUND ROUNDUP ROUNDDOWN MROUND CEILING FLOOR EVEN ODD EXP LN LOG LOG10 TRUNC ISODD ISEVEN QUOTIENT FACT '
     + 'YEAR MONTH DAY WEEKDAY WEEKNUM ISOWEEKNUM HOUR MINUTE SECOND DATE TIME DAYS EDATE EOMONTH DATEDIF DATEVALUE TIMEVALUE TO_DATE YEARFRAC '
-    + 'ISBLANK ISNUMBER ISTEXT ISURL ISEMAIL NOT ENCODEURL ROMAN ARABIC DEC2BIN DEC2HEX DEC2OCT BIN2DEC HEX2DEC OCT2DEC BASE DECIMAL '
+    + 'ISBLANK ISNUMBER ISTEXT ISURL ISEMAIL ISNONTEXT ISLOGICAL ISDATE ISNA ISERR NOT ENCODEURL ROMAN ARABIC DEC2BIN DEC2HEX DEC2OCT BIN2DEC HEX2DEC OCT2DEC BASE DECIMAL '
     + 'NORM.DIST NORM.S.DIST NORM.INV NORM.S.INV STANDARDIZE BINOM.DIST POISSON.DIST EXPON.DIST T.DIST T.INV IF IFERROR IFNA ISERROR IFS SWITCH').split(' ').map((n) => [n, null]),
   ['VLOOKUP', [0]], ['HLOOKUP', [0]], ['MATCH', [0]], ['XMATCH', [0]], ['COUNTIF', [1]], ['SUMIF', [1]], ['AVERAGEIF', [1]],
 ].filter(([n]) => FUNCS[n] || LAZY[n]));
@@ -2324,7 +2330,11 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
     if (!a || !b) err('#REF!');
     const out = [];
     for (let r = Math.min(a.r, b.r); r <= Math.max(a.r, b.r); r++) {
-      for (let c = Math.min(a.c, b.c); c <= Math.max(a.c, b.c); c++) out.push(valueOf(cellKey(c, r)));
+      for (let c = Math.min(a.c, b.c); c <= Math.max(a.c, b.c); c++) {
+        // A cell with an error is an error value in the range, as in Excel: SUM and the like still give it (they
+        // raise errors among their values), while lookups, COUNT, COUNTIF, IFERROR… look past it.
+        try { out.push(valueOf(cellKey(c, r))); } catch (e) { if (e instanceof FormulaError && e.code !== '#CIRC!') out.push(errorValue(e)); else throw e; }
+      }
     }
     out.rows = Math.abs(a.r - b.r) + 1; // its shape, for INDEX, VLOOKUP and the like
     out.cols = Math.abs(a.c - b.c) + 1;
@@ -2400,7 +2410,7 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
     const which = LIFT[n.name], lazy = LAZY[n.name];
     const vals = n.args.map((a) => { if (a.k === 'empty') return undefined; try { return evaluate(a); } catch (e) { if (e instanceof FormulaError) return errorValue(e); throw e; } });
     const shapes = vals.map((v, i) => (lifts(which, i) && Array.isArray(v) ? shapeOf(v) : null));
-    const unwrap = (v) => (isErr(v) ? raise(v) : v);
+    const unwrap = (v) => (isErr(v) && !TAKES_ERRORS.has(n.name) ? raise(v) : v);
     const call = (args) => (lazy ? lazy(args.map((v) => () => scalar(unwrap(v)))) : FUNCS[n.name](args.map(unwrap)));
     if (!shapes.some(Boolean)) return call(vals);
     const rows = Math.max(...shapes.map((s) => s?.rows ?? 1)), cols = Math.max(...shapes.map((s) => s?.cols ?? 1));
