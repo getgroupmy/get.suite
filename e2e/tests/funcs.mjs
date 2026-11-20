@@ -117,6 +117,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // GROUPBY: the fruit's amounts summed per item, with a total
   await typeIn('K1', '=GROUPBY(A2:A4, B2:B4, SUM)');
   await expectCells({ K1: 'banana', L1: '0', K2: 'fig', L2: '80', K3: 'pear', L3: '120', K4: 'Total', L4: '200' });
+  // PIVOTBY: items down, amounts over 50 or not across
+  await typeIn('K7', '=PIVOTBY(A2:A4, B2:B4>50, B2:B4, SUM, 0, 0, 1, 0)');
+  await expectCells({ L7: 'FALSE', M7: 'TRUE', K8: 'banana', L8: '0', K9: 'fig', M9: '80', K10: 'pear', M10: '120' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

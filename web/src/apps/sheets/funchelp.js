@@ -51,6 +51,7 @@ export const HELP = {
   LET: ['name1, value1, [name2, value2, …], result', 'Names values to use in the result (each can use the names before it)'],
   LAMBDA: ['[name1, …], formula', 'A formula of its own, for MAP, BYROW, BYCOL, REDUCE, SCAN and MAKEARRAY'],
   GROUPBY: ['row_fields, values, function, [field_headers], [total_depth], [sort_order], [filter_array]', 'The values summed up (or SUM, AVERAGE, COUNT, MAX… or a LAMBDA) for each different row field, with a total'],
+  PIVOTBY: ['row_fields, col_fields, values, function, [field_headers], [row_total_depth], [row_sort_order], [col_total_depth], [col_sort_order], [filter_array]', 'A pivot table: a row for each row field, a column for each column field, the values summed up (SUM, AVERAGE, COUNT… or a LAMBDA) where they meet, with totals'],
   MAP: ['range1, [range2, …], LAMBDA', 'Works out the LAMBDA for each cell (of each range, side by side)'],
   BYROW: ['range, LAMBDA', 'Works out the LAMBDA for each row, one answer per row'],
   BYCOL: ['range, LAMBDA', 'Works out the LAMBDA for each column, one answer per column'],

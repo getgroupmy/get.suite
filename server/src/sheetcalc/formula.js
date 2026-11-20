@@ -403,7 +403,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'GROUPBY', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN', 'ARRAYFORMULA', 'MMULT', 'SORTN', 'TREND', 'GROWTH', 'LINEST', 'LOGEST']);
+const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'GROUPBY', 'PIVOTBY', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN', 'ARRAYFORMULA', 'MMULT', 'SORTN', 'TREND', 'GROWTH', 'LINEST', 'LOGEST']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -1970,6 +1970,49 @@ const liftsArray = (n) => n.name in LIFT && n.args.some((a, i) => lifts(LIFT[n.n
  * column; REDUCE(start, range, LAMBDA(total, v, …)) and SCAN (every step); MAKEARRAY(rows, cols, LAMBDA(r, c, …)).
  */
 const LAMBDA_USERS = {
+  // PIVOTBY(row_fields, col_fields, values, function, [field_headers], [row_total_depth], [row_sort_order],
+  // [col_total_depth], [col_sort_order], [filter_array]): a pivot table — one row per row field, one column per column
+  // field, each cell the values of both summed up by the function, with totals.
+  PIVOTBY: (args, { evaluate, lambdaArg }) => {
+    if (args.length < 4 || args.length > 10) err('#N/A');
+    const opt = (i) => (args[i] && args[i].k !== 'empty' ? scalarOf(evaluate(args[i])) : null);
+    let rk = rowsOf(evaluate(args[0])), ck = rowsOf(evaluate(args[1])), vals = rowsOf(evaluate(args[2]));
+    const f = lambdaArg(args[3], 1);
+    if (rk.length !== vals.length || ck.length !== vals.length || !vals.length) err('#VALUE!');
+    if (rk[0].length !== 1 || ck[0].length !== 1 || vals[0].length !== 1) err('#VALUE!'); // one field and one column of values each
+    const hasHeaders = typeof vals[0][0] === 'string' && vals.length > 1 && typeof vals[1][0] === 'number';
+    const headerMode = opt(4) === null ? (hasHeaders ? 3 : 0) : Math.trunc(toNum(opt(4)));
+    if (![0, 1, 3].includes(headerMode)) err('#VALUE!');
+    const depth = (i) => { const d = opt(i) === null ? 1 : Math.trunc(toNum(opt(i))); if (![0, 1, -1].includes(d)) err('#VALUE!'); return d; };
+    const dir = (i) => { const d = opt(i) === null ? 1 : Math.sign(toNum(opt(i))); if (!d) err('#VALUE!'); return d; };
+    const rowTotal = depth(5), rowDir = dir(6), colTotal = depth(7), colDir = dir(8);
+    let corner = null;
+    if (headerMode) { corner = rk[0][0]; rk = rk.slice(1); ck = ck.slice(1); vals = vals.slice(1); }
+    if (args[9] && args[9].k !== 'empty') {
+      const keep = rowsOf(evaluate(args[9])).map((r) => toBool(r[0] ?? false));
+      if (keep.length !== vals.length) err('#VALUE!');
+      [rk, ck, vals] = [rk, ck, vals].map((a) => a.filter((_, i) => keep[i]));
+    }
+    if (!vals.length) err('#CALC!');
+    const idOf = (v) => (typeof v === 'string' ? `s${v.toLowerCase()}` : `v${v ?? ''}`);
+    const distinct = (keys, sign) => { // each once, as first written
+      const seen = new Map();
+      for (const [k] of keys) if (!seen.has(idOf(k))) seen.set(idOf(k), k);
+      return [...seen.values()].sort((a, b) => sign * order(a, b));
+    };
+    const rows = distinct(rk, rowDir), cols = distinct(ck, colDir);
+    const cell = (pick) => { const xs = vals.filter((_, i) => pick(i)).map((v) => [v[0]]); return xs.length ? scalarOf(f(grid(xs))) : null; };
+    const colIds = cols.map(idOf), header = [corner, ...cols];
+    if (colTotal) colTotal > 0 ? header.push('Total') : header.splice(1, 0, 'Total');
+    const line = (label, inRow) => {
+      const parts = colIds.map((id) => cell((i) => inRow(i) && idOf(ck[i][0]) === id));
+      const all = cell(inRow);
+      return [label, ...(colTotal > 0 ? [...parts, all] : colTotal < 0 ? [all, ...parts] : parts)];
+    };
+    let body = rows.map((r) => line(r, (i) => idOf(rk[i][0]) === idOf(r)));
+    if (rowTotal) { const t = line('Total', () => true); body = rowTotal > 0 ? [...body, t] : [t, ...body]; }
+    return grid([header, ...body]);
+  },
   // GROUPBY(row_fields, values, function, [field_headers], [total_depth], [sort_order], [filter_array]): the values
   // summed up (or averaged, counted…: a LAMBDA or a function's name such as SUM) for each different row field.
   GROUPBY: (args, { evaluate, lambdaArg }) => {

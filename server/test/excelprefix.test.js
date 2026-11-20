@@ -40,4 +40,5 @@ test('a function given by its name (GROUPBY(…, SUM)) is _xleta.SUM in the file
   assert.equal(formulaToExcel('BYROW(A1:C3,STDEV.S)'), '_xlfn.BYROW(A1:C3,_xleta.STDEV.S)');
   assert.equal(formulaToExcel('SUM(A1:A3)+MAX(1,2)&"(SUM)"'), 'SUM(A1:A3)+MAX(1,2)&"(SUM)"', 'called functions and text stay as they are');
   assert.equal(formulaFromExcel('_xlfn.GROUPBY(A2:A9,C2:C9,_xleta.SUM)'), 'GROUPBY(A2:A9,C2:C9,SUM)');
+  assert.equal(formulaToExcel('PIVOTBY(A2:A9,B2:B9,C2:C9,AVERAGE)'), '_xlfn.PIVOTBY(A2:A9,B2:B9,C2:C9,_xleta.AVERAGE)');
 });

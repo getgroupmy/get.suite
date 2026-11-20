@@ -457,3 +457,19 @@ test('GROUPBY: summed per group with headers, totals, sorting and a filter; a fu
   const b = ev({ ...cells, F1: '=BYROW(A2:C3, COUNTA)' });
   assert.deepEqual([b('F1'), b('F2')], [3, 3], 'a function by its name works in BYROW too');
 });
+test('PIVOTBY: a row per row field, a column per column field, totals both ways', () => {
+  const cells = { A1: 'Region', B1: 'Rep', C1: 'Sales', A2: 'North', B2: 'Ann', C2: '100', A3: 'South', B3: 'Bo', C3: '50', A4: 'north', B4: 'Bo', C4: '30', A5: 'East', B5: 'Ann', C5: '70', A6: 'South', B6: 'Ann', C6: '20' };
+  const table = (f, cols) => {
+    const v = ev({ ...cells, F1: f }), out = [];
+    for (let r = 1; r < 10; r++) { const row = cols.map((c) => v(`${c}${r}`)); if (row.every((x) => x === null || x === undefined)) break; out.push(row); }
+    return out;
+  };
+  assert.deepEqual(table('=PIVOTBY(A1:A6, B1:B6, C1:C6, SUM)', ['F', 'G', 'H', 'I']), [
+    ['Region', 'Ann', 'Bo', 'Total'], ['East', 70, null, 70], ['North', 100, 30, 130], ['South', 20, 50, 70], ['Total', 190, 80, 270]]);
+  assert.deepEqual(table('=PIVOTBY(A2:A6, B2:B6, C2:C6, COUNT, 0, -1, -1, 0)', ['F', 'G', 'H']), [
+    [null, 'Ann', 'Bo'], ['Total', 3, 2], ['South', 1, 1], ['North', 1, 1], ['East', 1, null]], 'totals on top, rows largest first, no column totals');
+  assert.deepEqual(table('=PIVOTBY(A2:A6, B2:B6, C2:C6, AVERAGE, 0, 0, 1, -1, -1, C2:C6>25)', ['F', 'G', 'H', 'I']), [
+    [null, 'Total', 'Bo', 'Ann'], ['East', 70, null, 70], ['North', 65, 30, 100], ['South', 50, 50, null]], 'column totals first, columns Z to A, only sales over 25');
+  assert.deepEqual(one('=PIVOTBY(A1:B6, B1:B6, C1:C6, SUM)', cells), { error: '#VALUE!' }, 'one row field');
+  assert.deepEqual(one('=PIVOTBY(A2:A6, B2:B5, C2:C6, SUM)', cells), { error: '#VALUE!' });
+});
