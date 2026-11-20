@@ -179,6 +179,10 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // depreciation part-way through a period declines smoothly; no rate for a negative number of periods
   await typeIn('P23', '=ROUND(DDB(10000, 1000, 5, 2.5), 2)&"|"&IFERROR(RATE(-5, 1000, 250000), "none")');
   await expectCells({ P23: '1859.03|none' });
+  // "" is text, not 0 or blank; AND passes over text in a cell
+  await typeIn('P24', '=ISTEXT("")&"|"&IFERROR(5+"", "err")&"|"&AND(3, P18)&"|"&ISBLANK(P25)');
+  await typeIn('P25', '=""');
+  await expectCells({ P24: 'TRUE|err|TRUE|FALSE' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

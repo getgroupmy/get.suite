@@ -158,7 +158,8 @@ export function parse(src) {
 const isErr = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && typeof v.error === 'string';
 const raise = (v) => { throw new FormulaError(v.error, v.why); };
 const toNum = (v) => {
-  if (v === null || v === '' || v === undefined) return 0;
+  if (v === null || v === undefined) return 0; // (an empty cell)
+  if (v === '') err('#VALUE!'); // empty text, as a formula's "" gives: not a number, as in Excel (=5+"" is #VALUE!)
   if (isErr(v)) raise(v);
   if (typeof v === 'number') return v;
   if (typeof v === 'boolean') return v ? 1 : 0;
@@ -192,13 +193,26 @@ export const numText = (n) => {
   return String(Object.is(r, -0) ? 0 : r).replace(/e([+-])(\d+)$/, (m, sign, d) => `E${sign}${d.padStart(2, '0')}`);
 };
 const toStr = (v) => (v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : isErr(v) ? raise(v) : typeof v === 'number' ? numText(v) : String(v));
-const toBool = (v) => (typeof v === 'string' ? v.toUpperCase() === 'TRUE' || (v !== '' && v.toUpperCase() !== 'FALSE' && toNum(v) !== 0) : !!toNum(v));
+// (empty text is neither: =IF("", …) and =NOT("") are #VALUE!, as in Excel)
+const toBool = (v) => (typeof v === 'string' ? v.toUpperCase() === 'TRUE' || (v.toUpperCase() !== 'FALSE' && toNum(v) !== 0) : !!toNum(v));
 const flat = (args) => { const out = args.flat(Infinity); for (const v of out) if (isErr(v)) raise(v); return out; };
 /** All the values, errors among them left as they are (for COUNT, COUNTIF, MATCH… which look past them, as in Excel). */
 const cellsOf = (args) => args.flat(Infinity);
 /** Of the values picked, the first error, raised (SUMIF and the like: an error only counts where the row is picked). */
 const picked = (vals) => { for (const v of vals) if (isErr(v)) raise(v); return vals; };
 const nums = (args) => flat(args).filter((v) => typeof v === 'number');
+/** AND, OR and XOR's values: numbers and TRUE/FALSE (written as text too); other text and empty cells passed over, as
+ * Excel does with text in cells (=AND(3, A2) with text in A2 is TRUE); nothing left: #VALUE!. */
+function logicals(args) {
+  const out = [];
+  for (const v of flat(args)) {
+    if (typeof v === 'boolean') out.push(v);
+    else if (typeof v === 'number') out.push(v !== 0);
+    else if (typeof v === 'string' && /^(true|false)$/i.test(v)) out.push(v.toUpperCase() === 'TRUE');
+  }
+  if (!out.length) err('#VALUE!');
+  return out;
+}
 /** A count of characters (LEFT, RIGHT, MID): the whole number, refused when negative. */
 const count = (n) => { const k = Math.trunc(toNum(n)); if (k < 0) err('#VALUE!'); return k; };
 /** FIND and SEARCH's start: the whole number, from 1 to one past the end. */
@@ -963,8 +977,8 @@ const FUNCS = {
   TRIM: ([v]) => toStr(v).replace(/^ +| +$/g, '').replace(/ {2,}/g, ' '), // spaces only, as Excel (tabs and line breaks stay)
   LEFT: ([v, n]) => toStr(v).slice(0, count(n ?? 1)), // (a count of 1.9 is 1, as in Excel; -1 is #VALUE!)
   RIGHT: ([v, n]) => { const s = toStr(v), k = count(n ?? 1); return k ? s.slice(-k) : ''; },
-  AND: (a) => flat(a).every(toBool),
-  OR: (a) => flat(a).some(toBool),
+  AND: (a) => logicals(a).every((x) => x),
+  OR: (a) => logicals(a).some((x) => x),
   NOT: ([v]) => !toBool(v),
   // Text by pattern (regular expressions, as in other spreadsheets).
   // Excel's REGEXTEST(text, pattern, [case_sensitivity]): 0 (the default) minds case, 1 doesn't.
@@ -1181,9 +1195,9 @@ const FUNCS = {
     return (toBool(loIn ?? true) ? x >= a : x > a) && (toBool(hiIn ?? true) ? x <= b : x < b);
   },
   TEXTJOIN: ([sep, skipEmpty, ...a]) => flat(a).map(toStr).filter((x) => !toBool(skipEmpty) || x !== '').join(toStr(sep)),
-  ISBLANK: ([v]) => v === null || v === undefined || v === '',
+  ISBLANK: ([v]) => v === null || v === undefined, // (a formula's "" isn't blank, as in Excel)
   ISNUMBER: ([v]) => typeof v === 'number',
-  ISTEXT: ([v]) => typeof v === 'string' && v !== '',
+  ISTEXT: ([v]) => typeof v === 'string', // ("" from a formula is text; an empty cell is null)
   NA: () => err('#N/A'),
   // Trigonometry (radians), as in Excel.
   SIN: ([v]) => Math.sin(toNum(v)), COS: ([v]) => Math.cos(toNum(v)), TAN: ([v]) => Math.tan(toNum(v)),
@@ -1203,12 +1217,12 @@ const FUNCS = {
   SQRTPI: ([v]) => { const x = toNum(v); if (x < 0) err('#NUM!'); return Math.sqrt(x * Math.PI); },
   // Values and their kinds.
   TRUE: () => true, FALSE: () => false,
-  XOR: (a) => flat(a).filter((v) => v !== null && v !== '' && toBool(v)).length % 2 === 1,
+  XOR: (a) => logicals(a).filter((x) => x).length % 2 === 1,
   N: ([v]) => (typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : 0),
   T: ([v]) => (typeof v === 'string' ? v : ''),
-  TYPE: ([v]) => (Array.isArray(v) ? 64 : typeof v === 'boolean' ? 4 : typeof v === 'string' && v !== '' ? 2 : 1), // (an empty cell is 1, as in Excel)
+  TYPE: ([v]) => (Array.isArray(v) ? 64 : typeof v === 'boolean' ? 4 : typeof v === 'string' ? 2 : 1), // (an empty cell is 1, "" is text: 2, as in Excel)
   ISLOGICAL: ([v]) => typeof v === 'boolean',
-  ISNONTEXT: ([v]) => !(typeof v === 'string' && v !== ''),
+  ISNONTEXT: ([v]) => typeof v !== 'string',
   // Text.
   REPLACE: ([v, start, count, text]) => { const s = toStr(v), a = Math.trunc(toNum(start)), n = Math.trunc(toNum(count)); if (a < 1 || n < 0) err('#VALUE!'); return s.slice(0, a - 1) + toStr(text) + s.slice(a - 1 + n); },
   // Statistics.
@@ -2680,6 +2694,10 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           const top = Array.isArray(v) ? (Array.isArray(v[0]) ? v[0][0] : v[0]) : v;
           if (what === 'contents') return top ?? '';
           return top === null || top === undefined || top === '' ? 'b' : typeof top === 'string' ? 'l' : 'v';
+        }
+        if (n.name === 'AND' || n.name === 'OR' || n.name === 'XOR') {
+          // text typed into the call ("", "3") is #VALUE!, as in Excel; text in cells is passed over (see logicals)
+          return FUNCS[n.name](n.args.map((a) => { const v = evaluate(a); if (DIRECT_KINDS.has(a.k) && typeof v === 'string' && !/^(true|false)$/i.test(v)) err('#VALUE!'); return v; }));
         }
         if (DIRECT_VALUES.has(n.name)) {
           // A value typed into the call itself ("5", TRUE, A1>0) counts, as in Excel: =SUM(B1:B3, "5") adds 5 and
