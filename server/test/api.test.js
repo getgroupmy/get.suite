@@ -16232,3 +16232,19 @@ test('Copy to a new file: a tab, a sheet or a slide as a document, spreadsheet o
   await owner('PUT', `/api/files/${book.id}/shares`, { shares: [{ user_id: dir.find((u) => u.username === 'splitbo@acme.com').id, role: 'viewer' }] });
   assert.equal((await bo('POST', `/api/files/${book.id}/sheets/0/copy-to`, { new: true })).status, 403);
 });
+
+test('Docs: a copied tab\'s links to other places in the original go to the original; to its own headings, there', async () => {
+  const link = (text, href) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] });
+  const h = (text) => ({ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text }] });
+  const src = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Linked handbook', content: { type: 'doc', content: [
+    { type: 'docTab', attrs: { id: 'ta', title: 'Plan' }, content: [h('Aims'), { type: 'paragraph', content: [link('top', '#aims'), link('money', '#spend')] }] },
+    { type: 'docTab', attrs: { id: 'tb', title: 'Money' }, content: [h('Spend')] },
+  ] } })).body;
+  const dst = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Linked target', content: { type: 'doc', content: [h('Aims')] } })).body;
+  assert.equal((await owner('POST', `/api/files/${src.id}/doc-tabs/ta/copy-to`, { target: dst.id })).status, 201);
+  const tab = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.content.at(-1);
+  assert.deepEqual(tab.content[1].content.map((x) => x.marks[0].attrs.href), ['#aims-2', `/docs/${src.id}#spend`]);
+  const n = (await owner('POST', `/api/files/${src.id}/doc-tabs/ta/copy-to`, { new: true })).body;
+  const body = (await owner('GET', `/api/files/${n.id}/content`)).body.content.content;
+  assert.deepEqual(body[1].content.map((x) => x.marks[0].attrs.href), ['#aims', `/docs/${src.id}#spend`], 'a new document of its own too');
+});

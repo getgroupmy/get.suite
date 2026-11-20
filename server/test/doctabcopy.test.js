@@ -48,3 +48,21 @@ test('setting a live document\'s JSON keeps the blocks at its start that are the
   setYDocJson(doc, { type: 'doc', content: [] });
   assert.deepEqual(jsonFromDoc(doc).content, []);
 });
+
+test('links in a copied tab: to its own headings (by their anchor there), its bookmarks kept, the rest to the original', async () => {
+  const { fixPlaceLinks } = await import('../src/doctabcopy.js');
+  const link = (text, href) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] });
+  const h = (text) => ({ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text }] });
+  const tabA = { type: 'docTab', attrs: { id: 'a', title: 'Plan' }, content: [
+    h('Goals'),
+    { type: 'paragraph', content: [{ type: 'bookmark', attrs: { id: 'b1' } }, link('up', '#goals'), link('costs', '#costs'), link('mark', '#bm-b1'), link('far', '#bm-zz'), link('web', 'https://example.com/#x')] },
+  ] };
+  const src = { type: 'doc', content: [tabA, { type: 'docTab', attrs: { id: 'b', title: 'Money' }, content: [h('Costs')] }] };
+  let n = 0;
+  const added = withTabAdded({ type: 'doc', content: [h('Goals')] }, { type: 'docTab', attrs: { title: 'Plan' }, content: tabContentCopy(tabA) }, () => `n${++n}`);
+  const copied = added.json.content.at(-1);
+  fixPlaceLinks(added.json, copied, src, tabA, '/docs/SRC');
+  const hrefs = copied.content[1].content.filter((x) => x.marks).map((x) => x.marks[0].attrs.href);
+  assert.deepEqual(hrefs, ['#goals-2', '/docs/SRC#costs', '#bm-b1', '/docs/SRC#bm-zz', 'https://example.com/#x']);
+  assert.equal(tabA.content[1].content[1].marks[0].attrs.href, '#goals', 'the original untouched');
+});

@@ -31,7 +31,7 @@ import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { sheetCopyFor } from '../sheetcopy.js';
 import { recheckSoon, resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, changeDocument, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
-import { tabOf, tabContentCopy, withTabAdded } from '../doctabcopy.js';
+import { tabOf, tabContentCopy, withTabAdded, fixPlaceLinks } from '../doctabcopy.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
 import { deckFromOutline } from '../decktext.js';
@@ -1957,7 +1957,10 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!tab) throw notFound('No such tab');
     const title = String(tab.attrs?.title || '') || `Tab ${(srcJson.content || []).filter((n) => n.type === 'docTab').indexOf(tab) + 1}`;
     if (req.body?.new) { // a document of its own: what's in the tab
-      const n = newFileBeside(req, src, 'doc', `${src.name} – ${title}`, (nf) => ({ type: 'doc', content: tabContentCopy(tab, copiedMedia(src, picturesIn('doc', tab), req.user, nf)) }));
+      const n = newFileBeside(req, src, 'doc', `${src.name} – ${title}`, (nf) => {
+        const doc = { type: 'doc', content: tabContentCopy(tab, copiedMedia(src, picturesIn('doc', tab), req.user, nf)) };
+        return fixPlaceLinks(doc, doc, srcJson, tab, `/docs/${src.id}`);
+      });
       audit(req, 'doc.tab_copy_to', { target: n.name, details: { from: src.name, tab: title, new: true } });
       return res.status(201).json({ id: n.id, name: n.name, tab: null, created: true });
     }
@@ -1968,7 +1971,11 @@ export default function fileRoutes({ maxUploadBytes }) {
     const copy = { type: 'docTab', attrs: { title }, content: tabContentCopy(tab, files) };
     const newId = () => crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x').slice(0, 8);
     let added = null;
-    changeDocument(t.id, (json) => { added = withTabAdded(json, copy, newId); return added?.json || null; }, req.user.id);
+    changeDocument(t.id, (json) => {
+      added = withTabAdded(json, copy, newId);
+      if (added) fixPlaceLinks(added.json, added.json.content.at(-1), srcJson, tab, `/docs/${src.id}`);
+      return added?.json || null;
+    }, req.user.id);
     if (!added) throw bad('That document has as many tabs as it can hold');
     audit(req, 'doc.tab_copy_to', { target: t.name, details: { from: src.name, tab: title } });
     res.status(201).json({ id: t.id, name: t.name, tab: added.title, tab_id: added.json.content.at(-1).attrs.id });

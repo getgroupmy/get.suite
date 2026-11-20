@@ -135,6 +135,27 @@ await step('Copy to a new document: the Plan tab as a document of its own', asyn
   await ed().getByText('Open two shops this spring.').waitFor({ state: 'visible' });
   if (await ed().getByText('Rent and staff come to four thousand.').count()) throw new Error('another tab came too');
 });
+await step('a copied tab\'s links: to its own heading there, to another tab\'s heading in the original', async () => {
+  const link = (text, href) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] });
+  const linked = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Linked', content: { type: 'doc', content: [
+    { type: 'docTab', attrs: { id: 'ta', title: 'Intro' }, content: [h(1, 'Aims'), { type: 'paragraph', content: [link('back to aims', '#aims'), { type: 'text', text: ' and ' }, link('see the money', '#spend')] }] },
+    { type: 'docTab', attrs: { id: 'tb', title: 'Money' }, content: [h(1, 'Spend'), p('Four thousand.')] },
+  ] } })).body;
+  await page.goto(`${B}/docs/${linked.id}`);
+  await ed().getByText('back to aims').waitFor({ state: 'visible' });
+  await panel().getByRole('button', { name: 'Options for tab Intro' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a new document' }).click();
+  const t = page.locator('.toast', { hasText: 'Copied to a new document, “Linked – Intro”' });
+  await t.waitFor();
+  await t.getByRole('button', { name: 'Open it' }).click();
+  await page.waitForURL((u) => !u.pathname.endsWith(linked.id));
+  await ed().getByText('back to aims').waitFor({ state: 'visible' });
+  const hrefs = await ed().locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+  if (JSON.stringify(hrefs) !== JSON.stringify(['#aims', `/docs/${linked.id}#spend`])) throw new Error(JSON.stringify(hrefs));
+  // Following it opens the original on that heading's tab
+  await page.goto(`${B}${hrefs[1]}`);
+  await ed().getByText('Four thousand.').waitFor({ state: 'visible' });
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
