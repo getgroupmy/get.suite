@@ -80,6 +80,19 @@ await step('an uploaded file’s link (/drive?preview=…) shows as a card too a
   await card.click();
   await kim.getByRole('dialog').getByText('scan.txt').first().waitFor();
 });
+await step('a link to cells on a sheet: the card says which, and opens the spreadsheet there', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((p) => p.username === 'kim@acme.com').id;
+  const book = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Year plan', content: { sheets: [{ name: 'Intro', cells: { A1: 'Hi' } }, { name: 'Costs', cells: { B2: '450' } }] } })).body;
+  await api(page, 'PUT', `/files/${book.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: `Check ${B}/sheets/${book.id}#sheet=Costs&range=B2 please` });
+  await kim.goto(`${B}/chat/${ch}`);
+  const card = kim.locator('.msg', { hasText: 'Check' }).getByRole('link', { name: 'Spreadsheet: Year plan (Sheet “Costs”, B2)' });
+  await card.getByText('Sheet “Costs”, B2').waitFor();
+  await card.click();
+  await kim.waitForURL(/\/sheets\/.*#sheet=Costs&range=B2/);
+  await kim.locator('[data-k="B2"]').getByText('450').waitFor();
+  await until(async () => (await kim.getByLabel('Name box').inputValue()) === 'B2');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

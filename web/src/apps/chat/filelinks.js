@@ -1,15 +1,28 @@
 // Links to Workspace files in a message ("/docs/abc", "https://this-server/sheets/xyz", a folder's
-// "/drive/folder/…"), for showing them as cards: [{ id, kind }], each file once, at most three.
-const RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/(?:(docs|sheets|slides|drive\/folder)\/([\w-]{6,})|drive\/?\?(?:[^\s#]*&)?preview=([\w-]{6,}))/g; // and an uploaded file's "/drive?preview=…" 
+// "/drive/folder/…"), for showing them as cards: [{ id, kind, hash, place }], each file once, at most three. A link to a
+// place in it (#slide=…, #sheet=…&range=…, #tab=…, a heading) keeps its hash, with words for it (place).
+const RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/(?:(docs|sheets|slides|drive\/folder)\/([\w-]{6,})(#[^\s<>"')]+)?|drive\/?\?(?:[^\s#]*&)?preview=([\w-]{6,}))/g; // and an uploaded file's "/drive?preview=…" 
 const KIND = { docs: 'doc', sheets: 'sheet', slides: 'slides', 'drive/folder': 'folder' };
+
+/** Words for a place a link points at: "Sheet “Plan”, A1:B1", "a slide", "a tab", "a place in it", or null. */
+export function placeWords(hash) {
+  if (!hash || hash.length < 2) return null;
+  const p = {};
+  for (const part of hash.slice(1).split('&')) { const i = part.indexOf('='); if (i > 0) { try { p[part.slice(0, i)] = decodeURIComponent(part.slice(i + 1)); } catch { /* left out */ } } }
+  if (p.sheet) return `Sheet “${p.sheet}”${p.range ? `, ${p.range}` : ''}`;
+  if (p.slide) return 'a slide';
+  if (p.tab) return 'a tab';
+  return 'a place in it';
+}
 
 export function fileLinksIn(text, host = typeof window !== 'undefined' ? window.location.host : '') {
   const out = [];
   for (const m of String(text || '').matchAll(RE)) {
     if (m[1] && m[1] !== host) continue; // another server's link is just a link
-    const id = m[3] || m[4];
+    const id = m[3] || m[5];
     if (out.some((x) => x.id === id)) continue;
-    out.push({ id, kind: m[4] ? 'file' : KIND[m[2]] });
+    const hash = m[4] || '';
+    out.push({ id, kind: m[5] ? 'file' : KIND[m[2]], ...(hash && { hash, place: placeWords(hash) }) });
     if (out.length === 3) break;
   }
   return out;

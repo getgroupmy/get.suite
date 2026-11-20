@@ -1715,6 +1715,7 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .file-card:hover { border-color: var(--accent); }
 .file-card .grow { display: grid; min-width: 0; }
 .file-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-card .file-card-place { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-card.none { color: var(--muted); }
 /* Docs: changes since an earlier version */
 .versions-changes { padding: 0 12px 6px; }

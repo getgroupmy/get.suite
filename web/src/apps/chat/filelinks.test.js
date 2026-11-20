@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileLinksIn } from './filelinks.js';
+import { fileLinksIn, placeWords } from './filelinks.js';
 
 test('file links: relative or on this server, each once, at most three', () => {
   assert.deepEqual(fileLinksIn('See /docs/abc123 and https://ws.example/sheets/def456?x=1 please', 'ws.example'), [{ id: 'abc123', kind: 'doc' }, { id: 'def456', kind: 'sheet' }]);
@@ -63,4 +63,14 @@ test('file links: an uploaded file’s “/drive?preview=…” (as Copy link gi
   assert.deepEqual(fileLinksIn('the scan: https://ws.example/drive?preview=f1le123 ok', 'ws.example'), [{ id: 'f1le123', kind: 'file' }]);
   assert.deepEqual(fileLinksIn('/drive?comment=c1&preview=f1le123', 'h'), [{ id: 'f1le123', kind: 'file' }]);
   assert.deepEqual(fileLinksIn('https://other.example/drive?preview=f1le123', 'ws.example'), [], 'another server');
+});
+
+test('a link to a place in a file keeps it, with words for it', () => {
+  assert.deepEqual(fileLinksIn('Look at /sheets/abc123#sheet=Plan%20B&range=A1%3AB2 now', 'ws.example'),
+    [{ id: 'abc123', kind: 'sheet', hash: '#sheet=Plan%20B&range=A1%3AB2', place: 'Sheet “Plan B”, A1:B2' }]);
+  assert.deepEqual(fileLinksIn('(https://ws.example/slides/def456#slide=k3Xa_9)', 'ws.example')[0].place, 'a slide');
+  assert.equal(placeWords('#tab=t1'), 'a tab');
+  assert.equal(placeWords('#budget-costs'), 'a place in it');
+  assert.equal(placeWords('#sheet=Notes'), 'Sheet “Notes”');
+  assert.equal(placeWords(''), null);
 });
