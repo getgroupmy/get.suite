@@ -127,6 +127,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // A14 holds #NUM!: COUNT, MATCH and VLOOKUP over ranges with it still work, as in Excel
   await typeIn('A35', '=COUNT(A8:A14)&"/"&MATCH("fig", A1:A20, 0)&"/"&VLOOKUP("fig", A1:B20, 2, FALSE)');
   await expectCells({ A35: '4/3/80' });
+  // INDEX with 0 for the row: the whole Amount column, spilled
+  await typeIn('N1', '=INDEX(A1:B4, 0, 2)');
+  await expectCells({ N1: 'Amount', N2: '120', N3: '80', N4: '0' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

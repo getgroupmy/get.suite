@@ -534,3 +534,20 @@ test('an error in one cell of a range: lookups, COUNT, COUNTIF and the IFS funct
   is('=SUM(B1:B3)', { error: '#DIV/0!' }, 'SUM still gives it');
   is('=AVERAGE(B1:B3)', { error: '#DIV/0!' });
 });
+test('more of Excel with an error in a range (XMATCH, TOCOL ignoring errors, SUBTOTAL counts, REDUCE) and INDEX with 0 for a whole row or column', () => {
+  const c = { A1: 'a', B1: '=1/0', A2: 'b', B2: '5', A3: 'c', B3: '7', A4: 'b', B4: '9' };
+  const is = (f, want) => assert.deepEqual(one(f, c), want, f);
+  is('=XMATCH(7, B1:B3)', 3);
+  is('=SUM(TOCOL(B1:B4, 2))', 21);
+  is('=SUM(TOCOL(B1:B4, 3))', 21);
+  is('=SUBTOTAL(103, B1:B4)', 4);
+  is('=SUBTOTAL(102, B1:B4)', 3);
+  is('=SUBTOTAL(109, B1:B4)', { error: '#DIV/0!' });
+  is('=REDUCE(0, B1:B4, LAMBDA(a, x, a + IFERROR(x, 0)))', 21);
+  is('=SUM(INDEX(A2:B4, 0, 2))', 21);
+  is('=COUNTA(INDEX(A1:B4, 0, 1))', 4);
+  is('=COLUMNS(INDEX(A1:B4, 2, 0))', 2);
+  is('=INDEX(A1:B4, 5, 1)', { error: '#REF!' });
+  const v = ev({ ...c, D1: '=INDEX(A1:B4, 0, 1)', F1: '=INDEX(A1:B4, 3, 0)' });
+  assert.deepEqual([v('D1'), v('D2'), v('D4'), v('F1'), v('G1')], ['a', 'b', 'b', 'c', 7], 'spilled down and across');
+});

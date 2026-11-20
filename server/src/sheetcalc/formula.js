@@ -632,7 +632,7 @@ function line(array, ignore, byCol) {
   const vals = byCol ? (rows[0] || []).flatMap((_, c) => rows.map((r) => r[c])) : rows.flat();
   const how = Math.trunc(toNum(ignore ?? 0));
   if (how < 0 || how > 3) err('#VALUE!');
-  const out = vals.filter((v) => !((how & 1) && (v === null || v === undefined || v === '')) && !((how & 2) && isErrorText(v)));
+  const out = vals.filter((v) => !((how & 1) && (v === null || v === undefined || v === '')) && !((how & 2) && (isErr(v) || isErrorText(v))));
   if (!out.length) err('#CALC!');
   return out;
 }
@@ -928,7 +928,7 @@ const FUNCS = {
   CHOOSE: ([i, ...options]) => { const n = Math.floor(toNum(scalarOf(i))); if (n < 1 || n > options.length) err('#VALUE!'); return options[n - 1] ?? null; },
   // XMATCH(x, range, match_mode 0 exact / -1 exact or next smaller / 1 exact or next larger / 2 wildcards, search_mode 1 first / -1 last).
   XMATCH: ([x, range, mode, search]) => {
-    const list = flat([range]), v = scalarOf(x), m = toNum(mode ?? 0), dir = toNum(search ?? 1) < 0 ? -1 : 1;
+    const list = cellsOf([range]), v = scalarOf(x), m = toNum(mode ?? 0), dir = toNum(search ?? 1) < 0 ? -1 : 1;
     const idx = dir > 0 ? list.map((_, k) => k) : list.map((_, k) => list.length - 1 - k);
     const re = m === 2 && typeof v === 'string' ? wildcard(v) : null;
     const hit = idx.find((k) => (re ? typeof list[k] === 'string' && re.test(list[k]) : same(list[k], v)));
@@ -1018,7 +1018,13 @@ const FUNCS = {
     const s = shapeOf(range);
     let r = toNum(row ?? 1), c = col === undefined ? 1 : toNum(col);
     if (col === undefined && s.rows === 1) { c = r; r = 1; } // one row: the number picks the column
-    if (r < 1 || c < 1 || r > s.rows || c > s.cols) err('#REF!');
+    r = Math.trunc(r); c = Math.trunc(c);
+    if (r < 0 || c < 0 || r > s.rows || c > s.cols) err('#REF!');
+    // 0 for the row or column: all of them (=INDEX(A1:C9, 0, 2) is the second column, INDEX(A1:C9, 3, 0) the third row)
+    if (r === 0 || c === 0) {
+      const rs = r ? [r - 1] : Array.from({ length: s.rows }, (_, i) => i), cs = c ? [c - 1] : Array.from({ length: s.cols }, (_, j) => j);
+      return grid(rs.map((i) => cs.map((j) => s.at(i, j) ?? null)));
+    }
     return s.at(r - 1, c - 1);
   },
   VLOOKUP: ([x, range, col, approx]) => {
@@ -2102,7 +2108,7 @@ const LAMBDA_USERS = {
   },
   REDUCE: ([start, range, l], { evaluate, lambdaArg }) => {
     const f = lambdaArg(l, 2);
-    return flat([evaluate(range)]).reduce((acc, v) => scalarOf(f(acc, v ?? null)), scalarOf(evaluate(start)));
+    return cellsOf([evaluate(range)]).reduce((acc, v) => scalarOf(f(acc, v ?? null)), scalarOf(evaluate(start)));
   },
   SCAN: ([start, range, l], { evaluate, lambdaArg }) => {
     const s = shapeOf(evaluate(range)), f = lambdaArg(l, 2);
@@ -2487,7 +2493,7 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
             }
             return out;
           };
-          if (!isAgg) return FUNCS.SUBTOTAL([which, ...[opt, ...more].filter(Boolean).map((a) => read(a, false))]);
+          if (!isAgg) return FUNCS.SUBTOTAL([which, ...[opt, ...more].filter(Boolean).map((a) => read(a, true))]); // (errors as values: COUNT looks past them, SUM gives them)
           const withK = num >= 14; // 14–19: a range, then k
           return FUNCS.AGGREGATE([which, o, ...more.map((a, i) => (!withK || i === 0 ? read(a, true) : evaluate(a)))]);
         }
@@ -2768,7 +2774,7 @@ function mayArray(n) {
     case 'xref': return !n.one;
     case 'neg': return mayArray(n.e);
     case 'bin': return mayArray(n.left) || mayArray(n.right);
-    case 'call': return ARRAY_FUNCS.has(n.name) || liftsArray(n);
+    case 'call': return ARRAY_FUNCS.has(n.name) || (n.name === 'INDEX' && n.args.slice(1).some((a) => a?.k === 'num' && a.v === 0)) || liftsArray(n); // (INDEX(…, 0, 2): a whole column)
     default: return false;
   }
 }
