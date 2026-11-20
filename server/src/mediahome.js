@@ -64,8 +64,11 @@ export function rehomeSharedMedia(userId) {
 const EDITABLE = ['doc', 'sheet', 'slides'];
 /** The documents, spreadsheets and presentations a sharing change on `fileId` reaches: it, or those inside it (2000 at most). */
 function reachedBy(fileId) {
+  saveAll(); // what's being typed right now counts too
   return q(`WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id WHERE f.trashed = 0)
-            SELECT f.id, f.kind, f.owner_id, f.content FROM files f JOIN t ON t.id = f.id WHERE f.kind IN ('doc', 'sheet', 'slides') AND f.trashed = 0 LIMIT 2000`).all(fileId);
+            SELECT f.id, f.kind, f.owner_id, f.content FROM files f JOIN t ON t.id = f.id WHERE f.kind IN ('doc', 'sheet', 'slides') AND f.trashed = 0
+              AND (f.content LIKE '%"fileId"%' OR f.content LIKE '%"bgImage"%' OR f.content LIKE '%"logo"%' OR f.content LIKE '%drive:%')
+            LIMIT 2000`).all(fileId); // (only those with any picture, video or sound in them)
 }
 
 /**
