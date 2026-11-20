@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import { pdfFromDeck } from '../src/office/slidepdf.js';
+import { installedCovers } from '../src/office/pdffonts.js';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 test('a presentation as a PDF: a 16:9 page a slide, skipped ones left out, its words, tables, charts and numbers', async () => {
@@ -36,7 +37,7 @@ test('a presentation as a PDF: a 16:9 page a slide, skipped ones left out, its w
   try { text = execFileSync('pdftotext', ['-layout', '-', '-'], { input: buf }).toString(); } catch { return; }
   assert.match(text, /Quarterly review/);
   assert.doesNotMatch(text, /Hidden slide/);
-  assert.match(text, /• Hire two people\s*\n[\s\S]*• Open the shop \?\?/, 'line breaks kept; characters the fonts lack are ?');
+  assert.match(text, installedCovers('日本') ? /• Hire two people\s*\n[\s\S]*• Open the shop 日本/ : /• Hire two people\s*\n[\s\S]*• Open the shop \?\?/, 'line breaks kept; characters beyond Helvetica from an installed font (? without one)');
   for (const w of ['Go', 'Item', 'Rent', '900', 'Sales', 'EU', 'Jan', '[Team photo]', 'Video: Demo.mp4']) assert.ok(text.includes(w), w);
   assert.match(text, /\b3\s*$/, 'slide 3 has its number (the first one has none)');
 });

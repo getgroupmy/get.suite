@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, PDFName } from 'pdf-lib';
 import { pdfFromDoc } from '../src/office/pdfdoc.js';
+import { installedCovers } from '../src/office/pdffonts.js';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const T = (text, ...m) => ({ type: 'text', text, ...(m.length && { marks: m.map((x) => (typeof x === 'string' ? { type: x } : x)) }) });
@@ -41,7 +42,8 @@ test('a document as a PDF: the page setup\'s paper and orientation, pages as the
   let text;
   try { text = execFileSync('pdftotext', ['-layout', '-', '-'], { input: buf }).toString(); } catch { return; }
   assert.match(text, /Plan for 2027/);
-  assert.match(text, /Bold café € \?\? the site\[1\]/, 'what the standard fonts can\'t draw is a ?');
+  // what the standard fonts can't draw comes from an installed font that has it (here, Chinese/Japanese); "?" without one
+  assert.match(text, installedCovers('日本') ? /Bold café € 日本 the site\[1\]/ : /Bold café € \?\? the site\[1\]/);
   assert.match(text, /Item\s+Cost/);
   assert.match(text, /\[Missing picture\]/);
   assert.match(text, /Last page \\frac\{1\}\{2\}/);
@@ -96,7 +98,7 @@ test('the PDF has bookmarks from the headings, and the table of contents lists t
   const { execFileSync } = await import('node:child_process');
   let text;
   try { text = execFileSync('pdftotext', ['-layout', '-l', '1', '-', '-'], { input: buf }).toString(); } catch { return; }
-  titles.forEach((t) => { const [name, pg] = t.replace(/^-+/, '').split('@'); assert.match(text, new RegExp(`${name.replace(/[^\x00-\xff—]/g, '?').replace(/\?/g, '\\?')} \\.+ ${pg}\\n`), `${name} on page ${pg}`); }); // (drawn: what the fonts lack is ?)
+  titles.forEach((t) => { const [name, pg] = t.replace(/^-+/, '').split('@'); const shown = installedCovers(name) ? name : name.replace(/[^\x00-\xff—]/g, '?'); assert.match(text, new RegExp(`${shown.replace(/\?/g, '\\?')} \\.+ ${pg}\\n`), `${name} on page ${pg}`); }); // (drawn: what no font here has is ?)
 });
 
 test('words are placed as drawn: no space lost after letter pairs that kern (y, AV, To)', async () => {

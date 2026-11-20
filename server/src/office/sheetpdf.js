@@ -3,7 +3,7 @@
 // bold, italic, underline, strike, text colour, fill, alignment and borders, column widths and hidden rows and
 // columns as in the sheet, gridlines; landscape A4 pages, the sheet's frozen rows repeated at the top of each page,
 // columns that don't fit on further pages. Characters the standard fonts lack show as "?".
-import { asDrawn } from './pdffonts.js';
+import { asDrawn, withFallbackFonts } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { bookEvaluator, display, colName, parseRef } from '../sheetcalc/formula.js';
 import { formulaHiddenRows } from '../sheetcalc/hiddenrows.js';
@@ -18,8 +18,11 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
   pdf.setCreator('Workspace');
   if (author) pdf.setAuthor(author);
   pdf.setLanguage(lang);
-  const F = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)), i: asDrawn(await pdf.embedFont(StandardFonts.HelveticaOblique)), bi: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBoldOblique)) };
-  const safe = (t) => [...String(t ?? '')].map((ch) => { try { F.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join('');
+  const S = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)), i: asDrawn(await pdf.embedFont(StandardFonts.HelveticaOblique)), bi: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBoldOblique)) };
+  // what Helvetica can't draw (Greek, Cyrillic, Chinese, Thai, Tamil…) from an installed font that has it (pdffonts.js)
+  const fonts = await withFallbackFonts(pdf, JSON.stringify({ data, title, author }), S.r);
+  const F = { r: fonts.wrap(S.r), b: fonts.wrap(S.b, true), i: fonts.wrap(S.i), bi: fonts.wrap(S.bi, true) };
+  const safe = (t) => [...String(t ?? '')].map((ch) => { try { S.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : fonts.drawable(ch) ? ch : '?'; } }).join('');
   const sheets = data?.sheets?.length ? data.sheets : [{ name: 'Sheet1', cells: {} }];
   const size = 9, rowH = 15;
   for (const [si, sheet] of sheets.entries()) {
@@ -47,7 +50,7 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
     const perPage = Math.max(1, Math.floor((PH - 2 * M - 22 - head.length * rowH) / rowH));
     for (const group of groups) {
       for (let start = 0; start < Math.max(1, body.length); start += perPage) {
-        const page = pdf.addPage([PW, PH]);
+        const page = fonts.page(pdf.addPage([PW, PH]));
         page.drawText(safe(sheets.length > 1 ? `${title} — ${sheet.name}` : title), { x: M, y: PH - M - 10, size: 11, font: F.b, color: rgb(0.2, 0.2, 0.2) });
         let y = PH - M - 22;
         for (const r of [...head, ...body.slice(start, start + perPage)]) {
@@ -80,5 +83,6 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
     }
   }
   if (!pdf.getPageCount()) pdf.addPage([PW, PH]);
+  fonts.finish();
   return Buffer.from(await pdf.save());
 }

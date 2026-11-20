@@ -2,8 +2,10 @@
 // its header and footer and page numbers; headings, paragraphs and their alignment, bold, italic, underline,
 // strike, links (blue, underlined, and clickable), lists and checklists, quotes, code, tables, pictures (PNG and
 // JPEG), page breaks; footnotes at the end. Equations and chips as their text. The standard fonts hold Western
-// European letters and the usual punctuation; other characters show as "?".
-import { asDrawn } from './pdffonts.js';
+// European letters and the usual punctuation; other characters (Greek, Cyrillic, Chinese, Japanese, Korean, Thai,
+// Tamil, symbols…) come from the fonts installed on the server (pdffonts.js), cut down to what's drawn; "?" when none
+// has them. (No shaping: Arabic letters stand apart, and Indic conjuncts aren't joined.)
+import { asDrawn, withFallbackFonts } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PDFHexString } from 'pdf-lib';
 import { flattenTabs } from './doctabs.js';
 import { chipText, dateText } from './chiptext.js';
@@ -20,7 +22,8 @@ const HEAD = { 1: 22, 2: 17, 3: 14, 4: 12.5, 5: 12, 6: 11 };
  */
 export async function pdfFromDoc(doc, title = 'Document', opts = {}) {
   const first = await layout(doc, title, opts, null);
-  const { pdf } = await layout(doc, title, opts, first.heads.map((hd) => hd.page));
+  const { pdf, fonts } = await layout(doc, title, opts, first.heads.map((hd) => hd.page));
+  fonts.finish(); // (the installed fonts used, cut down to the glyphs drawn)
   return Buffer.from(await pdf.save());
 }
 
@@ -35,17 +38,20 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
   const fam = /times|georgia/i.test(setup?.font || '') ? ['TimesRoman', 'TimesRomanBold', 'TimesRomanItalic', 'TimesRomanBoldItalic']
     : /courier/i.test(setup?.font || '') ? ['Courier', 'CourierBold', 'CourierOblique', 'CourierBoldOblique']
       : ['Helvetica', 'HelveticaBold', 'HelveticaOblique', 'HelveticaBoldOblique'];
-  const F = {
+  const S = {
     r: asDrawn(await pdf.embedFont(StandardFonts[fam[0]])), b: asDrawn(await pdf.embedFont(StandardFonts[fam[1]])),
     i: asDrawn(await pdf.embedFont(StandardFonts[fam[2]])), bi: asDrawn(await pdf.embedFont(StandardFonts[fam[3]])),
     m: asDrawn(await pdf.embedFont(StandardFonts.Courier)),
   };
+  // Each font draws what the standard one can't from an installed font that has it (chosen from all the text here).
+  const fonts = await withFallbackFonts(pdf, JSON.stringify({ doc, setup, title, author }), S.r);
+  const F = { r: fonts.wrap(S.r), b: fonts.wrap(S.b, true), i: fonts.wrap(S.i), bi: fonts.wrap(S.bi, true), m: fonts.wrap(S.m) };
   const BASE = Number(setup?.fontSize) || 11;
   const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) { const r = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(hex || '')); return r ? rgb(r[1] / 255, r[2] / 255, r[3] / 255) : null; } const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
   const ptSize = (v) => { const m = /^([\d.]+)(pt|px)$/.exec(String(v || '').trim()); if (!m) return null; const pt = m[2] === 'px' ? Number(m[1]) * 0.75 : Number(m[1]); return pt >= 4 && pt <= 96 ? pt : null; };
   const fontOf = (s) => (s.code ? F.m : s.bold && s.italic ? F.bi : s.bold ? F.b : s.italic ? F.i : F.r);
-  // Characters the standard fonts can't draw: "?".
-  const safe = (t) => [...String(t)].map((ch) => { try { F.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join('');
+  // Characters no font here can draw: "?" (other spaces: a plain one).
+  const safe = (t) => [...String(t)].map((ch) => { try { S.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : fonts.drawable(ch) ? ch : '?'; } }).join('');
   let [pw, ph] = (PAPER[setup?.size] || PAPER.a4).map((v) => v * MM);
   if (setup?.orientation === 'landscape') [pw, ph] = [ph, pw];
   const margin = (MARGINS[setup?.margin] || MARGINS.normal) * MM;
@@ -54,7 +60,7 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
   let page, y;
   const pages = [];
   const newPage = () => {
-    page = pdf.addPage([pw, ph]); pages.push(page); y = top;
+    page = fonts.page(pdf.addPage([pw, ph])); pages.push(page); y = top;
     const bg = hexRgb(setup?.pageColor);
     if (bg) page.drawRectangle({ x: 0, y: 0, width: pw, height: ph, color: bg });
     if (setup?.watermark) { // (across the page, light, under the text)
@@ -312,5 +318,5 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
     if (setup?.footer) p.drawText(safe(setup.footer).slice(0, 200), { x: left, y: margin / 2, size: small, font: F.r, color: c });
     if (setup?.numbers) { const t = `${k + 1}`; p.drawText(t, { x: right - F.r.widthOfTextAtSize(t, small), y: margin / 2, size: small, font: F.r, color: c }); }
   });
-  return { pdf, heads };
+  return { pdf, heads, fonts };
 }

@@ -3,7 +3,7 @@
 // line breaks and wrapping), shapes (rectangles, rounded ones, ellipses, triangles, diamonds, lines and arrows,
 // others as rectangles) with their text, pictures (PNG and JPEG), tables and charts (as their figures), and the
 // slide number when the deck shows numbers. Turned boxes are drawn straight. Characters the standard fonts lack: "?".
-import { asDrawn } from './pdffonts.js';
+import { asDrawn, withFallbackFonts } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString } from 'pdf-lib';
 import { themeOfDeck } from './powerpoint.js';
 import { chartTable } from './sheetchart.js';
@@ -18,8 +18,11 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
   if (author) pdf.setAuthor(author);
   pdf.setLanguage(lang);
   const marks = []; // [{ title, page }]: the PDF's bookmarks, a slide each
-  const F = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)), i: asDrawn(await pdf.embedFont(StandardFonts.HelveticaOblique)), bi: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBoldOblique)) };
-  const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { F.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join(''); // (line breaks kept)
+  const S = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)), i: asDrawn(await pdf.embedFont(StandardFonts.HelveticaOblique)), bi: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBoldOblique)) };
+  // what Helvetica can't draw (Greek, Cyrillic, Chinese, Thai, Tamil…) from an installed font that has it (pdffonts.js)
+  const fonts = await withFallbackFonts(pdf, JSON.stringify({ deck, title, author }), S.r);
+  const F = { r: fonts.wrap(S.r), b: fonts.wrap(S.b, true), i: fonts.wrap(S.i), bi: fonts.wrap(S.bi, true) };
+  const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { S.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : fonts.drawable(ch) ? ch : '?'; } }).join(''); // (line breaks kept)
   const theme = themeOfDeck(deck);
   const col = (v, fallback) => hexRgb(v === 'accent' ? theme.accent : v === 'text' ? theme.text : v === 'bg' ? theme.bg : v) || hexRgb(fallback) || rgb(0, 0, 0);
   const images = new Map();
@@ -58,7 +61,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
   const fontOf = (it) => (it.bold && it.italic ? F.bi : it.bold ? F.b : it.italic ? F.i : F.r);
   const slides = (deck?.slides || []).map((s, i) => ({ s, i })).filter(({ s }) => !s.skip);
   for (const { s, i } of slides.length ? slides : [{ s: { items: [] }, i: 0 }]) {
-    const page = pdf.addPage([W, H]);
+    const page = fonts.page(pdf.addPage([W, H]));
     const titleBox = (s.items || []).find((it) => it.type === 'text' && it.role === 'title' && String(it.text || '').trim()) || (s.items || []).find((it) => it.type === 'text' && String(it.text || '').trim());
     marks.push({ title: `${i + 1}. ${String(titleBox?.text || '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Slide'}`, page }); // (bookmarks are Unicode: any characters)
     page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: col(s.bg, theme.bg) });
@@ -130,6 +133,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
     pdf.context.assign(outlines, pdf.context.obj({ Type: 'Outlines', First: refs[0], Last: refs[refs.length - 1], Count: refs.length }));
     pdf.catalog.set(PDFName.of('Outlines'), outlines);
   }
+  fonts.finish();
   return Buffer.from(await pdf.save());
 }
 
@@ -144,14 +148,16 @@ export async function notesPdfFromDeck(deck, title = 'Presentation', opts = {}) 
   pdf.setCreator('Workspace');
   if (opts.author) pdf.setAuthor(opts.author);
   pdf.setLanguage(opts.lang || 'en');
-  const font = asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), bold = asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold));
-  const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { font.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : '?'; } }).join('');
+  const S = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)) };
+  const fonts = await withFallbackFonts(pdf, JSON.stringify({ deck, title }), S.r);
+  const font = fonts.wrap(S.r), bold = fonts.wrap(S.b, true);
+  const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { S.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : fonts.drawable(ch) ? ch : '?'; } }).join('');
   const PW = 595.28, PH = 841.89, M = 56, size = 11, lead = size * 1.45;
   const shown = (deck?.slides || []).map((s, i) => ({ s, i })).filter(({ s }) => !s.skip);
   const embedded = await pdf.embedPages(slidesPdf.getPages());
   for (const [k, ep] of embedded.entries()) {
     const { s, i } = shown[k] || { s: {}, i: k };
-    let page = pdf.addPage([PW, PH]);
+    let page = fonts.page(pdf.addPage([PW, PH]));
     const w = PW - 2 * M, h = w * (H / W);
     page.drawText(`Slide ${i + 1}`, { x: M, y: PH - M + 10, size: 9, font: bold, color: rgb(0.4, 0.4, 0.4) });
     page.drawPage(ep, { x: M, y: PH - M - h, width: w, height: h });
@@ -161,7 +167,7 @@ export async function notesPdfFromDeck(deck, title = 'Presentation', opts = {}) 
     if (!notes) { page.drawText('No speaker notes', { x: M, y, size, font, color: rgb(0.55, 0.55, 0.55) }); continue; }
     for (const para of safe(notes).split('\n')) {
       let line = '';
-      const flush = () => { if (y < M) { page = pdf.addPage([PW, PH]); y = PH - M; } page.drawText(line.trimEnd(), { x: M, y, size, font, color: rgb(0.1, 0.1, 0.1) }); y -= lead; line = ''; };
+      const flush = () => { if (y < M) { page = fonts.page(pdf.addPage([PW, PH])); y = PH - M; } page.drawText(line.trimEnd(), { x: M, y, size, font, color: rgb(0.1, 0.1, 0.1) }); y -= lead; line = ''; };
       for (const word of para.split(/(?<=\s)/)) {
         if (line && font.widthOfTextAtSize((line + word).trimEnd(), size) > w) flush();
         line += word;
@@ -169,5 +175,6 @@ export async function notesPdfFromDeck(deck, title = 'Presentation', opts = {}) 
       flush();
     }
   }
+  fonts.finish();
   return Buffer.from(await pdf.save());
 }

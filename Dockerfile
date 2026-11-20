@@ -9,6 +9,11 @@ RUN npm run build
 
 # ---- runtime ----
 FROM ${NODE_IMAGE}
+# Fonts for PDFs with text beyond Western European letters (Greek, Cyrillic, Chinese, Japanese, Korean, Thai, Tamil,
+# Hindi…): drawn from these, cut down to what each PDF uses. TrueType outlines only (not CFF Noto CJK). Change the
+# list with --build-arg PDF_FONTS="…"; a package this Alpine doesn't have is skipped, not a failed build.
+ARG PDF_FONTS="font-dejavu font-wqy-zenhei font-noto-thai font-noto-tamil font-noto-devanagari"
+RUN for p in $PDF_FONTS; do apk add --no-cache "$p" >/dev/null 2>&1 || echo "(no $p here: PDFs show ? for its script)"; done
 ENV NODE_ENV=production \
     PORT=8080 \
     DATA_DIR=/data \
