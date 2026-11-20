@@ -16555,3 +16555,32 @@ test('a share running out: the pictures that editor added stay, as the owner\'s 
   assert.notEqual(now, pic.id);
   assert.equal((await owner('GET', `/api/files/${doc.id}/pictures/${now}`)).status, 200);
 });
+
+test('Make a copy…: your own name for it, and shared with the same people and groups (the original\'s owner can edit it)', async () => {
+  const [bea, cat, dan] = [client(), client(), client()];
+  for (const [local, name] of [['mcbea', 'Mc Bea'], ['mccat', 'Mc Cat'], ['mcdan', 'Mc Dan']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(bea, 'mcbea@acme.com'); await login(cat, 'mccat@acme.com'); await login(dan, 'mcdan@acme.com');
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  const idOf = (u) => dir.find((x) => x.username === u).id;
+  const me = (await owner('GET', '/api/auth/me')).body.user.id;
+  const g = (await owner('POST', '/api/groups', { name: 'Copy readers' })).body;
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Plan to copy' })).body;
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [
+    { user_id: idOf('mcbea@acme.com'), role: 'editor' }, { user_id: idOf('mccat@acme.com'), role: 'viewer' }, { user_id: idOf('mcdan@acme.com'), role: 'editor' },
+  ] });
+  await owner('PUT', `/api/files/${doc.id}/groups`, { groups: [{ group_id: g.id, role: 'viewer' }] });
+  const r = await dan('POST', `/api/files/${doc.id}/copy`, { name: 'Dan’s version', share_same: true });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Dan’s version');
+  const roles = Object.fromEntries((await dan('GET', `/api/files/${r.body.id}/shares`)).body.map?.((x) => [x.user_id, x.role]) || []);
+  assert.equal(roles[me], 'editor', 'the original\'s owner can edit it');
+  assert.equal(roles[idOf('mcbea@acme.com')], 'editor');
+  assert.equal(roles[idOf('mccat@acme.com')], 'viewer');
+  assert.equal(roles[idOf('mcdan@acme.com')], undefined, 'Dan owns it');
+  assert.equal((await cat('GET', `/api/files/${r.body.id}`)).body.role, 'viewer');
+  assert.deepEqual((await dan('GET', `/api/files/${r.body.id}/groups`)).body.map((x) => [x.group_id, x.role]), [[g.id, 'viewer']]);
+  assert.match(JSON.stringify((await bea('GET', '/api/notifications')).body), /Mc Dan shared “Dan’s version” with you/, 'told, as when sharing');
+  // Without: shared with nobody
+  const plain = (await dan('POST', `/api/files/${doc.id}/copy`, {})).body;
+  assert.equal((await bea('GET', `/api/files/${plain.id}`)).status, 404);
+});

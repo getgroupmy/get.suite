@@ -1344,7 +1344,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // A copy of a file, or of a folder with everything in it that this person can open and may take away
   // (the rest is left out and counted as `skipped`). The room for all of it is checked first.
   const MAX_COPY = 2000;
-  function copyOne(user, fileId, wantParent) {
+  function copyOne(user, fileId, wantParent, opts = {}) {
     const f = loadFile(fileId, user);
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     if (f.is_drive) throw bad('A shared drive can’t be copied; copy the folders in it');
@@ -1378,13 +1378,37 @@ export default function fileRoutes({ maxUploadBytes }) {
       return id;
     };
     // Next to the original it's "Copy of …"; put somewhere else it keeps its name (a number is added if taken).
-    const id = tx(() => put(tree, parentId, (parentId ?? null) === (row.parent_id ?? null) ? `Copy of ${row.name}` : row.name));
+    const name = opts.name ? cleanName(opts.name) : (parentId ?? null) === (row.parent_id ?? null) ? `Copy of ${row.name}` : row.name;
+    const id = tx(() => {
+      const made = put(tree, parentId, name);
+      // Shared with the same people (and groups) as the original, each as they were; its owner can edit it.
+      if (opts.shareSame) {
+        const now = Date.now();
+        const people = q('SELECT user_id, direct_role FROM shares WHERE file_id = ? AND direct_role IS NOT NULL AND (expires_at IS NULL OR expires_at > ?)').all(row.id, now);
+        if (row.owner_id !== user.id) people.push({ user_id: row.owner_id, direct_role: 'editor' });
+        for (const p of people) {
+          if (p.user_id === user.id || !canReach(user, p.user_id)) continue;
+          q(`INSERT INTO shares (file_id, user_id, role, direct_role, shared_at, shared_by) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role`).run(made, p.user_id, p.direct_role, p.direct_role, now, user.id);
+        }
+        for (const g of q('SELECT group_id, role FROM group_shares WHERE file_id = ?').all(row.id)) q('INSERT OR IGNORE INTO group_shares (file_id, group_id, role) VALUES (?, ?, ?)').run(made, g.group_id, g.role);
+        syncShares(made);
+      }
+      return made;
+    });
     notifyPlace(parentId, user);
+    if (opts.shareSame) {
+      sendTo(new Set(audienceFor(id)), { type: 'files-changed', parent_id: parentId });
+      const made = loadFile(id, user);
+      for (const x of q('SELECT user_id, direct_role FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(id)) {
+        bell([x.user_id], { kind: 'share', title: `${user.name || user.username} shared “${made.name}” with you`, body: x.direct_role === 'editor' ? 'You can edit' : x.direct_role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(made), actor: user.name });
+      }
+    }
     return { ...loadFile(id, user), ...(row.kind === 'folder' && { copied: count, skipped }) };
   }
 
   r.post('/:id/copy', (req, res) => {
-    res.status(201).json(publicFile(copyOne(req.user, req.params.id, req.body?.parent_id)));
+    res.status(201).json(publicFile(copyOne(req.user, req.params.id, req.body?.parent_id, { name: req.body?.name, shareSame: !!req.body?.share_same })));
   });
 
   // Copies of several at once: { ids, parent_id? }. The room for all of them is checked first; then each is

@@ -113,6 +113,24 @@ await step('Olivia takes Kim off a document Kim added a picture to: it still sho
   await page.locator('.ProseMirror').getByText('Our plan').waitFor();
   await until(() => page.locator('.ProseMirror img[alt="Teal map"]').evaluate((i) => i.complete && i.naturalWidth === 56).catch(() => false), 10000);
 });
+await step('⋮ → Make a copy…: named, shared with the same people; the copy opens, and Kim can edit it', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const orig = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Launch plan', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Step one' }] }] } })).body;
+  await api(page, 'PUT', `/files/${orig.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  await page.goto(`${B}/docs/${orig.id}`);
+  await page.locator('.ProseMirror').getByText('Step one').waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Make a copy…' }).click();
+  const d = page.getByRole('dialog', { name: 'Make a copy' });
+  await d.getByLabel('Name').fill('Launch plan B');
+  await d.getByLabel('Share it with the same people').check();
+  await d.getByRole('button', { name: 'Make a copy' }).click();
+  await page.waitForURL((u) => /\/docs\//.test(u.pathname) && !u.pathname.endsWith(orig.id));
+  await page.locator('.ProseMirror').getByText('Step one').waitFor();
+  const id = new URL(page.url()).pathname.split('/').pop();
+  const f = (await api(kim, 'GET', `/files/${id}`)).body;
+  if (f.name !== 'Launch plan B' || f.role !== 'editor') throw new Error(JSON.stringify(f));
+}, kim);
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
