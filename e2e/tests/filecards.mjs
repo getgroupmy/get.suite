@@ -93,6 +93,17 @@ await step('a link to cells on a sheet: the card says which, and opens the sprea
   await kim.locator('[data-k="B2"]').getByText('450').waitFor();
   await until(async () => (await kim.getByLabel('Name box').inputValue()) === 'B2');
 });
+await step('a link to a slide or a document\'s heading: the card says which (Slide 2, the heading\'s words)', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((p) => p.username === 'kim@acme.com').id;
+  const deck = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Kickoff deck', content: { slides: [{ id: 'k1', items: [] }, { id: 'k2', items: [] }] } })).body;
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Kickoff notes', content: { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Next steps' }] }] } })).body;
+  for (const f of [deck, doc]) await api(page, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: kimId, role: 'viewer' }] });
+  await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: `See ${B}/slides/${deck.id}#slide=k2 and /docs/${doc.id}#next-steps` });
+  await kim.goto(`${B}/chat/${ch}`);
+  const msg = kim.locator('.msg', { hasText: 'See' }).last();
+  await msg.getByRole('link', { name: 'Presentation: Kickoff deck (Slide 2)' }).waitFor();
+  await msg.getByRole('link', { name: 'Document: Kickoff notes (“Next steps”)' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

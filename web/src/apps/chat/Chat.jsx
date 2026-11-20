@@ -1612,13 +1612,27 @@ const infoOf = (id) => {
 const OPEN = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
 const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation', folder: 'Folder', file: 'File' };
 
+/** What to ask the server about a link's place (#slide=…, #tab=…, #a-heading), or null (a sheet says it itself). */
+const placeQuery = (hash) => {
+  if (!hash) return null;
+  const m = /^#(slide|tab)=([\w-]{1,64})$/.exec(hash);
+  if (m) return `${m[1]}=${encodeURIComponent(m[2])}`;
+  if (/^#(?!bm-)[\p{L}\p{N}-]{1,90}$/u.test(hash)) return `heading=${encodeURIComponent(hash.slice(1))}`;
+  return null;
+};
+
 /** Links to Workspace files in a message, shown as cards: what it is, whose, and a way in. */
 function FileCards({ text }) {
   const links = fileLinksIn(text);
   const [info, setInfo] = useState({});
+  const [places, setPlaces] = useState({}); // a slide's number, a tab's title, a heading's words (from the server)
   useEffect(() => {
     let alive = true;
     for (const l of links) infoOf(l.id).then((f) => { if (alive) setInfo((x) => ({ ...x, [l.id]: f || false })); });
+    for (const l of links) {
+      const qs = placeQuery(l.hash);
+      if (qs) get(`/files/${l.id}/place?${qs}`).then((r) => { if (alive) setPlaces((x) => ({ ...x, [l.id]: r.words })); }).catch(() => {});
+    }
     return () => { alive = false; };
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!links.length) return null;
@@ -1627,6 +1641,7 @@ function FileCards({ text }) {
       {links.map((l) => {
         const f = info[l.id];
         if (f === undefined) return null;
+        const place = places[l.id] || l.place;
         if (f === false) {
           return (
             <Link key={l.id} className="file-card none" to={`/access/${l.id}`}>
@@ -1636,9 +1651,9 @@ function FileCards({ text }) {
           );
         }
         return (
-          <Link key={l.id} className="file-card" to={OPEN[f.kind] ? `${OPEN[f.kind](f.id)}${l.hash || ''}` : `/drive?preview=${f.id}`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}${l.place ? ` (${l.place})` : ''}`}>
+          <Link key={l.id} className="file-card" to={OPEN[f.kind] ? `${OPEN[f.kind](f.id)}${l.hash || ''}` : `/drive?preview=${f.id}`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}${place ? ` (${place})` : ''}`}>
             <Icon name={f.kind === 'folder' ? 'folder' : f.kind} size={22} className={`ft ft-${f.kind}`} />
-            <span className="grow"><strong>{f.name}</strong>{l.place && <span className="small file-card-place">{l.place}</span>}<span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'commenter' ? ' · you can comment' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
+            <span className="grow"><strong>{f.name}</strong>{place && <span className="small file-card-place">{place}</span>}<span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'commenter' ? ' · you can comment' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
           </Link>
         );
       })}

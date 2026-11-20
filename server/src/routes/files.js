@@ -1,4 +1,5 @@
 import { jsonFromDoc, jsonFromSheetDoc, jsonFromDeckDoc } from '../collabdoc.js';
+import { headingsOfDoc } from '../office/anchors.js';
 import { mediaShowingIn, keepMediaShowing } from '../mediahome.js';
 import { prefsOf } from './docprefs.js';
 import * as Y from 'yjs';
@@ -1914,6 +1915,29 @@ export default function fileRoutes({ maxUploadBytes }) {
     audit(req, 'file.delete', { target: f.name });
     sendTo(audience, { type: 'files-changed', parent_id: f.parent_id });
     res.json({ ok: true });
+  });
+
+  // Words for a place in a file a link points at (a card in Chat): ?slide=<id> → "Slide 3", ?tab=<id> → its title,
+  // ?heading=<anchor> → the heading's words. For anyone who can open it; a place that's gone says so.
+  r.get('/:id/place', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    saveNow(f.id);
+    const json = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const { slide, tab, heading } = req.query;
+    if (f.kind === 'slides' && slide) {
+      const n = (json.slides || []).findIndex((x) => x.id === String(slide));
+      return res.json({ words: n >= 0 ? `Slide ${n + 1}` : 'A slide since deleted' });
+    }
+    if (f.kind === 'doc' && tab) {
+      const tabs = (json.content || []).filter((x) => x.type === 'docTab');
+      const n = tabs.findIndex((x) => x.attrs?.id === String(tab));
+      return res.json({ words: n >= 0 ? `Tab “${tabs[n].attrs?.title || `Tab ${n + 1}`}”` : 'A tab since deleted' });
+    }
+    if (f.kind === 'doc' && heading) {
+      const h = headingsOfDoc(json).find((x) => x.anchor === String(heading));
+      return res.json({ words: h ? `“${h.text.slice(0, 120)}”` : 'A heading since changed' });
+    }
+    throw bad('Give a slide, a tab or a heading');
   });
 
   // Pictures in a presentation, document or spreadsheet: anyone who can open it sees them, even if the

@@ -16621,3 +16621,22 @@ test('Make a copy… where you choose: My Drive (parent_id null) or another fold
   const there = (await owner('POST', `/api/files/${doc.id}/copy`, { parent_id: b.id })).body;
   assert.deepEqual([there.parent_id, there.name], [b.id, 'Placed memo'], 'elsewhere it keeps its name');
 });
+
+test('a place in a file, in words (for Chat cards): a slide\'s number, a tab\'s title, a heading\'s words; only for those who can open it', async () => {
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Place deck', content: { slides: [{ id: 'pa', items: [] }, { id: 'pb', items: [] }, { id: 'pc', items: [] }] } })).body;
+  assert.deepEqual((await owner('GET', `/api/files/${deck.id}/place?slide=pc`)).body, { words: 'Slide 3' });
+  assert.deepEqual((await owner('GET', `/api/files/${deck.id}/place?slide=zz`)).body, { words: 'A slide since deleted' });
+  const h = (text) => ({ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text }] });
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Place doc', content: { type: 'doc', content: [
+    { type: 'docTab', attrs: { id: 'ta', title: 'Plan' }, content: [h('Goals for Q3')] },
+    { type: 'docTab', attrs: { id: 'tb', title: '' }, content: [h('Costs')] },
+  ] } })).body;
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/place?tab=ta`)).body, { words: 'Tab “Plan”' });
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/place?tab=tb`)).body, { words: 'Tab “Tab 2”' });
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/place?heading=goals-for-q3`)).body, { words: '“Goals for Q3”' });
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/place?heading=nope`)).body, { words: 'A heading since changed' });
+  assert.equal((await owner('GET', `/api/files/${doc.id}/place`)).status, 400);
+  assert.equal((await owner('POST', '/api/users', { local: 'placenone', domain: 'acme.com', name: 'Place None', password: 'password123' })).status, 201);
+  const other = client(); await login(other, 'placenone@acme.com');
+  assert.equal((await other('GET', `/api/files/${deck.id}/place?slide=pa`)).status, 404, 'not theirs to open');
+});
