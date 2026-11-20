@@ -13,6 +13,9 @@ for (const d of [DATA_DIR, FILES_DIR, TMP_DIR]) fs.mkdirSync(d, { recursive: tru
 export const restored = process.env.DB_PATH ? null : applyPendingRestore(DATA_DIR);
 // (timeout: wait for another process holding the database, from the start: switching to WAL below needs it too)
 export const db = new DatabaseSync(process.env.DB_PATH || path.join(DATA_DIR, 'workspace.db'), { timeout: 5000 });
+/** Text as searches compare it: accents left out and lower case ("Café" → "cafe"). Also fold(x) in SQL. */
+export const fold = (t) => (t == null ? t : String(t).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase());
+db.function('fold', { deterministic: true }, fold);
 db.exec(`
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

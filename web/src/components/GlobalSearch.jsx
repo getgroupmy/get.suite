@@ -41,7 +41,8 @@ const mailEnabled = () => (mailOnce ??= get('/mail/status').then((st) => !!st.en
 /** Everything that matches `text`, as groups of { key, icon, title, sub, to, state }. Each source failing on its own just leaves it out. */
 export async function searchAll(text) {
   const qs = encodeURIComponent(text);
-  const low = text.toLowerCase();
+  const fold = (t) => String(t || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase(); // (accents don't matter)
+  const low = fold(text);
   const safe = (p) => p.catch(() => []);
   const mailOn = await mailEnabled();
   const mailIn = (folder) => (mailOn ? safe(get(`/mail/messages?folder=${encodeURIComponent(folder)}&q=${qs}`).then((r) => r.messages.map((m) => ({ ...m, folder })))) : Promise.resolve([]));
@@ -51,7 +52,7 @@ export async function searchAll(text) {
     safe(get(`/forms/search?q=${qs}`)), safe(get(`/chat/conversations/search?q=${qs}`)), safe(get(`/comments/search?q=${qs}`)), safe(get(`/meet/chat/search?q=${qs}`)),
   ]);
   const mail = [...inbox, ...sent].sort((a, b) => (b.date || 0) - (a.date || 0));
-  const has = (...xs) => xs.some((x) => String(x || '').toLowerCase().includes(low));
+  const has = (...xs) => xs.some((x) => fold(x).includes(low));
   return [
     ['Files', (Array.isArray(files) ? files : files.files || []).map((f) => ({ key: `f${f.id}`, icon: FILE_ICON[f.kind] || 'file', title: f.name,
       sub: [f.place_words, f.owner_name, when(f.updated_at)].filter(Boolean).join(' · '),

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { binAndDelete, restoreFromBin } from '../recyclebin.js';
 import { expand } from '../calmath.js';
 import { outEvent } from './calendar.js';
-import { q, tx } from '../db.js';
+import { q, tx, fold } from '../db.js';
 import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
 import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../contactfiles.js';
@@ -357,26 +357,26 @@ export default function contactRoutes() {
   });
 
   r.get('/suggest', (req, res) => {
-    const term = String(req.query.q || '').trim().toLowerCase();
+    const term = fold(String(req.query.q || '').trim()); // (accents don't matter: zoe finds Zoë)
     if (!term) return res.json([]);
     // Your groups whose name matches come first: picking one puts in everyone in it.
-    const groups = groupsOf(req.user.id).filter((g) => g.members.length && g.name.toLowerCase().includes(term)).slice(0, 3)
+    const groups = groupsOf(req.user.id).filter((g) => g.members.length && fold(g.name).includes(term)).slice(0, 3)
       .map((g) => ({ kind: 'group', name: g.name, email: `group:${g.id}`, members: g.members }));
     const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const starts = `${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const company = q(`SELECT c.name, c.email FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.shared = 1 AND u.org_id = ? AND c.owner_id != ? AND c.email IS NOT NULL AND c.email != ''
-                    AND (LOWER(c.name) LIKE ? ESCAPE '\\' OR LOWER(c.email) LIKE ? ESCAPE '\\') ORDER BY c.name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
+                    AND (fold(c.name) LIKE ? ESCAPE '\\' OR fold(c.email) LIKE ? ESCAPE '\\') ORDER BY c.name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
     const mine = q(`SELECT name, email, starred FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
-                    AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\')
-                    ORDER BY starred DESC, (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
+                    AND (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\')
+                    ORDER BY starred DESC, (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
     // Your contacts' other addresses (a work and a home one): each is a suggestion of its own.
     const extra = q(`SELECT name, more_emails, starred FROM contacts WHERE owner_id = ? AND more_emails IS NOT NULL AND more_emails != '[]'
-                     AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(more_emails) LIKE ? ESCAPE '\\') LIMIT 20`).all(req.user.id, like, like)
-      .flatMap((c) => cleanMore(c.more_emails, 'emails').filter((e) => c.name.toLowerCase().includes(term) || e.value.includes(term)).map((e) => ({ name: c.name, email: e.value, starred: c.starred })));
+                     AND (fold(name) LIKE ? ESCAPE '\\' OR fold(more_emails) LIKE ? ESCAPE '\\') LIMIT 20`).all(req.user.id, like, like)
+      .flatMap((c) => cleanMore(c.more_emails, 'emails').filter((e) => fold(c.name).includes(term) || e.value.includes(term)).map((e) => ({ name: c.name, email: e.value, starred: c.starred })));
     mine.push(...extra);
     const others = matchOther(req.user.id, like);
     const people = q(`SELECT id, name, username AS email FROM users WHERE org_id = ? AND disabled = 0 AND id != ?
-                      AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 25`).all(req.user.org_id, req.user.id, like, like);
+                      AND (fold(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 25`).all(req.user.org_id, req.user.id, like, like);
     const seen = new Set();
     const out = [];
     const starredMine = mine.filter((p) => p.starred), restMine = mine.filter((p) => !p.starred);

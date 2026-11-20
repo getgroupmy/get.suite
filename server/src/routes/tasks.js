@@ -15,7 +15,7 @@ import { cleanRepeat, nextDue } from '../taskrepeat.js';
 import { trashTask, restoreTask, trashOfList, TASK_TRASH_DAYS } from '../tasktrash.js';
 import express, { Router } from 'express';
 import { splitByList, tasksFromCsv } from '../taskimport.js';
-import { q, tx } from '../db.js';
+import { q, tx, fold } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
@@ -902,10 +902,10 @@ export default function taskRoutes() {
   // Search your lists (your own and those shared with you) for tasks with all these words in the
   // title, notes or steps. Open ones first (soonest due first), then done ones.
   r.get('/search', (req, res) => {
-    const words = String(req.query.q || '').toLowerCase().match(/[\p{L}\p{N}@._'-]+/gu)?.slice(0, 8) || [];
+    const words = fold(String(req.query.q || '')).match(/[\p{L}\p{N}@._'-]+/gu)?.slice(0, 8) || []; // (accents don't matter)
     if (!words.length) return res.json([]);
     const me = req.user.id;
-    const like = words.map(() => "LOWER(t.title || ' ' || COALESCE(t.notes, '') || ' ' || COALESCE(t.steps, '') || ' ' || COALESCE(t.tags, '')) LIKE ? ESCAPE '!'");
+    const like = words.map(() => "fold(t.title || ' ' || COALESCE(t.notes, '') || ' ' || COALESCE(t.steps, '') || ' ' || COALESCE(t.tags, '')) LIKE ? ESCAPE '!'");
     res.json(q(`${TASK} WHERE (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) AND ${like.join(' AND ')}
                 ORDER BY t.done_at IS NOT NULL, t.due IS NULL, t.due, t.done_at DESC, t.position LIMIT 100`)
       .all(me, me, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`)).map(shape));

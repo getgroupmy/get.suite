@@ -16662,3 +16662,15 @@ test('search: a presentation or spreadsheet matched by its words says where (a s
   const byName = (await owner('GET', '/api/files?view=search&q=ledger')).body.find((f) => f.id === book.id);
   assert.equal(byName.place, undefined);
 });
+
+test('searches where accents don\'t matter: tasks, notes, and address suggestions (zoe finds Zoë, cafe finds café)', async () => {
+  const list = (await owner('POST', '/api/tasks/lists', { name: 'Accents list' })).body.id;
+  await owner('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Book the Café Zoë table' });
+  assert.ok((await owner('GET', '/api/tasks/search?q=cafe%20zoe')).body.some((t) => t.title === 'Book the Café Zoë table'));
+  assert.ok((await owner('GET', `/api/tasks/search?q=${encodeURIComponent('CAFÉ')}`)).body.some((t) => t.title === 'Book the Café Zoë table'), 'with its accent, any case');
+  await owner('POST', '/api/notes', { title: 'Résumé tips', body: 'Keep it short' });
+  assert.ok((await owner('GET', '/api/notes?q=resume')).body.some((n) => n.title === 'Résumé tips'));
+  await owner('POST', '/api/contacts', { name: 'Zoë Ångström', email: 'zoe.a@example.com' });
+  assert.ok((await owner('GET', '/api/contacts/suggest?q=angstrom')).body.some((p) => p.email === 'zoe.a@example.com'));
+  assert.ok((await owner('GET', '/api/contacts/suggest?q=zoe%20')).body.some((p) => p.email === 'zoe.a@example.com'));
+});

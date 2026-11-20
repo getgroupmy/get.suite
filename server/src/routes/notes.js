@@ -4,7 +4,7 @@
 import { nextRemind, REPEATS } from '../noterepeat.js';
 import { zoneOrUtc } from '../ics.js';
 import { Router } from 'express';
-import { q, tx } from '../db.js';
+import { q, tx, fold } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notesFromEnex, noteFromHtml } from '../evernote.js';
@@ -618,10 +618,10 @@ export default function noteRoutes() {
     let rows = q(`SELECT n.* FROM notes n LEFT JOIN note_order o ON o.note_id = n.id AND o.user_id = ?
                   WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.archived = ? AND n.trashed_at IS NULL
                   ORDER BY n.pinned DESC, COALESCE(o.position, n.position) DESC`).all(req.user.id, req.user.id, req.user.id, archived);
-    const words = String(req.query.q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    const words = fold(String(req.query.q || '')).split(/\s+/).filter(Boolean); // (accents don't matter)
     if (words.length) {
       rows = rows.filter((n) => {
-        const text = `${n.title} ${n.body} ${(n.items ? JSON.parse(n.items) : []).map((i) => i.text).join(' ')} ${JSON.parse(n.labels).join(' ')}`.toLowerCase();
+        const text = fold(`${n.title} ${n.body} ${(n.items ? JSON.parse(n.items) : []).map((i) => i.text).join(' ')} ${JSON.parse(n.labels).join(' ')}`);
         return words.every((w) => text.includes(w));
       });
     }
