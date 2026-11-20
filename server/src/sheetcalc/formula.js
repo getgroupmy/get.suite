@@ -356,8 +356,9 @@ function formatText(v, fmt) {
   const asNum = typeof v === 'string' && dateSerial(v) === null ? numberInText(v) : null;
   const asFraction = fractionText(asNum ?? v, f);
   if (asFraction !== null) return asFraction;
-  const done = formatCode(asNum ?? v, f);
+  const done = formatCode(asNum ?? v, f, { anyDate: true });
   if (done && typeof done.text === 'string') return done.text;
+  if (typeof (asNum ?? v) === 'number' && /[ydhs]|m{3,}/i.test(f.replace(/"[^"]*"|\[(?![hms]+\])[^\]]*\]|General|AM\/PM/gi, '')) && !/[0#?]/.test(f.replace(/"[^"]*"/g, ''))) err('#VALUE!'); // a date or time past the year 9999
   if (typeof v === 'string' && asNum === null && dateSerial(v) === null) return v; // text a number format leaves alone
   if (/[yd]|m{3,}/i.test(f.replace(/"[^"]*"/g, ''))) return formatDate(toDate(v), f);
   const m = /^([^0#]*?)([#0,]*0[#0,]*|#[#,]*)(?:\.(0+|#+))?([^0#]*)$/.exec(f);
@@ -378,6 +379,7 @@ function formatText(v, fmt) {
 }
 function formatDate(ms, f) {
   const d = new Date(ms);
+  if (Number.isNaN(d.getTime()) || d.getUTCFullYear() > 9999) err('#VALUE!'); // past 31 Dec 9999 (=TEXT(123456789, "yyyy")): no date, as in Excel
   const Y = d.getUTCFullYear(), M = d.getUTCMonth(), D = d.getUTCDate(), W = d.getUTCDay();
   const two = (x) => String(x).padStart(2, '0');
   return f.replace(/"([^"]*)"|yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d/gi, (t, lit) => {

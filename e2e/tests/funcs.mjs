@@ -154,6 +154,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('P11', 'Ålesund');
   await typeIn('P12', 'zebra');
   await expectCells({ P10: 'TRUE|TRUE|TRUE|1' });
+  // TEXT with General, digits around a dash, elapsed hours and a scientific carry
+  await typeIn('P13', '=TEXT(1234.5, "General")&"|"&TEXT(42, "000-000")&"|"&TEXT(1.5, "[h]:mm")&"|"&TEXT(99.995, "0.00E+00")');
+  await expectCells({ P13: '1234.5|000-042|36:00|1.00E+02' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

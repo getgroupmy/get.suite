@@ -54,7 +54,13 @@ function tokens(body) {
     if (ch === '\\') { out.push({ lit: body[i + 1] ?? '' }); i++; continue; }
     if (ch === '_') { out.push({ lit: ' ' }); i++; continue; }
     if (ch === '*') { i++; continue; }
-    if (ch === '[') { const j = body.indexOf(']', i); i = j < 0 ? body.length : j; continue; } // [h] and the like: not supported, skipped
+    if (ch === '[') {
+      const j = body.indexOf(']', i);
+      const el = /^\[(h+|m+|s+)\]/i.exec(body.slice(i));
+      if (el) out.push({ tok: `[${el[1][0].toLowerCase()}]`, width: el[1].length, date: true }); // [h]:mm: hours past 24 (elapsed time)
+      i = j < 0 ? body.length : j; continue;
+    }
+    if (/^general/i.test(body.slice(i))) { out.push({ tok: 'General' }); i += 6; continue; }
     const am = /^(AM\/PM|A\/P)/i.exec(body.slice(i));
     if (am) { out.push({ tok: am[1].length > 3 ? 'AM/PM' : 'A/P' }); i += am[1].length - 1; continue; }
     const run = /^(y+|m+|d+|h+|s+)/i.exec(body.slice(i));
@@ -75,7 +81,7 @@ function minutesFix(toks) {
   const parts = toks.filter((t) => t.date);
   parts.forEach((t, i) => {
     if (t.tok[0] !== 'm' || t.tok.length > 2) return;
-    if (parts[i - 1]?.tok[0] === 'h' || parts[i + 1]?.tok[0] === 's') t.tok = t.tok === 'mm' ? 'MM' : 'M';
+    if (/^\[?h/.test(parts[i - 1]?.tok || '') || /^\[?s/.test(parts[i + 1]?.tok || '')) t.tok = t.tok === 'mm' ? 'MM' : 'M';
   });
   return toks;
 }
@@ -88,9 +94,25 @@ function serialOf(v) {
   return (Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) - EPOCH) / 864e5;
 }
 
-function formatDate(v, toks) {
+function formatDate(v, toks, anyDate = false) {
   const serial = serialOf(v);
-  if (serial === null || serial < 0 || serial > 2958466) return null;
+  const elapsed = toks.some((t) => /^\[[hms]\]$/.test(t.tok || ''));
+  if (serial === null || serial > 2958466 || (serial < 0 && !anyDate && !elapsed)) return null; // (TEXT shows dates before 1900, as LibreOffice does)
+  if (elapsed) {
+    // [h]:mm:ss: the whole time in hours (or minutes, seconds), then the minutes and seconds left
+    const secs = Math.round(Math.abs(serial) * 86400), sign = serial < 0 && secs ? '-' : '';
+    const big = toks.find((t) => /^\[[hms]\]$/.test(t.tok || '')).tok[1];
+    const pad = (n, w = 2) => String(n).padStart(w, '0');
+    return sign + toks.map((t) => {
+      if (t.lit !== undefined) return t.lit;
+      if (t.tok === '[h]') return pad(Math.floor(secs / 3600), t.width);
+      if (t.tok === '[m]') return pad(Math.floor(secs / 60), t.width);
+      if (t.tok === '[s]') return pad(secs, t.width);
+      if (/^m+$/i.test(t.tok)) return big === 'h' ? pad(Math.floor(secs / 60) % 60, t.tok.length) : t.tok;
+      if (/^s+$/.test(t.tok)) return pad(big === 's' ? secs : secs % 60, t.tok.length);
+      return t.tok;
+    }).join('');
+  }
   const ms = Math.round(serial * 864e5) + EPOCH;
   const d = new Date(ms);
   const H = d.getUTCHours();
@@ -169,14 +191,23 @@ function formatNumberCode(n, toks, negSection) {
     const intDigits = Math.max(1, intPlaces.length);
     // With # in the whole part ("##0.0E+0", engineering), the exponent is a multiple of its places (1.2E+3, 12.3E+3);
     // with only 0s ("00.0E+0"), the whole part fills them (12.3E+2).
-    exp = intPlaces.includes('#') && intDigits > 1 ? Math.floor(Math.floor(Math.log10(x)) / intDigits) * intDigits : Math.floor(Math.log10(x)) - (intDigits - 1);
+    const eng = intPlaces.includes('#') && intDigits > 1;
+    exp = eng ? Math.floor(Math.floor(Math.log10(x)) / intDigits) * intDigits : Math.floor(Math.log10(x)) - (intDigits - 1);
+    // rounding can carry into another digit (99.995 as 0.00E+00 is 1.00E+02, not 10.00E+01)
+    if (Number((x / 10 ** exp).toFixed(Math.min(20, decPlaces.length))) >= 10 ** (eng ? intDigits : intDigits)) exp += eng ? intDigits : 1;
     x /= 10 ** exp;
   }
   const fixed = x.toFixed(Math.min(20, decPlaces.length));
   let [ip, dp = ''] = fixed.split('.');
   if (ip === '0' && intPlaces.length && !intPlaces.includes('0')) ip = '';
-  let intDigits = fill(ip, intPlaces.length ? intPlaces : ['#'], false).join('');
+  const perPlace = fill(ip, intPlaces.length ? intPlaces : ['#'], false); // a digit (or more, in the first) per placeholder
+  let intDigits = perPlace.join('');
   if (grouping) intDigits = intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // text between the whole number's placeholders ("000-000", "00\/00"): each digit in its own place
+  const intToks = toks.slice(0, intEnd);
+  const firstPh = intToks.findIndex(isPh);
+  const spread = !grouping && firstPh >= 0 && intToks.some((t, i) => i > firstPh && i < intToks.findLastIndex(isPh) && !isPh(t));
+  let placeAt = 0;
   const decDigits = fill(dp, decPlaces, true).join('');
   // Lay the digits back over the tokens: the integer digits at the first integer placeholder, the decimals at the first decimal one.
   let out = '', intDone = false, decDone = false;
@@ -192,7 +223,10 @@ function formatNumberCode(n, toks, negSection) {
     }
     if (!isPh(t)) { out += t.tok === '@' ? '' : t.tok; return; }
     if (eAt >= 0 && i > eAt) return; // exponent digits: written above
-    if (dot < 0 || i < dot) { if (!intDone) { out += intDigits; intDone = true; } } else if (!decDone) { out += decDigits; decDone = true; }
+    if (dot < 0 || i < dot) {
+      if (spread) out += perPlace[placeAt++] ?? '';
+      else if (!intDone) { out += intDigits; intDone = true; }
+    } else if (!decDone) { out += decDigits; decDone = true; }
   });
   if (out.endsWith('.') && !decPlaces.length) out = out.slice(0, -1);
   const zero = !/[1-9]/.test(out);
@@ -230,9 +264,15 @@ export function fractionText(v, code) {
     text = num === 0 ? `${wholeText}${' '.repeat(gap.length + fracText.length)}` : `${wholeText}${gap}${fracText}`;
     if (!whole && num === 0) text = `0${' '.repeat(gap.length + fracText.length)}`;
   } else text = fracText;
-  return `${lit(pre)}${v < 0 && (whole || num) ? `-${text.replace(/^\s+/, '')}` : text}${lit(post)}`; // (text around it: "(# ?/?)", "# ?/? \"in\"")
+  return `${lit(pre)}${v < 0 && (whole || num) ? `-${text}` : text}${lit(post)}`; // (-0.4 as "# ?/?" is "- 2/5": the minus, then the empty whole number's place) // (text around it: "(# ?/?)", "# ?/? \"in\"")
 }
-export function formatCode(v, code) {
+/** A number as the General format shows it: up to 10 significant digits, very large or small ones as 1.23E+21. */
+export function generalText(v) {
+  const r = Number(v.toPrecision(10));
+  if (r !== 0 && (Math.abs(r) >= 1e11 || Math.abs(r) < 1e-9)) return r.toExponential().replace(/e([+-])(\d)$/, 'E$10$2').replace('e', 'E');
+  return String(r).includes('e') ? r.toFixed(20).replace(/\.?0+$/, '') : String(r);
+}
+export function formatCode(v, code, opts = {}) {
   if (v === null || v === undefined || v === '' || (typeof v === 'object' && !Array.isArray(v))) return null;
   const secs = sections(String(code || '').slice(0, MAX_CODE)).map(head);
   if (!secs.length) return null;
@@ -256,7 +296,8 @@ export function formatCode(v, code) {
   else sec = numSecs[0];
   const toks = minutesFix(tokens(sec.body));
   if (!toks.length) return { text: '', colour: sec.colour };
-  if (isDate(sec)) { const d = formatDate(v, toks); return d === null ? null : { text: d, colour: sec.colour }; }
+  if (toks.some((t) => t.tok === 'General')) return { text: toks.map((t) => (t.lit !== undefined ? t.lit : t.tok === 'General' ? generalText(neg ? Math.abs(v) : v) : '')).join(''), colour: sec.colour }; // "General", General" kg"
+  if (isDate(sec)) { const d = formatDate(v, toks, opts.anyDate); return d === null ? null : { text: d, colour: sec.colour }; }
   const frac = fractionText(neg ? Math.abs(v) : v, sec.body); // "# ?/?": 1 1/2 (a negative section shows no minus of its own)
   if (frac !== null) return { text: frac, colour: sec.colour };
   if (!toks.some((t) => /^[0#?]$/.test(t.tok || ''))) return { text: toks.map((t) => (t.lit !== undefined ? t.lit : t.tok === '@' ? String(v) : t.tok === ',' ? '' : t.tok)).join(''), colour: sec.colour }; // all text: "Nil", "-"
