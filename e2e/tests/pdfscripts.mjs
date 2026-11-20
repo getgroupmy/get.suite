@@ -51,6 +51,20 @@ await step('Download as PDF: every line read back as written, nothing as ?', asy
   if (/\?{2,}/.test(text)) throw new Error('question marks in the PDF');
   if (buf.length > 600 * 1024) throw new Error(`${Math.round(buf.length / 1024)} KB`);
 });
+await step('Hebrew and Arabic: Download as PDF runs them right to left, Arabic letters joined; the words read back as written', async () => {
+  const P = (t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] });
+  const rid = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'RTL', content: { type: 'doc', content: [P('שלום עולם, זה מסמך.'), P('مرحبا بالعالم'), P('التقرير السنوي لعام 2026')] } })).body.id;
+  await page.goto(`${B}/docs/${rid}`);
+  await page.getByText('مرحبا بالعالم').first().waitFor();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as PDF (.pdf)' }).click()]);
+  const buf = (await import('node:fs')).readFileSync(await dl.path());
+  let text = null;
+  try { text = (await import('node:child_process')).execFileSync('pdftotext', ['-', '-'], { input: buf }).toString().replace(/[\u202a-\u202e\u200e\u200f]/g, ''); } catch { /* not installed */ }
+  if (text === null) return;
+  const missing = ['שלום', 'עולם', 'מסמך', 'مرحبا', 'بالعالم', 'التقرير', '2026'].filter((w) => !text.includes(w));
+  if (missing.length) throw new Error(`not read back: ${missing.join(' ')} (it reads ${text.replace(/\n+/g, ' / ')})`);
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

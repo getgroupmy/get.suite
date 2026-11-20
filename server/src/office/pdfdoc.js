@@ -4,8 +4,9 @@
 // JPEG), page breaks; footnotes at the end. Equations and chips as their text. The standard fonts hold Western
 // European letters and the usual punctuation; other characters (Greek, Cyrillic, Chinese, Japanese, Korean, Thai,
 // Tamil, symbols…) come from the fonts installed on the server (pdffonts.js), cut down to what's drawn; "?" when none
-// has them. (No shaping: Arabic letters stand apart, and Indic conjuncts aren't joined.)
+// has them. Hebrew and Arabic run right to left, Arabic letters joined (bidi.js); Indic conjuncts aren't joined.
 import { asDrawn, withFallbackFonts } from './pdffonts.js';
+import { hasRtl, isRtlText, visualOrder, visualWord, wordDir } from './bidi.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PDFHexString } from 'pdf-lib';
 import { flattenTabs } from './doctabs.js';
 import { chipText, dateText } from './chiptext.js';
@@ -119,6 +120,10 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
       lines[lines.length - 1].push(wd); lw += ww;
     }
     y -= gapBefore;
+    // Right to left (Hebrew, Arabic): the paragraph runs from the right, and each line's words are put in the order
+    // they're seen (bidi.js); left as the default, it's aligned right.
+    const rtl = isRtlText(runs.map((r) => r.text || '').join(''));
+    if (rtl && align === 'left') align = 'right';
     lines.forEach((line, li) => {
       const big = Math.max(size, ...line.map((wd) => wd.size || 0)); // (the line is as tall as its biggest words)
       const h = big * lead;
@@ -128,11 +133,14 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
       let cx = x + (align === 'center' ? (w - total) / 2 : align === 'right' ? w - total : 0);
       const spans = [];
       if (li === 0 && firstPrefix) page.drawText(firstPrefix, { x: x - 16, y, size, font: F.r, color: rgb(0.2, 0.2, 0.2) });
-      for (const wd of line) {
+      const seen = hasRtl(line.map((wd) => wd.text).join('')) ? visualOrder(line, (wd) => wordDir(wd.text), rtl).map((v) => v.unit) : line;
+      for (const wd of seen) {
         const sz = szOf(wd), font = fontOf(wd), tw = font.widthOfTextAtSize(wd.text, sz);
         const color = wd.link ? rgb(0.07, 0.33, 0.8) : wd.color || rgb(0.1, 0.1, 0.1);
         if (wd.bg) page.drawRectangle({ x: cx, y: y - sz * 0.22, width: tw, height: sz * 1.15, color: wd.bg });
-        page.drawText(wd.text, { x: cx, y: wd.sup ? y + size * 0.35 : y, size: sz, font, color });
+        // (a word's own letters as seen; the space after it on the side the paragraph runs toward)
+        const core = wd.text.trimEnd(), gap = wd.text.slice(core.length), shown = hasRtl(core) ? visualWord(core) : core;
+        page.drawText(rtl ? gap + shown : shown + gap, { x: cx, y: wd.sup ? y + size * 0.35 : y, size: sz, font, color, asSeen: true });
         const tv = font.widthOfTextAtSize(wd.text.trimEnd(), sz);
         if (wd.underline || wd.link) page.drawLine({ start: { x: cx, y: y - 1.5 }, end: { x: cx + tv, y: y - 1.5 }, thickness: 0.6, color });
         if (wd.strike) page.drawLine({ start: { x: cx, y: y + sz * 0.3 }, end: { x: cx + tv, y: y + sz * 0.3 }, thickness: 0.6, color });

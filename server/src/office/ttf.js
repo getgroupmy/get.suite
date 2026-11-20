@@ -144,12 +144,12 @@ export function subsetTtf(f, glyphIds) {
  * A font for pdf-lib's custom-font embedder, without fontkit: it lays text out a character to a glyph (no kerning or
  * shaping) and remembers which glyphs were drawn. Before saving, `finish(pdfFont)` puts the subset in its place.
  */
-export function fontkitShim(f) {
+export function fontkitShim(f, unicodeOf = (cp) => [cp]) {
   const used = new Map(); // code point → glyph
   const glyph = (cp) => {
     const id = f.map.get(cp) || 0;
     if (id) used.set(cp, id);
-    return { id, advanceWidth: f.advance(id), codePoints: [cp] };
+    return { id, advanceWidth: f.advance(id), codePoints: unicodeOf(cp) }; // (what copying it gives: Arabic forms as their letters)
   };
   const font = {
     unitsPerEm: f.unitsPerEm, ascent: f.ascent, descent: f.descent, capHeight: f.capHeight, xHeight: f.xHeight, italicAngle: f.italicAngle, bbox: f.bbox,

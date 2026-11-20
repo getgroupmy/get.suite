@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseTtf, fontkitShim } from './ttf.js';
+import { visual, logicalOf, shapeArabic } from './bidi.js';
 
 // pdf-lib measures standard-font text with kerning, but draws it without: words laid out by those measurements end
 // up a little too close (after "y," a space all but vanishes). Measure as drawn: each character's own width.
@@ -43,7 +44,7 @@ const parsedFont = (file) => { if (!parsed.has(file)) { let f = null; try { f = 
 export async function withFallbackFonts(pdf, chars, sample) {
   const can = new Map(); // character → standard font has it
   const std = (ch) => { if (!can.has(ch)) { let ok = true; try { sample.encodeText(ch); } catch { ok = false; } can.set(ch, ok); } return can.get(ch); };
-  const needed = [...new Set(chars)].filter((ch) => !/\s/.test(ch) && !std(ch)).map((ch) => ch.codePointAt(0));
+  const needed = [...new Set([...chars, ...shapeArabic(chars)])].filter((ch) => !/\s/.test(ch) && !std(ch)).map((ch) => ch.codePointAt(0));
   const shims = new Map(); // bytes → shim, for the one fontkit stand-in pdf-lib is given
   const picks = { r: [], b: [] }; // [{ has, shim, font }]
   if (needed.length) {
@@ -56,7 +57,7 @@ export async function withFallbackFonts(pdf, chars, sample) {
         const f = parsedFont(file);
         const covers = f ? [...left].filter((cp) => f.map.has(cp)) : [];
         if (!covers.length) continue;
-        const shim = fontkitShim(f), bytes = new Uint8Array(0);
+        const shim = fontkitShim(f, logicalOf), bytes = new Uint8Array(0);
         shim.fontkitFont = await shim.fontkit.create();
         shims.set(bytes, shim);
         (bold ? picks.b : picks.r).push({ has: shim.has, shim, font: await pdf.embedFont(bytes, { subset: false }) });
@@ -68,8 +69,9 @@ export async function withFallbackFonts(pdf, chars, sample) {
   /** Text in runs, each with the font to draw it in. */
   const runs = (text, base, bold) => {
     const out = [];
-    for (const ch of String(text)) {
+    for (let ch of String(text)) {
       const fb = std(ch) || /\s/.test(ch) ? null : fallback(ch, bold);
+      if (!fb && !std(ch)) ch = /\s/.test(ch) ? ' ' : '?'; // (no font has it, as when one has Arabic letters but not their joined forms)
       const key = fb || null;
       if (out.length && out[out.length - 1].fb === key) out[out.length - 1].text += ch; else out.push({ fb: key, text: ch });
     }
@@ -78,14 +80,14 @@ export async function withFallbackFonts(pdf, chars, sample) {
   const width = (r, base, size) => (r.fb ? r.fb.shim.width(r.text, size) : base.widthOfTextAtSize(r.text, size));
   return {
     drawable: (ch) => /\s/.test(ch) || std(ch) || !!fallback(ch, false),
-    wrap: (base, bold = false) => ({ base, bold, encodeText: (t) => base.encodeText(t), widthOfTextAtSize: (t, size) => runs(t, base, bold).reduce((a, r) => a + width(r, base, size), 0) }),
+    wrap: (base, bold = false) => ({ base, bold, encodeText: (t) => base.encodeText(t), widthOfTextAtSize: (t, size) => runs(visual(t), base, bold).reduce((a, r) => a + width(r, base, size), 0) }),
     page: (p) => {
       const draw = p.drawText.bind(p);
       p.drawText = (text, o = {}) => {
         if (!o.font?.base) return draw(text, o);
         const a = o.rotate ? (o.rotate.angle * Math.PI) / 180 : 0;
         let { x = 0, y = 0 } = o;
-        for (const r of runs(text, o.font.base, o.font.bold)) {
+        for (const r of runs(o.asSeen ? text : visual(text), o.font.base, o.font.bold)) { // (right to left: as seen; asSeen: already)
           draw(r.text, { ...o, x, y, font: r.fb ? r.fb.font : o.font.base });
           const w = width(r, o.font.base, o.size || 12);
           x += w * Math.cos(a); y += w * Math.sin(a);

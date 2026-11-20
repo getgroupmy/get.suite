@@ -62,3 +62,26 @@ test('the subsetter: a font cut down to some glyphs keeps those glyphs and their
   assert.equal(sub.locaAt(f.map.get(65) + 1) - sub.locaAt(f.map.get(65)), 0, 'one not asked for is empty');
   assert.ok(subsetTtf(f, ids).length < fs.statSync(file).size / 4);
 });
+
+test('right to left: Hebrew and Arabic words read back as written (letters in order, Arabic joined forms copy as letters)', { skip: !hasPoppler && 'poppler isn’t installed here' }, async () => {
+  const words = ['שלום', 'עולם', 'מסמך', 'مرحبا', 'بالعالم', 'التقرير', 'السنوي'].filter((w) => installedCovers(w));
+  if (!words.length) return;
+  const P = (t) => ({ type: 'paragraph', content: [T(t)] });
+  const read = (buf) => pdftotext(buf).replace(/[‪-‮‎‏]/g, '');
+  const docText = read(await pdfFromDoc({ type: 'doc', content: [P('שלום עולם, זה מסמך.'), P('مرحبا بالعالم'), P('التقرير السنوي لعام 2026'), P('The word שלום here.')] }, 'RTL'));
+  for (const w of words) assert.ok(docText.includes(w), `the document has “${w}” (got ${docText.replace(/\n+/g, ' / ')})`);
+  assert.ok(docText.includes('2026'), 'a number in Arabic text keeps its digits in order');
+  const sheetText = read(await pdfFromSheet({ sheets: [{ name: 'S', cells: { A1: 'שלום עולם', A2: 'مرحبا بالعالم' }, colWidths: { A: 300 } }] }, 'RTL'));
+  for (const w of words.filter((x) => /שלום|עולם|مرحبا|بالعالم/.test(x))) assert.ok(sheetText.includes(w), `the spreadsheet has “${w}”`);
+});
+
+test('bidi: Arabic letters joined, right-to-left runs reversed, numbers and brackets kept the right way round', async () => {
+  const { visual, shapeArabic } = await import('../src/office/bidi.js');
+  const hex = (s) => [...s].map((c) => c.codePointAt(0).toString(16)).join(' ');
+  assert.equal(hex(shapeArabic('مرحبا')), 'fee3 feae fea3 fe92 fe8e', 'initial meem, final ra (which doesn\'t join on), initial hah, medial beh, final alef');
+  assert.equal(hex(shapeArabic('لا')), 'fefb', 'lam-alef');
+  assert.equal(visual('שלום עולם'), 'םלוע םולש');
+  assert.equal(visual('עמוד 12'), '12 דומע', 'a number stays as written, on the left of a right-to-left line');
+  assert.equal(visual('הערה (חשוב)'), '(בושח) הרעה', 'brackets mirrored');
+  assert.equal(visual('Mixed שלום here'), 'Mixed םולש here', 'a Hebrew word in an English line');
+});
