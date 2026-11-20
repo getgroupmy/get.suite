@@ -7,14 +7,16 @@ import { formulaToExcel, formulaFromExcel, excelFromSheet } from '../src/office/
 import { FUNCTION_NAMES } from '../src/sheetcalc/formula.js';
 
 // Excel's own list of these (the "_xlfn." functions in its file format documentation), less the array ones written by ARRAY_FUNCS.
+// Not NETWORKDAYS.INTL and WORKDAY.INTL: they're in the OOXML standard itself, so LibreOffice's own .xlsx export writes them
+// plain (and _xlfn.AGGREGATE with the prefix), openpyxl lists them as built-in, and LibreOffice reads them prefixed as #NAME?.
 const XLFN = `ACOT ACOTH AGGREGATE ARABIC BASE BETA.DIST BETA.INV BINOM.DIST BINOM.DIST.RANGE BINOM.INV BITAND BITLSHIFT BITOR BITRSHIFT BITXOR
 CEILING.MATH CEILING.PRECISE CHISQ.DIST CHISQ.DIST.RT CHISQ.INV CHISQ.INV.RT CHISQ.TEST COMBINA CONCAT CONFIDENCE.NORM CONFIDENCE.T COT COTH
 COVARIANCE.P COVARIANCE.S CSC CSCH DAYS DECIMAL ECMA.CEILING ERF.PRECISE ERFC.PRECISE EXPON.DIST F.DIST F.DIST.RT F.INV F.INV.RT F.TEST FLOOR.MATH
 FLOOR.PRECISE FORMULATEXT GAMMA GAMMA.DIST GAMMA.INV GAMMALN.PRECISE GAUSS HYPGEOM.DIST IFNA IFS ISFORMULA ISOWEEKNUM LOGNORM.DIST LOGNORM.INV
-MAXIFS MINIFS MODE.MULT MODE.SNGL MUNIT NEGBINOM.DIST NETWORKDAYS.INTL NORM.DIST NORM.INV NORM.S.DIST NORM.S.INV NUMBERVALUE PDURATION
+MAXIFS MINIFS MODE.MULT MODE.SNGL MUNIT NEGBINOM.DIST NORM.DIST NORM.INV NORM.S.DIST NORM.S.INV NUMBERVALUE PDURATION
 PERCENTILE.EXC PERCENTILE.INC PERCENTRANK.EXC PERCENTRANK.INC PERMUTATIONA PHI POISSON.DIST QUARTILE.EXC QUARTILE.INC RANK.AVG RANK.EQ RRI SEC
 SECH SHEET SHEETS SKEW.P STDEV.P STDEV.S SWITCH T.DIST T.DIST.2T T.DIST.RT T.INV T.INV.2T T.TEST TEXTJOIN UNICHAR UNICODE VAR.P VAR.S
-WEIBULL.DIST WORKDAY.INTL XOR Z.TEST XLOOKUP XMATCH VALUETOTEXT ARRAYTOTEXT REGEXTEST PERCENTOF`.split(/\s+/);
+WEIBULL.DIST XOR Z.TEST XLOOKUP XMATCH VALUETOTEXT ARRAYTOTEXT REGEXTEST PERCENTOF`.split(/\s+/);
 
 test('every one Sheets has is written with _xlfn., and read back plainly', () => {
   const ours = new Set(FUNCTION_NAMES);
@@ -54,4 +56,9 @@ test('dates with a time, and times on their own, go to Excel as real dates and t
   assert.deepEqual([back.cells.A1, back.cells.A2, Number(back.cells.A3).toFixed(6)], ['2026-11-20', '2026-11-20 14:30', (14.5 / 24).toFixed(6)]);
   assert.deepEqual(back.formats.A2, { num: 'custom', code: 'dd/mm/yyyy hh:mm' });
   assert.deepEqual(back.formats.A3, { num: 'custom', code: 'h:mm AM/PM' });
+});
+
+test('NETWORKDAYS.INTL and WORKDAY.INTL are written plain, as the standard has them, and read either way', () => {
+  assert.equal(formulaToExcel('NETWORKDAYS.INTL(A1,B1,7)&WORKDAY.INTL(A1,3)'), 'NETWORKDAYS.INTL(A1,B1,7)&WORKDAY.INTL(A1,3)');
+  assert.equal(formulaFromExcel('_xlfn.NETWORKDAYS.INTL(A1,B1,7)'), 'NETWORKDAYS.INTL(A1,B1,7)');
 });

@@ -422,6 +422,8 @@ function formatDate(ms, f) {
 const holidaySet = (h) => new Set(h === undefined ? [] : flat([h]).filter((x) => x !== null && x !== '').map((x) => toDate(x)));
 const isWorkday = (ms, hol, weekend = WEEKEND) => !weekend.has(new Date(ms).getUTCDay()) && !hol.has(ms);
 const WEEKEND = new Set([0, 6]);
+/** WEEKNUM's types: the day weeks start on (0 Sunday … 6 Saturday). */
+const WEEK_START = { 1: 0, 2: 1, 11: 1, 12: 2, 13: 3, 14: 4, 15: 5, 16: 6, 17: 0 };
 /**
  * The weekend days (0 Sunday … 6 Saturday) for NETWORKDAYS.INTL and WORKDAY.INTL: 1 Saturday and Sunday,
  * 2–7 the next pairs (Sunday–Monday … Friday–Saturday), 11–17 one day (Sunday … Saturday), or seven
@@ -1045,9 +1047,13 @@ const FUNCS = {
   MINUTE: ([v]) => Math.floor((secondsOf(v) % 3600) / 60),
   SECOND: ([v]) => secondsOf(v) % 60,
   // Week numbers: WEEKNUM (weeks start on Sunday, or Monday with 2; week 1 has 1 January) and ISOWEEKNUM (ISO 8601).
+  // (type 1 or 17 Sunday, 2 or 11 Monday, 12–16 Tuesday to Saturday; 21 the ISO week)
   WEEKNUM: ([v, type]) => {
     const ms = toDate(v), d = new Date(ms), jan1 = Date.UTC(d.getUTCFullYear(), 0, 1);
-    const start = toNum(type ?? 1) === 2 ? 1 : 0;
+    const t = Math.trunc(toNum(type ?? 1));
+    if (t === 21) return FUNCS.ISOWEEKNUM([v]);
+    const start = WEEK_START[t];
+    if (start === undefined) err('#NUM!');
     const offset = (new Date(jan1).getUTCDay() - start + 7) % 7;
     return Math.floor(((ms - jan1) / DAY_MS + offset) / 7) + 1;
   },
@@ -1328,14 +1334,29 @@ const FUNCS = {
     return (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1);
   },
   // dates (as YYYY-MM-DD text, like TODAY)
-  DATE: ([y, m, d]) => dateText(Date.UTC(toNum(y), toNum(m) - 1, toNum(d))),
+  // (years 0–1899 count from 1900, as Excel's do: DATE(100, 1, 1) is 1 Jan 2000; whole numbers only; 10000 on: #NUM!)
+  DATE: ([y, m, d]) => {
+    let yr = Math.trunc(toNum(y));
+    if (yr < 0 || yr >= 10000) err('#NUM!');
+    if (yr < 1900) yr += 1900;
+    const ms = Date.UTC(yr, Math.trunc(toNum(m)) - 1, Math.trunc(toNum(d)));
+    if (ms < EXCEL_EPOCH || new Date(ms).getUTCFullYear() >= 10000) err('#NUM!');
+    return dateText(ms);
+  },
   YEAR: ([v]) => new Date(toDate(v)).getUTCFullYear(),
   MONTH: ([v]) => new Date(toDate(v)).getUTCMonth() + 1,
   DAY: ([v]) => new Date(toDate(v)).getUTCDate(),
-  WEEKDAY: ([v, type]) => { const d = new Date(toDate(v)).getUTCDay(); const t = toNum(type ?? 1); return t === 2 ? ((d + 6) % 7) + 1 : t === 3 ? (d + 6) % 7 : d + 1; },
+  // (1 Sunday is 1; 2 Monday is 1; 3 Monday is 0; 11–17 Monday … Sunday is 1)
+  WEEKDAY: ([v, type]) => {
+    const d = new Date(toDate(v)).getUTCDay(), t = Math.trunc(toNum(type ?? 1));
+    if (t === 3) return (d + 6) % 7;
+    const start = t === 1 ? 0 : t === 2 ? 1 : t >= 11 && t <= 17 ? (t - 10) % 7 : err('#NUM!');
+    return ((d - start + 7) % 7) + 1;
+  },
   DAYS: ([end, start]) => Math.round((toDate(end) - toDate(start)) / DAY_MS),
-  EDATE: ([start, months]) => { const d = new Date(toDate(start)); const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months), 1)); const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate(); return dateText(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), Math.min(d.getUTCDate(), last))); },
-  EOMONTH: ([start, months]) => { const d = new Date(toDate(start)); return dateText(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months) + 1, 0)); },
+  // (a fraction of a month is dropped, as in Excel: -0.5 months is none)
+  EDATE: ([start, months]) => { const d = new Date(toDate(start)); const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + Math.trunc(toNum(months)), 1)); const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate(); return dateText(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), Math.min(d.getUTCDate(), last))); },
+  EOMONTH: ([start, months]) => { const d = new Date(toDate(start)); return dateText(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + Math.trunc(toNum(months)) + 1, 0)); },
   NOW: () => localNow(),
   // statistics
   'STDEV': (a) => Math.sqrt(variance(a, true)),
@@ -1452,10 +1473,12 @@ const FUNCS = {
   NETWORKDAYS: ([start, end, holidays]) => {
     let a = toDate(start), b = toDate(end), sign = 1;
     if (b < a) { [a, b] = [b, a]; sign = -1; }
-    if ((b - a) / DAY_MS > 36600) err('#NUM!');
     const hol = holidaySet(holidays);
-    let n = 0;
-    for (let t = a; t <= b; t += DAY_MS) if (isWorkday(t, hol)) n++;
+    // whole weeks at once (five working days each), then the days left one by one; holidays on working days taken off
+    const weeks = Math.floor(((b - a) / DAY_MS + 1) / 7);
+    let n = weeks * 5;
+    for (let t = a + weeks * 7 * DAY_MS; t <= b; t += DAY_MS) if (isWorkday(t, new Set())) n++;
+    for (const h of hol) if (h >= a && h <= b && isWorkday(h, new Set())) n--;
     return n * sign;
   },
   WORKDAY: ([start, days, holidays]) => {
@@ -1469,8 +1492,7 @@ const FUNCS = {
   'NETWORKDAYS.INTL': ([start, end, weekend, holidays]) => {
     let a = toDate(start), b = toDate(end), sign = 1;
     if (b < a) { [a, b] = [b, a]; sign = -1; }
-    if ((b - a) / DAY_MS > 36600) err('#NUM!');
-    const hol = holidaySet(holidays), wk = weekendOf(weekend);
+    const hol = holidaySet(holidays), wk = weekendOf(weekend); // (any span: 1900 to 9999 is a few million days)
     let n = 0;
     for (let t = a; t <= b; t += DAY_MS) if (isWorkday(t, hol, wk)) n++;
     return n * sign;

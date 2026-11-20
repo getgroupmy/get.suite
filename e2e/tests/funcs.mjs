@@ -163,6 +163,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // text read as numbers: (5) is -5, a time of day, a date's day number; counts of characters taken as whole numbers
   await typeIn('P15', '=("(5)"+0)&"|"&VALUE("2:30 PM")*24&"|"&VALUE("2026-11-20")&"|"&LEFT("Hello", 1.9)&"|"&PROPER("İstanbul")');
   await expectCells({ P15: '-5|14.5|46346|H|İstanbul' });
+  // WEEKDAY and WEEKNUM types past 11, a fraction of a month dropped, two-digit years from 1900
+  await typeIn('P16', '=WEEKDAY(DATE(2024,8,31),14)&"|"&WEEKNUM(DATE(2024,3,31),21)&"|"&TEXT(EDATE(DATE(2025,12,31),-0.5),"yyyy-mm-dd")&"|"&YEAR(DATE(100,1,1))');
+  await expectCells({ P16: '3|13|2025-12-31|2000' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');
