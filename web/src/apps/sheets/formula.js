@@ -2631,6 +2631,14 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           const a = n.args[0];
           const at = !a || a.k === 'empty' ? (here ? parseRef(here) : err('#VALUE!')) : a.k === 'call' && (a.name === 'OFFSET' || a.name === 'INDIRECT') ? refOf(a).a : a.k === 'ref' ? a.ref : a.k === 'range' || (a.k === 'xref') ? { r: Math.min(a.a.r, a.b.r), c: Math.min(a.a.c, a.b.c) } : err('#VALUE!');
           if (!at) err('#REF!');
+          // a range of several rows (columns): each one's number, as Excel gives them (=SUMPRODUCT(ROW(B1:B6)*…) needs all six)
+          if (a && (a.k === 'range' || (a.k === 'xref' && !a.one))) {
+            const span = n.name === 'ROW' ? Math.abs(a.b.r - a.a.r) + 1 : Math.abs(a.b.c - a.a.c) + 1;
+            if (span > 1) {
+              const nums = Array.from({ length: Math.min(span, MAX_REF_CELLS) }, (_, k) => (n.name === 'ROW' ? at.r : at.c) + 1 + k);
+              return grid(n.name === 'ROW' ? nums.map((x) => [x]) : [nums]);
+            }
+          }
           return (n.name === 'ROW' ? at.r : at.c) + 1;
         }
         if (n.name === 'ROWS' || n.name === 'COLUMNS') {
@@ -2896,7 +2904,7 @@ function elementwise(a, b, fn) {
   const sa = shapeOf(a), sb = b === null ? { rows: 1, cols: 1, at: () => null } : shapeOf(b);
   const rows = Math.max(sa.rows, sb.rows), cols = Math.max(sa.cols, sb.cols);
   const pick = (s, r, c) => {
-    if ((s.rows !== 1 && r >= s.rows) || (s.cols !== 1 && c >= s.cols)) err('#VALUE!');
+    if ((s.rows !== 1 && r >= s.rows) || (s.cols !== 1 && c >= s.cols)) err('#N/A'); // (past the end of the smaller one: #N/A there, as in Excel)
     return s.at(s.rows === 1 ? 0 : r, s.cols === 1 ? 0 : c);
   };
   // Each cell on its own: one that can't be worked out shows its error, the others their values.
@@ -2912,7 +2920,7 @@ function mayArray(n) {
     case 'xref': return !n.one;
     case 'neg': return mayArray(n.e);
     case 'bin': return mayArray(n.left) || mayArray(n.right);
-    case 'call': return ARRAY_FUNCS.has(n.name) || (n.name === 'INDEX' && n.args.slice(1).some((a) => a?.k === 'num' && a.v === 0)) || liftsArray(n); // (INDEX(…, 0, 2): a whole column)
+    case 'call': return ARRAY_FUNCS.has(n.name) || ((n.name === 'ROW' || n.name === 'COLUMN') && ['range', 'xref'].includes(n.args[0]?.k) && !n.args[0].one) || (n.name === 'INDEX' && n.args.slice(1).some((a) => a?.k === 'num' && a.v === 0)) || liftsArray(n); // (INDEX(…, 0, 2): a whole column)
     default: return false;
   }
 }
