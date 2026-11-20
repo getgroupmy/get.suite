@@ -458,6 +458,18 @@ function order(a, b) {
   if (ra === 1) return a.toLowerCase().localeCompare(b.toLowerCase());
   return Number(a) - Number(b);
 }
+const DIRECT_VALUES = new Set(['SUM', 'AVERAGE', 'MAX', 'MIN', 'PRODUCT', 'MEDIAN', 'COUNT']);
+const DIRECT_KINDS = new Set(['str', 'bool', 'bin', 'neg']); // typed or worked out in the formula, not read from a cell
+/** A value given straight to SUM and the like: TRUE is 1, "5" and "50%" numbers, a date its day number; other text #VALUE! (COUNT: not counted). */
+function directValue(name, v) {
+  if (isErr(v) || typeof v === 'number' || v === null || v === undefined) return v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  const t = String(v).trim();
+  if ((name === 'MAX' || name === 'MIN') && dateSerial(t) !== null) return v; // stays a date: MAX of dates is a date
+  const n = t !== '' && !Number.isNaN(Number(t)) ? Number(t) : dateSerial(t) ?? numberInText(t);
+  if (n !== null) return n;
+  return name === 'COUNT' ? null : err('#VALUE!');
+}
 /** Functions answering FALSE (ISNONTEXT: TRUE) for an error rather than giving it: =ISNUMBER(A1:A9) over a range with one. */
 const TAKES_ERRORS = new Set(['ISNUMBER', 'ISTEXT', 'ISBLANK', 'ISLOGICAL', 'ISNONTEXT', 'ISDATE', 'ISEMAIL', 'ISURL']);
 /** Functions that give back several cells, which spill into the cells beside and below. */
@@ -2627,6 +2639,11 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           const top = Array.isArray(v) ? (Array.isArray(v[0]) ? v[0][0] : v[0]) : v;
           if (what === 'contents') return top ?? '';
           return top === null || top === undefined || top === '' ? 'b' : typeof top === 'string' ? 'l' : 'v';
+        }
+        if (DIRECT_VALUES.has(n.name)) {
+          // A value typed into the call itself ("5", TRUE, A1>0) counts, as in Excel: =SUM(B1:B3, "5") adds 5 and
+          // =SUM("x") is #VALUE!, while text and TRUE/FALSE in cells are still passed over.
+          return FUNCS[n.name](n.args.map((a) => { const v = evaluate(a); return DIRECT_KINDS.has(a.k) && !Array.isArray(v) ? directValue(n.name, v) : v; }));
         }
         const f = FUNCS[n.name];
         if (!f) {

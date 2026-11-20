@@ -140,6 +140,9 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // lists of k and of conditions; an approximate VLOOKUP on unsorted amounts gives Excel's answer
   await typeIn('P4', '=SUM(LARGE(B2:B4, {1,2}))&"|"&SUM(SUMIFS(B2:B4, A2:A4, {"pear","fig"}))&"|"&VLOOKUP(100, B2:B4, 1, TRUE)');
   await expectCells({ P4: '200|200|0' }); // 120, 80, 0 unsorted: the halving search ends on 0, as Excel's does
+  // a value typed into SUM counts; text in cells doesn't
+  await typeIn('P5', '=SUM(B2:B4, "5")&"|"&SUM(A2:B4)&"|"&COUNT("1", TRUE, A2)');
+  await expectCells({ P5: '205|200|2' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

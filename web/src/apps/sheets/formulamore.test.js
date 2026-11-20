@@ -606,3 +606,19 @@ test('approximate lookups search as Excel does (binary search); lists of k and o
   is('=COLUMNS(UNIQUE({1,2,1,3}, TRUE))', 3);
   is('=UNIQUE({1;1}, , TRUE)', { error: '#CALC!' }); // the one value is there twice
 });
+test('a value typed into SUM, AVERAGE, COUNT… itself counts as in Excel; text and TRUE in cells are still passed over', () => {
+  const c = { B1: '10', B2: '20', B3: 'x', B4: 'TRUE' };
+  const is = (f, want) => assert.deepEqual(one(f, c), want, f);
+  is('=SUM(B1:B3, "5")', 35);
+  is('=SUM("x")', { error: '#VALUE!' });
+  is('=SUM(B3)', 0);
+  is('=SUM(B4)', 0);
+  is('=SUM(B1:B4)', 30);
+  near(one('=AVERAGE(B1:B2, TRUE)', c), 31 / 3);
+  is('=COUNT("5", "x", TRUE, B3, B4)', 2);
+  is('=SUM(B1>5, B2>50)', 1);
+  is('=MAX("30", B1:B2)', 30);
+  is('=PRODUCT("50%", 10)', 5);
+  is('=SUM({1,"2",TRUE})', 1); // an array constant is like a range
+  is('=MAX("2026-12-25", "2026-01-01")', '2026-12-25'); // dates stay dates
+});
