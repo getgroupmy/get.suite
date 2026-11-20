@@ -90,6 +90,39 @@ await step('suggesting works in a tab; word count covers every tab', async () =>
   await until(async () => Number(await words()) >= 15);
   await page.screenshot({ path: `${SP}/shots/doctabs-comment.png` });
 });
+await step('Copy to another document…: Budget into “Archive” (no tabs yet), which Kim has open, where it arrives at once', async () => {
+  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
+  const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
+  const archive = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Archive', content: { type: 'doc', content: [p('Old notes from last year.')] } })).body;
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  await api(page, 'PUT', `/files/${archive.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  await kim.goto(`${B}/docs/${archive.id}`);
+  const kimEd = kim.locator('.doc-scroll .ProseMirror');
+  await kimEd.getByText('Old notes from last year.').waitFor({ state: 'visible' });
+  await page.goto(`${B}/docs/${id}`);
+  await ed().getByText('Open two shops this spring.').waitFor({ state: 'visible' });
+  await panel().getByRole('button', { name: 'Options for tab Budget' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to another document…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Copy “Budget” to a document' });
+  await dlg.getByLabel('Search your files').fill('Archive');
+  await dlg.getByRole('button', { name: /Archive/ }).click();
+  await page.locator('.toast', { hasText: 'Copied to “Archive” as “Budget”' }).waitFor();
+  // Kim: the document now has tabs, what it had as Tab 1, then Budget
+  const kimPanel = kim.getByRole('navigation', { name: 'Document tabs' });
+  await kimPanel.getByRole('button', { name: 'Budget', exact: true }).waitFor({ timeout: 10000 });
+  await kimPanel.getByRole('button', { name: 'Tab 1', exact: true }).waitFor();
+  await kimPanel.getByRole('button', { name: 'Budget', exact: true }).click();
+  await kimEd.getByText('Rent and staff come to four thousand.').waitFor({ state: 'visible' });
+  await kimPanel.getByRole('button', { name: 'Tab 1', exact: true }).click();
+  await kimEd.getByText('Old notes from last year.').waitFor({ state: 'visible' });
+  // The original still has its two tabs; Open it goes to the copy
+  await panel().getByRole('button', { name: 'Budget', exact: true }).waitFor();
+  if ((await panel().getByRole('listitem').count()) !== 2) throw new Error('the original changed');
+  await page.locator('.toast', { hasText: 'Copied to' }).getByRole('button', { name: 'Open it' }).click();
+  await page.waitForURL(new RegExp(`/docs/${archive.id}`));
+  await ed().getByText('Rent and staff come to four thousand.').waitFor({ state: 'visible' });
+  await kim.close();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

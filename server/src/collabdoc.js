@@ -69,6 +69,22 @@ export function appendToJson(json, nodes, tab = null) {
   return { json: { ...json, content }, tab: tabTitle(node.attrs, index) };
 }
 
+/**
+ * Make a live document hold `json`: the blocks at its start that are the same stay as they are (so
+ * people typing there aren't disturbed), the rest is replaced.
+ */
+export function setYDocJson(doc, json, field = 'default') {
+  const frag = doc.getXmlFragment(field);
+  const now = jsonFromDoc(doc, field).content;
+  const next = json?.content || [];
+  let i = 0;
+  while (i < now.length && i < next.length && JSON.stringify(now[i]) === JSON.stringify(next[i])) i++;
+  doc.transact(() => {
+    if (frag.length > i) frag.delete(i, frag.length - i);
+    fill(frag, next.slice(i));
+  });
+}
+
 /** The JSON document held in a Yjs document. */
 export function jsonFromDoc(doc, field = 'default') {
   const serialize = (item) => {

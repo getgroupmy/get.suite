@@ -16124,3 +16124,49 @@ test('Slides: copy a slide to another presentation you can edit, its pictures an
   await owner('PUT', `/api/files/${dst.id}/lock`, { locked: true });
   assert.equal((await owner('POST', `/api/files/${src.id}/slides/s2/copy-to`, { target: dst.id })).status, 423);
 });
+
+test('Docs: copy a tab to another document you can edit, its pictures copied for it; one without tabs gets "Tab 1" first', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=tabpic.png', png, { raw: true })).body;
+  const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+  const src = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Handbook' })).body;
+  let cur = (await owner('GET', `/api/files/${src.id}/content`)).body;
+  await owner('PUT', `/api/files/${src.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [
+    { type: 'docTab', attrs: { id: 'ta', title: 'Welcome' }, content: [para('Hello')] },
+    { type: 'docTab', attrs: { id: 'tb', title: '' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Leave', marks: [{ type: 'comment', attrs: { id: 'c9' } }] }] }, { type: 'image', attrs: { fileId: pic.id } }] },
+  ] } });
+  const dst = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Onboarding' })).body;
+  cur = (await owner('GET', `/api/files/${dst.id}/content`)).body;
+  await owner('PUT', `/api/files/${dst.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [para('Intro')] } });
+  const r = await owner('POST', `/api/files/${src.id}/doc-tabs/tb/copy-to`, { target: dst.id });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.tab, 'Tab 2', 'an untitled tab goes by its place');
+  let content = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.content;
+  assert.deepEqual(content.map((t) => [t.type, t.attrs.title]), [['docTab', 'Tab 1'], ['docTab', 'Tab 2']]);
+  assert.deepEqual(content[0].content, [para('Intro')], 'what it had is its first tab');
+  assert.equal(content[1].attrs.id, r.body.tab_id);
+  assert.deepEqual(content[1].content[0], para('Leave'), 'without the comment highlight');
+  const copied = content[1].content[1].attrs.fileId;
+  assert.notEqual(copied, pic.id, 'the picture is a copy');
+  assert.equal((await owner('GET', `/api/files/${dst.id}/pictures/${copied}`)).status, 200);
+  // Again, and Welcome: "Copy of Tab 2" (taken), "Welcome"
+  assert.equal((await owner('POST', `/api/files/${src.id}/doc-tabs/tb/copy-to`, { target: dst.id })).body.tab, 'Copy of Tab 2');
+  assert.equal((await owner('POST', `/api/files/${src.id}/doc-tabs/ta/copy-to`, { target: dst.id })).body.tab, 'Welcome');
+  content = (await owner('GET', `/api/files/${dst.id}/content`)).body.content.content;
+  assert.equal(content.length, 4);
+  // Into a document someone else only lets you view; no such tab; not a document; locked
+  assert.equal((await owner('POST', '/api/users', { local: 'tabbea', domain: 'acme.com', name: 'Tab Bea', password: 'password123' })).status, 201);
+  const bea = client(); await login(bea, 'tabbea@acme.com');
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  await owner('PUT', `/api/files/${dst.id}/shares`, { shares: [{ user_id: dir.find((u) => u.username === 'tabbea@acme.com').id, role: 'viewer' }] });
+  const mine = (await bea('POST', '/api/files/new', { kind: 'doc', name: 'Bea notes' })).body;
+  cur = (await bea('GET', `/api/files/${mine.id}/content`)).body;
+  await bea('PUT', `/api/files/${mine.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'docTab', attrs: { id: 'x1', title: 'Mine' }, content: [para('m')] }] } });
+  assert.equal((await bea('POST', `/api/files/${mine.id}/doc-tabs/x1/copy-to`, { target: dst.id })).status, 403);
+  assert.equal((await bea('POST', `/api/files/${src.id}/doc-tabs/ta/copy-to`, { target: mine.id })).status, 404);
+  assert.equal((await owner('POST', `/api/files/${src.id}/doc-tabs/zz/copy-to`, { target: dst.id })).status, 404);
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Not a doc' })).body;
+  assert.equal((await owner('POST', `/api/files/${src.id}/doc-tabs/ta/copy-to`, { target: sheet.id })).status, 400);
+  await owner('PUT', `/api/files/${dst.id}/lock`, { locked: true });
+  assert.equal((await owner('POST', `/api/files/${src.id}/doc-tabs/ta/copy-to`, { target: dst.id })).status, 423);
+});

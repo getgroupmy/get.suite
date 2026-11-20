@@ -30,7 +30,8 @@ import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway, accessRequestsF
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { sheetCopyFor } from '../sheetcopy.js';
-import { recheckSoon, resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
+import { recheckSoon, resetRoom, CO_EDITED, saveNow, changeSheet, changeDeck, changeDocument, appendToDocument, replaceInDocument, suggestionsOf, resolveSuggestions, describeSuggestion, suggestionsWaitingFor } from '../collab.js';
+import { tabOf, tabContentCopy, withTabAdded } from '../doctabcopy.js';
 import { docFromText } from '../doctext.js';
 import { appendRows, setCells } from '../sheetrows.js';
 import { deckFromOutline } from '../decktext.js';
@@ -1902,9 +1903,24 @@ export default function fileRoutes({ maxUploadBytes }) {
    * Only those `src` could show itself are copied (owned by someone who can edit it); others are left out.
    */
   const copiedSlides = (src, chosen, user, deck) => {
-    const parentId = deck.parent_id && atLeast(roleFor(deck.parent_id, user.id) || '', 'editor') ? deck.parent_id : null;
+    const copied = copiedMedia(src, picturesIn('slides', { slides: chosen }), user, deck);
+    const fresh = () => crypto.randomBytes(6).toString('base64url');
+    const withFile = (it) => ['image', 'video', 'audio'].includes(it.type) && it.fileId;
+    const slides = chosen.map(({ bgImage, ...sl }) => ({ ...JSON.parse(JSON.stringify(sl)), id: fresh(), ...(bgImage && copied.has(bgImage) && { bgImage: copied.get(bgImage) }),
+      items: (sl.items || []).flatMap((it) => (withFile(it) && !copied.has(it.fileId) ? [] : [{ ...JSON.parse(JSON.stringify(it)), id: fresh(), ...(withFile(it) ? { fileId: copied.get(it.fileId) } : {}) }]))
+        .map((it) => (it.link?.slide ? (({ link, ...rest }) => rest)(it) : it)) })); // (a link to another slide of that presentation: not one here)
+    return slides;
+  };
+
+  /**
+   * Copies, for `user`, of the pictures, videos and sounds `ids` that file `src` uses, for file `target`
+   * (beside it when they can add files there), as it will show only files someone who can edit it owns.
+   * Only those `src` could show itself are copied (owned by someone who can edit it). Gives old id -> new.
+   */
+  const copiedMedia = (src, ids, user, target) => {
+    const parentId = target.parent_id && atLeast(roleFor(target.parent_id, user.id) || '', 'editor') ? target.parent_id : null;
     const copied = new Map(); // old file id -> new
-    const media = [...picturesIn('slides', { slides: chosen })].map((pid) => q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pid)).filter(Boolean);
+    const media = [...ids].map((pid) => q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pid)).filter(Boolean);
     checkQuota(user.org_id, media.reduce((n, f) => n + (f.size || 0), 0), user.id);
     for (const f of media) {
       if (!/^(image|video|audio)\//.test(f.mime || '') || !atLeast(roleFor(src.id, f.owner_id) || '', 'editor')) continue;
@@ -1912,14 +1928,32 @@ export default function fileRoutes({ maxUploadBytes }) {
       fs.copyFileSync(path.join(FILES_DIR, f.storage), path.join(FILES_DIR, storage));
       copied.set(f.id, insertFile({ owner: user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: `${f.name} in ${src.name}` } } }));
     }
-    const fresh = () => crypto.randomBytes(6).toString('base64url');
-    const withFile = (it) => ['image', 'video', 'audio'].includes(it.type) && it.fileId;
-    const slides = chosen.map(({ bgImage, ...sl }) => ({ ...JSON.parse(JSON.stringify(sl)), id: fresh(), ...(bgImage && copied.has(bgImage) && { bgImage: copied.get(bgImage) }),
-      items: (sl.items || []).flatMap((it) => (withFile(it) && !copied.has(it.fileId) ? [] : [{ ...JSON.parse(JSON.stringify(it)), id: fresh(), ...(withFile(it) ? { fileId: copied.get(it.fileId) } : {}) }]))
-        .map((it) => (it.link?.slide ? (({ link, ...rest }) => rest)(it) : it)) })); // (a link to another slide of that presentation: not one here)
     if (copied.size) notifyPlace(parentId, user);
-    return slides;
+    return copied;
   };
+
+  // Copy one tab of a document to the end of another document (or the same one), for someone who can edit both;
+  // open there, it arrives live. Its pictures are copied for it.
+  r.post('/:id/doc-tabs/:tab/copy-to', (req, res) => {
+    const src = loadFile(req.params.id, req.user, 'editor');
+    if (src.kind !== 'doc') throw bad('Only a document has tabs');
+    saveNow(src.id);
+    const srcJson = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}');
+    const tab = tabOf(srcJson, req.params.tab);
+    if (!tab) throw notFound('No such tab');
+    const t = loadFile(String(req.body?.target || ''), req.user, 'editor');
+    if (t.kind !== 'doc' || q('SELECT trashed FROM files WHERE id = ?').get(t.id)?.trashed) throw bad('Choose a document to copy it to');
+    notLocked(t);
+    const title = String(tab.attrs?.title || '') || `Tab ${(srcJson.content || []).filter((n) => n.type === 'docTab').indexOf(tab) + 1}`;
+    const files = copiedMedia(src, picturesIn('doc', tab), req.user, t);
+    const copy = { type: 'docTab', attrs: { title }, content: tabContentCopy(tab, files) };
+    const newId = () => crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x').slice(0, 8);
+    let added = null;
+    changeDocument(t.id, (json) => { added = withTabAdded(json, copy, newId); return added?.json || null; }, req.user.id);
+    if (!added) throw bad('That document has as many tabs as it can hold');
+    audit(req, 'doc.tab_copy_to', { target: t.name, details: { from: src.name, tab: title } });
+    res.status(201).json({ id: t.id, name: t.name, tab: added.title, tab_id: added.json.content.at(-1).attrs.id });
+  });
 
   // Copy one slide to the end of another presentation (or the same one), for someone who can edit both; open there,
   // it arrives live.

@@ -1,8 +1,10 @@
 // The tabs of a document, beside it: click one to open it; + adds one; each tab's ⋮ renames,
-// duplicates, moves or deletes it. Everyone sees the same tabs (they're part of the document); which
+// duplicates, copies to another document, moves or deletes it. Everyone sees the same tabs (they're part of the document); which
 // one is open is each person's own.
 import { useEffect, useState } from 'react';
-import { Menu, ConfirmModal, PromptModal } from '../../components/ui.jsx';
+import { Menu, ConfirmModal, PromptModal, useToast } from '../../components/ui.jsx';
+import DrivePicker from '../../components/DrivePicker.jsx';
+import { post } from '../../api.js';
 import { tabsOf } from './doctabs.js';
 import { activeTab, openTab, addTab, renameTab, deleteTab, moveTab, duplicateTab } from './doctabsext.js';
 
@@ -27,6 +29,7 @@ export function useTabs(editor) {
 export function DocTabs({ editor, canEdit, onClose, fileId, onCopied }) {
   const { tabs, active } = useTabs(editor);
   const [dialog, setDialog] = useState(null);
+  const toast = useToast();
   // A link that opens the document on this tab, for sending to someone.
   const copyLink = async (t) => {
     const url = `${window.location.origin}/docs/${fileId}#tab=${t.id}`;
@@ -51,6 +54,7 @@ export function DocTabs({ editor, canEdit, onClose, fileId, onCopied }) {
                 fileId && { label: 'Copy link to tab', icon: 'link', onClick: () => copyLink(t) },
                 canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', tab: t }) },
                 canEdit && { label: 'Duplicate', onClick: () => duplicateTab(editor, t.id) },
+                canEdit && fileId && { label: 'Copy to another document…', onClick: () => setDialog({ type: 'copy-to', tab: t }) },
                 canEdit && i > 0 && { label: 'Move up', onClick: () => moveTab(editor, t.id, -1) },
                 canEdit && i < list.length - 1 && { label: 'Move down', onClick: () => moveTab(editor, t.id, 1) },
                 canEdit && list.length > 1 && '-',
@@ -62,6 +66,16 @@ export function DocTabs({ editor, canEdit, onClose, fileId, onCopied }) {
       </ul>
       {dialog?.type === 'rename' && <PromptModal title="Rename tab" label="Tab name" initial={dialog.tab.title} confirm="Rename"
         onClose={() => setDialog(null)} onSubmit={(v) => renameTab(editor, dialog.tab.id, v)} />}
+      {dialog?.type === 'copy-to' && <DrivePicker title={`Copy “${dialog.tab.title}” to a document`} empty="No documents you can edit."
+        accept={(x) => x.kind === 'doc' && (x.role === 'owner' || x.role === 'editor')}
+        onClose={() => setDialog(null)} onPick={async (d) => {
+          const tab = dialog.tab;
+          setDialog(null);
+          try {
+            const r = await post(`/files/${fileId}/doc-tabs/${encodeURIComponent(tab.id)}/copy-to`, { target: d.id });
+            toast(`Copied to “${r.name}” as “${r.tab}”`, 'info', { action: { label: 'Open it', onClick: () => { window.location.href = `/docs/${r.id}#tab=${r.tab_id}`; } } });
+          } catch (e) { toast(e.message || 'Couldn’t copy the tab', 'error'); }
+        }} />}
       {dialog?.type === 'delete' && <ConfirmModal title={`Delete “${dialog.tab.title}”?`} confirm="Delete tab"
         message="The tab and everything in it are deleted for everyone. Undo (Ctrl+Z) or version history brings it back."
         onClose={() => setDialog(null)} onConfirm={() => deleteTab(editor, dialog.tab.id)} />}

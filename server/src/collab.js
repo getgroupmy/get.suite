@@ -16,7 +16,7 @@ import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { trackSession } from './livesessions.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc, onlyOwnSuggestions } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc, applyDeckJson, applySheetJson, appendToYDoc, appendToJson, setYDocJson, markQuoteInYDoc, replaceInYDoc, replaceInJson, markQuoteInJson, suggestionsInJson, suggestionsInYDoc, resolveSuggestionsInJson, resolveSuggestionsInYDoc, onlyOwnSuggestions } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 import { notify } from './notifications.js';
@@ -273,6 +273,31 @@ export function changeDeck(fileId, fn, by = null) {
   indexSoon();
   const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
   sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
+}
+/**
+ * Change a document from the server: `fn` gets its JSON and gives back the new one (or null for no change).
+ * Open in someone's browser, it changes live; otherwise it's saved straight away.
+ */
+export function changeDocument(fileId, fn, by = null) {
+  const room = rooms.get(fileId);
+  if (room) {
+    const next = fn(jsonFromDoc(room.doc, FIELD));
+    if (!next) return null;
+    setYDocJson(room.doc, next, FIELD); // sent to everyone in the room by its update handler
+    room.lastEditor = by || room.lastEditor;
+    return next;
+  }
+  const f = q("SELECT content FROM files WHERE id = ? AND kind = 'doc' AND trashed = 0").get(fileId);
+  if (!f) return null;
+  const next = fn(JSON.parse(f.content || '{}'));
+  if (!next) return null;
+  const json = JSON.stringify(next);
+  q('UPDATE files SET content = ?, size = ?, ydoc = NULL, version = version + 1, updated_at = ?, updated_by = COALESCE(?, updated_by) WHERE id = ?')
+    .run(json, Buffer.byteLength(json), Date.now(), by, fileId);
+  indexSoon();
+  const version = q('SELECT version FROM files WHERE id = ?').get(fileId)?.version;
+  sendTo(audienceFor(fileId), { type: 'content-changed', id: fileId, version, by });
+  return next;
 }
 /**
  * Add blocks to the end of a document (or one of its tabs) from the server (an assistant adding notes).
