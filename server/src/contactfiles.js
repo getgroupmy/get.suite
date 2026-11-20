@@ -7,29 +7,9 @@ import { cleanMore } from './contactmore.js';
 
 export const MAX_IMPORT = 5000;
 
-/** CSV text → rows of fields (quoted fields may hold commas, quotes and new lines). Semicolons work as separators too. */
-export function parseCsv(text, { keepEmpty = false } = {}) {
-  const src = String(text || '').replace(/^﻿/, '');
-  const firstLine = src.split(/\r?\n/, 1)[0] || '';
-  const sep = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
-  const rows = [];
-  let row = [], field = '', quoted = false;
-  for (let i = 0; i < src.length; i++) {
-    const ch = src[i];
-    if (quoted) {
-      if (ch === '"' && src[i + 1] === '"') { field += '"'; i++; }
-      else if (ch === '"') quoted = false;
-      else field += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === sep) { row.push(field); field = ''; }
-    else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && src[i + 1] === '\n') i++;
-      row.push(field); rows.push(row); row = []; field = '';
-    } else field += ch;
-  }
-  if (field || row.length) { row.push(field); rows.push(row); }
-  return keepEmpty ? rows : rows.filter((r) => r.some((f) => f.trim())); // keepEmpty: blank rows stay, so row numbers do
-}
+import { parseCsv, csvSeparator } from './sheetcalc/csvread.js';
+
+export { parseCsv, csvSeparator };
 
 // Column names in the exports people have, lower case: the first one found is used.
 const COLUMNS = {

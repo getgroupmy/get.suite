@@ -71,6 +71,7 @@ import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour, typedNumber, typedDate, typedCells } from './cellformat.js';
+import { parseCsv } from './csvread.js'; // (the same reader as the server's: semicolon files, a byte-order mark)
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -1776,25 +1777,6 @@ function describeError(code) {
   }[code] || code;
 }
 
-export function parseCsv(text) {
-  const rows = [];
-  let row = [], field = '', q = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) {
-      if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; }
-      else if (ch === '"') q = false;
-      else field += ch;
-    } else if (ch === '"') q = true;
-    else if (ch === ',') { row.push(field); field = ''; }
-    else if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && text[i + 1] === '\n') i++;
-      row.push(field); rows.push(row); row = []; field = '';
-    } else field += ch;
-  }
-  if (field || row.length) { row.push(field); rows.push(row); }
-  return rows;
-}
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
 /** Writing a cell's note: Ctrl+Enter (or clicking away) keeps it, Esc leaves it as it was; empty removes it. */
