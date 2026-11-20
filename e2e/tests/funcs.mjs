@@ -165,6 +165,12 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await expectCells({ R1: '20/11/2026', R2: '25 Dec 2026', R3: '2:30 PM', R4: '35|Friday|14' });
   await typeIn('R5', "'1-2");
   await expectCells({ R5: '1-2' }); // a ' in front: kept as text, the ' not shown
+  // pasted from another program (tab-separated): numbers and dates as written there become numbers and dates
+  await cell('S1').click();
+  await page.evaluate((text) => { const dt = new DataTransfer(); dt.setData('text/plain', text); document.querySelector('.grid-wrap').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); },
+    'Item\tPrice\tShare\tDue\nDesk\t$1,250.00\t40%\t05/12/2026\nLamp\t£80\t60%\t20 Dec 2026');
+  await typeIn('S4', '=SUM(T2:T3)&"|"&SUM(U2:U3)&"|"&(V3-V2)');
+  await expectCells({ S1: 'Item', T2: '$1,250.00', U2: '40%', V2: '05/12/2026', T3: '£80', V3: '20 Dec 2026', S4: '1330|1|15' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

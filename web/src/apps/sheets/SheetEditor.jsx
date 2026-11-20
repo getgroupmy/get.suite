@@ -1092,7 +1092,21 @@ export default function SheetEditor() {
       });
       dataRef.current = { ...cur, sheets };
     } else {
-      text.split('\n').forEach((line, ri) => line.split('\t').forEach((v, ci) => { u[cellKey(sel.c + ci, sel.r + ri)] = v; }));
+      // From another program: numbers written with %, thousands or a currency, and dates as people write them, are
+      // kept as numbers and dates in the matching format, as when typed (cells with a number format keep theirs).
+      const fmtAdd = {};
+      const own = dataRef.current.sheets[active]?.formats || {};
+      text.split('\n').forEach((line, ri) => line.split('\t').forEach((v, ci) => {
+        const k = cellKey(sel.c + ci, sel.r + ri);
+        const typed = v.startsWith('=') ? null : typedNumber(v) ?? typedDate(v);
+        if (!typed) { u[k] = v; return; }
+        u[k] = String(typed.value);
+        if (!own[k]?.num) fmtAdd[k] = typed.fmt;
+      }));
+      if (Object.keys(fmtAdd).length) {
+        const cur = dataRef.current;
+        dataRef.current = { ...cur, sheets: cur.sheets.map((s, i) => (i !== active ? s : { ...s, formats: { ...(s.formats || {}), ...Object.fromEntries(Object.entries(fmtAdd).map(([k, f]) => [k, mergeFormat(s.formats?.[k], f)])) } })) };
+      }
     }
     writeCells(u);
   }
