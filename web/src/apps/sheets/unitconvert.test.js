@@ -29,7 +29,8 @@ test('CONVERT: temperatures, energy, information', () => {
 test('CONVERT: unknown units, different kinds, and case all give nothing', () => {
   assert.equal(cv(1, 'm', 'kg'), null);
   assert.equal(cv(1, 'C', 'm'), null);
-  assert.equal(cv(1, 'parsec', 'm'), null);
+  assert.equal(cv(1, 'furlong', 'm'), null); // (not one of Excel's; parsec is, as pc)
+  assert.equal(cv(1, 'pc', 'ly') > 3.26, true);
   assert.equal(cv(1, 'MI', 'km'), null, 'case-sensitive, as in Excel');
   assert.equal(cv(1, 'kft', 'm'), null, 'no prefixes on non-metric units');
   assert.equal(cv(1, 'kibit', 'm'), null);

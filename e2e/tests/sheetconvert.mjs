@@ -62,6 +62,9 @@ await step('CONVERT, NETWORKDAYS.INTL and WORKDAY.INTL in a spreadsheet', async 
   await shows('D1', '#N/A');
   await shows('A2', '9');
   await shows('B2', '2026-11-08');
+  // Pica is the point (72 an inch), pica the pica (6); units such as the register ton and square nautical mile
+  await typeIn('C2', '=CONVERT(1, "in", "Pica")&"|"&CONVERT(1, "in", "pica")&"|"&CONVERT(1, "GRT", "ft3")&"|"&CONVERT(1, "uk_ton", "uk_cwt")');
+  await shows('C2', '72|6|100|20');
   // Typing the name shows what it takes.
   await cell('E1').click();
   await page.keyboard.type('=CONVE');
