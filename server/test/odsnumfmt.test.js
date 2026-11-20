@@ -9,7 +9,9 @@ import { execFileSync } from 'node:child_process';
 import { odsFromSheet, sheetFromOds } from '../src/office/ods.js';
 import { formatCode } from '../src/sheetcalc/numfmt.js';
 
-const CASES = [['0.0,"k"', 1234.5], ['#,##0.00 "kg"', 12.5], ['0;(0)', -5], ['[Red]0.00;[Blue]-0.00', -3.25], ['#,##0;-#,##0;"zero"', 0], ['0.0,,"M"', 2500000], ['0.0%', 0.125], ['"Total: "0', 42]];
+const CASES = [['0.0,"k"', 1234.5], ['#,##0.00 "kg"', 12.5], ['0;(0)', -5], ['[Red]0.00;[Blue]-0.00', -3.25], ['#,##0;-#,##0;"zero"', 0], ['0.0,,"M"', 2500000], ['0.0%', 0.125], ['"Total: "0', 42],
+  // conditions and fractions
+  ['[>100]0;0.00', 150], ['[Blue][>=1000]#,##0;[Red]0', 50], ['# ?/?', 1.5], ['# ??/16', 0.3125], ['?/?', 0.75], ['0 ?/8', 2.375], ['[=1]"one";0', 1], ['[<0]"neg";[>0]"pos";"zero"', -2]];
 const book = { sheets: [{ name: 'S', cells: Object.fromEntries(CASES.map(([, v], i) => [`A${i + 1}`, String(v)])), formats: Object.fromEntries(CASES.map(([code], i) => [`A${i + 1}`, { num: 'custom', code }])) }] };
 
 test('custom number codes go into .ods as number styles and come back as the same codes', async () => {
@@ -17,10 +19,11 @@ test('custom number codes go into .ods as number styles and come back as the sam
   CASES.slice(0, 6).forEach(([code], i) => assert.deepEqual(back.formats[`A${i + 1}`], { num: 'custom', code }, code));
   assert.deepEqual(back.formats.A7, { num: 'percent', dp: 1 }, '0.0% is a plain percentage: Percent, 1 decimal');
   assert.equal(formatCode(42, back.formats.A8.code).text, 'Total: 42', 'written a little differently, shown the same');
-  // what can't be kept (conditions, fractions) is left out rather than written wrong
-  const other = (await sheetFromOds(await odsFromSheet({ sheets: [{ name: 'S', cells: { A1: '5', A2: '1.5' }, formats: { A1: { num: 'custom', code: '[>100]0;0' }, A2: { num: 'custom', code: '# ?/?' } } }] }))).sheets[0];
+  CASES.slice(8, 15).forEach(([code], i) => assert.deepEqual(back.formats[`A${i + 9}`], { num: 'custom', code }, code));
+  assert.equal(back.formats.A16.code, '"pos";"neg";"zero"', 'conditions that are the usual positive;negative;zero come back as those');
+  // what can't be kept (exponents, @ text sections) is left out rather than written wrong
+  const other = (await sheetFromOds(await odsFromSheet({ sheets: [{ name: 'S', cells: { A1: '5' }, formats: { A1: { num: 'custom', code: '0.00E+00' } } }] }))).sheets[0];
   assert.equal(other.formats?.A1, undefined);
-  assert.equal(other.cells.A2, '1.5');
 });
 
 const soffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); return true; } catch { return false; } })();

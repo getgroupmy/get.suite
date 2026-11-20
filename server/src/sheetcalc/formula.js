@@ -1,7 +1,7 @@
 // Small spreadsheet formula engine: arithmetic, comparisons, text, cell refs, ranges, common functions.
 
 import { convertUnits } from './unitconvert.js';
-import { formatCode } from './numfmt.js';
+import { formatCode, fractionText } from './numfmt.js';
 import { runQuery, QueryError } from './query.js';
 import { tablesOf, plainTableRefs } from './tablerefs.js';
 import { normCdf, normPdf, normInv, tCdf, tPdf, tInv, chiCdf, chiPdf, binomPmf, binomCdf, poissonPmf, poissonCdf, tTest, interestPart, capitalPart, ddb, db, yearFrac, parseDateText, parseTimeText, lnGamma, gammaP, betaI } from './statmath.js';
@@ -338,34 +338,6 @@ const factorial = (n) => { if (n > 170) err('#NUM!'); let f = 1; for (let i = 2;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** TEXT(value, format): number patterns (0, 0.00, #,##0, 0%, with text around them) and dates (yyyy mm dd mmm mmmm ddd dddd). */
-/**
- * Fractions as Excel writes them: "# ?/?" (1.5 → "1 1/2", 1/3 → " 1/3"), "# ??/??" (up to 99ths), "?/?" (no whole
- * number: 1.5 → "3/2") and a fixed denominator ("# ?/8", "0/100"). Null for any other code.
- */
-function fractionText(v, code) {
-  const m = /^\s*(?:([#0?]+)(\s+))?([#0?]+)\/([#0?]+|\d+)\s*$/.exec(code);
-  if (!m || typeof v !== 'number' || !Number.isFinite(v)) return null;
-  const [, intPart, gap, numPart, denPart] = m;
-  const x = Math.abs(v);
-  let whole = intPart ? Math.floor(x) : 0, rest = intPart ? x - whole : x;
-  let den, num;
-  if (/^\d+$/.test(denPart)) { den = Number(denPart); num = Math.round(rest * den); }
-  else {
-    const maxDen = 10 ** denPart.length - 1;
-    [num, den] = [Math.round(rest), 1];
-    for (let d = 1; d <= maxDen; d++) { const n = Math.round(rest * d); if (Math.abs(rest - n / d) < Math.abs(rest - num / den) - 1e-12) [num, den] = [n, d]; }
-  }
-  if (intPart && num === den) { whole++; num = 0; }
-  const pad = (t, len, left) => (left ? t.padStart(len, ' ') : t.padEnd(len, ' '));
-  const fracText = `${pad(String(num), numPart.length, true)}/${pad(String(den), denPart.length, false)}`;
-  let text;
-  if (intPart) {
-    const wholeText = whole ? String(whole) : intPart.includes('0') ? '0' : '';
-    text = num === 0 ? `${wholeText}${' '.repeat(gap.length + fracText.length)}` : `${wholeText}${gap}${fracText}`;
-    if (!whole && num === 0) text = `0${' '.repeat(gap.length + fracText.length)}`;
-  } else text = fracText;
-  return v < 0 && (whole || num) ? `-${text.replace(/^\s+/, '')}` : text;
-}
 function formatText(v, fmt) {
   const f = toStr(fmt);
   // As cells' number formats do it (sections "0;(0)", times "h:mm AM/PM", fractions "# ?/?", conditions…);

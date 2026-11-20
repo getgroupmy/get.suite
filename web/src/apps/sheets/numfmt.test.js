@@ -51,3 +51,15 @@ test('codes as stored', () => {
   assert.equal(cleanCode(''), null);
   assert.equal(cleanCode('0'.repeat(500)).length, 120);
 });
+
+test('fractions in cells: # ?/?, # ??/16, ?/?, 0 ?/8, with text around and in a negative section', () => {
+  const t = (v, code) => formatCode(v, code).text;
+  assert.equal(t(1.5, '# ?/?'), '1 1/2');
+  assert.equal(t(0.3125, '# ??/16'), '  5/16');
+  assert.equal(t(0.75, '?/?'), '3/4');
+  assert.equal(t(2.375, '0 ?/8'), '2 3/8');
+  assert.equal(t(-1.25, '# ?/?'), '-1 1/4');
+  assert.equal(t(-1.25, '# ?/?;(# ?/?)'), '(1 1/4)');
+  assert.equal(t(2.5, '# ?/? "in"'), '2 1/2 in');
+  assert.equal(t(3.14159, '# ???/???'), '3  16/113');
+});

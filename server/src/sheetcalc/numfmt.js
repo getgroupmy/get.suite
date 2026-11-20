@@ -201,6 +201,35 @@ function formatNumberCode(n, toks, negSection) {
  * The value as the code shows it: { text, colour } (colour may be null), or null when the code
  * doesn't apply (an error, an empty cell, or text with no text section).
  */
+/**
+ * Fractions as Excel writes them: "# ?/?" (1.5 → "1 1/2", 1/3 → " 1/3"), "# ??/??" (up to 99ths), "?/?" (no whole
+ * number: 1.5 → "3/2") and a fixed denominator ("# ?/8", "0/100"). Null for any other code.
+ */
+export function fractionText(v, code) {
+  const m = /^((?:"[^"]*"|[^#0?"])*?)(?:([#0?]+)(\s+))?([#0?]+)\/([#0?]+|\d+)((?:"[^"]*"|[^#0?"])*)$/.exec(code);
+  if (!m || typeof v !== 'number' || !Number.isFinite(v)) return null;
+  const [, pre, intPart, gap, numPart, denPart, post] = m;
+  const lit = (t) => t.replace(/"([^"]*)"|\\(.)/g, (q, a, b) => a ?? b);
+  const x = Math.abs(v);
+  let whole = intPart ? Math.floor(x) : 0, rest = intPart ? x - whole : x;
+  let den, num;
+  if (/^\d+$/.test(denPart)) { den = Number(denPart); num = Math.round(rest * den); }
+  else {
+    const maxDen = 10 ** denPart.length - 1;
+    [num, den] = [Math.round(rest), 1];
+    for (let d = 1; d <= maxDen; d++) { const n = Math.round(rest * d); if (Math.abs(rest - n / d) < Math.abs(rest - num / den) - 1e-12) [num, den] = [n, d]; }
+  }
+  if (intPart && num === den) { whole++; num = 0; }
+  const pad = (t, len, left) => (left ? t.padStart(len, ' ') : t.padEnd(len, ' '));
+  const fracText = `${pad(String(num), numPart.length, true)}/${pad(String(den), denPart.length, false)}`;
+  let text;
+  if (intPart) {
+    const wholeText = whole ? String(whole) : intPart.includes('0') ? '0' : '';
+    text = num === 0 ? `${wholeText}${' '.repeat(gap.length + fracText.length)}` : `${wholeText}${gap}${fracText}`;
+    if (!whole && num === 0) text = `0${' '.repeat(gap.length + fracText.length)}`;
+  } else text = fracText;
+  return `${lit(pre)}${v < 0 && (whole || num) ? `-${text.replace(/^\s+/, '')}` : text}${lit(post)}`; // (text around it: "(# ?/?)", "# ?/? \"in\"")
+}
 export function formatCode(v, code) {
   if (v === null || v === undefined || v === '' || (typeof v === 'object' && !Array.isArray(v))) return null;
   const secs = sections(String(code || '').slice(0, MAX_CODE)).map(head);
@@ -226,6 +255,8 @@ export function formatCode(v, code) {
   const toks = minutesFix(tokens(sec.body));
   if (!toks.length) return { text: '', colour: sec.colour };
   if (isDate(sec)) { const d = formatDate(v, toks); return d === null ? null : { text: d, colour: sec.colour }; }
+  const frac = fractionText(neg ? Math.abs(v) : v, sec.body); // "# ?/?": 1 1/2 (a negative section shows no minus of its own)
+  if (frac !== null) return { text: frac, colour: sec.colour };
   if (!toks.some((t) => /^[0#?]$/.test(t.tok || ''))) return { text: toks.map((t) => (t.lit !== undefined ? t.lit : t.tok === '@' ? String(v) : t.tok === ',' ? '' : t.tok)).join(''), colour: sec.colour }; // all text: "Nil", "-"
   return { text: formatNumberCode(neg ? -Math.abs(v) : v, toks, neg), colour: sec.colour };
 }
