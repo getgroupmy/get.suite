@@ -130,6 +130,10 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // INDEX with 0 for the row: the whole Amount column, spilled
   await typeIn('N1', '=INDEX(A1:B4, 0, 2)');
   await expectCells({ N1: 'Amount', N2: '120', N3: '80', N4: '0' });
+  // ROUND halves away from zero; "50%" typed as text counts as 0.5 in arithmetic
+  await typeIn('P1', '50%');
+  await typeIn('P2', '=ROUND(-2.5, 0)&"/"&ROUND(2.675, 2)&"/"&P1*2');
+  await expectCells({ P2: '-3/2.68/1' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {

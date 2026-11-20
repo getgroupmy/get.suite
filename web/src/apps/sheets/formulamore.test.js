@@ -551,3 +551,20 @@ test('more of Excel with an error in a range (XMATCH, TOCOL ignoring errors, SUB
   const v = ev({ ...c, D1: '=INDEX(A1:B4, 0, 1)', F1: '=INDEX(A1:B4, 3, 0)' });
   assert.deepEqual([v('D1'), v('D2'), v('D4'), v('F1'), v('G1')], ['a', 'b', 'b', 'c', 7], 'spilled down and across');
 });
+test('ROUND takes halves away from zero on the number as written; text such as "50%" or "1,234" counts as a number in arithmetic', () => {
+  assert.equal(one('=ROUND(-2.5, 0)'), -3);
+  assert.equal(one('=ROUND(2.5, 0)'), 3);
+  assert.equal(one('=ROUND(2.675, 2)'), 2.68);
+  assert.equal(one('=ROUND(-2.675, 2)'), -2.68);
+  assert.equal(one('=ROUND(1.005, 2)'), 1.01);
+  assert.equal(one('=ROUND(1234.5, -2)'), 1200);
+  const c = { D1: '50%', D2: '1,234', D3: '$5', D4: 'x' };
+  assert.equal(one('=D1*2', c), 1);
+  assert.equal(one('=D2+1', c), 1235);
+  assert.equal(one('=D3*3', c), 15);
+  assert.equal(one('="-1,000.5"+0'), -1000.5);
+  assert.deepEqual(one('=D4+1', c), { error: '#VALUE!' });
+  assert.deepEqual(one('="1,23"+0'), { error: '#VALUE!' }, 'commas only as thousands');
+  assert.equal(one('=VALUE("50%")'), 0.5);
+  assert.equal(one('=VALUE("$1,234.50")'), 1234.5);
+});

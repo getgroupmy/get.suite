@@ -162,9 +162,16 @@ const toNum = (v) => {
   if (typeof v === 'number') return v;
   if (typeof v === 'boolean') return v ? 1 : 0;
   const n = Number(v);
-  if (Number.isNaN(n)) err('#VALUE!');
+  if (Number.isNaN(n)) { const m = numberInText(v); if (m === null) err('#VALUE!'); return m; }
   return n;
 };
+/** Text Excel turns into a number in arithmetic: "50%" (0.5), "1,234.5", "$5", "-€1,000" (or null). */
+function numberInText(v) {
+  const m = /^\s*([-+]?)\s*[$€£]?\s*(\d{1,3}(?:,\d{3})+(?:\.\d*)?|\d+\.?\d*|\.\d+)(?:[eE]([-+]?\d+))?\s*(%?)\s*$/.exec(String(v));
+  if (!m) return null;
+  const n = Number(m[2].replaceAll(',', '')) * 10 ** Number(m[3] || 0) / (m[4] ? 100 : 1);
+  return m[1] === '-' ? -n : n;
+}
 /** A number as text, as Excel writes it: 15 significant digits (0.1+0.2 is "0.3"), exponents as E+21 and E-07. */
 export const numText = (n) => {
   if (!Number.isFinite(n)) return String(n);
@@ -867,7 +874,8 @@ const FUNCS = {
     const r = cellsOf([range]); const s = sumRange ? cellsOf([sumRange]) : r; const test = criteria(c);
     return picked(r.map((v, i) => (!isErr(v) && test(v) ? s[i] : null))).reduce((acc, v) => (typeof v === 'number' ? acc + v : acc), 0);
   },
-  ROUND: ([v, d]) => { const f = 10 ** toNum(d ?? 0); return Math.round(toNum(v) * f) / f; },
+  // Halves away from zero (-2.5 → -3), and on the decimal number as written (2.675 → 2.68), as in Excel.
+  ROUND: ([v, d]) => { const x = toNum(v), f = 10 ** Math.trunc(toNum(d ?? 0)); return (Math.sign(x) * Math.round(Number((Math.abs(x) * f).toPrecision(15)))) / f; },
   ABS: ([v]) => Math.abs(toNum(v)),
   SQRT: ([v]) => { const n = toNum(v); if (n < 0) err('#NUM!'); return Math.sqrt(n); },
   POWER: ([a, b]) => toNum(a) ** toNum(b),
@@ -1079,7 +1087,7 @@ const FUNCS = {
     if (!m) err('#VALUE!');
     return st + m.index + 1;
   },
-  VALUE: ([v]) => { if (typeof v === 'number') return v; const n = Number(toStr(v).trim().replace(/,/g, '')); if (toStr(v).trim() === '' || Number.isNaN(n)) err('#VALUE!'); return n; },
+  VALUE: ([v]) => { if (typeof v === 'number') return v; const t = toStr(v).trim(), n = numberInText(t) ?? Number(t.replace(/,/g, '')); if (t === '' || Number.isNaN(n)) err('#VALUE!'); return n; },
   PROPER: ([v]) => toStr(v).toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()),
   REPT: ([v, n]) => { const k = toNum(n); if (k < 0) err('#VALUE!'); return toStr(v).repeat(Math.min(k, 10000)); },
   EXACT: ([a, b]) => toStr(a) === toStr(b),
