@@ -24,6 +24,7 @@ q('CREATE TABLE IF NOT EXISTS file_text_redone (name TEXT PRIMARY KEY)').run();
 const redoOnce = (name, where) => { if (q('SELECT 1 FROM file_text_redone WHERE name = ?').get(name)) return; q(`DELETE FROM file_text_state WHERE file_id IN (SELECT id FROM files WHERE ${where})`).run(); q('INSERT INTO file_text_redone (name) VALUES (?)').run(name); };
 redoOnce('doc-suggestions', "kind = 'doc' AND content LIKE '%suggestInsert%'"); // (pending suggestions were run into the text: "MarchApril")
 redoOnce('cjk-characters', "kind != 'folder'"); // (Chinese and Japanese indexed a character to a word since)
+redoOnce('sea-words', "kind != 'folder'"); // (Thai, Lao, Khmer and Burmese split into words since)
 redoOnce('pdf-odf-text', "kind = 'file' AND (mime = 'application/pdf' OR name LIKE '%.pdf' OR name LIKE '%.odt' OR name LIKE '%.ods' OR name LIKE '%.odp' OR name LIKE '%.rtf')"); // (read for their words since)
 
 const MAX_TEXT = 200_000; // characters kept per file
@@ -155,7 +156,10 @@ const CJK = /[\u2e80-\u2fdf\u3005\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\
 const CJK_ALL = new RegExp(CJK.source, 'gu');
 /** Text as it goes into a full-text index: Chinese and Japanese characters apart (by zero-width spaces, which the index
  * takes for spaces and which take no room). */
-export const ftsText = (s) => String(s ?? '').replace(CJK_ALL, (ch) => `\u200b${ch}\u200b`);
+// Thai, Lao, Khmer and Burmese are written without spaces between words too: split into words by ICU's dictionaries.
+const SEA = /[\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff]+/gu;
+const seaWords = (run) => { try { return [...new Intl.Segmenter('th', { granularity: 'word' }).segment(run)].map((x) => x.segment); } catch { return [run]; } };
+export const ftsText = (s) => String(s ?? '').replace(CJK_ALL, (ch) => `\u200b${ch}\u200b`).replace(SEA, (run) => seaWords(run).join('\u200b'));
 /** An extract from the index as it's shown: as written. */
 export const ftsShown = (s) => String(s ?? '').replace(/\u200b/g, '');
 
@@ -164,13 +168,17 @@ export const ftsShown = (s) => String(s ?? '').replace(/\u200b/g, '');
  * one), in any order; Chinese and Japanese ones as their characters side by side. Returns null when there are no words.
  */
 export function ftsQuery(input) {
-  const words = String(input || '').normalize('NFKC').match(/[\p{L}\p{N}]+/gu) || [];
+  // (words with their combining marks: Thai ครับ, Hindi नमस्ते; the index splits at the marks, so their pieces side by side)
+  const words = String(input || '').normalize('NFKC').match(/[\p{L}\p{M}\p{N}]+/gu) || [];
   if (!words.length) return null;
+  const pieces = (w) => w.match(/[\p{L}\p{N}]+/gu) || [];
+  const phrase = (ps) => (ps.length ? `"${ps.join(' ')}"*` : null);
   return words.slice(0, 12).flatMap((w) => {
-    if (!CJK.test(w)) return [`"${w}"*`];
+    if (/[\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff]/u.test(w) && !CJK.test(w)) return [phrase(seaWords(w).flatMap(pieces))]; // (Thai and the like: its words side by side)
+    if (!CJK.test(w)) return [phrase(pieces(w))];
     // (Q3报告: Q3 as a word, 报告 as its characters together)
-    return (w.match(new RegExp(`${CJK.source}+|[^${CJK.source.slice(1, -1)}]+`, 'gu')) || []).map((part) => (CJK.test(part) ? `"${[...part].join(' ')}"` : `"${part}"*`));
-  }).join(' ');
+    return (w.match(new RegExp(`${CJK.source}+|[^${CJK.source.slice(1, -1)}]+`, 'gu')) || []).map((part) => (CJK.test(part) ? `"${[...part].join(' ')}"` : phrase(pieces(part))));
+  }).filter(Boolean).join(' ') || null;
 }
 
 const MARK_OPEN = '\u0001', MARK_CLOSE = '\u0002';

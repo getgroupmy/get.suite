@@ -93,6 +93,16 @@ await step('Chinese: a word inside a sentence (no spaces between words) is found
   await row.locator('mark', { hasText: '销售报告' }).waitFor();
   if (!(await row.innerText()).includes('销售报告已经完成')) throw new Error(`the extract reads: ${await row.innerText()}`);
 });
+await step('Thai: a word inside a sentence (split by its dictionary) is found and marked', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'doc', name: 'รายงาน', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'รายงานการขายประจำไตรมาส' }] }] } });
+  await page.waitForTimeout(2500); // the index catches up
+  await page.goto(`${B}/drive`);
+  await page.getByLabel('Search everything').fill('การขาย');
+  await page.getByLabel('Search everything').press('Enter');
+  const row = page.locator('.files tbody tr').filter({ hasText: 'รายงานการขายประจำไตรมาส' });
+  await row.waitFor({ timeout: 10000 });
+  await row.locator('mark', { hasText: 'การขาย' }).waitFor();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

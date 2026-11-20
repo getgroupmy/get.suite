@@ -16867,6 +16867,13 @@ test('search in Chinese and Japanese: a word inside a run of characters, in file
   assert.match(hits[0].match, /\u0001销售报告\u0002已经完成/, 'the extract as written, the words marked, no spaces put in');
   assert.deepEqual((await find('テキスト')).map((f) => f.id), [doc.id], 'Japanese too');
   assert.deepEqual((await find('报告')).map((f) => f.id), [doc.id], 'not 告报 (the other order)');
+  // Thai (no spaces between words either: split by ICU's dictionary) and Hindi (combining marks in its words)
+  const thai = (await cj('POST', '/api/files/new', { kind: 'doc', name: 'Thai', content: { type: 'doc', content: [P('รายงานการขายประจำไตรมาส สวัสดีครับ'), P('नमस्ते दुनिया')] } })).body;
+  while (await indexPending()) { /* again */ }
+  assert.deepEqual((await find('การขาย')).map((f) => f.id), [thai.id], 'a Thai word inside a sentence');
+  assert.deepEqual((await find('ครับ')).map((f) => f.id), [thai.id], 'one with a vowel mark');
+  assert.deepEqual(await find('ขายการ'), [], 'not in the other order');
+  assert.deepEqual((await find('नमस्ते')).map((f) => f.id), [thai.id], 'Hindi');
   assert.ok(other.id);
   // comments
   const c = await cj('POST', `/api/comments/${doc.id}`, { body: '请检查预算表格', anchor: { quote: '销售报告' }, id: 'thread-cjk-1' });

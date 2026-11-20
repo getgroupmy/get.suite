@@ -46,7 +46,9 @@ q("CREATE VIRTUAL TABLE IF NOT EXISTS comment_text USING fts5(comment_id UNINDEX
 q('CREATE TRIGGER IF NOT EXISTS comment_text_gone AFTER DELETE ON file_comments BEGIN DELETE FROM comment_text WHERE comment_id = old.id; END').run();
 // Comments indexed before Chinese and Japanese were indexed a character to a word: indexed again, once.
 q('CREATE TABLE IF NOT EXISTS file_text_redone (name TEXT PRIMARY KEY)').run();
-if (!q("SELECT 1 FROM file_text_redone WHERE name = 'comments-cjk'").get()) { try { q('UPDATE file_comments SET mentions_indexed = 0').run(); } catch { /* not there yet */ } q("INSERT INTO file_text_redone (name) VALUES ('comments-cjk')").run(); }
+for (const name of ['comments-cjk', 'comments-sea']) { // (and since Thai and the like are split into words)
+  if (!q('SELECT 1 FROM file_text_redone WHERE name = ?').get(name)) { try { q('UPDATE file_comments SET mentions_indexed = 0').run(); } catch { /* not there yet */ } q('INSERT INTO file_text_redone (name) VALUES (?)').run(name); }
+}
 
 // Emoji reactions on comments (👍 instead of a "Thanks!" reply): one of each emoji per person.
 q(`CREATE TABLE IF NOT EXISTS file_comment_reactions (
