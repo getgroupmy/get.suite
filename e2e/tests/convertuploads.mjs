@@ -34,8 +34,9 @@ await step('setup', async () => {
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
-const { Document, Packer, Paragraph, HeadingLevel } = await import(`${ROOT}/server/node_modules/docx/dist/index.mjs`);
-const docx = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph({ text: 'Supplier contract', heading: HeadingLevel.HEADING_1 }), new Paragraph('Payment within 30 days.')] }] }));
+const { Document, Packer, Paragraph, HeadingLevel, TextRun, Tab } = await import(`${ROOT}/server/node_modules/docx/dist/index.mjs`);
+const docx = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph({ text: 'Supplier contract', heading: HeadingLevel.HEADING_1 }), new Paragraph('Payment within 30 days.'),
+  new Paragraph({ children: [new TextRun({ children: ['Ref:', new Tab(), 'A-7  (two spaces)'] })] })] }] })); // (a tab and two spaces, kept)
 const pick = (name) => ({ name, mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docx });
 await step('without the setting, a .docx uploads as a file', async () => {
   await page.goto(`${B}/drive`);
@@ -57,6 +58,9 @@ await step('Settings: Convert uploads; a .docx uploaded in Drive becomes a docum
   await page.waitForURL(/\/docs\//);
   await page.locator('.ProseMirror h1', { hasText: 'Supplier contract' }).waitFor();
   await page.locator('.ProseMirror', { hasText: 'Payment within 30 days.' }).waitFor();
+  const kept = await until(async () => (await api(page, 'GET', `/files?view=mine`)).body.find((f) => f.kind === 'doc' && f.name === 'Supplier contract'));
+  const content = JSON.stringify((await api(page, 'GET', `/files/${kept.id}/content`)).body);
+  if (!content.includes('Ref:\\tA-7  (two spaces)')) throw new Error(`the tab and two spaces: ${content.match(/Ref:[^"]*/)?.[0]}`);
 });
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);

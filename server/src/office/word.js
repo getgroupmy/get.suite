@@ -437,7 +437,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   
   const html = unmarkWordHtml(marked, (wid) => (wordComments.has(wid) ? commentId(wid) : null));
   const withNotes = picturesOnTheirOwn(bookmarksFromWord(footnotesFromWord(html))).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
-  const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
+  const doc = restoreSpacing(checklists(generateJSON(holdSpacing(withNotes) || '<p></p>', EXTENSIONS)));
   joinReplacements(doc);
   linksToHeadings(doc); // links to a bookmark starting a heading (as Word files link to headings): to the heading
   // The words each comment covers, now in the document (a comment whose words are gone is still kept, unanchored).
@@ -1020,3 +1020,21 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
 
 /** A document from HTML (as the Word import makes it), for other importers (OpenDocument). */
 export function docFromHtml(html) { return checklists(generateJSON(html || '<p></p>', EXTENSIONS)); }
+
+// Spacing a Word or OpenDocument file keeps (tabs, two or more spaces, a space starting a paragraph), which reading it as
+// HTML would fold into one space: held as private characters through the HTML step, then put back.
+const HELD_SPACE = '\uE005', HELD_TAB = '\uE006';
+export function holdSpacing(html) {
+  return String(html).replace(/(<pre\b[\s\S]*?<\/pre>)|(<(?:p|h[1-6]|li|td|th)\b[^>]*>)?([^<]+)/g, (m, pre, open, t) => {
+    if (pre) return pre;
+    let out = t.replace(/\t/g, HELD_TAB).replace(/ {2,}/g, (sp) => HELD_SPACE.repeat(sp.length));
+    if (open) out = out.replace(/^ /, HELD_SPACE);
+    return (open || '') + out;
+  });
+}
+/** The spacing held by holdSpacing, back as spaces and tabs in the document's text. */
+export function restoreSpacing(node) {
+  if (node?.type === 'text' && typeof node.text === 'string') node.text = node.text.replaceAll(HELD_SPACE, ' ').replaceAll(HELD_TAB, '\t');
+  for (const c of node?.content || []) restoreSpacing(c);
+  return node;
+}

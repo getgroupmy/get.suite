@@ -24,6 +24,8 @@ export const ODT_MIME = 'application/vnd.oasis.opendocument.text';
 const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** Text as ODF wants it: runs of spaces as <text:s/>, tabs and line breaks as elements. */
 const odfText = (s) => x(s).replace(/\t/g, '<text:tab/>').replace(/\n/g, '<text:line-break/>').replace(/ {2,}/g, (m) => ` <text:s text:c="${m.length - 1}"/>`);
+/** A space starting a paragraph written as <text:s/> (an ordinary one there is dropped by every reader of the file). */
+const keepLeadingSpace = (xml) => xml.replace(/(<text:[ph]\b[^>]*[^/]>(?:<text:(?:span|a)\b[^>]*>)*) /g, '$1<text:s/>');
 const COLOR = /^#[0-9a-f]{6}$/i;
 // <text:s/>, read: a character the HTML step keeps as it is (spaces it would fold), an ordinary space afterwards.
 const SPACE = '\uE000';
@@ -389,7 +391,7 @@ ${formulaObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Formula
 </manifest:manifest>`;
   const zip = new JSZip();
   zip.file('mimetype', ODT_MIME, { compression: 'STORE' }); // first, and not compressed: how apps recognise the file
-  zip.file('content.xml', content);
+  zip.file('content.xml', keepLeadingSpace(content));
   zip.file('styles.xml', styles);
   zip.file('meta.xml', meta);
   zip.file('META-INF/manifest.xml', manifest);
@@ -585,7 +587,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
           break;
         }
         case 'text:s': out += leaf(SPACE.repeat(Math.min(100, Number(c.attribs['text:c']) || 1))); break; // kept, not folded into one (an ordinary space in the end)
-        case 'text:tab': out += '\t'; break;
+        case 'text:tab': out += leaf('\uE006'); break; // (held through the HTML step, as word.js's HELD_TAB, then a tab again)
         case 'text:line-break': out += '<br>'; break;
         case 'text:span': { const st = look(c.attribs['text:style-name']); out += wrap(await inline(c), st.names.some((n) => /^(visited_20_)?internet_20_link$/.test(n)) ? {} : st.tp, true); break; } // a link's own look (blue, underlined) is the link's, not formatting
         case 'text:a': { const href = bookmarkHref(c.attribs['xlink:href'] || ''); out += /^\s*javascript:/i.test(href) ? await inline(c) : `<a href="${h(href)}">${await inline(c)}</a>`; break; }
@@ -758,7 +760,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   const content = docs.flatMap((d, i) => [...(i ? [{ type: 'pageBreak' }] : []), ...(d.content || [])]);
   for (const n of content) joinReplacements(n); // (a deletion and the insertion after it, by one person at once: one suggestion)
   linksToHeadings({ content }); // links to a bookmark starting a heading: to the heading
-  (function spaces(n) { if (n.type === 'text' && n.text?.includes(SPACE)) n.text = n.text.replaceAll(SPACE, ' '); (n.content || []).forEach(spaces); })({ content });
+  (function spaces(n) { if (n.type === 'text' && /[\uE000\uE006]/.test(n.text || '')) n.text = n.text.replaceAll(SPACE, ' ').replaceAll('\uE006', '\t'); (n.content || []).forEach(spaces); })({ content });
   const comments = [...notes.values()].map((c) => ({ id: c.id, author: c.author, text: c.text, at: c.at, quote: c.quote.slice(0, 500), ...(c.resolved && { resolved: true }), replies: c.replies }));
   return { doc: { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }, comments };
 }
