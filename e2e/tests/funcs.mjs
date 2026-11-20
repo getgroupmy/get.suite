@@ -166,6 +166,13 @@ await step('statistics, loans, dates in words and database functions give Excel\
   // WEEKDAY and WEEKNUM types past 11, a fraction of a month dropped, two-digit years from 1900
   await typeIn('P16', '=WEEKDAY(DATE(2024,8,31),14)&"|"&WEEKNUM(DATE(2024,3,31),21)&"|"&TEXT(EDATE(DATE(2025,12,31),-0.5),"yyyy-mm-dd")&"|"&YEAR(DATE(100,1,1))');
   await expectCells({ P16: '3|13|2025-12-31|2000' });
+  // a ~ makes * plain text; an approximate lookup of text among numbers finds nothing
+  await typeIn('P17', '=COUNTIF(P18:P19, "a~*b")&"|"&IFERROR(LOOKUP("eclair", P20:P21), "none")');
+  await typeIn('P18', 'a*b');
+  await typeIn('P19', 'axb');
+  await typeIn('P20', '1');
+  await typeIn('P21', '2');
+  await expectCells({ P17: '1|none' });
   // numbers typed with thousands, a currency sign or % are kept as numbers, in that format
   await typeIn('Q1', '1,234');
   await typeIn('Q2', '$5.50');

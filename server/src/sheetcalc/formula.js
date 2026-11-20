@@ -219,7 +219,8 @@ function wildcard(text) {
   }
   return new RegExp(`^${src}$`, 'i');
 }
-const hasWildcard = (t) => typeof t === 'string' && /(^|[^~])[*?]/.test(t);
+// (with ~ too: "a~*b" is the text a*b, matched through the pattern that reads the ~)
+const hasWildcard = (t) => typeof t === 'string' && /[*?]|~~/.test(t);
 
 // Text in order as people read it (accents with their letter: é with e, Ä with A, before Z), ignoring case, as Excel does.
 const TEXT_ORDER = new Intl.Collator('en', { sensitivity: 'accent' });
@@ -260,9 +261,12 @@ function findIn(list, x, type) {
     return list.findIndex((v) => (re ? typeof v === 'string' && re.test(v) : same(v, x)));
   }
   // A binary search, as Excel's (so unsorted data gives the same answer as there, and of equal values the last):
-  // the last value ≤ x (type 1, ascending) or ≥ x (type -1, descending). Empty and error cells are passed over.
+  // the last value ≤ x (type 1, ascending) or ≥ x (type -1, descending). Empty and error cells are passed over, and
+  // so are values of another kind, as in Excel: text is looked for among text, numbers among numbers (=LOOKUP("a", {1,2})
+  // is #N/A, not the last number).
+  const kind = (v) => typeof v;
   const at = [];
-  for (let i = 0; i < list.length; i++) { const v = list[i]; if (v !== null && v !== '' && v !== undefined && !isErr(v)) at.push(i); }
+  for (let i = 0; i < list.length; i++) { const v = list[i]; if (v !== null && v !== '' && v !== undefined && !isErr(v) && kind(v) === kind(x)) at.push(i); }
   let lo = 0, hi = at.length - 1, found = -1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1, v = list[at[mid]];
@@ -1101,7 +1105,8 @@ const FUNCS = {
     let r = toNum(row ?? 1), c = col === undefined ? 1 : toNum(col);
     if (col === undefined && s.rows === 1) { c = r; r = 1; } // one row: the number picks the column
     r = Math.trunc(r); c = Math.trunc(c);
-    if (r < 0 || c < 0 || r > s.rows || c > s.cols) err('#REF!');
+    if (r < 0 || c < 0) err('#VALUE!'); // (a negative row or column is no number of one, as in Excel; past the end: #REF!)
+    if (r > s.rows || c > s.cols) err('#REF!');
     // 0 for the row or column: all of them (=INDEX(A1:C9, 0, 2) is the second column, INDEX(A1:C9, 3, 0) the third row)
     if (r === 0 || c === 0) {
       const rs = r ? [r - 1] : Array.from({ length: s.rows }, (_, i) => i), cs = c ? [c - 1] : Array.from({ length: s.cols }, (_, j) => j);
