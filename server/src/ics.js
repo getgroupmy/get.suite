@@ -115,7 +115,7 @@ function mdaysByday(mdays) {
 
 function firstStart(e, zone) {
   const r = e.rrule;
-  const weekly = r?.freq === 'weekly' && r.byday?.length, nth = r?.freq === 'monthly' && (r.nth || r.nths?.length || r.mdays?.length);
+  const weekly = r?.freq === 'weekly' && r.byday?.length, nth = r?.freq === 'monthly' && (r.nth || r.nths?.length || r.mdays?.length || r.setdays?.length);
   if (!weekly && !nth) return e.start;
   // The calendar's own first occurrence (skipped dates still count): with an interval, the series' weeks or
   // months are counted from the event's start, so moving DTSTART to the next listed day must keep that phase.
@@ -150,6 +150,7 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
     if (r.freq === 'monthly' && r.nth) rule.push(`BYDAY=${r.nth}${DAYS[r.wd]}`); // 2MO: the second Monday; -1FR: the last Friday
     if (r.freq === 'monthly' && r.nths?.length) rule.push(`BYDAY=${r.nths.map((k) => `${k}${DAYS[r.wd]}`).join(',')}`); // 1MO,3MO
     if (r.freq === 'monthly' && r.mdays?.length) rule.push(`BYDAY=${mdaysByday(r.mdays)}`); // 1MO,3TU (or MO,WE: every Monday and Wednesday)
+    if (r.freq === 'monthly' && r.setpos && r.setdays?.length) rule.push(`BYDAY=${[...r.setdays].sort((a, b) => a - b).map((d) => DAYS[d]).join(',')}`, `BYSETPOS=${r.setpos}`); // the last weekday of the month
     if (r.until !== undefined) rule.push(`UNTIL=${e.all_day ? dateStamp(r.until, zone) : utcStamp(r.until)}`);
     if (r.count) rule.push(`COUNT=${r.count}`);
     lines.push(`RRULE:${rule.join(';')}`);
@@ -457,14 +458,18 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
       for (const m of mixed) for (const k of m[1] ? [+m[1]] : [1, 2, 3, 4, 5]) { const key = `${k}:${m[2]}`; if (!seen.has(key)) { seen.add(key); out2.push([k, DAY_NAMES.indexOf(m[2])]); } }
       return out2.length <= 35 ? out2.sort((a, b) => a[1] - b[1] || (a[0] === -1) - (b[0] === -1) || a[0] - b[0]) : null;
     })() : null;
+    // The first or last (say) of several plain weekdays: BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1, the last weekday of the month.
+    const setDays = freq === 'monthly' && days.length > 1 && plainDays && p.BYSETPOS && /^([1-4]|-1)$/.test(p.BYSETPOS) && !p.BYMONTHDAY && !p.BYMONTH && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
+      ? [...new Set(days.map((d) => DAY_NAMES.indexOf(d)))].sort((a, b) => a - b) : null;
     const startDay = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDate();
     const supported = nthDay ? !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR && (nth >= 1 || nth === -1) : freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
       && (!p.BYMONTHDAY || (freq !== 'daily' && freq !== 'weekly' && p.BYMONTHDAY.split(',').length === 1 && +p.BYMONTHDAY === startDay))
       && (!p.BYMONTH || freq === 'yearly');
-    if (supported || nthsOf || mdaysOf) {
+    if (supported || nthsOf || mdaysOf || setDays) {
       const rule = { freq };
       if (+p.INTERVAL > 1) rule.interval = Math.min(99, +p.INTERVAL);
-      if (nthsOf) { rule.nths = nthsOf; rule.wd = DAY_NAMES.indexOf(several[0][2]); }
+      if (setDays) { rule.setpos = +p.BYSETPOS; rule.setdays = setDays; }
+      else if (nthsOf) { rule.nths = nthsOf; rule.wd = DAY_NAMES.indexOf(several[0][2]); }
       else if (mdaysOf) rule.mdays = mdaysOf;
       else if (nthDay) { rule.nth = nth; rule.wd = DAY_NAMES.indexOf(nthDay[2]); }
       else if (days.length) rule.byday = [...new Set(days.map((d) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(d)))].sort();

@@ -1335,6 +1335,8 @@ const ruleFromForm = (r, start) => {
     else if (mdays.length > 1) { out.nths = mdays.map((x) => x[0]).sort((a, b) => (a === -1) - (b === -1) || a - b); out.wd = wds[0]; }
     else { out.nth = mdays[0][0]; out.wd = wds[0]; }
   }
+  else if (freq === 'monthly-firstweekday' || freq === 'monthly-lastweekday') { out.setpos = freq === 'monthly-lastweekday' ? -1 : 1; out.setdays = [1, 2, 3, 4, 5]; }
+  else if (freq === 'monthly-setpos') { out.setpos = r.setpos; out.setdays = r.setdays; } // (another, from a phone or Outlook: kept as it is)
   else if (freq === 'monthly-nths') { const w = weekdayInMonth(start); out.nths = r.nths?.length ? r.nths : [w.nth]; out.wd = w.wd; }
   else if (freq !== 'monthly' && freq.startsWith('monthly')) { const w = weekdayInMonth(start); out.nth = freq === 'monthly-last' ? -1 : w.nth; out.wd = w.wd; }
   if (Number(r.interval) > 1) out.interval = Number(r.interval);
@@ -1659,9 +1661,9 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   const [autoReply, setAutoReply] = useState(false);
   const r0 = event.rrule;
   const [rep, setRep] = useState({
-    freq: r0?.mdays?.length ? 'monthly-mdays' : r0?.nths?.length ? 'monthly-nths' : r0?.nth ? (r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
+    freq: r0?.setpos ? (r0.setdays?.join() !== '1,2,3,4,5' || ![1, -1].includes(r0.setpos) ? 'monthly-setpos' : r0.setpos === -1 ? 'monthly-lastweekday' : 'monthly-firstweekday') : r0?.mdays?.length ? 'monthly-mdays' : r0?.nths?.length ? 'monthly-nths' : r0?.nth ? (r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
     ends: r0?.until !== undefined ? 'on' : r0?.count ? 'after' : 'never',
-    nths: r0?.nths || null, wd: r0?.wd, wkst: r0?.wkst, // the first and third Monday (from a phone): kept as it is
+    nths: r0?.nths || null, wd: r0?.wd, wkst: r0?.wkst, setpos: r0?.setpos, setdays: r0?.setdays, // the first and third Monday (from a phone): kept as it is
     mdays: r0?.mdays || null, // the first Monday and the third Tuesday (from a phone or Outlook): kept as it is
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
@@ -1846,6 +1848,10 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                     {w.last && <option value="monthly-last">{describeRule({ freq: 'monthly', nth: -1, wd: w.wd }, start)}</option>}
                     <option value="monthly-mdays">{rep.mdays?.length > 0 ? describeRule({ freq: 'monthly', mdays: rep.mdays }, start) : 'Monthly on chosen days of the week…'}</option>
                     <option value="monthly-nths">{rep.nths?.length > 1 ? describeRule({ freq: 'monthly', nths: rep.nths, wd: w.wd }, start) : `Monthly on chosen ${w.dayName}s…`}</option>
+                    {/* month-end reports, payroll: the first or last working day (Monday to Friday) */}
+                    <option value="monthly-firstweekday">{describeRule({ freq: 'monthly', setpos: 1, setdays: [1, 2, 3, 4, 5] }, start)}</option>
+                    <option value="monthly-lastweekday">{describeRule({ freq: 'monthly', setpos: -1, setdays: [1, 2, 3, 4, 5] }, start)}</option>
+                    {rep.setpos && rep.freq === 'monthly-setpos' && <option value="monthly-setpos">{describeRule({ freq: 'monthly', setpos: rep.setpos, setdays: rep.setdays }, start)}</option>}
                   </>;
                 })()}
                 <option value="yearly">Yearly</option>

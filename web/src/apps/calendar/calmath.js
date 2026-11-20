@@ -205,6 +205,15 @@ export function occurrenceStarts(ev, to) {
         if (!take(t)) { stop = true; break; }
       }
       if (stop) break;
+    } else if (r.freq === 'monthly' && r.setpos && r.setdays?.length) {
+      // The first or last (say) of some weekdays each month: the last weekday (Monday to Friday) of the month.
+      const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
+      const day = setPosDayOf(m.getFullYear(), m.getMonth(), r.setpos, r.setdays);
+      if (day === null) { if (m.getTime() >= to || (r.until !== undefined && m.getTime() > r.until)) break; continue; }
+      const t = at(m.getFullYear(), m.getMonth(), day).getTime();
+      if (t >= to || (r.until !== undefined && t > r.until)) break;
+      if (t < ev.start) continue; // earlier in the first month
+      if (!take(t)) break;
     } else if (r.freq === 'monthly' && r.nth) {
       // Monthly on a weekday: the 1st–5th or the last (say) Monday of every month (months without a fifth are skipped).
       const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
@@ -228,6 +237,17 @@ export function occurrenceStarts(ev, to) {
 }
 
 /** The day of the month that is the `nth` (1–5, or -1 for the last) weekday `wd` (0 = Sunday) of month `m` (0-based); null if there's no fifth. */
+/**
+ * The day of month m (0-11) of year y that is the pos-th (1–4, or -1 the last) of the days with these weekdays: the
+ * last weekday (Monday to Friday) of the month, say ({ setpos: -1, setdays: [1, 2, 3, 4, 5] }; Outlook's
+ * BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1). null when there's no such day.
+ */
+export function setPosDayOf(y, m, pos, days) {
+  const n = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const all = [];
+  for (let d = 1; d <= n; d++) if (days.includes(new Date(Date.UTC(y, m, d)).getUTCDay())) all.push(d);
+  return (pos > 0 ? all[pos - 1] : all[all.length + pos]) ?? null;
+}
 export function nthWeekdayOf(y, m, nth, wd) {
   if (nth === -1) {
     const last = new Date(Date.UTC(y, m + 1, 0));
@@ -286,6 +306,11 @@ export function describeRule(r, start, locale) {
     text += ` on ${days.join() === '1,2,3,4,5' ? 'weekdays' : names.join(', ')}`;
   }
   if (r.freq === 'monthly' && r.nth) text += ` on the ${ORDINALS[r.nth]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;
+  if (r.freq === 'monthly' && r.setpos && r.setdays?.length) {
+    const days = [...r.setdays].sort((a, b) => a - b).join();
+    const what = days === '1,2,3,4,5' ? 'weekday' : days === '0,6' ? 'weekend day' : `of ${r.setdays.map((d) => new Date(2026, 10, 1 + d).toLocaleDateString(locale, { weekday: 'short' })).join(', ')}`;
+    text += ` on the ${ORDINALS[r.setpos]} ${what}`;
+  }
   if (r.freq === 'monthly' && r.nths?.length) {
     const words = r.nths.map((k) => ORDINALS[k]);
     text += ` on the ${words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;

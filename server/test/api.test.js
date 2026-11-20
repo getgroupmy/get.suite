@@ -16771,3 +16771,19 @@ test('CSV exports: a contact whose name is a formula comes out as text, phone nu
   assert.equal(line.split(',evil@example.com')[0], `"'=HYPERLINK(""http://evil.example"",""Click me"")"`, 'a ' + "' in front: Excel shows it as text");
   assert.match(line, /,\+60 12-345 6789,'@SUM\(1\),/, 'the phone number as it is; the company kept from running');
 });
+
+test('repeating on the first or last weekday of the month: kept as sent, checked, and in the calendar file as Outlook writes it', async () => {
+  const pay = client();
+  await owner('POST', '/api/users', { local: 'payroll', domain: 'acme.com', name: 'Pay Roll', password: 'password123' });
+  await login(pay, 'payroll@acme.com');
+  const start = Date.UTC(2026, 10, 2, 9);
+  const made = await pay('POST', '/api/events', { title: 'Payroll run', start, end: start + 36e5, tz: 'UTC', rrule: { freq: 'monthly', setpos: -1, setdays: [5, 1, 2, 3, 4, 3] } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.deepEqual(made.body.rrule, { freq: 'monthly', setpos: -1, setdays: [1, 2, 3, 4, 5] });
+  const ics = (await pay('GET', `/api/events/${made.body.id}/ics`)).body;
+  assert.match(ics, /RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1/);
+  assert.match(ics, /DTSTART:20261130T090000Z|DTSTART;TZID=[^:]+:20261130T090000/, 'from its first: Monday 30 November');
+  for (const rrule of [{ freq: 'monthly', setpos: 5, setdays: [1, 2] }, { freq: 'monthly', setpos: -1, setdays: [1] }, { freq: 'weekly', setpos: 1, setdays: [1, 2] }, { freq: 'monthly', setpos: 1, setdays: [1, 9] }]) {
+    assert.equal((await pay('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
+  }
+});

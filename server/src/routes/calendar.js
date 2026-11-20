@@ -93,7 +93,12 @@ function readRule(rule) {
   // Monthly on a weekday: { nth: 1–5 or -1 (the last), wd: 0=Sun..6 } (a fifth: months without one are skipped).
   // Or several of one weekday: { nths: [1, 3], wd: 1 } (the first and third Monday).
   // Or weekdays of the month, mixed: { mdays: [[1, 1], [3, 2]] } (the first Monday and the third Tuesday).
-  if (rule.mdays !== undefined && rule.mdays !== null) {
+  // The first or last (say) of some weekdays each month: { setpos: 1–4 or -1, setdays: [1, 2, 3, 4, 5] } (the last weekday).
+  if (rule.setpos !== undefined && rule.setpos !== null) {
+    const pos = Number(rule.setpos), sd = Array.isArray(rule.setdays) ? [...new Set(rule.setdays.map(Number))].sort((a, b) => a - b) : [];
+    if (out.freq !== 'monthly' || ![1, 2, 3, 4, -1].includes(pos) || sd.length < 2 || sd.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw bad('Pick which weekday of the month');
+    out.setpos = pos; out.setdays = sd;
+  } else if (rule.mdays !== undefined && rule.mdays !== null) {
     if (out.freq !== 'monthly') throw bad('Pick weekdays of the month');
     const list = Array.isArray(rule.mdays) ? rule.mdays : [];
     const seen = new Set(), mdays = [];
