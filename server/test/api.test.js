@@ -16584,3 +16584,28 @@ test('Make a copy…: your own name for it, and shared with the same people and 
   const plain = (await dan('POST', `/api/files/${doc.id}/copy`, {})).body;
   assert.equal((await bea('GET', `/api/files/${plain.id}`)).status, 404);
 });
+
+test('Make a copy… with "Copy comments": the open threads and their replies, the copy\'s highlights pointing at them', async () => {
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Commented memo', content: { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'The price', marks: [{ type: 'comment', attrs: { id: 'cc-open-1' } }] }, { type: 'text', text: ' is right. cc-open-1 stays as text.' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Old point', marks: [{ type: 'comment', attrs: { id: 'cc-done-1' } }] }] },
+  ] } })).body;
+  assert.equal((await owner('POST', `/api/comments/${doc.id}`, { body: 'Too high?', anchor: { quote: 'The price' }, id: 'cc-open-1' })).status, 201);
+  assert.equal((await owner('POST', `/api/comments/${doc.id}`, { body: 'Agreed', thread_id: 'cc-open-1' })).status, 201);
+  assert.equal((await owner('POST', `/api/comments/${doc.id}`, { body: 'Done with', anchor: { quote: 'Old point' }, id: 'cc-done-1' })).status, 201);
+  const done = (await owner('GET', `/api/comments/${doc.id}`)).body.find((c) => c.id === 'cc-done-1');
+  assert.ok((await owner('PATCH', `/api/comments/${doc.id}/${done.id}`, { resolved: true })).status < 300);
+  const copy = (await owner('POST', `/api/files/${doc.id}/copy`, { comments: true })).body;
+  const cs = (await owner('GET', `/api/comments/${copy.id}`)).body;
+  assert.deepEqual(cs.map((c) => c.body), ['Too high?', 'Agreed'], 'the open thread, not the resolved one');
+  const top = cs.find((c) => c.body === 'Too high?');
+  assert.notEqual(top.id, 'cc-open-1');
+  assert.equal(cs.find((c) => c.body === 'Agreed').thread_id, top.id);
+  const para = (await owner('GET', `/api/files/${copy.id}/content`)).body.content.content[0].content;
+  assert.equal(para[0].marks[0].attrs.id, top.id, 'the highlight points at the copy\'s comment');
+  assert.match(para[1].text, /cc-open-1 stays as text/, 'only the highlight, not matching text');
+  assert.equal((await owner('GET', `/api/comments/${doc.id}`)).body.length, 3, 'the original keeps its own');
+  // Without: none
+  const plain = (await owner('POST', `/api/files/${doc.id}/copy`, {})).body;
+  assert.equal((await owner('GET', `/api/comments/${plain.id}`)).body.length, 0);
+});

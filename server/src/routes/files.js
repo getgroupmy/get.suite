@@ -1397,6 +1397,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       return made;
     });
     notifyPlace(parentId, user);
+    if (opts.comments && EDITABLE.includes(row.kind)) copyComments(row.id, id);
     if (opts.shareSame) {
       sendTo(new Set(audienceFor(id)), { type: 'files-changed', parent_id: parentId });
       const made = loadFile(id, user);
@@ -1407,8 +1408,34 @@ export default function fileRoutes({ maxUploadBytes }) {
     return { ...loadFile(id, user), ...(row.kind === 'folder' && { copied: count, skipped }) };
   }
 
+  /**
+   * Make a copy… with "Copy comments": the open threads (first comments and replies), by the same people at the same
+   * times, with ids of their own; a document's highlights in the copy point at them. Not who they were assigned to.
+   */
+  const copyComments = (fromId, toId) => {
+    const rows = q(`SELECT c.* FROM file_comments c WHERE c.file_id = ? AND (
+      (c.thread_id IS NULL AND c.resolved = 0) OR c.thread_id IN (SELECT id FROM file_comments WHERE file_id = ? AND thread_id IS NULL AND resolved = 0)) ORDER BY c.created_at`).all(fromId, fromId);
+    if (!rows.length) return;
+    const ids = new Map(rows.map((c) => [c.id, uid()]));
+    tx(() => {
+      for (const c of rows) {
+        q(`INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, resolved, created_at, edited_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`).run(ids.get(c.id), toId, c.thread_id ? ids.get(c.thread_id) : null, c.author_id, c.body, c.anchor, c.created_at, c.edited_at);
+      }
+      // A document's comment highlights (ids may be short, so only those marks, not any text that matches)
+      let json; try { json = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(toId).content || 'null'); } catch { json = null; }
+      if (json?.type === 'doc') {
+        (function walk(n) {
+          if (n.marks) n.marks = n.marks.map((m) => (m.type === 'comment' && ids.has(m.attrs?.id) ? { ...m, attrs: { ...m.attrs, id: ids.get(m.attrs.id) } } : m));
+          for (const c of n.content || []) walk(c);
+        })(json);
+        q('UPDATE files SET content = ? WHERE id = ?').run(JSON.stringify(json), toId);
+      }
+    });
+  };
+
   r.post('/:id/copy', (req, res) => {
-    res.status(201).json(publicFile(copyOne(req.user, req.params.id, req.body?.parent_id, { name: req.body?.name, shareSame: !!req.body?.share_same })));
+    res.status(201).json(publicFile(copyOne(req.user, req.params.id, req.body?.parent_id, { name: req.body?.name, shareSame: !!req.body?.share_same, comments: !!req.body?.comments })));
   });
 
   // Copies of several at once: { ids, parent_id? }. The room for all of them is checked first; then each is
