@@ -16787,3 +16787,18 @@ test('repeating on the first or last weekday of the month: kept as sent, checked
     assert.equal((await pay('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
   }
 });
+
+test('repeating on a weekday counted from the end of the month (the second-to-last Monday): kept, checked', async () => {
+  const rc = client();
+  await owner('POST', '/api/users', { local: 'fromend', domain: 'acme.com', name: 'From End', password: 'password123' });
+  await login(rc, 'fromend@acme.com');
+  const start = Date.UTC(2026, 10, 23, 9);
+  const made = await rc('POST', '/api/events', { title: 'Review', start, end: start + 36e5, tz: 'UTC', rrule: { freq: 'monthly', nth: -2, wd: 1 } });
+  assert.deepEqual([made.status, made.body.rrule], [201, { freq: 'monthly', nth: -2, wd: 1 }]);
+  assert.match((await rc('GET', `/api/events/${made.body.id}/ics`)).body, /RRULE:FREQ=MONTHLY;BYDAY=-2MO/);
+  const both = await rc('POST', '/api/events', { title: 'Both', start, end: start + 36e5, rrule: { freq: 'monthly', nths: [-1, 2, -3], wd: 5 } });
+  assert.deepEqual(both.body.rrule, { freq: 'monthly', nths: [2, -3, -1], wd: 5 }, 'from the start, then from the end');
+  for (const rrule of [{ freq: 'monthly', nth: -6, wd: 1 }, { freq: 'monthly', nths: [1, -7], wd: 1 }]) {
+    assert.equal((await rc('POST', '/api/events', { title: 'x', start, end: start + 36e5, rrule })).status, 400, JSON.stringify(rrule));
+  }
+});

@@ -249,9 +249,10 @@ export function setPosDayOf(y, m, pos, days) {
   return (pos > 0 ? all[pos - 1] : all[all.length + pos]) ?? null;
 }
 export function nthWeekdayOf(y, m, nth, wd) {
-  if (nth === -1) {
+  if (nth < 0) { // -1 the last, -2 the second-to-last…: null when the month hasn't that many
     const last = new Date(Date.UTC(y, m + 1, 0));
-    return last.getUTCDate() - ((last.getUTCDay() - wd + 7) % 7);
+    const day = last.getUTCDate() - ((last.getUTCDay() - wd + 7) % 7) + (nth + 1) * 7;
+    return day < 1 ? null : day;
   }
   const firstDow = new Date(Date.UTC(y, m, 1)).getUTCDay();
   const day = 1 + ((wd - firstDow + 7) % 7) + (nth - 1) * 7;
@@ -267,7 +268,7 @@ export function weekdayInMonth(t) {
   const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   return { wd: d.getDay(), nth: Math.ceil(d.getDate() / 7), last: d.getDate() + 7 > daysInMonth };
 }
-const ORDINALS = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth', '-1': 'last' };
+const ORDINALS = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth', '-1': 'last', '-2': 'second-to-last', '-3': 'third-to-last', '-4': 'fourth-to-last', '-5': 'fifth-to-last' };
 
 /** The event's occurrences that touch [from, to), each a copy with its own start and end. */
 export function expand(ev, from, to) {
@@ -356,6 +357,8 @@ export function shiftWeekdays(rule, dayDelta, newStart) {
   // Monthly on a weekday follows the new date: moved to the third Tuesday, it's the third Tuesday.
   if (rule?.freq === 'monthly' && rule.nth && newStart !== undefined && dayDelta) {
     const w = weekdayInMonth(newStart);
+    // (counted from the month's end, it stays so: moved to the second-to-last Thursday, it's that)
+    if (rule.nth < -1) { const d = new Date(newStart), left = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() - d.getDate(); return { ...rule, wd: w.wd, nth: -(Math.floor(left / 7) + 1) }; }
     return { ...rule, wd: w.wd, nth: (rule.nth === -1 && w.last) || w.nth > 4 ? -1 : w.nth };
   }
   // The first and third Monday, moved a day later: the first and third Tuesday.

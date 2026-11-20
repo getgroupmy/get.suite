@@ -443,26 +443,26 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
     if (freq === 'monthly' && days.length && plainDays && !(+p.INTERVAL > 1) && !p.BYSETPOS && !p.BYMONTHDAY && !p.BYMONTH) freq = 'weekly';
     // Monthly on one weekday of the month: BYDAY=2MO, or BYDAY=MO;BYSETPOS=2 (Outlook), the 1st–5th or the last.
     const nthDay = freq === 'monthly' && days.length === 1 && !p.BYMONTHDAY && !p.BYMONTH
-      && (/^([+-]?[1-5]|-1)(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-5]|-1)$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
+      && (/^(\+?[1-5]|-[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-5]|-[1-5])$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
     const nth = nthDay ? +nthDay[1] : 0;
     // Several of one weekday: BYDAY=1MO,3MO (the first and third Monday).
     const several = freq === 'monthly' && days.length > 1 && !p.BYSETPOS && !p.BYMONTHDAY && !p.BYMONTH && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
-      && days.map((d) => /^\+?([1-5]|-1)(SU|MO|TU|WE|TH|FR|SA)$/.exec(d));
-    const nthsOf = several && several.every(Boolean) && new Set(several.map((m) => m[2])).size === 1 ? [...new Set(several.map((m) => +m[1]))].sort((a, b) => (a === -1) - (b === -1) || a - b) : null;
+      && days.map((d) => /^\+?([1-5]|-[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(d));
+    const nthsOf = several && several.every(Boolean) && new Set(several.map((m) => m[2])).size === 1 ? [...new Set(several.map((m) => +m[1]))].sort((a, b) => (a < 0) - (b < 0) || a - b) : null;
     // Anything else on weekdays of the month: the first Monday and the third Tuesday (1MO,3TU), or every Monday
     // and Wednesday of every other month (MO,WE with INTERVAL=2): each weekday with which of it ([1–5] or the last).
     const mixed = !nthDay && !nthsOf && freq === 'monthly' && days.length && !p.BYSETPOS && !p.BYMONTHDAY && !p.BYMONTH && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
-      && days.map((d) => /^\+?([1-5]|-1)?(SU|MO|TU|WE|TH|FR|SA)$/.exec(d));
+      && days.map((d) => /^\+?([1-5]|-[1-5])?(SU|MO|TU|WE|TH|FR|SA)$/.exec(d));
     const mdaysOf = mixed && mixed.every(Boolean) ? (() => {
       const seen = new Set(), out2 = [];
       for (const m of mixed) for (const k of m[1] ? [+m[1]] : [1, 2, 3, 4, 5]) { const key = `${k}:${m[2]}`; if (!seen.has(key)) { seen.add(key); out2.push([k, DAY_NAMES.indexOf(m[2])]); } }
-      return out2.length <= 35 ? out2.sort((a, b) => a[1] - b[1] || (a[0] === -1) - (b[0] === -1) || a[0] - b[0]) : null;
+      return out2.length <= 35 ? out2.sort((a, b) => a[1] - b[1] || (a[0] < 0) - (b[0] < 0) || a[0] - b[0]) : null;
     })() : null;
     // The first or last (say) of several plain weekdays: BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1, the last weekday of the month.
     const setDays = freq === 'monthly' && days.length > 1 && plainDays && p.BYSETPOS && /^([1-4]|-1)$/.test(p.BYSETPOS) && !p.BYMONTHDAY && !p.BYMONTH && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
       ? [...new Set(days.map((d) => DAY_NAMES.indexOf(d)))].sort((a, b) => a - b) : null;
     const startDay = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDate();
-    const supported = nthDay ? !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR && (nth >= 1 || nth === -1) : freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
+    const supported = nthDay ? !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR && nth !== 0 : freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
       && (!p.BYMONTHDAY || (freq !== 'daily' && freq !== 'weekly' && p.BYMONTHDAY.split(',').length === 1 && +p.BYMONTHDAY === startDay))
       && (!p.BYMONTH || freq === 'yearly');
     if (supported || nthsOf || mdaysOf || setDays) {

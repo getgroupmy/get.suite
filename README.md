@@ -724,8 +724,9 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
     - Every other week on several days didn't say its weeks start on Sunday.
     - A time the clocks skip (2:30 on the morning New York's clocks go forward) came an hour early (1:30). Now it's 3:30, as RFC 5545 has it, and as it already was in London and Sydney.
   - **The first or last weekday of the month** (Outlook's *The last weekday of every month*: BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1, for month-end reports and payroll) goes both ways too, and so does the first, second… or last of other weekdays (the last weekend day; the second of Monday, Wednesday and Friday). The event shows *Monthly on the last weekday*, and changing it in the web keeps it. A test checks these against python-dateutil, both as written and as read.
+  - **Counted from the end of the month:** the second-to-last Monday (BYDAY=-2MO), the third-to-last, and mixes such as the second and the second-to-last Friday go both ways too. The event shows *Monthly on the second-to-last Monday*, and changing it in the web keeps it (dragging it to another day keeps counting from the end). A test checks these against python-dateutil.
 - **Not yet:**
-  - Repeats Workspace can't show (such as the second-to-last Monday, or one on set week numbers) arrive as a one-off on the first date.
+  - Repeats Workspace can't show (such as one on set week numbers or days of the year) arrive as a one-off on the first date.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
 
 **Changed on a phone, nothing else lost:** a phone's contacts or calendar app sends the whole card or event back when you change it there. What the phone doesn't know about stays as it was: a contact's extra numbers and addresses, dates, fields of your own and reminder to keep in touch; an event's colour, guests, reminders, attachments, privacy, *show as* and time zone.

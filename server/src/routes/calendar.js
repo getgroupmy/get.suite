@@ -66,6 +66,8 @@ const MAX_GUESTS = 50;
 
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const FREQS = ['daily', 'weekly', 'monthly', 'yearly'];
+// Which of a weekday in the month: the 1st–5th, or counted from the end (-1 the last, -2 the second-to-last…).
+const NTHS = [1, 2, 3, 4, 5, -1, -2, -3, -4, -5];
 
 /**
  * A repeat rule: { freq, interval?, byday? (weekly: 0=Sun..6), nth? + wd? (monthly: the 2nd Monday), until? (ms), count? }. The
@@ -104,21 +106,21 @@ function readRule(rule) {
     const seen = new Set(), mdays = [];
     for (const x of list) {
       const k = Number(x?.[0]), wd = Number(x?.[1]);
-      if (![1, 2, 3, 4, 5, -1].includes(k) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick weekdays of the month');
+      if (!NTHS.includes(k) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick weekdays of the month');
       if (!seen.has(`${k}:${wd}`)) { seen.add(`${k}:${wd}`); mdays.push([k, wd]); }
     }
     if (!mdays.length || mdays.length > 35) throw bad('Pick weekdays of the month');
-    out.mdays = mdays.sort((a, b) => a[1] - b[1] || (a[0] === -1) - (b[0] === -1) || a[0] - b[0]);
+    out.mdays = mdays.sort((a, b) => a[1] - b[1] || (a[0] < 0) - (b[0] < 0) || a[0] - b[0]);
   } else if (rule.nths !== undefined && rule.nths !== null) {
     if (rule.freq !== 'monthly') throw bad('"The first and third Monday" only applies to monthly repeats');
     const nths = Array.isArray(rule.nths) ? [...new Set(rule.nths.map(Number))] : [];
     const wd = Number(rule.wd);
-    if (!nths.length || nths.length > 5 || nths.some((k) => ![1, 2, 3, 4, 5, -1].includes(k)) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick weekdays of the month');
-    out.nths = nths.sort((a, b) => (a === -1) - (b === -1) || a - b); out.wd = wd;
+    if (!nths.length || nths.length > 10 || nths.some((k) => !NTHS.includes(k)) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick weekdays of the month');
+    out.nths = nths.sort((a, b) => (a < 0) - (b < 0) || a - b); out.wd = wd;
   } else if (rule.nth !== undefined || rule.wd !== undefined) {
     if (rule.freq !== 'monthly') throw bad('"The second Monday" only applies to monthly repeats');
     const nth = Number(rule.nth), wd = Number(rule.wd);
-    if (![1, 2, 3, 4, 5, -1].includes(nth) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick a weekday of the month');
+    if (!NTHS.includes(nth) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick a weekday of the month');
     out.nth = nth; out.wd = wd;
   }
   if (rule.until !== undefined && rule.until !== null) out.until = int(rule.until, 'until');
