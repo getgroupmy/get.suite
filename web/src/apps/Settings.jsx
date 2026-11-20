@@ -14,6 +14,7 @@ import { allZones, zoneName, cityOf } from '../components/zones.js';
 import { getTheme, setTheme, getA11y, setA11y } from '../theme.js';
 import { useMailStatus } from '../mailStatus.js';
 import { creationOptions, credentialJson, passkeysSupported, passkeyError } from '../passkey.js';
+import { localToday } from './tasks/taskmath.js';
 
 export default function Settings() {
   const { user, setUser } = useAuth();
@@ -872,7 +873,7 @@ function SecondZone() {
 function WorkLocation() {
   const toast = useToast();
   const [week, setWeek] = useState(null);
-  useEffect(() => { const d = new Date(); const iso = d.toISOString().slice(0, 10); get(`/location?from=${iso}&to=${iso}`).then((r) => setWeek(r.week)).catch(() => setWeek({})); }, []);
+  useEffect(() => { const iso = localToday(); get(`/location?from=${iso}&to=${iso}`).then((r) => setWeek(r.week)).catch(() => setWeek({})); }, []);
   const set = async (day, place) => {
     const next = { ...week, [day]: place || null };
     setWeek(next);

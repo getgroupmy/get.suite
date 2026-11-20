@@ -16744,3 +16744,19 @@ test('the morning summary before it has a zone of its own: the day where the bro
   await sam('PUT', '/api/users/me/digest', { hour: null, tz: 'America/New_York' });
   assert.match(digestFor(id, t, '', 'Asia/Kuala_Lumpur').text, /Here's Sunday 13 December/, 'once it has a zone, that one');
 });
+
+test('out of office from the vacation reply with no first day: from today where they are, not today in UTC', async (t) => {
+  const { syncAwayEvent } = await import('../src/mail/vacation.js');
+  const { mock } = await import('node:test');
+  const lee = client();
+  await owner('POST', '/api/users', { local: 'leeooo', domain: 'acme.com', name: 'Lee Away', password: 'password123' });
+  await login(lee, 'leeooo@acme.com');
+  const id = (await lee('GET', '/api/auth/me')).body.user.id;
+  mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 20, 23, 30) }); // Saturday 21 November, 7:30 in Kuala Lumpur
+  t.after(() => mock.timers.reset());
+  let eventId;
+  try { eventId = syncAwayEvent(id, { on: true, end_date: '2026-11-25', tz: 'Asia/Kuala_Lumpur' }); } finally { mock.timers.reset(); }
+  const ev = (await import('../src/db.js')).q('SELECT start, end FROM events WHERE id = ?').get(eventId);
+  assert.equal(new Date(ev.start).toISOString(), '2026-11-20T16:00:00.000Z', 'midnight starting Saturday 21 November there');
+  assert.equal(new Date(ev.end + 1).toISOString(), '2026-11-25T16:00:00.000Z', 'to the end of Wednesday the 25th there');
+});

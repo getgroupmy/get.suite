@@ -575,7 +575,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     mesh.current?.setState({ tx: false });
     setTxSaving(true);
     const title = info?.title || code;
-    const stamp = new Date(t.started).toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+    const at = new Date(t.started), p2 = (n) => String(n).padStart(2, '0');
+    const stamp = `${localToday(at)} ${p2(at.getHours())}.${p2(at.getMinutes())}`; // when it started, where you are
     try { const f = await post('/files/new', { kind: 'doc', name: `${title} transcript ${stamp}`, content: transcriptDoc(title, t.lines, t.started) }); toast(`Saved “${f.name}” to your Drive`); }
     catch (e) { toast(`The transcript couldn’t be saved: ${e.message}`, 'error'); }
     finally { setTxSaving(false); }

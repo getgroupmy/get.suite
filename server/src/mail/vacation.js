@@ -55,7 +55,7 @@ export function syncAwayEvent(userId, { on, start_date, end_date, title = 'Out o
     q('UPDATE vacations SET ooo_event_id = NULL WHERE user_id = ?').run(userId);
     return null;
   }
-  const first = start_date || new Date().toISOString().slice(0, 10);
+  const first = start_date || new Intl.DateTimeFormat('sv-SE', { timeZone: zoneOrUtc(tz) }).format(new Date()); // today where they are
   const start = midnightIn(first, tz);
   const last = midnightIn(end_date, tz);
   const end = midnightIn(new Date(Date.parse(`${end_date}T00:00:00Z`) + 864e5).toISOString().slice(0, 10), tz) - 1; // to the end of the last day
