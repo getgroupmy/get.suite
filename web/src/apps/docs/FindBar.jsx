@@ -10,6 +10,7 @@ export function FindBar({ editor, replacing, canEdit, onClose, initialTerm = nul
   const [replace, setReplace] = useState('');
   const [matchCase, setMatchCase] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
+  const [matchDiacritics, setMatchDiacritics] = useState(false); // off: cafe finds café
   const [regex, setRegex] = useState(false);
   const [showReplace, setShowReplace] = useState(replacing && canEdit);
   const [, refresh] = useState(0);
@@ -19,10 +20,10 @@ export function FindBar({ editor, replacing, canEdit, onClose, initialTerm = nul
   useEffect(() => { setShowReplace((r) => r || (replacing && canEdit)); input.current?.select(); }, [replacing, canEdit]);
   // Keep the highlights in step with what's typed here (and with the document as others edit it).
   useEffect(() => {
-    editor.view.dispatch(editor.state.tr.setMeta(findKey, { term, options: { matchCase, wholeWord, regex }, current: 0 }));
+    editor.view.dispatch(editor.state.tr.setMeta(findKey, { term, options: { matchCase, wholeWord, regex, matchDiacritics }, current: 0 }));
     const first = findKey.getState(editor.state)?.matches?.[0];
     if (first) revealTabAt(editor, first.from);
-  }, [editor, term, matchCase, wholeWord, regex]);
+  }, [editor, term, matchCase, wholeWord, regex, matchDiacritics]);
   // With a word to find given, go to its first match as soon as the document's text has it.
   const goFirst = useRef(!!initialTerm);
   useEffect(() => {
@@ -98,6 +99,7 @@ export function FindBar({ editor, replacing, canEdit, onClose, initialTerm = nul
         <button type="button" className="icon-btn" aria-label="Next match" disabled={!n} onClick={() => show(state.current + 1)}><Icon name="right" size={18} /></button>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Whole words</label>
+        <label className="check small"><input type="checkbox" checked={matchDiacritics} disabled={regex} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
         <label className="check small" title="Search with a pattern, e.g. \d{4}-\d{2}-\d{2} or (\w+)@(\w+); replace with $1, $2… for its parts"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression</label>
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>

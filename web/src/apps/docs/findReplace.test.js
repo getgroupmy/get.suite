@@ -45,3 +45,16 @@ test('regular expressions: patterns, groups in replacements, bad patterns', asyn
   assert.deepEqual(texts(d, findMatches(d, 'a.d', {})), [], 'without the option, . is a dot');
   assert.deepEqual(findMatches(d, '\\b', { regex: true }), [], 'empty matches are left out');
 });
+
+test('finding: accents don\'t matter unless "Match diacritics" (and the match is the text as written)', async () => {
+  const { foldAccents } = await import('./findReplace.js');
+  const d = doc(['Un café à Zürich, and a cafe in Cafés'], ['naïve, NAÏVE été']);
+  assert.deepEqual(texts(d, findMatches(d, 'cafe')), ['café', 'cafe', 'Café']);
+  assert.deepEqual(texts(d, findMatches(d, 'café')), ['café', 'cafe', 'Café'], 'typed with its accent: the same');
+  assert.deepEqual(texts(d, findMatches(d, 'café', { matchDiacritics: true })), ['café', 'Café']);
+  assert.deepEqual(texts(d, findMatches(d, 'zurich')), ['Zürich']);
+  assert.deepEqual(texts(d, findMatches(d, 'naive', { matchCase: true })), ['naïve']);
+  assert.deepEqual(texts(d, findMatches(d, 'ete')), ['été'], 'combining accents taken in, whole');
+  assert.deepEqual(texts(d, findMatches(d, 'caf.', { regex: true })), ['café', 'cafe', 'Café'], 'a regular expression reads the text as it is');
+  assert.deepEqual(foldAccents('Às'), { text: 'As', from: [0, 1, 2] });
+});

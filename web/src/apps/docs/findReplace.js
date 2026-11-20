@@ -29,13 +29,28 @@ export function replacementFor(replace, match, regex) {
   return String(replace).replace(/\$(\$|&|[1-9])/g, (_, k) => (k === '$' ? '$' : k === '&' ? g[0] ?? '' : g[Number(k)] ?? ''));
 }
 
+/** Text without its accents (é → e), with where each of its characters came from: { text, from: [index] }. */
+export function foldAccents(text) {
+  let out = '';
+  const from = [];
+  for (let i = 0; i < text.length; i++) {
+    const f = text[i].normalize('NFD').replace(/\p{M}/gu, '');
+    for (let k = 0; k < f.length; k++) from.push(i);
+    out += f;
+  }
+  from.push(text.length);
+  return { text: out, from };
+}
+
 /**
  * Where `term` occurs in the document: [{ from, to, groups }]. Matches stay inside one block (paragraph,
- * heading, cell); `matchCase`, `wholeWord` and `regex` work as in other editors.
+ * heading, cell); `matchCase`, `wholeWord` and `regex` work as in other editors. Accents don't matter
+ * (cafe finds café) unless `matchDiacritics`, or with a regular expression.
  */
 export function findMatches(doc, term, options = {}) {
   if (!term) return [];
-  const { re } = findPattern(term, options);
+  const fold = !options.matchDiacritics && !options.regex;
+  const { re } = findPattern(fold ? foldAccents(term).text : term, options);
   if (!re) return [];
   const out = [];
   doc.descendants((node, pos) => {
@@ -47,10 +62,15 @@ export function findMatches(doc, term, options = {}) {
       if (child.isText) { for (let i = 0; i < child.text.length; i++) at.push(pos + 1 + offset + i); text += child.text; }
       else { at.push(null); text += '￼'; } // a picture or line break: never part of a match
     });
-    for (const m of text.matchAll(re)) {
+    const folded = fold ? foldAccents(text) : null;
+    for (const m of (folded ? folded.text : text).matchAll(re)) {
       if (!m[0].length || m[0].includes('￼')) continue;
       if (out.length >= 5000) break;
-      out.push({ from: at[m.index], to: at[m.index + m[0].length - 1] + 1, ...(options.regex && { groups: [...m] }) });
+      // (folded: back to the characters as written, the whole of the last one)
+      const start = folded ? folded.from[m.index] : m.index;
+      let last = folded ? folded.from[m.index + m[0].length - 1] : m.index + m[0].length - 1;
+      if (folded) while (last + 1 < text.length && /\p{M}/u.test(text[last + 1])) last++; // and its accents written as marks after it
+      out.push({ from: at[start], to: at[last] + 1, ...(options.regex && { groups: [...m] }) });
     }
     return false;
   });

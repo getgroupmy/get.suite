@@ -103,6 +103,26 @@ await step('word count', async () => {
   await page.screenshot({ path: `${SP}/shots/findreplace.png` });
 });
 
+await step('accents don\'t matter in Find (cafe finds café) unless Match diacritics is ticked; replacing keeps to the word as written', async () => {
+  const id = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Menu', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Café au lait, or a cafe crème.' }] }] } })).body.id;
+  await page.goto(`${B}/docs/${id}`);
+  await page.getByText('Café au lait').waitFor();
+  await page.locator('.paper .tiptap').click();
+  await page.keyboard.press('Control+f');
+  await page.getByLabel('Find', { exact: true }).fill('cafe');
+  await page.getByText('1 of 2').waitFor();
+  await page.getByLabel('Match diacritics').check();
+  await page.getByText('1 of 1').waitFor();
+  await page.getByLabel('Match diacritics').uncheck();
+  await page.getByLabel('Find', { exact: true }).fill('creme');
+  await page.getByText('1 of 1').waitFor();
+  await page.getByRole('button', { name: 'Replace…' }).click();
+  await page.getByLabel('Replace with').fill('cream');
+  await page.getByRole('button', { name: 'Replace all' }).click();
+  await page.getByText('No results').waitFor();
+  await page.locator('.paper .tiptap', { hasText: 'Café au lait, or a cafe cream.' }).waitFor(); // "crème" whole, accent and all
+  await page.keyboard.press('Escape');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);
