@@ -551,6 +551,13 @@ function sumPairs(a, b, f) {
   for (let i = 0; i < x.length; i++) if (typeof x[i] === 'number' && typeof y[i] === 'number') s += f(x[i], y[i]);
   return s;
 }
+function shiftBits(a, by) {
+  const x = toNum(a);
+  if (x < 0 || !Number.isInteger(x) || x >= 2 ** 48 || !Number.isInteger(by) || Math.abs(by) > 53) err('#NUM!');
+  const r = by >= 0 ? BigInt(x) << BigInt(by) : BigInt(x) >> BigInt(-by);
+  if (r >= 2n ** 48n) err('#NUM!');
+  return Number(r);
+}
 const bits = (a, b, f) => { const x = toNum(a), y = toNum(b); if (x < 0 || y < 0 || !Number.isInteger(x) || !Number.isInteger(y) || x >= 2 ** 48 || y >= 2 ** 48) err('#NUM!'); return Number(f(BigInt(x), BigInt(y))); };
 /** The error function (Abramowitz and Stegun 7.1.26 is too rough: by the incomplete gamma function instead). */
 const erf = (x) => (x < 0 ? -gammaP(0.5, x * x) : gammaP(0.5, x * x));
@@ -729,6 +736,14 @@ const FUNCS = {
   OR: (a) => flat(a).some(toBool),
   NOT: ([v]) => !toBool(v),
   // Text by pattern (regular expressions, as in other spreadsheets).
+  // Excel's REGEXTEST(text, pattern, [case_sensitivity]): 0 (the default) minds case, 1 doesn't.
+  REGEXTEST: ([text, pattern, cs]) => {
+    const t = toStr(scalarOf(text)), mode = given(cs) ? Math.trunc(toNum(cs)) : 0;
+    if (t.length > MAX_REGEX_TEXT || (mode !== 0 && mode !== 1)) err('#VALUE!');
+    return regex(scalarOf(pattern), mode ? 'i' : '').test(t);
+  },
+  // PERCENTOF(part, all): the share the part's sum is of the whole's (=PERCENTOF(B2, B2:B9)).
+  PERCENTOF: ([part, all]) => { const whole = nums([all]).reduce((s, x) => s + x, 0); if (!whole) err('#DIV/0!'); return nums([part]).reduce((s, x) => s + x, 0) / whole; },
   REGEXMATCH: ([text, pattern]) => { const t = toStr(scalarOf(text)); if (t.length > MAX_REGEX_TEXT) err('#VALUE!'); return regex(scalarOf(pattern)).test(t); },
   REGEXEXTRACT: ([text, pattern]) => {
     const t = toStr(scalarOf(text));
@@ -935,6 +950,8 @@ const FUNCS = {
   ACOSH: ([v]) => { const x = toNum(v); if (x < 1) err('#NUM!'); return Math.acosh(x); },
   ATANH: ([v]) => { const x = toNum(v); if (x <= -1 || x >= 1) err('#NUM!'); return Math.atanh(x); },
   SEC: ([v]) => 1 / Math.cos(toNum(v)),
+  SECH: ([v]) => 1 / Math.cosh(toNum(v)),
+  COTH: ([v]) => { const t = Math.tanh(toNum(v)); if (!t) err('#DIV/0!'); return 1 / t; },
   COT: ([v]) => { const t = Math.tan(toNum(v)); if (!t) err('#DIV/0!'); return 1 / t; },
   DEGREES: ([v]) => (toNum(v) * 180) / Math.PI, RADIANS: ([v]) => (toNum(v) * Math.PI) / 180,
   SQRTPI: ([v]) => { const x = toNum(v); if (x < 0) err('#NUM!'); return Math.sqrt(x * Math.PI); },
@@ -1017,6 +1034,8 @@ const FUNCS = {
   DELTA: ([a, b]) => (toNum(a) === toNum(b ?? 0) ? 1 : 0),
   'CEILING.MATH': ([v, sig, mode]) => { const x = toNum(v), g = Math.abs(toNum(sig ?? 1)) || 0; if (!g) return 0; return x < 0 && mode !== undefined && toNum(mode) ? Math.floor(x / g + 1e-12) * g : Math.ceil(x / g - 1e-12) * g; },
   'FLOOR.MATH': ([v, sig, mode]) => { const x = toNum(v), g = Math.abs(toNum(sig ?? 1)) || 0; if (!g) return 0; return x < 0 && mode !== undefined && toNum(mode) ? Math.ceil(x / g - 1e-12) * g : Math.floor(x / g + 1e-12) * g; },
+  // BITLSHIFT(n, by) and BITRSHIFT(n, by): n's bits moved left (right); a negative `by` goes the other way.
+  BITLSHIFT: ([a, by]) => shiftBits(a, toNum(by)), BITRSHIFT: ([a, by]) => shiftBits(a, -toNum(by)),
   BITAND: ([a, b]) => bits(a, b, (x, y) => x & y), BITOR: ([a, b]) => bits(a, b, (x, y) => x | y), BITXOR: ([a, b]) => bits(a, b, (x, y) => x ^ y),
   // Money.
   FVSCHEDULE: ([pv, rates]) => nums([rates]).reduce((v, r) => v * (1 + r), toNum(pv)),
@@ -1729,10 +1748,10 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL']);
+const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL', 'SHEET', 'SHEETS']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ISFORMULA', 'FORMULATEXT', 'ISREF', 'CELL', 'SHEET', 'SHEETS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 /**
@@ -2101,6 +2120,18 @@ export function createEvaluator(cells, names = null, book = null, sheetName = nu
           const raw = cells[cellKey(at.c, at.r)];
           const isFormula = typeof raw === 'string' && raw.startsWith('=');
           return n.name === 'ISFORMULA' ? isFormula : isFormula ? raw : err('#N/A');
+        }
+        if (n.name === 'SHEET' || n.name === 'SHEETS') { // which sheet (1 for the first), and how many there are
+          const names = (book?.sheets || []).map((x) => String(x.name).toUpperCase());
+          const a = n.args[0];
+          if (n.args.length > 1) err('#N/A');
+          if (n.name === 'SHEETS') { if (!a || a.k === 'empty') return Math.max(names.length, 1); refOf(a); return 1; }
+          const which = !a || a.k === 'empty' ? sheetName
+            : ['ref', 'range', 'xref', 'name'].includes(a.k) || (a.k === 'call' && (a.name === 'OFFSET' || a.name === 'INDIRECT')) ? (refOf(a).sheet ?? sheetName)
+              : toStr(scalar(evaluate(a)));
+          if (which === null || which === undefined) return 1; // a spreadsheet of one sheet
+          const at = names.indexOf(String(which).toUpperCase());
+          return at >= 0 ? at + 1 : err('#N/A');
         }
         if (n.name === 'ISREF') { // whether it's a reference (A1, Data!B2:C4, a named range, OFFSET, INDIRECT), not a value
           if (n.args.length !== 1) err('#N/A');

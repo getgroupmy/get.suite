@@ -56,7 +56,8 @@ const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ',
   'AGGREGATE', 'BETA.DIST', 'BINOM.DIST.RANGE', 'BINOM.INV', 'BITAND', 'BITOR', 'BITXOR', 'CEILING.MATH', 'CHISQ.INV', 'CHISQ.INV.RT', 'COMBINA',
   'COT', 'CSC', 'CSCH', 'ECMA.CEILING', 'F.DIST', 'F.DIST.RT', 'F.INV', 'F.INV.RT', 'F.TEST', 'FLOOR.MATH', 'GAMMA', 'GAMMA.DIST', 'GAMMA.INV',
   'GAUSS', 'HYPGEOM.DIST', 'LOGNORM.DIST', 'LOGNORM.INV', 'MODE.MULT', 'MUNIT', 'NEGBINOM.DIST', 'NUMBERVALUE', 'PDURATION', 'PERCENTILE.EXC',
-  'PERCENTRANK.EXC', 'PERMUTATIONA', 'PHI', 'QUARTILE.EXC', 'RANK.AVG', 'RRI', 'SEC', 'SKEW.P', 'WEIBULL.DIST', 'XOR', 'VALUETOTEXT', 'ARRAYTOTEXT'];
+  'PERCENTRANK.EXC', 'PERMUTATIONA', 'PHI', 'QUARTILE.EXC', 'RANK.AVG', 'RRI', 'SEC', 'SKEW.P', 'WEIBULL.DIST', 'XOR', 'VALUETOTEXT', 'ARRAYTOTEXT',
+  'SECH', 'COTH', 'BITLSHIFT', 'BITRSHIFT', 'SHEET', 'SHEETS', 'REGEXTEST', 'PERCENTOF'];
 const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replaceAll('.', '\\.')).join('|')})(?=\\()`, 'gi');
 // (and TRUE() / FALSE(), as LibreOffice writes them, as they're usually typed)
 export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm)\./gi, (m, s) => s || '')

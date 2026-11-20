@@ -303,3 +303,26 @@ test('ISDATE, EPOCHTODATE, ISREF and CELL', () => {
     { name: 'Q4 sales', cells: { B2: '7' } }], 0);
   assert.deepEqual([book('A1'), book('A2'), book('A3')], ["'Q4 sales'!$B$2", 7, true]);
 });
+test('SHEET, SHEETS, REGEXTEST, PERCENTOF, SECH, COTH, BITLSHIFT and BITRSHIFT', () => {
+  near(one('=SECH(0)'), 1);
+  near(one('=COTH(1)'), 1.3130352854993315);
+  assert.deepEqual(one('=COTH(0)'), { error: '#DIV/0!' });
+  assert.equal(one('=BITLSHIFT(4, 2)'), 16);
+  assert.equal(one('=BITRSHIFT(13, 2)'), 3);
+  assert.equal(one('=BITLSHIFT(12, -2)'), 3);
+  assert.deepEqual(one('=BITLSHIFT(2^47, 1)'), { error: '#NUM!' });
+  assert.deepEqual(one('=BITLSHIFT(-1, 1)'), { error: '#NUM!' });
+  assert.equal(one('=REGEXTEST("Apple", "^a")'), false);
+  assert.equal(one('=REGEXTEST("Apple", "^a", 1)'), true);
+  assert.equal(one('=REGEXTEST("INV-2041", "^INV-\\d+$")'), true);
+  assert.deepEqual(one('=REGEXTEST("x", "[")'), { error: '#VALUE!' });
+  assert.deepEqual(one('=REGEXTEST("x", "x", 2)'), { error: '#VALUE!' });
+  const cells = { A1: '10', A2: '30', A3: 'x' };
+  assert.equal(one('=PERCENTOF(A1, A1:A3)', cells), 0.25);
+  assert.deepEqual(one('=PERCENTOF(A1, B1:B2)', cells), { error: '#DIV/0!' });
+  assert.equal(one('=SHEET()'), 1);
+  assert.equal(one('=SHEETS()'), 1);
+  const ev3 = bookEvaluator([{ name: 'Main', cells: { A1: '=SHEET()', A2: "=SHEET('Q4 sales'!B2)", A3: '=SHEET("q4 SALES")', A4: '=SHEETS()', A5: '=SHEET("Nope")', A6: "=SHEET(INDIRECT(\"'Q4 sales'!A1\"))" } },
+    { name: 'Q4 sales', cells: {} }, { name: 'Other', cells: { A1: '=SHEET()' } }], 0);
+  assert.deepEqual(['A1', 'A2', 'A3', 'A4', 'A5', 'A6'].map(ev3), [1, 2, 2, 3, { error: '#N/A' }, 2]);
+});

@@ -88,6 +88,12 @@ await step('statistics, loans, dates in words and database functions give Excel\
   await typeIn('A17', '=ISREF(B2:C3)');
   await typeIn('A18', '=CELL("address", B2:C3)&" "&CELL("type", A1)');
   await expectCells({ A15: 'TRUE', A16: '2023-11-14 22:13:20', A17: 'TRUE', A18: '$B$2 l' });
+  // SHEET, SHEETS, REGEXTEST, PERCENTOF, BITLSHIFT
+  await typeIn('A19', '=SHEET()&"/"&SHEETS()');
+  await typeIn('A20', '=REGEXTEST(A2, "^P", 1)');
+  await typeIn('A21', '=PERCENTOF(B2, B2:B4)');
+  await typeIn('A22', '=BITLSHIFT(5, 3)');
+  await expectCells({ A19: '1/1', A20: 'TRUE', A21: '0.6', A22: '40' });
   await page.screenshot({ path: `${SP}/shots/funcs-values.png` });
 });
 await step('newer functions are written the way Excel expects in the .xlsx download', async () => {
