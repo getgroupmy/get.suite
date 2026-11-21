@@ -68,3 +68,51 @@ table{border-collapse:collapse;table-layout:fixed}td{padding:2px 4px;vertical-al
 tr{break-inside:avoid}td.has-over{position:relative;overflow:visible}.over{position:absolute;z-index:1}.over img{width:100%;height:100%;display:block}.over.chart{background:#fff;box-shadow:0 0 0 1px #ddd;border-radius:6px;padding:4px 8px;box-sizing:border-box;white-space:normal;overflow:hidden}.over.chart p{margin:0 0 4px;font-weight:600;font-size:13px}</style></head>
 <body><table><colgroup>${colgroup}</colgroup><tbody>${rows.join('')}</tbody></table></body></html>`;
 }
+
+/**
+ * The cells as a table for an email (Sheets → Send as email): values as shown, merged cells kept, hidden rows and columns
+ * left out, and each cell's look as Mail's editor keeps it, on its text (bold, italic, underline, strikethrough, its
+ * colour and fill as the text's colour and highlight) and its paragraph (left, centre or right). The first row is the
+ * header when `header` (bold, as most tables have it).
+ */
+export function sheetEmailHtml({ area, text, style = () => ({}), layout = { spans: new Map(), covered: new Map() }, hiddenRows = new Set(), hiddenCols = new Set(), header = false }) {
+  const cols = [];
+  for (let c = area.c1; c <= area.c2; c++) if (!hiddenCols.has(c)) cols.push(c);
+  const COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)$/i;
+  const rows = [];
+  let first = true;
+  for (let r = area.r1; r <= area.r2; r++) {
+    if (hiddenRows.has(r)) continue;
+    const tds = [];
+    for (const c of cols) {
+      const k = cellKey(c, r);
+      if (layout.covered.has(k)) continue;
+      let attrs = '';
+      const span = layout.spans.get(k);
+      if (span) {
+        const b = span.box;
+        const cs = cols.filter((x) => x >= b.c1 && x <= Math.min(b.c2, area.c2)).length;
+        let rs = 0;
+        for (let y = b.r1; y <= Math.min(b.r2, area.r2); y++) if (!hiddenRows.has(y)) rs++;
+        if (cs > 1) attrs += ` colspan="${cs}"`;
+        if (rs > 1) attrs += ` rowspan="${rs}"`;
+      }
+      const s = style(k) || {};
+      let t = esc(text(k));
+      if (t) {
+        const span2 = [COLOR.test(String(s.color || '')) && `color: ${s.color}`, COLOR.test(String(s.background || '')) && `background-color: ${s.background}`].filter(Boolean).join('; ');
+        if (span2) t = `<span style="${span2}">${t}</span>`;
+        if (/line-through/.test(s.textDecoration || '')) t = `<s>${t}</s>`;
+        if (/underline/.test(s.textDecoration || '')) t = `<u>${t}</u>`;
+        if (s.fontStyle === 'italic') t = `<em>${t}</em>`;
+        if (Number(s.fontWeight) >= 600 || s.fontWeight === 'bold' || (header && first)) t = `<strong>${t}</strong>`;
+      }
+      const align = ['center', 'right'].includes(s.textAlign) ? ` style="text-align: ${s.textAlign}"` : '';
+      const tag = header && first ? 'th' : 'td';
+      tds.push(`<${tag}${attrs}><p${align}>${t}</p></${tag}>`);
+    }
+    rows.push(`<tr>${tds.join('')}</tr>`);
+    first = false;
+  }
+  return `<table>${rows.join('')}</table>`;
+}

@@ -37,3 +37,19 @@ test('pictures and charts over the cells print in the cell their corner is over,
   assert.equal((html.match(/class="over/g) || []).length, 2);
   assert.doesNotMatch(sheetPrintHtml({ title: 'T', area: { c1: 0, r1: 0, c2: 1, r2: 1 }, text: () => '' }), /class="has-over"/, 'nothing when there are none');
 });
+
+test('a sheet as a table for an email: values as shown, merges, hidden rows left out, the look on the text', async () => {
+  const { sheetEmailHtml } = await import('./sheetprint.js');
+  const shown = { A1: 'Item', B1: 'Cost', A2: 'Chairs', B2: '$1,200.00', A3: 'Secret', B3: '1', A4: 'Total <all>', B4: '$1,200.00', A5: 'Note across' };
+  const fmt = { B2: { textAlign: 'right' }, A4: { fontWeight: 700, color: '#c00000' }, B4: { fontStyle: 'italic', background: '#ffff00', textAlign: 'right', textDecoration: 'underline line-through' }, A2: { color: 'url(x)' } };
+  const layout = mergeLayout(['A5:B5']);
+  const html = sheetEmailHtml({ area: { c1: 0, r1: 0, c2: 1, r2: 4 }, text: (k) => shown[k] ?? '', style: (k) => fmt[k], layout, hiddenRows: new Set([2]), header: true });
+  assert.equal(html, '<table>'
+    + '<tr><th><p><strong>Item</strong></p></th><th><p><strong>Cost</strong></p></th></tr>'
+    + '<tr><td><p>Chairs</p></td><td><p style="text-align: right">$1,200.00</p></td></tr>'
+    + '<tr><td><p><strong><span style="color: #c00000">Total &lt;all&gt;</span></strong></p></td><td><p style="text-align: right"><em><u><s><span style="background-color: #ffff00">$1,200.00</span></s></u></em></p></td></tr>'
+    + '<tr><td colspan="2"><p>Note across</p></td></tr>'
+    + '</table>');
+  // Without a header row: plain cells.
+  assert.match(sheetEmailHtml({ area: { c1: 0, r1: 0, c2: 0, r2: 0 }, text: () => 'Item' }), /^<table><tr><td><p>Item<\/p><\/td><\/tr><\/table>$/);
+});

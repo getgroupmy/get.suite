@@ -162,6 +162,37 @@ await step('Docs ⋮ → Send as email: the document is the email, its lists and
   await img.waitFor();
   if (!(await img.evaluate((el) => el.complete && el.naturalWidth === 1))) throw new Error('picture not shown: ' + await img.getAttribute('src'));
 });
+await step('Sheets ⋮ → Send as email: the sheet as a table in the email, values and look as shown', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Quote', content: { sheets: [{ name: 'Sheet1', colWidths: {},
+    cells: { A1: 'Item', B1: 'Price', C1: 'Cost code', A2: 'Bolts', B2: '1.5', C2: 'x', A3: 'Nuts', B3: '2', A4: 'Total', B4: '=B2+B3' },
+    formats: { A1: { b: true }, B1: { b: true }, B2: { num: 'currency', cur: 'USD', dp: 2 }, B3: { num: 'currency', cur: 'USD', dp: 2 }, B4: { num: 'currency', cur: 'USD', dp: 2, b: true, color: '#c00000' } }, hide: { cols: [2] } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="B4"]', { hasText: '$3.50' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Send as email' }).click();
+  await page.waitForURL(/\/mail/);
+  const ed = page.locator('.compose-editor');
+  const total = ed.locator('td', { hasText: '$3.50' });
+  await total.waitFor();
+  if (await page.getByLabel('Subject').inputValue() !== 'Quote') throw new Error('subject');
+  const rows = await ed.locator('table tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent).join('|')));
+  if (JSON.stringify(rows) !== JSON.stringify(['Item|Price', 'Bolts|$1.50', 'Nuts|$2.00', 'Total|$3.50'])) throw new Error('rows: ' + JSON.stringify(rows));
+  const look = await total.locator('span').evaluate((el) => [getComputedStyle(el).color, getComputedStyle(el.querySelector('strong') || el).fontWeight]);
+  if (look[0] !== 'rgb(192, 0, 0)' || Number(look[1]) < 600) throw new Error('look: ' + look);
+  await page.getByRole('textbox', { name: 'Message' }).locator('p').first().click();
+  await page.keyboard.type('Here is the quote:');
+  await page.getByLabel('To', { exact: true }).fill('gina@globex.com');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText('Sent to 1 recipient').waitFor();
+  await gina.goto(`${B}/mail`);
+  const row = gina.locator('.msg-list li', { hasText: 'Quote' }).first();
+  await refreshUntil(gina, row);
+  await row.locator('.msg-row').click();
+  const frame = gina.frameLocator('iframe.mail-html');
+  await frame.getByText('Here is the quote:').waitFor();
+  const got = await frame.locator('table tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent).join('|')));
+  if (JSON.stringify(got) !== JSON.stringify(rows)) throw new Error('received: ' + JSON.stringify(got));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

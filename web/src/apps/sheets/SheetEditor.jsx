@@ -54,7 +54,10 @@ import { bandStyle } from './bands.js';
 import { copyFormats, paintFormats } from './paint.js';
 import { BandsDialog } from './SheetBands.jsx';
 import { ColumnStatsDialog } from './SheetStats.jsx';
-import { sheetPrintHtml, usedArea } from './sheetprint.js';
+import { sheetPrintHtml, sheetEmailHtml, usedArea } from './sheetprint.js';
+import { DRAFT_KEY } from '../docs/blocks.js';
+const MAX_EMAIL_CELLS = 5000; // (a bigger table is better as an attachment)
+import { viewOnly } from '../drive/viewonly.js';
 import { printHtml } from '../mail/mailprint.js';
 import { useUndo, undoKey } from '../useUndo.js';
 import { useFormulaAssist } from './FormulaAssist.jsx';
@@ -1238,6 +1241,22 @@ export default function SheetEditor() {
     input.click();
   }
 
+  // Send as email: a new message in Mail with the selected cells (or the whole sheet) as a table in it, as they look.
+  function sendAsEmail() {
+    const many = range.c1 !== range.c2 || range.r1 !== range.r2;
+    const area = many ? range : usedArea([...Object.keys(cells).filter((k) => cells[k] !== '' && cells[k] != null), ...(evaluate.spilledKeys?.() || [])]);
+    if (!area) { toast('There is nothing on this sheet to send'); return; }
+    if ((area.c2 - area.c1 + 1) * (area.r2 - area.r1 + 1) > MAX_EMAIL_CELLS) { toast(`That’s too many cells for an email (up to ${MAX_EMAIL_CELLS.toLocaleString()}): select the ones to send`, 'error'); return; }
+    const table = sheetEmailHtml({
+      area, text: shown,
+      style: (k) => { const m = /^([A-Z]+)(\d+)$/.exec(k); return { ...(m && bandStyle(bands, colIndex(m[1]), Number(m[2]) - 1, formats[k])), ...cellStyle(formats[k]), ...(rules.length && ruleStyle(rules, k, evaluate(k), ruleCtx)) }; },
+      layout, hiddenRows: hidden, hiddenCols,
+    });
+    const subject = (data.sheets || []).length > 1 ? `${file.name} - ${sheet.name}` : file.name;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ subject, html: `<p></p>${table}<p></p>` })); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  }
+
   if (!data) return <div className="editor-page"><EditorHeader icon="sheet" file={null} status="saved" /></div>;
 
   const selKey = cellKey(sel.c, sel.r);
@@ -1400,6 +1419,7 @@ export default function SheetEditor() {
           !readOnly && { label: 'Goal seek…', icon: 'search', onClick: () => setDialog({ type: 'goalseek' }) },
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
+          mail?.enabled && !viewOnly(file) && { label: 'Send as email', icon: 'mail', onClick: sendAsEmail },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
           { label: 'Compare spreadsheets', icon: 'sheet', onClick: () => setDialog({ type: 'compare-pick' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
