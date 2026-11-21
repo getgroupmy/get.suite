@@ -116,6 +116,13 @@ export function markdownFromDoc(doc) {
 const text = (t, marks) => ({ type: 'text', text: t, ...(marks.length && { marks: marks.map((m) => (typeof m === 'string' ? { type: m } : m)) }) });
 
 /** Inline Markdown: **bold**, *italic* / _italic_, ~~strike~~, `code`, [link](url), footnote refs, escapes. */
+// What's between * or ** (or ~~): starting and ending with a character that isn't a space, and the end not a "\\"
+// escaping the closing mark ("**\\*star\\***" is bold *star*, not bold "*star\\" and a "*"); \\x counts as one character.
+const INSIDE = String.raw`(?=\S)((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s\\]))`;
+const BOLD_ITALIC = new RegExp(String.raw`^(\*\*\*|___)${INSIDE}\1(?![*_])`); // ***both***
+const BOLD = new RegExp(String.raw`^(\*\*|__)${INSIDE}\1`);
+const STRIKE = new RegExp(String.raw`^~~${INSIDE}~~(?!~)`); // (~~~x~~~: "~x~" struck through)
+const ITALIC = new RegExp(String.raw`^([*_])${INSIDE}\1(?![*_\w])`);
 export function inlineFromMarkdown(s, notes = {}, marks = []) {
   const out = [];
   let buf = '';
@@ -136,11 +143,13 @@ export function inlineFromMarkdown(s, notes = {}, marks = []) {
       else out.push(...inlineFromMarkdown(m[1], notes, [...marks, { type: 'link', attrs: { href } }]));
       i += m[0].length; continue;
     }
-    if ((m = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1/.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'bold'])); i += m[0].length; continue; }
-    if ((m = /^<(sup|sub|u|ins)>([\s\S]*?)<\/\1>/i.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, { sup: 'superscript', sub: 'subscript', u: 'underline', ins: 'underline' }[m[1].toLowerCase()]])); i += m[0].length; continue; }
+    if ((m = BOLD_ITALIC.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'bold', 'italic'])); i += m[0].length; continue; }
+    if ((m = BOLD.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'bold'])); i += m[0].length; continue; }
+    // HTML's own words for a look, as Markdown writes those it has no way of its own for (CommonMark: <s> for strikethrough)
+    if ((m = /^<(sup|sub|u|ins|s|del|strike|b|strong|i|em)>([\s\S]*?)<\/\1>/i.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, { sup: 'superscript', sub: 'subscript', u: 'underline', ins: 'underline', s: 'strike', del: 'strike', strike: 'strike', b: 'bold', strong: 'bold', i: 'italic', em: 'italic' }[m[1].toLowerCase()]])); i += m[0].length; continue; }
     if ((m = /^&#(?:(\d{1,7})|x([0-9a-f]{1,6}));/i.exec(rest))) { const cp = m[1] ? Number(m[1]) : parseInt(m[2], 16); if (cp > 0 && cp <= 0x10ffff) { buf += String.fromCodePoint(cp); i += m[0].length; continue; } } // (&#32; a space a paragraph starts with)
-    if ((m = /^~~(?=\S)([\s\S]*?\S)~~/.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[1], notes, [...marks, 'strike'])); i += m[0].length; continue; }
-    if ((m = /^([*_])(?=\S)([\s\S]*?\S)\1(?![*_\w])/.exec(rest)) && (s[i] === '*' || !/\w/.test(s[i - 1] || ''))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'italic'])); i += m[0].length; continue; }
+    if ((m = STRIKE.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[1], notes, [...marks, 'strike'])); i += m[0].length; continue; }
+    if ((m = ITALIC.exec(rest)) && (s[i] === '*' || !/\w/.test(s[i - 1] || ''))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'italic'])); i += m[0].length; continue; }
     buf += s[i]; i++;
   }
   flush();

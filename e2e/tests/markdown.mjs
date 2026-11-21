@@ -64,6 +64,19 @@ await step('download a document as Markdown', async () => {
   if (!text.startsWith('# Minutes\n\nWe agreed on **three** things: Done.\n\n- [x] budget\n- [ ] hiring')) throw new Error(JSON.stringify(text));
   if (!text.includes('&#32;&#32;Note: <u>signed</u> off.')) throw new Error(`underline and leading spaces: ${JSON.stringify(text)}`);
 });
+await step('a Markdown file written by another program: ***both***, escaped stars inside bold, <s> and ~~~struck~~~', async () => {
+  const md = 'Plan: ***both*** and **\\*starred\\*** then <s>gone</s> and ~~~tilde~~~ end.\n';
+  await page.evaluate(async (text) => fetch('/api/files/upload?name=other.md', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: text }), md);
+  await page.goto(B + '/drive');
+  await page.getByLabel('Actions for other.md').click();
+  await page.getByRole('menuitem', { name: 'Open as document' }).click();
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.ProseMirror').first();
+  await ed.getByText('Plan:').waitFor();
+  const got = await ed.evaluate((el) => [el.textContent, el.querySelector('strong em, em strong')?.textContent, el.querySelector('strong')?.textContent, [...el.querySelectorAll('s')].map((x) => x.textContent).join('|')]);
+  // (were "Plan: *both* and …" with a bold "*both", "*starred\" bold and a stray "*", and <s>gone</s> as it was written)
+  if (JSON.stringify(got) !== JSON.stringify(['Plan: both and *starred* then gone and ~tilde~ end.', 'both', 'both', 'gone|~tilde~'])) throw new Error(JSON.stringify(got));
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

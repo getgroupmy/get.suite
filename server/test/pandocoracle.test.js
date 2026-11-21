@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { markdownFromDoc } from '../src/office/markdown.js';
+import { markdownFromDoc, docFromMarkdown } from '../src/office/markdown.js';
 import { wordFromDoc, docFromWord } from '../src/office/word.js';
 import { odtFromDoc, docFromOdt } from '../src/office/odt.js';
 
@@ -76,7 +76,7 @@ function pandocShape(ast) {
         case 'Code': inl(i.c[1].split(/( )/).map((p) => (p === ' ' ? { t: 'Space' } : { t: 'Str', c: p })).filter((p) => p.c !== ''), m('code'), ws, raw); break;
         case 'Link': inl(i.c[1], m(`link:${i.c[2][0]}`), ws, raw); break;
         case 'Span': inl(i.c[1], marks, ws, raw); break;
-        case 'RawInline': { const tag = /^<(\/?)(u|sub|sup)>$/.exec(i.c[1]); if (tag) { const name = { u: 'underline', sub: 'subscript', sup: 'superscript' }[tag[2]]; if (tag[1]) raw.splice(raw.indexOf(name), 1); else raw.push(name); } else inl([{ t: 'Str', c: i.c[1] }], marks, ws, raw); break; }
+        case 'RawInline': { const tag = /^<(\/?)(u|sub|sup|s|del|strike)>$/.exec(i.c[1]); if (tag) { const name = { u: 'underline', sub: 'subscript', sup: 'superscript', s: 'strike', del: 'strike', strike: 'strike' }[tag[2]]; if (tag[1]) raw.splice(raw.indexOf(name), 1); else raw.push(name); } else inl([{ t: 'Str', c: i.c[1] }], marks, ws, raw); break; }
         default: inl([{ t: 'Str', c: `?${i.t}` }], marks, ws, raw);
       }
     }
@@ -118,5 +118,20 @@ test('and 60 written by pandoc as .docx and .odt from our Markdown, opened in Do
     const md = markdownFromDoc(doc);
     assert.deepEqual(ourShape(await docFromWord(pandoc(['-f', 'gfm', '-t', 'docx'], md))), want, `document ${i}, pandoc's .docx of:\n${md}`);
     assert.deepEqual(ourShape(await docFromOdt(pandoc(['-f', 'gfm', '-t', 'odt'], md))), want, `document ${i}, pandoc's .odt of:\n${md}`);
+  }
+});
+
+test('and 60 as Markdown written by pandoc (its own way of writing it, GitHub\'s and CommonMark\'s), opened in Docs: the same', { skip: !hasPandoc && 'pandoc isn’t installed here' }, async () => {
+  // (compared with how pandoc itself reads that Markdown, as its writer isn't always clear)
+  for (const [i, doc] of randomDocs(60, 3).entries()) {
+    for (const to of ['gfm', 'commonmark']) {
+      const md = String(pandoc(['-f', 'gfm', '-t', to], markdownFromDoc(doc)));
+      if (/^\s*(~~~|```)/m.test(md)) continue; // (a line pandoc wrapped to start with "~~~": a code block to anyone reading it)
+      // (and leaving out a line where pandoc reads one word with two looks, as it reads its own "~~~tilde~~~": "~", struck
+      // "tilde", "~"; the random words never have that, so it's pandoc's writing that is unclear there)
+      const theirs = read(to, md), ours = ourShape(await docFromMarkdown(md));
+      const unclear = new Set(theirs.map((l, k) => (/\{\?\}/.test(l) ? k : -1)).filter((k) => k >= 0));
+      assert.deepEqual(ours.filter((l, k) => !unclear.has(k)), theirs.filter((l, k) => !unclear.has(k)), `document ${i}, pandoc's ${to}:\n${md}`);
+    }
   }
 });
