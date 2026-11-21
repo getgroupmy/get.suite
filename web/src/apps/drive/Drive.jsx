@@ -123,6 +123,14 @@ export default function Drive() {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { toast('Your browser’s storage is off', 'error'); return; }
     navigate('/mail?compose_doc=1');
   };
+  /** Send as email: a new message in Mail whose text is the document or presentation (as their editors' Send as email). */
+  const sendAsEmail = async (f) => {
+    try {
+      const { subject, html } = await get(`/files/${f.id}/email-body`);
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ subject, html }));
+      navigate('/mail?compose_doc=1');
+    } catch (e) { toast(e instanceof DOMException ? 'Your browser’s storage is off' : e.message, 'error'); }
+  };
   /** A link to open it: an editor, a folder, or Drive with an uploaded file's preview. */
   const linkTo = (f) => `${window.location.origin}${openPath(f) || `/drive?preview=${f.id}`}`;
   /** Chat with people who have access: its own private channel (made once; the same one after, with anyone given access since). */
@@ -508,6 +516,7 @@ export default function Drive() {
       } },
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
       mail?.enabled && f.kind !== 'folder' && !viewOnly(f) && { label: 'Email as attachment', icon: 'mail', onClick: () => emailFile(f) },
+      mail?.enabled && (f.kind === 'doc' || f.kind === 'slides') && !viewOnly(f) && { label: 'Send as email', icon: 'mail', onClick: () => sendAsEmail(f) },
       { label: 'Copy link', icon: 'link', onClick: () => copyLinks([f]) },
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
       ['doc', 'sheet', 'slides'].includes(f.kind) && { label: pinned.has(f.id) ? 'Don’t keep offline' : 'Make available offline', icon: 'download', onClick: () => toggleOffline(f) },

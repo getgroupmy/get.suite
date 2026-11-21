@@ -218,6 +218,28 @@ await step('an AI assistant’s draft from a document (draft_email with body_fro
   if (await looks(ol) !== 'lower-roman') throw new Error(`ol: ${await looks(ol)}`);
   if (await page.getByLabel('Subject').inputValue() !== 'Team news') throw new Error('subject');
 });
+await step('Drive ⋮ → Send as email on a presentation: a heading a slide, its points as lists; the Slides menu has it too', async () => {
+  const deck = { theme: 'light', slides: [
+    { id: 'a', items: [{ id: 't', type: 'text', role: 'title', x: 8, y: 30, w: 84, h: 20, size: 44, text: 'Board deck' }] },
+    { id: 'b', notes: 'Not for the email', items: [{ id: 't', type: 'text', role: 'title', x: 6, y: 6, w: 88, h: 16, size: 36, text: 'Wins' }, { id: 'p', type: 'text', role: 'body', x: 6, y: 26, w: 88, h: 64, size: 22, list: 'upper-alpha', text: 'Two new clients\nRecord month' }] },
+  ] };
+  const f = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Board deck', content: deck })).body;
+  await page.goto(`${B}/slides/${f.id}`);
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Send as email' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Board deck' }).first().click();
+  await page.getByRole('menuitem', { name: 'Send as email' }).click();
+  await page.waitForURL(/\/mail/);
+  const ed = page.locator('.compose-editor');
+  const ol = ed.locator('ol', { hasText: 'Record month' });
+  await ol.waitFor();
+  if (await looks(ol) !== 'upper-alpha') throw new Error(`ol: ${await looks(ol)}`);
+  await ed.getByText('Wins', { exact: true }).waitFor();
+  if (await ed.getByText('Not for the email').count()) throw new Error('speaker notes in the email');
+  if (await page.getByLabel('Subject').inputValue() !== 'Board deck') throw new Error('subject');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

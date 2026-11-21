@@ -136,7 +136,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     ...(mail?.enabled && canEdit ? [{ label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(file, { navigate, toast }) }] : []),
     ...(canEdit ? [{ label: 'Schedule a meeting with people with access', icon: 'calendar', onClick: () => meetPeopleWithAccess(file, { navigate, toast }) }] : []),
     ...(mail?.enabled ? [{ label: 'Email link', icon: 'mail', onClick: () => emailIt(false) }, ...(takeOff ? [] : [{ label: 'Email as attachment…', icon: 'mail', onClick: () => emailIt(true) }])] : []),
-    ...(mail?.enabled && icon === 'doc' && !takeOff ? [{ label: 'Send as email', icon: 'mail', onClick: sendAsEmail }] : []),
+    ...(mail?.enabled && (icon === 'doc' || icon === 'slides') && !takeOff ? [{ label: 'Send as email', icon: 'mail', onClick: sendAsEmail }] : []),
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
     ...(file.role === 'owner' ? [{ label: 'Publish to the web…', icon: 'link', onClick: () => setPublishing(true) }] : []),
     ...(canEdit && icon === 'doc' && !file.locked_at ? [{ label: 'Send for signature…', icon: 'edit', onClick: () => setSigning(true) }] : []),

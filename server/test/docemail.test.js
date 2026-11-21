@@ -81,3 +81,18 @@ test('a document as an email: its formatting, lists as they look, pictures, chec
   assert.equal((await ann('GET', `/api/files/${sheet.id}/email-body`)).status, 400);
   assert.equal((await ben('GET', `/api/files/${sheet.id}/email-body`)).status, 404);
 });
+
+test('a presentation as an email: a heading a slide, its points as lists, no speaker notes or skipped slides', async () => {
+  const deck = { theme: 'light', slides: [
+    { id: 'a', items: [{ id: 't', type: 'text', role: 'title', text: 'Q3 review' }, { id: 's', type: 'text', role: 'subtitle', text: 'Sales team' }] },
+    { id: 'b', notes: 'Say the secret number', items: [{ id: 't', type: 'text', role: 'title', text: 'Wins' }, { id: 'p', type: 'text', role: 'body', list: 'upper-alpha', text: 'Two new clients\n\tAcme\nRecord month' }] },
+    { id: 'c', skip: true, items: [{ id: 't', type: 'text', role: 'title', text: 'Hidden slide' }] },
+  ] };
+  const f = (await ann('POST', '/api/files/new', { name: 'Q3 review', kind: 'slides', content: deck })).body;
+  const r = await ann('GET', `/api/files/${f.id}/email-body`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.subject, 'Q3 review');
+  const h = r.body.html;
+  assert.match(h, /^<p>Sales team<\/p><p><strong><span style="font-size: 24px">Wins<\/span><\/strong><\/p><ol style="list-style-type: upper-alpha"><li><p>Two new clients<\/p><ol style="list-style-type: upper-alpha"><li><p>Acme<\/p><\/li><\/ol><\/li><li><p>Record month<\/p><\/li><\/ol>$/);
+  assert.doesNotMatch(h, /secret|Hidden/);
+});

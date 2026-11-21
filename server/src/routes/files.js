@@ -2320,15 +2320,17 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'xlsx') return excelFromSheet(content, { comments: cellCommentsOf(f.id), pictureData });
     return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
   };
-  // Send as email (Docs): the document as an email's text, to start a new message with (its name as the subject).
+  // Send as email (Docs, Slides): the document (or presentation) as an email's text, to start a new message with (its name as the subject).
   // Pictures are only those the sender may open (Mail embeds them in the email when it's sent).
   r.get('/:id/email-body', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    if (f.kind !== 'doc') throw bad('Only a document can be sent as an email');
+    if (f.kind !== 'doc' && f.kind !== 'slides') throw bad('Only a document or a presentation can be sent as an email');
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     saveNow(f.id); // what's being typed right now goes in too
-    const content = withoutSuggestions(JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'));
-    const doc = setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
+    const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    // A presentation as Make a document writes it (a heading a slide, its points as lists, skipped slides left out), without its speaker notes.
+    const content = f.kind === 'slides' ? docFromDeck({ ...stored, slides: (stored.slides || []).map(({ notes, ...sl }) => sl) }) : withoutSuggestions(stored);
+    const doc = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
     const canSee = (id) => { const pic = q("SELECT id, mime FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(id); return !!pic && /^image\/(png|jpeg|gif|webp)$/.test(pic.mime || '') && !!roleFor(pic.id, req.user.id); };
     res.json({ subject: f.name, html: emailHtmlFromDoc(doc, { canSee }) });
   });
