@@ -23,7 +23,7 @@ import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile, resolveParent } from './files.js';
-import { conversationText, conversationHtml, cardLines } from '../chatexport.js';
+import { conversationText, conversationHtml, conversationDoc, cardLines } from '../chatexport.js';
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 import { contactCard, colleagueCard, addContactFrom } from './contacts.js';
 import { afterHoursOfIds, awayOfIds } from '../mail/afterhours.js';
@@ -847,7 +847,8 @@ export function conversationFor(channelId, user) {
     files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll, cards: cardLines(m) });
   const replies = new Map();
   for (const m of rows) if (m.parent_id) { if (!replies.has(m.parent_id)) replies.set(m.parent_id, []); replies.get(m.parent_id).push(kept(m)); }
-  const messages = rows.filter((m) => !m.parent_id).map((m) => ({ ...kept(m), replies: replies.get(m.id) || [] }));
+  // (a thread reply also sent to the conversation: once, in its thread)
+  const messages = rows.filter((m) => !m.parent_id && !m.echo).map((m) => ({ ...kept(m), replies: replies.get(m.id) || [] }));
   const other = dmOther(c, user.id);
   const title = c.dm_key ? `Conversation with ${other ? q('SELECT name FROM users WHERE id = ?').get(other)?.name || 'someone' : 'yourself'}` : `#${c.name}`;
   return { title, messages };
@@ -1192,6 +1193,17 @@ export default function chatRoutes() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     const opts = { tz: String(req.query.tz || 'UTC') };
     res.send(html ? conversationHtml(title, messages, opts) : conversationText(title, messages, opts));
+  });
+
+  // Save the conversation to Drive as a document (in My Drive, yours): to keep, edit, or share as a write-up.
+  r.post('/channels/:id/save-doc', (req, res) => {
+    const { title, messages } = conversationFor(req.params.id, req.user);
+    if (!messages.length) throw bad('There is nothing in this conversation yet');
+    const json = JSON.stringify(conversationDoc(title, messages, { tz: String(req.body?.tz || 'UTC') }));
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const name = `${title.replace(/^#/, '').trim().slice(0, 80) || 'Conversation'} (chat)`;
+    const id = insertFile({ owner: req.user.id, parentId: null, name, kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
   });
 
   // Ring the others in a direct message (or a small private channel) for a video call you've started

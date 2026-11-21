@@ -111,3 +111,23 @@ test('the thread’s message deleted: the copy says so; only some may post: the 
   assert.equal((await thread()).replies.length, before, 'nothing half-sent');
   assert.equal((await ben('POST', `/api/chat/channels/${ch}/messages`, { body: 'Me too', parent_id: top.id })).status, 201);
 });
+
+test('saved to Drive as a document: a heading a day, who and when in bold, replies in a quote; a reply also sent counted once', async () => {
+  const r = await ben('POST', `/api/chat/channels/${ch}/save-doc`, { tz: 'Europe/London' });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.name, 'launch (chat)');
+  const doc = (await ben('GET', `/api/files/${r.body.id}/content`)).body.content;
+  const flat = (n) => (n.text || '') + (n.content || []).map(flat).join(n.type === 'blockquote' ? '|' : '');
+  const blocks = doc.content.map((n) => `${n.type === 'heading' ? `H${n.attrs.level}` : n.type === 'blockquote' ? 'Q' : 'P'}:${flat(n)}`);
+  assert.equal(blocks[0], 'H1:#launch');
+  assert.match(blocks[1], /^P:Saved /);
+  assert.match(blocks[2], /^H2:\w+day, \d+ \w+ \d{4}$/);
+  assert.ok(doc.content.some((n) => n.type === 'paragraph' && n.content?.[0]?.marks?.[0]?.type === 'bold' && n.content[0].text === 'Ann Owner'));
+  assert.ok(doc.content.some((n) => n.type === 'blockquote'), 'replies in a quote');
+  const text = JSON.stringify(doc);
+  assert.equal(text.split('Crisps').length - 1, 1, 'the reply also sent to the conversation: once');
+  // In Drive, Ben's (not Ann's), in My Drive.
+  assert.equal((await ann('GET', `/api/files/${r.body.id}`)).status, 404);
+  const outsider = (await ben('POST', '/api/chat/channels', { name: 'empty-one' })).body.id;
+  assert.equal((await ben('POST', `/api/chat/channels/${outsider}/save-doc`, {})).status, 400, 'nothing in it yet');
+});

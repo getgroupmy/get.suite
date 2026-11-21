@@ -104,6 +104,19 @@ await step('in an announcement channel Kim may only reply in the thread: no tick
   await thread(kim).getByRole('textbox', { name: 'Reply' }).waitFor();
   if (await thread(kim).getByLabel('Also send to #launch').count()) throw new Error('offered where Kim can’t post');
 });
+await step('⬇ → Save to Drive as a document: a document in My Drive, the conversation in it by day', async () => {
+  await page.goto(`${B}/chat/${ch}`);
+  await page.getByRole('button', { name: 'Download conversation' }).click();
+  await page.getByRole('menuitem', { name: 'Save to Drive as a document' }).click();
+  await page.getByText('Saved “launch (chat)” in My Drive').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.paper .tiptap');
+  await ed.locator('h1', { hasText: '#launch' }).waitFor();
+  await ed.locator('h2').first().waitFor();
+  await ed.getByText('Which date for the launch?').waitFor();
+  await ed.locator('strong', { hasText: 'Kim Park' }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

@@ -71,3 +71,31 @@ h1{font-size:20px;margin:0}p.meta{color:#5f6368;margin:4px 0 16px}h2{font-size:1
 ${body}
 </body></html>`;
 }
+
+/**
+ * The conversation as a document (Chat → ⬇ → Save to Drive as a document): its name as the title, a heading for each day,
+ * each message under who wrote it and when (bold), its words, files, poll and cards, its replies in a quote below it.
+ */
+export function conversationDoc(title, messages, { tz = 'UTC', now = Date.now() } = {}) {
+  const zone = zoneOf(tz);
+  const P = (text, marks) => ({ type: 'paragraph', ...(text && { content: [{ type: 'text', text, ...(marks && { marks }) }] }) });
+  const msg = (m) => [
+    { type: 'paragraph', content: [{ type: 'text', text: m.who, marks: [{ type: 'bold' }] }, { type: 'text', text: ` · ${timeOf(m.at, zone)}${m.edited ? ' · edited' : ''}` }] },
+    ...String(m.body || '').split('\n').filter((l) => l.trim()).map((l) => P(l)),
+    ...(m.files || []).map((f) => P(`📎 ${f}`)),
+    ...(m.poll ? [P(pollLine(m.poll))] : []),
+    ...(m.cards || []).filter((l) => l.trim()).map((l) => P(l.trim())),
+  ];
+  const content = [
+    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: title }] },
+    P(`Saved ${stamp(now, zone)} (${zone}) · ${messages.length} message${messages.length === 1 ? '' : 's'}`, [{ type: 'italic' }]),
+  ];
+  let day = '';
+  for (const m of messages) {
+    const d = dayOf(m.at, zone);
+    if (d !== day) { content.push({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: d }] }); day = d; }
+    content.push(...msg(m));
+    if (m.replies?.length) content.push({ type: 'blockquote', content: m.replies.flatMap(msg) });
+  }
+  return { type: 'doc', content };
+}
