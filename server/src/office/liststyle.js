@@ -56,3 +56,35 @@ export const ListStyle = Extension.create({
     }];
   },
 });
+
+const ROMAN = [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i']];
+const roman = (n) => { let s = ''; for (const [v, r] of ROMAN) while (n >= v) { s += r; n -= v; } return s; };
+const letters = (n) => { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(97 + ((n - 1) % 26)) + s; return s; }; // (a … z, aa, ab …, as browsers count)
+/** A numbered list's label for number `n` in its style ("iv.", "C.", "12."), as the editor shows it. */
+export function listLabel(style, n) {
+  const k = Math.max(1, Math.round(Number(n) || 1));
+  const t = { 'lower-alpha': letters(k), 'upper-alpha': letters(k).toUpperCase(), 'lower-roman': roman(k), 'upper-roman': roman(k).toUpperCase() }[style] ?? String(k);
+  return `${t}.`;
+}
+/** A bulleted list's bullet character (● for the usual one). */
+export const bulletChar = (bullet) => (BULLETS.find((b) => b[0] === bullet) || BULLETS[0])[3];
+
+const ROMAN_VALUE = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+const romanValue = (s) => { let t = 0; const l = s.toLowerCase(); for (let i = 0; i < l.length; i++) { const v = ROMAN_VALUE[l[i]], w = ROMAN_VALUE[l[i + 1]] || 0; t += v < w ? -v : v; } return t; };
+/**
+ * A list label as other programs write it before an item ("3.", "iv.", "b)", "•", "✓"): { kind: 'orderedList', style, n }
+ * or { kind: 'bulletList', bullet }, or null. `open` is the style of a numbered list being read, if any. A lone letter is a
+ * letter (C. after B.), except i. starting a roman list, or v., x. … carrying on an open roman one.
+ */
+export function readLabel(label, open = null) {
+  const t = String(label || '').trim();
+  let m = /^(\d{1,4})[.)]$/.exec(t);
+  if (m) return { kind: 'orderedList', style: null, n: Number(m[1]) };
+  m = /^([ivxlcdm]+|[IVXLCDM]+)[.)]$/.exec(t);
+  const alphaOpen = open === 'lower-alpha' || open === 'upper-alpha', romanOpen = open === 'lower-roman' || open === 'upper-roman';
+  if (m && (m[1].length > 1 ? !alphaOpen || m[1].length > 2 : romanOpen || (/^i$/i.test(m[1]) && !alphaOpen)) && romanValue(m[1]) > 0) return { kind: 'orderedList', style: m[1] === m[1].toLowerCase() ? 'lower-roman' : 'upper-roman', n: romanValue(m[1]) };
+  m = /^([a-z]{1,2}|[A-Z]{1,2})[.)]$/.exec(t);
+  if (m) { const s = m[1].toLowerCase(); return { kind: 'orderedList', style: m[1] === s ? 'lower-alpha' : 'upper-alpha', n: [...s].reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 96, 0) }; }
+  if (/^[•●▪■◦○o·–\-➢➤✓✔]$/.test(t) || FONT_BULLETS[t]) return { kind: 'bulletList', bullet: bulletOfWord(t === '•' || t === '·' ? '●' : t === '○' ? '○' : t) };
+  return null;
+}

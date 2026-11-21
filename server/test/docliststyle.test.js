@@ -71,3 +71,44 @@ test('OpenDocument (.odt): written as ODF list styles (number formats, bullet ch
     assert.equal(show(await docFromOdt(lo('w.docx', 'odt', 'b'))), want, 'Word saved as .odt by LibreOffice');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('PDF: each item’s label in its list’s style (iv., C.), and the chosen bullets (as pdftotext reads them)', async (t) => {
+  const { pdfFromDoc } = await import('../src/office/pdfdoc.js');
+  const buf = await pdfFromDoc(doc, 'Styles');
+  const { execFileSync } = await import('node:child_process');
+  let text;
+  try { text = execFileSync('pdftotext', ['-', '-'], { input: buf }).toString().replace(/\s+/g, ' '); } catch { t.diagnostic('pdftotext not installed: skipped'); return; }
+  assert.match(text, /i\. Intro a\. Point a b\. Point b ii\. Body Then C\. Alpha D\. Beta And – Dash one – Dash two ✓ Done • Plain 1\. Normal/, text);
+});
+
+test('RTF: the list table’s number formats and bullets, each item’s label; read back (and as LibreOffice reads it)', async (t) => {
+  const { rtfFromDoc, docFromRtf } = await import('../src/office/rtf.js');
+  const rtf = rtfFromDoc(doc);
+  assert.match(rtf, /\\levelnfc2\\levelstartat1/, 'lower roman');
+  assert.match(rtf, /\\levelnfc3\\levelstartat3/, 'upper letters from C');
+  assert.match(rtf, /\{\\listtext ii\.\\tab\}/);
+  assert.match(rtf, /\{\\listtext \\u10003\\'3f\\tab\}/, '✓');
+  assert.equal(show(docFromRtf(Buffer.from(rtf))), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lsr-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as.split(':')[0]}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.rtf'), rtf);
+    const text = lo('d.rtf', 'txt:Text', 't').toString('utf8').replace(/\s+/g, ' ');
+    assert.match(text, /i\. Intro a\. Point a b\. Point b ii\. Body Then C\. Alpha D\. Beta And/, text);
+    assert.equal(show(docFromRtf(lo('d.rtf', 'rtf', 'a'))), want, 'RTF → LibreOffice → RTF');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('EPUB and HTML downloads: each list in its style', async () => {
+  const { epubFromDoc, htmlFromDoc } = await import('../src/office/epub.js');
+  const zip = await JSZip.loadAsync(await epubFromDoc(doc, 'Styles'));
+  const page = await zip.file(Object.keys(zip.files).find((f) => /\.xhtml$/.test(f) && !/nav/.test(f))).async('string');
+  assert.match(page, /<ol style="list-style-type: lower-roman">/);
+  assert.match(page, /<ol style="list-style-type: upper-alpha" start="3">/);
+  assert.match(page, /<ul style='list-style-type: "✓ "'>/);
+  const html = String(await htmlFromDoc(doc, 'Styles'));
+  assert.match(html, /<ol style="list-style-type: lower-roman">/);
+});

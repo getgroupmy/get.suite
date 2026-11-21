@@ -9,6 +9,7 @@ import { asDrawn, withFallbackFonts } from './pdffonts.js';
 import { hasRtl, isRtlText, visualOrder, visualWord, wordDir } from './bidi.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFString, PDFHexString } from 'pdf-lib';
 import { flattenTabs } from './doctabs.js';
+import { listLabel, bulletChar } from './liststyle.js';
 import { chipText, dateText } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
@@ -46,7 +47,8 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
     m: asDrawn(await pdf.embedFont(StandardFonts.Courier)),
   };
   // Each font draws what the standard one can't from an installed font that has it (chosen from all the text here).
-  const fonts = await withFallbackFonts(pdf, JSON.stringify({ doc, setup, title, author }), S.r);
+  const bulletsUsed = [...new Set(JSON.stringify(doc).match(/"bullet":"[a-z]+"/g) || [])].map((x) => bulletChar(x.slice(10, -1))).join(''); // (bullets other than •, for the fonts to find)
+  const fonts = await withFallbackFonts(pdf, JSON.stringify({ doc, setup, title, author }) + bulletsUsed, S.r);
   const F = { r: fonts.wrap(S.r), b: fonts.wrap(S.b, true), i: fonts.wrap(S.i), bi: fonts.wrap(S.bi, true), m: fonts.wrap(S.m) };
   const BASE = Number(setup?.fontSize) || 11;
   const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) { const r = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(String(hex || '')); return r ? rgb(r[1] / 255, r[2] / 255, r[3] / 255) : null; } const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
@@ -230,7 +232,7 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
       else if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); heads.push({ level: lv, text: (function words(l) { return (l || []).map((c) => (c.type === 'text' ? c.text || '' : words(c.content))).join(''); })(n.content).trim(), page: null, y: null }); const hd = heads[heads.length - 1]; need(HEAD[lv] * 1.25 + (lv <= 2 ? 10 : 6)); hd.page = pages.length - 1; hd.y = y; paragraph(runsOf(n.content, { bold: true }), { x: x + ind, w: w - ind, align, size: HEAD[lv], gapBefore: lv <= 2 ? 10 : 6, gapAfter: 6, lead: 1.25, ...look }); }
       else if (n.type === 'bulletList' || n.type === 'orderedList' || n.type === 'taskList') {
         for (const [k, li] of (n.content || []).entries()) {
-          const mark = n.type === 'bulletList' ? '•' : n.type === 'taskList' ? (li.attrs?.checked ? '[x]' : '[ ]') : `${(n.attrs?.start || 1) + k}.`;
+          const mark = n.type === 'bulletList' ? (n.attrs?.bullet ? bulletChar(n.attrs.bullet) : '•') : n.type === 'taskList' ? (li.attrs?.checked ? '[x]' : '[ ]') : listLabel(n.attrs?.listStyle, (n.attrs?.start || 1) + k); // (in the list's own style: iv., C., ✓…)
           const [first, ...more] = li.content || [];
           paragraph(runsOf(first?.content), { x: x + 18, w: w - 18, gapAfter: 3, firstPrefix: mark, size: BASE });
           await blocks(more, indent + 18);

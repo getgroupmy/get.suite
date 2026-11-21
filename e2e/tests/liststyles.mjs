@@ -76,6 +76,20 @@ for (const format of ['docx', 'odt']) await step(`${format === 'docx' ? 'a Word'
   const lists = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.content.filter((n) => /List$/.test(n.type)).map((n) => n.attrs?.listStyle || n.attrs?.bullet);
   if (lists.join() !== 'lower-roman,check') throw new Error(`${format}: ${lists.join()}`);
 });
+await step('PDF and RTF downloads show i. ii. and ✓ as the page does', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const pdf = await page.evaluate(async (id) => [...new Uint8Array(await (await fetch(`/api/files/${id}/export?format=pdf`)).arrayBuffer())], docId);
+  let text = '';
+  try { text = execFileSync('pdftotext', ['-', '-'], { input: Buffer.from(pdf) }).toString().replace(/\s+/g, ' '); } catch { console.log('(pdftotext not installed: PDF part skipped)'); }
+  if (text && !/i\. Unpack ii\. Plug in Shopping: ✓ Milk ✓ Eggs/.test(text)) throw new Error(`pdf: ${text}`);
+  const up = await page.evaluate(async (id) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=rtf`)).arrayBuffer();
+    return (await fetch('/api/files/upload?name=Plan%20copy.rtf', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, docId);
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  const lists = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.content.filter((n) => /List$/.test(n.type)).map((n) => n.attrs?.listStyle || n.attrs?.bullet);
+  if (lists.join() !== 'lower-roman,check') throw new Error(`rtf: ${lists.join()}`);
+});
 await step('a list with another inside it: a Word download LibreOffice saves as .odt opens as one list, the other inside', async () => {
   const { execFileSync } = await import('node:child_process');
   try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { console.log('(LibreOffice is not installed here: skipped)'); return; }

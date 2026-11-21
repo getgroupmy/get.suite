@@ -39,3 +39,33 @@ test('read from HTML (data-, an <ol type> as browsers and other programs write i
   assert.equal(bul.parseHTML(el({}, { listStyleType: 'square' })), 'square');
   assert.deepEqual(bul.renderHTML({ bullet: 'dash' }), { 'data-bullet': 'dash', style: 'list-style-type: "– "' });
 });
+
+test('labels: numbers in each style, as browsers count them; bullets', async () => {
+  const { listLabel, bulletChar } = await import('./liststyle.js');
+  assert.deepEqual([1, 4, 9, 14, 40, 1999].map((n) => listLabel('lower-roman', n)), ['i.', 'iv.', 'ix.', 'xiv.', 'xl.', 'mcmxcix.']);
+  assert.deepEqual([1, 26, 27, 52, 53].map((n) => listLabel('lower-alpha', n)), ['a.', 'z.', 'aa.', 'az.', 'ba.']);
+  assert.equal(listLabel('upper-roman', 12), 'XII.');
+  assert.equal(listLabel('upper-alpha', 3), 'C.');
+  assert.equal(listLabel(null, 7), '7.');
+  assert.equal(bulletChar('check'), '✓');
+  assert.equal(bulletChar(null), '●');
+});
+
+test('reading labels other programs write: kind, style and number', async () => {
+  const { readLabel } = await import('./liststyle.js');
+  assert.deepEqual(readLabel('3.'), { kind: 'orderedList', style: null, n: 3 });
+  assert.deepEqual(readLabel('iv.'), { kind: 'orderedList', style: 'lower-roman', n: 4 });
+  assert.deepEqual(readLabel('XII)'), { kind: 'orderedList', style: 'upper-roman', n: 12 });
+  assert.deepEqual(readLabel('b)'), { kind: 'orderedList', style: 'lower-alpha', n: 2 });
+  assert.deepEqual(readLabel('i.'), { kind: 'orderedList', style: 'lower-roman', n: 1 }, 'a lone i starts a roman list');
+  assert.deepEqual(readLabel('i.', 'lower-alpha'), { kind: 'orderedList', style: 'lower-alpha', n: 9 }, '…and carries on a lettered one');
+  assert.deepEqual(readLabel('C.'), { kind: 'orderedList', style: 'upper-alpha', n: 3 }, 'a lone C: a letter (a lettered list starting at C)');
+  assert.deepEqual(readLabel('v.', 'lower-roman'), { kind: 'orderedList', style: 'lower-roman', n: 5 }, 'v. carrying on i. ii. iii. iv.');
+  assert.deepEqual(readLabel('v.'), { kind: 'orderedList', style: 'lower-alpha', n: 22 });
+  assert.deepEqual(readLabel('ii.', 'lower-alpha'), { kind: 'orderedList', style: 'lower-alpha', n: 243 }, '(two letters carrying on a lettered list: ii, as browsers count past z: aa is 27)');
+  assert.deepEqual(readLabel('xiv.'), { kind: 'orderedList', style: 'lower-roman', n: 14 });
+  assert.deepEqual(readLabel('•'), { kind: 'bulletList', bullet: null });
+  assert.deepEqual(readLabel('✓'), { kind: 'bulletList', bullet: 'check' });
+  assert.deepEqual(readLabel('–'), { kind: 'bulletList', bullet: 'dash' });
+  assert.equal(readLabel('Note:'), null);
+});

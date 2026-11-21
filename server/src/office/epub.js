@@ -6,6 +6,7 @@ import { latexToMathElement } from './mathml.js';
 import JSZip from 'jszip';
 import crypto from 'node:crypto';
 import { flattenTabs } from './doctabs.js';
+import { cleanNumbering, cleanBullet, bulletChar } from './liststyle.js';
 import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
@@ -56,7 +57,11 @@ function bookWriter(doc, pictures, { toc = false } = {}) {
     const t = n.type;
     if (t === 'paragraph') return `<p${align(n)}>${inline(n.content)}</p>`;
     if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); return `<h${lv}${toc ? ` id="${headId(n)}"` : ''}${align(n)}>${inline(n.content)}</h${lv}>`; }
-    if (t === 'bulletList' || t === 'orderedList') return `<${t === 'bulletList' ? 'ul' : 'ol'}>${(n.content || []).map((li) => `<li>${blocks(li.content)}</li>`).join('')}</${t === 'bulletList' ? 'ul' : 'ol'}>`;
+    if (t === 'bulletList' || t === 'orderedList') { // (in its own style: as the editor writes one, which reading systems show)
+      const look = t === 'orderedList' ? (cleanNumbering(n.attrs?.listStyle) ? ` style="list-style-type: ${n.attrs.listStyle}"` : '') + ((n.attrs?.start || 1) > 1 ? ` start="${n.attrs.start}"` : '')
+        : cleanBullet(n.attrs?.bullet) ? ` style='list-style-type: "${bulletChar(n.attrs.bullet)} "'` : '';
+      return `<${t === 'bulletList' ? 'ul' : 'ol'}${look}>${(n.content || []).map((li) => `<li>${blocks(li.content)}</li>`).join('')}</${t === 'bulletList' ? 'ul' : 'ol'}>`;
+    }
     if (t === 'taskList') return `<ul class="tasks">${(n.content || []).map((li) => `<li>${li.attrs?.checked ? '☒' : '☐'} ${blocks(li.content).replace(/^<p>|<\/p>$/g, '')}</li>`).join('')}</ul>`;
     if (t === 'blockquote') return `<blockquote>${blocks(n.content)}</blockquote>`;
     if (t === 'codeBlock') return `<pre><code>${x((n.content || []).map((c) => c.text).join(''))}</code></pre>`;

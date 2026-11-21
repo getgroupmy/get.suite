@@ -3,6 +3,7 @@
 // checklists (as their marks, nested by their indent), quotes and code blocks (as styles of those names), tables, line
 // breaks; equations, chips and footnotes as their text. Both ways, in plain JavaScript.
 import { flattenTabs } from './doctabs.js';
+import { cleanNumbering, cleanBullet, bulletChar, listLabel, readLabel } from './liststyle.js';
 import { chipText, dateText } from './chiptext.js';
 import { inText } from './cite.js';
 
@@ -55,9 +56,11 @@ export function rtfFromDoc(doc) {
       // A list as Word writes one: in the list table (its kind at every level), each item a paragraph of it at its level, with
       // its number or bullet in \listtext; a checklist's items a list (with no bullet to see) whose words start with the box.
       const start = n.attrs?.start || 1;
-      const ls = lists.push({ kind: n.type, start }) ;
+      // (in its own style: i. a. …, or its own bullet ✓ – …, in the list table and in each item's label)
+      const style = n.type === 'orderedList' ? cleanNumbering(n.attrs?.listStyle) : null, bullet = n.type === 'bulletList' ? cleanBullet(n.attrs?.bullet) : null;
+      const ls = lists.push({ kind: n.type, start, style, bullet }) ;
       return (n.content || []).map((li, k) => {
-        const label = n.type === 'bulletList' ? "\\u8226\\'3f" : n.type === 'taskList' ? '' : `${start + k}.`;
+        const label = n.type === 'bulletList' ? `\\u${(bullet ? bulletChar(bullet) : '•').codePointAt(0)}\\'3f` : n.type === 'taskList' ? '' : listLabel(style, start + k);
         const box = n.type === 'taskList' ? `${li.attrs?.checked ? "\\u9746\\'3f" : "\\u9744\\'3f"} ` : '';
         const [first, ...more] = li.content || [];
         const ind = 360 * (depth + 1);
@@ -81,10 +84,13 @@ export function rtfFromDoc(doc) {
   };
   const body = blocks(doc?.content || []);
   // (the list table: each list's kind and look at nine levels, as Word has it; \lsN in the text is the Nth)
-  const level = (kind, d, start) => (kind === 'orderedList'
-    ? `{\\listlevel\\levelnfc0\\levelstartat${d ? 1 : start}{\\leveltext\\'02\\'0${d}.;}{\\levelnumbers\\'01;}\\fi-360\\li${360 * (d + 1)}}`
-    : `{\\listlevel\\levelnfc23\\levelstartat1{\\leveltext${kind === 'taskList' ? "\\'00" : "\\'01\\u8226\\'3f"};}{\\levelnumbers;}\\fi-360\\li${360 * (d + 1)}}`);
-  const listTable = lists.length ? `{\\*\\listtable${lists.map((l, k) => `{\\list\\listtemplateid${k + 1}${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((d) => level(l.kind, d, l.start)).join('')}\\listid${k + 1}}`).join('')}}\n{\\*\\listoverridetable${lists.map((l, k) => `{\\listoverride\\listid${k + 1}\\listoverridecount0\\ls${k + 1}}`).join('')}}\n` : '';
+  // (RTF's number formats: 0 1. 2. 3., 1 I. II., 2 i. ii., 3 A. B., 4 a. b.; 23 a bullet; a list's own at every level: a list
+  // inside another is a list of its own, its items at their depth)
+  const NFC = { 'upper-roman': 1, 'lower-roman': 2, 'upper-alpha': 3, 'lower-alpha': 4 };
+  const level = (kind, d, start, style, bullet) => (kind === 'orderedList'
+    ? `{\\listlevel\\levelnfc${NFC[style] || 0}\\levelstartat${d ? 1 : start}{\\leveltext\\'02\\'0${d}.;}{\\levelnumbers\\'01;}\\fi-360\\li${360 * (d + 1)}}`
+    : `{\\listlevel\\levelnfc23\\levelstartat1{\\leveltext${kind === 'taskList' ? "\\'00" : `\\'01\\u${(bullet ? bulletChar(bullet) : '•').codePointAt(0)}\\'3f`};}{\\levelnumbers;}\\fi-360\\li${360 * (d + 1)}}`);
+  const listTable = lists.length ? `{\\*\\listtable${lists.map((l, k) => `{\\list\\listtemplateid${k + 1}${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((d) => level(l.kind, d, l.start, l.style, l.bullet)).join('')}\\listid${k + 1}}`).join('')}}\n{\\*\\listoverridetable${lists.map((l, k) => `{\\listoverride\\listid${k + 1}\\listoverridecount0\\ls${k + 1}}`).join('')}}\n` : '';
   return `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1{\\fonttbl{\\f0\\froman Times New Roman;}{\\f1\\fmodern Courier New;}}{\\colortbl;\\red17\\green85\\blue204;}{\\stylesheet{\\s0 Normal;}{\\s1\\b\\fs40 heading 1;}{\\s2\\b\\fs32 heading 2;}{\\s3\\b\\fs28 heading 3;}{\\s10\\f1 Code;}{\\s11\\li720 Quote;}}\n${listTable}\\fs24\n${body}}`;
 }
 
@@ -135,17 +141,18 @@ export function docFromRtf(buf) {
   };
   // A list item at its level (Word's \\ilvl, or the indent: 360 twips a level, as written here): into the list open at that
   // level, a new list inside the last item of the one above, or a new list at the top.
-  const addItem = (item, kind, start = 1) => {
+  const addItem = (item, kind, start = 1, look = null) => {
     const level = pState.ilvl ?? Math.max(0, Math.round(pState.li / 360) - 1);
     while (lists.length && lists[lists.length - 1].level > level) lists.pop();
     const top = lists[lists.length - 1];
-    if (top && top.level === level && top.list.type === kind) { top.list.content.push(item); return; }
-    const list = { type: kind, ...(kind === 'orderedList' && { attrs: { start } }), content: [item] };
+    if (top && top.level === level && top.list.type === kind && (top.look ?? null) === (look ?? null)) { top.list.content.push(item); return; }
+    const list = { type: kind, attrs: { ...(kind === 'orderedList' && { start }), ...(look && (kind === 'orderedList' ? { listStyle: look } : { bullet: look })) }, content: [item] };
+    if (kind === 'taskList' || !Object.keys(list.attrs).length) delete list.attrs;
     if (top && top.level === level) lists.pop();
     const parent = lists[lists.length - 1];
     if (parent && parent.level < level) parent.list.content[parent.list.content.length - 1].content.push(list);
     else { lists = []; content.push(list); }
-    lists.push({ list, level });
+    lists.push({ list, level, look });
   };
   const endPara = () => {
     const nodes = para;
@@ -177,8 +184,11 @@ export function docFromRtf(buf) {
     if (level !== null && level < 6 && text.trim()) (lists = [], content).push({ type: 'heading', attrs: { level: level + 1, ...align }, content: nodes.map((n) => ({ ...n, marks: (n.marks || []).filter((m) => m.type !== 'bold') })).map(({ marks, ...rest }) => (marks?.length ? { ...rest, marks } : rest)) }); // (all else kept: a footnote in a heading too)
     else if (bullet && (markText || nodes[0]?.type === 'text')) {
       if (!markText) nodes[0] = { ...nodes[0], text: nodes[0].text.slice(bullet[0].length) };
-      const kind = /\d/.test(bullet[1]) ? 'orderedList' : 'bulletList';
-      addItem({ type: 'listItem', content: [{ type: 'paragraph', content: nodes.filter((n) => n.type !== 'text' || n.text) }] }, kind, Number(/\d+/.exec(bullet[1])?.[0]) || 1);
+      // Its kind, style and number from the label (iv., C., ✓…), a lone i or C read with the list being read at its level.
+      const level = pState.ilvl ?? Math.max(0, Math.round(pState.li / 360) - 1);
+      const open = lists.find((l) => l.level === level && l.list.type === 'orderedList')?.look ?? null;
+      const lb = readLabel(bullet[1], open) || { kind: /\d/.test(bullet[1]) ? 'orderedList' : 'bulletList', n: Number(/\d+/.exec(bullet[1])?.[0]) || 1 };
+      addItem({ type: 'listItem', content: [{ type: 'paragraph', content: nodes.filter((n) => n.type !== 'text' || n.text) }] }, lb.kind, lb.n || 1, lb.kind === 'orderedList' ? lb.style : lb.bullet);
     } else if (quoteStyle.has(pState.style)) {
       lists = [];
       const p = { type: 'paragraph', ...(pState.align && { attrs: align }), ...(nodes.length && { content: nodes }) };
