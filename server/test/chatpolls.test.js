@@ -101,3 +101,20 @@ test('when its time comes: closed for everyone, and whoever asked gets the resul
   sendDueChat(at2 + 1000);
   assert.ok(!(await bell(ann)).some((x) => /Snacks/.test(x.title)));
 });
+
+test('others can add options (when the poll lets them): while it’s open, no repeats, up to ten', async () => {
+  const p = (await ann('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Where for the offsite?', options: ['Lisbon', 'Porto'], add_options: true } })).body;
+  assert.equal(p.poll.add_options, true);
+  const r = await ben('POST', `/api/chat/messages/${p.id}/poll/options`, { text: 'Madrid' });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.poll.options.map((o) => [o.id, o.text]), [['o1', 'Lisbon'], ['o2', 'Porto'], ['o3', 'Madrid']]);
+  assert.equal((await ben('POST', `/api/chat/messages/${p.id}/vote`, { options: ['o3'] })).status, 200, 'and voted for');
+  assert.equal((await ann('POST', `/api/chat/messages/${p.id}/poll/options`, { text: ' madrid ' })).status, 400, 'already there');
+  for (const t of ['A', 'B', 'C', 'D', 'E', 'F', 'G']) await ann('POST', `/api/chat/messages/${p.id}/poll/options`, { text: t });
+  assert.match((await ben('POST', `/api/chat/messages/${p.id}/poll/options`, { text: 'H' })).body.error, /At most 10/);
+  await ann('POST', `/api/chat/messages/${p.id}/poll/close`, {});
+  // A poll that doesn't let others: only whoever asked; a closed one: nobody.
+  const fixed = (await ann('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Fixed?', options: ['a', 'b'] } })).body;
+  assert.equal((await ben('POST', `/api/chat/messages/${fixed.id}/poll/options`, { text: 'c' })).status, 403);
+  assert.equal((await ann('POST', `/api/chat/messages/${p.id}/poll/options`, { text: 'Late' })).status, 400);
+});

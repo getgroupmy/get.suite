@@ -1619,6 +1619,17 @@ function Poll({ m, user }) {
           );
         })}
       </ul>
+      {!closed && p.add_options && p.options.length < 10 && (
+        <form className="row poll-add" onSubmit={(e) => {
+          e.preventDefault();
+          const box = e.currentTarget.elements.option, text = box.value.trim();
+          if (!text) return;
+          post(`/chat/messages/${m.id}/poll/options`, { text }).then(() => { box.value = ''; }).catch((err) => toast(err.message, 'error'));
+        }}>
+          <input name="option" className="grow" maxLength={200} placeholder="Add an option" aria-label={`Add an option to: ${p.question}`} />
+          <button className="btn small">Add</button>
+        </form>
+      )}
       {m.user_id === user.id && (
         <button type="button" className="link-btn small" onClick={() => post(`/chat/messages/${m.id}/poll/close`, { closed: !closed }).catch((e) => toast(e.message, 'error'))}>{closed ? 'Reopen poll' : 'Close poll'}</button>
       )}
@@ -1656,11 +1667,12 @@ function PollDialog({ onClose, onSubmit }) {
   const [options, setOptions] = useState(['', '']);
   const [multi, setMulti] = useState(false);
   const [anonymous, setAnonymous] = useState(false);
+  const [addOptions, setAddOptions] = useState(false);
   const [closes, setCloses] = useState(''); // '' (never), or hours from now
   const [error, setError] = useState('');
   async function submit(e) {
     e.preventDefault();
-    try { await onSubmit({ question, options, multi, ...(anonymous && { anonymous: true }), ...(closes && { closes_at: Date.now() + Number(closes) * 36e5 }) }); } catch (err) { setError(err.message); }
+    try { await onSubmit({ question, options, multi, ...(anonymous && { anonymous: true }), ...(addOptions && { add_options: true }), ...(closes && { closes_at: Date.now() + Number(closes) * 36e5 }) }); } catch (err) { setError(err.message); }
   }
   return (
     <Modal title="Create a poll" onClose={onClose}>
@@ -1675,6 +1687,7 @@ function PollDialog({ onClose, onSubmit }) {
         {options.length < 10 && <button type="button" className="link-btn" onClick={() => setOptions([...options, ''])}>+ Add an option</button>}
         <label className="check"><input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> People can choose more than one</label>
         <label className="check"><input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} /> Anonymous: show how many chose each, not who</label>
+        <label className="check"><input type="checkbox" checked={addOptions} onChange={(e) => setAddOptions(e.target.checked)} /> Others can add options</label>
         <label className="field"><span>Closes</span>
           <select value={closes} onChange={(e) => setCloses(e.target.value)}>
             <option value="">When you close it</option><option value="1">In an hour</option><option value="4">In 4 hours</option><option value="24">In a day</option><option value="72">In 3 days</option><option value="168">In a week</option>

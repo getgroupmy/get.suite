@@ -87,6 +87,25 @@ await step('a poll closing in a minute closes live for Kim, and Olivia gets the 
   await page.getByText('Yes 1, No 0 · 1 person voted').waitFor();
   if (!m.id) throw new Error('no poll');
 });
+await step('“Others can add options”: Kim adds Madrid, Olivia sees it live and votes for it', async () => {
+  await page.goto(`${B}/chat/${ch}`);
+  await page.getByRole('button', { name: 'Create a poll' }).click();
+  const d = page.getByRole('dialog', { name: 'Create a poll' });
+  await d.getByLabel('Question').fill('Where for the offsite?');
+  await d.getByLabel('Option 1').fill('Lisbon');
+  await d.getByLabel('Option 2').fill('Porto');
+  await d.getByLabel(/Others can add options/).check();
+  await d.getByRole('button', { name: 'Post poll' }).click();
+  const kp = kim.getByRole('group', { name: 'Poll: Where for the offsite?' });
+  await kp.getByLabel('Add an option to: Where for the offsite?').fill('Madrid');
+  await kp.getByRole('button', { name: 'Add', exact: true }).click();
+  const op = page.getByRole('group', { name: 'Poll: Where for the offsite?' });
+  await op.getByRole('button', { name: /^Madrid: 0 votes/ }).click();
+  await kp.getByRole('button', { name: /^Madrid: 1 vote/ }).waitFor();
+  await kp.getByText('Olivia Owner').waitFor(); // (not anonymous: who chose it)
+  // A poll that doesn't let others: no box.
+  if (await page.getByLabel('Add an option to: Is the workload OK?').count()) throw new Error('box on a fixed poll');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

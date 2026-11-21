@@ -169,7 +169,7 @@ export function cleanPoll(p) {
     closesAt = Math.round(Number(p.closes_at));
     if (!Number.isFinite(closesAt) || closesAt < Date.now() + 60e3 || closesAt > Date.now() + 366 * 864e5) throw bad('A poll can close from a minute to a year from now');
   }
-  return { question, options: texts.map((text, i) => ({ id: `o${i + 1}`, text })), multi: !!p.multi, ...(p.anonymous && { anonymous: true }), ...(closesAt && { closes_at: closesAt }) };
+  return { question, options: texts.map((text, i) => ({ id: `o${i + 1}`, text })), multi: !!p.multi, ...(p.anonymous && { anonymous: true }), ...(closesAt && { closes_at: closesAt }), ...(p.add_options && { add_options: true }) };
 }
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds, checkQuota } from '../tenancy.js';
@@ -1832,6 +1832,25 @@ export default function chatRoutes() {
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     res.json(flagLinks(req.user, [msg])[0]);
+  });
+
+  // Add an option to a poll that lets everyone (add_options): anyone in the conversation, while it's open, up to MAX_OPTIONS.
+  r.post('/messages/:id/poll/options', (req, res) => {
+    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    if (!m?.poll) throw notFound();
+    const c = loadChannel(m.channel_id, req.user);
+    readOnly(c);
+    const p = JSON.parse(m.poll);
+    if (!p.add_options && m.user_id !== req.user.id) throw new HttpError(403, 'Only whoever asked can add options to this poll');
+    if (p.closed_at || (p.closes_at && p.closes_at <= Date.now())) throw bad('This poll is closed');
+    const text = str(req.body?.text, { required: true, max: 200, name: 'Option' });
+    if (p.options.some((o) => o.text.toLowerCase() === text.toLowerCase())) throw bad('That option is already there');
+    if (p.options.length >= MAX_OPTIONS) throw bad(`At most ${MAX_OPTIONS} options`);
+    const id = `o${Math.max(0, ...p.options.map((o) => Number(o.id.slice(1)) || 0)) + 1}`;
+    q('UPDATE messages SET poll = ? WHERE id = ?').run(JSON.stringify({ ...p, options: [...p.options, { id, text, by: req.user.id }] }), m.id);
+    const msg = one(m.id);
+    sendTo(audience(c), { type: 'message-updated', message: msg });
+    res.status(201).json(flagLinks(req.user, [msg])[0]);
   });
 
   // Close a poll (or open it again): only who asked.
