@@ -3,7 +3,8 @@
 // paragraph). A random test makes 60 documents of headings, lists, checklists (inside lists too), quotes and tables with
 // words, marks, links, tabs and double spaces, and each must come back with the same text, marks, ticks and nesting. It
 // found a checklist inside a list coming back as "☐ …" lines (.odt) or moved out of the list (.docx), and an item's own
-// leading spaces taken with the one after its box.
+// leading spaces taken with the one after its box. Through LibreOffice, .odt gained an empty paragraph after a table
+// that ends the document (the one LibreOffice adds); it's left out now.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -46,8 +47,10 @@ test('and through LibreOffice, saved again in either format', { skip: !hasSoffic
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('60 random documents come back with the same text, marks and nesting', async () => {
-  let seed = 3; const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+/** n random documents (the same each run for a seed), and a document's shape to compare: each block's kind and depth, with
+ * its words and their marks (neighbouring words with the same marks run together) and ticks. */
+function randomDocs(n, start) {
+  let seed = start; const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const WORDS = ['alpha', 'Ωmega', 'naïve', 'x<y', 'a&b', '"q"', "it's", '中文', 'שלום', '😀', 'two  spaces', 'tab\there', '1,234', '<tag>', 'ß', '  indented'];
   const MARKS = [[{ type: 'bold' }], [{ type: 'italic' }], [{ type: 'underline' }], [{ type: 'strike' }], [{ type: 'code' }], [{ type: 'subscript' }], [{ type: 'superscript' }], [{ type: 'link', attrs: { href: 'https://example.com/a?b=1&c=2' } }]];
@@ -71,10 +74,32 @@ test('60 random documents come back with the same text, marks and nesting', asyn
     return out;
   };
   const shape = (d) => flat(d).join('').replace(/\{([^}]*)\}(?=[^\n{]*\{\1\})/g, '');
+
+  return { docs: Array.from({ length: n }, () => ({ type: 'doc', content: Array.from({ length: 2 + Math.floor(rnd() * 4) }, () => block(0)) })), shape };
+}
+
+test('60 random documents come back with the same text, marks and nesting', async () => {
+  const { docs, shape } = randomDocs(60, 3);
   const wrong = [];
-  for (let k = 0; k < 60; k++) {
-    const doc = { type: 'doc', content: Array.from({ length: 2 + Math.floor(rnd() * 4) }, () => block(0)) };
-    for (const [name, to, from] of FORMATS) if (shape(await back(to, from, doc)) !== shape(doc)) wrong.push(`${name} #${k}`);
-  }
+  for (const [k, doc] of docs.entries()) for (const [name, to, from] of FORMATS) if (shape(await back(to, from, doc)) !== shape(doc)) wrong.push(`${name} #${k}`);
+  assert.deepEqual(wrong, []);
+});
+
+test('and 25 more through LibreOffice, saved again by it as .docx and as .odt', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
+  const { docs, shape } = randomDocs(25, 5);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docspacing-lo-'));
+  const wrong = [];
+  try {
+    for (const [name, to, from] of FORMATS) {
+      fs.mkdirSync(path.join(dir, name, 'out'), { recursive: true });
+      const files = [];
+      for (const [k, doc] of docs.entries()) { files.push(path.join(dir, name, `d${k}.${name}`)); fs.writeFileSync(files.at(-1), await to(doc)); }
+      soffice([`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', name, '--outdir', path.join(dir, name, 'out'), ...files]);
+      for (const [k, doc] of docs.entries()) {
+        const r = await from(fs.readFileSync(path.join(dir, name, 'out', `d${k}.${name}`)));
+        if (shape(r.doc || r) !== shape(doc)) wrong.push(`${name} #${k}`);
+      }
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   assert.deepEqual(wrong, []);
 });

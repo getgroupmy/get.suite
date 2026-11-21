@@ -761,6 +761,9 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   for (const n of content) joinReplacements(n); // (a deletion and the insertion after it, by one person at once: one suggestion)
   linksToHeadings({ content }); // links to a bookmark starting a heading: to the heading
   (function spaces(n) { if (n.type === 'text' && /[\uE000\uE006]/.test(n.text || '')) n.text = n.text.replaceAll(SPACE, ' ').replaceAll('\uE006', '\t'); (n.content || []).forEach(spaces); })({ content });
+  // (the empty paragraph LibreOffice puts after a table that ends the document, as a file has to: not the document's own)
+  const [beforeLast, last] = content.slice(-2);
+  if (beforeLast?.type === 'table' && last?.type === 'paragraph' && !last.content?.length) content.pop();
   const comments = [...notes.values()].map((c) => ({ id: c.id, author: c.author, text: c.text, at: c.at, quote: c.quote.slice(0, 500), ...(c.resolved && { resolved: true }), replies: c.replies }));
   return { doc: { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }, comments };
 }

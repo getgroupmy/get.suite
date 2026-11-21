@@ -74,6 +74,16 @@ await step('a Word file with a checklist inside a bulleted list comes in with th
   await page.locator('.ProseMirror ul li ul[data-type="taskList"] li[data-checked="true"]', { hasText: 'Book the room' }).waitFor();
   await page.locator('.ProseMirror ul li ul[data-type="taskList"] li[data-checked="false"]', { hasText: 'Send invites' }).waitFor();
 });
+await step('an OpenDocument file ending with a table, as LibreOffice saves it (an empty paragraph after), comes in ending with the table', async () => {
+  const { odtFromDoc } = await import(`${ROOT}/server/src/office/odt.js`);
+  const cellP = (text) => ({ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+  const buf = await odtFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Prices' }] }, { type: 'table', content: [{ type: 'tableRow', content: [cellP('Tea'), cellP('3')] }] }, { type: 'paragraph' }] });
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'Prices.odt', mimeType: 'application/vnd.oasis.opendocument.text', buffer: buf });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === 'Prices'));
+  const blocks = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.content.map((n) => n.type);
+  if (blocks.join() !== 'paragraph,table') throw new Error(blocks.join());
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';
