@@ -166,6 +166,18 @@ await step('a document and a spreadsheet in the shared folder: shown read-only w
   await anon.getByRole('button', { name: 'Back to For client' }).click();
 });
 
+await step('Download all (.zip): the folder\'s files, its document as Word and spreadsheet as Excel, its subfolder', async () => {
+  await anon.getByRole('heading', { name: 'For client' }).waitFor();
+  const [dl] = await Promise.all([anon.waitForEvent('download'), anon.getByRole('link', { name: 'Download all (.zip)' }).click()]);
+  if (dl.suggestedFilename() !== 'For client.zip') throw new Error(dl.suggestedFilename());
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const fs = await import('node:fs');
+  const zip = await JSZip.loadAsync(fs.readFileSync(await dl.path()));
+  const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort();
+  for (const want of ['Drawings/plan.txt', 'Prices.xlsx', 'Proposal.docx', 'brief.txt']) if (!names.includes(want)) throw new Error(`${want} missing: ${names.join(', ')}`);
+  if (!/Project brief, version 2/.test(await zip.file('brief.txt').async('string'))) throw new Error('brief.txt');
+});
+
 await step('phone width', async () => {
   await anon.setViewportSize({ width: 375, height: 740 });
   await anon.goto(fileLink);

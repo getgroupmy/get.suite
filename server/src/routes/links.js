@@ -4,6 +4,7 @@
 // the file is trashed or deleted, the owner is disabled or loses the file, or the company turns
 // links off.
 import { Router } from 'express';
+import JSZip from 'jszip';
 import { filesFor, fileRulesStop } from '../dlp.js';
 import { audit } from '../audit.js';
 import crypto from 'node:crypto';
@@ -383,6 +384,45 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
 
   // A file request: send one file into the linked folder (?name=, &from= who's sending it). The file
   // belongs to the folder's owner and counts towards their company's storage.
+  // The whole linked folder (or a folder inside it, ?folder=) as one .zip: its files, and its documents, spreadsheets
+  // and presentations as Word, Excel and PowerPoint files, as each would download on its own here; what the owner turned
+  // downloading off for is left out (and the zip says so in a note).
+  r.get('/links/:token/zip', async (req, res) => {
+    const l = liveLink(req.params.token);
+    if (!unlocked(l, req)) throw new HttpError(401, 'This link needs a password');
+    if (l.mode === 'upload' || l.kind !== 'folder') throw notFound('Not found');
+    const top = itemIn(l, req.query.folder);
+    if (top.kind !== 'folder') throw bad('Not a folder');
+    const safe = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'untitled';
+    const used = new Set();
+    const unique = (p) => { let n = p, i = 1; while (used.has(n.toLowerCase())) { const dot = p.lastIndexOf('.'); n = dot > p.lastIndexOf('/') ? `${p.slice(0, dot)} (${i})${p.slice(dot)}` : `${p} (${i})`; i++; } used.add(n.toLowerCase()); return n; };
+    const zip = new JSZip();
+    const left = [];
+    let count = 0, bytes = 0;
+    const walk = async (folder, dir) => {
+      for (const f of q("SELECT * FROM files WHERE parent_id = ? AND trashed = 0 AND kind IN ('file', 'folder', 'doc', 'sheet', 'slides') ORDER BY name COLLATE NOCASE").all(folder.id)) {
+        if (++count > 5000) throw bad('Too many files for one download: download a folder inside it instead');
+        if (f.kind === 'folder') { const here = unique(`${dir}${safe(f.name)}`); zip.folder(here); await walk(f, `${here}/`); continue; }
+        if (f.no_download) { left.push(`${dir}${f.name}`); continue; }
+        if (f.kind === 'file') {
+          bytes += f.size || 0;
+          if (bytes > 2 * 1024 ** 3) throw bad('More than 2 GB: download a folder inside it instead');
+          zip.file(unique(`${dir}${safe(f.name)}`), fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true });
+          continue;
+        }
+        const content = linkedContent(f);
+        const pictureData = async (id) => linkedPicture(f, content, id);
+        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData }) : f.kind === 'sheet' ? await excelFromSheet(content, { pictureData }) : await powerPointFromDeck(content, { title: f.name, pictureData });
+        zip.file(unique(`${dir}${safe(f.name)}.${OFFICE[f.kind][0]}`), buf);
+      }
+    };
+    await walk(top, '');
+    if (left.length) zip.file(unique('Not included.txt'), `The owner turned downloading off for these, so they aren't in this download (you can still look at them through the link):\r\n\r\n${left.map((n) => `- ${n}`).join('\r\n')}\r\n`);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${safe(top.name)}.zip`)}`);
+    zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' }).on('error', (err) => res.destroy(err)).pipe(res);
+  });
+
   // A document, spreadsheet or presentation inside a linked folder (?item=), to show; and the pictures it uses.
   r.get('/links/:token/content', (req, res) => {
     const l = liveLink(req.params.token);

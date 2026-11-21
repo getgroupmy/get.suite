@@ -58,7 +58,10 @@ export default function PublicLink({ token }) {
         : <FileView file={open} src={raw(open.id)} download={raw(open.id, true)} />}
     </>
   );
-  else body = <FolderView info={info} onFolder={(id) => setFolder(id === info.root ? null : id)} onOpen={setOpen} download={(id) => raw(id, true)} />;
+  else {
+    const qs = new URLSearchParams({ ...(folder && { folder }), ...(key && { key }) }).toString();
+    body = <FolderView info={info} onFolder={(id) => setFolder(id === info.root ? null : id)} onOpen={setOpen} download={(id) => raw(id, true)} zip={`/api/public/links/${encodeURIComponent(token)}/zip${qs ? `?${qs}` : ''}`} />;
+  }
 
   return (
     <div className="link-page">
@@ -137,7 +140,7 @@ function ItemView({ token, linkKey, item, download }) {
   );
 }
 
-function FolderView({ info, onFolder, onOpen, download }) {
+function FolderView({ info, onFolder, onOpen, download, zip }) {
   return (
     <section className="link-folder stack">
       <nav className="crumbs" aria-label="Folder path">
@@ -145,6 +148,7 @@ function FolderView({ info, onFolder, onOpen, download }) {
           ? <span key={p.id}><button type="button" className="link-btn" onClick={() => onFolder(p.id)}>{p.name}</button> / </span>
           : <h1 key={p.id}>{p.name}</h1>)}
       </nav>
+      {info.items.length > 0 && <div className="row end"><a className="btn" href={zip} title="Everything in this folder as one .zip: documents as Word, spreadsheets as Excel, presentations as PowerPoint"><Icon name="download" size={18} /> Download all (.zip)</a></div>}
       {info.items.length === 0 ? <p className="muted">This folder is empty.</p> : (
         <ul className="link-items">
           {info.items.map((f) => (

@@ -816,9 +816,26 @@ test('public folder links: documents, spreadsheets and presentations inside are 
   assert.equal((await get(doc.id)).r.status, 403);
   assert.equal((await pub('GET', `/api/public/links/${fl.token}`)).body.items.find((i) => i.id === doc.id).no_download, true, 'the page says so');
   assert.equal((await show(doc.id)).name, 'Report', 'still shown');
+  // Download all: the folder as one .zip, documents as Office files, subfolders kept; the one not to be downloaded left out, and said so.
+  const sub = (await sharer('POST', '/api/files/folder', { name: 'Appendix', parent_id: folder.id })).body;
+  await sharer('POST', `/api/files/upload?parent=${sub.id}&name=data.csv`, 'a,b\n1,2\n', { raw: true });
+  const z = await pub('GET', `/api/public/links/${fl.token}/zip`, undefined, { binary: true });
+  assert.equal(z.status, 200);
+  assert.match(z.headers.get('content-disposition'), /Handover\.zip/);
+  const whole = await JSZip.loadAsync(z.body);
+  assert.deepEqual(Object.keys(whole.files).filter((n) => !whole.files[n].dir).sort(), ['Appendix/data.csv', 'Figures.xlsx', 'Not included.txt', 'Pitch.pptx']);
+  assert.equal(await whole.file('Appendix/data.csv').async('string'), 'a,b\n1,2\n');
+  assert.match(await whole.file('Not included.txt').async('string'), /- Report/);
+  assert.ok(Object.keys((await JSZip.loadAsync(await whole.file('Figures.xlsx').async('nodebuffer'))).files).includes('xl/media/image1.png'), 'an Excel file, its picture in it');
+  const inner = await JSZip.loadAsync((await pub('GET', `/api/public/links/${fl.token}/zip?folder=${sub.id}`, undefined, { binary: true })).body);
+  assert.deepEqual(Object.keys(inner.files), ['data.csv'], 'a folder inside it');
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/zip?folder=${outside.id}`)).status, 404, 'nothing outside it');
   // A password on the link covers them too.
   const locked = (await sharer('POST', '/api/links', { file_id: folder.id, password: 'handover-1' })).body;
   assert.equal((await pub('GET', `/api/public/links/${locked.token}/content?item=${sheet.id}`)).status, 401);
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/zip`)).status, 401);
+  const fileLink = (await sharer('POST', '/api/links', { file_id: pic.id })).body;
+  assert.equal((await pub('GET', `/api/public/links/${fileLink.token}/zip`)).status, 404, 'a file link has no zip');
   assert.equal((await pub('GET', `/api/public/links/${locked.token}/items/${sheet.id}/-/pictures/${pic.id}`)).status, 401);
   const { key } = (await pub('POST', `/api/public/links/${locked.token}/unlock`, { password: 'handover-1' })).body;
   assert.equal((await pub('GET', `/api/public/links/${locked.token}/items/${sheet.id}/${key}/pictures/${pic.id}`)).status, 200, 'with its key');
