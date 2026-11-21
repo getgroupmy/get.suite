@@ -258,6 +258,13 @@ export async function notesOfXlsx(buffer) {
   return out;
 }
 
+/** XML whose root has `ns` as its default namespace, written with `prefix:` on the elements in it instead (an element
+ *  with a prefix of its own, or inside one that sets another default namespace, keeps it). Others as they are. */
+function withPrefix(xml, ns, prefix) {
+  const root = new RegExp(`<([A-Za-z][\\w.-]*)\\b([^>]*)\\sxmlns="${ns.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}"`);
+  if (!root.test(xml)) return xml;
+  return xml.replace(/<(\/?)([A-Za-z][\w.-]*)(?=[\s/>])/g, (m, slash, tag) => `<${slash}${prefix}:${tag}`).replace(new RegExp(`(<${prefix}:[A-Za-z][\\w.-]*\\b[^>]*)\\sxmlns="${ns.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}"`), `$1 xmlns:${prefix}="${ns}"`);
+}
 async function withoutOffLooks(buffer) {
   const zip = await JSZip.loadAsync(buffer).catch(() => null);
   if (!zip) return buffer;
@@ -265,6 +272,23 @@ async function withoutOffLooks(buffer) {
   const styles = await zip.file('xl/styles.xml')?.async('string');
   const fixed = styles?.replace(/<(b|i|strike|outline|shadow|condense|extend)\s+val="(?:0|false)"\s*\/>/g, '').replace(/<u\s+val="none"\s*\/>/g, '');
   if (styles && fixed !== styles) { zip.file('xl/styles.xml', fixed); changed = true; }
+  // Links between the parts by their full path (Target="/xl/drawings/drawing1.xml", as openpyxl writes them): the same
+  // link relative to the part, which is all exceljs follows (a sheet with a chart or a picture stopped the file opening).
+  for (const relPath of Object.keys(zip.files).filter((f) => /^xl\/(.+\/)?_rels\/[^/]+\.rels$/.test(f))) {
+    const rels = await zip.file(relPath).async('string');
+    const dir = relPath.replace(/(^|\/)_rels\/[^/]+$/, '');
+    const out = rels.replace(/(<Relationship\b[^>]*\bTarget=")\/([^"]+)"/g, (m, pre, target) => (/\bTargetMode="External"/.test(m) ? m : `${pre}${path.posix.relative(dir, target)}"`));
+    if (out !== rels) { zip.file(relPath, out); changed = true; }
+  }
+  // Drawings and charts written in their namespace as the default one, <wsDr> rather than <xdr:wsDr>, <chartSpace> rather
+  // than <c:chartSpace> (as openpyxl writes them): the same, prefixed, the form exceljs and the chart reader here know.
+  for (const [re, ns, prefix] of [[/^xl\/drawings\/[^/]+\.xml$/, 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing', 'xdr'], [/^xl\/charts\/[^/]+\.xml$/, 'http://schemas.openxmlformats.org/drawingml/2006/chart', 'c']]) {
+    for (const f of Object.keys(zip.files).filter((x) => re.test(x))) {
+      const x = await zip.file(f).async('string');
+      const fixedX = withPrefix(x, ns, prefix);
+      if (fixedX !== x) { zip.file(f, fixedX); changed = true; }
+    }
+  }
   // Comments (notes) where exceljs looks for them: xl/commentsN.xml and xl/drawings/vmlDrawingN.vml, linked as ../…. openpyxl
   // (and others) put them in other folders and link them by their full path, which stopped such a file opening at all.
   let n = 0;

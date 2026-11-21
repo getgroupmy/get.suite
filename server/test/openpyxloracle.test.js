@@ -248,3 +248,47 @@ print(json.dumps(out))
   }
   assert.deepEqual(wrong.slice(0, 12), []);
 });
+
+test('30 random charts written by openpyxl (each kind, on sheets with names like Q1 & Q2), opened in Sheets: kind, range and title', { skip: !hasOpenpyxl && 'no openpyxl here' }, async () => {
+  const KINDS = { column: 'column', bar: 'bar', stackedColumn: 'stackedColumn', stackedBar: 'stackedBar', line: 'line', area: 'area', pie: 'pie', doughnut: 'doughnut', scatter: 'scatter' };
+  const list = Array.from({ length: 30 }, () => {
+    const rows = 2 + Math.floor(rnd() * 5), cols = 2 + Math.floor(rnd() * 3);
+    return { sheet: pick(NAMES), kind: pick(Object.keys(KINDS)), title: pick(['Sales', 'Ventes été', 'Q1 & Q2', '売上', '']), rows, cols };
+  });
+  const WRITE_CHARTS = `
+import sys, json, io, base64, openpyxl
+from openpyxl.chart import BarChart, LineChart, PieChart, ScatterChart, AreaChart, DoughnutChart, Reference, Series
+out = []
+for c in json.load(sys.stdin):
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = c['sheet']
+    ws.append(['Item'] + ['S%d' % k for k in range(1, c['cols'])])
+    for r in range(c['rows']): ws.append(['R%d' % r] + [r * 3 + k for k in range(1, c['cols'])])
+    last = c['rows'] + 1
+    kind = c['kind']
+    ch = {'line': LineChart, 'area': AreaChart, 'pie': PieChart, 'doughnut': DoughnutChart, 'scatter': ScatterChart}.get(kind, BarChart)()
+    if kind in ('bar', 'stackedBar'): ch.type = 'bar'
+    if kind in ('stackedColumn', 'stackedBar'): ch.grouping = 'stacked'; ch.overlap = 100
+    cats = Reference(ws, min_col=1, min_row=2, max_row=last)
+    if kind == 'scatter':
+        for k in range(2, c['cols'] + 1): ch.series.append(Series(Reference(ws, min_col=k, min_row=1, max_row=last), cats, title_from_data=True))
+    elif kind in ('pie', 'doughnut'):
+        ch.add_data(Reference(ws, min_col=2, min_row=1, max_row=last), titles_from_data=True); ch.set_categories(cats)
+    else:
+        ch.add_data(Reference(ws, min_col=2, min_row=1, max_col=c['cols'], max_row=last), titles_from_data=True); ch.set_categories(cats)
+    if c['title']: ch.title = c['title']
+    ws.add_chart(ch, 'H2')
+    buf = io.BytesIO(); wb.save(buf); out.append(base64.b64encode(buf.getvalue()).decode())
+print(json.dumps(out))
+`;
+  const files = python(WRITE_CHARTS, JSON.stringify(list));
+  const wrong = [];
+  for (const [i, c] of list.entries()) {
+    const back = await sheetFromExcel(Buffer.from(files[i], 'base64'));
+    const charts = Object.values((back.sheets || back)[0].charts || {});
+    const lastCol = String.fromCharCode(64 + (['pie', 'doughnut'].includes(c.kind) ? 2 : c.cols));
+    const want = JSON.stringify([[KINDS[c.kind], `A1:${lastCol}${c.rows + 1}`, c.title]]);
+    const got = JSON.stringify(charts.map((x) => [x.type, x.range, x.title || '']));
+    if (want !== got) wrong.push(`#${i} on "${c.sheet}": ${want} came back ${got}`);
+  }
+  assert.deepEqual(wrong.slice(0, 10), []);
+});

@@ -159,7 +159,7 @@ await step('a web page made by pandoc opens with its checklist and footnote', as
   if ((await ed.locator('ul[data-type="taskList"] li[data-checked="true"]').count()) !== 1) throw new Error('ticks');
   if ((await ed.locator('sup[data-footnote]').getAttribute('title')) !== 'Bought on Monday.') throw new Error('the footnote'); // (was a "1" linking to a list at the end)
 });
-await step('an Excel file made by openpyxl: it opens with its note; text that looks like a number or formula stays text, and nothing is struck through', async () => {
+await step('an Excel file made by openpyxl: it opens with its note and chart; text that looks like a number or formula stays text, and nothing is struck through', async () => {
   const { spawnSync } = await import('node:child_process');
   const r = spawnSync('python3', ['-I', '-c', `
 import sys, io, openpyxl
@@ -171,6 +171,9 @@ ws['A3'] = '=not a formula'; ws['A3'].data_type = 's'
 ws['A4'] = 12.5
 from openpyxl.comments import Comment
 ws['A4'].comment = Comment('Checked by Zoë', 'Someone')
+from openpyxl.chart import BarChart, Reference
+ws['C1'] = 'Month'; ws['D1'] = 'Sales'; ws['C2'] = 'Jan'; ws['D2'] = 10; ws['C3'] = 'Feb'; ws['D3'] = 12
+ch = BarChart(); ch.title = 'Sales by month'; ch.add_data(Reference(ws, min_col=4, min_row=1, max_row=3), titles_from_data=True); ch.set_categories(Reference(ws, min_col=3, min_row=2, max_row=3)); ws.add_chart(ch, 'F2')
 buf = io.BytesIO(); wb.save(buf); sys.stdout.buffer.write(buf.getvalue())
 `]);
   if (r.status !== 0) { console.log('(no openpyxl here: skipped)'); return; }
@@ -185,6 +188,8 @@ buf = io.BytesIO(); wb.save(buf); sys.stdout.buffer.write(buf.getvalue())
   const struck = await grid.getByText('Code', { exact: true }).evaluate((el) => getComputedStyle(el.closest('[role="gridcell"]') || el).textDecorationLine);
   if (/line-through/.test(struck)) throw new Error('struck through'); // (every cell was)
   const content = (await api(page, 'GET', `/files/${f.id}/content`)).body.content;
+  const charts = Object.values((content.sheets || content)[0].charts || {});
+  if (JSON.stringify(charts.map((c) => [c.type, c.range, c.title])) !== JSON.stringify([['column', 'C1:D3', 'Sales by month']])) throw new Error(`the chart: ${JSON.stringify(charts)}`); // (a file with a chart didn't open)
   if ((content.sheets || content)[0].notes?.A4 !== 'Checked by Zoë') throw new Error(`the note: ${JSON.stringify((content.sheets || content)[0].notes)}`); // (a file with a note didn't open at all)
 });
 await step('a Word file made by python-docx: an item in its "List Bullet 2" style opens a level down', async () => {
