@@ -473,9 +473,20 @@ export function joinReplacements(n) {
 
 /** Paragraphs starting with a box (☐, or ☑ ☒ when ticked), one after another, become a checklist. */
 function checklists(doc) {
-  const BOX = /^\s*([☐☑☒])\s*/;
+  const BOX = /^\s*([☐☑☒])[ \uE000\uE005]?/; // (the one space after the box, plain or held: an item's own leading spaces stay)
   const out = [];
-  for (const n of doc.content || []) {
+  for (const raw of doc.content || []) {
+    // inside lists, quotes and tables too; a bulleted list whose every item starts with a box is a checklist (one inside a list)
+    // (as Word has it from a Docs file: a list level with no bullet of its own, read as a list)
+    const boxed = (li) => li.content?.[0]?.type === 'paragraph' && li.content[0].content?.[0]?.type === 'text' && BOX.test(li.content[0].content[0].text);
+    let n;
+    if ((raw.type === 'bulletList' || raw.type === 'orderedList') && raw.content?.length && raw.content.every(boxed)) {
+      n = { type: 'taskList', content: raw.content.map((li) => {
+        const [p, ...more] = li.content, [t, ...after] = p.content, m = BOX.exec(t.text), rest = t.text.slice(m[0].length);
+        const inline = [...(rest ? [{ ...t, text: rest }] : []), ...after];
+        return { type: 'taskItem', attrs: { checked: m[1] !== '☐' }, content: [{ type: 'paragraph', ...(inline.length && { content: inline }) }, ...checklists({ content: more }).content] };
+      }) };
+    } else n = raw.content && raw.type !== 'paragraph' && raw.type !== 'heading' && raw.type !== 'codeBlock' ? checklists(raw) : raw;
     const first = n.type === 'paragraph' && n.content?.[0];
     const m = first?.type === 'text' && BOX.exec(first.text);
     if (!m) { out.push(n); continue; }
@@ -927,7 +938,9 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         for (const li of n.content || []) {
           const [first, ...rest] = li.content || [];
           const box = new TextRun({ text: li.attrs?.checked ? '☑ ' : '☐ ' });
-          paras.push(new Paragraph({ children: [box, ...runs(first?.type === 'paragraph' ? first.content : [])], indent: { left: 360 * (level + 1), hanging: 280 } }));
+          // (inside a list: a level of it with no bullet of its own, so it stays in the list in Word and when read back)
+          const inList = { indent: { left: 360 * (level + 1), hanging: 280 }, ...(level > 0 && { numbering: { reference: 'checklist', level } }) };
+          paras.push(new Paragraph({ children: [box, ...runs(first?.type === 'paragraph' ? first.content : [])], ...inList }));
           walk(first?.type === 'paragraph' ? rest : li.content, { level });
         }
       } else if (n.type === 'blockquote') walk(n.content, { ...ctx, para: { style: 'Quote', indent: { left: 720 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 8 } } } }); // Word's own Quote style: it comes back as a quote
@@ -1002,7 +1015,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       ...(c.parentId !== undefined && { parentId: c.parentId }), ...(c.resolved && { resolved: true }),
       children: String(c.text || '').split('\n').map((line) => new Paragraph(line)),
     })) } }),
-    numbering: { config: [...new Set([1, ...starts])].map((start) => ({ reference: `numbers-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) })) },
+    numbering: { config: [{ reference: 'checklist', levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.NONE, text: '', alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 280 } } } })) }, ...[...new Set([1, ...starts])].map((start) => ({ reference: `numbers-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }))] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
     styles: {
       default: {

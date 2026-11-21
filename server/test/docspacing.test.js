@@ -1,7 +1,9 @@
 // Tabs and runs of spaces in a document's text, through our own .docx and .odt files and back (and through
 // LibreOffice): they came back folded into one space (reading the file as HTML folds them; .odt dropped a space starting a
-// paragraph). A random test makes 60 documents of headings, lists, quotes, tables and code with words, marks, links,
-// tabs and double spaces, and each must come back with the same text, marks and nesting.
+// paragraph). A random test makes 60 documents of headings, lists, checklists (inside lists too), quotes and tables with
+// words, marks, links, tabs and double spaces, and each must come back with the same text, marks, ticks and nesting. It
+// found a checklist inside a list coming back as "☐ …" lines (.odt) or moved out of the list (.docx), and an item's own
+// leading spaces taken with the one after its box.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -47,14 +49,16 @@ test('and through LibreOffice, saved again in either format', { skip: !hasSoffic
 test('60 random documents come back with the same text, marks and nesting', async () => {
   let seed = 3; const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
   const pick = (a) => a[Math.floor(rnd() * a.length)];
-  const WORDS = ['alpha', 'Ωmega', 'naïve', 'x<y', 'a&b', '"q"', "it's", '中文', 'שלום', '😀', 'two  spaces', 'tab\there', '1,234', '<tag>', 'ß'];
+  const WORDS = ['alpha', 'Ωmega', 'naïve', 'x<y', 'a&b', '"q"', "it's", '中文', 'שלום', '😀', 'two  spaces', 'tab\there', '1,234', '<tag>', 'ß', '  indented'];
   const MARKS = [[{ type: 'bold' }], [{ type: 'italic' }], [{ type: 'underline' }], [{ type: 'strike' }], [{ type: 'code' }], [{ type: 'subscript' }], [{ type: 'superscript' }], [{ type: 'link', attrs: { href: 'https://example.com/a?b=1&c=2' } }]];
   const text = () => Array.from({ length: 1 + Math.floor(rnd() * 4) }, (_, i) => { const t = T((i ? ' ' : '') + pick(WORDS)); if (rnd() < 0.4) t.marks = pick(MARKS); return t; });
+  const tasks = () => ({ type: 'taskList', content: Array.from({ length: 1 + Math.floor(rnd() * 2) }, () => ({ type: 'taskItem', attrs: { checked: rnd() < 0.5 }, content: [P(...text())] })) });
   const block = (d) => {
     const r = rnd();
+    if (r > 0.92 && d === 0) return tasks();
     if (r < 0.35 || d > 1) return P(...text());
     if (r < 0.45) return { type: 'heading', attrs: { level: 1 + Math.floor(rnd() * 3) }, content: text() };
-    if (r < 0.65) return { type: pick(['bulletList', 'orderedList']), content: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ type: 'listItem', content: [P(...text()), ...(rnd() < 0.3 ? [{ type: 'bulletList', content: [{ type: 'listItem', content: [P(...text())] }] }] : [])] })) };
+    if (r < 0.65) return { type: pick(['bulletList', 'orderedList']), content: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ type: 'listItem', content: [P(...text()), ...(rnd() < 0.3 ? [rnd() < 0.5 ? tasks() : { type: 'bulletList', content: [{ type: 'listItem', content: [P(...text())] }] }] : [])] })) };
     if (r < 0.75) return { type: 'blockquote', content: [P(...text())] };
     return { type: 'table', content: Array.from({ length: 2 }, () => ({ type: 'tableRow', content: Array.from({ length: 2 }, () => ({ type: 'tableCell', content: [P(...text())] })) })) };
   };
@@ -62,6 +66,7 @@ test('60 random documents come back with the same text, marks and nesting', asyn
   const flat = (n, depth = 0, out = []) => {
     if (n.type === 'text') { out.push(`${n.text}{${(n.marks || []).map((m) => m.type + (m.attrs?.href ? `:${m.attrs.href}` : '')).sort().join(',')}}`); return out; }
     if (['paragraph', 'heading'].includes(n.type)) out.push(`\n${'>'.repeat(depth)}${n.type}${n.attrs?.level ?? ''}:`);
+    if (n.type === 'taskItem') out.push(n.attrs?.checked ? '[x]' : '[ ]');
     for (const c of n.content || []) flat(c, depth + (/List|blockquote|table/.test(n.type) ? 1 : 0), out);
     return out;
   };

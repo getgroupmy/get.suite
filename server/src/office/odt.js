@@ -254,7 +254,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       } else if (t === 'taskList') {
         for (const li of n.content || []) {
           const [first, ...rest] = li.content || [];
-          out += `<text:p text:style-name="Standard">${li.attrs?.checked ? '☑' : '☐'} ${first?.type === 'paragraph' ? inline(first.content) : ''}</text:p>${blocks(first?.type === 'paragraph' ? rest : li.content, ctx)}`;
+          out += `<text:p text:style-name="Standard">${li.attrs?.checked ? '☑' : '☐'}<text:s/>${first?.type === 'paragraph' ? inline(first.content) : ''}</text:p>${blocks(first?.type === 'paragraph' ? rest : li.content, ctx)}`; // (the space after the box as <text:s/>: an item's own leading spaces aren't folded into it)
         }
       } else if (t === 'blockquote') out += blocks(n.content, { ...ctx, style: 'Quotations' });
       else if (t === 'codeBlock') out += `<text:p text:style-name="Preformatted_20_Text">${odfText((n.content || []).map((c) => c.text).join(''))}</text:p>`;

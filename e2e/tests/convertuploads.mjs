@@ -62,6 +62,18 @@ await step('Settings: Convert uploads; a .docx uploaded in Drive becomes a docum
   const content = JSON.stringify((await api(page, 'GET', `/files/${kept.id}/content`)).body);
   if (!content.includes('Ref:\\tA-7  (two spaces)')) throw new Error(`the tab and two spaces: ${content.match(/Ref:[^"]*/)?.[0]}`);
 });
+await step('a Word file with a checklist inside a bulleted list comes in with the checklist still in the list, ticks kept', async () => {
+  const { wordFromDoc } = await import(`${ROOT}/server/src/office/word.js`);
+  const P = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+  const buf = await wordFromDoc({ type: 'doc', content: [{ type: 'bulletList', content: [{ type: 'listItem', content: [P('Launch'),
+    { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: true }, content: [P('Book the room')] }, { type: 'taskItem', attrs: { checked: false }, content: [P('Send invites')] }] }] }] }] });
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'Plan.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: buf });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === 'Plan'));
+  await page.goto(`${B}/docs/${f.id}`);
+  await page.locator('.ProseMirror ul li ul[data-type="taskList"] li[data-checked="true"]', { hasText: 'Book the room' }).waitFor();
+  await page.locator('.ProseMirror ul li ul[data-type="taskList"] li[data-checked="false"]', { hasText: 'Send invites' }).waitFor();
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';
