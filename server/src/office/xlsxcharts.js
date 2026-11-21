@@ -200,7 +200,7 @@ export async function withCharts(buffer, sheets, { pictureData } = {}) {
     pictures.forEach((pic, k) => {
       imageNo += 1;
       const name = `image${imageNo}.${pic.ext}`, rid = `rIdPic${k + 1}`;
-      zip.file(`xl/media/${name}`, pic.data);
+      zip.file(`xl/media/${name}`, pic.data, { createFolders: false });
       exts.add(pic.ext);
       anchors.push(pictureAnchor(pic.p, parts.length + k, rid, s.colWidths || {}, s.rowHeights || {}));
       drawRels.push(`<Relationship Id="${rid}" Type="${REL}/image" Target="../media/${name}"/>`);

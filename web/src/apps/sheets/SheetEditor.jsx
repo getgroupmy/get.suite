@@ -2,7 +2,7 @@ import { pasteSpecial, PASTE_MODES } from './paste.js';
 import { placeParams, placeLink } from '../../components/placelink.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, patch, post, put } from '../../api.js';
+import { get, patch, post, put, uploadFile } from '../../api.js';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -917,6 +917,26 @@ export default function SheetEditor() {
     writeSheet(() => ({ filter: { range: rangeText(g), hidden: {} } }));
     gridRef.current?.focus();
   };
+  /** A picture from the computer, put over the cursor's cell at its own size (at most 480 × 360, its shape kept). */
+  async function insertPicture(f) {
+    if (!f || readOnly) return;
+    if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type)) { toast('Choose a picture (PNG, JPEG, GIF, WebP or BMP)', 'error'); return; }
+    const wrap = gridRef.current;
+    const td = wrap?.querySelector(`[data-k="${cellKey(sel.c, sel.r)}"]`);
+    let x = 160, y = 40;
+    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(), z = zRef.current; x = (a.left - b.left + wrap.scrollLeft) / z; y = (a.top - b.top + wrap.scrollTop) / z; }
+    try {
+      const [nw, nh] = await new Promise((ok) => { const img = new Image(); const url = URL.createObjectURL(f); img.onload = () => { ok([img.naturalWidth, img.naturalHeight]); URL.revokeObjectURL(url); }; img.onerror = () => ok([320, 240]); img.src = url; });
+      const k = Math.min(1, 480 / nw, 360 / nh);
+      // Next to the spreadsheet when possible, so it's easy to find; otherwise in your Drive.
+      let up;
+      try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
+      const id = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
+      const alt = f.name.replace(/\.[^.]+$/, '').slice(0, 200);
+      writePicture(id, { file: up.id, ...(alt && { alt }), x: Math.round(x), y: Math.round(y), w: Math.max(8, Math.round(nw * k)), h: Math.max(8, Math.round(nh * k)) });
+    } catch (e) { toast(e.message, 'error'); }
+    gridRef.current?.focus();
+  }
   /** A slicer for the table around the cursor, filtering by the cursor's column, placed above the table's right. */
   const newSlicer = () => {
     const g = anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '');
@@ -1361,7 +1381,7 @@ export default function SheetEditor() {
       )}
       {!readOnly && <FormatBar sample={evaluate(selKey)} painter={painter} onPaint={(sticky) => (painter && !sticky ? setPainter(null) : startPaint(sticky))} fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
         onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
-        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!sheetFilter} onFilter={toggleFilter} onSlicer={newSlicer} history={history} />}
+        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onPicture={insertPicture} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!sheetFilter} onFilter={toggleFilter} onSlicer={newSlicer} history={history} />}
       {finding && sheet && (
         <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly}
           onGo={(m) => { setAnchor(null); setSel({ c: m.c, r: m.r }); requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${m.key}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); }}
@@ -1813,7 +1833,8 @@ function NoteEditor({ at, onSave, onClose }) {
   );
 }
 
-function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, onSlicer, history }) {
+function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onPicture, onSort, onRules, onValidation, onPivot, filterOn, onFilter, onSlicer, history }) {
+  const pictureInput = useRef(null);
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -1892,6 +1913,8 @@ function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge
       <button type="button" className="tb labelled" aria-label="Data validation" title="Dropdowns, tick boxes and rules for what cells may hold" onMouseDown={keep} onClick={onValidation}>▾ Validation</button>
       <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
+      <button type="button" className="tb labelled" aria-label="Insert picture" title="A picture from your computer, over the cells at the cursor" onMouseDown={keep} onClick={() => pictureInput.current?.click()}><Icon name="image" size={18} /> Picture</button>
+      <input ref={pictureInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" hidden data-testid="sheet-picture-input" onChange={(e) => { onPicture(e.target.files[0]); e.target.value = ''; }} />
       <button type="button" className="tb labelled" aria-label="Pivot table" title="Summarise the table around the cursor on a new sheet" onMouseDown={keep} onClick={onPivot}>⊞ Pivot</button>
       <button type="button" className="tb labelled" aria-label="Add comment" title="Comment on this cell (Ctrl+Alt+M)" onMouseDown={keep} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
     </div>

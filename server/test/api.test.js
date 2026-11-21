@@ -1074,6 +1074,34 @@ test('spreadsheets: pictures in cells (IMAGE) show for everyone who can open the
   assert.equal((await viewer('GET', `/api/files/${sheet.id}/pictures/${other.id}`)).status, 404, 'only pictures the spreadsheet uses');
 });
 
+test('spreadsheets: pictures over the cells show for everyone who can open it, and go into the .xlsx download', async () => {
+  const JSZip = (await import('jszip')).default;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=badge.png', png, { raw: true })).body;
+  const other = (await owner('POST', '/api/files/upload?name=unused.png', png, { raw: true })).body;
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Badges' })).body;
+  const viewer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'floatpics', domain: 'acme.com', name: 'Float Viewer', password: 'password123' })).status, 201);
+  const vid = (await login(viewer, 'floatpics@acme.com')).id;
+  await owner('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  const at = `/api/files/${sheet.id}/pictures/${pic.id}`;
+  assert.equal((await viewer('GET', at)).status, 404, 'not before the spreadsheet uses it');
+  const cur = (await owner('GET', `/api/files/${sheet.id}/content`)).body;
+  const content = { sheets: [{ name: 'Sheet1', cells: { A1: 'Badge' }, pictures: { p1: { file: pic.id, alt: 'Badge', x: 246, y: 72, w: 40, h: 30 } } }] };
+  assert.equal((await owner('PUT', `/api/files/${sheet.id}/content`, { version: cur.file.version, content })).status, 200);
+  assert.deepEqual((await viewer('GET', `/api/files/${sheet.id}/content`)).body.content.sheets[0].pictures, content.sheets[0].pictures, 'kept as saved');
+  assert.equal((await viewer('GET', at)).status, 200);
+  assert.equal((await viewer('GET', `/api/files/${sheet.id}/pictures/${other.id}`)).status, 404, 'only pictures the spreadsheet uses');
+  const xlsx = await owner('GET', `/api/files/${sheet.id}/export?format=xlsx`, undefined, { binary: true });
+  assert.equal(xlsx.status, 200);
+  const zip = await JSZip.loadAsync(xlsx.body);
+  const media = Object.keys(zip.files).filter((f) => f.startsWith('xl/media/'));
+  assert.deepEqual(media, ['xl/media/image1.png']);
+  assert.ok((await zip.file(media[0]).async('nodebuffer')).equals(png), 'the picture itself');
+  const drawing = await zip.file(Object.keys(zip.files).find((f) => /^xl\/drawings\/drawing\d+\.xml$/.test(f))).async('string');
+  assert.match(drawing, /<xdr:oneCellAnchor><xdr:from><xdr:col>2<\/xdr:col><xdr:colOff>0<\/xdr:colOff><xdr:row>2<\/xdr:row><xdr:rowOff>0<\/xdr:rowOff><\/xdr:from><xdr:ext cx="381000" cy="285750"\/>/, 'over C3, 40 × 30');
+});
+
 test('Office files: open Word, Excel and PowerPoint as Docs, Sheets and Slides, and download them back', async () => {
   const { Document, Packer, Paragraph, HeadingLevel } = await import('docx');
   const ExcelJS = (await import('exceljs')).default;

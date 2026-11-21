@@ -235,6 +235,41 @@ print(json.dumps({ 'pics': [[i.anchor._from.col, i.anchor._from.row, i.anchor.ex
   await page.locator('.sheet-picture').waitFor({ state: 'detached' });
   await until(async () => !Object.keys((await content()).pictures || {}).length, 10000);
 });
+await step('Picture in the Sheets toolbar: a picture from the computer goes over the cursor\'s cell at its size (big ones made smaller), and a colleague sees it', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('python3', ['-I', '-c', `
+import sys, io
+from PIL import Image as P
+b = io.BytesIO(); P.new('RGB', (960, 480), (30, 120, 220)).save(b, 'PNG'); sys.stdout.buffer.write(b.getvalue())
+`]);
+  if (r.status !== 0) { console.log('(no Pillow here: skipped)'); return; }
+  const sheet = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Team photo' })).body;
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  const cell = (k) => page.locator(`.grid td[data-k="${k}"]`);
+  await cell('B4').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Insert picture' }).click();
+  await (await chooser).setFiles({ name: 'Team day.png', mimeType: 'image/png', buffer: r.stdout });
+  const pic = page.locator('.sheet-picture').first();
+  await pic.waitFor();
+  await until(async () => (await pic.locator('img').evaluate((i) => i.complete && i.naturalWidth)) === 960);
+  const [box, b4] = [await pic.boundingBox(), await cell('B4').boundingBox()];
+  if (Math.round(box.width) !== 480 || Math.round(box.height) !== 240) throw new Error(`its size: ${box.width}x${box.height}`); // 960 × 480, made 480 wide
+  if (Math.abs(box.x - b4.x) > 2 || Math.abs(box.y - b4.y) > 2) throw new Error(`not over B4: ${JSON.stringify([box, b4])}`);
+  if ((await pic.getAttribute('aria-label')) !== 'Picture: Team day') throw new Error(await pic.getAttribute('aria-label'));
+  // Saved, and Liam (who can view) sees it.
+  const saved = await until(async () => { const c = (await api(page, 'GET', `/files/${sheet.id}/content`)).body.content; return Object.values(c.sheets[0].pictures || {})[0]; }, 10000);
+  const lid = (await api(page, 'POST', '/users', { local: 'liam', domain: 'acme.com', name: 'Liam Viewer', password: 'password123' })).body.id;
+  const liam = await mk('liam');
+  await signIn(liam, 'liam@acme.com');
+  await api(page, 'PUT', `/files/${sheet.id}/shares`, { shares: [{ user_id: lid, role: 'viewer' }] });
+  await liam.goto(`${B}/sheets/${sheet.id}`);
+  const theirs = liam.locator('.sheet-picture img');
+  await until(async () => (await theirs.evaluate((i) => i.complete && i.naturalWidth).catch(() => 0)) === 960);
+  if (await liam.getByRole('button', { name: /Options for picture/ }).count()) throw new Error('a viewer can change it');
+  if (saved.alt !== 'Team day' || saved.w !== 480) throw new Error(JSON.stringify(saved));
+  await liam.close();
+});
 await step('a Word file made by python-docx: an item in its "List Bullet 2" style opens a level down', async () => {
   const { spawnSync } = await import('node:child_process');
   const r = spawnSync('python3', ['-I', '-c', `
