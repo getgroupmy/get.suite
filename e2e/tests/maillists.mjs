@@ -193,6 +193,31 @@ await step('Sheets ⋮ → Send as email: the sheet as a table in the email, val
   const got = await frame.locator('table tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent).join('|')));
   if (JSON.stringify(got) !== JSON.stringify(rows)) throw new Error('received: ' + JSON.stringify(got));
 });
+await step('an AI assistant’s draft from a document (draft_email with body_from_document) opens in Mail as the document', async () => {
+  const o = await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const made = await api(page, 'POST', '/tokens', { password: 'password123', name: 'Assistant', scope: 'write', days: 30 });
+  const tok = made.body?.token;
+  if (!tok) throw new Error(`token: ${o.status} ${JSON.stringify(made)}`);
+  const T = (text) => ({ type: 'text', text });
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Team news', content: { type: 'doc', content: [
+    { type: 'paragraph', content: [T('This month:')] },
+    { type: 'orderedList', attrs: { start: 1, listStyle: 'lower-roman' }, content: ['New office', 'Two hires'].map((t) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [T(t)] }] })) },
+  ] } })).body;
+  const r = await page.evaluate(async ([t, id]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'draft_email', arguments: { to: 'gina@globex.com', body: 'Hello Gina,', body_from_document: `file:${id}` } } }) })).text()), [tok, doc.id]).then((x) => { try { return JSON.parse(x).result; } catch { return x; } });
+  if (r?.isError || r?.structuredContent?.subject !== 'Team news') throw new Error(`${String(tok).slice(0, 4)} ${typeof r === 'string' ? r.slice(0, 300) : JSON.stringify(r)}`);
+  await page.goto(`${B}/mail`);
+  await page.getByRole('button', { name: /^Drafts/ }).click();
+  const row = page.locator('.msg-list li', { hasText: 'Team news' });
+  await refreshUntil(page, row);
+  await row.locator('.msg-row').click();
+  const ed = page.locator('.compose-editor');
+  await ed.getByText('Hello Gina,').waitFor();
+  const ol = ed.locator('ol', { hasText: 'Two hires' });
+  await ol.waitFor();
+  if (await looks(ol) !== 'lower-roman') throw new Error(`ol: ${await looks(ol)}`);
+  if (await page.getByLabel('Subject').inputValue() !== 'Team news') throw new Error('subject');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

@@ -482,12 +482,13 @@ export const TOOLS = [
   },
   {
     name: 'draft_email', title: 'Write an email draft', readOnly: false,
-    description: 'Write an email and leave it in the person’s Drafts folder for them to check and send in Workspace. It is not sent. To reply to an email, give its id (mail:…) as reply_to: the draft goes to its sender (everyone on it with reply_all), with "Re:" and the original quoted, in the same conversation.',
+    description: 'Write an email and leave it in the person’s Drafts folder for them to check and send in Workspace. It is not sent. To reply to an email, give its id (mail:…) as reply_to: the draft goes to its sender (everyone on it with reply_all), with "Re:" and the original quoted, in the same conversation. To send a document as the email itself (a newsletter, an update written in Docs), give it as body_from_document: its text, lists, tables and pictures become the message, under body if given.',
     inputSchema: {
-      type: 'object', required: ['body'],
+      type: 'object',
       properties: {
         to: { type: 'string', description: 'Addresses, separated by commas (for a reply: who it went to, unless given)' }, cc: { type: 'string' },
         subject: { type: 'string', description: 'For a reply: "Re: " and the original subject, unless given' }, body: { type: 'string', description: 'The message, as plain text' },
+        body_from_document: { type: 'string', description: 'A document’s id (file:…): the email’s text is the document, formatting kept (subject: its name, unless given). body, if given, goes above it.' },
         reply_to: { type: 'string', description: 'The id (mail:…) of the email being replied to' }, reply_all: { type: 'boolean', description: 'With reply_to: reply to everyone on it, not only the sender' },
         to_people_with_access: { type: 'string', description: 'A Drive file’s id (file:…): the email goes (also) to everyone it’s shared with by name, as Email people with access in Docs does. Needs edit access to it.' },
         attach: {
@@ -498,6 +499,15 @@ export const TOOLS = [
     },
     async run(api, a) {
       let draft = { to: String(a.to || ''), cc: String(a.cc || ''), subject: String(a.subject || ''), text: String(a.body || '') };
+      if (a.body_from_document) { // the document as the email (as Docs → Send as email), the body above it
+        if (a.reply_to) throw new ToolError('body_from_document is for a new email, not a reply');
+        const id = String(a.body_from_document).replace(/^file:/, '');
+        const d = await api('GET', `/files/${encodeURIComponent(id)}/email-body`);
+        const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const intro = draft.text.trim() ? draft.text.trim().split(/\n{2,}/).map((para) => `<p>${esc(para).replace(/\n/g, '<br>')}</p>`).join('') : '';
+        draft.html = intro + d.html;
+        draft.subject = draft.subject || d.subject;
+      } else if (!String(a.body || '').trim()) throw new ToolError('Give the message (body), or a document to send as it (body_from_document)');
       if (a.to_people_with_access) { // everyone a file is shared with, added to To (not twice)
         const id = String(a.to_people_with_access).replace(/^file:/, '');
         const r = await api('GET', `/files/${encodeURIComponent(id)}/people`);
@@ -545,7 +555,7 @@ export const TOOLS = [
       }
       if (attached.length) draft.attachments = attached.map((x) => x.id);
       const r = await api('POST', '/mail/drafts', draft);
-      return { saved: true, folder: r.folder || 'Drafts', to: draft.to, ...(draft.cc && { cc: draft.cc }), subject: draft.subject, ...(attached.length && { attached: attached.map((x) => x.name) }), note: 'Saved in Drafts, not sent: open it in Workspace Mail to check and send.', url: link('/mail/Drafts') };
+      return { saved: true, folder: r.folder || 'Drafts', to: draft.to, ...(draft.cc && { cc: draft.cc }), subject: draft.subject, ...(draft.html && { from_document: true }), ...(attached.length && { attached: attached.map((x) => x.name) }), note: 'Saved in Drafts, not sent: open it in Workspace Mail to check and send.', url: link('/mail/Drafts') };
     },
   },
   {

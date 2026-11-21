@@ -2223,6 +2223,19 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   const d = (await olivia('GET', `/api/mail/messages/${theirs.uid}?folder=Drafts`)).body;
   assert.ok(d.references.includes(original.messageId), `in the conversation: ${JSON.stringify(d.references)} / ${original.messageId}`);
   assert.match(d.text, /Replying in the thread\.[\s\S]*wrote:\n> The pelican numbers are in\./);
+  // A document as the email (body_from_document): its lists in their own look, the body above it, its name the subject.
+  const docSubject = `Newsletter ${Date.now()}`;
+  const nl = (await olivia('POST', '/api/files/new', { kind: 'doc', name: docSubject, content: { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'This month' }] },
+    { type: 'orderedList', attrs: { start: 1, listStyle: 'lower-roman' }, content: ['New office', 'Two hires'].map((t) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] })) },
+  ] } })).body;
+  const fromDoc = await call('draft_email', { to: 'bob@acme.com', body: 'Hi all,\n\nthe news <in short>:', body_from_document: `file:${nl.id}` });
+  assert.deepEqual([fromDoc.subject, fromDoc.from_document], [docSubject, true]);
+  const nd = await eventually(async () => (await olivia('GET', `/api/mail/messages?folder=Drafts&q=${encodeURIComponent(docSubject)}`)).body.messages?.find((m) => m.subject === docSubject), 15000);
+  const ndBody = (await olivia('GET', `/api/mail/messages/${nd.uid}?folder=Drafts`)).body;
+  assert.match(ndBody.html, /<p>Hi all,<\/p><p>the news &lt;in short&gt;:<\/p><p><strong><span style="font-size: 24px">This month<\/span><\/strong><\/p><ol style="list-style-type: lower-roman"><li><p>New office<\/p><\/li>/);
+  const badDoc = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'draft_email', arguments: { to: 'bob@acme.com', subject: 'x' } } }) });
+  assert.match(JSON.stringify(await badDoc.json()), /Give the message \(body\), or a document/);
   // Tidy: read and starred, then archived (it leaves the Inbox, arrives in Archive, still starred).
   const tidy = await call('update_email', { ids: [listed.messages[0].id], read: true, starred: true });
   assert.deepEqual([tidy.changed, tidy.read, tidy.starred], [1, true, true]);
