@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rtfFromDoc, docFromRtf } from '../src/office/rtf.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { soffice, hasSoffice } from './soffice.js';
 
 const T = (text, ...m) => ({ type: 'text', text, ...(m.length && { marks: m.map((x) => (typeof x === 'string' ? { type: x } : x)) }) });
 const P = (...c) => ({ type: 'paragraph', content: c });
@@ -32,8 +36,8 @@ test('RTF: a document goes out as Rich Text (7-bit, others as \\u) and comes bac
   const rtf = rtfFromDoc(doc);
   assert.match(rtf, /^\{\\rtf1\\ansi/);
   assert.equal(/[^\x00-\x7f]/.test(rtf), false, 'all 7-bit');
-  assert.match(rtf, /caf\\u233\?/);
-  assert.match(rtf, /\\u-10179\?\\u-8704\?/, 'an emoji as its two halves');
+  assert.match(rtf, /caf\\u233\\'3f/); // (the stand-in ? as \'3f, as Word writes it: a plain ? reads as the end of \u… to some)
+  assert.match(rtf, /\\u-10179\\'3f\\u-8704\\'3f/, 'an emoji as its two halves');
   assert.match(rtf, /\{\\field\{\\\*\\fldinst\{HYPERLINK "https:\/\/acme.example\/a\?b=1"\}\}/);
   assert.match(rtf, /\\outlinelevel0/);
   assert.deepEqual(show(docFromRtf(Buffer.from(rtf, 'latin1'))), want);
@@ -74,4 +78,26 @@ test('RTF: LibreOffice reads ours, and its own comes in (headings, lists, links,
   assert.deepEqual(back.slice(0, 5), want.slice(0, 5).map((l) => l.replace('backx^2', 'back')));
   assert.deepEqual(back.slice(5, 8), ['bulletList: One / Two', 'orderedList@3: Third / Fourth', 'table: Item | Cost / Taxi | 12']);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('RTF lists are Word\'s own lists, and footnotes its footnotes: through LibreOffice and back', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
+  const P = (x) => ({ type: 'paragraph', content: [{ type: 'text', text: x }] });
+  const doc = { type: 'doc', content: [
+    { type: 'bulletList', content: [{ type: 'listItem', content: [P('one'), { type: 'orderedList', content: [{ type: 'listItem', content: [P('nested')] }] }] }] },
+    { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: true }, content: [P('done')] }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Note here' }, { type: 'footnote', attrs: { note: 'The note.' } }] },
+  ] };
+  const rtf = rtfFromDoc(doc);
+  assert.match(rtf, /\{\\\*\\listtable/, 'a list table');
+  assert.match(rtf, /\\ls1\\ilvl0[^{]*\{\\listtext/, 'items of a list, with their label');
+  assert.match(rtf, /\{\\footnote\\pard\\plain\{\\super\\chftn\} The note\.\}/, 'a footnote');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rtflists-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'a.rtf'), rtf);
+    soffice([`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'rtf', '--outdir', path.join(dir, 'out'), path.join(dir, 'a.rtf')]);
+    const back = docFromRtf(fs.readFileSync(path.join(dir, 'out', 'a.rtf')));
+    const types = (n) => [n.type, ...(n.content || []).flatMap(types)].filter((t) => !['text', 'paragraph', 'doc'].includes(t));
+    assert.deepEqual(types(back), ['bulletList', 'listItem', 'orderedList', 'listItem', 'taskList', 'taskItem', 'footnote']);
+    assert.equal(back.content[2].content.find((n) => n.type === 'footnote').attrs.note, 'The note.');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

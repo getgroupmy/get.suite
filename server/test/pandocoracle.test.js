@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { markdownFromDoc, docFromMarkdown } from '../src/office/markdown.js';
 import { wordFromDoc, docFromWord } from '../src/office/word.js';
 import { odtFromDoc, docFromOdt } from '../src/office/odt.js';
+import { rtfFromDoc, docFromRtf } from '../src/office/rtf.js';
 
 const hasPandoc = spawnSync('pandoc', ['--version']).status === 0;
 const pandoc = (args, input) => { const r = spawnSync('pandoc', args, { input, maxBuffer: 64 * 1024 * 1024 }); if (r.status !== 0) throw new Error(String(r.stderr)); return r.stdout; };
@@ -91,7 +92,7 @@ function pandocShape(ast) {
         case 'Code': inl(i.c[1].split(/( )/).map((p) => (p === ' ' ? { t: 'Space' } : { t: 'Str', c: p })).filter((p) => p.c !== ''), m('code'), ws, raw); break;
         case 'Link': inl(i.c[1], m(`link:${i.c[2][0]}`), ws, raw); break;
         case 'Span': inl(i.c[1], marks, ws, raw); break;
-        case 'Note': { const text = i.c.map((b) => (b.c || []).map((x) => (x.t === 'Str' ? x.c : x.t === 'Space' ? ' ' : '')).join('')).join(' '); ws.push({ text: `^(${text})`, key: '', spaced: true }); if (ws.length > 1) ws[ws.length - 2].spaced = true; break; }
+        case 'Note': { const text = i.c.map((b) => (b.c || []).map((x) => (x.t === 'Str' ? x.c : x.t === 'Space' ? ' ' : '')).join('')).join(' '); ws.push({ text: `^(${text.trim()})`, key: '', spaced: true }); if (ws.length > 1) ws[ws.length - 2].spaced = true; break; }
         case 'RawInline': if (/^<br\s*\/?>$/i.test(i.c[1])) { inl([{ t: 'LineBreak' }], marks, ws, raw); break; } { const tag = /^<(\/?)(u|sub|sup|s|del|strike)>$/.exec(i.c[1]); if (tag) { const name = { u: 'underline', sub: 'subscript', sup: 'superscript', s: 'strike', del: 'strike', strike: 'strike' }[tag[2]]; if (tag[1]) raw.splice(raw.indexOf(name), 1); else raw.push(name); } else inl([{ t: 'Str', c: i.c[1] }], marks, ws, raw); break; }
         default: inl([{ t: 'Str', c: `?${i.t}` }], marks, ws, raw);
       }
@@ -120,6 +121,10 @@ function pandocShape(ast) {
   for (const b of ast.blocks) walk(b, []);
   return lines;
 }
+// (underline, subscript and superscript are <u>, <sub> and <sup> in Markdown, which has no way of its own to write them:
+// pandoc leaves such HTML out of a .docx or .odt it makes, so those looks aren't expected back)
+// (and a line break in a heading or a table cell is <br> there, left out the same way)
+const noHtmlLooks = (n) => { if (['heading', 'tableCell', 'tableHeader'].includes(n.type)) { const drop = (x) => { if (x.content) { x.content = x.content.filter((c) => c.type !== 'hardBreak'); x.content.forEach(drop); } }; drop(n); } if (n.marks) { n.marks = n.marks.filter((m) => !['underline', 'subscript', 'superscript'].includes(m.type)); if (!n.marks.length) delete n.marks; } (n.content || []).forEach(noHtmlLooks); return n; };
 const read = (from, buf) => pandocShape(JSON.parse(pandoc(['-f', from, '-t', 'json'], buf)));
 
 test('60 random documents, read by pandoc from our Markdown, .docx and .odt: the same', { skip: !hasPandoc && 'pandoc isn’t installed here' }, async () => {
@@ -137,10 +142,6 @@ test('60 random documents, read by pandoc from our Markdown, .docx and .odt: the
 });
 
 test('and 60 written by pandoc as .docx and .odt from our Markdown, opened in Docs: the same', { skip: !hasPandoc && 'pandoc isn’t installed here' }, async () => {
-  // (underline, subscript and superscript are <u>, <sub> and <sup> in Markdown, which has no way of its own to write them:
-  // pandoc leaves such HTML out of a .docx or .odt it makes, so those looks aren't expected back)
-  // (and a line break in a heading or a table cell is <br> there, left out the same way)
-  const noHtmlLooks = (n) => { if (['heading', 'tableCell', 'tableHeader'].includes(n.type)) { const drop = (x) => { if (x.content) { x.content = x.content.filter((c) => c.type !== 'hardBreak'); x.content.forEach(drop); } }; drop(n); } if (n.marks) { n.marks = n.marks.filter((m) => !['underline', 'subscript', 'superscript'].includes(m.type)); if (!n.marks.length) delete n.marks; } (n.content || []).forEach(noHtmlLooks); return n; };
   for (const [i, doc] of randomDocs(60, 2).entries()) {
     const want = ourShape(noHtmlLooks(JSON.parse(JSON.stringify(doc))));
     const md = markdownFromDoc(doc);
@@ -163,5 +164,34 @@ test('and 60 as Markdown written by pandoc (its own way of writing it, GitHub\'s
       const unclear = new Set(theirs.map((l, k) => (/\{\?\}/.test(l) ? k : -1)).filter((k) => k >= 0));
       assert.deepEqual(ours.filter((l, k) => !unclear.has(k)), theirs.filter((l, k) => !unclear.has(k)), `document ${i}, pandoc's ${to}:\n${md}`);
     }
+  }
+});
+
+test('and 60 as RTF: ours read by pandoc, and pandoc’s (from our Markdown) opened in Docs', { skip: !hasPandoc && 'pandoc isn’t installed here' }, async () => {
+  for (const [i, doc] of randomDocs(60, 4).entries()) {
+    // (pandoc reads no emoji from RTF, its own neither: the halves it can't put together are the test's only emoji)
+    // (and a link's underline, how a link looks in RTF, isn't a look of its own)
+    const linkLook = (l) => l.replace(/\{([^}]*link:[^}]*)\}/g, (m, k) => `{${k.split(',').filter((x) => x !== 'underline').join(',')}}`);
+    // (in RTF a heading is bold throughout, so a bold word in one is the same as the rest: anyone reads it so, Docs too)
+    // (pandoc reads a heading in one look throughout, italic say, as plain, its own too: such a look isn't compared)
+    const wholeHeading = (l) => { const m = /^([•#>T]*h\d: )(.*)$/.exec(l); if (!m || !m[2]) return l; const ws = m[2].split(' '); const looks = ws.map((w) => (/\{([^}]*)\}$/.exec(w)?.[1] || '').split(',').filter(Boolean)); const common = looks[0].filter((k) => looks.every((x) => x.includes(k))); return m[1] + ws.map((w, k) => w.replace(/\{[^}]*\}$/, `{${looks[k].filter((x) => !common.includes(x)).join(',')}}`)).join(' '); };
+    // (and a table's heading cells, bold to see)
+    const headBold = (l) => (/^[•#>T]*h\d|^[•#>]*T/.test(l) ? l.replace(/\{([^}]*)\}/g, (m, k) => `{${k.split(',').filter((x) => x !== 'bold').join(',')}}`) : l);
+    // (pandoc reads no quote from RTF, its own neither, and takes a paragraph all in code for a code block)
+    const pandocRtf = (l) => { const q = l.replace(/^([•#T]*)>+/, '$1').replace(/^([•#T]*)>+/, '$1'); const m = /^()p: (.*)$/.exec(q); return m && m[2] && m[2].split(' ').every((w) => /\{code\}$/.test(w)) ? `${m[1]}code: ${m[2].split(' ').map((w) => w.replace(/\{code\}$/, '')).join(' ')}` : q; };
+    // (pandoc loses a table with a footnote in a cell, Word's own way of writing one included: none in cells here)
+    const noCellNotes = (n) => ({ ...n, ...(n.content && { content: n.content.filter((c) => !(c.type === 'footnote' && n.inCell)).map((c) => noCellNotes({ ...c, inCell: n.inCell || /^table/.test(c.type) })) }) });
+    const clean = (n) => { delete n.inCell; (n.content || []).forEach(clean); return n; };
+    const forPandoc = clean(noCellNotes(doc));
+    // (and pandoc puts a list right before a table into the table's first cell: such documents aren't read by it here)
+    // (nor are two tables one after the other kept apart by it, its own neither)
+    // (and a footnote after a table loses it the table, its own file too: documents with both aren't read by it here)
+    const has = (t) => JSON.stringify(forPandoc).includes(`"type":"${t}"`);
+    const listThenTable = forPandoc.content.some((b, k) => (/List$/.test(b.type) || b.type === 'table') && forPandoc.content[k + 1]?.type === 'table') || (has('table') && has('footnote'));
+    if (!listThenTable) assert.deepEqual(read('rtf', Buffer.from(rtfFromDoc(forPandoc))).map((l) => wholeHeading(headBold(linkLook(l.replace(/\uFFFD\uFFFD/g, '😀'))).replace(/^([•#T]*)>+/, '$1'))), ourShape(forPandoc).map((l) => wholeHeading(headBold(linkLook(pandocRtf(l))))), `document ${i}, our .rtf`);
+    const md = markdownFromDoc(doc);
+    // (pandoc's RTF quote is an indented paragraph, as any indented paragraph is: not read as a quote)
+    const noQuote = (l) => l.replace(/^([•#T]*)>+/, '$1');
+    assert.deepEqual(ourShape(await docFromRtf(pandoc(['-f', 'gfm', '-t', 'rtf', '-s'], md))).map(headBold).map(noQuote), ourShape(noHtmlLooks(JSON.parse(JSON.stringify(doc)))).map(headBold).map(noQuote).map(pandocRtf), `document ${i}, pandoc's .rtf of:\n${md}`);
   }
 });

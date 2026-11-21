@@ -133,6 +133,19 @@ await step('Word and OpenDocument files made by pandoc (from Markdown) open with
     if (JSON.stringify(pres) !== JSON.stringify(['npm install\nnpm test'])) throw new Error(`${ext}: code block ${JSON.stringify(pres)}`); // (a block a line from .odt; paragraphs of code from .docx)
   }
 });
+await step('a Rich Text file made by pandoc opens with its nested list, footnote and code block', async () => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('pandoc', ['--version']).status !== 0) { console.log('(no pandoc here: skipped)'); return; }
+  const buf = spawnSync('pandoc', ['-f', 'gfm', '-t', 'rtf', '-s'], { input: '- Fruit\n  - Apples\n\nSee the note[^1].\n\n```\nnpm test\n```\n\n[^1]: Bought on Monday.\n' }).stdout;
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'From pandoc rtf.rtf', mimeType: 'application/rtf', buffer: buf });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === 'From pandoc rtf'));
+  await page.goto(`${B}/docs/${f.id}`);
+  const ed = page.locator('.ProseMirror').first();
+  await ed.locator('ul ul li', { hasText: 'Apples' }).waitFor(); // (was "– Apples" in a paragraph)
+  if ((await ed.locator('sup[data-footnote]').getAttribute('title')) !== 'Bought on Monday.') throw new Error('the footnote'); // (was left out)
+  if ((await ed.locator('pre').textContent()) !== 'npm test') throw new Error('the code block'); // (was a paragraph of code)
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';

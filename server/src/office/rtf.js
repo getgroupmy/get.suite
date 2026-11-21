@@ -15,21 +15,26 @@ const esc = (s) => [...String(s)].map((ch) => {
   if (ch === '\n') return '\\line ';
   if (ch === '\t') return '\\tab ';
   if (c < 128) return ch;
-  if (c < 0x10000) return `\\u${c > 32767 ? c - 65536 : c}?`;
+  if (c < 0x10000) return `\\u${c > 32767 ? c - 65536 : c}\\'3f`; // (the stand-in ? written \'3f, as Word and LibreOffice do: a plain ? right after reads as the end of \u… to some, pandoc's included, which then skip the next letter)
   const hi = 0xd800 + ((c - 0x10000) >> 10), lo = 0xdc00 + ((c - 0x10000) & 0x3ff);
-  return `\\u${hi - 65536}?\\u${lo - 65536}?`;
+  return `\\u${hi - 65536}\\'3f\\u${lo - 65536}\\'3f`;
 }).join('');
 const RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/;
 const SIZES = { 1: 40, 2: 32, 3: 28, 4: 26, 5: 24, 6: 24 }; // half-points
 const ALIGN = { center: '\\qc', right: '\\qr', justify: '\\qj' };
 
+const FOOTNOTE = Symbol('footnote');
 export function rtfFromDoc(doc) {
   doc = flattenTabs(doc);
+  const lists = []; // the lists written, for the list table: { kind, start }
+  let inCell = false; // (writing a table cell's words)
   const inline = (list = []) => list.map((n) => {
     if (n.type === 'hardBreak') return '\\line ';
     const t = n.type === 'text' ? n.text || '' : n.type === 'mention' ? `@${n.attrs?.name || ''}` : n.type === 'datechip' ? dateText(n.attrs?.date) : n.type === 'filechip' ? n.attrs?.name || ''
-      : n.type === 'dropchip' ? chipText(n.attrs) : n.type === 'math' ? n.attrs?.latex || '' : n.type === 'citation' ? inText(n.attrs) : n.type === 'footnote' ? ` [${n.attrs?.note || ''}]` : n.type === 'image' ? (n.attrs?.alt ? `[${n.attrs.alt}]` : '') : null;
+      : n.type === 'dropchip' ? chipText(n.attrs) : n.type === 'math' ? n.attrs?.latex || '' : n.type === 'citation' ? inText(n.attrs) : n.type === 'footnote' ? FOOTNOTE : n.type === 'image' ? (n.attrs?.alt ? `[${n.attrs.alt}]` : '') : null;
     if (t === null) return inline(n.content);
+    // a footnote: Word's own, its number where it's marked and its words in a \footnote group (pandoc, LibreOffice and Word read it)
+    if (t === FOOTNOTE) return `{\\super\\chftn}{\\footnote\\pard\\plain${inCell ? '\\intbl' : ''}{\\super\\chftn} ${esc(String(n.attrs?.note || ''))}}`; // (in a table cell, its paragraph says so: one that doesn't ends the table to pandoc)
     const marks = n.marks || [];
     let on = marks.map((m) => ({ bold: '\\b', italic: '\\i', underline: '\\ul', strike: '\\strike', superscript: '\\super', subscript: '\\sub', code: '\\f1' }[m.type])).filter(Boolean).join('');
     // right-to-left text (Hebrew, Arabic) takes its own bold, italic and font (\ab, \ai, \af), as Word and LibreOffice read them
@@ -40,16 +45,23 @@ export function rtfFromDoc(doc) {
     return run;
   }).join('');
   const para = (content, pre = '', rest = '') => `{\\pard\\plain\\sa120${pre} ${inline(content)}${rest}\\par}\n`;
-  const blocks = (list = [], depth = 0) => list.map((n) => {
+  // (two tables one after the other: an empty paragraph between, as Word has it, or readers make them one; it isn't read back)
+  const blocks = (list = [], depth = 0) => list.map((n, k) => block(n, depth) + (n.type === 'table' && list[k + 1]?.type === 'table' ? '{\\pard\\plain\\par}\n' : '')).join('');
+  const block = (n, depth) => {
     const a = ALIGN[n.attrs?.textAlign] || '';
     if (n.type === 'paragraph') return para(n.content, a);
     if (n.type === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); return `{\\pard\\plain\\s${lv}\\outlinelevel${lv - 1}\\sb240\\sa120\\keepn${a}\\b\\fs${SIZES[lv]} ${inline(n.content)}\\par}\n`; }
     if (n.type === 'bulletList' || n.type === 'orderedList' || n.type === 'taskList') {
+      // A list as Word writes one: in the list table (its kind at every level), each item a paragraph of it at its level, with
+      // its number or bullet in \listtext; a checklist's items a list (with no bullet to see) whose words start with the box.
+      const start = n.attrs?.start || 1;
+      const ls = lists.push({ kind: n.type, start }) ;
       return (n.content || []).map((li, k) => {
-        const mark = n.type === 'bulletList' ? '\\u8226?' : n.type === 'taskList' ? (li.attrs?.checked ? '\\u9745?' : '\\u9744?') : `${(n.attrs?.start || 1) + k}.`;
+        const label = n.type === 'bulletList' ? "\\u8226\\'3f" : n.type === 'taskList' ? '' : `${start + k}.`;
+        const box = n.type === 'taskList' ? `${li.attrs?.checked ? "\\u9746\\'3f" : "\\u9744\\'3f"} ` : '';
         const [first, ...more] = li.content || [];
         const ind = 360 * (depth + 1);
-        return `{\\pard\\plain\\sa60\\fi-360\\li${ind} ${mark}\\tab ${inline(first?.content)}\\par}\n${blocks(more, depth + 1)}`;
+        return `{\\pard\\plain\\sa60\\ls${ls}\\ilvl${depth}\\fi-360\\li${ind}{\\listtext ${label}\\tab}${box}${inline(first?.content)}\\par}\n${blocks(more, depth + 1)}`;
       }).join('');
     }
     if (n.type === 'blockquote') return (n.content || []).map((c) => (c.type === 'paragraph' ? para(c.content, `\\s11\\li720${a}`, '') : blocks([c], depth))).join(''); // (style Quote: it comes back as a quote)
@@ -61,18 +73,24 @@ export function rtfFromDoc(doc) {
         const cells = r.content || [];
         const w = Math.floor(9000 / Math.max(1, cells.length));
         const head = cells.some((c) => c.type === 'tableHeader') ? '\\trhdr' : '';
-        return `{\\trowd\\trgaph108${head}${cells.map((_, i) => `\\clbrdrt\\brdrs\\clbrdrl\\brdrs\\clbrdrb\\brdrs\\clbrdrr\\brdrs\\cellx${w * (i + 1)}`).join('')}\n${cells.map((c) => `\\pard\\intbl ${c.type === 'tableHeader' ? '\\b ' : ''}${(c.content || []).map((p) => inline(p.content)).join('\\line ')}${c.type === 'tableHeader' ? '\\b0' : ''}\\cell`).join(' ')}\\row}\n`;
+        return `{\\trowd\\trgaph108${head}${cells.map((_, i) => `\\clbrdrt\\brdrs\\clbrdrl\\brdrs\\clbrdrb\\brdrs\\clbrdrr\\brdrs\\cellx${w * (i + 1)}`).join('')}\n${cells.map((c) => `\\pard\\intbl ${c.type === 'tableHeader' ? '\\b ' : ''}${(inCell = true, (c.content || []).map((p) => inline(p.content)).join('\\line '))}${(inCell = false, '')}${c.type === 'tableHeader' ? '\\b0' : ''}\\cell`).join(' ')}\\row}\n`;
       }).join('') + '\\pard\n';
     }
     if (n.type === 'pageBreak') return '{\\pard\\plain\\page\\par}\n';
     return n.content ? blocks(n.content, depth) : '';
-  }).join('');
-  return `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1{\\fonttbl{\\f0\\froman Times New Roman;}{\\f1\\fmodern Courier New;}}{\\colortbl;\\red17\\green85\\blue204;}{\\stylesheet{\\s0 Normal;}{\\s1\\b\\fs40 heading 1;}{\\s2\\b\\fs32 heading 2;}{\\s3\\b\\fs28 heading 3;}{\\s10\\f1 Code;}{\\s11\\li720 Quote;}}\n\\fs24\n${blocks(doc?.content || [])}}`;
+  };
+  const body = blocks(doc?.content || []);
+  // (the list table: each list's kind and look at nine levels, as Word has it; \lsN in the text is the Nth)
+  const level = (kind, d, start) => (kind === 'orderedList'
+    ? `{\\listlevel\\levelnfc0\\levelstartat${d ? 1 : start}{\\leveltext\\'02\\'0${d}.;}{\\levelnumbers\\'01;}\\fi-360\\li${360 * (d + 1)}}`
+    : `{\\listlevel\\levelnfc23\\levelstartat1{\\leveltext${kind === 'taskList' ? "\\'00" : "\\'01\\u8226\\'3f"};}{\\levelnumbers;}\\fi-360\\li${360 * (d + 1)}}`);
+  const listTable = lists.length ? `{\\*\\listtable${lists.map((l, k) => `{\\list\\listtemplateid${k + 1}${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((d) => level(l.kind, d, l.start)).join('')}\\listid${k + 1}}`).join('')}}\n{\\*\\listoverridetable${lists.map((l, k) => `{\\listoverride\\listid${k + 1}\\listoverridecount0\\ls${k + 1}}`).join('')}}\n` : '';
+  return `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1{\\fonttbl{\\f0\\froman Times New Roman;}{\\f1\\fmodern Courier New;}}{\\colortbl;\\red17\\green85\\blue204;}{\\stylesheet{\\s0 Normal;}{\\s1\\b\\fs40 heading 1;}{\\s2\\b\\fs32 heading 2;}{\\s3\\b\\fs28 heading 3;}{\\s10\\f1 Code;}{\\s11\\li720 Quote;}}\n${listTable}\\fs24\n${body}}`;
 }
 
 // ---- in
 const CP1252 = { 0x80: 0x20ac, 0x82: 0x201a, 0x83: 0x192, 0x84: 0x201e, 0x85: 0x2026, 0x86: 0x2020, 0x87: 0x2021, 0x88: 0x2c6, 0x89: 0x2030, 0x8a: 0x160, 0x8b: 0x2039, 0x8c: 0x152, 0x8e: 0x17d, 0x91: 0x2018, 0x92: 0x2019, 0x93: 0x201c, 0x94: 0x201d, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014, 0x98: 0x2dc, 0x99: 0x2122, 0x9a: 0x161, 0x9b: 0x203a, 0x9c: 0x153, 0x9e: 0x17e, 0x9f: 0x178 };
-const SKIP = new Set(['fonttbl', 'colortbl', 'stylesheet', 'info', 'pict', 'object', 'header', 'footer', 'headerl', 'headerr', 'headerf', 'footerl', 'footerr', 'footerf', 'listtable', 'listoverridetable', 'rsidtbl', 'generator', 'xmlnstbl', 'themedata', 'colorschememapping', 'latentstyles', 'datastore', 'pgdsctbl', 'footnote', 'annotation', 'atnid', 'atnauthor', 'filetbl', 'revtbl', 'pntxtb', 'pntxta', 'nonshppict', 'bkmkstart', 'bkmkend', 'fldinst']);
+const SKIP = new Set(['fonttbl', 'colortbl', 'stylesheet', 'info', 'pict', 'object', 'header', 'footer', 'headerl', 'headerr', 'headerf', 'footerl', 'footerr', 'footerf', 'listtable', 'listoverridetable', 'rsidtbl', 'generator', 'xmlnstbl', 'themedata', 'colorschememapping', 'latentstyles', 'datastore', 'pgdsctbl', 'annotation', 'atnid', 'atnauthor', 'filetbl', 'revtbl', 'pntxtb', 'pntxta', 'nonshppict', 'bkmkstart', 'bkmkend', 'fldinst']);
 
 /** An RTF file's text as a document (TipTap JSON). */
 export function docFromRtf(buf) {
@@ -95,13 +113,15 @@ export function docFromRtf(buf) {
   let para = [], pState = freshP();
   let lists = []; // the lists open now, outermost first: { list, level }
   let table = null, row = [], cell = [];
-  const fresh = () => ({ listtext: false, b: false, i: false, ul: false, strike: false, sup: false, sub: false, skip: false, uc: 1, link: null, fldinst: false, field: null, f: 0, ab: false, ai: false, af: -1 });
+  const fresh = () => ({ footnote: false, listtext: false, b: false, i: false, ul: false, strike: false, sup: false, sub: false, skip: false, uc: 1, link: null, fldinst: false, field: null, f: 0, ab: false, ai: false, af: -1 });
   let st = fresh();
   const stack = [];
   let pendingSkip = 0; // characters to skip after \uN
   let fieldText = '';
+  let noteText = ''; // a footnote's words, while in its \footnote group
   const addText = (t) => {
     if (!t || st.skip) return;
+    if (st.footnote) { noteText += t; return; }
     if (st.fldinst) { fieldText += t; return; }
     if (st.listtext) { pState.mark = (pState.mark || '') + t; return; } // (a list item's number or bullet)
     // (right-to-left words: their own bold, italic and font, \ab \ai \af, as LibreOffice and Word write them)
@@ -131,21 +151,30 @@ export function docFromRtf(buf) {
     const nodes = para;
     para = [];
     if (pState.intbl) { cell.push(nodes); return; }
-    if (table) { content.push(table); table = null; }
+    if (table) { content.push(table); table = null; if (!nodes.some((x) => x.type !== 'text' || x.text.trim())) return; } // (the empty paragraph Word and pandoc put after a table: not one of the document's)
     const align = pState.align ? { textAlign: pState.align } : {};
     const text = nodes.map((n) => n.text || '').join('');
-    if (codeStyle.has(pState.style)) { lists = []; content.push({ type: 'codeBlock', ...(text && { content: [{ type: 'text', text }] }) }); return; }
+    // A code block: the Code style (as written here), or, in a file with no style for code (pandoc's, most of Word's),
+    // a paragraph all in a fixed-width font, as pandoc reads one; one paragraph a line joins the block before it.
+    const allCode = !codeStyle.size && pState.mono && text.trim() && pState.outline === null && !headingStyle.has(pState.style) && !pState.mark && !pState.ilvl && nodes.every((x) => x.type === 'text' && (!x.text.trim() || x.marks?.some((m) => m.type === 'code')));
+    if (codeStyle.has(pState.style) || allCode) {
+      lists = [];
+      const prev = content[content.length - 1];
+      if (allCode && prev?.type === 'codeBlock' && prev.fromRtf) { prev.content[0].text += `\n${text}`; return; }
+      content.push({ type: 'codeBlock', ...(allCode && { fromRtf: true }), ...(text && { content: [{ type: 'text', text }] }) });
+      return;
+    }
     // A checklist item: its box, a tab, its words (as written here; LibreOffice and Word keep them so).
-    const box = /^([☐☑☒])\t/.exec(text);
+    const box = /^([☐☑☒])[\t ]/.exec(text); // (a tab after the box, or a space, as pandoc writes and reads a checklist)
     if (box && nodes[0]?.type === 'text') {
       nodes[0] = { ...nodes[0], text: nodes[0].text.slice(box[0].length) };
       addItem({ type: 'taskItem', attrs: { checked: box[1] !== '☐' }, content: [{ type: 'paragraph', ...(nodes.some((x) => x.type !== 'text' || x.text) && { content: nodes.filter((x) => x.type !== 'text' || x.text) }) }] }, 'taskList');
       return;
     }
     const markText = pState.mark && pState.mark.replace(/\t/g, ' ').trim(); // (the list label Word and LibreOffice write)
-    const bullet = markText ? ['', markText] : /^([•●▪◦·-]|\d{1,3}[.)])(?:\t| +)/.exec(text); // (one tab after the mark, as written here: an item's own leading spaces stay)
+    const bullet = markText ? ['', markText] : /^([•●▪◦·–-]|\d{1,3}[.)])\t/.exec(text); // (a mark typed with a tab after it, as pandoc writes lists, and this did once: "1. " with a space is a paragraph's words)
     const level = pState.outline ?? (headingStyle.has(pState.style) ? headingStyle.get(pState.style) - 1 : null);
-    if (level !== null && level < 6 && text.trim()) (lists = [], content).push({ type: 'heading', attrs: { level: level + 1, ...align }, content: nodes.map((n) => ({ ...n, marks: (n.marks || []).filter((m) => m.type !== 'bold') })).map((n) => (n.marks?.length ? n : { type: n.type, text: n.text })) });
+    if (level !== null && level < 6 && text.trim()) (lists = [], content).push({ type: 'heading', attrs: { level: level + 1, ...align }, content: nodes.map((n) => ({ ...n, marks: (n.marks || []).filter((m) => m.type !== 'bold') })).map(({ marks, ...rest }) => (marks?.length ? { ...rest, marks } : rest)) }); // (all else kept: a footnote in a heading too)
     else if (bullet && (markText || nodes[0]?.type === 'text')) {
       if (!markText) nodes[0] = { ...nodes[0], text: nodes[0].text.slice(bullet[0].length) };
       const kind = /\d/.test(bullet[1]) ? 'orderedList' : 'bulletList';
@@ -166,6 +195,7 @@ export function docFromRtf(buf) {
       const was = st;
       st = stack.pop() || fresh();
       if (was.field && !st.field) st.link = null;
+      if (was.footnote && !st.footnote) { para.push({ type: 'footnote', attrs: { note: noteText.replace(/\s+/g, ' ').trim() } }); noteText = ''; } // (Word's footnote: where its number was)
       if (was.fldinst && !st.fldinst) { const m = /HYPERLINK\s+(?:\\l\s+)?"([^"]+)"/.exec(fieldText); st.field = m ? m[1] : st.field; fieldText = ''; }
       i++;
       continue;
@@ -192,7 +222,11 @@ export function docFromRtf(buf) {
     i += 1 + m[0].length;
     const word = m[1], arg = m[2] === undefined ? null : Number(m[2]);
     if (SKIP.has(word)) { st.skip = true; if (word === 'fldinst') { st.skip = false; st.fldinst = true; } continue; }
+    // (a footnote's own paragraphs: only its words; their indents and styles aren't the paragraph it's in)
+    if (st.footnote && !['u', 'uc', 'tab', 'emdash', 'endash', 'bullet', 'lquote', 'rquote', 'ldblquote', 'rdblquote'].includes(word)) { if (word === 'par' || word === 'line') noteText += ' '; continue; }
     switch (word) {
+      case 'footnote': st.footnote = true; st.skip = false; noteText = ''; break; // (also as {\*\footnote …}, as pandoc writes it)
+      case 'chftn': break; // (a footnote's number, made by the reader)
       case 'par': endPara(); break;
       case 'line': addText('\n'); break; // (a line break: kept as one in the text, made a break below)
       case 'tab': addText('\t'); break;
