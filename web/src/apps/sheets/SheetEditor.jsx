@@ -476,8 +476,8 @@ export default function SheetEditor() {
   const dragTab = useRef(null); // a tab being dragged to a new place (its sheet's place)
   const [dropAt, setDropAt] = useState(null);
   const newSheetId = () => (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
-  // (pictures over the cells to its right, or below, move with their cells)
-  const resized = (s, next) => ({ ...next, ...(s.pictures && { pictures: movePictures(s.pictures, s, { ...s, ...next }) }) });
+  // (pictures, charts and slicers over the cells to its right, or below, move with their cells)
+  const resized = (s, next) => ({ ...next, ...Object.fromEntries(['pictures', 'charts', 'slicers'].filter((k) => s[k]).map((k) => [k, movePictures(s[k], s, { ...s, ...next })])) });
   const setWidth = (c, w) => writeSheet((s) => resized(s, { colWidths: { ...(s.colWidths || {}), [colName(c)]: Math.round(Math.max(MIN_W, Math.min(MAX_W, w))) } }));
   /** Hide rows or columns a..b (or show them again). The selection steps off any it hides. */
   const hideSpan = (axis, a, b, show = false) => {
@@ -577,7 +577,7 @@ export default function SheetEditor() {
     if (readOnly) return;
     const cur = dataRef.current;
     // References to this sheet from the others move too.
-    commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }), ...(s.slicers && { slicers: adjustSlicers(s.slicers, change) }), ...(s.views && { views: adjustViews(s.views, change) }) } : s)) });
+    commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => { if (i !== active) return s; const a = applyStructure(s, change); return { ...a, ...(s.filter && { filter: adjustFilter(s.filter, change) }), ...(a.slicers && { slicers: adjustSlicers(a.slicers, change) }), ...(s.views && { views: adjustViews(s.views, change) }) }; }) }); // (slicers as applyStructure moved them, their ranges adjusted)
     // Comments move with their cell; a deleted cell's thread is marked as such.
     for (const t of threads) {
       if ((t.anchor?.sheet || 0) !== active || !t.anchor?.cell || t.anchor.gone) continue;

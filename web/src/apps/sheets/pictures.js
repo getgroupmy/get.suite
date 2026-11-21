@@ -1,4 +1,4 @@
-// Pictures over a sheet's cells move with their cells, as Excel's do: each is tied to the cell its top-left corner is
+// Pictures (and charts and slicers) over a sheet's cells move with their cells, as Excel's do: each is tied to the cell its top-left corner is
 // over and how far into it, so inserting, deleting or resizing rows and columns before it carries it along.
 import { colName } from './formula.js';
 import { DEFAULT_H } from './rowheights.js';
@@ -32,6 +32,7 @@ export function movePictures(pictures, before, after, move = {}) {
   if (!pictures || !Object.keys(pictures).length) return pictures;
   const out = {};
   for (const [id, p] of Object.entries(pictures)) {
+    if (!Number.isFinite(Number(p?.x)) || !Number.isFinite(Number(p?.y)) || p.x === null || p.y === null) { out[id] = p; continue; } // (nowhere in particular: left so)
     const a = anchorOf(p, before.colWidths, before.rowHeights);
     const col = move.col ? move.col(a.col) : a.col, row = move.row ? move.row(a.row) : a.row;
     const at = { col: col ?? move.colGone ?? a.col, row: row ?? move.rowGone ?? a.row, dx: col === null ? 0 : a.dx, dy: row === null ? 0 : a.dy };

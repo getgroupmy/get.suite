@@ -57,3 +57,13 @@ test('a sheet without pictures is left as it was', () => {
   const out = applyStructure({ name: 'S', cells: { A1: '1' } }, { axis: 'row', at: 0, count: 1 });
   assert.equal('pictures' in out, false);
 });
+
+test('charts and slicers move with their cells too; one with no place of its own is left as it is', () => {
+  const sheet = { name: 'S', cells: { A1: '1', A2: '2' }, colWidths: {}, charts: { c: { type: 'column', range: 'A1:A2', x: 46 + 200 + 5, y: 24 + 48, w: 480, h: 300 }, old: { type: 'line', range: 'A1:A2' } }, slicers: { s: { range: 'A1:A2', col: 'A', hidden: [], x: 46 + 300, y: 24 + 24 * 6 } } };
+  const out = applyStructure(sheet, { axis: 'row', at: 1, count: 3 });
+  assert.deepEqual([out.charts.c.x, out.charts.c.y, out.charts.c.range], [251, 24 + 24 * 5, 'A1:A5'], 'C3 → C6, as far in; its range grown');
+  assert.deepEqual([out.slicers.s.x, out.slicers.s.y], [346, 24 + 24 * 9]);
+  assert.deepEqual(out.charts.old, { type: 'line', range: 'A1:A5' });
+  const wider = applyStructure(sheet, { axis: 'col', at: 0, count: 1 });
+  assert.equal(wider.charts.c.x, 251 + 100, 'a column before: 100 pixels on');
+});

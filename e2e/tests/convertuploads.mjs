@@ -385,6 +385,26 @@ await step('pictures move with their cells: rows inserted above, a column before
   const pics = await until(async () => { const c = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0]; const p = Object.values(c.pictures || {}); return c.colWidths?.B >= 170 && p.find((q) => q.alt === 'Stamp')?.y === 24 + 24 * 13 + 6 ? p : null; }, 10000);
   if (!pics) throw new Error('not saved');
 });
+await step('charts and slicers move with their cells too: two rows inserted above them', async () => {
+  const content = { sheets: [{ name: 'Sales', cells: { A1: 'Month', B1: 'Sales', A2: 'Jan', B2: '10', A3: 'Feb', B3: '12' }, colWidths: {},
+    charts: { c1: { type: 'column', range: 'A1:B3', title: 'Sales by month', x: 46 + 200, y: 24 + 48, w: 360, h: 240 } },
+    slicers: { s1: { range: 'A1:B3', col: 'A', hidden: [], x: 46 + 400 + 8, y: 24 + 72 + 4 } } }] };
+  const f = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Moving chart', content })).body;
+  await page.goto(`${B}/sheets/${f.id}`);
+  const cell = (k) => page.locator(`.grid td[data-k="${k}"]`);
+  const chart = page.locator('.chart-card', { hasText: 'Sales by month' });
+  await chart.waitFor();
+  const over = async (loc, key, dx, dy) => { const [a, c] = [await loc.boundingBox(), await cell(key).boundingBox()]; return a && c && Math.abs(a.x - c.x - dx) <= 2 && Math.abs(a.y - c.y - dy) <= 2; };
+  const slicer = page.locator('.chart-layer > .slicer').first();
+  if (!(await over(chart, 'C3', 0, 0))) throw new Error('the chart not over C3 to begin with');
+  await cell('A1').click();
+  await page.keyboard.down('Shift'); await cell('A2').click(); await page.keyboard.up('Shift');
+  await cell('A1').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: /Insert 2 rows above/ }).click();
+  await until(async () => (await over(chart, 'C5', 0, 0)) && (await over(slicer, 'E6', 8, 4))).catch(async (e) => { console.log('DBG', JSON.stringify({ chart: await chart.boundingBox(), c5: await cell('C5').boundingBox(), slicer: await slicer.boundingBox(), e6: await cell('E6').boundingBox(), saved: (await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0] })); throw e; });
+  const saved = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0];
+  if (saved.charts.c1.range !== 'A3:B5' || saved.charts.c1.y !== 24 + 24 * 4) throw new Error(JSON.stringify(saved.charts));
+});
 await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
   if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');
