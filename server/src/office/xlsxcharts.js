@@ -146,26 +146,48 @@ const anchor = (chart, i) => {
   const w = Math.max(100, Number(chart.w) || 480) * EMU, h = Math.max(80, Number(chart.h) || 300) * EMU;
   return `<xdr:absoluteAnchor><xdr:pos x="${Math.round(x)}" y="${Math.round(y)}"/><xdr:ext cx="${Math.round(w)}" cy="${Math.round(h)}"/><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${i + 2}" name="${xml(chart.title || `Chart ${i + 1}`)}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId${i + 1}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:absoluteAnchor>`;
 };
+// A picture over the cells, anchored to the cell its corner is in (so Excel moves it with the cell) and sized in place.
+const markerAt = (px, sizeOf, max) => {
+  let i = 0, at = 0;
+  while (i < max && at + sizeOf(i) <= px) { at += sizeOf(i); i += 1; }
+  return { i, off: Math.round((px - at) * EMU) };
+};
+const pictureAnchor = (p, n, rid, colWidths, rowHeights) => {
+  const x = Math.max(0, (Number(p.x) || 0) - GRID_LEFT), y = Math.max(0, (Number(p.y) || 0) - GRID_TOP);
+  const w = Math.max(8, Number(p.w) || 200), h = Math.max(8, Number(p.h) || 150);
+  const col = markerAt(x, (c) => colWidths[colName(c)] ?? 100, 16383), row = markerAt(y, (r) => rowHeights[String(r + 1)] ?? 24, 1048575);
+  const name = xml(String(p.alt || `Picture ${n + 1}`).slice(0, 200));
+  return `<xdr:oneCellAnchor><xdr:from><xdr:col>${col.i}</xdr:col><xdr:colOff>${col.off}</xdr:colOff><xdr:row>${row.i}</xdr:row><xdr:rowOff>${row.off}</xdr:rowOff></xdr:from><xdr:ext cx="${Math.round(w * EMU)}" cy="${Math.round(h * EMU)}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${n + 2}" name="${name}" descr="${name}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${Math.round(w * EMU)}" cy="${Math.round(h * EMU)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`;
+};
 const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
 /**
  * The workbook with each sheet's charts added. `sheets` are the spreadsheet's sheets in workbook
  * order, with the names the workbook gave them (`xlName`). Sheets that already have drawings are left alone.
  */
-export async function withCharts(buffer, sheets) {
-  if (!(sheets || []).some((s) => s && Object.keys(s.charts || {}).length)) return buffer;
+export async function withCharts(buffer, sheets, { pictureData } = {}) {
+  const hasPictures = (s) => pictureData && Object.keys(s?.pictures || {}).length;
+  if (!(sheets || []).some((s) => s && (Object.keys(s.charts || {}).length || hasPictures(s)))) return buffer;
   const zip = await JSZip.loadAsync(buffer);
   let types = await zip.file('[Content_Types].xml').async('string');
-  let chartNo = 0, drawingNo = Object.keys(zip.files).filter((f) => /^xl\/drawings\/drawing\d+\.xml$/.test(f)).length;
+  let chartNo = 0, imageNo = 0, drawingNo = Object.keys(zip.files).filter((f) => /^xl\/drawings\/drawing\d+\.xml$/.test(f)).length;
+  const exts = new Set();
   for (let i = 0; i < sheets.length; i++) {
     const s = sheets[i];
     const charts = Object.values(s?.charts || {});
     const sheetPath = `xl/worksheets/sheet${i + 1}.xml`;
-    if (!charts.length || !zip.file(sheetPath)) continue;
+    if ((!charts.length && !hasPictures(s)) || !zip.file(sheetPath)) continue;
     let sheetXml = await zip.file(sheetPath).async('string');
     if (/<drawing\b/.test(sheetXml)) continue;
     const parts = charts.map((c) => chartXml(c, s.xlName || s.name, s.cells || {})).map((x, k) => (x ? { x, chart: charts[k] } : null)).filter(Boolean);
-    if (!parts.length) continue;
+    const pictures = [];
+    for (const p of hasPictures(s) ? Object.values(s.pictures).slice(0, 50) : []) {
+      let got = null;
+      try { got = p?.file ? await pictureData(p.file) : null; } catch { got = null; }
+      const ext = { 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/gif': 'gif', 'image/bmp': 'bmp', 'image/webp': 'webp' }[got?.mime];
+      if (ext) pictures.push({ p, data: got.data, ext });
+    }
+    if (!parts.length && !pictures.length) continue;
     drawingNo += 1;
     const anchors = [], drawRels = [];
     parts.forEach((p, k) => {
@@ -174,6 +196,14 @@ export async function withCharts(buffer, sheets) {
       types = types.replace('</Types>', `<Override PartName="/xl/charts/chart${chartNo}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/></Types>`);
       anchors.push(anchor(p.chart, k));
       drawRels.push(`<Relationship Id="rId${k + 1}" Type="${REL}/chart" Target="../charts/chart${chartNo}.xml"/>`);
+    });
+    pictures.forEach((pic, k) => {
+      imageNo += 1;
+      const name = `image${imageNo}.${pic.ext}`, rid = `rIdPic${k + 1}`;
+      zip.file(`xl/media/${name}`, pic.data);
+      exts.add(pic.ext);
+      anchors.push(pictureAnchor(pic.p, parts.length + k, rid, s.colWidths || {}, s.rowHeights || {}));
+      drawRels.push(`<Relationship Id="${rid}" Type="${REL}/image" Target="../media/${name}"/>`);
     });
     zip.file(`xl/drawings/drawing${drawingNo}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="${REL}">${anchors.join('')}</xdr:wsDr>`);
@@ -195,6 +225,9 @@ export async function withCharts(buffer, sheets) {
     const before = /<(legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b/.exec(sheetXml);
     sheetXml = before ? sheetXml.slice(0, before.index) + tag + sheetXml.slice(before.index) : sheetXml.replace('</worksheet>', `${tag}</worksheet>`);
     zip.file(sheetPath, sheetXml);
+  }
+  for (const ext of exts) {
+    if (!new RegExp(`<Default Extension="${ext}"`, 'i').test(types)) types = types.replace('</Types>', `<Default Extension="${ext}" ContentType="image/${ext}"/></Types>`);
   }
   zip.file('[Content_Types].xml', types);
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
@@ -271,13 +304,56 @@ function anchorsOf(drawingXml) {
 }
 
 /** An anchor in pixels on Sheets' grid (where charts are placed), from the sheet's column widths and row heights. */
-export function placeOf(at, colWidths = {}, rowHeights = {}, defaults = { w: 100, h: 24 }) {
+export function placeOf(at, colWidths = {}, rowHeights = {}, defaults = { w: 100, h: 24 }, min = { w: 200, h: 150 }) {
   const colX = (col) => { let x = 0; for (let c = 0; c < col; c++) x += colWidths[colName(c)] ?? defaults.w; return x; };
   const rowY = (row) => { let y = 0; for (let r = 0; r < row; r++) y += rowHeights[String(r + 1)] ?? defaults.h; return y; };
   const pt = (mk) => ({ x: colX(mk.col) + mk.colOff / EMU, y: rowY(mk.row) + mk.rowOff / EMU });
   const a = at.pos ? { x: at.pos.x / EMU, y: at.pos.y / EMU } : at.from ? pt(at.from) : { x: 0, y: 0 };
   const b = at.to ? pt(at.to) : at.ext ? { x: a.x + at.ext.cx / EMU, y: a.y + at.ext.cy / EMU } : { x: a.x + 480, y: a.y + 300 };
-  return { x: Math.round(a.x + GRID_LEFT), y: Math.round(a.y + GRID_TOP), w: Math.max(200, Math.round(b.x - a.x)), h: Math.max(150, Math.round(b.y - a.y)) };
+  return { x: Math.round(a.x + GRID_LEFT), y: Math.round(a.y + GRID_TOP), w: Math.max(min.w, Math.round(b.x - a.x)), h: Math.max(min.h, Math.round(b.y - a.y)) };
+}
+
+const PICTURE_MIME = { png: 'image/png', jpeg: 'image/jpeg', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
+/**
+ * The pictures floating over each sheet of an Excel file: Map(sheet name → [{ data, mime, name, alt, at }]), `at` as for
+ * charts. Pictures of a kind a browser can't show (.emf, .wmf, .tiff) are left out.
+ */
+export async function picturesOfXlsx(buffer) {
+  const out = new Map();
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const read = async (f) => (zip.file(f) ? zip.file(f).async('string') : '');
+    const rels = async (f) => {
+      const dir = f.slice(0, f.lastIndexOf('/'));
+      const xmlText = await read(`${dir}/_rels/${f.slice(f.lastIndexOf('/') + 1)}.rels`);
+      return [...xmlText.matchAll(/<Relationship\b[^>]*>/g)].map((m) => ({ id: attrOf(m[0], 'Id'), type: attrOf(m[0], 'Type') || '', target: attrOf(m[0], 'Target') || '' }))
+        .map((r) => ({ ...r, path: r.target.startsWith('/') ? r.target.slice(1) : posix(dir, r.target) }));
+    };
+    const book = await rels('xl/workbook.xml');
+    for (const m of (await read('xl/workbook.xml')).matchAll(/<sheet\b[^>]*>/g)) {
+      const name = attrOf(m[0], 'name') || '', rid = attrOf(m[0], 'r:id');
+      const sheetPath = book.find((r) => r.id === rid)?.path;
+      const drawingPath = sheetPath && (await rels(sheetPath)).find((r) => /\/drawing$/.test(r.type))?.path;
+      if (!drawingPath) continue;
+      const drawRels = await rels(drawingPath);
+      const drawing = await read(drawingPath);
+      const pics = [];
+      for (const a of drawing.matchAll(/<xdr:(twoCellAnchor|oneCellAnchor|absoluteAnchor)\b[^>]*>([\s\S]*?)<\/xdr:\1>/g)) {
+        const pic = /<xdr:pic>([\s\S]*?)<\/xdr:pic>/.exec(a[2])?.[1];
+        const embed = pic && /<a:blip\b[^>]*r:embed="([^"]+)"/.exec(pic)?.[1];
+        const media = embed && drawRels.find((r) => r.id === embed)?.path;
+        const ext = media && /\.([a-z]+)$/i.exec(media)?.[1].toLowerCase();
+        if (!media || !PICTURE_MIME[ext] || !zip.file(media)) continue;
+        const nv = /<xdr:cNvPr\b[^>]*>/.exec(pic)?.[0] || '';
+        const at = anchorsOf(a[0].replace(/<xdr:pic>[\s\S]*?<\/xdr:pic>/, '<c:chart r:id="pic"/>'))[0]?.at;
+        if (!at) continue;
+        pics.push({ data: await zip.file(media).async('nodebuffer'), mime: PICTURE_MIME[ext], name: media.slice(media.lastIndexOf('/') + 1), alt: unxml(attrOf(nv, 'descr') || attrOf(nv, 'name') || '').slice(0, 300), at });
+        if (pics.length >= 50) break;
+      }
+      if (pics.length) out.set(name, pics);
+    }
+  } catch { /* not a zip we can read: no pictures */ }
+  return out;
 }
 
 /** The charts on each sheet of an Excel file: Map(sheet name → [{ type, title, range, at }]). */

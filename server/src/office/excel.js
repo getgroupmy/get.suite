@@ -6,7 +6,7 @@ import { formulaResults } from './sheetvalues.js';
 import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
 import JSZip from 'jszip';
 import crypto from 'node:crypto';
-import { withCharts, chartsOfXlsx, placeOf } from './xlsxcharts.js';
+import { withCharts, chartsOfXlsx, picturesOfXlsx, placeOf } from './xlsxcharts.js';
 import path from 'node:path';
 import { meetsCondition, cleanCondition } from './filtercond.js';
 
@@ -311,7 +311,7 @@ async function withoutOffLooks(buffer) {
   }
   return changed ? zip.generateAsync({ type: 'nodebuffer' }) : buffer;
 }
-export async function sheetFromExcel(buffer) {
+export async function sheetFromExcel(buffer, { savePicture } = {}) {
   // Which program saved it (docProps/app.xml): LibreOffice writes some defaults out that Excel leaves unsaid
   const appXml = await (await JSZip.loadAsync(buffer).catch(() => null))?.file('docProps/app.xml')?.async('string').catch(() => '');
   const fromLibreOffice = /<Application>\s*LibreOffice/i.test(appXml || '');
@@ -479,6 +479,20 @@ export async function sheetFromExcel(buffer) {
     const a = `${m[3]}${m[4]}`.toUpperCase(), b = m[5] ? `${m[5]}${m[6]}`.toUpperCase() : a;
     (s.names ||= {})[d.name] = a === b ? a : `${a}:${b}`;
   }
+  // Pictures over the cells: saved to Drive (when there's somewhere to save them) and placed where they were.
+  if (savePicture) {
+    const pictureSheets = await picturesOfXlsx(buffer);
+    for (const s of sheets) {
+      const list = pictureSheets.get(s.name) || [];
+      const pictures = {};
+      for (const [i, p] of list.entries()) {
+        let file = null;
+        try { file = await savePicture(p.name, p.data, p.mime); } catch { file = null; } // (no room left: the rest still opens)
+        if (file) pictures[`p${i + 1}`] = { file, ...(p.alt && { alt: p.alt }), ...placeOf(p.at, s.colWidths, s.rowHeights, undefined, { w: 8, h: 8 }) };
+      }
+      if (Object.keys(pictures).length) s.pictures = pictures;
+    }
+  }
   // Charts on the sheets: kept as Sheets charts of their cells, placed where they were.
   const chartSheets = await chartsOfXlsx(buffer);
   for (const s of sheets) {
@@ -520,7 +534,7 @@ export function dateFormulaFormat(raw, cells = {}) {
  * each goes on its cell as an Excel (Microsoft 365) comment thread, with the old-style note Excel
  * writes beside it for older versions and other programs.
  */
-export async function excelFromSheet(data, { comments = [] } = {}) {
+export async function excelFromSheet(data, { comments = [], pictureData } = {}) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Workspace';
   const tables = tablesOf(data.sheets); // structured references (Sales[Amount]) go to Excel as plain ranges
@@ -686,7 +700,7 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
   });
   // Charts: added to the finished file (the library has none), with each sheet's name as written.
   const named = (data.sheets || []).map((s, i) => ({ ...s, xlName: wb.worksheets[i]?.name || s.name }));
-  return withThreads(await withCharts(await withTables(await withFilterNames(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named), named), named), (data.sheets || []).map((s, i) => threadsFor(comments, i, s)));
+  return withThreads(await withCharts(await withTables(await withFilterNames(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named), named), named, { pictureData }), (data.sheets || []).map((s, i) => threadsFor(comments, i, s)));
 }
 
 // ---- named functions (⋮ → Named functions): Excel keeps them as defined names holding a LAMBDA,

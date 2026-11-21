@@ -455,6 +455,7 @@ export function picturesIn(kind, content) {
       if (typeof v !== 'string' || !/^=\s*IMAGE\s*\(/i.test(v)) continue;
       for (const m of v.matchAll(/"drive:([A-Za-z0-9_-]{4,64})"/g)) ids.add(m[1]);
     }
+    for (const sh of content.sheets || []) for (const p of Object.values(sh.pictures || {})) if (typeof p?.file === 'string' && p.file) ids.add(p.file); // pictures over the cells
   }
   return ids;
 }
@@ -2161,7 +2162,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       else if (type === 'rtf') content = docFromRtf(buf);
       else if (type === 'html' || type === 'htm') content = await docFromWebPage(buf, { savePicture });
       else if (type === 'csv' || type === 'tsv') content = sheetFromDelimited(buf, name, type === 'tsv' ? '\t' : ',');
-      else if (type === 'xlsx') { content = await sheetFromExcel(buf); sheetThreads = commentsOfBook(content); }
+      else if (type === 'xlsx') { content = await sheetFromExcel(buf, { savePicture }); sheetThreads = commentsOfBook(content); }
       else if (type === 'ods') { content = await sheetFromOds(buf); sheetThreads = commentsOfOds(content); }
       else if (type === 'odp') { content = await deckFromOdp(buf, { savePicture }); slideComments = commentsOfOdpDeck(content); }
       else { content = await deckFromPowerPoint(buf, { savePicture }); slideComments = commentsOfDeck(content); }
@@ -2278,7 +2279,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'ods') return odsFromSheet(content, { comments: cellCommentsOf(f.id) });
     if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name, comments: slideCommentsOf(f.id) });
     if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
-    if (type === 'xlsx') return excelFromSheet(content, { comments: cellCommentsOf(f.id) });
+    if (type === 'xlsx') return excelFromSheet(content, { comments: cellCommentsOf(f.id), pictureData });
     return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
   };
   // Which types each kind can be had as (the first is the usual one).

@@ -192,6 +192,49 @@ buf = io.BytesIO(); wb.save(buf); sys.stdout.buffer.write(buf.getvalue())
   if (JSON.stringify(charts.map((c) => [c.type, c.range, c.title])) !== JSON.stringify([['column', 'C1:D3', 'Sales by month']])) throw new Error(`the chart: ${JSON.stringify(charts)}`); // (a file with a chart didn't open)
   if ((content.sheets || content)[0].notes?.A4 !== 'Checked by Zoë') throw new Error(`the note: ${JSON.stringify((content.sheets || content)[0].notes)}`); // (a file with a note didn't open at all)
 });
+await step('an Excel file with a picture over its cells (openpyxl): it shows, moves by dragging, and the .xlsx download has it where it was put, beside the chart; Delete takes it away', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('python3', ['-I', '-c', `
+import sys, io, openpyxl
+from openpyxl.drawing.image import Image
+from openpyxl.chart import BarChart, Reference
+from PIL import Image as P
+wb = openpyxl.Workbook(); ws = wb.active
+ws['A1'] = 'Logo'; ws['A2'] = 1; ws['A3'] = 2
+b = io.BytesIO(); P.new('RGB', (120, 60), (220, 30, 30)).save(b, 'PNG'); b.seek(0)
+ws.add_image(Image(b), 'C3')
+ch = BarChart(); ch.add_data(Reference(ws, min_col=1, min_row=2, max_row=3)); ws.add_chart(ch, 'H2')
+buf = io.BytesIO(); wb.save(buf); sys.stdout.buffer.write(buf.getvalue())
+`]);
+  if (r.status !== 0) { console.log('(no openpyxl or Pillow here: skipped)'); return; }
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'With a logo.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: r.stdout });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'With a logo'));
+  await page.goto(`${B}/sheets/${f.id}`);
+  const pic = page.locator('.sheet-picture').first();
+  await pic.waitFor();
+  await until(async () => (await pic.locator('img').evaluate((i) => i.complete && i.naturalWidth)) === 120); // (the picture was dropped)
+  const box = await pic.boundingBox();
+  if (Math.round(box.width) !== 120 || Math.round(box.height) !== 60) throw new Error(`its size: ${box.width}x${box.height}`);
+  const c3 = await page.locator('.grid td[data-k="C3"]').boundingBox();
+  if (Math.abs(box.x - c3.x) > 2 || Math.abs(box.y - c3.y) > 2) throw new Error(`not over C3: ${JSON.stringify([box, c3])}`);
+  // Drag it one column (100px) right and down a row.
+  await page.mouse.move(box.x + 30, box.y + 30); await page.mouse.down(); await page.mouse.move(box.x + 80, box.y + 40, { steps: 4 }); await page.mouse.move(box.x + 130, box.y + 54, { steps: 4 }); await page.mouse.up();
+  const content = async () => { const c = (await api(page, 'GET', `/files/${f.id}/content`)).body.content; return (c.sheets || c)[0]; };
+  await until(async () => { const p = Object.values((await content()).pictures || {})[0]; return p && p.x === 346 && p.y === 96; }, 10000);
+  const xlsx = await page.evaluate(async (id) => { const b = new Uint8Array(await (await fetch(`/api/files/${id}/export?format=xlsx`)).arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s); }, f.id);
+  const read = spawnSync('python3', ['-I', '-c', `
+import sys, io, base64, json, openpyxl
+ws = openpyxl.load_workbook(io.BytesIO(base64.b64decode(sys.stdin.read()))).active
+print(json.dumps({ 'pics': [[i.anchor._from.col, i.anchor._from.row, i.anchor.ext.width // 9525, i.anchor.ext.height // 9525, i.width, i.height] for i in ws._images], 'charts': len(ws._charts) }))
+`], { input: xlsx });
+  const got = JSON.parse(String(read.stdout) || '{}');
+  if (JSON.stringify(got) !== JSON.stringify({ pics: [[3, 3, 120, 60, 120, 60]], charts: 1 })) throw new Error(`the download: ${JSON.stringify(got)} ${read.stderr}`);
+  await pic.focus();
+  await page.keyboard.press('Delete');
+  await page.locator('.sheet-picture').waitFor({ state: 'detached' });
+  await until(async () => !Object.keys((await content()).pictures || {}).length, 10000);
+});
 await step('a Word file made by python-docx: an item in its "List Bullet 2" style opens a level down', async () => {
   const { spawnSync } = await import('node:child_process');
   const r = spawnSync('python3', ['-I', '-c', `

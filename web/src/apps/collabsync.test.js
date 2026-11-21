@@ -20,3 +20,16 @@ test('editing applies only the changed cells', () => {
   assert.equal(changes, 1);
   assert.equal(jsonFromSheetDoc(doc).sheets[0].cells.A2, '3');
 });
+
+test('pictures over the cells go through the shared form and back', () => {
+  const pictures = { p1: { file: 'f1', alt: 'Logo', x: 246, y: 72, w: 120, h: 60 } };
+  const doc = sheetDocFromJson({ sheets: [{ name: 'S', cells: { A1: '1' }, colWidths: {}, pictures }] });
+  assert.deepEqual(jsonFromSheetDoc(doc).sheets[0].pictures, pictures);
+  const j = jsonFromSheetDoc(doc);
+  j.sheets[0].pictures = { p1: { ...pictures.p1, x: 346 } };
+  applySheetJson(doc, j);
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].pictures.p1.x, 346);
+  delete j.sheets[0].pictures;
+  applySheetJson(doc, j);
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].pictures, undefined);
+});

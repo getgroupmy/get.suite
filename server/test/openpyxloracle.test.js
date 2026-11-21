@@ -292,3 +292,54 @@ print(json.dumps(out))
   }
   assert.deepEqual(wrong.slice(0, 10), []);
 });
+
+test('20 books with pictures over the cells, written by openpyxl, opened in Sheets and downloaded again: each picture where it was, its size, its bytes', { skip: (!hasOpenpyxl || spawnSync('python3', ['-c', 'import PIL']).status !== 0) && 'no openpyxl or Pillow here' }, async () => {
+  const plans = Array.from({ length: 20 }, () => ({
+    widths: Object.fromEntries('ABCDEF'.split('').filter(() => rnd() < 0.4).map((c) => [c, 6 + Math.floor(rnd() * 30)])),
+    heights: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].filter(() => rnd() < 0.3).map((r) => [r, 10 + Math.floor(rnd() * 40)])),
+    pics: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ at: `${pick('ABCDEFGH')}${1 + Math.floor(rnd() * 12)}`, w: 8 + Math.floor(rnd() * 300), h: 8 + Math.floor(rnd() * 200), fmt: pick(['PNG', 'JPEG', 'GIF']), color: [Math.floor(rnd() * 256), Math.floor(rnd() * 256), Math.floor(rnd() * 256)] })),
+  }));
+  const books = python(`
+import sys, json, io, base64, openpyxl
+from openpyxl.drawing.image import Image
+from PIL import Image as P
+out = []
+for plan in json.load(sys.stdin):
+    wb = openpyxl.Workbook(); ws = wb.active; ws['A1'] = 'x'
+    for c, w in plan['widths'].items(): ws.column_dimensions[c].width = w
+    for r, h in plan['heights'].items(): ws.row_dimensions[int(r)].height = h
+    for p in plan['pics']:
+        b = io.BytesIO(); P.new('RGB', (p['w'], p['h']), tuple(p['color'])).save(b, p['fmt']); b.seek(0)
+        img = Image(b); ws.add_image(img, p['at'])
+    o = io.BytesIO(); wb.save(o); out.append(base64.b64encode(o.getvalue()).decode())
+print(json.dumps(out))`, JSON.stringify(plans));
+  const READ_PICS = `
+import sys, json, io, base64, openpyxl
+out = []
+for b64 in json.load(sys.stdin):
+    ws = openpyxl.load_workbook(io.BytesIO(base64.b64decode(b64))).worksheets[0]
+    out.append([{ 'col': i.anchor._from.col, 'row': i.anchor._from.row, 'colOff': i.anchor._from.colOff, 'rowOff': i.anchor._from.rowOff, 'cx': i.anchor.ext.width, 'cy': i.anchor.ext.height, 'bytes': base64.b64encode(i._data()).decode() } for i in ws._images])
+print(json.dumps(out))`;
+  const before = python(READ_PICS, JSON.stringify(books));
+  const downloads = [];
+  for (const [n, b64] of books.entries()) {
+    const store = {};
+    const book = await sheetFromExcel(Buffer.from(b64, 'base64'), { savePicture: async (name, data, mime) => { const id = `pic${Object.keys(store).length}`; store[id] = { data, mime }; return id; } });
+    const pictures = Object.values(book.sheets[0].pictures || {});
+    assert.equal(pictures.length, plans[n].pics.length, `book ${n}: every picture comes in`);
+    for (const [k, p] of pictures.entries()) {
+      assert.deepEqual([p.w, p.h], [plans[n].pics[k].w, plans[n].pics[k].h], `book ${n} picture ${k}: its size in pixels`);
+      assert.match(store[p.file].mime, /^image\/(png|jpeg|gif)$/);
+    }
+    downloads.push((await excelFromSheet(book, { pictureData: async (id) => store[id] })).toString('base64'));
+  }
+  const after = python(READ_PICS, JSON.stringify(downloads));
+  for (const [n, list] of before.entries()) {
+    assert.equal(after[n].length, list.length, `book ${n}: every picture goes out again`);
+    for (const [k, p] of list.entries()) {
+      const q = after[n][k];
+      assert.deepEqual([q.col, q.row, q.bytes], [p.col, p.row, p.bytes], `book ${n} picture ${k}: the same cell and the same picture`);
+      for (const f of ['colOff', 'rowOff', 'cx', 'cy']) assert.ok(Math.abs(q[f] - p[f]) <= 9525, `book ${n} picture ${k}: ${f} ${q[f]} vs ${p[f]}`);
+    }
+  }
+});

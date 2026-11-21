@@ -15,6 +15,7 @@ import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader, ReadOnlyBanner } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
+import { PictureCard } from './SheetPictures.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
 import { removeDuplicates, splitColumn, trimText, changeCase, mapText, shuffleRows } from './data.js';
@@ -169,6 +170,7 @@ export default function SheetEditor() {
   const formats = sheet?.formats || {};
   const notes = sheet?.notes || {}; // cell notes: plain text shown when the cell is pointed at or selected
   const charts = sheet?.charts || {};
+  const pictures = sheet?.pictures || {};
   const colWidths = sheet?.colWidths || {};
   const rules = sheet?.rules || [];
   const bands = sheet?.bands || [];
@@ -533,6 +535,17 @@ export default function SheetEditor() {
   };
 
   /** Add, change (chart) or remove (id, null) a chart on this sheet. */
+  function writePicture(id, picture) {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    const sheets = cur.sheets.map((s, i) => {
+      if (i !== active) return s;
+      const p = { ...(s.pictures || {}) };
+      if (picture) p[id] = picture; else delete p[id];
+      return { ...s, pictures: p };
+    });
+    commitData({ ...cur, sheets });
+  }
   function writeChart(id, chart) {
     if (readOnly) return;
     const cur = dataRef.current;
@@ -1491,6 +1504,10 @@ export default function SheetEditor() {
         </table>
         {handleAt && <span className="fill-handle" style={{ left: handleAt.left, top: handleAt.top }} onMouseDown={startFill} title="Drag to fill (Ctrl+D fills down, Ctrl+R right)" aria-hidden="true" />}
         <div className="chart-layer">
+          {Object.entries(pictures).map(([pid, pic]) => (
+            <PictureCard key={pid} zoom={zoom / 100} fileId={file.id} picture={pic} canEdit={!readOnly}
+              onChange={(next) => writePicture(pid, next)} onDelete={() => writePicture(pid, null)} />
+          ))}
           {Object.entries(charts).map(([cid, ch]) => (
             <ChartCard key={cid} zoom={zoom / 100} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
               onChange={(next) => writeChart(cid, next)}

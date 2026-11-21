@@ -538,7 +538,7 @@ export default function takeoutRoutes() {
         const buf = odf
           ? (f.kind === 'doc' ? await odtFromDoc(withoutSuggestions(content), f.name, { pictureData, ...extra }) : f.kind === 'sheet' ? await odsFromSheet(content, extra) : await odpFromDeck(content, { title: f.name, pictureData, ...extra }))
           : f.kind === 'doc' ? await wordFromDoc(withoutSuggestions(content), f.name, { pictureData, ...extra })
-            : f.kind === 'sheet' ? await excelFromSheet(content, extra) : await powerPointFromDeck(content, { title: f.name, pictureData, ...extra });
+            : f.kind === 'sheet' ? await excelFromSheet(content, { pictureData, ...extra }) : await powerPointFromDeck(content, { title: f.name, pictureData, ...extra });
         zip.file(where, buf);
       } catch (e) { zip.file(`${where}.error.txt`, `This file couldn't be converted: ${e.message}`); }
     }
