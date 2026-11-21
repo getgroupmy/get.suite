@@ -1,4 +1,5 @@
-// Slash commands typed at the start of the message box: /meet, /poll Question | option | option, /task title, /status, /thanks.
+// Slash commands typed at the start of the message box: /meet, /poll Question | option | option, /task title, /status, /thanks,
+// /invite, /topic, /mute, /leave.
 // alone: complete with nothing after it, so Enter on exactly "/meet" or "/status" runs it rather than picking it from the list.
 export const SLASH = [
   { cmd: 'meet', alone: true, hint: '/meet', what: 'start a video meeting and share it here' },
@@ -8,7 +9,30 @@ export const SLASH = [
   { cmd: 'dnd', alone: true, hint: '/dnd 2h', what: 'pause notifications (an hour; /dnd off resumes them)' },
   { cmd: 'status', alone: true, hint: '/status 🍔 Lunch 1h', what: 'set your status (/status alone clears it)' },
   { cmd: 'thanks', hint: '/thanks @someone 🎉 for the demo', what: 'thank a colleague (on their card and Home, and posted here)' },
+  { cmd: 'invite', hint: '/invite @someone @someone', what: 'add colleagues to this channel (they’re told)' },
+  { cmd: 'topic', alone: true, hint: '/topic what it’s about', what: 'set the channel’s topic (alone: clear it)' },
+  { cmd: 'mute', alone: true, hint: '/mute 2h', what: 'mute this conversation (for a while, or until /mute off)' },
+  { cmd: 'leave', alone: true, hint: '/leave', what: 'leave this channel' },
 ];
+
+/** "/invite @kim@acme.com @ben@acme.com": { usernames }. */
+function parseInvite(rest) {
+  const words = rest.split(/[\s,]+/).filter(Boolean);
+  const usernames = words.map((w) => /^@?([\w.+-]+@[\w.-]+\.[a-z]{2,})$/i.exec(w)?.[1]?.toLowerCase());
+  if (!words.length || usernames.some((u) => !u)) return { cmd: 'invite', error: 'Write it as /invite @someone (pick them from the @ list)' };
+  return { cmd: 'invite', usernames: [...new Set(usernames)] };
+}
+
+/** "/mute [30m | 2 hours | off]": { minutes } for a while, {} until unmuted, or { off: true }. */
+function parseMute(rest) {
+  if (!rest) return { cmd: 'mute' };
+  if (/^(off|unmute|stop)$/i.test(rest)) return { cmd: 'mute', off: true };
+  const m = /^(?:for\s+)?(\d{1,5})\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?)$/i.exec(rest);
+  if (!m) return { cmd: 'mute', error: 'Write it as /mute, /mute 2h, /mute 3 days or /mute off' };
+  const minutes = Number(m[1]) * (/^h/i.test(m[2]) ? 60 : /^d/i.test(m[2]) ? 1440 : 1);
+  if (!minutes || minutes > 365 * 1440) return { cmd: 'mute', error: 'A conversation can be muted for a minute up to a year' };
+  return { cmd: 'mute', minutes };
+}
 
 const KUDOS_EMOJI = ['🙌', '🎉', '💪', '🌟', '🙏', '🚀', '❤️', '🏆'];
 /** "/thanks @kim@acme.com [emoji] what for": { to: 'kim@acme.com', emoji, message }. */
@@ -73,6 +97,10 @@ export function parseSlash(text) {
   if (cmd === 'dnd') return parseDnd(rest);
   if (cmd === 'event') return { cmd, text: rest.slice(0, 300) };
   if (cmd === 'thanks') return parseThanks(rest);
+  if (cmd === 'invite') return parseInvite(rest);
+  if (cmd === 'topic') return rest.length > 250 ? { cmd, error: 'A topic is at most 250 characters' } : { cmd, topic: rest };
+  if (cmd === 'mute') return parseMute(rest);
+  if (cmd === 'leave') return rest ? null : { cmd }; // "/leave early" is just a message
   if (cmd === 'task') return rest ? { cmd, title: rest.slice(0, 500) } : { cmd, error: 'Write the task after /task' };
   if (cmd === 'poll') {
     const [question, ...opts] = rest.split('|').map((x) => x.trim());

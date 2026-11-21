@@ -20,7 +20,8 @@ test('not commands: text, a path, an unknown word', () => {
 });
 
 test('suggestions while typing', () => {
-  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'event', 'dnd', 'status', 'thanks']);
+  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'event', 'dnd', 'status', 'thanks', 'invite', 'topic', 'mute', 'leave']);
+  assert.deepEqual(slashSuggestions('/m').map((s) => s.cmd), ['meet', 'mute']);
   assert.deepEqual(slashSuggestions('/p').map((s) => s.cmd), ['poll']);
   assert.deepEqual(slashSuggestions('/s').map((s) => s.cmd), ['status']);
   assert.deepEqual(slashSuggestions('/poll x'), []);
@@ -45,7 +46,7 @@ test('/status: emoji, words and how long; alone it clears', () => {
 });
 
 test('which commands are complete on their own', () => {
-  assert.deepEqual(SLASH.filter((s) => s.alone).map((s) => s.cmd), ['meet', 'event', 'dnd', 'status']);
+  assert.deepEqual(SLASH.filter((s) => s.alone).map((s) => s.cmd), ['meet', 'event', 'dnd', 'status', 'topic', 'mute', 'leave']);
 });
 
 test('/dnd: an hour, how long, tomorrow, or off', () => {
@@ -72,4 +73,24 @@ test('/thanks: a colleague (as the @ list writes them), an optional emoji, what 
   assert.match(parseSlash('/thanks kim for it').error, /\/thanks @someone/);
   assert.match(parseSlash('/thanks @kim@acme.com').error, /what you’re thanking/);
   assert.match(parseSlash(`/thanks @kim@acme.com ${'x'.repeat(281)}`).error, /280/);
+});
+
+test('/invite: colleagues as the @ list writes them', () => {
+  assert.deepEqual(parseSlash('/invite @Kim@Acme.com @ben@acme.com, @kim@acme.com'), { cmd: 'invite', usernames: ['kim@acme.com', 'ben@acme.com'] });
+  assert.match(parseSlash('/invite').error, /\/invite @someone/);
+  assert.match(parseSlash('/invite @kim').error, /@ list/);
+});
+
+test('/topic, /mute, /leave', () => {
+  assert.deepEqual(parseSlash('/topic Launch on the 3rd'), { cmd: 'topic', topic: 'Launch on the 3rd' });
+  assert.deepEqual(parseSlash('/topic'), { cmd: 'topic', topic: '' });
+  assert.match(parseSlash(`/topic ${'x'.repeat(251)}`).error, /250/);
+  assert.deepEqual(parseSlash('/mute'), { cmd: 'mute' });
+  assert.deepEqual(parseSlash('/mute 2h'), { cmd: 'mute', minutes: 120 });
+  assert.deepEqual(parseSlash('/mute for 3 days'), { cmd: 'mute', minutes: 4320 });
+  assert.deepEqual(parseSlash('/mute off'), { cmd: 'mute', off: true });
+  assert.match(parseSlash('/mute forever').error, /\/mute 2h/);
+  assert.match(parseSlash('/mute 400d').error, /a year/);
+  assert.deepEqual(parseSlash('/leave'), { cmd: 'leave' });
+  assert.equal(parseSlash('/leave early today'), null, 'just a message');
 });

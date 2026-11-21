@@ -499,7 +499,8 @@ export default function Chat() {
       if (slash.error) { toast(slash.error, 'error'); return; }
       setText(''); dropDraft(channelId);
       try {
-        if (slash.cmd === 'meet') await startMeeting();
+        if (await channelSlash(slash, current, { toast, navigate, reload: loadChannels })) { /* done */ }
+        else if (slash.cmd === 'meet') await startMeeting();
         else if (slash.cmd === 'poll') {
           stick.current = true;
           const msg = await post(`/chat/channels/${channelId}/messages`, { poll: { question: slash.question, options: slash.options, multi: false } });
@@ -1086,6 +1087,34 @@ async function setStatusFrom(slash, toast) {
 }
 
 /** /dnd: pause notifications (for some minutes, or until 9:00 tomorrow), or turn them back on. Nothing is posted. */
+/** /invite, /topic, /mute and /leave: about the conversation they're typed in. True when it was one of them. */
+async function channelSlash(slash, c, { toast, navigate, reload }) {
+  if (!['invite', 'topic', 'mute', 'leave'].includes(slash.cmd)) return false;
+  const name = c.dm_key ? 'this conversation' : `#${c.name}`;
+  const names = (list) => (list.length === 1 ? list[0].name : `${list.slice(0, -1).map((u) => u.name).join(', ')} and ${list.at(-1).name}`);
+  if (slash.cmd === 'invite') {
+    if (c.dm_key) throw new Error('A direct message is just the two of you: start a group conversation or a channel for more');
+    const r = await post(`/chat/channels/${c.id}/invite`, { usernames: slash.usernames });
+    toast(r.added.length ? `Added ${names(r.added)} to ${name}` : r.already.length ? `Already in ${name}: ${names(r.already)}` : 'Nobody to add');
+  } else if (slash.cmd === 'topic') {
+    if (c.dm_key) throw new Error('Direct messages have no topic');
+    await patch(`/chat/channels/${c.id}`, { topic: slash.topic, say: true });
+    toast(slash.topic ? 'Topic set' : 'Topic cleared');
+  } else if (slash.cmd === 'mute') {
+    const until = slash.minutes ? Date.now() + slash.minutes * 60e3 : null;
+    await post(`/chat/channels/${c.id}/mute`, slash.off ? { muted: false } : { muted: true, until });
+    toast(slash.off ? `Unmuted ${name}` : until ? `Muted ${name} until ${whenText(until)}` : `Muted ${name}: only mentions will add to your unread count`);
+  } else {
+    if (c.dm_key) throw new Error('A direct message can’t be left: close it from the list instead');
+    if (c.private) await del(`/chat/channels/${c.id}/members/me`);
+    else await post(`/chat/channels/${c.id}/leave`, { left: true });
+    toast(`You left ${name}`);
+    navigate('/chat');
+  }
+  await reload?.();
+  return true;
+}
+
 async function pauseFrom(slash, toast) {
   const now = new Date();
   const at = slash.off ? null : slash.tomorrow ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9).getTime() : now.getTime() + slash.minutes * 60e3;
@@ -1203,7 +1232,8 @@ function Thread({ id, channelId, channel, user, onClose }) {
     if (slash) {
       if (slash.error) { toast(slash.error, 'error'); setText(body); return; }
       try {
-        if (slash.cmd === 'meet') {
+        if (await channelSlash(slash, channel, { toast, navigate })) { /* done */ }
+        else if (slash.cmd === 'meet') {
           const m = await post('/meet', { title: parent?.body ? parent.body.slice(0, 80) : '' });
           added(await post(`/chat/channels/${channelId}/messages`, { body: `📹 Started a video meeting: ${location.origin}/meet/${m.code}`, parent_id: id }));
           window.open(`/meet/${m.code}`, '_blank', 'noopener');

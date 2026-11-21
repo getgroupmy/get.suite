@@ -914,7 +914,43 @@ export default function chatRoutes() {
     });
     const after = q('SELECT * FROM channels WHERE id = ?').get(c.id);
     sendTo(new Set([...before, ...audience(after)]), { type: 'channels-changed' });
+    // /topic says so in the channel (the settings box changes it quietly).
+    if (b.say && b.topic !== undefined && (after.topic || null) !== (c.topic || null) && mayPost(after, req.user, null)) {
+      deliver(after, req.user, { body: after.topic ? `📝 Set the topic: ${after.topic}` : '📝 Cleared the topic', files: [], poll: null, parent: null });
+    }
     res.json({ ok: true });
+  });
+
+  // /invite @kim@acme.com @ben@acme.com: colleagues into a channel (a private one's members; anyone who left an
+  // open one, back in), each told, and a line in the channel saying who was added.
+  r.post('/channels/:id/invite', (req, res) => {
+    const c = writable(req.params.id, req.user);
+    if (c.dm_key) throw bad('A direct message is just the two of you: start a group conversation or a channel for more');
+    const names = [...new Set((Array.isArray(req.body?.usernames) ? req.body.usernames : []).map((x) => String(x).replace(/^@/, '').trim().toLowerCase()).filter(Boolean))];
+    if (!names.length) throw bad('Write it as /invite @someone');
+    if (names.length > 50) throw bad('At most 50 people at once');
+    const found = q(`SELECT id, name, username FROM users WHERE org_id = ? AND disabled = 0 AND LOWER(username) IN (SELECT value FROM json_each(?))`).all(c.org_id, JSON.stringify(names));
+    const missing = names.filter((n) => !found.some((u) => u.username.toLowerCase() === n));
+    if (missing.length) throw bad(`Not a colleague here: ${missing.join(', ')}`);
+    const inIt = (u) => (c.private ? !!q('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(c.id, u.id)
+      : !q('SELECT 1 FROM chat_left WHERE channel_id = ? AND user_id = ?').get(c.id, u.id));
+    const added = found.filter((u) => u.id !== req.user.id && !inIt(u));
+    const already = found.filter((u) => u.id !== req.user.id && !added.includes(u));
+    tx(() => {
+      for (const u of added) {
+        if (c.private) q('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(c.id, u.id);
+        else q('DELETE FROM chat_left WHERE user_id = ? AND channel_id = ?').run(u.id, c.id);
+      }
+    });
+    const who = req.user.name || req.user.username;
+    if (added.length) {
+      sendTo(new Set([...audience(c), ...added.map((u) => u.id)]), { type: 'channels-changed' });
+      notify(added.map((u) => u.id), { kind: 'chat', title: `${who} added you to #${c.name}`, body: c.topic || '', link: `/chat/${c.id}`, actor: who });
+      const list = added.map((u) => u.name || u.username);
+      const said = list.length === 1 ? list[0] : `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`;
+      deliver(c, req.user, { body: `➕ Added ${said} to #${c.name}`, files: [], poll: null, parent: null });
+    }
+    res.json({ added: added.map((u) => ({ id: u.id, name: u.name })), already: already.map((u) => ({ id: u.id, name: u.name })) });
   });
 
   // Members of a private channel: anyone in it can add people; whoever made it (or an admin) can take them off.
