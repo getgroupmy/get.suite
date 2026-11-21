@@ -1734,6 +1734,8 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .doc-changes .change-item::before { content: "• "; }
 .changes-summary { margin-top: 0; }
 .msg-forwarded { margin: 4px 0; padding: 4px 10px; border-left: 3px solid var(--border); }
+.msg-echo { margin: 2px 0; }
+.thread-also { display: flex; align-items: center; gap: 6px; padding: 0 12px 10px; }
 .msg-forwarded .msg-text { margin-top: 2px; }
 .event-attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .event-attachments li { display: flex; align-items: center; gap: 6px; }

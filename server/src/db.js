@@ -187,6 +187,7 @@ if (!hasColumn('channels', 'archived_at')) db.exec('ALTER TABLE channels ADD COL
 // Announcement channels: only its posters (whoever made it, admins, and the people chosen) start conversations; everyone can reply in threads.
 if (!hasColumn('channels', 'posters')) db.exec('ALTER TABLE channels ADD COLUMN posters TEXT'); // null: everyone posts; JSON [user ids]: only them
 if (!hasColumn('messages', 'parent_id')) db.exec('ALTER TABLE messages ADD COLUMN parent_id TEXT'); // a reply in this message's thread
+if (!hasColumn('messages', 'echo')) db.exec('ALTER TABLE messages ADD COLUMN echo TEXT'); // JSON { reply_id, parent_id }: a thread reply also sent to the conversation
 db.exec('CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id, created_at)');
 if (!hasColumn('users', 'org_id')) db.exec('ALTER TABLE users ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');
 if (!hasColumn('users', 'is_super')) db.exec('ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0');

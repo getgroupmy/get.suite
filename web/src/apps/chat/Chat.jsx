@@ -981,7 +981,7 @@ export default function Chat() {
                   {m.id === newFrom && <div className="new-sep" role="separator" aria-label="New messages"><span>New messages{newCount(messages, newFrom, user.id) > 1 ? ` · ${newCount(messages, newFrom, user.id)}` : ''}</span></div>}
                   <Message m={m} grouped={grouped && !newDay && m.id !== newFrom} user={user} reminder={reminders.get(m.id)} saved={savedIds.has(m.id)} onSave={(on) => setSave(m.id, on)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
-                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
+                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.echo?.parent_id || m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
                       try { await post(`/chat/messages/${m.id}/unread`); navigate('/chat'); toast(`Marked unread from ${m.user_name || 'this message'}’s message`); } catch (e) { toast(e.message, 'error'); }
                     }} onDelete={() => deleteMessage(m)} />
                   {lastMine && current.dm_key && seenAt >= m.created_at && current.dm_user_id !== user.id && <div className="seen-mark muted small" title={`Seen ${new Date(seenAt).toLocaleString()}`}>Seen</div>}
@@ -1118,6 +1118,7 @@ function Thread({ id, channelId, channel, user, onClose }) {
   // Whether its replies count for you (you started it, replied or followed it, and didn't unfollow it).
   const [following, setFollowing] = useState(null);
   const [text, setText] = useState('');
+  const [alsoSend, setAlsoSend] = useState(false); // the next reply also goes in the conversation
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const end = useRef();
@@ -1221,7 +1222,10 @@ function Thread({ id, channelId, channel, user, onClose }) {
       } catch (err) { toast(err.message, 'error'); setText(body); }
       return;
     }
-    try { const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id }); setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); checkLinkAccess(channelId, body, toast, user.org_name); }
+    try {
+      const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id, ...(alsoSend && { also_send: true }) });
+      setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); setAlsoSend(false); checkLinkAccess(channelId, body, toast, user.org_name);
+    }
     catch (err) {
       // No connection: the reply waits on this device (shown as waiting, also after reloading) and goes when it's back.
       if (unreachable(err)) {
@@ -1265,6 +1269,10 @@ function Thread({ id, channelId, channel, user, onClose }) {
         {mention.list}{emo.list}
         <button className="icon-btn send" aria-label="Send reply" disabled={!text.trim()}><Icon name="send" /></button>
       </form>
+      {channel?.can_post !== false && !channel?.archived_at && (
+        <label className="thread-also muted small"><input type="checkbox" checked={alsoSend} onChange={(e) => setAlsoSend(e.target.checked)} />
+          {' '}Also send to {channel?.dm_key ? 'the conversation' : `#${channel?.name || 'the channel'}`}</label>
+      )}
     </aside>
   );
 }
@@ -1309,6 +1317,10 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
       <div className="msg-body">
         {!grouped && <div className="msg-meta">{m.user_id ? <><button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button>{m.user_org_id && user?.org_id && m.user_org_id !== user.org_id && <span className="pill ext small" title={`${m.user_org}, outside your company`}>External · {m.user_org}</span>}</> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>{m.pending && <span className="pill small msg-pending" title="Written offline">Sends when the connection is back</span>}{m.offline && !m.pending && <span className="pill small msg-pending" title="Changed offline (edited or reacted to): saved when the connection is back">Not sent yet</span>}</div>}
         {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
+        {m.echo && (
+          <div className="msg-echo muted small">↳ Replied to a thread: {m.echo.parent?.deleted ? <em>This message was deleted.</em> : <>“{(m.echo.parent?.body || '').slice(0, 80)}{(m.echo.parent?.body || '').length > 80 ? '…' : ''}”{m.echo.parent?.user_name ? ` (${m.echo.parent.user_name})` : ''}</>}
+            {onThread && <> · <button type="button" className="link-btn small" onClick={onThread}>View thread</button></>}</div>
+        )}
         {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
         {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}
           onClose={() => setPicking(false)} onPick={(at) => { setPicking(false); remind(at); }} />}

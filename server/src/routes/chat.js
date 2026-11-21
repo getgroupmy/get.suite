@@ -243,7 +243,9 @@ function dmOpen(c, user) {
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
 // An attachment whose file is no longer there (deleted, or in the trash): gone, so it isn't offered to open or save.
 const withGone = (f) => (f && !q("SELECT 1 FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(f.id)) ? { ...f, gone: true } : f);
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, m.email, u.name AS user_name, u.org_id AS user_org_id, (SELECT o.name FROM orgs o WHERE o.id = u.org_id) AS user_org, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, m.email, m.echo,
+               (SELECT json_object('user_name', eu.name, 'body', substr(ep.body, 1, 160), 'deleted', ep.deleted_at IS NOT NULL) FROM messages ep LEFT JOIN users eu ON eu.id = ep.user_id WHERE ep.id = json_extract(m.echo, '$.parent_id')) AS echo_parent,
+               u.name AS user_name, u.org_id AS user_org_id, (SELECT o.name FROM orgs o WHERE o.id = u.org_id) AS user_org, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -290,8 +292,18 @@ function shape(rows) {
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files).map(withGone) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null, contact: m.contact ? JSON.parse(m.contact) : null, email: m.email ? JSON.parse(m.email) : null };
+    const { echo_parent: ep, ...rest } = m;
+    const echo = m.echo ? { ...JSON.parse(m.echo), parent: ep ? JSON.parse(ep) : null } : null;
+    if (echo?.parent) echo.parent.deleted = !!echo.parent.deleted;
+    return { ...rest, echo, files: m.files ? JSON.parse(m.files).map(withGone) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null, contact: m.contact ? JSON.parse(m.contact) : null, email: m.email ? JSON.parse(m.email) : null };
   });
+}
+/** The other messages that are the same thread reply (the reply and its copies in the conversation), ids. */
+function copiesOf(m) {
+  const replyId = m.echo ? JSON.parse(m.echo).reply_id : m.parent_id ? m.id : null;
+  if (!replyId) return [];
+  return [replyId, ...q("SELECT id FROM messages WHERE json_extract(echo, '$.reply_id') = ?").all(replyId).map((x) => x.id)]
+    .filter((x) => x !== m.id && q('SELECT 1 FROM messages WHERE id = ?').get(x));
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
 
@@ -319,21 +331,23 @@ function readMessage(c, user, input) {
   // A reply goes in the thread of a message in this conversation (threads don't nest).
   let parent = null;
   if (input.parent_id) {
-    parent = q('SELECT id, parent_id, channel_id FROM messages WHERE id = ?').get(String(input.parent_id));
+    parent = q('SELECT id, parent_id, channel_id, echo FROM messages WHERE id = ?').get(String(input.parent_id));
     if (!parent || parent.channel_id !== c.id) throw bad('That message is gone');
     if (parent.parent_id) parent = { id: parent.parent_id };
+    else if (parent.echo) parent = { id: JSON.parse(parent.echo).parent_id }; // a reply's copy in the conversation: its thread
   }
   return { body, files, poll, parent };
 }
 
 /** Post a message: saved, shown to everyone in the conversation, mentions told. */
-function deliver(c, user, { body, files, poll, parent, forwarded = null, contact = null, email = null }) {
+function deliver(c, user, { body, files, poll, parent, forwarded = null, contact = null, email = null, echo = null }) {
   if (!mayPost(c, user, parent)) throw new HttpError(403, 'Only some people post in this channel; you can reply in threads');
   const id = uid();
-  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded, contact, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null, contact ? JSON.stringify(contact) : null, email ? JSON.stringify(email) : null);
+  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded, contact, email, echo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null, contact ? JSON.stringify(contact) : null, email ? JSON.stringify(email) : null, echo ? JSON.stringify(echo) : null);
   q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
+  if (echo) return msg; // a thread reply's copy in the conversation: its mentions, pushes and preview came with the reply
   const mentioned = notifyMentions(c, user, msg) || [];
   notifyKeywords(c, user, msg, mentioned);
   if (c.dm_key) {
@@ -1153,6 +1167,7 @@ export default function chatRoutes() {
     if (p.has.includes('image')) where.push(`m.files LIKE '%"mime":"image/%'`);
     if (p.has.includes('link')) where.push("(m.body LIKE '%http://%' OR m.body LIKE '%https://%')");
     if (p.thread) where.push('m.parent_id IS NOT NULL');
+    where.push('m.echo IS NULL'); // a thread reply's copy in the conversation: found as the reply
     if (p.after != null) { where.push('m.created_at >= ?'); args.push(p.after); }
     if (p.before != null) { where.push('m.created_at < ?'); args.push(p.before); }
     const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.body, m.created_at, m.files, json_extract(m.email, '$.subject') AS email_subject, u.name AS user_name, c.name AS channel_name, c.dm_key, c.private,
@@ -1323,8 +1338,13 @@ export default function chatRoutes() {
     const c = writable(req.params.id, req.user);
     q('DELETE FROM chat_left WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id); // writing in it joins it again
     const m = readMessage(c, req.user, req.body);
+    // "Also send to the conversation": a thread reply shown in the conversation too, saying which thread it's in.
+    const also = !!req.body?.also_send && !!m.parent;
+    if (also && m.poll) throw bad('A poll in a thread stays in the thread');
+    if (also && !mayPost(c, req.user, null)) throw new HttpError(403, 'Only some people post in this channel; your reply can go in the thread');
     lastTyping.delete(`${req.user.id}:${c.id}:${m.parent?.id || ''}`); // the next keystroke is news again
     const out = deliver(c, req.user, m);
+    if (also) out.echo_id = deliver(c, req.user, { body: m.body, files: m.files, poll: null, parent: null, echo: { reply_id: out.id, parent_id: m.parent.id } }).id;
     if (!m.parent) clearDraft(req.user.id, c.id); // sent: the draft has gone out
     res.status(201).json(out);
   });
@@ -1614,6 +1634,11 @@ export default function chatRoutes() {
     if (m.poll) throw bad("A poll can't be edited");
     const body = str(req.body.body, { required: !m.files, name: 'Message', max: 8000 }) || '';
     q('UPDATE messages SET body = ?, edited_at = ?, preview = NULL WHERE id = ?').run(body, now(), m.id);
+    // A thread reply also sent to the conversation: changing either changes both.
+    for (const x of copiesOf(m)) {
+      q('UPDATE messages SET body = ?, edited_at = ?, preview = NULL WHERE id = ?').run(body, now(), x);
+      sendTo(audience(c), { type: 'message-updated', message: one(x) });
+    }
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     addPreview(c, msg); // the link (if any) as it is now
@@ -1922,13 +1947,27 @@ export default function chatRoutes() {
   });
 
   r.delete('/messages/:id', (req, res) => {
-    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    let m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
     if (!m) throw notFound();
     const c = loadChannel(m.channel_id, req.user);
     const moderator = req.user.is_admin && !c.dm_key; // company admins moderate their own channels
     if (m.user_id !== req.user.id && !moderator) throw notFound();
     if (m.deleted_at) throw notFound();
     keepIfHeld(m.user_id, 'This message');
+    // A thread reply also sent to the conversation: deleting either deletes both (the copies, then the reply as below).
+    for (const x of copiesOf(m)) {
+      const row = q('SELECT id, parent_id FROM messages WHERE id = ?').get(x);
+      if (row.parent_id) continue; // the reply itself: m is its copy
+      q('DELETE FROM messages WHERE id = ?').run(x);
+      sendTo(audience(c), { type: 'message-deleted', id: x, channel_id: c.id, parent_id: null });
+    }
+    if (m.echo) {
+      const reply = q('SELECT * FROM messages WHERE id = ?').get(JSON.parse(m.echo).reply_id);
+      q('DELETE FROM messages WHERE id = ?').run(m.id);
+      sendTo(audience(c), { type: 'message-deleted', id: m.id, channel_id: c.id, parent_id: null });
+      if (!reply) return res.json({ ok: true });
+      m = reply;
+    }
     // With replies in its thread, the message stays as "This message was deleted" and the replies stay with it.
     if (!m.parent_id && q('SELECT 1 FROM messages WHERE parent_id = ?').get(m.id)) {
       tx(() => {
