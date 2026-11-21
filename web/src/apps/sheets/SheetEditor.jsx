@@ -680,7 +680,10 @@ export default function SheetEditor() {
       const t = dataRegion({ c, r: row }, has);
       g = { c1: Math.min(t.c1, g.c1), c2: Math.max(t.c2, g.c2, target), r1: Math.min(t.r1, g.r1), r2: Math.max(t.r2, g.r2) };
     }
-    const shown = (c, r) => { const v = evaluate(cellKey(c, r)); return v === null || v === undefined || typeof v === 'object' ? '' : String(v); };
+    const raw = (c, r) => { const v = evaluate(cellKey(c, r)); return v === null || v === undefined || typeof v === 'object' ? '' : String(v); };
+    // The examples as they're shown (a date typed as "15 Nov 2026" is kept as a date shown so): the others as they are.
+    const asShown = (c, r) => { const k = cellKey(c, r), v = evaluate(k); return v === null || v === undefined || typeof v === 'object' ? '' : (formatNumber(v, formats[k]) ?? String(v)); };
+    const shown = (c, r) => (c === target ? asShown(c, r) : raw(c, r));
     const cols = [];
     for (let c = g.c1; c <= g.c2; c++) if (c !== target) cols.push(c);
     const plan = planSmartFill({ r1: g.r1, r2: g.r2, target, cols, header: g.r2 > g.r1 && looksLikeHeader(g, evaluate), value: (i, r) => shown(i, r) });
@@ -697,9 +700,16 @@ export default function SheetEditor() {
   function runSmartFill({ plan, target }) {
     setFillOffer(null);
     const cur = dataRef.current, sh = cur.sheets[active];
-    const next = { ...(sh.cells || {}) };
-    for (const f of plan.fills) { const k = cellKey(target, f.r); if (next[k] === undefined || next[k] === '') next[k] = f.v; }
-    commitData({ ...cur, sheets: cur.sheets.map((x, i) => (i === active ? { ...x, cells: next } : x)) });
+    const next = { ...(sh.cells || {}) }, fmts = { ...(sh.formats || {}) };
+    for (const f of plan.fills) {
+      const k = cellKey(target, f.r);
+      if (next[k] !== undefined && next[k] !== '') continue;
+      // As if typed: "25 Dec 2026" a date shown so, "1,250" a number shown so (as the examples were kept).
+      const typed = typedNumber(f.v) ?? typedDate(f.v);
+      next[k] = typed ? String(typed.value) : f.v;
+      if (typed?.fmt && !fmts[k]?.num) fmts[k] = mergeFormat(fmts[k], typed.fmt);
+    }
+    commitData({ ...cur, sheets: cur.sheets.map((x, i) => (i === active ? { ...x, cells: next, ...(Object.keys(fmts).length && { formats: fmts }) } : x)) });
     toast(`Filled ${plan.fills.length} cell${plan.fills.length === 1 ? '' : 's'} in column ${colName(target)}`);
     gridRef.current?.focus();
   }

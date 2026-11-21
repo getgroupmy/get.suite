@@ -137,7 +137,9 @@ await step('dates: two examples in another form, and the rest are offered in it'
   await bar.getByRole('button', { name: 'Preview…' }).click();
   await page.getByRole('dialog', { name: 'Smart fill' }).getByText('the day of the date in A + “ ” + the month name, short of the date in A + “ ” + the year of the date in A').waitFor();
   await page.getByRole('dialog', { name: 'Smart fill' }).getByRole('button', { name: 'Fill 2 cells' }).click();
-  await until(async () => { const c = await now(); return [c.B4, c.B5].join('|') === '25 Dec 2026|1 Jan 2027'; });
+  // Kept as typed ones are: dates (so they sort and count as dates), shown as the examples are.
+  await until(async () => { const c = await now(); return [c.B4, c.B5].join('|') === '2026-12-25|2027-01-01'; });
+  await until(async () => (await cell('B4').innerText()).trim() === '25 Dec 2026' && (await cell('B5').innerText()).trim() === '1 Jan 2027');
 });
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
