@@ -58,7 +58,7 @@ export function parseVcard(text) {
   const get = (n) => lines.find((l) => l.name === n || l.name.endsWith(`.${n}`));
   let name = unescapeText(get('FN')?.value || '').trim();
   if (!name) {
-    const n = (get('N')?.value || '').split(';').map(unescapeText);
+    const n = (get('N')?.value || '').split(/(?<!\\);/).map(unescapeText);
     name = [n[3], n[1], n[2], n[0], n[4]].filter(Boolean).join(' ').trim();
   }
   const emails = lines.filter((l) => l.name === 'EMAIL' || l.name.endsWith('.EMAIL'));
@@ -97,7 +97,7 @@ export function parseVcard(text) {
     name: (name || unescapeText(email?.value || '') || 'Unnamed').slice(0, 200),
     email: email ? email.value.trim().replace(/^mailto:/i, '').slice(0, 200) : null,
     phone: tel ? tel.value.trim().replace(/^tel:/i, '').slice(0, 50) : null,
-    company: unescapeText((get('ORG')?.value || '').split(';')[0]).slice(0, 200) || null,
+    company: unescapeText((get('ORG')?.value || '').split(/(?<!\\);/)[0]).slice(0, 200) || null, // (company;department: an escaped \; is the name's own)
     notes: unescapeText(get('NOTE')?.value || '').slice(0, 5000) || null,
     title: unescapeText(get('TITLE')?.value || '').slice(0, 200) || null,
     address: address.slice(0, 500) || null,

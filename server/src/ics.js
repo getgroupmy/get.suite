@@ -223,7 +223,7 @@ export function contentLines(text) {
     let i = 0, q = false;
     for (; i < line.length; i++) { const c = line[i]; if (c === '"') q = !q; else if (c === ':' && !q) break; }
     const head = line.slice(0, i), value = line.slice(i + 1);
-    const [name, ...ps] = head.split(';');
+    const [name, ...ps] = head.split(/;(?=(?:[^"]*"[^"]*")*[^"]*$)/); // (a ; inside a quoted parameter, CN="Doe; Jo", isn't a separator)
     const params = Object.fromEntries(ps.map((p) => { const k = p.indexOf('='); return [p.slice(0, k).toUpperCase(), p.slice(k + 1).replace(/^"|"$/g, '')]; }));
     return { name: name.toUpperCase(), params, value };
   });

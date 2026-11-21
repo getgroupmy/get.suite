@@ -59,6 +59,15 @@ await step('LinkedIn’s Connections.csv imports, its notes lines skipped', asyn
   const t = await row.innerText();
   if (!t.includes('Head of Sales') || !t.includes('Globex') || !t.includes('linkedin.com/in/noradiaz') || !t.includes('nora@example.com')) throw new Error(t);
 });
+await step('a company with a semicolon, and a field of your own with one in its label, come through a .vcf whole', async () => {
+  const vcf = 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Raj Patel\r\nEMAIL:raj@example.com\r\nORG:R&D\\; Labs\r\nX-WORKSPACE-FIELD;LABEL="Desk;No":4F\\, east\r\nEND:VCARD\r\n';
+  await page.getByLabel('Contacts file to import').setInputFiles({ name: 'raj.vcf', mimeType: 'text/vcard', buffer: Buffer.from(vcf) });
+  const row = page.getByRole('row').filter({ hasText: 'Raj Patel' });
+  await row.waitFor();
+  if (!(await row.innerText()).includes('R&D; Labs')) throw new Error(await row.innerText()); // (it was cut at the ;: "R&D\\")
+  const c = await until(async () => (await api(page, 'GET', '/contacts')).body?.find?.((x) => x.name === 'Raj Patel') || (await api(page, 'GET', '/contacts')).body?.contacts?.find((x) => x.name === 'Raj Patel'));
+  if (JSON.stringify(c.custom_fields) !== JSON.stringify([{ label: 'Desk;No', value: '4F, east' }])) throw new Error(JSON.stringify(c.custom_fields));
+});
 await step('Export → CSV: a contact whose name is a formula comes out as text (CSV injection), the phone number as it is', async () => {
   await page.evaluate(() => fetch('/api/contacts', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' },
     body: JSON.stringify({ name: '=HYPERLINK("http://evil.example","Click me")', email: 'evil@example.com', phone: '+60 12-345 6789' }) }));
