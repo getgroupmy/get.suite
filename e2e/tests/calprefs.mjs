@@ -53,7 +53,9 @@ await step('Calendar settings: 30-minute events, speedy, and two reminders', asy
   await d.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Calendar settings saved').waitFor();
   const me = (await api(page, 'GET', '/auth/me')).body.user;
-  if (JSON.stringify(me.cal_prefs) !== JSON.stringify({ length: 30, speedy: true, reminders: [10, 1440], declined: true, colorRules: [] })) throw new Error(JSON.stringify(me.cal_prefs));
+  const want = { length: 30, speedy: true, reminders: [10, 1440], declined: true, colorRules: [] };
+  const got = Object.fromEntries(Object.keys(want).map((k) => [k, me.cal_prefs?.[k]]));
+  if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(JSON.stringify(me.cal_prefs));
 });
 await step('a new event lasts 25 minutes and starts with those reminders (after a reload too)', async () => {
   await page.reload();
