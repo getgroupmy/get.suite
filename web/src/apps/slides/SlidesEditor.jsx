@@ -1,5 +1,6 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
+import { BULLETS, NUMBERINGS, slideListLines } from '../docs/liststyle.js';
 import { placeInHash, placeLink } from '../../components/placelink.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Captions, { canCaption } from './Captions.jsx';
@@ -428,6 +429,13 @@ export default function SlidesEditor() {
             <select className="tb-select" aria-label="Text colour" value={item.color || ''} onChange={(e) => setItem({ color: e.target.value || undefined })}>
               {TEXT_COLORS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
+            {item.type === 'text' && (
+              <select className="tb-select" aria-label="List" title="Bullets or numbers, a line each" value={item.list || ''} onChange={(e) => setItem({ list: e.target.value || undefined })}>
+                <option value="">No list</option>
+                <optgroup label="Bullets">{BULLETS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</optgroup>
+                <optgroup label="Numbers">{NUMBERINGS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</optgroup>
+              </select>
+            )}
             {['left', 'center', 'right'].map((a) => (
               <button key={a} type="button" className={`tb ${(item.align || textAlignOf(item)) === a ? 'on' : ''}`} aria-pressed={(item.align || textAlignOf(item)) === a}
                 aria-label={{ left: 'Align left', center: 'Centre', right: 'Align right' }[a]} onClick={() => setItem({ align: a })}>{{ left: '⯇', center: '≡', right: '⯈' }[a]}</button>
@@ -943,10 +951,13 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
               ? ( // presenting, a line a click: those not in yet keep their place
                 <div className="slide-text" style={style}>{String(it.text).split('\n').map((l, k) => {
                   const at = steps.get(it.id).paras[k];
-                  return <div key={k} className={`slide-para ${at === built ? `anim-${it.anim}` : ''}`} data-para-built={at <= built ? 'yes' : 'no'}
-                    style={{ ...(at > built && { visibility: 'hidden' }), ...(at === built && k === steps.get(it.id).paras.indexOf(at) && steps.get(it.id).delay && at === steps.get(it.id).step && { animationDelay: `${steps.get(it.id).delay}s` }) }}>{l || '\u00a0'}</div>;
+                  const mark = it.list ? slideListLines(it.text, it.list)[k].marker : null;
+                  return <div key={k} className={`slide-para ${it.list ? 'listed' : ''} ${at === built ? `anim-${it.anim}` : ''}`} data-para-built={at <= built ? 'yes' : 'no'}
+                    style={{ ...(at > built && { visibility: 'hidden' }), ...(at === built && k === steps.get(it.id).paras.indexOf(at) && steps.get(it.id).delay && at === steps.get(it.id).step && { animationDelay: `${steps.get(it.id).delay}s` }) }}>{mark && <span className="slide-mark">{mark}</span>}{l || '\u00a0'}</div>;
                 })}</div>)
-              : <div className={`slide-text ${!it.text ? 'slide-placeholder' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
+              : it.list && it.text // a list: each line with its bullet or number, hanging
+                ? <div className="slide-text" style={style}>{slideListLines(it.text, it.list).map((l, k) => <div key={k} className="slide-para listed">{l.marker && <span className="slide-mark">{l.marker}</span>}{l.text || '\u00a0'}</div>)}</div>
+                : <div className={`slide-text ${!it.text ? 'slide-placeholder' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
         } else if (it.type === 'image') {
           // Through the deck (works for everyone who can open it, once saved); just after inserting,
           // before the save, the person who added it opens the picture file directly.

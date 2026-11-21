@@ -7,6 +7,11 @@ import { asDrawn, withFallbackFonts } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString } from 'pdf-lib';
 import { themeOfDeck } from './powerpoint.js';
 import { chartTable } from './sheetchart.js';
+import { slideListLines } from './liststyle.js';
+/** A text box's words, each line with its bullet or number when it's a list. */
+const boxText = (it) => (it.list ? slideListLines(it.text, it.list).map((l) => (l.marker ? `${l.marker} ${l.text}` : l.text)).join('\n') : it.text || '');
+/** Every list marker the deck's boxes show (for the fonts to find, beside the deck's own text). */
+const markersOf = (deck) => (deck.slides || []).flatMap((s) => (s.items || []).filter((it) => it.list).flatMap((it) => slideListLines(it.text, it.list).map((l) => l.marker || ''))).join('');
 import { drawChart, plottable } from './sheetpdfchart.js';
 
 const W = 960, H = 540;
@@ -21,7 +26,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
   const marks = []; // [{ title, page }]: the PDF's bookmarks, a slide each
   const S = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)), i: asDrawn(await pdf.embedFont(StandardFonts.HelveticaOblique)), bi: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBoldOblique)) };
   // what Helvetica can't draw (Greek, Cyrillic, Chinese, Thai, Tamil…) from an installed font that has it (pdffonts.js)
-  const fonts = await withFallbackFonts(pdf, JSON.stringify({ deck, title, author }), S.r);
+  const fonts = await withFallbackFonts(pdf, JSON.stringify({ deck, title, author }) + markersOf(deck), S.r);
   const F = { r: fonts.wrap(S.r), b: fonts.wrap(S.b, true), i: fonts.wrap(S.i), bi: fonts.wrap(S.bi, true) };
   const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { S.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : fonts.drawable(ch) ? ch : '?'; } }).join(''); // (line breaks kept)
   const theme = themeOfDeck(deck);
@@ -76,7 +81,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
       const border = it.outline ? { borderColor: col(it.outline, theme.text), borderWidth: Number(it.outlineW) || 1 } : {};
       if (it.type === 'text') {
         if (it.fill || it.outline) page.drawRectangle({ x: b.x, y: b.y, width: b.w, height: b.h, ...(it.fill && { color: col(it.fill, theme.accent) }), ...border });
-        text(page, it.text || '', b, { size, font: fontOf(it), color: col(it.color, theme.text), align: it.align || 'left', underline: !!it.underline });
+        text(page, boxText(it), b, { size, font: fontOf(it), color: col(it.color, theme.text), align: it.align || 'left', underline: !!it.underline });
       } else if (it.type === 'shape') {
         const fill = col(it.fill || 'accent', theme.accent);
         const shape = it.shape || 'rect';
@@ -153,7 +158,7 @@ export async function notesPdfFromDeck(deck, title = 'Presentation', opts = {}) 
   if (opts.author) pdf.setAuthor(opts.author);
   pdf.setLanguage(opts.lang || 'en');
   const S = { r: asDrawn(await pdf.embedFont(StandardFonts.Helvetica)), b: asDrawn(await pdf.embedFont(StandardFonts.HelveticaBold)) };
-  const fonts = await withFallbackFonts(pdf, JSON.stringify({ deck, title }), S.r);
+  const fonts = await withFallbackFonts(pdf, JSON.stringify({ deck, title }) + markersOf(deck), S.r);
   const font = fonts.wrap(S.r), bold = fonts.wrap(S.b, true);
   const safe = (t) => [...String(t ?? '')].map((ch) => { if (ch === '\n') return ch; try { S.r.encodeText(ch); return ch; } catch { return /\s/.test(ch) ? ' ' : fonts.drawable(ch) ? ch : '?'; } }).join('');
   const PW = 595.28, PH = 841.89, M = 56, size = 11, lead = size * 1.45;

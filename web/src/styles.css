@@ -3409,3 +3409,7 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* Admin's lists of checks and snapshots: on a narrow screen the buttons go under the name (which keeps room), rather than squeezing it to a word a line with its date under them. */
 .health-list li.row { flex-wrap: wrap; row-gap: 6px; }
 .health-list li.row > .grow { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+
+/* A slide text box as a list: each line's bullet or number hanging to its left. */
+.slide-para.listed { padding-left: 2em; text-indent: -2em; }
+.slide-para.listed .slide-mark { display: inline-block; width: 2em; padding-right: 0.45em; box-sizing: border-box; text-align: right; text-indent: 0; }

@@ -105,9 +105,10 @@ await step('new slide with a layout; drag and resize a box', async () => {
   let it = (await content()).slides[1].items[1];
   if (Math.round(it.x) !== 11 || Math.round(it.y) !== 28) throw new Error(`moved to ${it.x}, ${it.y}`);
   const h = await page.locator('.slide-stage .slide-item.sel .handle.se').boundingBox();
+  const s2 = await stage().boundingBox(); // (measured again: with a box selected the toolbar can take another row, and the stage less room)
   await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
   await page.mouse.down();
-  await page.mouse.move(h.x - s.width * 0.2, h.y - s.height * 0.1, { steps: 5 });
+  await page.mouse.move(h.x - s2.width * 0.2, h.y - s2.height * 0.1, { steps: 5 });
   await page.mouse.up();
   await saved();
   it = (await content()).slides[1].items[1];

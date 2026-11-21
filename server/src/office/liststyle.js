@@ -88,3 +88,11 @@ export function readLabel(label, open = null) {
   if (/^[•●▪■◦○o·–\-➢➤✓✔]$/.test(t) || FONT_BULLETS[t]) return { kind: 'bulletList', bullet: bulletOfWord(t === '•' || t === '·' ? '●' : t === '○' ? '○' : t) };
   return null;
 }
+
+/** A slide text box as a list (its `list`: a bullet or numbering above): each line with its marker ("ii.", "✓"; none on an empty line). */
+export function slideListLines(text, list) {
+  const lines = String(text || '').split('\n');
+  const isNum = NUMBERINGS.some(([k]) => k === list), isBullet = BULLETS.some(([k]) => k === list);
+  let n = 0;
+  return lines.map((t) => ({ text: t, marker: !t.trim() || (!isNum && !isBullet) ? null : isNum ? listLabel(list, ++n) : bulletChar(list) }));
+}
