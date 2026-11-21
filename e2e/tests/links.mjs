@@ -178,6 +178,25 @@ await step('Download all (.zip): the folder\'s files, its document as Word and s
   if (!/Project brief, version 2/.test(await zip.file('brief.txt').async('string'))) throw new Error('brief.txt');
 });
 
+await step('a link to one document, made in its Share window: someone without an account reads it and downloads it as Word', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Terms', content: { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Terms of work' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'Payment within 30 days.' }] }] } });
+  await page.goto(B + '/drive');
+  await page.getByLabel('Actions for Terms').click();
+  await page.getByRole('menuitem', { name: 'Share' }).click();
+  const sec = page.getByRole('region', { name: 'Link sharing' });
+  await sec.getByText('Anyone with a link can view and download this document (as Word)').waitFor();
+  await sec.getByRole('button', { name: 'Create link' }).click();
+  await page.getByText('Link created and copied').waitFor();
+  const docLink = await sec.getByLabel('Share link').inputValue();
+  await page.keyboard.press('Escape');
+  await anon.goto(docLink);
+  await anon.getByRole('heading', { name: 'Terms', exact: true }).waitFor();
+  await anon.getByText('Payment within 30 days.').waitFor();
+  const [dl] = await Promise.all([anon.waitForEvent('download'), anon.getByRole('link', { name: 'Download as Word' }).click()]);
+  if (dl.suggestedFilename() !== 'Terms.docx') throw new Error(dl.suggestedFilename());
+  if (await anon.getByRole('button', { name: /^Back to/ }).count()) throw new Error('a single document has nothing to go back to');
+});
+
 await step('phone width', async () => {
   await anon.setViewportSize({ width: 375, height: 740 });
   await anon.goto(fileLink);

@@ -1193,7 +1193,7 @@ export function ShareDialog({ file, onClose }) {
       {shares?.length > 0 && <p className="muted small">A date beside someone ends their access after that day; leave it empty for no end.</p>}
       {external > 0 && <p className="muted small">{external === 1 ? '1 person' : `${external} people`} outside {user.org_name} can open this.</p>}
       {file.kind === 'folder' && <p className="muted small">People get the same access to everything inside this folder.</p>}
-      {(file.kind === 'file' || file.kind === 'folder') && <LinkSharing file={file} />}
+      {['file', 'folder', 'doc', 'sheet', 'slides'].includes(file.kind) && <LinkSharing file={file} />}
     </Modal>
   );
 }
@@ -1266,7 +1266,7 @@ function LinkSharing({ file }) {
     catch (e) { toast(e.message, 'error'); }
   }
 
-  const what = file.kind === 'folder' ? 'this folder and everything in it' : 'this file';
+  const what = file.kind === 'folder' ? 'this folder and everything in it' : { doc: 'this document (as Word)', sheet: 'this spreadsheet (as Excel)', slides: 'this presentation (as PowerPoint)' }[file.kind] || 'this file';
   return (
     <section className="link-share" aria-label="Link sharing">
       {dataCheck}

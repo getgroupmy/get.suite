@@ -767,7 +767,7 @@ test('share links: “tell me when it’s opened”, the first time and then at 
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: false })).body.notify_open, false);
 });
 
-test('public folder links: documents, spreadsheets and presentations inside are shown as published and downloaded as Office files', async () => {
+test('public links to documents, spreadsheets and presentations, and to folders with them inside: shown as published, downloaded as Office files', async () => {
   const pub = client();
   const sharer = client();
   assert.equal((await owner('POST', '/api/users', { local: 'folderdocs', domain: 'acme.com', name: 'Folder Docs', password: 'password123' })).status, 201);
@@ -834,6 +834,20 @@ test('public folder links: documents, spreadsheets and presentations inside are 
   const locked = (await sharer('POST', '/api/links', { file_id: folder.id, password: 'handover-1' })).body;
   assert.equal((await pub('GET', `/api/public/links/${locked.token}/content?item=${sheet.id}`)).status, 401);
   assert.equal((await pub('GET', `/api/public/links/${locked.token}/zip`)).status, 401);
+  // A link to one spreadsheet: it opens on its own, its picture with it, and downloads as Excel.
+  const one = (await sharer('POST', '/api/links', { file_id: sheet.id })).body;
+  assert.ok(one.token, JSON.stringify(one));
+  const info = (await pub('GET', `/api/public/links/${one.token}`)).body;
+  assert.deepEqual([info.kind, info.name, info.root, info.items], ['sheet', 'Figures', sheet.id, undefined]);
+  assert.deepEqual((await pub('GET', `/api/public/links/${one.token}/content`)).body.content.sheets.map((x) => x.name), ['Totals']);
+  assert.equal((await pub('GET', `/api/public/links/${one.token}/items/${sheet.id}/-/pictures/${pic.id}`)).status, 200);
+  assert.equal((await pub('GET', `/api/public/links/${one.token}/content?item=${doc.id}`)).status, 404, 'only that spreadsheet');
+  const asExcel = await pub('GET', `/api/public/links/${one.token}/raw?download`, undefined, { binary: true });
+  assert.match(asExcel.headers.get('content-disposition'), /Figures\.xlsx/);
+  assert.equal((await pub('GET', `/api/public/links/${one.token}/zip`)).status, 404, 'a zip only for folders');
+  const off = (await sharer('POST', '/api/links', { file_id: doc.id })).body; // (its downloading is turned off)
+  assert.equal((await pub('GET', `/api/public/links/${off.token}`)).body.no_download, true, 'the page knows not to offer it');
+  assert.equal((await pub('GET', `/api/public/links/${off.token}/raw?download`)).status, 403);
   const fileLink = (await sharer('POST', '/api/links', { file_id: pic.id })).body;
   assert.equal((await pub('GET', `/api/public/links/${fileLink.token}/zip`)).status, 404, 'a file link has no zip');
   assert.equal((await pub('GET', `/api/public/links/${locked.token}/items/${sheet.id}/-/pictures/${pic.id}`)).status, 401);
@@ -849,7 +863,7 @@ test('public share links: no account needed; expiry, password, folders, revoking
   await login(sharer, 'linker@acme.com');
   const file = (await sharer('POST', '/api/files/upload?name=quote.pdf', '%PDF-1.4 hi', { raw: true })).body;
   const doc = (await sharer('POST', '/api/files/new', { kind: 'doc', name: 'Plan' })).body;
-  assert.equal((await sharer('POST', '/api/links', { file_id: doc.id })).status, 400, 'docs cannot have links (yet)');
+  assert.equal((await sharer('POST', '/api/links', { file_id: doc.id, mode: 'upload' })).status, 400, 'a document can have a link, not a file request');
   assert.equal((await owner('POST', '/api/links', { file_id: file.id })).status, 404, 'only people with access, and only the owner');
 
   const link = (await sharer('POST', '/api/links', { file_id: file.id })).body;

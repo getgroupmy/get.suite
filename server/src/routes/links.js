@@ -28,7 +28,8 @@ import { sendTo } from '../hub.js';
 import { csvCell } from '../csvcell.js';
 
 const LINKABLE = ['file', 'folder'];
-// Inside a linked folder, documents, spreadsheets and presentations are shown (read-only) and downloaded as Office files.
+// Documents, spreadsheets and presentations (linked themselves, or inside a linked folder) are shown read-only and
+// downloaded as Office files.
 const OPENABLE = ['doc', 'sheet', 'slides'];
 const OFFICE = { doc: ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], sheet: ['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], slides: ['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'] };
 /** What someone with the link sees of a document, spreadsheet or presentation: as a published one shows it. */
@@ -120,7 +121,7 @@ export function linkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
   r.post('/', async (req, res) => {
     const f = ownFile(req.body.file_id, req.user);
     if (!linksAllowed(req.user.org_id)) throw forbidden('Your company has turned off public links');
-    if (!LINKABLE.includes(f.kind)) throw bad('Links work for uploaded files and folders');
+    if (!LINKABLE.includes(f.kind) && !OPENABLE.includes(f.kind)) throw bad('Links work for files, folders, documents, spreadsheets and presentations');
     if (f.trashed) throw bad('Restore the file from the trash first');
     let expires = null;
     if (req.body.expires_at != null) {
@@ -285,7 +286,7 @@ export function linkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
 
 /** A link that still works, or an error that says why it doesn't (without revealing the file). */
 function liveLink(token) {
-  const l = q(`SELECT l.*, f.name, f.kind, f.mime, f.size, f.updated_at, u.name AS owner_name, u.disabled, u.org_id, o.name AS org_name, o.allow_links
+  const l = q(`SELECT l.*, f.name, f.kind, f.mime, f.size, f.updated_at, f.no_download, u.name AS owner_name, u.disabled, u.org_id, o.name AS org_name, o.allow_links
                FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by JOIN orgs o ON o.id = u.org_id
                WHERE l.token = ?`).get(String(token || ''));
   const gone = () => new HttpError(404, 'This link doesn’t work. It may have been removed, or the file is no longer shared.');
@@ -328,7 +329,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     }
     // A file request: nothing in the folder is shown; what it takes and the owner's note are.
     if (l.mode === 'upload') return res.json({ ...info, mode: 'upload', accept: l.req_accept ? l.req_accept.split(',') : [], accept_text: acceptText(l.req_accept), accept_attr: acceptAttr(l.req_accept), max_mb: l.req_max_mb ?? null, note: l.req_note ?? null });
-    Object.assign(info, { mime: l.mime, size: l.size, updated_at: l.updated_at, root: l.file_id });
+    Object.assign(info, { mime: l.mime, size: l.size, updated_at: l.updated_at, root: l.file_id, ...(OPENABLE.includes(l.kind) && l.no_download && { no_download: true }) });
     if (l.kind === 'folder') {
       const folder = itemIn(l, req.query.folder);
       if (folder.kind !== 'folder') throw bad('Not a folder');

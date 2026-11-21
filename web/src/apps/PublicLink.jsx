@@ -50,6 +50,7 @@ export default function PublicLink({ token }) {
   else if (info.locked) body = <Unlock token={token} info={info} onKey={(k) => { saveKey(token, k); setKey(k); }} />;
   else if (info.mode === 'upload') body = <FileRequest token={token} info={info} linkKey={key} />;
   else if (info.kind === 'file') body = <FileView file={info} src={raw()} download={raw(null, true)} />;
+  else if (OPENABLE.includes(info.kind)) body = <ItemView token={token} linkKey={key} item={{ id: info.root, name: info.name, kind: info.kind, updated_at: info.updated_at, no_download: info.no_download }} download={raw(null, true)} />;
   else if (open) body = (
     <>
       <button type="button" className="link-btn" onClick={() => setOpen(null)}><Icon name="back" size={18} /> Back to {info.path.at(-1).name}</button>
