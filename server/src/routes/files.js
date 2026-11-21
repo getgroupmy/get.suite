@@ -2163,7 +2163,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       else if (type === 'html' || type === 'htm') content = await docFromWebPage(buf, { savePicture });
       else if (type === 'csv' || type === 'tsv') content = sheetFromDelimited(buf, name, type === 'tsv' ? '\t' : ',');
       else if (type === 'xlsx') { content = await sheetFromExcel(buf, { savePicture }); sheetThreads = commentsOfBook(content); }
-      else if (type === 'ods') { content = await sheetFromOds(buf); sheetThreads = commentsOfOds(content); }
+      else if (type === 'ods') { content = await sheetFromOds(buf, { savePicture }); sheetThreads = commentsOfOds(content); }
       else if (type === 'odp') { content = await deckFromOdp(buf, { savePicture }); slideComments = commentsOfOdpDeck(content); }
       else { content = await deckFromPowerPoint(buf, { savePicture }); slideComments = commentsOfDeck(content); }
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'odt' ? 'an OpenDocument text file' : type === 'ods' ? 'an OpenDocument spreadsheet' : type === 'odp' ? 'an OpenDocument presentation' : type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
@@ -2276,7 +2276,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'txt') return Buffer.from(f.kind === 'slides' ? textFromDeck(content) : textFromDoc(numbered), 'utf8');
     if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
     if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData, page: f.kind === 'doc' ? setupOf(f) : null, comments: f.kind === 'doc' ? wordCommentsOf(f.id) : [], signatures: f.kind === 'doc' ? (await import('./signatures.js')).signedRecord(f.id) : null });
-    if (type === 'ods') return odsFromSheet(content, { comments: cellCommentsOf(f.id) });
+    if (type === 'ods') return odsFromSheet(content, { comments: cellCommentsOf(f.id), pictureData });
     if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name, comments: slideCommentsOf(f.id) });
     if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
     if (type === 'xlsx') return excelFromSheet(content, { comments: cellCommentsOf(f.id), pictureData });

@@ -22,7 +22,7 @@ test('.ods out: named ranges as named expressions, groups as row and column grou
   const xml = await (await JSZip.loadAsync(await odsFromSheet(sheet))).file('content.xml').async('string');
   assert.match(xml, /<\/table:table><table:named-expressions><table:named-range table:name="Amounts" table:base-cell-address="\$Sales\.\$A\$1" table:cell-range-address="\$Sales\.\$A\$2:\.\$A\$4"\/><table:named-range table:name="Rate" [^>]*table:cell-range-address="\$Sales\.\$A\$2"\/><table:named-range table:name="Totals" [^>]*table:cell-range-address="\$'Other sheet'\.\$A\$1:\.\$A\$2"\/><\/table:named-expressions>/);
   assert.match(xml, /<table:table-column-group table:display="false"><table:table-column [^>]*table:visibility="collapse"[^>]*\/><table:table-column [^>]*table:visibility="collapse"[^>]*\/><\/table:table-column-group>/);
-  assert.match(xml, /<table:table-row-group><table:table-row>(?:(?!<\/table:table-row-group>).)*<\/table:table-row><table:table-row>(?:(?!<\/table:table-row-group>).)*<\/table:table-row><\/table:table-row-group>/);
+  assert.match(xml, /<table:table-row-group><table:table-row[^>]*>(?:(?!<\/table:table-row-group>).)*<\/table:table-row><table:table-row[^>]*>(?:(?!<\/table:table-row-group>).)*<\/table:table-row><\/table:table-row-group>/);
   assert.equal((xml.match(/<table:table-row-group/g) || []).length, 1);
 });
 

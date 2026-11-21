@@ -235,6 +235,37 @@ print(json.dumps({ 'pics': [[i.anchor._from.col, i.anchor._from.row, i.anchor.ex
   await page.locator('.sheet-picture').waitFor({ state: 'detached' });
   await until(async () => !Object.keys((await content()).pictures || {}).length, 10000);
 });
+await step('an OpenDocument spreadsheet LibreOffice made, with a picture tied to a cell: the picture shows over that cell, and the .ods download has it there', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-ods-'));
+  const made = spawnSync('python3', ['-I', '-c', `
+import sys, io, openpyxl
+from openpyxl.drawing.image import Image
+from PIL import Image as P
+wb = openpyxl.Workbook(); ws = wb.active; ws['A1'] = 'Stamp'
+b = io.BytesIO(); P.new('RGB', (90, 45), (20, 160, 60)).save(b, 'PNG'); b.seek(0)
+ws.add_image(Image(b), 'D6')
+wb.save(sys.argv[1])
+`, path.join(dir, 'Stamped.xlsx')]);
+  if (made.status !== 0 || spawnSync('soffice', ['--headless', '--convert-to', 'ods', '--outdir', dir, path.join(dir, 'Stamped.xlsx')], { timeout: 120000 }).status !== 0) { console.log('(no openpyxl, Pillow or LibreOffice here: skipped)'); return; }
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'Stamped.ods', mimeType: 'application/vnd.oasis.opendocument.spreadsheet', buffer: fs.readFileSync(path.join(dir, 'Stamped.ods')) });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Stamped'));
+  await page.goto(`${B}/sheets/${f.id}`);
+  const pic = page.locator('.sheet-picture').first();
+  await pic.waitFor();
+  await until(async () => (await pic.locator('img').evaluate((i) => i.complete && i.naturalWidth)) === 90); // (it was dropped)
+  const [box, d6] = [await pic.boundingBox(), await page.locator('.grid td[data-k="D6"]').boundingBox()];
+  if (Math.abs(box.x - d6.x) > 2 || Math.abs(box.y - d6.y) > 2 || Math.round(box.width) !== 90 || Math.round(box.height) !== 45) throw new Error(`not 90 × 45 over D6: ${JSON.stringify([box, d6])}`);
+  const ods = await page.evaluate(async (id) => { const b = new Uint8Array(await (await fetch(`/api/files/${id}/export?format=ods`)).arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s); }, f.id);
+  const { sheetFromOds } = await import(`${ROOT}/server/src/office/ods.js`);
+  const back = Object.values((await sheetFromOds(Buffer.from(ods, 'base64'), { savePicture: async () => 'x' })).sheets[0].pictures || {});
+  const content = (await api(page, 'GET', `/files/${f.id}/content`)).body.content;
+  const mine = Object.values((content.sheets || content)[0].pictures || {})[0];
+  if (back.length !== 1 || back[0].x !== mine.x || back[0].y !== mine.y || back[0].w !== 90) throw new Error(`the download: ${JSON.stringify([back, mine])}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 await step('Picture in the Sheets toolbar: a picture from the computer goes over the cursor\'s cell at its size (big ones made smaller), and a colleague sees it', async () => {
   const { spawnSync } = await import('node:child_process');
   const r = spawnSync('python3', ['-I', '-c', `

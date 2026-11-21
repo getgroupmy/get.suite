@@ -280,8 +280,19 @@ function threadAnnotation(t) {
   const lines = [...String(t.text).split('\n'), ...(t.replies || []).flatMap((r) => [`Reply${r.author ? ` (${String(r.author).replace(/[()\n]/g, '')})` : ''}:`, ...String(r.text || '').split('\n').map((l) => `    ${l}`)])];
   return `<office:annotation><dc:creator>${x(t.author || 'Workspace')}</dc:creator><dc:date>${new Date(Number.isFinite(t.at) ? t.at : Date.now()).toISOString().slice(0, 19)}</dc:date>${lines.map((l) => `<text:p>${x(l)}</text:p>`).join('')}</office:annotation>`;
 }
-export async function odsFromSheet(data, { comments = [] } = {}) {
+export async function odsFromSheet(data, { comments = [], pictureData } = {}) {
   const sheets = data?.sheets?.length ? data.sheets : [{ name: 'Sheet1', cells: {} }];
+  // Pictures over the cells: each file read once, kept in Pictures/ (as LibreOffice keeps them).
+  const pictureFiles = new Map(); // file id → { path, data, mime }
+  if (pictureData) {
+    for (const p of sheets.flatMap((sh) => Object.values(sh?.pictures || {}).slice(0, 50))) {
+      if (!p?.file || pictureFiles.has(p.file)) continue;
+      let got = null;
+      try { got = await pictureData(p.file); } catch { got = null; }
+      const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/bmp': 'bmp', 'image/webp': 'webp' }[got?.mime];
+      pictureFiles.set(p.file, ext ? { path: `Pictures/picture${pictureFiles.size + 1}.${ext}`, data: got.data, mime: got.mime } : null);
+    }
+  }
   const tables = tablesOf(sheets);
   const cellStyles = new Map(), dataStyles = new Map(), colStyles = new Map(), rowStyles = new Map();
   const dataStyle = (f) => {
@@ -315,7 +326,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
   };
   const sized = (map, prefix, family, prop, len) => {
     const key = `${len}`;
-    if (!map.has(key)) map.set(key, { name: `${prefix}${map.size + 1}`, xml: `<style:style style:name="${prefix}${map.size + 1}" style:family="${family}"><style:${family}-properties ${prop}="${len}"/></style:style>` });
+    if (!map.has(key)) map.set(key, { name: `${prefix}${map.size + 1}`, xml: `<style:style style:name="${prefix}${map.size + 1}" style:family="${family}"><style:${family}-properties ${prop}="${len}"${family === 'table-row' ? ' style:use-optimal-row-height="false"' : ''}/></style:style>` }); // (a row set to its height: kept, however near the usual)
     return map.get(key).name;
   };
   const pxToCm = (px) => `${(Number(px) * 2.54 / 96).toFixed(3)}cm`;
@@ -392,16 +403,35 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
     const groupAt = (list, i) => list.find((g) => g.from <= i && i <= g.to);
     const open = (list, i, tag) => { const g = list.find((x) => x.from === i); return g ? `<table:table-${tag}-group${g.collapsed ? ' table:display="false"' : ''}>` : ''; };
     const close = (list, i, tag) => (list.some((x) => x.to === i) ? `</table:table-${tag}-group>` : '');
+    // Pictures over the cells: each tied to the cell its corner is over, placed from that cell's corner (as LibreOffice
+    // keeps them, so they stay put whatever size its rows and columns are by default).
+    const picAt = new Map(); // cell → frames
+    let loose = '';
+    for (const [k, p] of Object.values(s.pictures || {}).slice(0, 50).entries()) {
+      const f = pictureFiles.get(p?.file);
+      if (!f) continue;
+      const alt = String(p.alt || `Picture ${k + 1}`).slice(0, 200);
+      let c = 0, cx = Math.max(0, (Number(p.x) || 0) - 46), r = 0, cy = Math.max(0, (Number(p.y) || 0) - 24);
+      for (let w; c < 1023 && cx >= (w = s.colWidths?.[colName(c)] ?? 100); c++) cx -= w;
+      for (let h; r < 99999 && cy >= (h = s.rowHeights?.[String(r + 1)] ?? 24); r++) cy -= h;
+      const frame = (fx, fy) => `<draw:frame draw:z-index="${k}" draw:name="${x(alt)}" svg:width="${pxCm(p.w || 200)}" svg:height="${pxCm(p.h || 150)}" svg:x="${pxCm(fx)}" svg:y="${pxCm(fy)}"><draw:image xlink:href="${x(f.path)}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad" draw:mime-type="${x(f.mime)}"><text:p/></draw:image><svg:desc>${x(alt)}</svg:desc></draw:frame>`;
+      const key = `${colName(c)}${r + 1}`;
+      if (covered.has(key)) { loose += frame(Math.max(0, (Number(p.x) || 0) - 46), Math.max(0, (Number(p.y) || 0) - 24)); continue; } // (inside merged cells: on the sheet)
+      picAt.set(key, (picAt.get(key) || '') + frame(cx, cy));
+      maxC = Math.max(maxC, c); maxR = Math.max(maxR, r + 1);
+    }
     let cols = '';
     for (let c = 0; c <= maxC; c++) {
       const w = s.colWidths?.[colName(c)];
       const folded = groupAt(colGroups, c)?.collapsed;
       cols += `${open(colGroups, c, 'column')}<table:table-column table:style-name="${sized(colStyles, 'co', 'table-column', 'style:column-width', pxToCm(w || 100))}"${hiddenCols.has(c) || folded ? ' table:visibility="collapse"' : ''} table:default-cell-style-name="Default"/>${close(colGroups, c, 'column')}`;
     }
+    // The rest of the columns as wide as Sheets has them (100 pixels), so LibreOffice lays the sheet out as Sheets does.
+    if (maxC < 1023) cols += `<table:table-column table:style-name="${sized(colStyles, 'co', 'table-column', 'style:column-width', pxToCm(100))}" table:number-columns-repeated="${1023 - maxC}" table:default-cell-style-name="Default"/>`;
     let rows = '';
     for (let r = 1; r <= maxR; r++) {
       const h = s.rowHeights?.[String(r)];
-      let row = `${open(rowGroups, r - 1, 'row')}<table:table-row${h ? ` table:style-name="${sized(rowStyles, 'ro', 'table-row', 'style:row-height', pxToCm(h))}"` : ''}${hiddenRows.has(r - 1) || groupAt(rowGroups, r - 1)?.collapsed ? ' table:visibility="collapse"' : filteredRows.has(r) ? ' table:visibility="filter"' : ''}>`;
+      let row = `${open(rowGroups, r - 1, 'row')}<table:table-row table:style-name="${sized(rowStyles, 'ro', 'table-row', 'style:row-height', pxToCm(h || 24))}"${hiddenRows.has(r - 1) || groupAt(rowGroups, r - 1)?.collapsed ? ' table:visibility="collapse"' : filteredRows.has(r) ? ' table:visibility="filter"' : ''}>`;
       for (let c = 0; c <= maxC; c++) {
         const key = `${colName(c)}${r}`;
         if (covered.has(key)) { row += '<table:covered-table-cell/>'; continue; }
@@ -453,6 +483,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
         const note = s.notes?.[key];
         if (note) inner = `<office:annotation><text:p>${String(note).split('\n').map(x).join('</text:p><text:p>')}</text:p></office:annotation>${inner}`;
         else if (threadAt.has(key)) inner = threadAnnotation(threadAt.get(key)) + inner; // (a cell's own note wins, as in Excel)
+        if (picAt.has(key)) inner += picAt.get(key);
         row += attrs.length || inner ? `<table:table-cell ${attrs.join(' ')}>${inner}</table:table-cell>` : '<table:table-cell/>';
       }
       rows += `${row}</table:table-row>${close(rowGroups, r - 1, 'row')}`;
@@ -469,6 +500,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
       frames += chartFrame(ch, chartObjects.length, name);
       chartObjects.push(obj);
     }
+    frames += loose;
     for (const [nm, target] of Object.entries(s.names || {})) { // named ranges (on the whole file, as in LibreOffice and Excel)
       const m = /^([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?$/i.exec(String(target || '').trim());
       if (!m || !/^[A-Za-z_][A-Za-z0-9_.]{0,99}$/.test(nm) || /^[A-Za-z]{1,3}\d+$/.test(nm) || namesUsed.has(nm.toLowerCase())) continue; // (a name once in the file: the first sheet's)
@@ -499,6 +531,7 @@ export async function odsFromSheet(data, { comments = [] } = {}) {
 <manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">
 <manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="${ODS_MIME}"/>
 ${['content.xml', 'styles.xml', 'meta.xml', 'settings.xml'].map((f) => `<manifest:file-entry manifest:full-path="${f}" manifest:media-type="text/xml"/>`).join('\n')}
+${[...pictureFiles.values()].filter(Boolean).map((f) => `<manifest:file-entry manifest:full-path="${f.path}" manifest:media-type="${f.mime}"/>`).join('\n')}
 ${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${k + 1}/" manifest:version="1.3" manifest:media-type="application/vnd.oasis.opendocument.chart"/><manifest:file-entry manifest:full-path="Object ${k + 1}/content.xml" manifest:media-type="text/xml"/>`).join('\n')}
 </manifest:manifest>`;
   const zip = new JSZip();
@@ -508,6 +541,7 @@ ${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${
   zip.file('meta.xml', meta);
   zip.file('settings.xml', settingsXml);
   chartObjects.forEach((o, k) => zip.file(`Object ${k + 1}/content.xml`, o));
+  for (const f of pictureFiles.values()) if (f) zip.file(f.path, f.data, { compression: 'STORE', createFolders: false });
   zip.file('META-INF/manifest.xml', manifest);
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', mimeType: ODS_MIME });
 }
@@ -516,10 +550,11 @@ ${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${
 const kids = (el) => el?.children || [];
 const tags = (el, name) => kids(el).filter((k) => k.type === 'tag' && (!name || k.name === name));
 const textOf = (el) => (el.type === 'text' ? el.data : el.name === 'text:s' ? ' '.repeat(Number(el.attribs['text:c']) || 1) : el.name === 'text:tab' ? '\t' : el.name === 'text:line-break' ? '\n' : el.name === 'office:annotation' ? '' : kids(el).map(textOf).join(''));
+const pxCm = (px) => `${(Math.max(0.01, Number(px) || 0) * 2.54 / 96).toFixed(3)}cm`;
 const lengthPx = (v) => { const m = /^([\d.]+)(cm|mm|in|pt|px)$/.exec(String(v || '')); if (!m) return null; const n = Number(m[1]); return Math.round({ cm: n * 96 / 2.54, mm: n * 96 / 25.4, in: n * 96, pt: n * 4 / 3, px: n }[m[2]]); };
 
 /** Read an .ods file as a spreadsheet's content: { sheets }. */
-export async function sheetFromOds(buffer) {
+export async function sheetFromOds(buffer, { savePicture } = {}) {
   const zip = await JSZip.loadAsync(buffer);
   const contentXml = await zip.file('content.xml')?.async('string');
   if (!contentXml) throw new Error('Not an OpenDocument spreadsheet');
@@ -638,6 +673,10 @@ export async function sheetFromOds(buffer) {
     // (a column group: a marker before and after its columns, to find where it starts and ends)
     (function cols(n) { for (const k of tags(n)) { if (k.name === 'table:table-column') columns.push(k); else if (k.name === 'table:table-column-group') { columns.push({ group: 'start', display: k.attribs['table:display'] }); cols(k); columns.push({ group: 'end' }); } else if (/^table:table-(header-)?columns$/.test(k.name)) cols(k); } })(t);
     const groups = [], openCols = [];
+    // The sheet's own default width: its last columns, repeated to the edge of the sheet (LibreOffice writes them so).
+    const tail = [...columns].reverse().find((k) => !k.group);
+    const tailPx = tail && (Number(tail.attribs['table:number-columns-repeated']) || 1) >= 100 ? lengthPx(styles.get(tail.attribs['table:style-name'])?.colp?.['style:column-width']) : null;
+    const isDefault = (px) => (tailPx ? px === tailPx : Math.abs(px - 85) <= 4 || Math.abs(px - 100) <= 2);
     for (const col of columns) {
       if (col.group === 'start') { openCols.push({ from: c0, display: col.display }); continue; }
       if (col.group === 'end') { const g = openCols.pop(); if (g && !openCols.length && c0 > g.from) groups.push({ axis: 'col', from: g.from, to: c0 - 1, display: g.display }); continue; }
@@ -645,13 +684,14 @@ export async function sheetFromOds(buffer) {
       const st = styles.get(col.attribs['table:style-name']);
       const px = lengthPx(st?.colp?.['style:column-width']);
       for (let i = 0; i < rep && c0 < 702; i++, c0++) {
-        if (px && Math.abs(px - 85) > 4 && Math.abs(px - 100) > 2 && rep < 100) colWidths[colName(c0)] = Math.max(20, Math.min(1000, px));
+        if (px && !isDefault(px) && rep < 100) colWidths[colName(c0)] = Math.max(20, Math.min(1000, px));
         if (col.attribs['table:visibility'] === 'collapse' && rep < 100) hideCols.push(c0);
         colDefault[c0] = col.attribs['table:default-cell-style-name'];
       }
     }
     // Rows (in groups and header-rows too).
     const rowEls = [];
+    const cellOf = new Map(); // draw:frame → [column, row] of the cell it's tied to
     (function rws(n) { for (const k of tags(n)) { if (k.name === 'table:table-row') rowEls.push(k); else if (k.name === 'table:table-row-group') { rowEls.push({ group: 'start', display: k.attribs['table:display'] }); rws(k); rowEls.push({ group: 'end' }); } else if (/^table:table-(header-)?rows$/.test(k.name)) rws(k); } })(t);
     let r = 1;
     const openRows = [];
@@ -666,7 +706,7 @@ export async function sheetFromOds(buffer) {
       const rst = styles.get(row.attribs['table:style-name']);
       for (let i = 0; i < Math.min(rep, 1000) && r <= 100000; i++, r++) {
         const h = lengthPx(rst?.rowp?.['style:row-height']);
-        if (h && rst?.rowp?.['style:use-optimal-row-height'] !== 'true' && Math.abs(h - 17) > 3) rowHeights[String(r)] = Math.max(16, Math.min(600, h));
+        if (h && rst?.rowp?.['style:use-optimal-row-height'] !== 'true' && (rst?.rowp?.['style:use-optimal-row-height'] === 'false' ? h !== 24 : Math.abs(h - 17) > 3)) rowHeights[String(r)] = Math.max(16, Math.min(600, h));
         if (row.attribs['table:visibility'] === 'collapse') hideRows.push(r - 1);
         let c = 0;
         for (const cell of cellsIn) {
@@ -674,6 +714,7 @@ export async function sheetFromOds(buffer) {
           const has = kids(cell).length || cell.attribs['table:formula'] || cell.attribs['office:value-type'];
           const vname = cell.attribs['table:content-validation-name'];
           if (vname && validationDefs.has(vname)) for (let j = 0; j < Math.min(crep, 1024) && c + j < 702; j++) { if (!validated.has(vname)) validated.set(vname, []); validated.get(vname).push([c + j, r]); }
+          if (i === 0) for (const fr of tags(cell, 'draw:frame')) cellOf.set(fr, [c, r - 1]); // (a picture or chart tied to this cell: placed from its corner)
           if (!has && cell.attribs['table:style-name'] === undefined) { c += crep; continue; }
           for (let j = 0; j < Math.min(crep, has ? 1000 : 50) && c < 702; j++, c++) {
             if (cell.name === 'table:covered-table-cell') continue;
@@ -742,6 +783,13 @@ export async function sheetFromOds(buffer) {
     const rules = cfEl ? rulesFromCalcext(cfEl, { tags, formulaFromOds, look: (st) => { const f = formatOf(st); return { fill: f.fill, color: f.color, bold: !!f.b }; } }) : [];
     // The filter LibreOffice keeps for this sheet (an AutoFilter), with the values each column hides.
     const filter = filterFromOds(tags(tags(body, 'table:database-ranges')[0] || { children: [] }, 'table:database-range'), t.attribs['table:name'], cells, tags);
+    // Where a cell's corner is on Sheets' grid (its widths and heights, the rest as Sheets draws them).
+    const cellOrigin = (c, r0) => {
+      let ox = 46, oy = 24;
+      for (let k = 0; k < Math.min(c, 702); k++) ox += colWidths[colName(k)] ?? 100;
+      for (let k = 1; k <= Math.min(r0, 100000); k++) oy += rowHeights[String(k)] ?? 24;
+      return { x: ox, y: oy };
+    };
     // Charts: the chart objects in frames on this sheet (in its shapes, or anchored in a cell), drawing from its cells.
     const charts = {};
     const framesIn = (n, acc = []) => { for (const k of tags(n)) { if (k.name === 'draw:frame' && tags(k, 'draw:object').length) acc.push(k); else if (k.name !== 'draw:frame') framesIn(k, acc); } return acc; };
@@ -751,7 +799,27 @@ export async function sheetFromOds(buffer) {
       if (!objXml) continue;
       const find = (n, name) => { for (const k of tags(n)) { if (k.name === name) return k; const f = find(k, name); if (f) return f; } return null; };
       const ch = chartFromObject(parse(objXml), fr, t.attribs['table:name'], { tags, textOf, find });
+      if (ch && cellOf.has(fr)) { const o = cellOrigin(...cellOf.get(fr)); ch.x += o.x - 46; ch.y += o.y - 24; } // (its place measured from its cell; before, every chart LibreOffice tied to a cell came in at the top left)
       if (ch) charts[`o${Object.keys(charts).length + 1}`] = ch;
+    }
+    // Pictures: frames holding an image kept in the file, over the cells (tied to a cell, or to the sheet).
+    const pictures = {};
+    if (savePicture) {
+      const imageFrames = (function find(n, acc = []) { for (const k of tags(n)) { if (k.name === 'draw:frame') { if (tags(k, 'draw:image').length && !tags(k, 'draw:object').length) acc.push(k); } else find(k, acc); } return acc; })(t);
+      for (const fr of imageFrames.slice(0, 50)) {
+        const href = String(tags(fr, 'draw:image')[0].attribs['xlink:href'] || '').replace(/^\.\//, '');
+        const ext = /\.(png|jpe?g|gif|bmp|webp)$/i.exec(href)?.[1]?.toLowerCase();
+        const data = ext && !/^[a-z]+:/i.test(href) && await zip.file(href)?.async('nodebuffer');
+        if (!data) continue; // (a linked picture, or a kind a browser can't show: .svm, .wmf, .emf)
+        const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp' }[ext];
+        const alt = (tags(fr, 'svg:desc')[0] ? textOf(tags(fr, 'svg:desc')[0]) : '') || tags(fr, 'svg:title').map(textOf).join('') || fr.attribs['draw:name'] || '';
+        let file = null;
+        try { file = await savePicture(href.split('/').pop(), data, mime); } catch { file = null; }
+        if (!file) continue;
+        const o = cellOf.has(fr) ? cellOrigin(...cellOf.get(fr)) : { x: 46, y: 24 };
+        const w = Math.max(8, lengthPx(fr.attribs['svg:width']) || 200), h = Math.max(8, lengthPx(fr.attribs['svg:height']) || 150);
+        pictures[`p${Object.keys(pictures).length + 1}`] = { file, ...(alt.trim() && { alt: alt.trim().slice(0, 200) }), x: o.x + (lengthPx(fr.attribs['svg:x']) || 0), y: o.y + (lengthPx(fr.attribs['svg:y']) || 0), w, h };
+      }
     }
     // Groups: collapsed when LibreOffice says so (or all their rows or columns are hidden); what they hide is theirs.
     const sheetGroups = groups.map((g) => {
@@ -764,7 +832,7 @@ export async function sheetFromOds(buffer) {
     }).filter((g) => g.to - g.from < 5000).sort((a, b) => (a.axis === b.axis ? a.from - b.from : a.axis < b.axis ? -1 : 1));
     const frozen = frozenOf.get(t.attribs['table:name']);
     const hide = hideRows.length || hideCols.length ? { ...(hideRows.length && { rows: hideRows }), ...(hideCols.length && { cols: hideCols }) } : null;
-    out.push({ ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, ...(tabColor && { tabColor }), ...(hiddenSheet && { hidden: true }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(sheetGroups.length && { groups: sheetGroups }), ...(Object.keys(notes).length && { notes }) });
+    out.push({ ...(Object.keys(pictures).length && { pictures }), ...(Object.keys(charts).length && { charts }), ...(filter && { filter }), ...(validations.length && { validations }), ...(rules.length && { rules }), name, ...(tabColor && { tabColor }), ...(hiddenSheet && { hidden: true }), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(Object.keys(formats).length && { formats }), ...(frozen && { frozen }), ...(hide && { hide }), ...(sheetGroups.length && { groups: sheetGroups }), ...(Object.keys(notes).length && { notes }) });
   }
   // Named ranges ("Sales" = $Sheet1.$A$2:.$A$10): on the sheet they point into, as Sheets keeps them.
   for (const nr of tags(tags(body, 'table:named-expressions')[0] || { children: [] }, 'table:named-range')) {

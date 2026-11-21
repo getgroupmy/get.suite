@@ -536,7 +536,7 @@ export default function takeoutRoutes() {
       try {
         const extra = officeExtras(f); // page setup and comments, as Drive's own download has them
         const buf = odf
-          ? (f.kind === 'doc' ? await odtFromDoc(withoutSuggestions(content), f.name, { pictureData, ...extra }) : f.kind === 'sheet' ? await odsFromSheet(content, extra) : await odpFromDeck(content, { title: f.name, pictureData, ...extra }))
+          ? (f.kind === 'doc' ? await odtFromDoc(withoutSuggestions(content), f.name, { pictureData, ...extra }) : f.kind === 'sheet' ? await odsFromSheet(content, { pictureData, ...extra }) : await odpFromDeck(content, { title: f.name, pictureData, ...extra }))
           : f.kind === 'doc' ? await wordFromDoc(withoutSuggestions(content), f.name, { pictureData, ...extra })
             : f.kind === 'sheet' ? await excelFromSheet(content, { pictureData, ...extra }) : await powerPointFromDeck(content, { title: f.name, pictureData, ...extra });
         zip.file(where, buf);
