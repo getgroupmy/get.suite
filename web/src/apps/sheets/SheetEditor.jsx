@@ -16,7 +16,7 @@ import { EditorHeader, ReadOnlyBanner } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { PictureCard } from './SheetPictures.jsx';
-import { movePictures } from './pictures.js';
+import { movePictures, anchorOf } from './pictures.js';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
 import { removeDuplicates, splitColumn, trimText, changeCase, mapText, shuffleRows } from './data.js';
@@ -920,6 +920,22 @@ export default function SheetEditor() {
     writeSheet(() => ({ filter: { range: rangeText(g), hidden: {} } }));
     gridRef.current?.focus();
   };
+  /** For printing: the pictures and charts over the printed cells, each in the cell its corner is over (a chart as drawn on the sheet). */
+  function printOverlays(area) {
+    const out = [];
+    const inside = ({ col, row }) => col >= area.c1 && col <= area.c2 && row >= area.r1 && row <= area.r2 && !hidden.has(row) && !hiddenCols.has(col);
+    const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+    for (const p of Object.values(pictures)) {
+      const a = anchorOf(p, colWidths, sheet?.rowHeights || {});
+      if (p?.file && inside(a)) out.push({ key: cellKey(a.col, a.row), ox: a.dx, oy: a.dy, w: p.w, h: p.h, html: `<img src="/api/files/${encodeURIComponent(file.id)}/pictures/${encodeURIComponent(p.file)}" alt="${esc(p.alt || '')}">` });
+    }
+    for (const [cid, ch] of Object.entries(charts)) {
+      const a = anchorOf(ch, colWidths, sheet?.rowHeights || {});
+      const svg = gridRef.current?.querySelector(`.chart-card[data-chart-id="${CSS.escape(cid)}"] svg[role="img"]`);
+      if (svg && inside(a)) out.push({ key: cellKey(a.col, a.row), ox: a.dx, oy: a.dy, w: ch.w, h: ch.h, chart: true, html: `${ch.title ? `<p>${esc(ch.title)}</p>` : ''}${svg.outerHTML}` });
+    }
+    return out;
+  }
   /** A picture from the computer, put over the cursor's cell at its own size (at most 480 × 360, its shape kept). */
   async function insertPicture(f, at = null) {
     if (!f || readOnly) return;
@@ -1538,7 +1554,7 @@ export default function SheetEditor() {
               onChange={(next) => writePicture(pid, next)} onDelete={() => writePicture(pid, null)} onAlt={() => setDialog({ type: 'picture-alt', id: pid })} />
           ))}
           {Object.entries(charts).map(([cid, ch]) => (
-            <ChartCard key={cid} zoom={zoom / 100} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
+            <ChartCard key={cid} id={cid} zoom={zoom / 100} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
               onChange={(next) => writeChart(cid, next)}
               onEdit={() => setDialog({ type: 'chart', chart: { ...ch, id: cid } })}
               onDelete={() => writeChart(cid, null)} />
@@ -1665,11 +1681,17 @@ export default function SheetEditor() {
         <PrintDialog hasSelection={range.c1 !== range.c2 || range.r1 !== range.r2} onClose={() => setDialog(null)} onPrint={(o) => {
           const area = o.what === 'selection' ? range : usedArea([...Object.keys(cells).filter((k) => cells[k] !== '' && cells[k] != null), ...(evaluate.spilledKeys?.() || [])]);
           if (!area) { toast('There is nothing on this sheet to print'); return; }
+          if (o.what === 'sheet') for (const x of [...Object.values(pictures), ...Object.values(charts)]) { // (one over empty cells is printed too)
+            if (!Number.isFinite(Number(x?.x)) || !Number.isFinite(Number(x?.y))) continue;
+            const a = anchorOf(x, colWidths, sheet?.rowHeights || {});
+            area.c2 = Math.max(area.c2, a.col); area.r2 = Math.max(area.r2, a.row);
+          }
           setDialog(null);
           printHtml(sheetPrintHtml({
             title: `${file.name} - ${sheet.name}`, area, text: shown,
             style: (k) => { const m = /^([A-Z]+)(\d+)$/.exec(k); return { ...(m && bandStyle(bands, colIndex(m[1]), Number(m[2]) - 1, formats[k])), ...cellStyle(formats[k]), ...(rules.length && ruleStyle(rules, k, evaluate(k), ruleCtx)) }; },
             layout, hiddenRows: hidden, hiddenCols, width: widthOf, gridlines: o.gridlines, landscape: o.landscape, paper: o.paper,
+            overlays: printOverlays(area),
           }));
         }} />
       )}

@@ -27,3 +27,13 @@ test('a printed sheet: shown values, formatting, merges, hidden rows and columns
   assert.equal((html.match(/<col /g) || []).length, 2);
   assert.doesNotMatch(sheetPrintHtml({ title: 'x', area: { c1: 0, r1: 0, c2: 0, r2: 0 }, text: () => '', gridlines: false }), /border:1px/);
 });
+
+test('pictures and charts over the cells print in the cell their corner is over, as far in; pictures load from this server only', () => {
+  const html = sheetPrintHtml({ title: 'T', area: { c1: 0, r1: 0, c2: 3, r2: 3 }, text: (k) => k,
+    overlays: [{ key: 'C2', ox: 10, oy: 4, w: 120, h: 60, html: '<img src="/api/files/f/pictures/p" alt="Logo">' }, { key: 'B4', ox: 0, oy: 0, w: 300, h: 200, chart: true, html: '<p>Sales</p><svg role="img"></svg>' }] });
+  assert.match(html, /<td class="has-over">C2<div class="over" style="left:10px;top:4px;width:120px;height:60px"><img src="\/api\/files\/f\/pictures\/p" alt="Logo"><\/div><\/td>/);
+  assert.match(html, /<td class="has-over">B4<div class="over chart" style="left:0px;top:0px;width:300px;height:200px"><p>Sales<\/p><svg role="img"><\/svg><\/div><\/td>/);
+  assert.match(html, /img-src 'self'/);
+  assert.equal((html.match(/class="over/g) || []).length, 2);
+  assert.doesNotMatch(sheetPrintHtml({ title: 'T', area: { c1: 0, r1: 0, c2: 1, r2: 1 }, text: () => '' }), /class="has-over"/, 'nothing when there are none');
+});

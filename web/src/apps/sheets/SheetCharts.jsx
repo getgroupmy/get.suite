@@ -8,7 +8,7 @@ import { Modal, Menu } from '../../components/ui.jsx';
 export const MIN_W = 240, MIN_H = 180;
 
 /** One chart on the sheet. `onChange(next)` is called once a move or resize ends. */
-export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, onDelete, zoom = 1 }) {
+export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, onDelete, zoom = 1, id }) {
   const [live, setLive] = useState(null); // position/size while dragging
   const [snap, setSnap] = useState(false); // making its picture
   const drag = useRef(null);
@@ -44,7 +44,7 @@ export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, on
   }, []);
 
   return (
-    <section className={`chart-card ${live ? 'dragging' : ''}`} style={{ left: box.x, top: box.y, width: box.w, height: box.h }} aria-label={`Chart: ${chart.title || 'Untitled'}`}
+    <section className={`chart-card ${live ? 'dragging' : ''}`} data-chart-id={id} style={{ left: box.x, top: box.y, width: box.w, height: box.h }} aria-label={`Chart: ${chart.title || 'Untitled'}`}
       onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); if (canEdit) onEdit(); }}>
       <header className={`chart-head ${canEdit ? 'movable' : ''}`} onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
         <h3 title={chart.title}>{chart.title || <span className="muted">Untitled chart</span>}</h3>

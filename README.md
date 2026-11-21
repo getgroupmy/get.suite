@@ -378,7 +378,7 @@ A sheet's tab can also have a colour, to find it at a glance among many (this mo
 
 ## Printing (Sheets)
 
-- **Print or save as PDF** (⋮ menu) prints the sheet, or just the selected cells (chosen for you when several are selected), on A4 or Letter, portrait or landscape, with or without gridlines. Values print as they're shown (formatted numbers, dates and formula results), with bold, colours, fills, alignment, borders, merged cells and column widths. Hidden and filtered-out rows and columns are left out. Choose "Save as PDF" in the print dialog for a PDF.
+- **Print or save as PDF** (⋮ menu) prints the sheet, or just the selected cells (chosen for you when several are selected), on A4 or Letter, portrait or landscape, with or without gridlines. Values print as they're shown (formatted numbers, dates and formula results), with bold, colours, fills, alignment, borders, merged cells and column widths. Hidden and filtered-out rows and columns are left out. Pictures and charts over the cells print too, each in the cell its corner is over (the sheet printed far enough to reach one over empty cells; with a selection, those over the selected cells). Choose "Save as PDF" in the print dialog for a PDF. (A unit test checks they're placed in their cells; the browser test prints a sheet with two pictures and one with a chart and finds the pictures loaded, the chart with its title and bars, on the printed page.)
 
 ## Find and replace (Sheets)
 

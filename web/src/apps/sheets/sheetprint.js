@@ -1,6 +1,6 @@
 // Printing a sheet (or the selected cells), or saving it as PDF: a plain page with the cells as
-// they look (values as shown, formatting, merged cells), hidden and filtered-out rows and columns
-// left out, on A4 or Letter in portrait or landscape, with or without gridlines.
+// they look (values as shown, formatting, merged cells) and the pictures and charts over them, hidden and
+// filtered-out rows and columns left out, on A4 or Letter in portrait or landscape, with or without gridlines.
 import { cellKey, parseRef } from './formula.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -29,7 +29,11 @@ export function usedArea(keys) {
  * The page: { title, area, text(k), style(k), layout: { spans, covered }, hiddenRows, hiddenCols,
  * width(c), gridlines, landscape, paper: 'A4' | 'Letter' }.
  */
-export function sheetPrintHtml({ title, area, text, style = () => ({}), layout = { spans: new Map(), covered: new Map() }, hiddenRows = new Set(), hiddenCols = new Set(), width = () => 100, gridlines = true, landscape = false, paper = 'A4' }) {
+export function sheetPrintHtml({ title, area, text, style = () => ({}), layout = { spans: new Map(), covered: new Map() }, hiddenRows = new Set(), hiddenCols = new Set(), width = () => 100, gridlines = true, landscape = false, paper = 'A4', overlays = [] }) {
+  // Pictures and charts over the cells: each in the cell its corner is over, as far in (`html` is made here or taken from
+  // the page's own chart, never from what's typed in a cell).
+  const over = new Map();
+  for (const o of overlays) over.set(o.key, [...(over.get(o.key) || []), o]);
   const cols = [];
   for (let c = area.c1; c <= area.c2; c++) if (!hiddenCols.has(c)) cols.push(c);
   const rows = [];
@@ -51,15 +55,16 @@ export function sheetPrintHtml({ title, area, text, style = () => ({}), layout =
         if (rs > 1) attrs += ` rowspan="${rs}"`;
       }
       const css = cssOf(style(k));
-      tds.push(`<td${attrs}${css ? ` style="${esc(css)}"` : ''}>${esc(text(k))}</td>`);
+      const extra = (over.get(k) || []).map((o) => `<div class="over${o.chart ? ' chart' : ''}" style="left:${Math.round(o.ox)}px;top:${Math.round(o.oy)}px;width:${Math.round(o.w)}px;height:${Math.round(o.h)}px">${o.html}</div>`).join('');
+      tds.push(`<td${attrs}${extra ? ' class="has-over"' : ''}${css ? ` style="${esc(css)}"` : ''}>${esc(text(k))}${extra}</td>`);
     }
     rows.push(`<tr>${tds.join('')}</tr>`);
   }
   const colgroup = cols.map((c) => `<col style="width:${Math.round(width(c))}px">`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${esc(title)}</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"><title>${esc(title)}</title>
 <style>@page{size:${paper === 'Letter' ? 'letter' : 'A4'} ${landscape ? 'landscape' : 'portrait'};margin:12mm}
 body{margin:0;font:11px/1.3 system-ui,sans-serif;color:#000;background:#fff}
 table{border-collapse:collapse;table-layout:fixed}td{padding:2px 4px;vertical-align:bottom;overflow:hidden;white-space:nowrap${gridlines ? ';border:1px solid #c8c8c8' : ''}}
-tr{break-inside:avoid}</style></head>
+tr{break-inside:avoid}td.has-over{position:relative;overflow:visible}.over{position:absolute;z-index:1}.over img{width:100%;height:100%;display:block}.over.chart{background:#fff;box-shadow:0 0 0 1px #ddd;border-radius:6px;padding:4px 8px;box-sizing:border-box;white-space:normal;overflow:hidden}.over.chart p{margin:0 0 4px;font-weight:600;font-size:13px}</style></head>
 <body><table><colgroup>${colgroup}</colgroup><tbody>${rows.join('')}</tbody></table></body></html>`;
 }

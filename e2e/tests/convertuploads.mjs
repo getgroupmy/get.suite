@@ -473,6 +473,33 @@ await step('the document with a chart, downloaded as a web page and opened in th
   await view.getByRole('cell', { name: 'South' }).waitFor();
   await ctx.close();
 });
+await step('Print or save as PDF: the pictures and the chart over the cells are on the printed page, in their cells', async () => {
+  const printOf = async (name) => {
+    const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === name);
+    if (!f) throw new Error(`no ${name} spreadsheet (an earlier step failed)`);
+    await page.goto(`${B}/sheets/${f.id}`);
+    await page.locator('.grid td[data-k="A1"]').click();
+    // (printing happens in a frame: keep its print window from opening in the test browser)
+    await page.evaluate(() => { const d = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow'); Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', { configurable: true, get() { const w = d.get.call(this); if (w) w.print = () => {}; return w; } }); });
+    await page.evaluate(() => document.querySelectorAll('iframe.print-frame').forEach((x) => x.remove()));
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Print or save as PDF' }).click();
+    const d = page.getByRole('dialog', { name: 'Print or save as PDF' });
+    await d.getByLabel('This sheet').check();
+    await d.getByRole('button', { name: 'Print' }).click();
+    await page.locator('iframe.print-frame').waitFor({ state: 'attached' });
+    return page.frameLocator('iframe.print-frame');
+  };
+  const pics = await printOf('Pasted pictures');
+  const imgs = pics.locator('td.has-over .over img');
+  await until(async () => (await imgs.count()) === 2 && (await imgs.evaluateAll((l) => l.every((i) => i.complete && i.naturalWidth > 0))));
+  if (!(await pics.locator('td.has-over', { has: pics.locator('img[alt="Stamp"]') }).count())) throw new Error('the stamp is not in a cell');
+  const chart = await printOf('Moving chart');
+  const svg = chart.locator('td.has-over .over.chart svg');
+  await svg.waitFor({ state: 'attached' });
+  if ((await chart.locator('td.has-over .over.chart p').innerText()) !== 'Sales by month') throw new Error('the chart\'s title');
+  if ((await svg.locator('rect').count()) < 2) throw new Error('the chart\'s bars');
+});
 await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
   if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');
