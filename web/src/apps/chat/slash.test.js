@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SLASH, parseSlash, slashSuggestions } from './slash.js';
+import { SLASH, parseSlash, slashSuggestions, remindWhen } from './slash.js';
 
 test('commands', () => {
   assert.deepEqual(parseSlash('/meet'), { cmd: 'meet' });
@@ -20,7 +20,7 @@ test('not commands: text, a path, an unknown word', () => {
 });
 
 test('suggestions while typing', () => {
-  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'event', 'dnd', 'status', 'thanks', 'invite', 'topic', 'mute', 'leave']);
+  assert.deepEqual(slashSuggestions('/').map((s) => s.cmd), ['meet', 'poll', 'task', 'event', 'dnd', 'status', 'thanks', 'invite', 'topic', 'mute', 'leave', 'remind']);
   assert.deepEqual(slashSuggestions('/m').map((s) => s.cmd), ['meet', 'mute']);
   assert.deepEqual(slashSuggestions('/p').map((s) => s.cmd), ['poll']);
   assert.deepEqual(slashSuggestions('/s').map((s) => s.cmd), ['status']);
@@ -93,4 +93,20 @@ test('/topic, /mute, /leave', () => {
   assert.match(parseSlash('/mute 400d').error, /a year/);
   assert.deepEqual(parseSlash('/leave'), { cmd: 'leave' });
   assert.equal(parseSlash('/leave early today'), null, 'just a message');
+});
+
+test('/remind: what and when (in 2h, tomorrow 9am, fri 3pm, a day alone at 9:00)', () => {
+  assert.deepEqual(parseSlash('/remind me to call Kim in 2h'), { cmd: 'remind', text: 'me to call Kim in 2h' });
+  assert.match(parseSlash('/remind').error, /\/remind me to/);
+  const now = new Date(2026, 10, 21, 15, 0); // Saturday 21 November 2026, 15:00
+  assert.deepEqual(remindWhen('me to call Kim in 2h', now), { text: 'call Kim', at: now.getTime() + 2 * 36e5 });
+  assert.deepEqual(remindWhen('stretch in 45 minutes', now), { text: 'stretch', at: now.getTime() + 45 * 60e3 });
+  assert.deepEqual(remindWhen('me about the invoice in a day', now), { text: 'the invoice', at: now.getTime() + 864e5 });
+  assert.deepEqual(remindWhen('me to send the slides tomorrow 9am', now), { text: 'send the slides', at: new Date(2026, 10, 22, 9, 0).getTime() });
+  assert.deepEqual(remindWhen('book the room fri 3pm', now), { text: 'book the room', at: new Date(2026, 10, 27, 15, 0).getTime() });
+  assert.deepEqual(remindWhen('pay rent monday', now), { text: 'pay rent', at: new Date(2026, 10, 23, 9, 0).getTime() });
+  assert.match(remindWhen('call Kim', now).error, /Say when/);
+  assert.match(remindWhen('in 2h', now).error, /Say what/);
+  assert.match(remindWhen('call Kim at 9am', now).error, /passed/);
+  assert.match(remindWhen('call Kim in 400 days', now).error, /a year/);
 });

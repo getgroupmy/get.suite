@@ -27,7 +27,7 @@ import { scheduleWith, withFreeTime } from '../../components/scheduleWith.js';
 import { eventFromChat } from './eventfrom.js';
 import { localToday } from '../tasks/taskmath.js';
 import { newEventMinutes, DEFAULT_CAL_PREFS } from '../calendar/calprefs.js';
-import { parseSlash } from './slash.js';
+import { parseSlash, remindWhen } from './slash.js';
 import { useSlash } from './useSlash.jsx';
 import { useEmojiTyping } from '../../components/emojityping.jsx';
 import SaveToFolder from './SaveToFolder.jsx';
@@ -401,7 +401,7 @@ export default function Chat() {
   // Your reminders about messages (shown on them), kept up to date live.
   const [reminders, setReminders] = useState(new Map());
   const [reminderList, setReminderList] = useState([]); // the same, with each message (⏰ Reminders)
-  const loadReminders = useCallback(() => get('/chat/reminders').then((l) => { setReminders(new Map(l.map((x) => [x.message_id, x.at]))); setReminderList(l); }).catch(() => {}), []);
+  const loadReminders = useCallback(() => get('/chat/reminders').then((l) => { setReminders(new Map(l.filter((x) => !x.own).map((x) => [x.message_id, x.at]))); setReminderList(l); }).catch(() => {}), []);
   useEffect(() => { loadReminders(); }, [loadReminders]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-reminders') loadReminders(); }), [loadReminders]);
 
@@ -827,9 +827,18 @@ export default function Chat() {
         ) : savedOpen === 'reminders' && !search ? (
           <div className="chat-results">
             <div className="chat-head"><h1 className="grow">Reminders</h1><button type="button" className="icon-btn" aria-label="Close reminders" onClick={() => setSavedOpen(false)}><Icon name="close" /></button></div>
-            {!reminderList.length ? <Empty icon="chat" title="No reminders">Hover over a message and choose the clock to be reminded about it later. Only you see your reminders.</Empty> : (
+            {!reminderList.length ? <Empty icon="chat" title="No reminders">Hover over a message and choose the clock to be reminded about it later, or type /remind me to call Kim in 2h. Only you see your reminders.</Empty> : (
               <ul aria-label="Reminders">
-                {reminderList.map((r) => (
+                {reminderList.map((r) => r.own ? (
+                  <li key={r.id} className="row">
+                    <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); navigate(`/chat/${r.channel_id}`); }}>
+                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`} · your reminder</span>
+                      <span>{r.text}</span>
+                    </button>
+                    <button type="button" className="icon-btn" aria-label={`Cancel reminder: ${r.text.slice(0, 40)}`} title="Cancel the reminder"
+                      onClick={async () => { try { await del(`/chat/reminders/own/${r.id}`); toast('Reminder removed'); } catch (e) { toast(e.message, 'error'); } }}><Icon name="close" size={16} /></button>
+                  </li>
+                ) : (
                   <li key={r.message_id} className="row">
                     <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); openResult({ id: r.message_id, channel_id: r.channel_id, parent_id: r.parent_id }); }}>
                       <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`}{r.parent_id ? ' · in a thread' : ''}</span>
@@ -1089,8 +1098,15 @@ async function setStatusFrom(slash, toast) {
 /** /dnd: pause notifications (for some minutes, or until 9:00 tomorrow), or turn them back on. Nothing is posted. */
 /** /invite, /topic, /mute and /leave: about the conversation they're typed in. True when it was one of them. */
 async function channelSlash(slash, c, { toast, navigate, reload }) {
-  if (!['invite', 'topic', 'mute', 'leave'].includes(slash.cmd)) return false;
+  if (!['invite', 'topic', 'mute', 'leave', 'remind'].includes(slash.cmd)) return false;
   const name = c.dm_key ? 'this conversation' : `#${c.name}`;
+  if (slash.cmd === 'remind') { // a reminder for you, linking back here
+    const w = remindWhen(slash.text);
+    if (w.error) throw new Error(w.error);
+    await post(`/chat/channels/${c.id}/reminders`, w);
+    toast(`I'll remind you ${whenText(w.at)}: ${w.text}`);
+    return true;
+  }
   const names = (list) => (list.length === 1 ? list[0].name : `${list.slice(0, -1).map((u) => u.name).join(', ')} and ${list.at(-1).name}`);
   if (slash.cmd === 'invite') {
     if (c.dm_key) throw new Error('A direct message is just the two of you: start a group conversation or a channel for more');

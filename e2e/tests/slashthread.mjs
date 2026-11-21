@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { SLASH } from '../../web/src/apps/chat/slash.js'; // every command is listed
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
@@ -47,7 +48,7 @@ await step('the reply box lists the commands; Escape closes the list, not the th
   await m.getByRole('button', { name: 'Reply in thread' }).click();
   await reply().fill('/');
   const list = panel().getByRole('listbox', { name: 'Commands' });
-  if ((await list.getByRole('option').count()) !== 11) throw new Error(`no list: ${await list.getByRole('option').count()}`);
+  if ((await list.getByRole('option').count()) !== SLASH.length) throw new Error(`no list: ${await list.getByRole('option').count()}`);
   await reply().press('ArrowDown');
   await reply().press('Enter');
   if (await reply().inputValue() !== '/poll ') throw new Error(await reply().inputValue());

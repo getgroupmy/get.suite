@@ -23,8 +23,12 @@ const api = (p, method, url, body) => p.evaluate(async ([m, u, b]) => {
 }, [method, url, body]);
 const signIn = async (p, email) => { await p.goto(B); await p.evaluate(async (e) => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: e, password: 'password123' }) }), email); };
 const until = async (fn, ms = 8000) => { const end = Date.now() + ms; let v; for (;;) { v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 150)); } };
-let ch, kim;
-await step('setup: a channel and a colleague', async () => {
+
+const titles = (p = page, label = 'Tasks') => p.getByRole('list', { name: label, exact: true }).locator('.task-title').allInnerTexts();
+const task = (p, t) => p.locator('.task', { has: p.locator('.task-title', { hasText: new RegExp(`^${t}$`) }) });
+const pad = (n) => String(n).padStart(2, '0');
+const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
   await page.getByLabel('Company domain').fill('acme.com');
@@ -34,33 +38,48 @@ await step('setup: a channel and a colleague', async () => {
   await page.getByLabel('Confirm password').fill('password123');
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
-  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
-  ch = (await api(page, 'POST', '/chat/channels', { name: 'office' })).body.id;
-  await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Morning all' });
-  kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
-  for (const p of [page, kim]) { await p.goto(`${B}/chat/${ch}`); await p.getByText('Morning all').waitFor(); }
 });
-await step('Remind me about this on a message: In 1 hour shows on it; Cancel takes it off', async () => {
-  const msg = page.locator('.msg', { hasText: 'Morning all' });
-  await msg.hover();
-  await msg.getByRole('button', { name: 'Remind me about this' }).click();
-  await page.getByRole('menuitem', { name: /^In 1 hour/ }).click();
-  await page.getByText(/^I'll remind you today at|^I'll remind you tomorrow at/).first().waitFor();
-  await msg.locator('.msg-reminder').waitFor();
-  await page.screenshot({ path: `${SP}/shots/chat-remind.png` });
-  await msg.locator('.msg-reminder').getByRole('button', { name: 'Cancel' }).click();
-  await msg.locator('.msg-reminder').waitFor({ state: 'detached' });
+let general;
+const box = (p) => p.getByRole('textbox', { name: /^Message/ });
+const run = async (p, text) => { await box(p).fill(text); await box(p).press('Enter'); };
+const side = (p) => p.locator('aside.subnav');
+await step('/remind me to call Kim in 2 hours: a reminder, listed under Reminders with where it was made', async () => {
+  general = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  await page.goto(`${B}/chat/${general}`);
+  await run(page, '/remind me to call Kim in 2 hours');
+  await page.getByText(/^I'll remind you .*: call Kim$/).waitFor();
+  if (await box(page).inputValue()) throw new Error('left in the box');
+  if ((await api(page, 'GET', `/chat/channels/${general}/messages`)).body.length) throw new Error('posted something');
+  await side(page).getByRole('button', { name: /Reminders\s*1/ }).click();
+  const list = page.getByRole('list', { name: 'Reminders' });
+  await list.getByText('call Kim', { exact: true }).waitFor();
+  await list.getByText(/#general · your reminder/).waitFor();
+  const r = (await api(page, 'GET', '/chat/reminders')).body[0];
+  if (Math.abs(r.at - Date.now() - 2 * 36e5) > 60e3) throw new Error(`at ${new Date(r.at)}`);
+  await page.screenshot({ path: `${SP}/shots/chat-remind-list.png` });
 });
-await step('a reminder that comes due arrives on the bell and leads back to the message', async () => {
-  const id = (await api(page, 'GET', `/chat/channels/${ch}/messages`)).body.find((m) => m.body === 'Morning all').id;
-  const r = await api(page, 'POST', `/chat/messages/${id}/remind`, { at: Date.now() + 31e3 });
-  if (r.status !== 200) throw new Error(JSON.stringify(r.body));
+await step('cancel it from the list', async () => {
+  await page.getByRole('button', { name: 'Cancel reminder: call Kim' }).click();
+  await page.getByText('Reminder removed').waitFor();
+  await page.getByText('No reminders').waitFor();
+});
+await step('without a time: an error, and the text stays to fix', async () => {
+  await page.goto(`${B}/chat/${general}`);
+  await run(page, '/remind me to water the plants');
+  await page.getByText(/^Say when: \/remind me to call Kim in 2h/).waitFor();
+  if (await box(page).inputValue() !== '/remind me to water the plants') throw new Error(await box(page).inputValue());
+});
+await step('one due in a minute arrives in the bell and opens the conversation', async () => {
+  await box(page).fill('/remind stretch your legs in 1 minute');
+  await box(page).press('Enter');
+  await page.getByText(/^I'll remind you .*: stretch your legs$/).waitFor();
   await page.goto(`${B}/drive`);
-  await page.getByRole('button', { name: /^Notifications, 1 new/ }).waitFor({ timeout: 60000 });
-  await page.getByRole('button', { name: /^Notifications/ }).click();
-  await page.getByText(/^Reminder: Olivia Owner in #office/).click();
-  await page.waitForURL(new RegExp(`/chat/${ch}`));
-  await page.locator(`[data-mid="${id}"]`).waitFor();
+  const bellBtn = page.getByRole('button', { name: /Notifications/ }).first();
+  await until(async () => /[1-9]/.test(await bellBtn.getAttribute('aria-label') || ''), 100e3);
+  await bellBtn.click();
+  await page.getByText('Reminder: stretch your legs').click();
+  await page.waitForURL(new RegExp(`/chat/${general}`));
+  if ((await api(page, 'GET', '/chat/reminders')).body.length) throw new Error('still listed');
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

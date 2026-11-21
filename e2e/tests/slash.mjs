@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { SLASH } from '../../web/src/apps/chat/slash.js'; // every command is listed
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, ''); // the repository
 const SP = process.argv[2];
 const B = process.env.BASE || 'http://localhost:8080';
@@ -47,7 +48,7 @@ await step('typing / lists the commands; picking one fills it in', async () => {
   await box().fill('/');
   const list = page.getByRole('listbox', { name: 'Commands' });
   const items = await list.getByRole('option').allInnerTexts();
-  if (items.length !== 11 || !/^\/meet/.test(items[0])) throw new Error(items.join('|'));
+  if (items.length !== SLASH.length || !/^\/meet/.test(items[0])) throw new Error(items.join('|'));
   await box().fill('/p');
   if ((await list.getByRole('option').count()) !== 1) throw new Error('not narrowed');
   await list.getByRole('option').click();

@@ -1,5 +1,6 @@
+import { parseQuickEvent } from '../calendar/quickevent.js';
 // Slash commands typed at the start of the message box: /meet, /poll Question | option | option, /task title, /status, /thanks,
-// /invite, /topic, /mute, /leave.
+// /invite, /topic, /mute, /leave, /remind.
 // alone: complete with nothing after it, so Enter on exactly "/meet" or "/status" runs it rather than picking it from the list.
 export const SLASH = [
   { cmd: 'meet', alone: true, hint: '/meet', what: 'start a video meeting and share it here' },
@@ -13,7 +14,38 @@ export const SLASH = [
   { cmd: 'topic', alone: true, hint: '/topic what it’s about', what: 'set the channel’s topic (alone: clear it)' },
   { cmd: 'mute', alone: true, hint: '/mute 2h', what: 'mute this conversation (for a while, or until /mute off)' },
   { cmd: 'leave', alone: true, hint: '/leave', what: 'leave this channel' },
+  { cmd: 'remind', hint: '/remind me to call Kim in 2h', what: 'a reminder for you (in 2h, tomorrow 9am, fri 3pm…)' },
 ];
+
+const UNIT = { m: 60e3, h: 36e5, d: 864e5, w: 7 * 864e5 };
+/**
+ * "/remind me to call Kim in 2 hours" (or "tomorrow 9am", "fri 3pm", "at 4pm", "monday"): { text, at } (ms), or
+ * { error }. `now` is a Date. A day without a time is 9:00 that day. Times are read as Calendar's quick add reads them.
+ */
+export function remindWhen(input, now = new Date()) {
+  let s = String(input || '').trim().replace(/^me\s+/i, '').replace(/^(?:to|about|that)\s+/i, '');
+  let at = null, text = s;
+  const rel = /\s+in\s+(\d{1,4}|an?|one|half\s+an?)\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)$/i.exec(` ${s}`);
+  if (rel) {
+    const n = /^half/i.test(rel[1]) ? 0.5 : /^\d/.test(rel[1]) ? Number(rel[1]) : 1;
+    at = now.getTime() + n * UNIT[rel[2][0].toLowerCase()];
+    text = ` ${s}`.slice(0, rel.index).trim();
+  } else {
+    const pad = (x) => String(x).padStart(2, '0');
+    const q = parseQuickEvent(s, { today: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` });
+    if (q?.found?.length) {
+      at = q.all_day ? new Date(q.start).setHours(9, 0, 0, 0) : q.start;
+      text = q.title;
+    }
+  }
+  text = text.replace(/\s+/g, ' ').trim();
+  if (at == null) return { error: 'Say when: /remind me to call Kim in 2h (or tomorrow 9am, fri 3pm)' };
+  if (!text) return { error: 'Say what to remind you of: /remind me to call Kim in 2h' };
+  if (at < now.getTime() + 30e3) return { error: 'That time has passed: pick a later one' };
+  if (at > now.getTime() + 365 * 864e5) return { error: 'A reminder can be up to a year ahead' };
+  if (text.length > 500) return { error: 'A reminder is at most 500 characters' };
+  return { text, at };
+}
 
 /** "/invite @kim@acme.com @ben@acme.com": { usernames }. */
 function parseInvite(rest) {
@@ -100,6 +132,7 @@ export function parseSlash(text) {
   if (cmd === 'invite') return parseInvite(rest);
   if (cmd === 'topic') return rest.length > 250 ? { cmd, error: 'A topic is at most 250 characters' } : { cmd, topic: rest };
   if (cmd === 'mute') return parseMute(rest);
+  if (cmd === 'remind') return rest ? { cmd, text: rest } : { cmd, error: 'Write it as /remind me to call Kim in 2h' };
   if (cmd === 'leave') return rest ? null : { cmd }; // "/leave early" is just a message
   if (cmd === 'task') return rest ? { cmd, title: rest.slice(0, 500) } : { cmd, error: 'Write the task after /task' };
   if (cmd === 'poll') {
