@@ -6,7 +6,10 @@
 // leading spaces taken with the one after its box. Through LibreOffice, .odt gained an empty paragraph after a table
 // that ends the document (the one LibreOffice adds); it's left out now. Through Markdown, underline was lost (it's <u>
 // now, as superscript is <sup>), spaces starting a paragraph, item or heading were dropped (written as &#32; now), and two
-// pieces of code side by side ran their backticks together.
+// pieces of code side by side ran their backticks together. Through RTF, code, checklists, quotes and lists inside lists
+// came back as plain paragraphs (code is the fixed-width font now, code blocks and quotes a style of their own, list levels
+// their indent or Word's \\ilvl), a list after a table or heading joined the one before it, LibreOffice's way of writing
+// runs of spaces doubled them, and bold, italic and code on Hebrew were lost through LibreOffice.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,6 +19,7 @@ import { soffice, hasSoffice } from './soffice.js';
 import { wordFromDoc, docFromWord } from '../src/office/word.js';
 import { odtFromDoc, docFromOdt } from '../src/office/odt.js';
 import { markdownFromDoc, docFromMarkdown } from '../src/office/markdown.js';
+import { rtfFromDoc, docFromRtf } from '../src/office/rtf.js';
 
 const T = (text, marks) => ({ type: 'text', text, ...(marks && { marks }) });
 const P = (...c) => ({ type: 'paragraph', content: c });
@@ -121,4 +125,43 @@ test('and 60 through Markdown (.md download, a .md file opened): the same, but f
   const same = (d) => shape(unmarkEdges(JSON.parse(JSON.stringify(d))));
   const wrong = docs.flatMap((doc, k) => (same(docFromMarkdown(markdownFromDoc(doc))) === same(doc) ? [] : [`#${k}`]));
   assert.deepEqual(wrong, []);
+});
+
+// RTF: the same, comparing words with the same marks side by side as one (RTF has no word boundaries of its own), and a
+// heading's words without bold (a heading is bold all through, so bold inside one can't be told apart).
+const rtfShape = (shape) => (d) => {
+  const merge = (list) => list.reduce((o, c) => { const l = o.at(-1); if (l?.type === 'text' && c.type === 'text' && JSON.stringify(l.marks || []) === JSON.stringify(c.marks || [])) l.text += c.text; else o.push({ ...c }); return o; }, []);
+  const tidy = (n, heading = false) => {
+    if (!n.content) return n;
+    const kids = merge(n.content).flatMap((c) => {
+      if (c.type !== 'text') return [tidy(c, c.type === 'heading')];
+      const marks = (c.marks || []).filter((m) => !(heading && m.type === 'bold'));
+      const [, a, core, z] = /^(\s*)([\s\S]*?)(\s*)$/.exec(c.text);
+      return marks.length ? [...(a ? [T(a)] : []), ...(core ? [{ ...c, text: core, marks }] : []), ...(z ? [T(z)] : [])] : [T(c.text)];
+    });
+    return { ...n, content: merge(kids) };
+  };
+  return shape(tidy(JSON.parse(JSON.stringify(d))));
+};
+
+test('60 through RTF and back: the same', () => {
+  const { docs, shape } = randomDocs(60, 13);
+  const same = rtfShape(shape);
+  const wrong = docs.flatMap((doc, k) => (same(docFromRtf(Buffer.from(rtfFromDoc(doc)))) === same(doc) ? [] : [`#${k}`]));
+  assert.deepEqual(wrong, []);
+});
+
+test('and 25 through LibreOffice, saved again by it as .rtf', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
+  const { docs, shape } = randomDocs(25, 3);
+  // (LibreOffice itself drops strikethrough, subscript and superscript on Hebrew and Arabic words in an .rtf: left out here)
+  const plainRtl = (n) => { if (n.type === 'text' && /[\u0590-\u08ff]/.test(n.text) && n.marks) { n.marks = n.marks.filter((m) => !['strike', 'subscript', 'superscript'].includes(m.type)); if (!n.marks.length) delete n.marks; } (n.content || []).forEach(plainRtl); return n; };
+  const same = (d) => rtfShape(shape)(plainRtl(JSON.parse(JSON.stringify(d))));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docspacing-rtf-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'out'));
+    const files = docs.map((doc, k) => { const f = path.join(dir, `d${k}.rtf`); fs.writeFileSync(f, rtfFromDoc(doc)); return f; });
+    soffice([`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'rtf', '--outdir', path.join(dir, 'out'), ...files]);
+    const wrong = docs.flatMap((doc, k) => (same(docFromRtf(fs.readFileSync(path.join(dir, 'out', `d${k}.rtf`)))) === same(doc) ? [] : [`#${k}`]));
+    assert.deepEqual(wrong, []);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -75,7 +75,10 @@ await step('a web page downloaded from here opens as a document again: formattin
 await step('Download as Rich Text (.rtf), and the .rtf opens as a document again', async () => {
   const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Memo' }] },
     { type: 'paragraph', content: [{ type: 'text', text: 'Café ', marks: [{ type: 'italic' }] }, { type: 'text', text: 'opens', marks: [{ type: 'bold' }] }, { type: 'text', text: ' at 9.' }] },
-    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Coffee' }] }] }] }] };
+    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Coffee' }] },
+      { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Order beans' }] }] }] }] }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Run ' }, { type: 'text', text: 'make menu', marks: [{ type: 'code' }] }] },
+    { type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Best in town.' }] }] }] };
   const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Memo', content })).body;
   await page.goto(`${B}/docs/${doc.id}`);
   await page.locator('.ProseMirror').getByText('opens').waitFor();
@@ -91,6 +94,10 @@ await step('Download as Rich Text (.rtf), and the .rtf opens as a document again
   await page.locator('.paper strong', { hasText: 'opens' }).waitFor();
   await page.locator('.paper em', { hasText: 'Café' }).waitFor();
   await page.locator('.paper ul li', { hasText: 'Coffee' }).waitFor();
+  // a checklist under a bullet, code and a quote come back too (they were plain paragraphs)
+  await page.locator('.paper ul li ul[data-type="taskList"] li[data-checked="true"]', { hasText: 'Order beans' }).waitFor();
+  await page.locator('.paper code', { hasText: 'make menu' }).waitFor();
+  await page.locator('.paper blockquote', { hasText: 'Best in town.' }).waitFor();
 });
 await step('Download as PDF (.pdf): made on the server, on the page setup\'s paper, with the words in it', async () => {
   const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Quarterly memo' }] },
