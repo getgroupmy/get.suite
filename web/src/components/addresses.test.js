@@ -12,7 +12,7 @@ test('the address being typed, and putting a chosen one in its place', () => {
   const mid = 'x@y.com, ca; z@w.com';
   const t2 = currentToken(mid, 11);
   assert.equal(t2.text, 'ca');
-  assert.equal(insertAddress(mid, t2, { name: 'Cat, "the" Boss', email: 'cat@acme.com' }).text, 'x@y.com, Cat the Boss <cat@acme.com>, z@w.com');
+  assert.equal(insertAddress(mid, t2, { name: 'Cat, "the" Boss', email: 'cat@acme.com' }).text, 'x@y.com, "Cat, \\"the\\" Boss" <cat@acme.com>, z@w.com');
 });
 
 test('a group puts in everyone in it', () => {
@@ -37,4 +37,13 @@ test('a quoted name with a comma or semicolon in it ("Doe, Jo", as Outlook write
   const v = '"Doe, Jo" <jo@example.org>, be';
   assert.deepEqual(currentToken(v, v.length), { start: 27, end: v.length, text: 'be' });
   assert.equal(currentToken(v, 3).text, '"Doe, Jo" <jo@example.org>', 'the caret inside the quoted name: the whole address');
+});
+
+test('a name with a bracket, colon, comma or quote is put in quotes, and read back the same', async () => {
+  const { formatAddress, parseAddresses } = await import('./addresses.js');
+  const people = [{ name: 'Jo Park (Sales)', email: 'park@x.org' }, { name: 'Acme: Billing', email: 'b@x.org' }, { name: 'Ann "Nan" Lee', email: 'ann@x.org' }, { name: 'a\\b, c', email: 'c@x.org' }, { name: 'Dr. Lee', email: 'lee@x.org' }];
+  const line = people.map(formatAddress).join(', ');
+  assert.equal(line, '"Jo Park (Sales)" <park@x.org>, "Acme: Billing" <b@x.org>, "Ann \\"Nan\\" Lee" <ann@x.org>, "a\\\\b, c" <c@x.org>, Dr. Lee <lee@x.org>');
+  assert.deepEqual(parseAddresses(line), { list: people, bad: [] });
+  assert.equal(formatAddress({ name: 'Two\nlines', email: 't@x.org' }), 'Two lines <t@x.org>');
 });
