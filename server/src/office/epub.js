@@ -56,7 +56,7 @@ function bookWriter(doc, pictures, { toc = false } = {}) {
     if (t === 'paragraph') return `<p${align(n)}>${inline(n.content)}</p>`;
     if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); return `<h${lv}${toc ? ` id="${headId(n)}"` : ''}${align(n)}>${inline(n.content)}</h${lv}>`; }
     if (t === 'bulletList' || t === 'orderedList') return `<${t === 'bulletList' ? 'ul' : 'ol'}>${(n.content || []).map((li) => `<li>${blocks(li.content)}</li>`).join('')}</${t === 'bulletList' ? 'ul' : 'ol'}>`;
-    if (t === 'taskList') return `<ul class="tasks">${(n.content || []).map((li) => `<li>${li.attrs?.checked ? '☑' : '☐'} ${blocks(li.content).replace(/^<p>|<\/p>$/g, '')}</li>`).join('')}</ul>`;
+    if (t === 'taskList') return `<ul class="tasks">${(n.content || []).map((li) => `<li>${li.attrs?.checked ? '☒' : '☐'} ${blocks(li.content).replace(/^<p>|<\/p>$/g, '')}</li>`).join('')}</ul>`;
     if (t === 'blockquote') return `<blockquote>${blocks(n.content)}</blockquote>`;
     if (t === 'codeBlock') return `<pre><code>${x((n.content || []).map((c) => c.text).join(''))}</code></pre>`;
     if (t === 'horizontalRule') return '<hr/>';

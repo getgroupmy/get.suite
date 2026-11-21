@@ -9,6 +9,8 @@ import { markdownFromDoc, docFromMarkdown } from '../src/office/markdown.js';
 import { wordFromDoc, docFromWord } from '../src/office/word.js';
 import { odtFromDoc, docFromOdt } from '../src/office/odt.js';
 import { rtfFromDoc, docFromRtf } from '../src/office/rtf.js';
+import { htmlFromDoc } from '../src/office/epub.js';
+import { docFromWebPage } from '../src/office/plainimport.js';
 
 const hasPandoc = spawnSync('pandoc', ['--version']).status === 0;
 const pandoc = (args, input) => { const r = spawnSync('pandoc', args, { input, maxBuffer: 64 * 1024 * 1024 }); if (r.status !== 0) throw new Error(String(r.stderr)); return r.stdout; };
@@ -193,5 +195,23 @@ test('and 60 as RTF: ours read by pandoc, and pandoc’s (from our Markdown) ope
     // (pandoc's RTF quote is an indented paragraph, as any indented paragraph is: not read as a quote)
     const noQuote = (l) => l.replace(/^([•#T]*)>+/, '$1');
     assert.deepEqual(ourShape(await docFromRtf(pandoc(['-f', 'gfm', '-t', 'rtf', '-s'], md))).map(headBold).map(noQuote), ourShape(noHtmlLooks(JSON.parse(JSON.stringify(doc)))).map(headBold).map(noQuote).map(pandocRtf), `document ${i}, pandoc's .rtf of:\n${md}`);
+  }
+});
+
+test('and 60 as a web page (.html): ours read by pandoc, and pandoc’s (from our Markdown) opened in Docs', { skip: !hasPandoc && 'pandoc isn’t installed here' }, async () => {
+  for (const [i, doc] of randomDocs(60, 5).entries()) {
+    const html = await htmlFromDoc(doc, 'T');
+    // (the page starts with its title; its footnotes are numbered links to the notes at the end, after a line: put back)
+    const notesBack = (lines) => {
+      const out = lines[0] === 'h1: T{}' ? lines.slice(1) : [...lines];
+      const hr = out.lastIndexOf('?HorizontalRule');
+      if (hr < 0) return out;
+      const notes = new Map(out.slice(hr + 1).map((l) => /^#?p: (\d+)\.\{link:#r\d+\} (.*)$/.exec(l)).filter(Boolean).map((m) => [m[1], m[2].replace(/\{[^}]*\}/g, '').replace(/ ↵$/, '')]));
+      return out.slice(0, hr).map((l) => l.replace(/(^|: | )(\d+)\{link:#n\d+,superscript\}/g, (m, pre, k) => `${pre}^(${notes.get(k)}){}`));
+    };
+    assert.deepEqual(notesBack(read('html', Buffer.from(html))), ourShape(doc), `document ${i}, our .html`);
+    const md = markdownFromDoc(doc);
+    const theirs = pandoc(['-f', 'gfm', '-t', 'html'], md);
+    assert.deepEqual(ourShape(await docFromWebPage(theirs, {})), ourShape(doc), `document ${i}, pandoc's .html of:\n${md}`);
   }
 });

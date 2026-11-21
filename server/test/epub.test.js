@@ -41,7 +41,7 @@ test('EPUB: the container, chapters at top-level headings, a table of contents, 
   assert.match(ch2, /<strong>Bold<\/strong> &amp; <a href="https:\/\/ex\.example\/a\?b=1&amp;c=2">a link<\/a><a epub:type="noteref" id="r1" href="#n1"><sup>1<\/sup><\/a>/);
   assert.match(ch2, /<h2>A section<\/h2>/);
   assert.match(ch2, /<aside epub:type="footnote" id="n1"><p><a href="#r1">1\.<\/a> First &lt;note&gt;<\/p><\/aside>/);
-  assert.match(ch2, /☑ done/);
+  assert.match(ch2, /☒ done/);
   const ch3 = await zip.file('OEBPS/chapter3.xhtml').async('string');
   assert.match(ch3, /<img src="images\/1\.png" alt="A dot"\/>/);
   assert.match(ch3, /id="n1"[^>]*><p><a href="#r1">1\.<\/a> Second note/, 'notes counted again in each chapter');

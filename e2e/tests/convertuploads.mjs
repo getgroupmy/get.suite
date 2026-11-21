@@ -146,6 +146,19 @@ await step('a Rich Text file made by pandoc opens with its nested list, footnote
   if ((await ed.locator('sup[data-footnote]').getAttribute('title')) !== 'Bought on Monday.') throw new Error('the footnote'); // (was left out)
   if ((await ed.locator('pre').textContent()) !== 'npm test') throw new Error('the code block'); // (was a paragraph of code)
 });
+await step('a web page made by pandoc opens with its checklist and footnote', async () => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('pandoc', ['--version']).status !== 0) { console.log('(no pandoc here: skipped)'); return; }
+  const buf = spawnSync('pandoc', ['-f', 'gfm', '-t', 'html', '-s', '--metadata', 'title=Plan'], { input: '- [ ] Book the room\n- [x] Send the agenda\n\nSee the note[^1].\n\n[^1]: Bought on Monday.\n' }).stdout;
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'From pandoc web.html', mimeType: 'text/html', buffer: buf });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === 'From pandoc web'));
+  await page.goto(`${B}/docs/${f.id}`);
+  const ed = page.locator('.ProseMirror').first();
+  await ed.locator('ul[data-type="taskList"] li', { hasText: 'Send the agenda' }).waitFor(); // (was a bullet list, its boxes gone)
+  if ((await ed.locator('ul[data-type="taskList"] li[data-checked="true"]').count()) !== 1) throw new Error('ticks');
+  if ((await ed.locator('sup[data-footnote]').getAttribute('title')) !== 'Bought on Monday.') throw new Error('the footnote'); // (was a "1" linking to a list at the end)
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';

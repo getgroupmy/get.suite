@@ -30,6 +30,21 @@ export async function docFromWebPage(buf, { savePicture } = {}) {
     return notes.size ? '' : m;
   });
   html = html.replace(/<a id="r(\d+)" href="#n\d+"><sup>\d+<\/sup><\/a>/g, (m, k) => (notes.has(k) ? `<sup data-footnote="" data-note="${h(notes.get(k))}"></sup>` : m));
+  // Footnotes as pandoc and others mark them (ARIA's doc-endnotes and doc-noteref): the notes at the end, each linked from
+  // its number in the text; their link back left out.
+  const endnotes = new Map();
+  html = html.replace(/<(aside|section|div)\b[^>]*role="doc-endnotes"[^>]*>([\s\S]*?)<\/\1>/i, (m, tag, inner) => {
+    for (const li of inner.matchAll(/<li\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/li>/g)) {
+      endnotes.set(li[1], unh(li[2].replace(/<a\b[^>]*(?:role="doc-backlink"|class="footnote-back")[^>]*>[\s\S]*?<\/a>/g, '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim());
+    }
+    return endnotes.size ? '' : m;
+  });
+  html = html.replace(/<a\b([^>]*)>\s*(?:<sup>)?\s*[\w*†‡]+\s*(?:<\/sup>)?\s*<\/a>/g, (m, attrs) => {
+    const id = /\bhref="#([^"]+)"/.exec(attrs)?.[1];
+    return id && endnotes.has(id) && /role="doc-noteref"|class="footnote-ref"/.test(attrs) ? `<sup data-footnote="" data-note="${h(endnotes.get(id))}"></sup>` : m;
+  });
+  // Checklists as GitHub and pandoc write them: a list whose items start with a tick box (ticked: checked), made the box it shows.
+  html = html.replace(/<input\b[^>]*\btype="checkbox"[^>]*>\s*/gi, (m) => (/\bchecked\b/i.test(m) ? '☒ ' : '☐ '));
   // Equations (MathML): as equations.
   html = html.replace(/<math\b[\s\S]*?<\/math>/gi, (m) => { const l = mathmlToLatex(m); return l ? `<span data-math="" data-latex="${h(l)}"></span>` : ''; });
   // Pictures in the page: saved to Drive; others (on the web) left as their description.
