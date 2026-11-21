@@ -557,7 +557,9 @@ export async function sheetFromOds(buffer) {
     const maps = own.filter((k) => k.name === 'style:map');
     const isPct = el.name === 'number:percentage-style';
     const extraText = own.some((k) => k.name === 'number:text' && !(isPct && textOf(k).trim() === '%')); // (a percentage's own % is just that)
-    const plain = !maps.length && !extraText && !own.some((k) => k.name === 'style:text-properties' || k.name === 'number:fraction') && !own.some((k) => k.name === 'number:number' && k.attribs['number:display-factor']);
+    // (a plain number is one with thousands separators, as Sheets' Number format has them: 0.000 without is its own code)
+    const grouped = isPct || own.some((k) => k.name === 'number:number' && k.attribs['number:grouping'] === 'true');
+    const plain = grouped && !maps.length && !extraText && !own.some((k) => k.name === 'style:text-properties' || k.name === 'number:fraction') && !own.some((k) => k.name === 'number:number' && k.attribs['number:display-factor']);
     if (plain || el.attribs['style:volatile'] === 'true') continue;
     const sub = (cond) => { const m = maps.find((k) => k.attribs['style:condition'] === cond); const e = m && numberEls.get(m.attribs['style:apply-style-name']); return e ? sectionFromStyle(e) : null; };
     const main = sectionFromStyle(el);

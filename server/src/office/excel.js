@@ -35,7 +35,8 @@ export function numFromExcel(fmt) {
   const iso = /\[\$([A-Z]{3})\]/.exec(main) || /"([A-Z]{3})"/.exec(main);
   const sign = CURRENCY_SIGNS.find(([s]) => main.includes(s) || main.includes(`[$${s}`));
   if (iso || sign) return { num: 'currency', cur: iso ? iso[1] : sign[1], dp };
-  if (/^(#,##0|0)(\.0+)?$/.test(main.trim()) && !fmt.includes(';')) return { num: 'number', dp };
+  // (Sheets' Number format has thousands separators: 0.000 without them is kept as its own code, not made 1,234.500)
+  if (/^#,##0(\.0+)?$/.test(main.trim()) && !fmt.includes(';')) return { num: 'number', dp };
   // Anything else (sections, colours, text, scaling…) is kept as the code itself.
   return { num: 'custom', code: String(fmt).slice(0, 120) };
 }
@@ -116,7 +117,7 @@ export function linkCell(v) {
   return !text || text === href ? `=HYPERLINK(${q(href)})` : `=HYPERLINK(${q(href)}, ${q(text)})`;
 }
 
-function cellText(cell) {
+function cellText(cell, rawOf) {
   const v = cell.value;
   if (v === null || v === undefined) return null;
   if (typeof v === 'object') {
@@ -125,6 +126,8 @@ function cellText(cell) {
       return /^=(TRUE|FALSE)$/i.test(f) ? f.slice(1).toUpperCase() : f; // a tick-box value LibreOffice saves as =TRUE(): the value itself
     }
     if (v instanceof Date) {
+      // a number too big (or small) to be a date, in a cell formatted as one: the number itself, from the file (it stopped the file opening)
+      if (Number.isNaN(v.getTime())) { const raw = rawOf?.(cell.address); return raw === undefined || raw === null ? null : String(raw); }
       const fmt = String(cell.numFmt || '').replace(/"[^"]*"|\[[^\]]*\]/g, '').toLowerCase();
       const iso = v.toISOString(), time = iso.slice(11, 19);
       // A time on its own (h:mm, h:mm AM/PM): the fraction of a day, as the time functions take it
@@ -255,6 +258,22 @@ export async function sheetFromExcel(buffer) {
   const fromLibreOffice = /<Application>\s*LibreOffice/i.test(appXml || '');
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
+  // A cell's value as written in the file (<v>), for the few exceljs can't keep (a number too big to be a date, in a cell
+  // formatted as one): read from the sheets that have one.
+  const rawSheets = new Map();
+  const needRaw = wb.worksheets.filter((ws) => { let bad = false; ws.eachRow((row) => row.eachCell((c) => { if (c.value instanceof Date && Number.isNaN(c.value.getTime())) bad = true; })); return bad; });
+  if (needRaw.length) {
+    const zip = await JSZip.loadAsync(buffer);
+    const wbXml = await zip.file('xl/workbook.xml')?.async('string') || '', rels = await zip.file('xl/_rels/workbook.xml.rels')?.async('string') || '';
+    const target = new Map([...rels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)].map((m) => [m[1], m[2]]));
+    for (const ws of needRaw) {
+      const rid = [...wbXml.matchAll(/<sheet\b[^>]*\/>/g)].map((m) => m[0]).find((t) => (/\bname="([^"]*)"/.exec(t)?.[1] || '').replace(/&amp;/g, '&') === ws.name)?.match(/\br:id="([^"]+)"/)?.[1];
+      const file = target.get(rid);
+      const xml = file ? await zip.file(`xl/${file.replace(/^\/?xl\//, '')}`)?.async('string') : null;
+      if (xml) rawSheets.set(ws.name, new Map([...xml.matchAll(/<c\b[^>]*\br="([A-Z]+\d+)"[^>]*>(?:(?!<\/c>)[\s\S])*?<v>([^<]*)<\/v>/g)].map((m) => [m[1], m[2]])));
+    }
+  }
+  const rawValues = (sheetName, addr) => rawSheets.get(sheetName)?.get(addr);
   const noteSheets = await notesOfXlsx(buffer);
   const threadSheets = await threadedCommentsOfXlsx(buffer);
   const sheets = [];
@@ -280,7 +299,7 @@ export async function sheetFromExcel(buffer) {
       else if (row.hidden && r <= 10000) hideRows.push(r - 1);
       row.eachCell({ includeEmpty: true }, (cell, c) => {
         const key = `${colName(c - 1)}${r}`;
-        let t = cellText(cell);
+        let t = cellText(cell, (addr) => rawValues(ws.name, addr));
         // Kept as written when every reference resolves to a table that keeps its name here (so they go on
         // following the table as it grows); otherwise written as plain ranges.
         if (tableRefs.length && typeof t === 'string' && t.startsWith('=') && t.includes('[')) { const plain = `=${plainTableRefs(t.slice(1), tableRefs, r, c - 1)}`; if (plain.includes('[') || !tableRefs.every((x) => usableTableName(x.name))) t = plain; }

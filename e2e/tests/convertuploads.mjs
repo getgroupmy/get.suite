@@ -74,6 +74,17 @@ await step('a Word file with a checklist inside a bulleted list comes in with th
   await page.locator('.ProseMirror ul li ul[data-type="taskList"] li[data-checked="true"]', { hasText: 'Book the room' }).waitFor();
   await page.locator('.ProseMirror ul li ul[data-type="taskList"] li[data-checked="false"]', { hasText: 'Send invites' }).waitFor();
 });
+await step('an Excel file with a number too big to be a date in a date-formatted cell opens (it didn\'t), and 0.000 stays 0.000', async () => {
+  const { excelFromSheet } = await import(`${ROOT}/server/src/office/excel.js`);
+  const buf = await excelFromSheet({ sheets: [{ name: 'Data', cells: { A1: '123456789012', A2: '1234.5' }, formats: { A1: { num: 'date' }, A2: { num: 'custom', code: '0.000' } } }] });
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'Readings.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: buf });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Readings'));
+  await page.goto(`${B}/sheets/${f.id}`);
+  await page.locator('.grid td[data-k="A2"]', { hasText: '1234.500' }).waitFor(); // (not 1,234.500)
+  const sheet = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0];
+  if (sheet.cells.A1 !== '123456789012') throw new Error(JSON.stringify(sheet.cells));
+});
 await step('an OpenDocument file ending with a table, as LibreOffice saves it (an empty paragraph after), comes in ending with the table', async () => {
   const { odtFromDoc } = await import(`${ROOT}/server/src/office/odt.js`);
   const cellP = (text) => ({ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
