@@ -55,6 +55,30 @@ await step('Import mail from an .mbox file: its messages arrive in a folder name
   await page.getByText(`${tag} dinner`).click();
   await page.getByText('From the menu: soup.').waitFor();
 });
+await step('an .mbox written by another program (Python\'s mailbox module): a "From " line and accents in a message come through', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('python3', ['-I', '-c', `
+import sys, mailbox, time
+box = mailbox.mbox(sys.argv[1])
+for n, body in enumerate(['From here on, prices go up.\\nThanks, Zoë', 'Second one, no last line break']):
+    m = mailbox.mboxMessage(('From: Zoë <zoe@example.org>\\nTo: olivia@acme.com\\nSubject: ${tag} python %d\\nMessage-ID: <${tag}-py%d@example.org>\\nDate: Wed, 07 Jan 2015 10:00:00 +0000\\nContent-Type: text/plain; charset=utf-8\\nContent-Transfer-Encoding: 8bit\\n\\n' % (n, n) + body).encode())
+    m.set_from('zoe@example.org', time.gmtime(1420624800))
+    box.add(m)
+box.flush()
+`, `${SP}/From Python.mbox`]);
+  if (r.status !== 0) throw new Error(String(r.stderr));
+  if (!/^>From here on/m.test((await import('node:fs')).readFileSync(`${SP}/From Python.mbox`, 'latin1'))) throw new Error('Python didn\'t escape the From line');
+  await page.getByRole('button', { name: 'Import mail' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Import mail' });
+  await dlg.getByLabel('An .mbox file').setInputFiles(`${SP}/From Python.mbox`);
+  await dlg.getByText(/Done: 2 messages copied from From Python\.mbox/).waitFor({ timeout: 60000 });
+  await dlg.getByRole('button', { name: 'Close', exact: true }).last().click();
+  await page.getByRole('button', { name: /^From Python/ }).first().click();
+  await page.getByText(`${tag} python 1`).waitFor();
+  await page.getByText(`${tag} python 0`).click();
+  await page.locator('.mail-reader').getByText('From here on, prices go up.').waitFor();
+  await page.locator('.mail-reader').getByText('Thanks, Zoë').waitFor();
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
