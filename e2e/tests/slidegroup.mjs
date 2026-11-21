@@ -45,7 +45,7 @@ await step('Group two boxes: one click picks both, a drag moves both', async () 
   await page.goto(`${B}/slides/${deckId}`);
   await item('Logo').click();
   await item('Acme').click({ modifiers: ['Shift'] });
-  await page.getByText('2 boxes').waitFor();
+  await page.getByText('2 boxes', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Group', exact: true }).click();
   await page.getByText('Grouped 2 boxes').waitFor();
   await until(async () => { const g = await groups(); return g.a.group && g.a.group === g.b.group && !g.c.group; });
@@ -92,13 +92,13 @@ await step('Ungroup with Ctrl+Alt+Shift+G; then a click picks one box', async ()
   await item('Agenda').click();
   await item('Logo').click();
   await page.getByLabel('Rotation').waitFor();
-  if (await page.getByText(/Group of|\d boxes/).count()) throw new Error('more than one chosen');
+  if (await page.getByText(/^(Group of \d+|\d+ boxes)$/).count()) throw new Error('more than one chosen');
 });
 await step('Ctrl+Alt+G groups what is chosen; the PowerPoint download keeps the group', async () => {
   await item('Acme Trading').click({ modifiers: ['Shift'] });
-  await page.getByText('2 boxes').waitFor();
+  await page.getByText('2 boxes', { exact: true }).waitFor();
   await page.keyboard.press('Control+Alt+g');
-  await page.getByText('Grouped 2 boxes').waitFor();
+  await page.getByText('Grouped 2 boxes').last().waitFor(); // (the earlier one may still be showing)
   await until(async () => { const g = await groups(); return g.a.group && g.a.group === g.b.group; });
   const xml = await page.evaluate(async (id) => {
     const r = await fetch(`/api/files/${id}/export`);
