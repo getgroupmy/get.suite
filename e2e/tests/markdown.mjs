@@ -78,6 +78,21 @@ await step('a Markdown file written by another program: ***both***, escaped star
   if (JSON.stringify(got) !== JSON.stringify(['Plan: both and *starred* then gone and ~tilde~ end.a listindented code\nsecond line', 'both', 'both', 'gone|~tilde~'])) throw new Error(JSON.stringify(got));
   if ((await ed.locator('pre').textContent()) !== 'indented code\nsecond line') throw new Error('indented code isn\'t a code block'); // (the <!-- --> between pandoc writes isn't text either)
 });
+await step('setext headings, <br> in a heading and a table cell, a list item\'s lazy line, and a "table" with too many cells', async () => {
+  const md = 'Big title\n=========\n\nSmaller one\n-----------\n\n## Two<br>lines\n\n- an item\ncarried on\n\n| a | b |\n| --- | --- |\n| one<br>two | x |\n\n| `p|q` | r |\n| --- |\n';
+  await page.evaluate(async (text) => fetch('/api/files/upload?name=layout.md', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: text }), md);
+  await page.goto(B + '/drive');
+  await page.getByLabel('Actions for layout.md').click();
+  await page.getByRole('menuitem', { name: 'Open as document' }).click();
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.ProseMirror').first();
+  await ed.locator('h1', { hasText: 'Big title' }).waitFor();
+  await ed.locator('h2', { hasText: 'Smaller one' }).waitFor(); // (were paragraphs with "=====" and "-----" in them)
+  if (!(await ed.locator('h2', { hasText: 'Two' }).locator('br').count())) throw new Error('the heading lost its line break');
+  if ((await ed.locator('li').first().textContent()) !== 'an item carried on') throw new Error(await ed.locator('li').first().textContent());
+  if (!(await ed.locator('td', { hasText: 'one' }).locator('br').count())) throw new Error('the cell lost its line break');
+  if ((await ed.locator('table').count()) !== 1) throw new Error('the last lines (three cells over two dashes) made a table');
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);

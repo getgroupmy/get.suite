@@ -11,7 +11,10 @@ import { inText, reference, sourcesOf } from './cite.js';
 const escapeText = (s) => s.replace(/([\\`*_~[\]<>]|^#|^[-+](?= ))/gm, '\\$1').replace(/^(\d+)\. /gm, '$1\\. ')
   .replace(/\$(?=[^\s\d$])/g, '\\$'); // "$x" could start an equation; prices such as "$5" can't
 
-function inline(nodes = [], notes) {
+/** A line a break starts, or the first: escaped where it would start a list, a quote or a heading ("- " after a break). */
+const safeLines = (md) => md.replace(/(^|  \n)(=+$)/gm, (m, br, eq) => `${br}\\${eq}`).replace(/(^|  \n)([-+*>]|#{1,6}|\d+[.)])(?=[ \t]|$)/g, (m, br, mark) => `${br}${/^\d/.test(mark) ? mark.replace(/([.)])$/, '\\$1') : `\\${mark}`}`);
+function inline(nodes = [], notes) { return safeLines(inlineRaw(nodes, notes)); }
+function inlineRaw(nodes = [], notes) {
   let out = '';
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out += '  \n'; continue; }
@@ -23,7 +26,7 @@ function inline(nodes = [], notes) {
     if (n.type === 'dropchip') { out += `**${escapeText(chipText(n.attrs))}**`; continue; }
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); out += `[^${notes.length}]`; continue; }
     if (n.type === 'image') { out += n.attrs?.alt || n.attrs?.title || ''; continue; }
-    if (n.type !== 'text') { out += inline(n.content, notes); continue; }
+    if (n.type !== 'text') { out += inlineRaw(n.content, notes); continue; }
     const marks = new Map((n.marks || []).map((m) => [m.type, m]));
     if (marks.has('code')) { // (spaces at its ends outside the backticks, so two pieces of code side by side stay two)
       const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(n.text);
@@ -49,7 +52,9 @@ function inline(nodes = [], notes) {
   return out.replace(/^ +/, (sp) => '&#32;'.repeat(sp.length)); // (spaces a paragraph, item or heading starts with: Markdown would drop them)
 }
 
-const cell = (c, notes) => (c.content || []).map((p) => inline(p.content, notes)).join(' ').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+// (a line break in a table cell or a heading, which are one line each in Markdown: <br>, as GitHub and CommonMark show it)
+const oneLine = (md) => md.replace(/ {2}\n/g, '<br>');
+const cell = (c, notes) => (c.content || []).map((p) => oneLine(inline(p.content, notes))).join(' ').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function blocks(nodes = [], notes, indent = '') {
   const out = [];
@@ -59,16 +64,16 @@ function blocks(nodes = [], notes, indent = '') {
     const ordered = t === 'orderedList', listy = ordered || t === 'bulletList' || t === 'taskList';
     const mark = !listy ? null : ordered ? (prevMark === '.' ? ')' : '.') : (prevMark === '-' ? '*' : '-');
     prevMark = mark;
-    if (t === 'paragraph') out.push(indent + inline(n.content, notes));
-    else if (t === 'heading') out.push(`${'#'.repeat(Math.min(6, n.attrs?.level || 1))} ${inline(n.content, notes)}`);
+    if (t === 'paragraph') out.push(indent + inline(n.content, notes).replace(/\n/g, `\n${indent}`)); // (each line indented: after a line break too)
+    else if (t === 'heading') out.push(`${'#'.repeat(Math.min(6, n.attrs?.level || 1))} ${oneLine(inline(n.content, notes))}`);
     else if (t === 'bulletList' || t === 'orderedList' || t === 'taskList') {
       const lines = [];
       (n.content || []).forEach((li, i) => {
         const marker = t === 'orderedList' ? `${(n.attrs?.start || 1) + i}${mark}` : t === 'taskList' ? `${mark} [${li.attrs?.checked ? 'x' : ' '}]` : mark;
         const [first, ...rest] = li.content || [];
-        const head = first?.type === 'paragraph' ? inline(first.content, notes) : '';
-        lines.push(`${indent}${marker} ${head}`);
         const pad = indent + ' '.repeat(t === 'orderedList' ? marker.length + 1 : 2);
+        const head = first?.type === 'paragraph' ? inline(first.content, notes).replace(/\n/g, `\n${pad}`) : ''; // (lines after a break: the item's)
+        lines.push(`${indent}${marker} ${head}`);
         const more = blocks(first?.type === 'paragraph' ? rest : li.content, notes, pad);
         if (more.length) lines.push(...more.join('\n').split('\n').filter((l) => l.trim()));
       });
@@ -137,7 +142,7 @@ export function inlineFromMarkdown(s, notes = {}, marks = []) {
     if (s[i] === '\\' && i + 1 < s.length && /[\\`*_~[\]<>#+\-.!|()$]/.test(s[i + 1])) { buf += s[i + 1]; i += 2; continue; }
     // $equation$: no space just inside the dollars, and not "$5 … 6$" money (no digit right after the closing one).
     if ((m = /^\$(?=\S)((?:\\.|[^$\n\\])*?(?:\\.|[^\s$\\]))\$(?!\d)/.exec(rest))) { flush(); out.push({ type: 'math', attrs: { latex: m[1] } }); i += m[0].length; continue; }
-    if ((m = /^ {2,}\n|^\\\n/.exec(rest))) { flush(); out.push({ type: 'hardBreak' }); i += m[0].length; continue; }
+    if ((m = /^ {2,}\n|^\\\n|^<br\s*\/?>/i.exec(rest))) { flush(); out.push({ type: 'hardBreak' }); i += m[0].length; continue; } // (<br> too: a break in a table cell or heading)
     if ((m = /^(`+)([\s\S]*?[^`])\1(?!`)/.exec(rest))) { flush(); out.push(text(m[2].replace(/^ (.*) $/, '$1'), [...marks, 'code'])); i += m[0].length; continue; }
     if ((m = /^\[\^([^\]]+)\]/.exec(rest)) && notes[m[1]] !== undefined) { flush(); out.push({ type: 'footnote', attrs: { note: notes[m[1]] } }); i += m[0].length; continue; }
     if ((m = /^!?\[((?:\\.|[^\]])*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/.exec(rest))) {
@@ -196,7 +201,8 @@ function parseBlocks(lines, notes) {
       out.push({ type: 'blockquote', content: parseBlocks(inner, notes) });
       continue;
     }
-    if (line.includes('|') && i + 1 < lines.length && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+    // (a table: its heading row with as many cells as the line of dashes under it, as GitHub has it; otherwise text)
+    if (line.includes('|') && i + 1 < lines.length && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(lines[i + 1]) && splitRow(line).length === splitRow(lines[i + 1]).length) {
       const rows = [splitRow(line)];
       for (i += 2; i < lines.length && lines[i].includes('|') && lines[i].trim(); i++) rows.push(splitRow(lines[i]));
       const width = rows[0].length;
@@ -215,7 +221,10 @@ function parseBlocks(lines, notes) {
         for (i++; i < lines.length; i++) {
           const l = lines[i];
           if (!l.trim()) { if (i + 1 < lines.length && /^ {2,}\S/.test(lines[i + 1]) && lines[i + 1].search(/\S/) > base) { body.push(''); continue; } break; }
-          if (l.search(/\S/) <= base && (LIST_RE.test(l) || !/^\s/.test(l))) break;
+          // (a line not indented ends the item, unless it carries on the item's paragraph, as CommonMark has it: one that can't
+          // start anything of its own, after a line of text)
+          const lazy = body[body.length - 1]?.trim() && !LIST_RE.test(l) && !/^\s*(#{1,6}\s|```|~~~|>|\||<!--)/.test(l) && !/^ {0,3}([-*_])( *\1){2,} *$/.test(l);
+          if (l.search(/\S/) <= base && (LIST_RE.test(l) || (!/^\s/.test(l) && !lazy))) break;
           body.push(l.slice(Math.min(l.search(/\S/), base + 2)));
         }
         let first = body[0];
@@ -223,16 +232,28 @@ function parseBlocks(lines, notes) {
         if (task) { checked = /^\[[xX]\]/.test(first); first = first.replace(/^\[[ xX]\]\s*/, ''); }
         const firstLines = [first];
         let k = 1;
-        while (k < body.length && body[k].trim() && !LIST_RE.test(body[k])) firstLines.push(body[k++].trim());
-        const content = [para(firstLines.join(' '), notes), ...parseBlocks(body.slice(k), notes)];
+        let setext = 0; // (a line of = or - under it: the item's first paragraph is a heading)
+        while (k < body.length && body[k].trim()) {
+          if (/^ {0,3}(=+|-+)\s*$/.test(body[k])) { setext = body[k].trim()[0] === '=' ? 1 : 2; k++; break; }
+          if (LIST_RE.test(body[k])) break;
+          firstLines.push(body[k++].trimStart()); // (its end kept: two spaces there are a line break)
+        }
+        const firstText = firstLines.join('\n').replace(/(?<! {2}|\\)\n/g, ' ');
+        const content = [setext ? { type: 'heading', attrs: { level: setext }, content: inlineFromMarkdown(firstText.trim().replace(/( {2,}|\\)$/, ''), notes) } : para(firstText, notes), ...parseBlocks(body.slice(k), notes)];
         items.push(task ? { type: 'taskItem', attrs: { checked }, content } : { type: 'listItem', content });
       }
       out.push({ type: task ? 'taskList' : ordered ? 'orderedList' : 'bulletList', ...(ordered && Number(m[2]) !== 1 && { attrs: { start: parseInt(m[2], 10) } }), content: items });
       continue;
     }
     const p = [];
-    for (; i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|~~~|\s*>)/.test(lines[i]) && !(p.length && LIST_RE.test(lines[i])); i++) p.push(lines[i]);
-    out.push(para(p.join('\n').replace(/(?<! {2})\n/g, ' '), notes));
+    let setext = 0; // (a line of = or - under the text: it's a heading, 1 or 2)
+    for (; i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|~~~|\s*>)/.test(lines[i]) && !(p.length && LIST_RE.test(lines[i])); i++) {
+      if (p.length && /^ {0,3}(=+|-+)\s*$/.test(lines[i])) { setext = lines[i].trim()[0] === '=' ? 1 : 2; i++; break; }
+      p.push(lines[i]);
+    }
+    const text = p.join('\n').replace(/(?<! {2})\n/g, ' ');
+    if (setext) out.push({ type: 'heading', attrs: { level: setext }, content: inlineFromMarkdown(text.trim().replace(/( {2,}|\\)$/, ''), notes) });
+    else out.push(para(text, notes));
   }
   return out;
 }

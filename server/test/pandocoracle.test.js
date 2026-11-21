@@ -27,6 +27,8 @@ const words = () => {
     const w = pick(WORDS);
     const marks = rnd() < 0.4 ? pick(MARKS) : null;
     if (i) out.push(T(' '));
+    if (i && rnd() < 0.05) out.push({ type: 'hardBreak' }); // (a line break inside the paragraph)
+    if (i && rnd() < 0.06) out.push({ type: 'footnote', attrs: { note: `Note ${pick(['alpha', 'naïve', '中文', 'a&b', 'it\'s', '50%'])} ${pick(['one', 'two'])}` } }, T(' '));
     out.push(T(marks?.includes('code') ? w.replace(/`/g, "'") : /^[-+>]$|^1\.$/.test(w) && !i ? `x${w}` : w, marks)); // (a line starting "- " or "1. " is a list in Markdown)
   }
   return out;
@@ -35,7 +37,7 @@ const P = () => ({ type: 'paragraph', content: words() });
 function block(depth = 0) {
   const r = rnd();
   if (r < 0.4 || depth > 1) return P();
-  if (r < 0.55) return { type: 'heading', attrs: { level: 1 + Math.floor(rnd() * 3) }, content: words() };
+  if (r < 0.55) return { type: 'heading', attrs: { level: 1 + Math.floor(rnd() * 6) }, content: words() };
   if (r < 0.62 && !depth) return { type: 'taskList', content: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ type: 'taskItem', attrs: { checked: rnd() < 0.5 }, content: [P()] })) };
   if (r < 0.85) return { type: pick(['bulletList', 'orderedList']), content: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ type: 'listItem', content: [P(), ...(rnd() < 0.3 ? [{ type: pick(['bulletList', 'orderedList']), content: [{ type: 'listItem', content: [P()] }] }] : [])] })) };
   if (r < 0.92 || depth) return { type: 'blockquote', content: [P(), ...(rnd() < 0.3 ? [P()] : [])] };
@@ -55,7 +57,11 @@ function ourShape(doc) {
     if (n.type === 'taskItem') { (n.content || []).forEach((c, k) => walk(c, path, k ? null : n.attrs?.checked ? '☒' : '☐')); return; } // (as pandoc has a checklist: bullets starting ☐ or ☒)
     if (n.type === 'paragraph' || n.type === 'heading') {
       const ws = tick ? [`${tick}{}`] : [];
-      for (const t of n.content || []) for (const part of String(t.text || '').split(/(\s+)/)) if (part && !/^\s+$/.test(part)) ws.push(`${part}{${(t.marks || []).map(markName).sort().join(',')}}`);
+      for (const t of n.content || []) {
+        if (t.type === 'footnote') { ws.push(`^(${t.attrs.note}){}`); continue; } // (a footnote: its words where it's marked)
+        if (t.type === 'hardBreak') { ws.push('↵{}'); continue; }
+        for (const part of String(t.text || '').split(/(\s+)/)) if (part && !/^\s+$/.test(part)) ws.push(`${part}{${(t.marks || []).map(markName).sort().join(',')}}`);
+      }
       lines.push(`${path.join('')}${n.type === 'heading' ? `h${n.attrs.level}` : 'p'}: ${ws.join(' ')}`);
       return;
     }
@@ -74,7 +80,8 @@ function pandocShape(ast) {
       const m = (k) => [...marks, k];
       switch (i.t) {
         case 'Str': { const key = [...marks, ...raw].sort().join(','); const last = ws[ws.length - 1]; if (last && !last.spaced && last.key === key) last.text += i.c; else if (last && !last.spaced) { last.text += i.c; last.mixed = true; } else ws.push({ text: i.c, key }); break; }
-        case 'Space': case 'SoftBreak': case 'LineBreak': if (ws.length) ws[ws.length - 1].spaced = true; break;
+        case 'Space': case 'SoftBreak': if (ws.length) ws[ws.length - 1].spaced = true; break;
+        case 'LineBreak': if (ws.length) ws[ws.length - 1].spaced = true; ws.push({ text: '↵', key: '', spaced: true }); break;
         case 'Strong': inl(i.c, m('bold'), ws, raw); break;
         case 'Emph': inl(i.c, m('italic'), ws, raw); break;
         case 'Underline': inl(i.c, m('underline'), ws, raw); break;
@@ -84,7 +91,8 @@ function pandocShape(ast) {
         case 'Code': inl(i.c[1].split(/( )/).map((p) => (p === ' ' ? { t: 'Space' } : { t: 'Str', c: p })).filter((p) => p.c !== ''), m('code'), ws, raw); break;
         case 'Link': inl(i.c[1], m(`link:${i.c[2][0]}`), ws, raw); break;
         case 'Span': inl(i.c[1], marks, ws, raw); break;
-        case 'RawInline': { const tag = /^<(\/?)(u|sub|sup|s|del|strike)>$/.exec(i.c[1]); if (tag) { const name = { u: 'underline', sub: 'subscript', sup: 'superscript', s: 'strike', del: 'strike', strike: 'strike' }[tag[2]]; if (tag[1]) raw.splice(raw.indexOf(name), 1); else raw.push(name); } else inl([{ t: 'Str', c: i.c[1] }], marks, ws, raw); break; }
+        case 'Note': { const text = i.c.map((b) => (b.c || []).map((x) => (x.t === 'Str' ? x.c : x.t === 'Space' ? ' ' : '')).join('')).join(' '); ws.push({ text: `^(${text})`, key: '', spaced: true }); if (ws.length > 1) ws[ws.length - 2].spaced = true; break; }
+        case 'RawInline': if (/^<br\s*\/?>$/i.test(i.c[1])) { inl([{ t: 'LineBreak' }], marks, ws, raw); break; } { const tag = /^<(\/?)(u|sub|sup|s|del|strike)>$/.exec(i.c[1]); if (tag) { const name = { u: 'underline', sub: 'subscript', sup: 'superscript', s: 'strike', del: 'strike', strike: 'strike' }[tag[2]]; if (tag[1]) raw.splice(raw.indexOf(name), 1); else raw.push(name); } else inl([{ t: 'Str', c: i.c[1] }], marks, ws, raw); break; }
         default: inl([{ t: 'Str', c: `?${i.t}` }], marks, ws, raw);
       }
     }
@@ -131,7 +139,8 @@ test('60 random documents, read by pandoc from our Markdown, .docx and .odt: the
 test('and 60 written by pandoc as .docx and .odt from our Markdown, opened in Docs: the same', { skip: !hasPandoc && 'pandoc isn’t installed here' }, async () => {
   // (underline, subscript and superscript are <u>, <sub> and <sup> in Markdown, which has no way of its own to write them:
   // pandoc leaves such HTML out of a .docx or .odt it makes, so those looks aren't expected back)
-  const noHtmlLooks = (n) => { if (n.marks) { n.marks = n.marks.filter((m) => !['underline', 'subscript', 'superscript'].includes(m.type)); if (!n.marks.length) delete n.marks; } (n.content || []).forEach(noHtmlLooks); return n; };
+  // (and a line break in a heading or a table cell is <br> there, left out the same way)
+  const noHtmlLooks = (n) => { if (['heading', 'tableCell', 'tableHeader'].includes(n.type)) { const drop = (x) => { if (x.content) { x.content = x.content.filter((c) => c.type !== 'hardBreak'); x.content.forEach(drop); } }; drop(n); } if (n.marks) { n.marks = n.marks.filter((m) => !['underline', 'subscript', 'superscript'].includes(m.type)); if (!n.marks.length) delete n.marks; } (n.content || []).forEach(noHtmlLooks); return n; };
   for (const [i, doc] of randomDocs(60, 2).entries()) {
     const want = ourShape(noHtmlLooks(JSON.parse(JSON.stringify(doc))));
     const md = markdownFromDoc(doc);
@@ -145,7 +154,8 @@ test('and 60 as Markdown written by pandoc (its own way of writing it, GitHub\'s
   for (const [i, doc] of randomDocs(60, 3).entries()) {
     for (const to of ['gfm', 'commonmark']) {
       const md = String(pandoc(['-f', 'gfm', '-t', to], markdownFromDoc(doc)));
-      if (/^\s*(?:(?:[-*+]|\d+[.)])\s+)?(~~~|```)/m.test(md) && !doc.content.some((b) => b.type === 'codeBlock')) continue; // (a line, or list item, pandoc began with "~~~": a code block to anyone reading it)
+      if (/^\s*(?:(?:[-*+]|\d+[.)])\s+)?(~~~|```)/m.test(md) && !doc.content.some((b) => b.type === 'codeBlock')) continue;
+      if (/^\s*(?:(?:[-*+]|\d+[.)])\s+)?(?:[-*+]|\d+[.)])\s*$/m.test(md)) continue; // (a line pandoc left as a bare "+" or "1. 1." after a line break: a list item to it) // (a line, or list item, pandoc began with "~~~": a code block to anyone reading it)
       // (and leaving out a line where pandoc reads one word with two looks, as it reads its own "~~~tilde~~~": "~", struck
       // "tilde", "~"; the random words never have that, so it's pandoc's writing that is unclear there)
       const theirs = read(to, md), ours = ourShape(await docFromMarkdown(md));
