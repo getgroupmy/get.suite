@@ -1,3 +1,4 @@
+import { listLabel } from '../docs/liststyle.js';
 // Helpers for the rich-text compose editor (TipTap JSON <-> email text/HTML).
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -33,7 +34,7 @@ export function docToText(doc) {
       case 'bulletList':
       case 'orderedList':
         (node.content || []).forEach((item, i) => {
-          const marker = node.type === 'bulletList' ? '- ' : `${(node.attrs?.start || 1) + i}. `;
+          const marker = node.type === 'bulletList' ? '- ' : `${listLabel(node.attrs?.listStyle, (node.attrs?.start || 1) + i)} `; // (in its style: i. ii. …)
           (item.content || []).forEach((c, j) => block(c, prefix + (j === 0 ? marker : ' '.repeat(marker.length))));
         });
         break;

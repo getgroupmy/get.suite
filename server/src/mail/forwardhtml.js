@@ -7,6 +7,7 @@
 // The same cleaning makes signatures safe (signatureHtml): what an admin or a person writes is shown in other
 // people's pages and in sent mail, so only formatting, links and pictures from Drive are kept.
 import { parseDocument } from 'htmlparser2';
+import { BULLETS, cleanNumbering, cleanBullet } from '../office/liststyle.js';
 
 const SKIP = new Set(['script', 'style', 'head', 'title', 'noscript', 'template', 'iframe', 'object', 'embed', 'svg', 'math', 'form', 'button', 'select', 'textarea', 'input', 'video', 'audio', 'canvas', 'map']);
 const BLOCK = new Set(['p', 'div', 'section', 'article', 'header', 'footer', 'main', 'aside', 'nav', 'center', 'address', 'figure', 'figcaption',
@@ -180,6 +181,20 @@ function isDataTable(table) {
   return Math.max(...widths) >= 2 && Math.max(...widths) <= MAX_COLS;
 }
 
+/** A list's look as the editor keeps it: a numbered list's style (<ol type="i">, list-style-type) and first number, a bulleted
+ * list's bullet (circle, square, or one of the editor's own: "✓ "). */
+function listLook(tag, a) {
+  const css = /(?:^|;)\s*list-style(?:-type)?\s*:\s*([^;]+)/i.exec(a.style || '')?.[1]?.trim() || '';
+  if (tag === 'ol') {
+    const style = cleanNumbering({ a: 'lower-alpha', A: 'upper-alpha', i: 'lower-roman', I: 'upper-roman' }[a.type] || /^(lower-alpha|upper-alpha|lower-roman|upper-roman|lower-latin|upper-latin)\b/i.exec(css)?.[1].toLowerCase().replace('latin', 'alpha'));
+    const start = Math.round(Number(a.start));
+    return `${style ? ` data-list-style="${style}"` : ''}${start > 1 && start <= 9999 ? ` start="${start}"` : ''}`;
+  }
+  const quoted = /^["'](.)\s*["']/.exec(css)?.[1];
+  const bullet = cleanBullet(/^(circle|square)\b/i.exec(css)?.[1].toLowerCase() || (quoted && BULLETS.find((b) => b[3] === quoted)?.[0]));
+  return bullet ? ` data-bullet="${bullet}"` : '';
+}
+
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const safeHref = (h) => {
   const v = String(h || '').trim();
@@ -251,7 +266,7 @@ export function forwardHtml(html, pictureUrl, { keepPicture = () => null } = {})
         const items = (node.children || []).filter((c) => c.type === 'tag' && c.name === 'li');
         if (!items.length) { kids(node, marks, pre); return; }
         flush();
-        out.push(`<${tag}>${items.map((li) => `<li>${flow(li.children || [], styled(inheritable(marks), 'li', li.attribs || {})) || '<p></p>'}</li>`).join('')}</${tag}>`);
+        out.push(`<${tag}${listLook(tag, a)}>${items.map((li) => `<li>${flow(li.children || [], styled(inheritable(marks), 'li', li.attribs || {})) || '<p></p>'}</li>`).join('')}</${tag}>`);
         return;
       }
       // Gmail indents with a borderless <blockquote>: that's an indent step, not a quote.

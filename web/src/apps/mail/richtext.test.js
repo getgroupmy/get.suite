@@ -96,3 +96,8 @@ test('the writer’s default text style wraps the email', async () => {
   assert.match(emailHtml('<p>Hi</p>'), /^<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px;/);
   assert.match(emailHtml('<p>Hi</p>', { font: 'Times New Roman', size: 'Small' }), /^<div style="font-family: 'Times New Roman', Times, serif; font-size: 12px;/);
 });
+
+test('plain text: a numbered list counts in its own style', () => {
+  const doc = { type: 'doc', content: [{ type: 'orderedList', attrs: { start: 3, listStyle: 'lower-roman' }, content: ['Welcome', 'Budget'].map((t) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] })) }] };
+  assert.equal(docToText(doc).trim(), 'iii. Welcome\niv. Budget');
+});

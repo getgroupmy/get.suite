@@ -1,5 +1,6 @@
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
 import { Replacements } from '../docs/autocorrect.js';
+import { ListStyle, NUMBERINGS, BULLETS } from '../docs/liststyle.js';
 import { useReplacements } from '../../components/useReplacements.js';
 import { ReadAloudBar, canReadAloud } from '../../components/ReadAloudBar.jsx';
 import { mailSentences } from './readmail.js';
@@ -2220,7 +2221,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       TextStyle, Color, BackgroundColor, FontSize, FontFamily,
       // Left / centre / right for paragraphs (Ctrl+Shift+L / E / R). Left is the normal alignment.
       TextAlign.configure({ types: ['paragraph'], alignments: ['left', 'center', 'right'] }),
-      Indent,
+      Indent, ListStyle, // (a list's numbering or bullet: i. ii., ✓ …, as in Docs; every mail app shows them)
       SignatureBlock,
       // Your own replacements from Docs → Preferences ("addr" → your address)
       Replacements.configure({ subs: () => subsRef.current }),
@@ -2364,6 +2365,21 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         })()}
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
+        {(editor.isActive('orderedList') || editor.isActive('bulletList')) && (() => {
+          // In a list: its numbering (1. a. i. …) or bullet (● ○ ■ …), as in Docs.
+          const { $from } = editor.state.selection;
+          let d = $from.depth; while (d > 0 && !['orderedList', 'bulletList'].includes($from.node(d).type.name)) d--;
+          if (!d) return null;
+          const node = $from.node(d), pos = $from.before(d), numbered = node.type.name === 'orderedList';
+          const set = (attrs) => editor.chain().command(({ tr }) => { tr.setNodeMarkup(pos, null, { ...node.attrs, ...attrs }); return true; }).run();
+          return numbered
+            ? <select aria-label="Numbering style" title="How this list is numbered" value={node.attrs.listStyle || 'decimal'} onChange={(e) => set({ listStyle: e.target.value === 'decimal' ? null : e.target.value })}>
+              {NUMBERINGS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+            : <select aria-label="Bullet style" title="The bullet this list shows" value={node.attrs.bullet || 'disc'} onChange={(e) => set({ bullet: e.target.value === 'disc' ? null : e.target.value })}>
+              {BULLETS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>;
+        })()}
         <span className="sep" />
         <B label="🔗" title={editor.isActive('link') ? 'Edit link (Ctrl+K)' : 'Insert link (Ctrl+K)'} active={editor.isActive('link')} onClick={() => linkOpen.current()} />
         <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />

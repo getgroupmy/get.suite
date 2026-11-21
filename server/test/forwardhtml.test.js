@@ -188,3 +188,21 @@ test('signatures are cleaned: formatting, links, placeholders and Drive pictures
   for (const bad of [/script/i, /onerror/i, /onclick/i, /javascript:/i, /tracker\.example/, /iframe/i, /<style/i, /src="x"/]) assert.doesNotMatch(out, bad);
   assert.equal(signatureHtml('Plain {name}\nline two'), 'Plain {name}\nline two', 'plain text is left for its own escaping');
 });
+
+test('lists keep their look: a numbered list’s style and first number, a bulleted list’s bullet (as Gmail, Outlook and Docs write them)', () => {
+  const html = '<ol type="i" start="3"><li>three</li><li>four</li></ol>'
+    + '<ol style="list-style-type: upper-alpha"><li>A</li></ol>'
+    + '<ol style="list-style-type:lower-latin"><li>a</li></ol>'
+    + '<ul style="list-style-type: square"><li>sq</li></ul>'
+    + '<ul data-bullet="check" style="list-style-type: &quot;✓ &quot;"><li>done</li></ul>'
+    + '<ol><li>plain</li></ol><ul style="list-style-type: disc"><li>dot</li></ul>';
+  const out = forwardHtml(html, () => null).html;
+  assert.match(out, /<ol data-list-style="lower-roman" start="3"><li><p>three<\/p><\/li>/);
+  assert.match(out, /<ol data-list-style="upper-alpha"><li><p>A<\/p>/);
+  assert.match(out, /<ol data-list-style="lower-alpha"><li><p>a<\/p>/);
+  assert.match(out, /<ul data-bullet="square"><li><p>sq<\/p>/);
+  assert.match(out, /<ul data-bullet="check"><li><p>done<\/p>/);
+  assert.match(out, /<ol><li><p>plain<\/p>/);
+  assert.match(out, /<ul><li><p>dot<\/p>/, 'the usual bullet: nothing to keep');
+  assert.doesNotMatch(forwardHtml('<ol start="99999" type="x"><li>x</li></ol>', () => null).html, /start=|data-list-style/);
+});
