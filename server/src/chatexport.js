@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 /** A poll's results in words: "Lunch? — Pizza 3, Sushi 1". */
 export function pollLine(poll) {
   if (!poll?.question) return '';
-  return `📊 ${poll.question} — ${(poll.options || []).map((o) => `${o.text} ${Array.isArray(o.votes) ? o.votes.length : o.votes ?? 0}`).join(', ')}`;
+  return `📊 ${poll.question} — ${(poll.options || []).map((o) => `${o.text} ${o.count ?? (Array.isArray(o.votes) ? o.votes.length : o.votes ?? 0)}`).join(', ')}`;
 }
 
 /** A contact or a shared email in a message, as lines of text (an email's first line, then what it said). */

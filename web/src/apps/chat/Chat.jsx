@@ -1580,17 +1580,27 @@ function ForwardDialog({ message, channels, currentId, onClose, onSent }) {
 function Poll({ m, user }) {
   const toast = useToast();
   const p = m.poll;
-  const mine = p.options.filter((o) => o.votes.some((v) => v.id === user.id)).map((o) => o.id);
-  const most = Math.max(1, ...p.options.map((o) => o.votes.length));
-  const closed = !!p.closed_at;
+  // Your choice: from the votes, or (an anonymous poll, whose votes don't say who) as the server told you, kept through live updates.
+  const [ownChoice, setOwnChoice] = useState(p.mine ?? null);
+  useEffect(() => { if (p.mine) setOwnChoice(p.mine); }, [p.mine]);
+  const mine = p.anonymous ? (ownChoice || []) : p.options.filter((o) => o.votes.some((v) => v.id === user.id)).map((o) => o.id);
+  const count = (o) => o.count ?? o.votes.length;
+  const most = Math.max(1, ...p.options.map(count));
+  const [, tick] = useState(0);
+  useEffect(() => { // (shown closed when its closing time comes)
+    if (p.closed_at || !p.closes_at || p.closes_at <= Date.now()) return undefined;
+    const t = setTimeout(() => tick((n) => n + 1), Math.min(2 ** 31 - 1, p.closes_at - Date.now() + 500));
+    return () => clearTimeout(t);
+  }, [p.closed_at, p.closes_at]);
+  const closed = !!p.closed_at || (!!p.closes_at && p.closes_at <= Date.now());
   const vote = (id) => {
     const next = p.multi ? (mine.includes(id) ? mine.filter((x) => x !== id) : [...mine, id]) : (mine.includes(id) ? [] : [id]);
-    post(`/chat/messages/${m.id}/vote`, { options: next }).catch((e) => toast(e.message, 'error'));
+    post(`/chat/messages/${m.id}/vote`, { options: next }).then((r) => setOwnChoice(r.poll?.mine ?? next)).catch((e) => toast(e.message, 'error'));
   };
   return (
     <div className="poll" role="group" aria-label={`Poll: ${p.question}`}>
       <div className="poll-q"><strong>📊 {p.question}</strong></div>
-      <div className="muted small">{closed ? 'Closed' : p.multi ? 'Choose any' : 'Choose one'} · {p.voters} {p.voters === 1 ? 'person' : 'people'} voted</div>
+      <div className="muted small">{closed ? 'Closed' : p.multi ? 'Choose any' : 'Choose one'} · {p.voters} {p.voters === 1 ? 'person' : 'people'} voted{p.anonymous ? ' · Anonymous: nobody sees who chose what' : ''}{!closed && p.closes_at ? ` · Closes ${whenText(p.closes_at)}` : ''}</div>
       <ul className="poll-options">
         {p.options.map((o) => {
           const chosen = mine.includes(o.id);
@@ -1598,11 +1608,11 @@ function Poll({ m, user }) {
           return (
             <li key={o.id}>
               <button type="button" className={`poll-option ${chosen ? 'chosen' : ''}`} disabled={closed} aria-pressed={chosen}
-                aria-label={`${o.text}: ${o.votes.length} vote${o.votes.length === 1 ? '' : 's'}`} title={names || 'No votes yet'} onClick={() => vote(o.id)}>
-                <span className="poll-bar" style={{ width: `${(o.votes.length / most) * 100}%` }} aria-hidden="true" />
+                aria-label={`${o.text}: ${count(o)} vote${count(o) === 1 ? '' : 's'}`} title={p.anonymous ? `${count(o)} vote${count(o) === 1 ? '' : 's'}` : names || 'No votes yet'} onClick={() => vote(o.id)}>
+                <span className="poll-bar" style={{ width: `${(count(o) / most) * 100}%` }} aria-hidden="true" />
                 <span className="poll-mark" aria-hidden="true">{chosen ? (p.multi ? '☑' : '◉') : (p.multi ? '☐' : '○')}</span>
                 <span className="grow poll-text">{o.text}</span>
-                <span className="poll-count">{o.votes.length}</span>
+                <span className="poll-count">{count(o)}</span>
               </button>
               {names && <div className="muted small poll-names">{names}</div>}
             </li>
@@ -1645,10 +1655,12 @@ function PollDialog({ onClose, onSubmit }) {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
   const [multi, setMulti] = useState(false);
+  const [anonymous, setAnonymous] = useState(false);
+  const [closes, setCloses] = useState(''); // '' (never), or hours from now
   const [error, setError] = useState('');
   async function submit(e) {
     e.preventDefault();
-    try { await onSubmit({ question, options, multi }); } catch (err) { setError(err.message); }
+    try { await onSubmit({ question, options, multi, ...(anonymous && { anonymous: true }), ...(closes && { closes_at: Date.now() + Number(closes) * 36e5 }) }); } catch (err) { setError(err.message); }
   }
   return (
     <Modal title="Create a poll" onClose={onClose}>
@@ -1662,6 +1674,11 @@ function PollDialog({ onClose, onSubmit }) {
         ))}
         {options.length < 10 && <button type="button" className="link-btn" onClick={() => setOptions([...options, ''])}>+ Add an option</button>}
         <label className="check"><input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> People can choose more than one</label>
+        <label className="check"><input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} /> Anonymous: show how many chose each, not who</label>
+        <label className="field"><span>Closes</span>
+          <select value={closes} onChange={(e) => setCloses(e.target.value)}>
+            <option value="">When you close it</option><option value="1">In an hour</option><option value="4">In 4 hours</option><option value="24">In a day</option><option value="72">In 3 days</option><option value="168">In a week</option>
+          </select></label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Post poll</button></div>
       </form>

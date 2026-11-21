@@ -160,7 +160,13 @@ export function cleanPoll(p) {
   if (new Set(texts.map((t) => t.toLowerCase())).size !== texts.length) throw bad('Two options are the same');
   if (texts.length < 2) throw bad('A poll needs at least two options');
   if (texts.length > MAX_OPTIONS) throw bad(`At most ${MAX_OPTIONS} options`);
-  return { question, options: texts.map((text, i) => ({ id: `o${i + 1}`, text })), multi: !!p.multi };
+  // Anonymous: counts only, nobody sees who chose what. Closes by itself at `closes_at` (a minute to a year ahead), if given.
+  let closesAt = null;
+  if (p.closes_at != null) {
+    closesAt = Math.round(Number(p.closes_at));
+    if (!Number.isFinite(closesAt) || closesAt < Date.now() + 60e3 || closesAt > Date.now() + 366 * 864e5) throw bad('A poll can close from a minute to a year from now');
+  }
+  return { question, options: texts.map((text, i) => ({ id: `o${i + 1}`, text })), multi: !!p.multi, ...(p.anonymous && { anonymous: true }), ...(closesAt && { closes_at: closesAt }) };
 }
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds, checkQuota } from '../tenancy.js';
@@ -260,6 +266,12 @@ const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, 
  */
 function flagLinks(user, list) {
   let likeOf = null;
+  // Polls: your own choice (m.poll.mine), which an anonymous poll's votes don't show.
+  const polls = list.filter((m) => m.poll);
+  if (polls.length) {
+    const mine = q('SELECT message_id, option_id FROM poll_votes WHERE user_id = ? AND message_id IN (SELECT value FROM json_each(?))').all(user.id, JSON.stringify(polls.map((m) => m.id)));
+    for (const m of polls) m.poll = { ...m.poll, mine: mine.filter((v) => v.message_id === m.id).map((v) => v.option_id) };
+  }
   for (const m of list) {
     if (!m.body || (m.user_org_id && m.user_org_id === user.org_id)) continue;
     const hosts = new Set();
@@ -284,8 +296,9 @@ function shape(rows) {
     let poll = null;
     if (m.poll) {
       const p = JSON.parse(m.poll), mv = votes.filter((v) => v.message_id === m.id);
-      poll = { ...p, voters: new Set(mv.map((v) => v.user_id)).size,
-        options: p.options.map((o) => ({ ...o, votes: mv.filter((v) => v.option_id === o.id).map((v) => ({ id: v.user_id, name: v.name || 'Someone' })) })) };
+      // (past its closing time: closed then; anonymous: how many chose each, not who: your own choice is added for you alone)
+      poll = { ...p, ...(!p.closed_at && p.closes_at && p.closes_at <= Date.now() && { closed_at: p.closes_at }), voters: new Set(mv.map((v) => v.user_id)).size,
+        options: p.options.map((o) => { const ov = mv.filter((v) => v.option_id === o.id); return { ...o, count: ov.length, votes: p.anonymous ? [] : ov.map((v) => ({ id: v.user_id, name: v.name || 'Someone' })) }; }) };
     }
     const byEmoji = [];
     for (const r of mine) {
@@ -1362,7 +1375,7 @@ export default function chatRoutes() {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
     if (!m || m.parent_id) throw notFound('Message not found');
     loadChannel(m.channel_id, req.user);
-    res.json({ message: one(m.id), replies: flagLinks(req.user, shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id))), following: inThread(req.user.id, m.id) });
+    res.json({ message: flagLinks(req.user, [one(m.id)])[0], replies: flagLinks(req.user, shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id))), following: inThread(req.user.id, m.id) });
   });
 
   // Follow a thread (its replies count as unread for you, and it's in your Threads) or unfollow it (they
@@ -1784,7 +1797,7 @@ export default function chatRoutes() {
     const c = loadChannel(m.channel_id, req.user);
     readOnly(c);
     const p = JSON.parse(m.poll);
-    if (p.closed_at) throw bad('This poll is closed');
+    if (p.closed_at || (p.closes_at && p.closes_at <= Date.now())) throw bad('This poll is closed');
     const picked = [...new Set((Array.isArray(req.body.options) ? req.body.options : []).map(String))];
     if (picked.some((o) => !p.options.some((x) => x.id === o))) throw bad('That option is not in the poll');
     if (!p.multi && picked.length > 1) throw bad('Choose one option');
@@ -1794,7 +1807,7 @@ export default function chatRoutes() {
     });
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
-    res.json(msg);
+    res.json(flagLinks(req.user, [msg])[0]);
   });
 
   // Close a poll (or open it again): only who asked.
@@ -1806,7 +1819,9 @@ export default function chatRoutes() {
     readOnly(c);
     const p = JSON.parse(m.poll);
     const closed = req.body.closed !== false;
-    q('UPDATE messages SET poll = ? WHERE id = ?').run(JSON.stringify({ ...p, closed_at: closed ? now() : null }), m.id);
+    // (reopened: its closing time, if passed, goes; one still to come stays)
+    const { closes_at: closesAt, ...rest } = p;
+    q('UPDATE messages SET poll = ? WHERE id = ?').run(JSON.stringify({ ...rest, ...(closesAt && (closed || closesAt > Date.now()) && { closes_at: closesAt }), closed_at: closed ? now() : null }), m.id);
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     res.json(msg);
