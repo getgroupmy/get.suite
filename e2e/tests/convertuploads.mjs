@@ -301,6 +301,47 @@ b = io.BytesIO(); P.new('RGB', (960, 480), (30, 120, 220)).save(b, 'PNG'); sys.s
   if (saved.alt !== 'Team day' || saved.w !== 480) throw new Error(JSON.stringify(saved));
   await liam.close();
 });
+await step('a picture pasted (Ctrl+V of a screenshot) goes over the cursor\'s cell; an image file dropped on the grid goes where it was let go; text pasted still fills cells', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const mk = (w, h, kind) => spawnSync('python3', ['-I', '-c', `import sys, io\nfrom PIL import Image\nb = io.BytesIO(); Image.new('RGB', (${w}, ${h}), (90, 30, 160)).save(b, '${kind}'); sys.stdout.buffer.write(b.getvalue())`]).stdout;
+  const png = mk(150, 100, 'PNG'), jpg = mk(64, 48, 'JPEG');
+  if (!png?.length || !jpg?.length) { console.log('(no Pillow here: skipped)'); return; }
+  const sheet = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Pasted pictures' })).body;
+  await page.goto(`${B}/sheets/${sheet.id}`);
+  const cell = (k) => page.locator(`.grid td[data-k="${k}"]`);
+  await cell('C5').click();
+  await page.evaluate((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'image.png', { type: 'image/png' }));
+    document.querySelector('.grid-wrap').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, png.toString('base64'));
+  const pics = page.locator('.sheet-picture');
+  await until(async () => (await pics.count()) === 1 && (await pics.first().locator('img').evaluate((i) => i.complete && i.naturalWidth)) === 150);
+  const [a, c5] = [await pics.first().boundingBox(), await cell('C5').boundingBox()];
+  if (Math.abs(a.x - c5.x) > 2 || Math.abs(a.y - c5.y) > 2 || Math.round(a.width) !== 150 || Math.round(a.height) !== 100) throw new Error(`pasted: ${JSON.stringify([a, c5])}`);
+  // Dropped over F12, a little into the cell.
+  const f12 = await cell('F12').boundingBox();
+  await page.evaluate(([b64, x, y]) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'Stamp.jpg', { type: 'image/jpeg' }));
+    const at = document.elementFromPoint(x, y);
+    at.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+    at.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+  }, [jpg.toString('base64'), f12.x + 10, f12.y + 6]);
+  await until(async () => (await pics.count()) === 2);
+  const dropped = page.locator('.sheet-picture[aria-label="Picture: Stamp"]');
+  await until(async () => (await dropped.locator('img').evaluate((i) => i.complete && i.naturalWidth)) === 64);
+  const d = await dropped.boundingBox();
+  if (Math.abs(d.x - (f12.x + 10)) > 2 || Math.abs(d.y - (f12.y + 6)) > 2 || Math.round(d.width) !== 64) throw new Error(`dropped: ${JSON.stringify([d, f12])}`);
+  // Text on the clipboard is still pasted into cells.
+  await cell('A1').click();
+  await page.evaluate(() => { const dt = new DataTransfer(); dt.setData('text/plain', 'one\ttwo'); document.querySelector('.grid-wrap').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); });
+  await until(async () => (await cell('B1').innerText()).trim() === 'two');
+  const saved = await until(async () => { const c = (await api(page, 'GET', `/files/${sheet.id}/content`)).body.content; const p = Object.values(c.sheets[0].pictures || {}); return p.length === 2 ? p : null; }, 10000);
+  if (saved.map((p) => p.alt).sort().join() !== 'Stamp,image') throw new Error(JSON.stringify(saved));
+});
 await step('the spreadsheet with a picture, downloaded as PDF: the picture is on its page (read by pypdf)', async () => {
   const { spawnSync } = await import('node:child_process');
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Team photo');

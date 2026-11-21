@@ -918,13 +918,14 @@ export default function SheetEditor() {
     gridRef.current?.focus();
   };
   /** A picture from the computer, put over the cursor's cell at its own size (at most 480 × 360, its shape kept). */
-  async function insertPicture(f) {
+  async function insertPicture(f, at = null) {
     if (!f || readOnly) return;
     if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(f.type)) { toast('Choose a picture (PNG, JPEG, GIF, WebP or BMP)', 'error'); return; }
     const wrap = gridRef.current;
     const td = wrap?.querySelector(`[data-k="${cellKey(sel.c, sel.r)}"]`);
     let x = 160, y = 40;
-    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(), z = zRef.current; x = (a.left - b.left + wrap.scrollLeft) / z; y = (a.top - b.top + wrap.scrollTop) / z; }
+    if (at && wrap) { const b = wrap.getBoundingClientRect(), z = zRef.current; x = Math.max(0, (at.clientX - b.left + wrap.scrollLeft) / z); y = Math.max(0, (at.clientY - b.top + wrap.scrollTop) / z); } // (dropped: where it was let go)
+    else if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(), z = zRef.current; x = (a.left - b.left + wrap.scrollLeft) / z; y = (a.top - b.top + wrap.scrollTop) / z; }
     try {
       const [nw, nh] = await new Promise((ok) => { const img = new Image(); const url = URL.createObjectURL(f); img.onload = () => { ok([img.naturalWidth, img.naturalHeight]); URL.revokeObjectURL(url); }; img.onerror = () => ok([320, 240]); img.src = url; });
       const k = Math.min(1, 480 / nw, 360 / nh);
@@ -1114,6 +1115,9 @@ export default function SheetEditor() {
     if (editing || readOnly) return;
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r/g, '').replace(/\n$/, '');
+    // A picture (a screenshot, an image copied from a page or a file): over the cursor's cell, as with Picture.
+    const pic = [...(e.clipboardData.files || [])].find((f) => /^image\//.test(f.type));
+    if (pic && !text.trim()) { insertPicture(pic); return; }
     const asValues = pasteMode.current === 'values';
     pasteMode.current = null;
     if (asValues && clip.current && clip.current.text === text) { pasteAs('values'); return; }
@@ -1424,7 +1428,9 @@ export default function SheetEditor() {
         {editing === 'bar' && assist.popup}
       </div>
       <div className="sheet-body">
-      <div className={`grid-wrap ${painter ? 'painting' : ''} ${fv && viewFilter ? 'fv-on' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onScroll={onGridScroll} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
+      <div className={`grid-wrap ${painter ? 'painting' : ''} ${fv && viewFilter ? 'fv-on' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onScroll={onGridScroll} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}
+        onDragOver={(e) => { if (!readOnly && [...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
+        onDrop={(e) => { const files = [...(e.dataTransfer?.files || [])].filter((f) => /^image\//.test(f.type)); if (readOnly || !files.length) return; e.preventDefault(); files.slice(0, 10).forEach((f, i) => insertPicture(f, { clientX: e.clientX + i * 16, clientY: e.clientY + i * 16 })); }}>
         <div className="grid-zoom" style={zoom !== 100 ? { zoom: zoom / 100 } : undefined}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
