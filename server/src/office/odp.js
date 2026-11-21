@@ -8,6 +8,10 @@ import JSZip from 'jszip';
 import path from 'node:path';
 import { parseDocument } from 'htmlparser2';
 import { themeOfDeck, numberShown } from './powerpoint.js';
+import { BULLETS, bulletOfWord } from './liststyle.js';
+// A text box's list (liststyle.js) as ODF writes one: a number format or a bullet character.
+const ODF_NUM = { decimal: '1', 'lower-alpha': 'a', 'upper-alpha': 'A', 'lower-roman': 'i', 'upper-roman': 'I' };
+const NUM_OF_ODF = Object.fromEntries(Object.entries(ODF_NUM).map(([k, v]) => [v, k]));
 
 /** Boxes of the same group (two or more) wrapped in one <draw:g>, where the first of them was. */
 export function groupedXml(xml, pieces) {
@@ -168,6 +172,19 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
     const words = href ? `<text:a xlink:type="simple" xlink:href="${x(href)}">${spaced(l)}</text:a>` : spaced(l); // the link inside the span, as Impress writes it
     return `<text:p text:style-name="${ps}"><text:span text:style-name="${ts}">${words}</text:span></text:p>`;
   }).join('');
+  // A text box as a list: each line an item (an empty one a header: no bullet or number, not counted), in a list style of its own.
+  const listStyles = new Map();
+  const listParas = (text, ts, ps, href, list) => {
+    if (!ODF_NUM[list] && !BULLETS.some((b) => b[0] === list)) return paras(text, ts, ps, href);
+    if (!listStyles.has(list)) {
+      const name = `L${listStyles.size + 1}`, tag = ODF_NUM[list] ? 'text:list-level-style-number' : 'text:list-level-style-bullet';
+      const level = ODF_NUM[list] ? `<${tag} text:level="1" style:num-suffix="." style:num-format="${ODF_NUM[list]}">` : `<${tag} text:level="1" text:bullet-char="${BULLETS.find((b) => b[0] === list)[3]}">`;
+      auto.push(`<text:list-style style:name="${name}">${level}<style:list-level-properties text:space-before="0cm" text:min-label-width="0.9cm"/></${tag}></text:list-style>`);
+      listStyles.set(list, name);
+    }
+    const items = String(text ?? '').split('\n').map((l) => { const p = paras(l, ts, ps, href); return l.trim() ? `<text:list-item>${p}</text:list-item>` : `<text:list-header>${p}</text:list-header>`; });
+    return `<text:list text:style-name="${listStyles.get(list)}">${items.join('')}</text:list>`;
+  };
   const graphic = (it, { fill, stroke, valign } = {}) => {
     const f = fill ? `draw:fill="solid" draw:fill-color="${fill}"` : 'draw:fill="none"';
     const s = stroke ? `draw:stroke="solid" svg:stroke-color="${stroke.color}" svg:stroke-width="${(stroke.width * 0.0353).toFixed(3)}cm"` : 'draw:stroke="none"';
@@ -206,7 +223,7 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
         const gs = graphic(it, { fill: it.fill ? color(it.fill, theme.accent) : null, stroke: outline(it), valign: 'top' });
         const title = it.role === 'title' && !titled && String(it.text || '').trim(); // the slide's title, as Impress marks it (once a slide; Impress drops the mark unless the style is named as a presentation one)
         if (title) titled = true;
-        items += `<draw:frame ${title ? `presentation:style-name="${gs}" presentation:class="title" presentation:user-transformed="true"` : `draw:style-name="${gs}"`} ${place(it)}><draw:text-box>${paras(it.text, textStyle(it, theme.text, 24), paraStyle(it.align), href)}</draw:text-box></draw:frame>`;
+        items += `<draw:frame ${title ? `presentation:style-name="${gs}" presentation:class="title" presentation:user-transformed="true"` : `draw:style-name="${gs}"`} ${place(it)}><draw:text-box>${listParas(it.text, textStyle(it, theme.text, 24), paraStyle(it.align), href, it.list)}</draw:text-box></draw:frame>`;
       } else if (it.type === 'shape' && (it.shape === 'line' || it.shape === 'arrow')) {
         const xx = (it.x / 100) * W, yy = (it.y / 100) * H, w = (it.w / 100) * W, h = (it.h / 100) * H;
         const d = it.dir || 'h';
@@ -325,13 +342,14 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
   if (!contentXml) throw new Error('Not an OpenDocument presentation');
   const parse = (s) => parseDocument(s || '', { xmlMode: true, decodeEntities: true });
   const root = parse(contentXml), stylesRoot = parse(await zip.file('styles.xml')?.async('string'));
-  const styles = new Map(), fillImages = new Map(), layouts = new Map(), masters = new Map(), gradients = new Map();
+  const styles = new Map(), fillImages = new Map(), layouts = new Map(), masters = new Map(), gradients = new Map(), listLooks = new Map();
   const read = (node) => {
     for (const el of tags(node)) {
       if (el.name === 'style:style') {
         const get = (k) => tags(el, k)[0]?.attribs || {};
         styles.set(el.attribs['style:name'], { parent: el.attribs['style:parent-style-name'], g: get('style:graphic-properties'), t: get('style:text-properties'), p: get('style:paragraph-properties'), d: get('style:drawing-page-properties') });
-      } else if (el.name === 'draw:fill-image') fillImages.set(el.attribs['draw:name'], el.attribs['xlink:href']);
+      } else if (el.name === 'text:list-style') { const l1 = tags(el).find((c) => c.attribs?.['text:level'] === '1'); if (l1) listLooks.set(el.attribs['style:name'], l1.name === 'text:list-level-style-number' ? { num: l1.attribs['style:num-format'] ?? '' } : l1.name === 'text:list-level-style-bullet' ? { bullet: l1.attribs['text:bullet-char'] ?? '' } : {}); }
+      else if (el.name === 'draw:fill-image') fillImages.set(el.attribs['draw:name'], el.attribs['xlink:href']);
       else if (el.name === 'draw:gradient') gradients.set(el.attribs['draw:name'], el.attribs);
       else if (el.name === 'style:page-layout') layouts.set(el.attribs['style:name'], tags(el, 'style:page-layout-properties')[0]?.attribs || {});
       else if (el.name === 'style:master-page') masters.set(el.attribs['style:name'], el.attribs);
@@ -388,7 +406,15 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     return rows.length > 1 && bold(rows[0]) && !bold(rows[1]);
   };
   const linkIn = (el) => { const a = (function find(n) { for (const k of tags(n)) { if (k.name === 'text:a' || k.name === 'draw:a') return k; const f = find(k); if (f) return f; } return null; })(el); const h = a?.attribs['xlink:href']; return h && /^(https?:|mailto:)/i.test(h) ? { url: h } : null; };
-  const paraText = (el) => tags(el).filter((k) => k.name === 'text:p' || k.name === 'text:h' || k.name === 'text:list').map((k) => (k.name === 'text:list' ? tags(k, 'text:list-item').map((li) => paraText(li)).join('\n') : textOf(k))).join('\n');
+  const paraText = (el) => tags(el).filter((k) => k.name === 'text:p' || k.name === 'text:h' || k.name === 'text:list').map((k) => (k.name === 'text:list' ? tags(k).filter((c) => c.name === 'text:list-item' || c.name === 'text:list-header').map((li) => paraText(li)).join('\n') : textOf(k))).join('\n');
+  // A box's list: the look of the first list in it (its list style's first level), as { list } (or {}).
+  const listIn = (el) => {
+    const lst = (function find(n) { for (const k of tags(n)) { if (k.name === 'text:list') return k; const f = find(k); if (f) return f; } return null; })(el);
+    const lv = lst && listLooks.get(lst.attribs['text:style-name']);
+    if (!lv) return {};
+    if (lv.num !== undefined) return NUM_OF_ODF[lv.num] ? { list: NUM_OF_ODF[lv.num] } : {};
+    return lv.bullet !== undefined ? { list: bulletOfWord(lv.bullet) || 'disc' } : {};
+  };
   const fillOf = (g) => (g['draw:fill'] === 'solid' || (g['draw:fill'] === undefined && g['draw:fill-color']) ? hex(g['draw:fill-color']) : null);
   const outlineOf = (g) => { if (g['draw:stroke'] !== 'solid' || !hex(g['svg:stroke-color'])) return {}; const pt = (toCm(g['svg:stroke-width']) || 0.0353) / 0.0353; return { outline: hex(g['svg:stroke-color']), outlineW: OUTLINES.reduce((a, b) => (Math.abs(b - pt) < Math.abs(a - pt) ? b : a)) }; };
   const slides = [], threads = [];
@@ -491,14 +517,14 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
             const text = paraText(box);
             if (!text.trim()) return;
             const fill = fillOf(g);
-            slide.items.push({ id: fresh(), type: 'text', ...(el.attribs['presentation:class'] === 'title' && { role: 'title' }), ...boxOf(el), text, ...textLook(box, 18), ...(fill && { fill }), ...outlineOf(g), ...(linkIn(box) || lk.link ? { link: linkIn(box) || lk.link } : {}) });
+            slide.items.push({ id: fresh(), type: 'text', ...(el.attribs['presentation:class'] === 'title' && { role: 'title' }), ...boxOf(el), text, ...textLook(box, 18), ...(fill && { fill }), ...outlineOf(g), ...(linkIn(box) || lk.link ? { link: linkIn(box) || lk.link } : {}), ...listIn(box) });
           }
         } else if (el.name === 'draw:custom-shape' || el.name === 'draw:rect' || el.name === 'draw:ellipse') {
           const geo = tags(el, 'draw:enhanced-geometry')[0]?.attribs['draw:type'];
           const shape = el.name === 'draw:ellipse' ? 'ellipse' : el.name === 'draw:rect' ? (el.attribs['draw:corner-radius'] ? 'round' : 'rect') : OUR_SHAPES[geo] || (/ellipse|circle/.test(geo || '') ? 'ellipse' : 'rect');
           const text = paraText(el);
           // A plain box with words and no fill (how Impress keeps a .pptx text box) is a text box, not a shape.
-          if (shape === 'rect' && g['draw:fill'] === 'none' && text.trim()) { slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text, ...textLook(el, 18), ...outlineOf(g), ...(linkIn(el) || lk.link ? { link: linkIn(el) || lk.link } : {}) }); return; }
+          if (shape === 'rect' && g['draw:fill'] === 'none' && text.trim()) { slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text, ...textLook(el, 18), ...outlineOf(g), ...(linkIn(el) || lk.link ? { link: linkIn(el) || lk.link } : {}), ...listIn(el) }); return; }
           slide.items.push({ id: fresh(), type: 'shape', shape, ...boxOf(el), fill: fillOf(g) || 'accent', ...outlineOf(g), ...(text.trim() && { text, ...textLook(el, 18) }), ...lk });
         } else if (el.name === 'draw:line') {
           const [x1, y1, x2, y2] = ['svg:x1', 'svg:y1', 'svg:x2', 'svg:y2'].map((k) => toCm(el.attribs[k]) || 0);

@@ -82,15 +82,15 @@ await step('presenting shows them too', async () => {
   if ((await marks(p)).join() !== 'i.,ii.,iii.') throw new Error((await marks(p)).join());
   await page.keyboard.press('Escape');
 });
-await step('a PowerPoint download opened again keeps the list', async () => {
-  const up = await page.evaluate(async (id) => {
-    const bytes = await (await fetch(`/api/files/${id}/export?format=pptx`)).arrayBuffer();
-    return (await fetch('/api/files/upload?name=Agenda.pptx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
-  }, deckId);
+for (const format of ['pptx', 'odp']) await step(`${format === 'pptx' ? 'a PowerPoint' : 'an OpenDocument'} download opened again keeps the list`, async () => {
+  const up = await page.evaluate(async ([id, f]) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
+    return (await fetch(`/api/files/upload?name=Agenda.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, [deckId, format]);
   const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
   const deck = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content;
   const box = deck.slides[0].items.find((it) => it.type === 'text' && /Welcome/.test(it.text));
-  if (box?.list !== 'lower-roman') throw new Error(JSON.stringify(box));
+  if (box?.list !== 'lower-roman' || box.text !== 'Welcome\nBudget\n\nNext steps') throw new Error(`${format}: ${JSON.stringify(box)}`);
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

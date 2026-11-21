@@ -42,3 +42,32 @@ test('PDF: each line with its number or bullet', async (t) => {
   try { text = execFileSync('pdftotext', ['-', '-'], { input: Buffer.from(pdf) }).toString().replace(/\s+/g, ' '); } catch { t.diagnostic('pdftotext not installed: skipped'); return; }
   assert.match(text, /i\. Welcome ii\. Budget iii\. Next steps ✓ Minutes sent ✓ Room booked ● Milk ● Eggs Just words/, text);
 });
+
+test('OpenDocument (.odp): a list style per box, empty lines unnumbered; read back, and as LibreOffice shows and saves it', async (t) => {
+  const { odpFromDeck, deckFromOdp } = await import('../src/office/odp.js');
+  const withGap = { slides: [{ id: 's1', items: [T('a', 'Welcome\n\nBudget', 'lower-roman', 5), T('b', 'Minutes sent', 'check', 35), T('c', 'Milk\nEggs', 'disc', 65), T('d', 'Just words', null, 90)] }] };
+  const odp = await odpFromDeck(withGap, { title: 'Lists' });
+  const content = await (await JSZip.loadAsync(odp)).file('content.xml').async('string');
+  assert.match(content, /<text:list-level-style-number text:level="1" style:num-suffix="." style:num-format="i">/);
+  assert.match(content, /<text:list-level-style-bullet text:level="1" text:bullet-char="✓">/);
+  assert.match(content, /<\/text:list-item><text:list-header>/, 'the empty line: a header, without a number');
+  const back = await deckFromOdp(odp, { savePicture: async () => null });
+  assert.equal(lists(back.deck || back), 'lower-roman:3 check:1 disc:2 -:1');
+  assert.equal((back.deck || back).slides[0].items[0].text, 'Welcome\n\nBudget');
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); execFileSync('pdftotext', ['-v'], { stdio: 'ignore' }); } catch { t.diagnostic('LibreOffice or pdftotext not installed: skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-slo-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.odp'), odp);
+    lo('d.odp', 'pdf', 'pdf');
+    const text = execFileSync('pdftotext', [path.join(dir, 'pdf', 'd.pdf'), '-']).toString().replace(/\s+/g, ' ');
+    assert.match(text, /i\. Welcome ii\. Budget/, `the empty line not counted: ${text}`);
+    assert.match(text, /✓ Minutes sent/, text);
+    assert.equal(lists(await deckFromOdp(lo('d.odp', 'odp', 'a'), { savePicture: async () => null }).then((d) => d.deck || d)), 'lower-roman:3 check:1 disc:2 -:1', '.odp → LibreOffice → .odp');
+    // Our PowerPoint file, saved by LibreOffice as .odp.
+    fs.writeFileSync(path.join(dir, 'p.pptx'), await powerPointFromDeck(deck, 'Lists'));
+    assert.equal(lists(await deckFromOdp(lo('p.pptx', 'odp', 'b'), { savePicture: async () => null }).then((d) => d.deck || d)), 'lower-roman:3 check:2 disc:2 -:1', 'PowerPoint saved as .odp by LibreOffice');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
