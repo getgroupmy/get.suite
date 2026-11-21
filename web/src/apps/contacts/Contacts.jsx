@@ -770,7 +770,7 @@ function GroupDialog({ group, onClose, onSaved }) {
     <Modal wide title={group.id ? 'Edit group' : 'New group'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
         <label className="field"><span>Group name</span><input autoFocus required maxLength={100} value={name} onChange={(e) => setName(e.target.value)} /></label>
-        <label className="field group-people"><span>People (type names or addresses; suggestions come from your contacts and colleagues)</span>
+        <label className="field group-people-field"><span>People (type names or addresses; suggestions come from your contacts and colleagues)</span>
           <AddressInput label="People" value={people} onChange={setPeople} placeholder="name@company.com, …" /></label>
         <p className="muted small" style={{ margin: 0 }}>{parsed.list.length} {parsed.list.length === 1 ? 'person' : 'people'}</p>
         {error && <p className="error">{error}</p>}

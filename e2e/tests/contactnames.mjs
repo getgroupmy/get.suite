@@ -49,6 +49,9 @@ await step('editing the group keeps every name as it was', async () => {
   const dialog = page.getByRole('dialog', { name: 'Edit group' });
   await dialog.getByText('5 people').waitFor();
   await page.screenshot({ path: `${SP}/shots/group-names.png` });
+  // the People box as wide as the dialog's other boxes (it was squeezed beside its label, one address wide)
+  const w = async (l) => (await dialog.getByLabel(l, { exact: true }).boundingBox()).width;
+  if ((await w('People')) < 0.8 * (await w('Group name'))) throw new Error(`People is ${await w('People')}px, Group name ${await w('Group name')}px`);
   await dialog.getByLabel('Group name').fill('Clients 2026');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await dialog.waitFor({ state: 'detached' });

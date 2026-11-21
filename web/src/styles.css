@@ -1385,8 +1385,9 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .filter-cond { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .filter-cond legend { padding: 0; margin-bottom: 4px; }
 .filter-values label { display: flex; gap: 8px; align-items: center; padding: 3px 2px; font-size: 13px; }
-.group-people .address-input { display: block; }
-.group-people .address-list { position: static; margin-top: 4px; box-shadow: none; max-width: none; }
+.group-people-field .address-input { display: block; }
+.group-people-field .address-input > input { width: 100%; }
+.group-people-field .address-list { position: static; margin-top: 4px; box-shadow: none; max-width: none; }
 
 /* Chat: channel settings */
 .chat-head { display: flex; align-items: center; gap: 10px; }
