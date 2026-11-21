@@ -137,3 +137,114 @@ print(json.dumps(out))
   }
   assert.deepEqual(wrong.slice(0, 15), []);
 });
+
+// ---- the sheets themselves: names, merged cells, frozen rows and columns, column widths, hidden rows and columns,
+// notes, tab colours, dropdowns ----
+const NAMES = ['Budget', 'Q1 & Q2', 'Été 2026', "It's mine", '中文', 'Plan 😀', 'Données'];
+function books(n) {
+  return Array.from({ length: n }, () => {
+    const names = [...NAMES].sort(() => rnd() - 0.5).slice(0, 1 + Math.floor(rnd() * 3));
+    return { sheets: names.map((name) => {
+      const s = { name, cells: { A1: 'x', B2: '2', C3: 'y', D6: '7' }, formats: {} };
+      if (rnd() < 0.5) s.merges = [pick(['A1:B2', 'C3:D4', 'A5:D5'])];
+      if (rnd() < 0.5) s.frozen = { rows: Math.floor(rnd() * 3), cols: Math.floor(rnd() * 3) };
+      if (rnd() < 0.5) s.colWidths = { [pick(['A', 'B', 'C'])]: pick([40, 120, 250]) };
+      if (rnd() < 0.4) s.hide = { rows: [pick([2, 4])], cols: [pick([1, 3])] };
+      if (rnd() < 0.4) s.notes = { [pick(['A1', 'C3'])]: pick(['Check this', 'Zoë: ça va?', 'two\nlines']) };
+      if (rnd() < 0.4) s.tabColor = pick(['#d93025', '#1a73e8']);
+      if (rnd() < 0.4) s.validations = [{ type: 'list', range: 'E1:E5', values: pick([['Yes', 'No'], ['Low', 'Medium', 'High'], ['Zoë', 'Müller']]) }];
+      return s;
+    }) };
+  });
+}
+// a book as both sides see it, to compare
+const viewOf = (b) => b.sheets.map((s) => ({
+  name: s.name, merges: (s.merges || []).slice().sort(), frozen: `${s.frozen?.rows || 0},${s.frozen?.cols || 0}`,
+  widths: Object.fromEntries(Object.entries(s.colWidths || {}).map(([c, px]) => [c, Math.round(px)])),
+  hiddenRows: (s.hide?.rows || []).slice().sort(), hiddenCols: (s.hide?.cols || []).slice().sort(),
+  notes: s.notes || {}, tab: s.tabColor || null, lists: (s.validations || []).filter((v) => v.type === 'list').map((v) => `${v.range}=${v.values.join('|')}`),
+}));
+const READ_BOOK = `
+import sys, json, io, base64, openpyxl
+from openpyxl.utils import column_index_from_string
+from openpyxl.utils.cell import coordinate_from_string
+out = []
+for b64 in json.load(sys.stdin):
+    wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(b64)))
+    sheets = []
+    for ws in wb.worksheets:
+        if ws.sheet_state != 'visible': continue
+        fp = ws.freeze_panes
+        if fp: col, row = coordinate_from_string(fp); frozen = f'{row - 1},{column_index_from_string(col) - 1}'
+        else: frozen = '0,0'
+        widths = {k: round(d.width * 7 + 5) for k, d in ws.column_dimensions.items() if d.customWidth and d.width}
+        lists = []
+        for dv in ws.data_validations.dataValidation:
+            if dv.type == 'list' and dv.formula1 and dv.formula1.startswith('"'): lists.append(f'{dv.sqref}={dv.formula1.strip(chr(34)).replace(",", "|")}')
+        tab = ws.sheet_properties.tabColor.rgb[-6:].lower() if ws.sheet_properties.tabColor is not None and ws.sheet_properties.tabColor.rgb else None
+        sheets.append({'name': ws.title, 'merges': sorted(str(r) for r in ws.merged_cells.ranges), 'frozen': frozen, 'widths': widths,
+          'hiddenRows': sorted(r - 1 for r, d in ws.row_dimensions.items() if d.hidden), 'hiddenCols': sorted(column_index_from_string(k) - 1 for k, d in ws.column_dimensions.items() if d.hidden),
+          'notes': {c.coordinate: c.comment.text for row in ws.iter_rows() for c in row if c.comment}, 'tab': ('#' + tab) if tab else None, 'lists': lists})
+    out.append(sheets)
+print(json.dumps(out))
+`;
+
+test('25 random books as .xlsx, read by openpyxl: sheet names, merged cells, frozen panes, widths, hidden rows and columns, notes, tab colours, dropdowns', { skip: !hasOpenpyxl && 'no openpyxl here' }, async () => {
+  const list = books(25);
+  const files = await Promise.all(list.map((b) => excelFromSheet(b)));
+  const got = python(READ_BOOK, JSON.stringify(files.map((f) => Buffer.from(f).toString('base64'))));
+  const wrong = [];
+  list.forEach((b, i) => {
+    const want = viewOf(b), have = got[i];
+    want.forEach((w, k) => {
+      const h = have[k] || {};
+      for (const key of Object.keys(w)) {
+        const same = key === 'widths' ? Object.entries(w.widths).every(([c, px]) => Math.abs((h.widths?.[c] ?? -99) - px) <= 1) : JSON.stringify(w[key]) === JSON.stringify(h[key]);
+        if (!same) wrong.push(`#${i} sheet ${k + 1} ${key} ${JSON.stringify(w[key])} came as ${JSON.stringify(h[key])}`);
+      }
+    });
+  });
+  assert.deepEqual(wrong.slice(0, 12), []);
+});
+
+test('and 25 written by openpyxl, opened in Sheets: the same', { skip: !hasOpenpyxl && 'no openpyxl here' }, async () => {
+  const list = books(25);
+  const WRITE_BOOK = `
+import sys, json, io, base64, openpyxl
+from openpyxl.comments import Comment
+from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.utils import get_column_letter
+out = []
+for book in json.load(sys.stdin):
+    wb = openpyxl.Workbook(); wb.remove(wb.active)
+    for s in book['sheets']:
+        ws = wb.create_sheet(s['name'])
+        for k, v in s['cells'].items(): ws[k] = int(v) if v.isdigit() else v
+        for m in s.get('merges', []): ws.merge_cells(m)
+        f = s.get('frozen')
+        if f and (f['rows'] or f['cols']): ws.freeze_panes = f"{get_column_letter(f['cols'] + 1)}{f['rows'] + 1}"
+        for c, px in s.get('colWidths', {}).items(): ws.column_dimensions[c].width = (px - 5) / 7
+        for r in s.get('hide', {}).get('rows', []): ws.row_dimensions[r + 1].hidden = True
+        for c in s.get('hide', {}).get('cols', []): ws.column_dimensions[get_column_letter(c + 1)].hidden = True
+        for k, t in s.get('notes', {}).items(): ws[k].comment = Comment(t, 'Someone')
+        if s.get('tabColor'): ws.sheet_properties.tabColor = s['tabColor'][1:].upper()
+        for v in s.get('validations', []):
+            dv = DataValidation(type='list', formula1='"' + ','.join(v['values']) + '"', allow_blank=True); dv.add(v['range']); ws.add_data_validation(dv)
+    buf = io.BytesIO(); wb.save(buf); out.append(base64.b64encode(buf.getvalue()).decode())
+print(json.dumps(out))
+`;
+  const files = python(WRITE_BOOK, JSON.stringify(list));
+  const wrong = [];
+  for (const [i, b] of list.entries()) {
+    const back = await sheetFromExcel(Buffer.from(files[i], 'base64'));
+    const want = viewOf(b), have = viewOf({ sheets: back.sheets || back });
+    want.forEach((w, k) => {
+      const h = have[k] || {};
+      for (const key of Object.keys(w)) {
+        const same = key === 'widths' ? Object.entries(w.widths).every(([c, px]) => Math.abs((h.widths?.[c] ?? -99) - px) <= 1) : JSON.stringify(w[key]) === JSON.stringify(h[key]);
+        if (!same) wrong.push(`#${i} sheet ${k + 1} ${key} ${JSON.stringify(w[key])} came back ${JSON.stringify(h[key])}`);
+      }
+    });
+  }
+  assert.deepEqual(wrong.slice(0, 12), []);
+});

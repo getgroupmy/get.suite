@@ -260,12 +260,32 @@ export async function notesOfXlsx(buffer) {
 
 async function withoutOffLooks(buffer) {
   const zip = await JSZip.loadAsync(buffer).catch(() => null);
-  const styles = await zip?.file('xl/styles.xml')?.async('string');
-  if (!styles) return buffer;
-  const fixed = styles.replace(/<(b|i|strike|outline|shadow|condense|extend)\s+val="(?:0|false)"\s*\/>/g, '').replace(/<u\s+val="none"\s*\/>/g, '');
-  if (fixed === styles) return buffer;
-  zip.file('xl/styles.xml', fixed);
-  return zip.generateAsync({ type: 'nodebuffer' });
+  if (!zip) return buffer;
+  let changed = false;
+  const styles = await zip.file('xl/styles.xml')?.async('string');
+  const fixed = styles?.replace(/<(b|i|strike|outline|shadow|condense|extend)\s+val="(?:0|false)"\s*\/>/g, '').replace(/<u\s+val="none"\s*\/>/g, '');
+  if (styles && fixed !== styles) { zip.file('xl/styles.xml', fixed); changed = true; }
+  // Comments (notes) where exceljs looks for them: xl/commentsN.xml and xl/drawings/vmlDrawingN.vml, linked as ../…. openpyxl
+  // (and others) put them in other folders and link them by their full path, which stopped such a file opening at all.
+  let n = 0;
+  for (const relPath of Object.keys(zip.files).filter((f) => /^xl\/worksheets\/_rels\/[^/]+\.rels$/.test(f))) {
+    const rels = await zip.file(relPath).async('string');
+    const out = rels.replace(/<Relationship\b[^>]*>/g, (tag) => {
+      const type = /\bType="[^"]*\/(comments|vmlDrawing)"/.exec(tag)?.[1];
+      const target = /\bTarget="([^"]+)"/.exec(tag)?.[1];
+      if (!type || !target || /^\.\.\/(comments\d+\.xml|drawings\/vmlDrawing\d+\.vml)$/.test(target)) return tag;
+      const from = target.startsWith('/') ? target.slice(1) : path.posix.normalize(`xl/worksheets/${target}`);
+      if (!zip.file(from)) return tag;
+      const k = 9000 + ++n; // (numbers of our own, clear of the file's)
+      const to = type === 'comments' ? `xl/comments${k}.xml` : `xl/drawings/vmlDrawing${k}.vml`;
+      zip.file(to, zip.file(from).async('nodebuffer'));
+      zip.remove(from);
+      changed = true;
+      return tag.replace(/\bTarget="[^"]+"/, `Target="../${to.slice(3)}"`);
+    });
+    if (out !== rels) zip.file(relPath, out);
+  }
+  return changed ? zip.generateAsync({ type: 'nodebuffer' }) : buffer;
 }
 export async function sheetFromExcel(buffer) {
   // Which program saved it (docProps/app.xml): LibreOffice writes some defaults out that Excel leaves unsaid
