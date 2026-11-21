@@ -163,7 +163,8 @@ await step('merge two cells and unmerge them; the others see it; Word and .odt k
   await page.keyboard.type('Total');
   await page.waitForTimeout(2500); // saved
   const merged = (d) => d.content.find((n) => n.type === 'table').content.at(-1).content.map((c) => `${c.attrs?.colspan || 1}:${c.content?.[0]?.content?.[0]?.text || ''}`).join(' ');
-  if (merged((await api(page, 'GET', `/files/${docId}/content`)).body.content) !== '2:Total') throw new Error('not saved merged');
+  // (saved a moment after typing: waited for, not a fixed time, which the server's save sometimes took longer than)
+  await until(async () => merged((await api(page, 'GET', `/files/${docId}/content`)).body.content) === '2:Total', 10000).catch(() => { throw new Error('not saved merged'); });
   for (const format of ['docx', 'odt']) {
     const up = await page.evaluate(async ([id, f]) => {
       const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
