@@ -832,7 +832,7 @@ export default function Chat() {
                 {reminderList.map((r) => r.own ? (
                   <li key={r.id} className="row">
                     <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); navigate(`/chat/${r.channel_id}`); }}>
-                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`} · your reminder</span>
+                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`} · {r.for_name ? `for ${r.for_name}` : 'your reminder'}</span>
                       <span>{r.text}</span>
                     </button>
                     <button type="button" className="icon-btn" aria-label={`Cancel reminder: ${r.text.slice(0, 40)}`} title="Cancel the reminder"
@@ -1103,8 +1103,8 @@ async function channelSlash(slash, c, { toast, navigate, reload }) {
   if (slash.cmd === 'remind') { // a reminder for you, linking back here
     const w = remindWhen(slash.text);
     if (w.error) throw new Error(w.error);
-    await post(`/chat/channels/${c.id}/reminders`, w);
-    toast(`I'll remind you ${whenText(w.at)}: ${w.text}`);
+    const r = await post(`/chat/channels/${c.id}/reminders`, w);
+    toast(`I'll remind ${r.for_name || 'you'} ${whenText(w.at)}: ${w.text}`);
     return true;
   }
   const names = (list) => (list.length === 1 ? list[0].name : `${list.slice(0, -1).map((u) => u.name).join(', ')} and ${list.at(-1).name}`);

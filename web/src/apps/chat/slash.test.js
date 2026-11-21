@@ -105,6 +105,8 @@ test('/remind: what and when (in 2h, tomorrow 9am, fri 3pm, a day alone at 9:00)
   assert.deepEqual(remindWhen('me to send the slides tomorrow 9am', now), { text: 'send the slides', at: new Date(2026, 10, 22, 9, 0).getTime() });
   assert.deepEqual(remindWhen('book the room fri 3pm', now), { text: 'book the room', at: new Date(2026, 10, 27, 15, 0).getTime() });
   assert.deepEqual(remindWhen('pay rent monday', now), { text: 'pay rent', at: new Date(2026, 10, 23, 9, 0).getTime() });
+  assert.deepEqual(remindWhen('@Kim@Acme.com to send the slides tomorrow 9am', now), { text: 'send the slides', at: new Date(2026, 10, 22, 9, 0).getTime(), for: 'kim@acme.com' });
+  assert.deepEqual(remindWhen('@kim@acme.com about the invoice in 2h', now), { text: 'the invoice', at: now.getTime() + 2 * 36e5, for: 'kim@acme.com' });
   assert.match(remindWhen('call Kim', now).error, /Say when/);
   assert.match(remindWhen('in 2h', now).error, /Say what/);
   assert.match(remindWhen('call Kim at 9am', now).error, /passed/);

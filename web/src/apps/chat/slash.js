@@ -14,7 +14,7 @@ export const SLASH = [
   { cmd: 'topic', alone: true, hint: '/topic what it’s about', what: 'set the channel’s topic (alone: clear it)' },
   { cmd: 'mute', alone: true, hint: '/mute 2h', what: 'mute this conversation (for a while, or until /mute off)' },
   { cmd: 'leave', alone: true, hint: '/leave', what: 'leave this channel' },
-  { cmd: 'remind', hint: '/remind me to call Kim in 2h', what: 'a reminder for you (in 2h, tomorrow 9am, fri 3pm…)' },
+  { cmd: 'remind', hint: '/remind me to call Kim in 2h', what: 'a reminder for you, or @someone (in 2h, tomorrow 9am, fri 3pm…)' },
 ];
 
 const UNIT = { m: 60e3, h: 36e5, d: 864e5, w: 7 * 864e5 };
@@ -23,7 +23,11 @@ const UNIT = { m: 60e3, h: 36e5, d: 864e5, w: 7 * 864e5 };
  * { error }. `now` is a Date. A day without a time is 9:00 that day. Times are read as Calendar's quick add reads them.
  */
 export function remindWhen(input, now = new Date()) {
-  let s = String(input || '').trim().replace(/^me\s+/i, '').replace(/^(?:to|about|that)\s+/i, '');
+  let s = String(input || '').trim();
+  // "@kim@acme.com to …": for a colleague (as the @ list writes them); "me": yourself.
+  const who = /^@([\w.+-]+@[\w.-]+\.[a-z]{2,})\s+/i.exec(s);
+  if (who) s = s.slice(who[0].length);
+  s = s.replace(/^me\s+/i, '').replace(/^(?:to|about|that)\s+/i, '');
   let at = null, text = s;
   const rel = /\s+in\s+(\d{1,4}|an?|one|half\s+an?)\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)$/i.exec(` ${s}`);
   if (rel) {
@@ -44,7 +48,7 @@ export function remindWhen(input, now = new Date()) {
   if (at < now.getTime() + 30e3) return { error: 'That time has passed: pick a later one' };
   if (at > now.getTime() + 365 * 864e5) return { error: 'A reminder can be up to a year ahead' };
   if (text.length > 500) return { error: 'A reminder is at most 500 characters' };
-  return { text, at };
+  return { text, at, ...(who && { for: who[1].toLowerCase() }) };
 }
 
 /** "/invite @kim@acme.com @ben@acme.com": { usernames }. */

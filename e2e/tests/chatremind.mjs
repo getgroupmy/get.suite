@@ -81,6 +81,22 @@ await step('one due in a minute arrives in the bell and opens the conversation',
   await page.waitForURL(new RegExp(`/chat/${general}`));
   if ((await api(page, 'GET', '/chat/reminders')).body.length) throw new Error('still listed');
 });
+await step('/remind @kim@acme.com to send the slides in 1 minute: listed for Kim; Kim gets it, from Olivia', async () => {
+  await api(page, 'POST', '/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' });
+  const kim = await mk('kim'); await signIn(kim, 'kim@acme.com');
+  await kim.goto(`${B}/drive`);
+  await page.goto(`${B}/chat/${general}`);
+  await run(page, '/remind @kim@acme.com to send the slides in 1 minute');
+  await page.getByText(/^I'll remind Kim Park .*: send the slides$/).waitFor();
+  await side(page).getByRole('button', { name: /Reminders/ }).click();
+  await page.getByRole('list', { name: 'Reminders' }).getByText(/#general · for Kim Park/).waitFor();
+  const kbell = kim.getByRole('button', { name: /Notifications/ }).first();
+  await until(async () => /[1-9]/.test(await kbell.getAttribute('aria-label') || ''), 100e3);
+  await kbell.click();
+  await kim.getByText('Reminder from Olivia Owner: send the slides').click();
+  await kim.waitForURL(new RegExp(`/chat/${general}`));
+  await page.getByText('No reminders').waitFor(); // gone from Olivia's list, live
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

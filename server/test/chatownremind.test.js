@@ -70,3 +70,35 @@ test('when it’s due: in the bell, linking to the conversation, and gone from t
   assert.equal(n.body, 'You asked in #launch');
   assert.deepEqual((await ben('GET', '/api/chat/reminders')).body, []);
 });
+
+test('for a colleague: they get it (from you), you keep it listed until then, and can cancel it', async () => {
+  const { sendDueChat } = await import('../src/routes/chat.js');
+  const at = Date.now() + 5 * 60e3;
+  const r = await ann('POST', `/api/chat/channels/${ch}/reminders`, { text: 'send the slides', at, for: '@Ben@acme.com' });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.for_name, 'Ben Bell');
+  const mine = (await ann('GET', '/api/chat/reminders')).body.find((x) => x.id === r.body.id);
+  assert.equal(mine.for_name, 'Ben Bell');
+  assert.ok(!(await ben('GET', '/api/chat/reminders')).body.some((x) => x.id === r.body.id), 'not Ben’s to cancel');
+  assert.equal((await ann('POST', `/api/chat/channels/${ch}/reminders`, { text: 'x', at, for: 'nobody@acme.com' })).status, 400);
+  sendDueChat(at + 1000);
+  const n = (await bell(ben)).find((x) => x.title === 'Reminder from Ann Owner: send the slides');
+  assert.ok(n);
+  assert.equal(n.link, `/chat/${ch}`);
+  assert.equal(n.body, 'Set in #launch');
+  assert.ok(!(await bell(ann)).some((x) => /send the slides/.test(x.title)), 'not Ann');
+  assert.ok(!(await ann('GET', '/api/chat/reminders')).body.some((x) => x.id === r.body.id));
+  // In a private channel Ben isn't in: reminded all the same, without the link there.
+  const priv = (await ann('POST', '/api/chat/channels', { name: 'hush', private: true })).body.id;
+  const at2 = Date.now() + 5 * 60e3;
+  await ann('POST', `/api/chat/channels/${priv}/reminders`, { text: 'book the dinner', at: at2, for: 'ben@acme.com' });
+  sendDueChat(at2 + 1000);
+  const n2 = (await bell(ben)).find((x) => x.title === 'Reminder from Ann Owner: book the dinner');
+  assert.equal(n2.link, '/chat'); assert.ok(!n2.body);
+  // Cancelled: nobody is reminded.
+  const at3 = Date.now() + 5 * 60e3;
+  const r3 = (await ann('POST', `/api/chat/channels/${ch}/reminders`, { text: 'never mind', at: at3, for: 'ben@acme.com' })).body;
+  assert.equal((await ann('DELETE', `/api/chat/reminders/own/${r3.id}`)).status, 200);
+  sendDueChat(at3 + 1000);
+  assert.ok(!(await bell(ben)).some((x) => /never mind/.test(x.title)));
+});

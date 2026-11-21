@@ -439,19 +439,26 @@ q(`CREATE TABLE IF NOT EXISTS chat_own_reminders (
   created_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS chat_own_reminders_at ON chat_own_reminders(at)').run();
+// For a colleague instead (/remind @kim@acme.com …): they're reminded; it stays listed (and cancellable) for whoever set it.
+if (!q("SELECT 1 FROM pragma_table_info('chat_own_reminders') WHERE name = 'for_user_id'").get()) q('ALTER TABLE chat_own_reminders ADD COLUMN for_user_id TEXT REFERENCES users(id) ON DELETE CASCADE').run();
 const MAX_REMINDERS = 200; // each person's, of both kinds
 const remindersOf = (userId) => q('SELECT (SELECT COUNT(*) FROM chat_reminders WHERE user_id = ?) + (SELECT COUNT(*) FROM chat_own_reminders WHERE user_id = ?) AS n').get(userId, userId).n;
 
 function remindDue(at) {
-  const own = q(`SELECT r.*, c.name AS channel, c.dm_key FROM chat_own_reminders r JOIN channels c ON c.id = r.channel_id WHERE r.at <= ? ORDER BY r.at LIMIT 100`).all(at);
+  const own = q(`SELECT r.*, c.name AS channel, c.dm_key, s.name AS setter FROM chat_own_reminders r JOIN channels c ON c.id = r.channel_id LEFT JOIN users s ON s.id = r.user_id
+                 WHERE r.at <= ? ORDER BY r.at LIMIT 100`).all(at);
   for (const r of own) {
     q('DELETE FROM chat_own_reminders WHERE id = ?').run(r.id);
-    const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(r.user_id);
+    const to = r.for_user_id || r.user_id;
+    const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(to);
+    if (!user) { sendTo([r.user_id], { type: 'chat-reminders' }); continue; }
     let ok = false;
-    try { ok = !!(user && loadChannel(r.channel_id, user)); } catch { ok = false; }
-    // Out of the conversation since: still reminded, without the link.
-    notify([r.user_id], { kind: 'chat', title: `Reminder: ${r.text}`, body: ok ? `You asked ${r.dm_key ? 'in a direct message' : `in #${r.channel}`}` : '', link: ok ? `/chat/${r.channel_id}` : '/chat', actor: null });
-    sendTo([r.user_id], { type: 'chat-reminders' });
+    try { ok = !!loadChannel(r.channel_id, user); } catch { ok = false; }
+    // Out of the conversation (or never in it): still reminded, without the link.
+    const where = r.dm_key ? 'in a direct message' : `in #${r.channel}`;
+    notify([to], { kind: 'chat', title: r.for_user_id ? `Reminder from ${r.setter || 'a colleague'}: ${r.text}` : `Reminder: ${r.text}`,
+      body: ok ? (r.for_user_id ? `Set ${where}` : `You asked ${where}`) : '', link: ok ? `/chat/${r.channel_id}` : '/chat', actor: r.for_user_id ? r.setter : null });
+    sendTo([...new Set([r.user_id, to])], { type: 'chat-reminders' });
   }
   const due = q(`SELECT r.*, m.body, m.channel_id, m.parent_id, u.name AS author, c.name AS channel, c.dm_key
                  FROM chat_reminders r JOIN messages m ON m.id = r.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
@@ -1885,10 +1892,17 @@ export default function chatRoutes() {
     const at = Number(req.body?.at);
     if (!Number.isFinite(at) || at < Date.now() + 30e3 || at > Date.now() + 366 * 864e5) throw bad('Choose a time from a minute to a year from now');
     if (remindersOf(req.user.id) >= MAX_REMINDERS) throw bad('You have enough reminders already');
+    let forUser = null;
+    if (req.body?.for) {
+      const name = String(req.body.for).replace(/^@/, '').trim().toLowerCase();
+      forUser = q('SELECT id, name FROM users WHERE org_id = ? AND disabled = 0 AND LOWER(username) = ?').get(req.user.org_id, name);
+      if (!forUser) throw bad(`Not a colleague here: ${name}`);
+      if (forUser.id === req.user.id) forUser = null; // "@me": yourself
+    }
     const id = uid();
-    q('INSERT INTO chat_own_reminders (id, user_id, channel_id, text, at, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, req.user.id, c.id, text, Math.round(at), now());
+    q('INSERT INTO chat_own_reminders (id, user_id, channel_id, text, at, created_at, for_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.user.id, c.id, text, Math.round(at), now(), forUser?.id ?? null);
     sendTo([req.user.id], { type: 'chat-reminders' });
-    res.status(201).json({ id, text, at: Math.round(at), channel_id: c.id });
+    res.status(201).json({ id, text, at: Math.round(at), channel_id: c.id, for_name: forUser?.name ?? null });
   });
   r.delete('/reminders/own/:id', (req, res) => {
     if (!q('DELETE FROM chat_own_reminders WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id).changes) throw notFound('Reminder not found');
@@ -1898,7 +1912,8 @@ export default function chatRoutes() {
 
   // Your reminders, soonest first: about messages, and your own ({ own: true, id, text }).
   r.get('/reminders', (req, res) => {
-    const own = q(`SELECT r.id, r.text, r.at, r.channel_id, c.name AS channel, c.dm_key FROM chat_own_reminders r JOIN channels c ON c.id = r.channel_id WHERE r.user_id = ?`).all(req.user.id)
+    const own = q(`SELECT r.id, r.text, r.at, r.channel_id, c.name AS channel, c.dm_key, f.name AS for_name FROM chat_own_reminders r JOIN channels c ON c.id = r.channel_id
+                   LEFT JOIN users f ON f.id = r.for_user_id WHERE r.user_id = ?`).all(req.user.id)
       .map(({ dm_key, ...x }) => ({ ...x, own: true, dm: !!dm_key }));
     res.json([...own, ...q(`SELECT r.message_id, r.at, m.body, m.channel_id, m.parent_id, json_array_length(COALESCE(m.files, '[]')) AS files, json_extract(m.email, '$.subject') AS email_subject, u.name AS author, c.name AS channel, c.dm_key
                 FROM chat_reminders r JOIN messages m ON m.id = r.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
