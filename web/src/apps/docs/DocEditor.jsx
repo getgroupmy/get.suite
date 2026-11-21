@@ -182,6 +182,7 @@ export default function DocEditor() {
 }
 
 function SharedDoc({ file, setFile }) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
@@ -842,6 +843,9 @@ function SharedDoc({ file, setFile }) {
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }, { label: 'Add tab', icon: 'plus', onClick: () => { addTab(editor); setTabsPanel(true); } }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
           { label: 'Compare documents', icon: 'doc', onClick: () => setComparing({ step: 'pick' }) },
+          { label: 'Make a presentation', icon: 'slides', onClick: async () => { // a slide for each Heading 1, what's under it as points
+            try { const r = await post(`/files/${file.id}/make-slides`); toast(`Made “${r.name}”: ${r.slides} slides`); navigate(`/slides/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+          } },
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },

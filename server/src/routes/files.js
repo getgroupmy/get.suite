@@ -43,6 +43,7 @@ import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.
 import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { odtFromDoc, docFromOdt, ODT_MIME, pageOfOdt } from '../office/odt.js';
+import { deckFromDoc } from '../office/docslides.js';
 import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/ods.js';
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
@@ -2248,6 +2249,22 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!name) throw bad('That spreadsheet has as many sheets as it can hold');
     audit(req, 'sheet.copy_to', { target: t.name, details: { from: f.name, sheet: name } });
     res.status(201).json({ id: t.id, name: t.name, sheet: name });
+  });
+
+  // Docs → Make a presentation: a new presentation beside the document, a slide for each Heading 1 (docslides.js).
+  r.post('/:id/make-slides', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'doc') throw bad('Only a document can be made into a presentation');
+    if (!mayTakeAway(f, roleFor(f.id, req.user.id))) throw new HttpError(403, 'Its owner has turned off copying for people who can only view it');
+    saveNow(f.id); // what's being typed right now goes in too
+    const deck = deckFromDoc(withoutSuggestions(JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}')), f.name);
+    if (deck.slides.length < 2) throw bad('Give the document headings (Heading 1) first: each becomes a slide');
+    const json = JSON.stringify(deck);
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
+    const id = insertFile({ owner: req.user.id, parentId, name: `${f.name} (slides)`, kind: 'slides', content: json, size: Buffer.byteLength(json), activity: { by: req.user.id, action: 'create', details: { from: f.name } } });
+    audit(req, 'drive.create', { target: q('SELECT name FROM files WHERE id = ?').get(id).name, details: { from: f.name } });
+    res.status(201).json({ ...publicFile(loadFile(id, req.user)), slides: deck.slides.length });
   });
 
   r.post('/:id/open-as', async (req, res) => {
