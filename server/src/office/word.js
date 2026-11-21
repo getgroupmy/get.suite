@@ -74,6 +74,22 @@ function bookmarksFromWord(html) {
     .replace(/<a id="([^"]+)"><\/a>/g, (m, name) => (wanted(name) ? `<span data-bookmark="${idOf(name)}"></span>` : ''))
     .replace(/<a href="#([^"]+)">/g, (m, name) => (wanted(name) ? `<a href="#bm-${idOf(name)}">` : m));
 }
+/**
+ * A paragraph holding nothing but bookmarks, before a paragraph or heading, gives them to it: pandoc (and others)
+ * start a bookmark for each heading between paragraphs, which would come in as an empty paragraph above it.
+ */
+function bookmarksIntoNext(node) {
+  const list = node?.content;
+  if (!Array.isArray(list)) return;
+  for (let i = list.length - 2; i >= 0; i--) {
+    const p = list[i], next = list[i + 1];
+    if (p.type === 'paragraph' && p.content?.length && p.content.every((c) => c.type === 'bookmark') && (next.type === 'paragraph' || next.type === 'heading')) {
+      next.content = [...p.content, ...(next.content || [])];
+      list.splice(i, 1);
+    }
+  }
+  list.forEach(bookmarksIntoNext);
+}
 // The same building blocks as the Docs editor.
 // Suggestions (Docs' suggesting mode), as in web/src/apps/docs/suggest.js: Word's tracked changes.
 const suggAttrs = () => ({
@@ -423,7 +439,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
         return { src: `pic:${id}`, alt: image.altText || '', ...(width && widthOfPicture(width, data) && { width: widthOfPicture(width, data) }) };
       } catch { return { src: '', alt: '[picture]' }; }
     }),
-    styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'p[style-name=\'Quote\'] => blockquote > p:fresh', 'p[style-name=\'Intense Quote\'] => blockquote > p:fresh', 'p[style-name=\'Quotations\'] => blockquote > p:fresh', 'p[style-name=\'Code\'] => pre:separator(\'\\n\')', 'p[style-name=\'HTML Preformatted\'] => pre:separator(\'\\n\')', 'p[style-name=\'Preformatted Text\'] => pre:separator(\'\\n\')', 'u => u'],
+    styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'p[style-name=\'Quote\'] => blockquote > p:fresh', 'p[style-name=\'Intense Quote\'] => blockquote > p:fresh', 'p[style-name=\'Quotations\'] => blockquote > p:fresh', 'p[style-name=\'Block Text\'] => blockquote > p:fresh', 'r[style-name=\'Verbatim Char\'] => code', 'r[style-name=\'Source Text\'] => code', 'r[style-name=\'HTML Code\'] => code', 'p[style-name=\'Code\'] => pre:separator(\'\\n\')', 'p[style-name=\'HTML Preformatted\'] => pre:separator(\'\\n\')', 'p[style-name=\'Preformatted Text\'] => pre:separator(\'\\n\')', 'u => u'],
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
   // Word's comments: each becomes a thread (a new id), on the words it was about.
@@ -439,6 +455,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   const withNotes = picturesOnTheirOwn(bookmarksFromWord(footnotesFromWord(html))).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = restoreSpacing(checklists(generateJSON(holdSpacing(withNotes) || '<p></p>', EXTENSIONS)));
   joinReplacements(doc);
+  bookmarksIntoNext(doc);
   linksToHeadings(doc); // links to a bookmark starting a heading (as Word files link to headings): to the heading
   // The words each comment covers, now in the document (a comment whose words are gone is still kept, unanchored).
   const quotes = new Map();
@@ -569,7 +586,7 @@ function runs(nodes = [], extra = {}) {
     const color = hex(marks.textStyle?.color), fill = hex(marks.textStyle?.backgroundColor);
     const font = fontName(marks.textStyle?.fontFamily), size = halfPoints(marks.textStyle?.fontSize);
     const run = {
-      text: n.text, bold: !!marks.bold, italics: !!marks.italic, strike: !!marks.strike, ...(marks.underline && { underline: {} }), ...(marks.code && { font: 'Consolas' }),
+      text: n.text, bold: !!marks.bold, italics: !!marks.italic, strike: !!marks.strike, ...(marks.underline && { underline: {} }), ...(marks.code && { font: 'Consolas', style: 'VerbatimChar' }), // (code's own character style, as pandoc writes and reads it, and its font)
       ...(marks.superscript && { superScript: true }), ...(marks.subscript && { subScript: true }),
       ...(color && { color }), ...(fill && { shading: { type: ShadingType.CLEAR, color: 'auto', fill } }), ...(font && { font }), ...(size && { size }), ...extra,
     };
@@ -943,7 +960,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
           paras.push(new Paragraph({ children: [box, ...runs(first?.type === 'paragraph' ? first.content : [])], ...inList }));
           walk(first?.type === 'paragraph' ? rest : li.content, { level });
         }
-      } else if (n.type === 'blockquote') walk(n.content, { ...ctx, para: { style: 'Quote', indent: { left: 720 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 8 } } } }); // Word's own Quote style: it comes back as a quote
+      } else if (n.type === 'blockquote') walk(n.content, { ...ctx, para: { style: 'Quote' } }); // Word's own Quote style: it comes back as a quote (its indent and line in the style, not on each paragraph: pandoc and others read an indent of a paragraph's own as a quote inside the quote)
       else if (n.type === 'codeBlock') for (const line of (n.content?.map((c) => c.text).join('') || '').split('\n')) paras.push(new Paragraph({ style: 'Code', children: [new TextRun({ text: line, font: 'Consolas' })] })); // its own style: it comes back as a code block
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));
       else if (n.type === 'image') paras.push(picture(n));
@@ -1023,7 +1040,8 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         // Headings in the text's own colour, as Docs shows them (the library's are blue, and Heading 4 italic).
         ...HEADING_RUNS,
       },
-      paragraphStyles: [{ id: 'TOCHeading', name: 'TOC Heading', basedOn: 'Normal', next: 'Normal', run: { bold: true, size: 28 } }, { id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' } }, { id: 'Code', name: 'Code', basedOn: 'Normal', next: 'Normal', run: { font: 'Consolas' }, paragraph: { spacing: { after: 0 } } }], // quotes (blockquotes); code blocks
+      characterStyles: [{ id: 'VerbatimChar', name: 'Verbatim Char', run: { font: 'Consolas' } }], // inline code
+      paragraphStyles: [{ id: 'TOCHeading', name: 'TOC Heading', basedOn: 'Normal', next: 'Normal', run: { bold: true, size: 28 } }, { id: 'Quote', name: 'Quote', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { color: '555555' }, paragraph: { indent: { left: 720 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 8 } } } }, { id: 'Code', name: 'Code', basedOn: 'Normal', next: 'Normal', run: { font: 'Consolas' }, paragraph: { spacing: { after: 0 } } }], // quotes (blockquotes); code blocks
     },
     ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });

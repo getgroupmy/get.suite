@@ -186,8 +186,11 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       // them: bold, italic, underlined or struck through only there is turned off for them by name.
       if (marks.has('suggestDelete')) for (const k of ['bold', 'italic', 'underline', 'strike']) if (before[k] && !props[k]) props[`no_${k}`] = 1;
       if (!marks.has('suggestDelete')) before = props;
+      const code = props.code;
+      delete props.code; // (code: ODF's own "Source Text" style, as LibreOffice and pandoc know it, around any other look)
       let run = odfText(text);
       if (Object.keys(props).length) run = `<text:span text:style-name="${textStyle(props)}">${run}</text:span>`;
+      if (code) run = `<text:span text:style-name="Source_Text">${run}</text:span>`;
       const href = marks.get('link')?.attrs?.href;
       const toHeading = (() => { try { return /^#/.test(href || '') && tocOf.get(decodeURIComponent(href.slice(1)).toLowerCase()); } catch { return null; } })();
       if (href && !/^\s*javascript:/i.test(href)) run = `<text:a xlink:type="simple" xlink:href="${x(toHeading ? `#${toHeading}` : String(href).replace(/^#bm-([a-z0-9]{6,16})$/, '#bm_$1'))}">${run}</text:a>`; // (a link to a bookmark: to its name; to a heading: to its bookmark)
@@ -400,7 +403,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 ${[[1, 20], [2, 16], [3, 14], [4, 12], [5, 11], [6, 11]].map(([l, pt]) => `<style:style style:name="Heading_20_${l}" style:display-name="Heading ${l}" style:family="paragraph" style:parent-style-name="Heading" style:default-outline-level="${l}" style:class="text"><style:text-properties fo:font-size="${pt}pt"/></style:style>`).join('\n')}
 <style:style style:name="Quotations" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:margin-left="1cm" fo:padding-left="0.2cm" fo:border-left="1.5pt solid #bbbbbb"/></style:style>
 <style:style style:name="Preformatted_20_Text" style:display-name="Preformatted Text" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:text-properties style:font-name="Liberation Mono" fo:font-family="'Liberation Mono'" fo:font-size="10pt"/></style:style>
-<style:style style:name="SignatureLine" style:display-name="Signature Line" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:padding-top="0.05cm" fo:border-top="0.75pt solid #999999" fo:border-bottom="none" fo:border-left="none" fo:border-right="none"/></style:style><style:style style:name="Contents_20_Heading" style:display-name="Contents Heading" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-top="0.2cm" fo:margin-bottom="0.2cm"/><style:text-properties fo:font-size="14pt" fo:font-weight="bold"/></style:style>${[1, 2, 3, 4, 5, 6].map((l) => `<style:style style:name="Contents_20_${l}" style:display-name="Contents ${l}" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-left="${((l - 1) * 0.5).toFixed(1)}cm" fo:margin-top="0cm" fo:margin-bottom="0.1cm"/></style:style>`).join('')}<style:style style:name="Index_20_Link" style:display-name="Index Link" style:family="text"/><style:style style:name="Horizontal_20_Line" style:display-name="Horizontal Line" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:padding="0cm" fo:border-bottom="0.5pt solid #bbbbbb"/></style:style>
+<style:style style:name="SignatureLine" style:display-name="Signature Line" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:padding-top="0.05cm" fo:border-top="0.75pt solid #999999" fo:border-bottom="none" fo:border-left="none" fo:border-right="none"/></style:style><style:style style:name="Contents_20_Heading" style:display-name="Contents Heading" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-top="0.2cm" fo:margin-bottom="0.2cm"/><style:text-properties fo:font-size="14pt" fo:font-weight="bold"/></style:style>${[1, 2, 3, 4, 5, 6].map((l) => `<style:style style:name="Contents_20_${l}" style:display-name="Contents ${l}" style:family="paragraph" style:parent-style-name="Standard" style:class="index"><style:paragraph-properties fo:margin-left="${((l - 1) * 0.5).toFixed(1)}cm" fo:margin-top="0cm" fo:margin-bottom="0.1cm"/></style:style>`).join('')}<style:style style:name="Index_20_Link" style:display-name="Index Link" style:family="text"/><style:style style:name="Source_Text" style:display-name="Source Text" style:family="text"><style:text-properties style:font-name="Liberation Mono" fo:font-family="'Liberation Mono'" style:font-pitch="fixed"/></style:style><style:style style:name="Horizontal_20_Line" style:display-name="Horizontal Line" style:family="paragraph" style:parent-style-name="Standard" style:class="html"><style:paragraph-properties fo:padding="0cm" fo:border-bottom="0.5pt solid #bbbbbb"/></style:style>
 <style:style style:name="Table_20_Contents" style:display-name="Table Contents" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"/>
 <style:style style:name="Table_20_Heading" style:display-name="Table Heading" style:family="paragraph" style:parent-style-name="Table_20_Contents" style:class="extra"><style:text-properties fo:font-weight="bold"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:text-properties fo:font-size="9pt"/></style:style>
@@ -561,6 +564,13 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
     pictureCache.set(href, id);
     return id;
   };
+  /** A heading's look for its words: not its boldness (a heading's own), nor italic that comes with the Heading style
+   * itself, as pandoc's Heading 2 has (italic set on this one heading stays). */
+  const headingLook = (tp, lv) => {
+    const { 'fo:font-weight': w, ...rest } = tp;
+    if (lv && rest['fo:font-style'] && [...styles.entries()].find(([k]) => k.toLowerCase() === `heading_20_${lv}`)?.[1]?.tp?.['fo:font-style'] === rest['fo:font-style']) delete rest['fo:font-style'];
+    return rest;
+  };
   const wrap = (html, tp, span = false) => {
     let out = html;
     if (/bold|[6-9]00/.test(tp['fo:font-weight'] || '')) out = `<strong>${out}</strong>`;
@@ -619,7 +629,10 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         case 'text:s': out += leaf(SPACE.repeat(Math.min(100, Number(c.attribs['text:c']) || 1))); break; // kept, not folded into one (an ordinary space in the end)
         case 'text:tab': out += leaf('\uE006'); break; // (held through the HTML step, as word.js's HELD_TAB, then a tab again)
         case 'text:line-break': out += '<br>'; break;
-        case 'text:span': { const st = look(c.attribs['text:style-name']); out += wrap(await inline(c), st.names.some((n) => /^(visited_20_)?internet_20_link$/.test(n)) ? {} : st.tp, true); break; } // a link's own look (blue, underlined) is the link's, not formatting
+        case 'text:span': { // (ODF's own style for code, "Source Text", as pandoc and LibreOffice name it: code, whatever its font)
+          const st = look(c.attribs['text:style-name']);
+          if (st.names.some((n) => /^source_(20_)?text$/.test(n))) { const { 'style:font-name': f1, 'fo:font-family': f2, 'fo:font-size': f3, ...rest } = st.tp; out += `<code>${wrap(await inline(c), rest, true)}</code>`; break; }
+          out += wrap(await inline(c), st.names.some((n) => /^(visited_20_)?internet_20_link$/.test(n)) ? {} : st.tp, true); break; } // a link's own look (blue, underlined) is the link's, not formatting
         case 'text:a': { const href = bookmarkHref(c.attribs['xlink:href'] || ''); out += /^\s*javascript:/i.test(href) ? await inline(c) : `<a href="${h(href)}">${await inline(c)}</a>`; break; }
         case 'text:note': { const body = kids(c).find((k) => k.name === 'text:note-body'); out += `<sup data-footnote="" data-note="${h(textOf(body || {}).trim())}"></sup>`; break; }
         case 'draw:frame': {
@@ -725,19 +738,22 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
           continue;
         }
         const lv = named(/^title$/) ? 1 : st.level;
-        const { 'fo:font-weight': weight, ...look2 } = st.tp; // a whole paragraph in a colour, italic…: on its text (a heading's boldness is its own)
+        const look2 = headingLook(st.tp, lv); // a whole paragraph in a colour, italic…: on its text (a heading's boldness is its own)
         const inner = raw ? wrap(raw, lv || named(/^table(_20_| )heading$/) ? look2 : st.tp) : raw; // (a header cell's too: it shows bold)
         if (lv) out += `<h${Math.min(6, lv)}${alignAttr(sn)}>${inner}</h${Math.min(6, lv)}>`;
         else if (named(/^(quotations?|quote|intense(_20_| )quote)$/)) out += `<blockquote><p>${inner}</p></blockquote>`; // (LibreOffice's, or Word's kept from a .docx)
         else out += `<p${alignAttr(sn)}>${inner}</p>`;
       } else if (c.name === 'text:h') {
         const lv = Math.min(6, Math.max(1, Number(c.attribs['text:outline-level']) || 1));
-        const { 'fo:font-weight': w, ...hl } = look(sn).tp;
+        const hl = headingLook(look(sn).tp, lv);
         const inner = await inline(c);
         out += `<h${lv}${alignAttr(sn)}>${inner ? wrap(inner, hl) : inner}</h${lv}>`;
       } else if (c.name === 'text:list') {
         const ls = sn || listStyle;
-        const isNum = (numbered.get(ls) || [])[depth] ?? false;
+        // (a list inside a list with a style of its own that only says how its first level looks, as pandoc writes
+        // them: that look, rather than none)
+        const levels = numbered.get(ls) || [];
+        const isNum = levels[depth] ?? levels.slice(0, depth).reverse().find((v) => v !== undefined) ?? false;
         const items = [];
         const lis = kids(c).filter((k) => k.name === 'text:list-item' || k.name === 'text:list-header');
         for (const li of lis) items.push(`<li>${await blocks(li, depth + 1, ls) || '<p></p>'}</li>`);

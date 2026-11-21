@@ -109,6 +109,25 @@ await step('a Word file with a space each side of where bold starts, and a sugge
   if (text !== 'two  spaces and old words') throw new Error(JSON.stringify(text)); // (it was "two spaces": one space lost where bold starts)
   await editor.locator('del', { hasText: 'old' }).first().waitFor();
 });
+await step('Word and OpenDocument files made by pandoc (from Markdown) open with their quotes, code, lists and headings', async () => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('pandoc', ['--version']).status !== 0) { console.log('(no pandoc here: skipped)'); return; }
+  const md = '## Plan\n\n> Quoted words\n\nRun `npm test` first.\n\n- Fruit\n  1. Apples\n  2. Pears\n';
+  for (const [ext, mime] of [['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], ['odt', 'application/vnd.oasis.opendocument.text']]) {
+    const buf = spawnSync('pandoc', ['-f', 'gfm', '-t', ext], { input: md }).stdout;
+    await page.goto(`${B}/drive`);
+    await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: `From pandoc ${ext}.${ext}`, mimeType: mime, buffer: buf });
+    const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === `From pandoc ${ext}`));
+    await page.goto(`${B}/docs/${f.id}`);
+    const ed = page.locator('.ProseMirror').first();
+    await ed.locator('h2', { hasText: 'Plan' }).waitFor();
+    if (await ed.locator('h2 em').count()) throw new Error(`${ext}: the heading came in italic`);
+    if ((await ed.locator('> p').first().textContent()) === '') throw new Error(`${ext}: an empty paragraph first`);
+    await ed.locator('blockquote', { hasText: 'Quoted words' }).waitFor();
+    await ed.locator('code', { hasText: 'npm test' }).waitFor();
+    await ed.locator('ul ol li', { hasText: 'Apples' }).waitFor();
+  }
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';
