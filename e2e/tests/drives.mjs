@@ -49,7 +49,7 @@ await step('Olivia makes a shared drive and adds Kim as an editor', async () => 
   await dlg.getByLabel('Email address').fill('kim@acme.com');
   await dlg.getByLabel('Access', { exact: true }).selectOption('editor');
   await dlg.getByRole('button', { name: 'Add' }).click();
-  await dlg.getByText('Kim Park').waitFor();
+  await dlg.getByText('Kim Park').first().waitFor(); // (the member; "Message to Kim Park (optional)" comes after it)
   await dlg.getByRole('button', { name: 'Save' }).click();
   await dlg.waitFor({ state: 'detached' });
   await page.getByRole('navigation', { name: 'Folder path' }).getByRole('button', { name: 'Shared drives' }).waitFor();
