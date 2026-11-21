@@ -73,7 +73,7 @@ const NTHS = [1, 2, 3, 4, 5, -1, -2, -3, -4, -5];
  * A repeat rule: { freq, interval?, byday? (weekly: 0=Sun..6), nth? + wd? (monthly: the 2nd Monday), until? (ms), count? }. The
  * browser works out the dates in the user's local time; the server only checks the rule.
  */
-function readRule(rule) {
+export function readRule(rule) {
   if (rule === null || rule === undefined || rule === '') return null;
   if (typeof rule !== 'object' || !FREQS.includes(rule.freq)) throw bad('Unknown repeat rule');
   const out = { freq: rule.freq };

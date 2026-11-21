@@ -97,6 +97,20 @@ await step('/remind @kim@acme.com to send the slides in 1 minute: listed for Kim
   await kim.waitForURL(new RegExp(`/chat/${general}`));
   await page.getByText('No reminders').waitFor(); // gone from Olivia's list, live
 });
+await step('/remind me to submit my timesheet every friday 4pm: repeats, listed with how it repeats; cancelling ends it', async () => {
+  await page.goto(`${B}/chat/${general}`);
+  await run(page, '/remind me to submit my timesheet every friday 4pm');
+  await page.getByText(/^I'll remind you .* \(weekly on fri\): submit my timesheet$/).waitFor();
+  const r = (await api(page, 'GET', '/chat/reminders')).body.find((x) => x.text === 'submit my timesheet');
+  const d = new Date(r.at);
+  if (d.getDay() !== 5 || d.getHours() !== 16 || r.at < Date.now()) throw new Error(String(d));
+  await side(page).getByRole('button', { name: /Reminders/ }).click();
+  const list = page.getByRole('list', { name: 'Reminders' });
+  await list.getByText(/#general · your reminder · 🔁 Weekly on Fri/).waitFor();
+  await page.screenshot({ path: `${SP}/shots/chat-remind-repeat.png` });
+  await page.getByRole('button', { name: 'Cancel reminder: submit my timesheet' }).click();
+  await page.getByText('No reminders').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

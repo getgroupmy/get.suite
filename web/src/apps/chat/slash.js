@@ -14,7 +14,7 @@ export const SLASH = [
   { cmd: 'topic', alone: true, hint: '/topic what it’s about', what: 'set the channel’s topic (alone: clear it)' },
   { cmd: 'mute', alone: true, hint: '/mute 2h', what: 'mute this conversation (for a while, or until /mute off)' },
   { cmd: 'leave', alone: true, hint: '/leave', what: 'leave this channel' },
-  { cmd: 'remind', hint: '/remind me to call Kim in 2h', what: 'a reminder for you, or @someone (in 2h, tomorrow 9am, fri 3pm…)' },
+  { cmd: 'remind', hint: '/remind me to call Kim in 2h', what: 'a reminder for you, or @someone (in 2h, tomorrow 9am, every fri 4pm…)' },
 ];
 
 const UNIT = { m: 60e3, h: 36e5, d: 864e5, w: 7 * 864e5 };
@@ -28,7 +28,7 @@ export function remindWhen(input, now = new Date()) {
   const who = /^@([\w.+-]+@[\w.-]+\.[a-z]{2,})\s+/i.exec(s);
   if (who) s = s.slice(who[0].length);
   s = s.replace(/^me\s+/i, '').replace(/^(?:to|about|that)\s+/i, '');
-  let at = null, text = s;
+  let at = null, text = s, repeat = null;
   const rel = /\s+in\s+(\d{1,4}|an?|one|half\s+an?)\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)$/i.exec(` ${s}`);
   if (rel) {
     const n = /^half/i.test(rel[1]) ? 0.5 : /^\d/.test(rel[1]) ? Number(rel[1]) : 1;
@@ -40,15 +40,17 @@ export function remindWhen(input, now = new Date()) {
     if (q?.found?.length) {
       at = q.all_day ? new Date(q.start).setHours(9, 0, 0, 0) : q.start;
       text = q.title;
+      // "every friday 4pm", "every weekday 9:30am": repeating, as Calendar repeats (its first time may be passed today).
+      if (q.rrule) repeat = { rule: q.rrule, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' };
     }
   }
   text = text.replace(/\s+/g, ' ').trim();
   if (at == null) return { error: 'Say when: /remind me to call Kim in 2h (or tomorrow 9am, fri 3pm)' };
   if (!text) return { error: 'Say what to remind you of: /remind me to call Kim in 2h' };
-  if (at < now.getTime() + 30e3) return { error: 'That time has passed: pick a later one' };
+  if (at < now.getTime() + 30e3 && !repeat) return { error: 'That time has passed: pick a later one' };
   if (at > now.getTime() + 365 * 864e5) return { error: 'A reminder can be up to a year ahead' };
   if (text.length > 500) return { error: 'A reminder is at most 500 characters' };
-  return { text, at, ...(who && { for: who[1].toLowerCase() }) };
+  return { text, at, ...(who && { for: who[1].toLowerCase() }), ...(repeat && { repeat }) };
 }
 
 /** "/invite @kim@acme.com @ben@acme.com": { usernames }. */

@@ -102,3 +102,32 @@ test('for a colleague: they get it (from you), you keep it listed until then, an
   sendDueChat(at3 + 1000);
   assert.ok(!(await bell(ben)).some((x) => /never mind/.test(x.title)));
 });
+
+test('repeating: every Friday at 16:00 (in the person’s zone), moving on after each time; cancelling ends it', async () => {
+  const { sendDueChat, nextRemind } = await import('../src/routes/chat.js');
+  // nextRemind on its own: weekdays at 9:30 in London, from Saturday 21 Nov 2026 → Monday 23rd, then Tuesday 24th.
+  const rep = { rule: { freq: 'weekly', byday: [1, 2, 3, 4, 5] }, first: Date.UTC(2026, 10, 20, 9, 30), tz: 'Europe/London' };
+  assert.equal(nextRemind(rep, Date.UTC(2026, 10, 21, 12)), Date.UTC(2026, 10, 23, 9, 30));
+  assert.equal(nextRemind(rep, Date.UTC(2026, 10, 23, 9, 30)), Date.UTC(2026, 10, 24, 9, 30));
+  // New York's 9:00 stays 9:00 across the clock change (14:00 UTC in winter, 13:00 in summer).
+  const ny = { rule: { freq: 'daily' }, first: Date.UTC(2027, 2, 12, 14), tz: 'America/New_York' };
+  assert.equal(nextRemind(ny, Date.UTC(2027, 2, 15, 0)), Date.UTC(2027, 2, 15, 13));
+  assert.equal(nextRemind({ rule: { freq: 'daily', count: 2 }, first: Date.UTC(2026, 0, 1, 9), tz: 'UTC' }, Date.UTC(2026, 0, 3)), null, 'ended');
+
+  // Made with its first time already past today: the next one is used.
+  const first = Date.now() - 36e5; // an hour ago, daily
+  const r = await ann('POST', `/api/chat/channels/${ch}/reminders`, { text: 'drink water', at: first, repeat: { rule: { freq: 'daily' }, tz: 'UTC' } });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.at, first + 864e5);
+  assert.deepEqual(r.body.repeat, { freq: 'daily' });
+  const listed = (await ann('GET', '/api/chat/reminders')).body.find((x) => x.id === r.body.id);
+  assert.deepEqual(listed.repeat, { freq: 'daily' });
+  // Due: in the bell, and still listed, a day later.
+  sendDueChat(r.body.at + 1000);
+  assert.ok((await bell(ann)).some((n) => n.title === 'Reminder: drink water'));
+  assert.equal((await ann('GET', '/api/chat/reminders')).body.find((x) => x.id === r.body.id).at, first + 2 * 864e5);
+  // Bad rules are refused; cancelling ends the series.
+  assert.equal((await ann('POST', `/api/chat/channels/${ch}/reminders`, { text: 'x', at: Date.now() + 36e5, repeat: { rule: { freq: 'hourly' } } })).status, 400);
+  assert.equal((await ann('DELETE', `/api/chat/reminders/own/${r.body.id}`)).status, 200);
+  assert.ok(!(await ann('GET', '/api/chat/reminders')).body.some((x) => x.id === r.body.id));
+});

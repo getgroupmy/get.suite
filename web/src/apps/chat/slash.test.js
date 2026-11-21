@@ -107,6 +107,10 @@ test('/remind: what and when (in 2h, tomorrow 9am, fri 3pm, a day alone at 9:00)
   assert.deepEqual(remindWhen('pay rent monday', now), { text: 'pay rent', at: new Date(2026, 10, 23, 9, 0).getTime() });
   assert.deepEqual(remindWhen('@Kim@Acme.com to send the slides tomorrow 9am', now), { text: 'send the slides', at: new Date(2026, 10, 22, 9, 0).getTime(), for: 'kim@acme.com' });
   assert.deepEqual(remindWhen('@kim@acme.com about the invoice in 2h', now), { text: 'the invoice', at: now.getTime() + 2 * 36e5, for: 'kim@acme.com' });
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  assert.deepEqual(remindWhen('me to submit my timesheet every friday 4pm', now), { text: 'submit my timesheet', at: new Date(2026, 10, 27, 16, 0).getTime(), repeat: { rule: { freq: 'weekly', byday: [5] }, tz } });
+  const stand = remindWhen('stand-up every weekday 9:30am', now); // its first time (today, 9:30) is passed: the server moves it on
+  assert.deepEqual([stand.text, stand.repeat.rule], ['stand-up', { freq: 'weekly', byday: [1, 2, 3, 4, 5] }]);
   assert.match(remindWhen('call Kim', now).error, /Say when/);
   assert.match(remindWhen('in 2h', now).error, /Say what/);
   assert.match(remindWhen('call Kim at 9am', now).error, /passed/);

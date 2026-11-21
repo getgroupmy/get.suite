@@ -28,6 +28,7 @@ import { eventFromChat } from './eventfrom.js';
 import { localToday } from '../tasks/taskmath.js';
 import { newEventMinutes, DEFAULT_CAL_PREFS } from '../calendar/calprefs.js';
 import { parseSlash, remindWhen } from './slash.js';
+import { describeRule } from '../calendar/calmath.js';
 import { useSlash } from './useSlash.jsx';
 import { useEmojiTyping } from '../../components/emojityping.jsx';
 import SaveToFolder from './SaveToFolder.jsx';
@@ -832,7 +833,7 @@ export default function Chat() {
                 {reminderList.map((r) => r.own ? (
                   <li key={r.id} className="row">
                     <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); navigate(`/chat/${r.channel_id}`); }}>
-                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`} · {r.for_name ? `for ${r.for_name}` : 'your reminder'}</span>
+                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`} · {r.for_name ? `for ${r.for_name}` : 'your reminder'}{r.repeat ? ` · 🔁 ${describeRule(r.repeat, r.at)}` : ''}</span>
                       <span>{r.text}</span>
                     </button>
                     <button type="button" className="icon-btn" aria-label={`Cancel reminder: ${r.text.slice(0, 40)}`} title="Cancel the reminder"
@@ -1104,7 +1105,7 @@ async function channelSlash(slash, c, { toast, navigate, reload }) {
     const w = remindWhen(slash.text);
     if (w.error) throw new Error(w.error);
     const r = await post(`/chat/channels/${c.id}/reminders`, w);
-    toast(`I'll remind ${r.for_name || 'you'} ${whenText(w.at)}: ${w.text}`);
+    toast(`I'll remind ${r.for_name || 'you'} ${whenText(r.at)}${r.repeat ? ` (${describeRule(r.repeat, r.at).toLowerCase()})` : ''}: ${w.text}`);
     return true;
   }
   const names = (list) => (list.length === 1 ? list[0].name : `${list.slice(0, -1).map((u) => u.name).join(', ')} and ${list.at(-1).name}`);
