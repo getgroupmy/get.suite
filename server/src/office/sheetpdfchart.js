@@ -32,28 +32,41 @@ export function chartNumbers(chart, value) {
   };
 }
 
+/** A chart's saved figures ({ categories, series: [{ name, values }] }, or that as JSON) as numbers to draw, or null when there are none. */
+export function plottable(data) {
+  if (typeof data === 'string') { try { data = JSON.parse(data); } catch { return null; } }
+  const series = (Array.isArray(data?.series) ? data.series : []).slice(0, 8).map((x) => ({ name: String(x?.name ?? ''), values: (Array.isArray(x?.values) ? x.values : []).slice(0, 200).map(num) }));
+  if (!series.some((x) => x.values.some((v) => v !== null))) return null;
+  const n = Math.max(...series.map((x) => x.values.length));
+  const categories = Array.from({ length: n }, (_, i) => String(data.categories?.[i] ?? i + 1));
+  return { categories, series: series.map((x) => ({ ...x, values: Array.from({ length: n }, (_, i) => x.values[i] ?? null) })) };
+}
+
 /** Draw `chart` with its numbers `data` in the box (x, y = top-left, w, h in points) on `page`, text in `font`. */
-export function drawChart(page, chart, data, { x, y, w, h }, font, safe = (t) => t) {
+export function drawChart(page, chart, data, { x, y, w, h }, font, safe = (t) => t, { scale = 1 } = {}) {
+  const sc = Math.max(0.5, Math.min(3, scale)); // (bigger text on a slide)
   page.drawRectangle({ x, y: y - h, width: w, height: h, color: rgb(1, 1, 1), borderColor: LINE, borderWidth: 0.6 });
   const fit = (t, size, max) => { let s = safe(String(t ?? '')); while (s.length > 1 && font.widthOfTextAtSize(s, size) > max) s = s.slice(0, -1); return s; };
   let top = y - 6;
-  if (chart.title) { page.drawText(fit(chart.title, 10, w - 12), { x: x + 6, y: top - 10, size: 10, font, color: INK }); top -= 16; }
-  if (!data) { page.drawText('No numbers to chart', { x: x + 6, y: top - 12, size: 8, font, color: GREY }); return; }
+  if (chart.title) { page.drawText(fit(chart.title, 10 * sc, w - 12), { x: x + 6, y: top - 10 * sc, size: 10 * sc, font, color: INK }); top -= 16 * sc; }
+  if (!data) { page.drawText('No numbers to chart', { x: x + 6, y: top - 12 * sc, size: 8 * sc, font, color: GREY }); return; }
   const type = chart.type || 'column';
   const round = type === 'pie' || type === 'doughnut';
   // The legend: the series (or, for a pie, its slices), along the bottom.
   const keys = round ? data.categories.map((c, i) => ({ name: c, i })) : data.series.map((s, i) => ({ name: s.name, i }));
   let lx = x + 6, ly = y - h + 6;
   if (keys.length > 1 || round) for (const k of keys.slice(0, 12)) {
-    const label = fit(k.name, 7, 90);
-    const lw = 10 + font.widthOfTextAtSize(label, 7) + 10;
+    const label = fit(k.name, 7 * sc, 90 * sc);
+    const lw = (10 + 10) * sc + font.widthOfTextAtSize(label, 7 * sc);
     if (lx + lw > x + w - 4) break;
-    page.drawRectangle({ x: lx, y: ly, width: 7, height: 7, color: colour(k.i) });
-    page.drawText(label, { x: lx + 10, y: ly, size: 7, font, color: GREY });
+    page.drawRectangle({ x: lx, y: ly, width: 7 * sc, height: 7 * sc, color: colour(k.i) });
+    page.drawText(label, { x: lx + 10 * sc, y: ly, size: 7 * sc, font, color: GREY });
     lx += lw;
   }
-  const bottom = y - h + ((keys.length > 1 || round) ? 18 : 6);
-  const area = { x: x + 34, y: bottom + 12, w: w - 44, h: Math.max(10, top - bottom - 18) };
+  // One series: its name where the legend would be (no swatch: its colour needs no key).
+  if (keys.length === 1 && !round && keys[0].name) page.drawText(fit(keys[0].name, 7 * sc, w - 12), { x: x + 6, y: ly, size: 7 * sc, font, color: GREY });
+  const bottom = y - h + ((keys.length >= 1 || round) ? 18 * sc : 6);
+  const area = { x: x + 34 * sc, y: bottom + 12 * sc, w: w - 44 * sc, h: Math.max(10, top - bottom - 18 * sc) };
   if (round) {
     const vals = data.series[0].values.map((v) => Math.max(0, v || 0));
     const total = vals.reduce((a, b) => a + b, 0);
@@ -82,12 +95,12 @@ export function drawChart(page, chart, data, { x, y, w, h }, font, safe = (t) =>
   page.drawLine({ start: { x: area.x, y: area.y }, end: { x: area.x + area.w, y: area.y }, thickness: 0.6, color: GREY });
   page.drawLine({ start: { x: area.x, y: area.y }, end: { x: area.x, y: area.y + area.h }, thickness: 0.6, color: GREY });
   const tick = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v * 100) / 100));
-  if (!horiz) { page.drawText(tick(hi), { x: x + 4, y: area.y + area.h - 3, size: 6, font, color: GREY }); page.drawText(tick(lo), { x: x + 4, y: area.y - 3, size: 6, font, color: GREY }); }
+  if (!horiz) { page.drawText(tick(hi), { x: x + 4, y: area.y + area.h - 3 * sc, size: 6 * sc, font, color: GREY }); page.drawText(tick(lo), { x: x + 4, y: area.y - 3 * sc, size: 6 * sc, font, color: GREY }); }
   const sx = (i) => area.x + ((i + 0.5) / n) * area.w;
   const sy = (v) => area.y + ((v - lo) / span) * area.h;
   // The category labels (as many as fit).
-  const every = Math.max(1, Math.ceil((n * 30) / area.w));
-  if (!horiz) data.categories.forEach((c, i) => { if (i % every === 0) { const t = fit(c, 6, (area.w / n) * every - 2); page.drawText(t, { x: sx(i) - font.widthOfTextAtSize(t, 6) / 2, y: area.y - 9, size: 6, font, color: GREY }); } });
+  const every = Math.max(1, Math.ceil((n * 30 * sc) / area.w));
+  if (!horiz) data.categories.forEach((c, i) => { if (i % every === 0) { const t = fit(c, 6 * sc, (area.w / n) * every - 2); page.drawText(t, { x: sx(i) - font.widthOfTextAtSize(t, 6 * sc) / 2, y: area.y - 9 * sc, size: 6 * sc, font, color: GREY }); } });
   if (type === 'line' || type === 'area' || type === 'scatter') {
     data.series.forEach((s, k) => {
       const pts = s.values.map((v, i) => (v === null ? null : [sx(i), sy(v)])).filter(Boolean);

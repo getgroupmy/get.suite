@@ -12,6 +12,7 @@ import { flattenTabs } from './doctabs.js';
 import { chipText, dateText } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
+import { drawChart, plottable } from './sheetpdfchart.js';
 import { PAPER, MARGINS } from '../pagesetup.js';
 
 const MM = 72 / 25.4;
@@ -245,6 +246,12 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
       } else if (n.type === 'horizontalRule') { need(12); y -= 6; page.drawLine({ start: { x, y }, end: { x: right, y }, thickness: 0.7, color: rgb(0.7, 0.7, 0.7) }); y -= 6; }
       else if (n.type === 'image') { if (!(await picture(n, x, w))) paragraph(runsOf([n]), { x, w }); }
       else if (n.type === 'table') table((n.content || []).map((r) => (r.content || []).map((c) => ({ text: cellText(c), head: c.type === 'tableHeader' }))), x, w);
+      else if (n.type === 'sheetChart' && plottable(n.attrs?.data)) { // a chart from a spreadsheet: drawn, as wide as the text and three fifths as tall
+        const ch = Math.min(w * 0.6, top - bottom);
+        need(ch + 8);
+        drawChart(page, { type: n.attrs.chartType, title: n.attrs.title || 'Chart' }, plottable(n.attrs.data), { x, y, w, h: ch }, F.r, safe, { scale: Math.max(1, Math.min(1.6, w / 360)) });
+        y -= ch + 8;
+      }
       else if (n.type === 'sheetChart') { const { title: ct, rows } = chartTable(n.attrs); paragraph([{ text: safe(ct), bold: true }], { x, w }); if (rows.length) table(rows.map((r, i) => r.map((v) => ({ text: safe(v), head: i === 0 }))), x, w); }
       else if (n.type === 'references') { paragraph([{ text: 'References', bold: true }], { x, w, size: HEAD[2], gapBefore: 10 }); for (const s of sourcesOf(doc)) paragraph(reference(s).map((p) => ({ text: safe(p.text), italic: !!p.italic })), { x, w }); }
       else if (n.type === 'pageBreak') { if (y < top) newPage(); }

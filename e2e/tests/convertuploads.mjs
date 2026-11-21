@@ -440,6 +440,26 @@ with pdfplumber.open(io.BytesIO(base64.b64decode(sys.stdin.read()))) as pdf:
   if (!/Sales by month/.test(got.text)) throw new Error('no chart title in the PDF');
   if (got.bars.length !== 2 || Math.abs(got.bars[0] / got.bars[1] - 10 / 12) > 0.02) throw new Error(`the bars: ${JSON.stringify(got.bars)} (Jan 10, Feb 12)`);
 });
+await step('a document and a presentation with a chart, downloaded as PDF: the chart is drawn, its bars from its figures (pdfplumber)', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const data = { categories: ['North', 'South', 'East'], series: [{ name: 'Units', values: [12, 30, 18] }] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Region report', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'By region:' }] }, { type: 'sheetChart', attrs: { title: 'Units by region', chartType: 'column', data: JSON.stringify(data) } }] } })).body;
+  const deck = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Region deck', content: { slides: [{ id: 'a', items: [{ id: 'c', type: 'chart', title: 'Units by region', chartType: 'column', data, x: 10, y: 10, w: 80, h: 70 }] }] } })).body;
+  for (const f of [doc, deck]) {
+    const pdf = await page.evaluate(async (id) => { const b = new Uint8Array(await (await fetch(`/api/files/${id}/export?format=pdf`)).arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s); }, f.id);
+    const r = spawnSync('python3', ['-I', '-c', `
+import sys, io, json, base64, pdfplumber
+with pdfplumber.open(io.BytesIO(base64.b64decode(sys.stdin.read()))) as pdf:
+    p = pdf.pages[0]
+    blue = [r for r in p.rects if tuple(round(c, 2) for c in (r.get('non_stroking_color') or ())) == (0.1, 0.45, 0.91)]
+    print(json.dumps({ 'text': p.extract_text(), 'bars': [round(r['height'], 2) for r in sorted(blue, key=lambda r: r['x0'])] }))
+`], { input: pdf });
+    if (r.status !== 0) { console.log('(no pdfplumber here: skipped)'); return; }
+    const got = JSON.parse(String(r.stdout));
+    if (!/Units by region/.test(got.text) || !/Units/.test(got.text)) throw new Error(`${f.name}: ${got.text}`);
+    if (got.bars.length !== 3 || Math.abs(got.bars[0] / got.bars[1] - 12 / 30) > 0.02 || Math.abs(got.bars[2] / got.bars[1] - 18 / 30) > 0.02) throw new Error(`${f.name}: the bars ${JSON.stringify(got.bars)}`);
+  }
+});
 await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
   if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');

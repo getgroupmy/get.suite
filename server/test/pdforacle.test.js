@@ -208,3 +208,28 @@ print(json.dumps(out))`, pdf.toString('base64'));
     if (row % 34 < 14) assert.ok(p.title[1] > p.here[1] - 6 && p.title[1] < p.here[1] + 30, `sheet ${n}: starting in its cell ${JSON.stringify(p)}`);
   }
 });
+
+test('charts in document and presentation PDFs are drawn as charts (pdfplumber reads the bars back), not only as tables of figures', { skip: !hasPy && 'no pypdf/pdfplumber here' }, async () => {
+  const { pdfFromDoc } = await import('../src/office/pdfdoc.js');
+  const { pdfFromDeck } = await import('../src/office/slidepdf.js');
+  const data = { categories: ['North', 'South', 'East', 'West'], series: [{ name: 'Units', values: [12, 30, 18, 6] }, { name: 'Target', values: [10, 25, 20, 10] }] };
+  const made = {
+    doc: await pdfFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Sales by region:' }] }, { type: 'sheetChart', attrs: { title: 'Units by region', chartType: 'column', data: JSON.stringify(data) } }] }, 'D'),
+    slides: await pdfFromDeck({ slides: [{ id: 's', items: [{ id: 'c', type: 'chart', title: 'Units by region', chartType: 'column', data, x: 10, y: 10, w: 80, h: 70 }] }] }, 'S'),
+  };
+  for (const [kind, pdf] of Object.entries(made)) {
+    const got = python(`
+import sys, io, json, base64, pdfplumber
+with pdfplumber.open(io.BytesIO(base64.b64decode(sys.stdin.read()))) as pdf:
+    p = pdf.pages[0]
+    blue = [r for r in p.rects if tuple(round(c, 2) for c in (r.get('non_stroking_color') or ())) == (0.1, 0.45, 0.91)]
+    orange = [r for r in p.rects if tuple(round(c, 2) for c in (r.get('non_stroking_color') or ())) == (0.91, 0.44, 0.04)]
+    print(json.dumps({ 'text': p.extract_text(), 'blue': [r['height'] for r in sorted(blue, key=lambda r: r['x0']) if not (abs(r['height'] - r['width']) < 0.01 and r['height'] < 25)], 'orange': len(orange) }))`, pdf.toString('base64')); // (the legend's square swatches left out)
+    assert.match(got.text, /Units by region/, kind);
+    const bars = got.blue;
+    assert.equal(bars.length, 4, `${kind}: a bar for each region ${JSON.stringify(got.blue)}`);
+    bars.forEach((h, i) => assert.ok(Math.abs(h / Math.max(...bars) - data.series[0].values[i] / 30) < 0.02, `${kind}: bar ${i}`));
+    assert.ok(got.orange >= 4, `${kind}: the second series too`);
+    assert.match(got.text, /Target/, `${kind}: its legend`);
+  }
+});

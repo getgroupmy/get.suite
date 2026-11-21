@@ -7,6 +7,7 @@ import { asDrawn, withFallbackFonts } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb, PDFName, PDFHexString } from 'pdf-lib';
 import { themeOfDeck } from './powerpoint.js';
 import { chartTable } from './sheetchart.js';
+import { drawChart, plottable } from './sheetpdfchart.js';
 
 const W = 960, H = 540;
 const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return null; const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
@@ -103,6 +104,8 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
         const img = await image(it.fileId);
         if (img) page.drawImage(img, { x: b.x, y: b.y, width: b.w, height: b.h });
         else if (it.alt) text(page, `[${it.alt}]`, b, { size: 12, font: F.i, color: col('text', theme.text) });
+      } else if (it.type === 'chart' && plottable(it.data)) { // drawn as a chart (its figures as a table when it has none)
+        drawChart(page, { type: it.chartType, title: it.title }, plottable(it.data), { x: b.x, y: b.y + b.h, w: b.w, h: b.h }, F.r, safe, { scale: Math.max(1, Math.min(2.5, b.w / 300)) });
       } else if (it.type === 'table' || it.type === 'chart') {
         let rows = it.type === 'table' ? (it.cells || []).map((r) => r.map((c) => String(c ?? ''))) : chartTable({ title: it.title, chartType: it.chartType, data: it.data }).rows;
         let tb = b;
