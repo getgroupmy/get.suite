@@ -1532,7 +1532,7 @@ export default function SheetEditor() {
         <div className="chart-layer">
           {Object.entries(pictures).map(([pid, pic]) => (
             <PictureCard key={pid} zoom={zoom / 100} fileId={file.id} picture={pic} canEdit={!readOnly}
-              onChange={(next) => writePicture(pid, next)} onDelete={() => writePicture(pid, null)} />
+              onChange={(next) => writePicture(pid, next)} onDelete={() => writePicture(pid, null)} onAlt={() => setDialog({ type: 'picture-alt', id: pid })} />
           ))}
           {Object.entries(charts).map(([cid, ch]) => (
             <ChartCard key={cid} zoom={zoom / 100} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
@@ -1787,6 +1787,10 @@ export default function SheetEditor() {
           </div>
           <button className="btn" onClick={() => { writeSheet(() => ({ tabColor: undefined })); setDialog(null); }}>No colour</button>
         </Modal>
+      )}
+      {dialog?.type === 'picture-alt' && (
+        <PromptModal title="Alt text" label="Describe the picture for people who can't see it" message="Screen readers read this out, and Excel and LibreOffice files keep it." initial={pictures[dialog.id]?.alt || ''} confirm="Save"
+          onClose={() => setDialog(null)} onSubmit={(alt) => { const p = dataRef.current.sheets[active]?.pictures?.[dialog.id]; if (p) writePicture(dialog.id, { ...p, alt: alt.slice(0, 200) }); }} />
       )}
       {dialog?.type === 'rename-sheet' && (
         <PromptModal title="Rename sheet" label="Sheet name" initial={data.sheets[dialog.index].name} onClose={() => setDialog(null)}

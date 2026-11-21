@@ -1,12 +1,13 @@
 // Pictures floating over a sheet's cells (from an Excel file, or put in here): drag one to move it,
-// its corner to resize it (Shift keeps its shape free; otherwise it keeps its proportions), Delete to take it away.
+// its corner to resize it (Shift keeps its shape free; otherwise it keeps its proportions), Delete to take it away;
+// its alt text (what a screen reader says, and what Excel and LibreOffice files keep) from its menu.
 import { useEffect, useRef, useState } from 'react';
 import { Menu } from '../../components/ui.jsx';
 
 const MIN = 16;
 
 /** One picture on the sheet. `onChange(next)` is called once a move or resize ends; `onDelete()` takes it away. */
-export function PictureCard({ fileId, picture, canEdit, onChange, onDelete, zoom = 1 }) {
+export function PictureCard({ fileId, picture, canEdit, onChange, onDelete, onAlt, zoom = 1 }) {
   const [live, setLive] = useState(null);
   const drag = useRef(null);
   const box = { x: picture.x, y: picture.y, w: picture.w, h: picture.h, ...live };
@@ -47,8 +48,9 @@ export function PictureCard({ fileId, picture, canEdit, onChange, onDelete, zoom
       onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
       <img src={`/api/files/${encodeURIComponent(fileId)}/pictures/${encodeURIComponent(picture.file)}`} alt={alt} draggable={false} />
       {canEdit && <Menu trigger={(p) => <button type="button" className="icon-btn picture-menu" aria-label={`Options for picture ${alt}`} {...p}>⋮</button>} items={[
+        onAlt && { label: 'Alt text…', onClick: onAlt },
         { label: 'Delete picture', icon: 'trash', danger: true, onClick: onDelete },
-      ]} />}
+      ].filter(Boolean)} />}
       {canEdit && <span className="chart-resize" aria-hidden="true" onPointerDown={start('size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />}
     </figure>
   );

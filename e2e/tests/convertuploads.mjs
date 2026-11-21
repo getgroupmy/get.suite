@@ -342,6 +342,25 @@ await step('a picture pasted (Ctrl+V of a screenshot) goes over the cursor\'s ce
   const saved = await until(async () => { const c = (await api(page, 'GET', `/files/${sheet.id}/content`)).body.content; const p = Object.values(c.sheets[0].pictures || {}); return p.length === 2 ? p : null; }, 10000);
   if (saved.map((p) => p.alt).sort().join() !== 'Stamp,image') throw new Error(JSON.stringify(saved));
 });
+await step('Alt text… in a picture\'s menu: what a screen reader says, kept, and in the .xlsx download', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
+  if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');
+  await page.goto(`${B}/sheets/${f.id}`);
+  const pic = page.locator('.sheet-picture[aria-label="Picture: image"]');
+  await pic.waitFor();
+  await pic.hover();
+  await pic.getByRole('button', { name: 'Options for picture image' }).click();
+  await page.getByRole('menuitem', { name: 'Alt text…' }).click();
+  await page.getByLabel("Describe the picture for people who can't see it").fill('Team logo, purple');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.locator('.sheet-picture[aria-label="Picture: Team logo, purple"] img[alt="Team logo, purple"]').waitFor();
+  await until(async () => Object.values((await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0].pictures || {}).some((p) => p.alt === 'Team logo, purple'), 10000);
+  const xlsx = await page.evaluate(async (id) => { const b = new Uint8Array(await (await fetch(`/api/files/${id}/export?format=xlsx`)).arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s); }, f.id);
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const zip = await JSZip.loadAsync(Buffer.from(xlsx, 'base64'));
+  const drawing = await zip.file(Object.keys(zip.files).find((n) => /^xl\/drawings\/drawing\d+\.xml$/.test(n))).async('string');
+  if (!/descr="Team logo, purple"/.test(drawing)) throw new Error(`the download: ${drawing.slice(0, 400)}`);
+});
 await step('a colleague who can edit copies the sheet with Olivia\'s picture to a new spreadsheet of their own: the picture shows there', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Team photo');
   if (!f) throw new Error('no Team photo spreadsheet (an earlier step failed)');
