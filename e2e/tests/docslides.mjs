@@ -96,6 +96,20 @@ await step('the presentation downloads as Markdown: a # heading a slide, its poi
   const md = await page.evaluate(async (id) => (await fetch(`/api/files/${id}/export?format=md`)).text(), slidesId);
   if (!/^# Goals$/m.test(md) || !/^- Customers\n\s+- Retail/m.test(md) || !/^1\. Plan\n2\. Build\n3\. Launch$/m.test(md) || !/^> Speaker notes: Mention the new shop$/m.test(md)) throw new Error(md);
 });
+await step('a Markdown file in Drive: ⋮ → Open as presentation gives a slide for each # heading', async () => {
+  const md = 'Where we are going\n\n# Q1\n\n- Hire\n  - Designer\n- Ship\n\n# Q2\n\n1. Grow\n2. Rest\n';
+  await page.evaluate(async (text) => fetch('/api/files/upload?name=Year%20plan.md', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: text }), md);
+  await page.goto(B + '/drive');
+  await page.getByLabel('Actions for Year plan.md').click();
+  await page.getByRole('menuitem', { name: 'Open as presentation' }).click();
+  await page.waitForURL(/\/slides\//);
+  await page.getByRole('button', { name: 'Slide 3', exact: true }).waitFor();
+  const stage = page.locator('.slide-stage > .slide');
+  await stage.getByText('Where we are going').waitFor();
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  await stage.getByText('Designer').waitFor();
+  if ((await stage.locator('.slide-mark').allInnerTexts()).join() !== '●,–,●') throw new Error((await stage.locator('.slide-mark').allInnerTexts()).join());
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

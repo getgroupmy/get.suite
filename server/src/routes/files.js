@@ -2137,7 +2137,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Open a Word, Excel or PowerPoint file as a Docs, Sheets or Slides copy, next to it if you can
   // add files there (otherwise in your Drive). The original stays as it is.
   /** A Word, Excel, PowerPoint, OpenDocument or Markdown file f as a new document, spreadsheet or presentation for user: its id. */
-  const convertOffice = async (f, user) => {
+  const convertOffice = async (f, user, { as = null } = {}) => {
     const req = { user }; // (as the route had it)
     const type = f.kind === 'file' && officeType(f.name);
     if (!type) throw bad('Only Word (.docx), OpenDocument (.odt, .ods, .odp), Excel (.xlsx), PowerPoint (.pptx), Markdown (.md), text (.txt), Rich Text (.rtf), web page (.html), CSV and TSV files can be opened this way');
@@ -2158,6 +2158,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     try {
       if (type === 'docx') { const w = await docFromWord(buf, { savePicture }); content = w.doc; wordComments = w.comments || []; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
       else if (type === 'odt') { const o = await docFromOdt(buf, { savePicture }); content = o.doc; wordComments = o.comments || []; layout = { ...layout, ...(await pageOfOdt(buf)) }; }
+      else if ((type === 'md' || type === 'markdown') && as === 'slides') content = deckFromDoc(docFromMarkdown(buf.toString('utf8')), name); // (a # heading a slide: as Slides downloads one)
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'txt') content = docFromTextFile(buf);
       else if (type === 'rtf') content = docFromRtf(buf);
@@ -2169,7 +2170,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       else { content = await deckFromPowerPoint(buf, { savePicture }); slideComments = commentsOfDeck(content); }
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'odt' ? 'an OpenDocument text file' : type === 'ods' ? 'an OpenDocument spreadsheet' : type === 'odp' ? 'an OpenDocument presentation' : type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
-    const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
+    const id = insertFile({ owner: req.user.id, parentId, name, kind: as === 'slides' ? 'slides' : OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
     // A Word or .odt file's comments: threads on the same words, by whoever opened it, naming who wrote them there.
     const signed = (c) => (c.author ? `${c.text}\n\n— ${c.author} (in the ${type === 'odt' ? 'OpenDocument' : 'Word'} file)` : c.text);
     for (const c of wordComments) {
@@ -2283,7 +2284,11 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   r.post('/:id/open-as', async (req, res) => {
-    const id = await convertOffice(loadFile(req.params.id, req.user), req.user);
+    // A Markdown file can open as a presentation instead ({ as: 'slides' }: a slide for each # heading, its points as lists).
+    const as = req.body?.as === 'slides' ? 'slides' : null;
+    const f0 = loadFile(req.params.id, req.user);
+    if (as && !/\.(md|markdown)$/i.test(f0.name)) throw bad('Only a Markdown file opens as a presentation');
+    const id = await convertOffice(f0, req.user, { as });
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 

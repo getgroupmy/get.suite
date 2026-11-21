@@ -135,3 +135,23 @@ test('a presentation as Markdown: a # heading a slide, its points as lists (nest
   assert.match(md, /^1\. Hire\n\s+1\. Designer\n2\. Ship$/m);
   assert.match(md, /^> Speaker notes: Say thanks$/m);
 });
+
+test('a Markdown file opens as a presentation: a slide a # heading, its points (nested) as lists; only Markdown', async () => {
+  const cookie = await (async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'ann@acme.com', password: 'password123' }) }); return r.headers.get('set-cookie').split(';')[0]; })();
+  const up = async (name, text) => (await fetch(`${base}/api/files/upload?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', cookie }, body: text })).json();
+  const md = await up('Year plan.md', 'Where we are going\n\n# Q1\n\n- Hire\n  - Designer\n- Ship\n\n> Speaker notes: Say thanks\n\n# Q2\n\n1. Grow\n2. Rest\n');
+  const r = await ann('POST', `/api/files/${md.id}/open-as`, { as: 'slides' });
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.name, r.body.kind], ['Year plan', 'slides']);
+  const deck = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content;
+  assert.deepEqual(deck.slides.map((s) => s.items.map((it) => `${it.role}${it.list ? `[${it.list}]` : ''}:${it.text}`)), [
+    ['title:Year plan', 'subtitle:Where we are going'],
+    ['title:Q1', 'body[disc]:Hire\n\tDesigner\nShip'],
+    ['title:Q2', 'body[decimal]:Grow\nRest'],
+  ]);
+  assert.equal(deck.slides[1].notes, 'Say thanks');
+  // Without "as": a document, as before; a Word file can't open as slides this way.
+  assert.equal((await ann('POST', `/api/files/${md.id}/open-as`, {})).body.kind, 'doc');
+  const txt = await up('Notes.txt', 'hello');
+  assert.equal((await ann('POST', `/api/files/${txt.id}/open-as`, { as: 'slides' })).status, 400);
+});

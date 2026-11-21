@@ -436,9 +436,9 @@ export default function Drive() {
   }
 
   // A Word, Excel or PowerPoint file: make an editable Docs, Sheets or Slides copy and open it.
-  async function openAs(f) {
+  async function openAs(f, as = null) {
     toast(`Opening ${f.name}…`);
-    try { navigate(openPath(await post(`/files/${f.id}/open-as`))); } catch (e) { toast(e.message, 'error'); }
+    try { navigate(openPath(await post(`/files/${f.id}/open-as`, as ? { as } : {}))); } catch (e) { toast(e.message, 'error'); }
   }
 
   async function create(kind) {
@@ -501,6 +501,7 @@ export default function Drive() {
     return [
       { label: 'Open', icon: fileIcon(f), onClick: () => open(f) },
       officeAs(f) && { label: `Open as ${officeAs(f).what}`, icon: officeAs(f).icon, onClick: () => openAs(f) },
+      /\.(md|markdown)$/i.test(f.name) && f.kind === 'file' && { label: 'Open as presentation', icon: 'slides', onClick: () => openAs(f, 'slides') }, // (a slide a # heading)
       f.kind === 'file' && !viewOnly(f) && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
       ['doc', 'sheet', 'slides'].includes(f.kind) && !viewOnly(f) && { label: 'Save a PDF copy here', icon: 'copy', onClick: async () => {
         try { const c = await post(`/files/${f.id}/pdf-copy`, {}); toast(c.replaced ? `${c.name} updated` : `${c.name} saved${c.parent_id === f.parent_id ? ' beside it' : ' in My Drive'}`); load(); } catch (e) { toast(e.message, 'error'); }

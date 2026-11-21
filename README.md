@@ -241,7 +241,7 @@ Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propos
 
 The other way, **Slides ⋮ → Make a document** writes a presentation out as a document beside it, *Pitch (document)*. A title slide's subtitle opens it, and each other slide becomes a **Heading 1** with its title (or *Slide 5*). Under the heading, a list box becomes a list (points under others in a list inside, its numbering kept), other boxes and shapes with words become paragraphs, and tables become tables. Speaker notes become a quote starting *Speaker notes:*. Skipped slides are left out. Making a presentation from that document again gives the same slides back, notes included.
 
-**⋮ → Download as Markdown (.md)** in Slides gives the same outline as a Markdown file: a `#` heading a slide, its points as lists, its notes as a quote.
+**⋮ → Download as Markdown (.md)** in Slides gives the same outline as a Markdown file: a `#` heading a slide, its points as lists, its notes as a quote. Back the other way, a Markdown file in Drive has **⋮ → Open as presentation** (beside **Open as document**). It makes a presentation from the file the same way, so a downloaded outline (or notes written in Markdown elsewhere) comes back as slides.
 
 ## Action items to Tasks (Docs)
 
