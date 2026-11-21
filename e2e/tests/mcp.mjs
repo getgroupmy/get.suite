@@ -271,6 +271,24 @@ await step('an assistant lists who to catch up with; the same people as Contacts
   await page.goto(`${B}/contacts?tab=touch`);
   await page.getByText('Rosa Catchup').first().waitFor({ timeout: 10000 });
 });
+await step('an assistant makes a presentation: its points show as a bulleted list; it sets a reminder, under Reminders in Chat', async () => {
+  const rpc = async (method, params) => (await (await fetch(`${B}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+  const made = (await rpc('tools/call', { name: 'create_presentation', arguments: { name: 'Pitch', slides: [{ title: 'Pitch' }, { title: 'Why us', points: ['Fast', 'Friendly'] }] } })).result;
+  if (made.isError) throw new Error(JSON.stringify(made));
+  await page.goto(`${B}/slides/${made.structuredContent.id.replace('file:', '')}`);
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  const stage = page.locator('.slide-stage > .slide');
+  await stage.getByText('Friendly').waitFor();
+  if ((await stage.locator('.slide-mark').allInnerTexts()).join() !== '●,●') throw new Error('not a bulleted list');
+  if (await stage.getByText(/• Fast/).count()) throw new Error('bullets typed into the text');
+  const at = new Date(Date.now() + 2 * 36e5).toISOString();
+  const r = (await rpc('tools/call', { name: 'remind_me', arguments: { text: 'rehearse the pitch', at, repeat: 'weekdays' } })).result;
+  if (r.isError) throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/chat`);
+  await page.locator('aside.subnav').getByRole('button', { name: /Reminders/ }).click();
+  await page.getByRole('list', { name: 'Reminders' }).getByText('rehearse the pitch').waitFor();
+  await page.getByRole('list', { name: 'Reminders' }).getByText(/your reminder · 🔁 Weekly on weekdays/).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

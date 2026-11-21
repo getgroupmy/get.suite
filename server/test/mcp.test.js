@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -121,7 +121,7 @@ test('make a presentation from an outline: a title slide, slides of bullet point
   const deck = (await owner('GET', `/api/files/${r.structuredContent.id.replace('file:', '')}/content`)).body.content;
   assert.equal(deck.theme, 'dark');
   assert.deepEqual(deck.slides[0].items.map((i) => [i.role, i.text]), [['title', 'Launch plan'], ['subtitle', 'November 2026']]);
-  assert.deepEqual(deck.slides[1].items.map((i) => [i.role, i.text]), [['title', 'Goals'], ['body', '• Ship the beta\n• Ten pilot customers']]);
+  assert.deepEqual(deck.slides[1].items.map((i) => [i.role, i.text, i.list]), [['title', 'Goals', undefined], ['body', 'Ship the beta\nTen pilot customers', 'disc']], 'the points a bulleted list box');
   assert.equal(deck.slides[1].notes, 'Mention the waiting list');
   assert.deepEqual([deck.slides[2].items.length, deck.slides[2].notes], [1, undefined]);
   assert.match((await call(rw, 'fetch', { id: r.structuredContent.id })).structuredContent.text, /Ten pilot customers/);
@@ -1090,7 +1090,8 @@ test('add slides to a presentation: at the end or after a slide, in its theme; a
   assert.deepEqual(titles, ['Intro', 'Market', 'End', 'Thanks']);
   assert.equal(c.theme, 'dark', 'the deck keeps its theme');
   assert.equal(c.slides[1].notes, 'Pause here');
-  assert.match(c.slides[1].items.find((it) => it.role === 'body').text, /• Big\n• Growing/);
+  assert.match(c.slides[1].items.find((it) => it.role === 'body').text, /^Big\nGrowing/);
+  assert.equal(c.slides[1].items.find((it) => it.role === 'body').list, 'disc');
   assert.match((await call(rw, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'x' }], after: 9 })).content[0].text, /after is a slide number from 0 to 4/);
   assert.equal((await call(ro, 'add_slides', { file: `file:${deck.id}`, slides: [{ title: 'x' }] })).isError, true);
   const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Not slides' })).body;
@@ -1109,4 +1110,40 @@ test('update a contact: only what is given changes; a line added to the notes; r
   assert.match((await call(rw, 'update_contact', { contact: `contact:${c.id}`, name: '' })).content[0].text, /needs a name/);
   assert.match((await call(rw, 'update_contact', { contact: `contact:${c.id}` })).content[0].text, /at least one detail/);
   assert.equal((await call(ro, 'update_contact', { contact: `contact:${c.id}`, phone: '1' })).isError, true);
+});
+
+test('presentation_from_document and document_from_presentation: Docs’ and Slides’ own conversions', async () => {
+  const P = (t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] });
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Offsite', content: { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Agenda' }] }, { type: 'bulletList', content: ['Talks', 'Dinner'].map((t) => ({ type: 'listItem', content: [P(t)] })) }] } })).body.id;
+  const r = await call(rw, 'presentation_from_document', { file: `file:${doc}` });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.name, r.structuredContent.slides], ['Offsite (slides)', 2]);
+  const deck = (await owner('GET', `/api/files/${r.structuredContent.id.replace('file:', '')}/content`)).body.content;
+  assert.deepEqual([deck.slides[1].items[1].text, deck.slides[1].items[1].list], ['Talks\nDinner', 'disc']);
+  const back = await call(rw, 'document_from_presentation', { file: r.structuredContent.id });
+  assert.equal(back.structuredContent.name, 'Offsite (slides) (document)');
+  assert.match(back.structuredContent.url, /\/docs\//);
+  assert.equal((await call(ro, 'presentation_from_document', { file: `file:${doc}` })).isError, true, 'a read-only token can’t');
+  assert.match((await call(rw, 'document_from_presentation', { file: `file:${doc}` })).content[0].text, /Only a presentation/);
+});
+
+test('remind_me: for the person (repeating if asked), a colleague, or a channel', async () => {
+  await owner('POST', '/api/users', { local: 'kimr', domain: 'acme.com', name: 'Kim Remind', password: 'password123' });
+  const at = new Date(Date.now() + 2 * 36e5).toISOString();
+  const mine = await call(rw, 'remind_me', { text: 'send the slides', at });
+  assert.ok(!mine.isError, JSON.stringify(mine));
+  assert.equal(mine.structuredContent.set, true);
+  const weekly = await call(rw, 'remind_me', { text: 'timesheet', at, repeat: 'weekly', time_zone: 'Europe/London' });
+  assert.equal(weekly.structuredContent.repeats, 'weekly');
+  const forKim = await call(rw, 'remind_me', { text: 'book the room', at, for: 'kimr@acme.com' });
+  assert.equal(forKim.structuredContent.for, 'Kim Remind');
+  await owner('POST', '/api/chat/channels', { name: 'remindteam' });
+  const posted = await call(rw, 'remind_me', { text: 'stand-up', at, in: '#remindteam' });
+  assert.equal(posted.structuredContent.posted_in, '#remindteam');
+  const list = (await owner('GET', '/api/chat/reminders')).body.filter((x) => x.own);
+  assert.deepEqual(list.map((x) => `${x.text}|${x.for_name || ''}|${x.post ? 'post' : ''}|${x.repeat ? x.repeat.freq : ''}`).sort(),
+    ['book the room|Kim Remind||', 'send the slides|||', 'stand-up||post|', 'timesheet|||weekly'].sort());
+  assert.match((await call(rw, 'remind_me', { text: 'x', at: 'tomorrow' })).content[0].text, /ISO 8601/);
+  assert.match((await call(rw, 'remind_me', { text: 'x', at, in: '#nope' })).content[0].text, /No channel #nope/);
+  assert.equal((await call(ro, 'remind_me', { text: 'x', at })).isError, true);
 });

@@ -21,7 +21,7 @@ export function deckFromOutline(outline, { theme = 'light' } = {}) {
     if (!title && !points.length) throw bad(`Slide ${i + 1} is empty: give it a title or points`);
     const items = points.length
       ? [text('title', title, 6, 8, 88, 14, 40, { bold: true }),
-        text('body', points.map((p) => `• ${p}`).join('\n'), 6, 26, 88, 66, points.length <= 5 && points.join('').length < 400 ? 26 : points.length <= 9 ? 20 : 16)]
+        text('body', points.join('\n'), 6, 26, 88, 66, points.length <= 5 && points.join('').length < 400 ? 26 : points.length <= 9 ? 20 : 16, { list: 'disc' })] // (a bulleted list box)
       : [text('title', title, 10, s.subtitle ? 30 : 38, 80, 20, 54, { align: 'center', bold: true }),
         ...(s.subtitle ? [text('subtitle', str(s.subtitle, 300), 10, 55, 80, 10, 24, { align: 'center' })] : [])];
     return { id: id(), items, ...(s.notes && { notes: str(s.notes, 10000) }) };

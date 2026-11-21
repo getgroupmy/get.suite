@@ -717,6 +717,26 @@ export const TOOLS = [
     },
   },
   {
+    name: 'presentation_from_document', title: 'Make a presentation from a document', readOnly: false,
+    description: 'Make a presentation from a Workspace document’s outline (as Docs → Make a presentation): a title slide with its name, then a slide for each Heading 1 with what is under it as bullet points (lists inside lists a level in). It goes beside the document, named “… (slides)”. The document needs Heading 1s.',
+    inputSchema: { type: 'object', required: ['file'], properties: { file: { type: 'string', description: 'The document’s id (file:…, from search or list_files)' } } },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const f = await api('POST', `/files/${encodeURIComponent(id)}/make-slides`, {});
+      return { id: `file:${f.id}`, name: f.name, slides: f.slides, url: fileUrl({ ...f, kind: 'slides' }) };
+    },
+  },
+  {
+    name: 'document_from_presentation', title: 'Make a document from a presentation', readOnly: false,
+    description: 'Write a Workspace presentation out as a document (as Slides → Make a document): a Heading 1 for each slide, its bullet points as lists, its tables, and its speaker notes as a “Speaker notes:” quote. It goes beside the presentation, named “… (document)”.',
+    inputSchema: { type: 'object', required: ['file'], properties: { file: { type: 'string', description: 'The presentation’s id (file:…, from search or list_files)' } } },
+    async run(api, a) {
+      const id = String(a.file || '').replace(/^file:/, '');
+      const f = await api('POST', `/files/${encodeURIComponent(id)}/make-doc`, {});
+      return { id: `file:${f.id}`, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+    },
+  },
+  {
     name: 'add_slides', title: 'Add slides to a presentation', readOnly: false,
     description: 'Add slides to an existing Workspace presentation from an outline, at the end or after a given slide: each a title with its points (bullets), or with no points a title slide (with an optional subtitle); notes are its speaker notes. Read it with fetch first to see what is there.',
     inputSchema: {
@@ -1167,6 +1187,40 @@ export const TOOLS = [
       };
       const text = msgs.length ? msgs.map(line).join('\n') : '(no messages)';
       return { conversation: name, messages: msgs.length, text: contentMarkers('chat conversation', text), url: link(`/chat/${c.id}`) };
+    },
+  },
+  {
+    name: 'remind_me', title: 'Set a reminder', readOnly: false,
+    description: 'A reminder in Chat (as /remind does): for the person at a time (it comes to their bell), for a colleague instead (for: their email address; they get it “from” the person), or posted in a channel for everyone (in: #channel). It can repeat. Ask them before reminding someone else or posting in a channel.',
+    inputSchema: {
+      type: 'object', required: ['text', 'at'],
+      properties: {
+        text: { type: 'string', description: 'What to be reminded of, e.g. “send the slides”' },
+        at: { type: 'string', description: 'When, ISO 8601 with a time zone, e.g. 2026-11-24T09:00:00+00:00 (a minute to a year ahead)' },
+        repeat: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'monthly'], description: 'Again every day, weekday, week (on that weekday) or month, from then on' },
+        time_zone: { type: 'string', description: 'For a repeating one: the zone its clock time stays in, e.g. Europe/London (default UTC)' },
+        for: { type: 'string', description: 'A colleague’s email address: the reminder is theirs' },
+        in: { type: 'string', description: '#channel: posted there instead, for everyone in it' },
+      },
+    },
+    async run(api, a) {
+      const text = String(a.text || '').trim();
+      if (!text) throw new ToolError('Say what to be reminded of');
+      const at = Date.parse(String(a.at || ''));
+      if (!Number.isFinite(at)) throw new ToolError('at is a date and time, ISO 8601, like 2026-11-24T09:00:00+00:00');
+      let channelId, where;
+      if (a.in) {
+        const name = String(a.in).replace(/^#/, '').toLowerCase();
+        const c = ((await api('GET', '/chat/channels')).channels || []).find((x) => !x.dm_key && String(x.name).toLowerCase() === name);
+        if (!c) throw new ToolError(`No channel #${name} that the person is in (list_chat_conversations shows them)`);
+        channelId = c.id; where = `#${c.name}`;
+      } else { // (the person's own notes-to-self conversation: where a reminder for them, or one they set for a colleague, belongs)
+        channelId = (await api('POST', '/chat/dm', { user_id: 'me' })).id;
+      }
+      const day = new Date(at).getUTCDay();
+      const rule = { daily: { freq: 'daily' }, weekdays: { freq: 'weekly', byday: [1, 2, 3, 4, 5] }, weekly: { freq: 'weekly', byday: [day] }, monthly: { freq: 'monthly' } }[a.repeat];
+      const r = await api('POST', `/chat/channels/${channelId}/reminders`, { text: text.slice(0, 500), at, ...(a.for && !a.in && { for: String(a.for) }), ...(a.in && { post: true }), ...(rule && { repeat: { rule, tz: String(a.time_zone || 'UTC') } }) });
+      return { set: true, when: new Date(r.at).toISOString(), ...(r.for_name && { for: r.for_name }), ...(where && { posted_in: where }), ...(r.repeat && { repeats: a.repeat }) };
     },
   },
   {

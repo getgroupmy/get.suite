@@ -1073,7 +1073,7 @@ export default function chatRoutes() {
   });
 
   // Find or create a direct-message channel with another user (any company that allows it).
-  r.post('/dm', (req, res) => res.json({ id: dmWith(req.user, req.body.user_id) }));
+  r.post('/dm', (req, res) => res.json({ id: dmWith(req.user, req.body.user_id === 'me' ? req.user.id : req.body.user_id) })); // ('me': your notes to self)
   // Call someone: your direct messages with them (made if need be), a new video meeting posted there, and
   // they're rung. { channel_id, code } — open the meeting next.
   r.post('/call', (req, res) => {
