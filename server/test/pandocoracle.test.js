@@ -9,7 +9,7 @@ import { markdownFromDoc, docFromMarkdown } from '../src/office/markdown.js';
 import { wordFromDoc, docFromWord } from '../src/office/word.js';
 import { odtFromDoc, docFromOdt } from '../src/office/odt.js';
 import { rtfFromDoc, docFromRtf } from '../src/office/rtf.js';
-import { htmlFromDoc } from '../src/office/epub.js';
+import { htmlFromDoc, epubFromDoc } from '../src/office/epub.js';
 import { docFromWebPage } from '../src/office/plainimport.js';
 
 const hasPandoc = spawnSync('pandoc', ['--version']).status === 0;
@@ -213,5 +213,13 @@ test('and 60 as a web page (.html): ours read by pandoc, and pandoc’s (from ou
     const md = markdownFromDoc(doc);
     const theirs = pandoc(['-f', 'gfm', '-t', 'html'], md);
     assert.deepEqual(ourShape(await docFromWebPage(theirs, {})), ourShape(doc), `document ${i}, pandoc's .html of:\n${md}`);
+  }
+});
+
+test('and 60 as an e-book (.epub), read by pandoc: the same', { skip: !hasPandoc && 'pandoc isn’t installed here' }, async () => {
+  for (const [i, doc] of randomDocs(60, 6).entries()) {
+    // (pandoc marks where each chapter file starts with an empty paragraph, and a book with no headings gets its title as one)
+    const lines = read('epub', await epubFromDoc(doc, 'T')).filter((l, k, all) => l !== 'p: ' && !(l === 'h1: T{}' && !ourShape(doc).includes(l)));
+    assert.deepEqual(lines, ourShape(doc), `document ${i}, our .epub`);
   }
 });
