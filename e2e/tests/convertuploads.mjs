@@ -159,6 +159,30 @@ await step('a web page made by pandoc opens with its checklist and footnote', as
   if ((await ed.locator('ul[data-type="taskList"] li[data-checked="true"]').count()) !== 1) throw new Error('ticks');
   if ((await ed.locator('sup[data-footnote]').getAttribute('title')) !== 'Bought on Monday.') throw new Error('the footnote'); // (was a "1" linking to a list at the end)
 });
+await step('an Excel file made by openpyxl: text that looks like a number or formula stays text, and nothing is struck through', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('python3', ['-I', '-c', `
+import sys, io, openpyxl
+from openpyxl.styles import Font
+wb = openpyxl.Workbook(); ws = wb.active
+ws['A1'] = 'Code'; ws['A1'].font = Font(b=True, strike=False)
+ws['A2'] = '007'; ws['A2'].data_type = 's'
+ws['A3'] = '=not a formula'; ws['A3'].data_type = 's'
+ws['A4'] = 12.5
+buf = io.BytesIO(); wb.save(buf); sys.stdout.buffer.write(buf.getvalue())
+`]);
+  if (r.status !== 0) { console.log('(no openpyxl here: skipped)'); return; }
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'From openpyxl.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: r.stdout });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'From openpyxl'));
+  await page.goto(`${B}/sheets/${f.id}`);
+  const grid = page.locator('[role="grid"]').first();
+  await grid.getByText('Code', { exact: true }).waitFor();
+  await grid.getByText('007', { exact: true }).waitFor(); // (it was the number 7)
+  await grid.getByText('=not a formula', { exact: true }).waitFor(); // (it was a formula, showing an error)
+  const struck = await grid.getByText('Code', { exact: true }).evaluate((el) => getComputedStyle(el.closest('[role="gridcell"]') || el).textDecorationLine);
+  if (/line-through/.test(struck)) throw new Error('struck through'); // (every cell was)
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';

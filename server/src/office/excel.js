@@ -123,6 +123,7 @@ function cellText(cell, rawOf) {
   if (typeof v === 'object') {
     if ('formula' in v || 'sharedFormula' in v) {
       const f = `=${formulaFromExcel(v.formula || cell.formula)}`;
+      if (/^=#(N\/A|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|NULL!)$/i.test(f)) return f.slice(1).toUpperCase(); // (an error typed in, LibreOffice's way of saving it: the error)
       return /^=(TRUE|FALSE)$/i.test(f) ? f.slice(1).toUpperCase() : f; // a tick-box value LibreOffice saves as =TRUE(): the value itself
     }
     if (v instanceof Date) {
@@ -142,8 +143,13 @@ function cellText(cell, rawOf) {
     return null;
   }
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+  // Text that would be something else typed into a cell (a number, TRUE, a date, an error, a formula): ' first, as it's
+  // typed to keep it text.
+  if (typeof v === 'string' && looksTyped(v)) return `'${v}`;
   return String(v);
 }
+const looksTyped = (v) => /^[=']/.test(v) || /^(TRUE|FALSE)$/i.test(v) || /^#(N\/A|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|NULL!)$/.test(v)
+  || (v.trim() !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(v.trim())) || /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(v);
 
 // ---- Excel's threaded comments (Microsoft 365): a conversation on a cell, with replies and a resolved state.
 // Excel also writes each as an old-style note for older versions ("[Threaded comment] Your version of Excel…");
@@ -252,10 +258,22 @@ export async function notesOfXlsx(buffer) {
   return out;
 }
 
+async function withoutOffLooks(buffer) {
+  const zip = await JSZip.loadAsync(buffer).catch(() => null);
+  const styles = await zip?.file('xl/styles.xml')?.async('string');
+  if (!styles) return buffer;
+  const fixed = styles.replace(/<(b|i|strike|outline|shadow|condense|extend)\s+val="(?:0|false)"\s*\/>/g, '').replace(/<u\s+val="none"\s*\/>/g, '');
+  if (fixed === styles) return buffer;
+  zip.file('xl/styles.xml', fixed);
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
 export async function sheetFromExcel(buffer) {
   // Which program saved it (docProps/app.xml): LibreOffice writes some defaults out that Excel leaves unsaid
   const appXml = await (await JSZip.loadAsync(buffer).catch(() => null))?.file('docProps/app.xml')?.async('string').catch(() => '');
   const fromLibreOffice = /<Application>\s*LibreOffice/i.test(appXml || '');
+  // Font looks switched off by name (<strike val="0"/>, <b val="false"/>, <u val="none"/>, as openpyxl writes them): left out
+  // before reading, as exceljs takes any of them for on (every cell struck through).
+  buffer = await withoutOffLooks(buffer);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   // A cell's value as written in the file (<v>), for the few exceljs can't keep (a number too big to be a date, in a cell
@@ -481,6 +499,8 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
       }
       else if (v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(v.trim())) cell.value = Number(v);
       else if (/^(TRUE|FALSE)$/i.test(v)) cell.value = /^TRUE$/i.test(v);
+      else if (v.startsWith("'")) cell.value = v.slice(1); // (text typed with ' first, so it isn't a number or formula: the text itself, as Excel keeps it)
+      else if (/^#(N\/A|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|NULL!)$/.test(v)) cell.value = { error: v }; // (an error typed in: Excel's error, as typing it there makes)
       else if (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))) { cell.value = new Date(`${v}T00:00:00Z`); cell.numFmt = 'yyyy-mm-dd'; } // a real date in Excel
       else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(v) && !Number.isNaN(Date.parse(`${v.replace(' ', 'T')}Z`))) { cell.value = new Date(`${v.replace(' ', 'T')}Z`); cell.numFmt = 'yyyy-mm-dd hh:mm'; } // a date and time
       else cell.value = v;
