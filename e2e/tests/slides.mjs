@@ -68,6 +68,23 @@ await step('format a text box: size, italic, colour', async () => {
   if (t.size !== 54 || !t.italic || t.color !== 'accent' || !t.bold) throw new Error(JSON.stringify(t));
 });
 
+await step('underline a text box: shown underlined, and kept in the PowerPoint download', async () => {
+  await page.locator('.slide-stage [aria-label^="Text: Acme"]').click();
+  await page.getByRole('button', { name: 'Underline' }).click();
+  await saved();
+  if (!(await content()).slides[0].items[1].underline) throw new Error('not underlined');
+  const deco = await page.locator('.slide-stage [aria-label^="Text: Acme"]').evaluate((el) => [el, ...el.querySelectorAll('*')].map((e) => getComputedStyle(e).textDecorationLine).join(' '));
+  if (!deco.includes('underline')) throw new Error(`shown as: ${deco}`);
+  const { deckFromPowerPoint } = await import(`${ROOT}/server/src/office/powerpoint.js`);
+  const pptx = await page.evaluate(async (id) => { const r = await fetch(`/api/files/${id}/export?format=pptx`, { headers: { 'x-requested-with': 'nas-workspace' } }); return r.ok ? [...new Uint8Array(await r.arrayBuffer())] : `HTTP ${r.status}`; }, deckId);
+  if (typeof pptx === 'string') throw new Error(pptx);
+  const back = await deckFromPowerPoint(Buffer.from(pptx), { savePicture: async () => 'p' });
+  if (!back.slides[0].items.some((i) => i.text === 'Acme Trading, Q4' && i.underline)) throw new Error(JSON.stringify(back.slides[0].items));
+  await page.getByRole('button', { name: 'Underline' }).click(); // (and off again)
+  await saved();
+  if ((await content()).slides[0].items[1].underline) throw new Error('still underlined');
+});
+
 await step('new slide with a layout; drag and resize a box', async () => {
   await page.getByRole('button', { name: 'New slide' }).click();
   await page.getByRole('menuitem', { name: 'Title and text' }).click();

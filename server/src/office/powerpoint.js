@@ -552,7 +552,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       if (SHAPES[geom] && fill && !textBox) {
         pushFrom(el, linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...edge, text: content, ...box,
           size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
-          ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
+          ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }), ...(attr(rPr, 'u') && attr(rPr, 'u') !== 'none' && { underline: true }),
           ...(colorIn(kid(rPr, A, 'solidFill')) && { color: colorIn(kid(rPr, A, 'solidFill')) }),
           ...({ l: { align: 'left' }, r: { align: 'right' } }[algn] || {}) }));
         continue;
@@ -561,7 +561,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       pushFrom(el, linked(el, {
         id: id(), type: 'text', role: ph === 'title' || ph === 'ctrTitle' ? 'title' : ph === 'subTitle' ? 'subtitle' : 'body', text: content, ...box,
         size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
-        ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
+        ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }), ...(attr(rPr, 'u') && attr(rPr, 'u') !== 'none' && { underline: true }),
         ...(colorIn(kid(rPr, A, 'solidFill')) && { color: colorIn(kid(rPr, A, 'solidFill')) }),
         ...({ ctr: { align: 'center' }, r: { align: 'right' } }[algn] || {}),
         ...(fill && { fill }), ...edge,
@@ -630,7 +630,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const shapes = notesXml ? deep(notesXml, P, 'sp') : [];
     const body = shapes.find((sp) => attr(deep(sp, P, 'ph')[0], 'type') === 'body')
       || shapes.find((sp) => !['sldImg', 'sldNum', 'dt', 'ftr', 'hdr'].includes(attr(deep(sp, P, 'ph')[0], 'type')) && deep(sp, A, 't').some((t) => t.text.trim()));
-    const notes = body ? deep(body, A, 'p').map((para) => deep(para, A, 't').map((t) => t.text).join('')).join('\n').replace(/\r\n?/g, '\n').trim().slice(0, 20000) : '';
+    const notes = body ? deep(body, A, 'p').map((para) => deep(para, A, 't').map((t) => t.text).join('')).join('\n').replace(/\r\n?/g, '\n').replace(/^\n+|\s+$/g, '').slice(0, 20000) : ''; // (a first line's own leading spaces kept)
     // Hidden slides (show="0") are skipped when presenting; transitions map to the nearest one Slides has.
     const skip = attr(xml, 'show') === '0';
     const trEl = deep(xml, P, 'transition')[0] || null;
@@ -744,7 +744,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       const hyperlink = linkFor(it.link, deck.slides || []); // a web page or another slide, followed when presenting
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin, ...(Number(it.rot) && { rotate: ((Number(it.rot) % 360) + 360) % 360 }) };
       if (it.type === 'text') {
-        const look = { fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.text), fontFace: FONT };
+        const look = { fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, ...(it.underline && { underline: { style: 'sng' } }), color: color(it.color, theme.text), fontFace: FONT };
         const box = { ...(it.fill && { fill: { color: color(it.fill, theme.accent) } }), ...outline(it) }; // the box's own colour and outline, when it has them
         if (hyperlink) { // the whole text is the link
           const lines = String(it.text || '').split('\n');
@@ -760,7 +760,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         const kind = pptx.ShapeType[PPT_SHAPES[it.shape]] || pptx.ShapeType.rect;
         const look = { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' }, ...outline(it) };
         // Text in the shape: centred in the middle, in the slide's background colour unless chosen.
-        if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.bg), fontFace: FONT, align: it.align || 'center', valign: 'middle' });
+        if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, ...(it.underline && { underline: { style: 'sng' } }), color: color(it.color, theme.bg), fontFace: FONT, align: it.align || 'center', valign: 'middle' });
         else slide.addShape(kind, look);
       } else if (it.type === 'table' && it.cells?.length) {
         const fontSize = Math.round((it.size || 18) * Win * 72 / 1000);

@@ -39,7 +39,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
   // A box in points (pdf-lib measures from the bottom).
   const boxOf = (it) => { const x = (it.x || 0) / 100 * W, w = (it.w || 0) / 100 * W, h = (it.h || 0) / 100 * H; return { x, y: H - (it.y || 0) / 100 * H - h, w, h }; };
   /** Text wrapped into the box (centred vertically when asked), its lines `size` points. */
-  const text = (page, str, b, { size, font, color, align = 'left', valign = 'top', pad = 4 }) => {
+  const text = (page, str, b, { size, font, color, align = 'left', valign = 'top', pad = 4, underline = false }) => {
     const lines = [];
     for (const para of safe(str).split('\n')) {
       let line = '';
@@ -55,6 +55,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
       const tw = font.widthOfTextAtSize(l, size);
       const x = align === 'center' ? b.x + (b.w - tw) / 2 : align === 'right' ? b.x + b.w - pad - tw : b.x + pad;
       page.drawText(l, { x, y, size, font, color });
+      if (underline && tw > 0) page.drawLine({ start: { x, y: y - size * 0.12 }, end: { x: x + tw, y: y - size * 0.12 }, thickness: Math.max(0.5, size / 16), color }); // (under the words, as the slide shows them)
       y -= lh;
     }
   };
@@ -74,7 +75,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
       const border = it.outline ? { borderColor: col(it.outline, theme.text), borderWidth: Number(it.outlineW) || 1 } : {};
       if (it.type === 'text') {
         if (it.fill || it.outline) page.drawRectangle({ x: b.x, y: b.y, width: b.w, height: b.h, ...(it.fill && { color: col(it.fill, theme.accent) }), ...border });
-        text(page, it.text || '', b, { size, font: fontOf(it), color: col(it.color, theme.text), align: it.align || 'left' });
+        text(page, it.text || '', b, { size, font: fontOf(it), color: col(it.color, theme.text), align: it.align || 'left', underline: !!it.underline });
       } else if (it.type === 'shape') {
         const fill = col(it.fill || 'accent', theme.accent);
         const shape = it.shape || 'rect';
@@ -97,7 +98,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
           const r = Math.min(b.w, b.h) * 0.15;
           page.drawSvgPath(`M ${r} 0 H ${b.w - r} Q ${b.w} 0 ${b.w} ${r} V ${b.h - r} Q ${b.w} ${b.h} ${b.w - r} ${b.h} H ${r} Q 0 ${b.h} 0 ${b.h - r} V ${r} Q 0 0 ${r} 0 Z`, { x: b.x, y: b.y + b.h, color: fill, ...border });
         } else page.drawRectangle({ x: b.x, y: b.y, width: b.w, height: b.h, color: fill, ...border });
-        if (it.text) text(page, it.text, b, { size, font: fontOf(it), color: col(it.color, theme.bg), align: it.align || 'center', valign: 'middle' });
+        if (it.text) text(page, it.text, b, { size, font: fontOf(it), color: col(it.color, theme.bg), align: it.align || 'center', valign: 'middle', underline: !!it.underline });
       } else if (it.type === 'image') {
         const img = await image(it.fileId);
         if (img) page.drawImage(img, { x: b.x, y: b.y, width: b.w, height: b.h });

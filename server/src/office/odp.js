@@ -162,10 +162,10 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
     const tx = cx - (w / 2 * Math.cos(t) - h / 2 * Math.sin(t)), ty = cy - (w / 2 * Math.sin(t) + h / 2 * Math.cos(t));
     return `svg:width="${cm(w)}" svg:height="${cm(h)}" draw:transform="rotate(${(-t).toFixed(6)}) translate(${cm(tx)} ${cm(ty)})"`;
   };
-  const textStyle = (it, fallbackColor, defSize) => style('text', `<style:text-properties fo:font-size="${(Math.round(ptOf(it.size || defSize) * 10) / 10)}pt" style:font-name="${x(font)}" fo:font-family="'${x(font)}'"${it.bold ? ' fo:font-weight="bold"' : ''}${it.italic ? ' fo:font-style="italic"' : ''} fo:color="${color(it.color, fallbackColor)}"/>`);
+  const textStyle = (it, fallbackColor, defSize) => style('text', `<style:text-properties fo:font-size="${(Math.round(ptOf(it.size || defSize) * 10) / 10)}pt" style:font-name="${x(font)}" fo:font-family="'${x(font)}'"${it.bold ? ' fo:font-weight="bold"' : ''}${it.italic ? ' fo:font-style="italic"' : ''}${it.underline ? ' style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"' : ''} fo:color="${color(it.color, fallbackColor)}"/>`);
   const paraStyle = (align) => style('paragraph', `<style:paragraph-properties fo:text-align="${{ center: 'center', right: 'end', justify: 'justify' }[align] || 'start'}"/>`);
   const paras = (text, ts, ps, href) => String(text ?? '').split('\n').map((l) => {
-    const words = href ? `<text:a xlink:type="simple" xlink:href="${x(href)}">${x(l)}</text:a>` : x(l); // the link inside the span, as Impress writes it
+    const words = href ? `<text:a xlink:type="simple" xlink:href="${x(href)}">${spaced(l)}</text:a>` : spaced(l); // the link inside the span, as Impress writes it
     return `<text:p text:style-name="${ps}"><text:span text:style-name="${ts}">${words}</text:span></text:p>`;
   }).join('');
   const graphic = (it, { fill, stroke, valign } = {}) => {
@@ -272,7 +272,7 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
       }
     }
     items = groupedXml(items, pieces) + odpTiming(animated.filter((pc) => pc.animId).flatMap((pc) => (pc.paraIds?.length ? pc.paraIds : [pc.animId]).map((id, n) => ({ id, anim: pc.it.anim, start: n ? null : pc.it.animStart || null }))));
-    const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:style-name="${notesStyle()}" presentation:class="notes" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
+    const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:style-name="${notesStyle()}" presentation:class="notes" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${spaced(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
     const threads = (comments || []).filter((t) => t.slideId === s.id && t.text);
     // Its number: a page-number box at the bottom right, as LibreOffice keeps a slide's (it counts the slides itself).
     const number = numberShown(deck, si) ? `<draw:frame presentation:class="page-number" svg:x="${(W - 3.4).toFixed(2)}cm" svg:y="${(H - 1.3).toFixed(2)}cm" svg:width="3cm" svg:height="0.9cm"><draw:text-box><text:p text:style-name="${paraStyle('right')}"><text:span text:style-name="${style('text', `<style:text-properties fo:font-size="12pt" style:font-name="${x(font)}" fo:font-family="'${x(font)}'" fo:color="#888888"/>`)}"><text:page-number>${si + 1}</text:page-number></text:span></text:p></draw:text-box></draw:frame>` : '';
@@ -311,6 +311,9 @@ ${chartObjects.map((o, k) => `<manifest:file-entry manifest:full-path="Object ${
 // ---- .odp → deck ----
 const kids = (el) => el?.children || [];
 const tags = (el, name) => kids(el).filter((k) => k.type === 'tag' && (!name || k.name === name));
+/** A line's words for a paragraph: tabs, runs of spaces and a space starting it as ODF's own (<text:tab/>, <text:s/>),
+ * which every reader keeps (plain ones are folded into one, or dropped at the start). */
+const spaced = (l) => x(l).replace(/\t/g, '<text:tab/>').replace(/ {2,}/g, (m) => ` <text:s text:c="${m.length - 1}"/>`).replace(/^ /, '<text:s/>');
 const textOf = (el) => (el.type === 'text' ? el.data : el.name === 'text:s' ? ' '.repeat(Number(el.attribs['text:c']) || 1) : el.name === 'text:tab' ? '\t' : el.name === 'text:line-break' ? '\n' : kids(el).map(textOf).join(''));
 const toCm = (v) => { const m = /^(-?[\d.]+)(cm|mm|in|pt|px)?$/.exec(String(v || '').trim()); if (!m) return null; const k = Number(m[1]); return { cm: k, mm: k / 10, in: k * 2.54, pt: k * 2.54 / 72, px: k * 2.54 / 96, undefined: k }[m[2]] ?? k; };
 const round1 = (v) => Math.round(v * 10) / 10;
@@ -376,7 +379,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     const t = { ...look(container.attribs?.['draw:text-style-name'], 't'), ...look(p?.attribs['text:style-name'], 't'), ...look(span?.attribs['text:style-name'], 't') };
     const pt = Number(String(t['fo:font-size'] || '').replace('pt', '')) || defPt;
     const al = { center: 'center', end: 'right', right: 'right', justify: 'justify' }[look(p?.attribs['text:style-name'], 'p')['fo:text-align']];
-    return { size: sizeOf(pt, pw), ...(/bold|[6-9]00/.test(t['fo:font-weight'] || '') && { bold: true }), ...(t['fo:font-style'] === 'italic' && { italic: true }), ...(hex(t['fo:color']) && { color: hex(t['fo:color']) }), ...(al && { align: al }) };
+    return { size: sizeOf(pt, pw), ...(/bold|[6-9]00/.test(t['fo:font-weight'] || '') && { bold: true }), ...(t['fo:font-style'] === 'italic' && { italic: true }), ...(t['style:text-underline-style'] && t['style:text-underline-style'] !== 'none' && { underline: true }), ...(hex(t['fo:color']) && { color: hex(t['fo:color']) }), ...(al && { align: al }) };
   };
   // A table whose first row is all bold (and the rest isn't): a heading row, as LibreOffice turns a PowerPoint table's into.
   const boldFirstRow = (tbl) => {
@@ -522,7 +525,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     }
     const notes = tags(page, 'presentation:notes')[0];
     const nf = notes && (tags(notes, 'draw:frame').find((f) => f.attribs['presentation:class'] === 'notes') || tags(notes, 'draw:frame').find((f) => tags(f, 'draw:text-box').length));
-    const nt = nf ? paraText(tags(nf, 'draw:text-box')[0] || nf).trim() : '';
+    const nt = nf ? paraText(tags(nf, 'draw:text-box')[0] || nf).replace(/^\n+|\s+$/g, '') : ''; // (a first line's own leading spaces kept)
     if (nt) slide.notes = nt.slice(0, 20000);
     // Its comments: each a thread, except one at the very place of the one before it (and not older), a reply to it.
     let last = null;

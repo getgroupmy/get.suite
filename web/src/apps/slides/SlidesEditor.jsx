@@ -423,6 +423,7 @@ export default function SlidesEditor() {
             </select>
             <button type="button" className={`tb ${item.bold ? 'on' : ''}`} aria-pressed={!!item.bold} aria-label="Bold" onClick={() => setItem({ bold: !item.bold })}><b>B</b></button>
             <button type="button" className={`tb ${item.italic ? 'on' : ''}`} aria-pressed={!!item.italic} aria-label="Italic" onClick={() => setItem({ italic: !item.italic })}><i>I</i></button>
+            <button type="button" className={`tb ${item.underline ? 'on' : ''}`} aria-pressed={!!item.underline} aria-label="Underline" onClick={() => setItem({ underline: !item.underline })}><u>U</u></button>
             <select className="tb-select" aria-label="Text colour" value={item.color || ''} onChange={(e) => setItem({ color: e.target.value || undefined })}>
               {TEXT_COLORS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
@@ -929,7 +930,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
         const isSel = editable && selected === it.id && !inGroup;
         let inner = null;
         if (it.type === 'text') {
-          const style = { fontSize: `calc(${it.size || 24} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textAlign: it.align || 'left', color: colorOf(it.color, theme, theme.text),
+          const style = { fontSize: `calc(${it.size || 24} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textDecoration: it.underline ? 'underline' : 'none', textAlign: it.align || 'left', color: colorOf(it.color, theme, theme.text),
             ...(it.fill && { background: colorOf(it.fill, theme, theme.accent), padding: '0.6cqw 0.8cqw', boxSizing: 'border-box' }), ...outlineCss(it, theme) };
           inner = editable && editing === it.id
             ? <textarea autoFocus className="slide-text editing" style={style} defaultValue={it.text} aria-label="Text"
@@ -988,7 +989,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
             ? <LineShape arrow={it.shape === 'arrow'} dir={it.dir || 'h'} color={colorOf(it.fill, theme, theme.accent)} />
             : (() => {
               // Text in a box shape: centred, in the slide's background colour unless chosen (it sits on the shape's colour).
-              const style = { fontSize: `calc(${it.size || textSize(it)} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textAlign: it.align || 'center', color: colorOf(it.color, theme, theme.bg) };
+              const style = { fontSize: `calc(${it.size || textSize(it)} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textDecoration: it.underline ? 'underline' : 'none', textAlign: it.align || 'center', color: colorOf(it.color, theme, theme.bg) };
               return (
                 <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent), ...outlineCss(it, theme) }}>
                   {editable && editing === it.id
