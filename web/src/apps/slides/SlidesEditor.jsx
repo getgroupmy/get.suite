@@ -368,6 +368,9 @@ export default function SlidesEditor() {
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
           ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
           { label: 'Print or save as PDF…', icon: 'print', onClick: () => setPrinting(true) },
+          { label: 'Make a document', icon: 'doc', onClick: async () => { // a Heading 1 for each slide, its points as lists, its notes
+            try { const r = await post(`/files/${id}/make-doc`); toast(`Made “${r.name}”`); navigate(`/docs/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+          } },
           { label: 'Download this slide as a picture (.png)', icon: 'image', onClick: () => setSnapping({ indexes: [slideIndex], all: false }) },
           { label: 'Download all slides as pictures (.zip)', icon: 'image', onClick: () => setSnapping({ indexes: deck.slides.map((_, i) => i), all: true }) },
           { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },

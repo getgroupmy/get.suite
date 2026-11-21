@@ -71,6 +71,24 @@ await step('⋮ → Make a presentation: a new presentation, a slide for each He
   const list = Array.isArray(files) ? files : files.files || files.items || [];
   if (!list.some((f) => f.name === 'Plan 2027 (slides)' && f.kind === 'slides')) throw new Error(JSON.stringify(list).slice(0, 300));
 });
+await step('back the other way: Slides ⋮ → Make a document gives a Heading 1 a slide, the points as lists, the notes', async () => {
+  // A note on the Goals slide first.
+  await page.getByRole('button', { name: 'Slide 2', exact: true }).click();
+  await page.getByPlaceholder(/Notes for this slide/).fill('Mention the new shop');
+  await page.getByText('All changes saved').waitFor({ timeout: 10000 });
+  await page.waitForTimeout(2600);
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Make a document' }).click();
+  await page.waitForURL(/\/docs\//);
+  await page.getByText('Made “Plan 2027 (slides) (document)”').waitFor();
+  const ed = page.locator('.paper .tiptap');
+  await ed.getByText('Online').waitFor();
+  const shape = await ed.evaluate((el) => [...el.children].map((c) => `${c.tagName}${c.tagName === 'UL' || c.tagName === 'OL' ? `(${getComputedStyle(c).listStyleType})` : ''}:${c.textContent.replace(/\s+/g, ' ').trim()}`));
+  // ("Grow steadily." was a point on the slide: an item of the list now)
+  const want = ['P:Our plan for next year', 'H1:Goals', 'UL(disc):Grow steadily.CustomersRetailOnlineHiring', 'BLOCKQUOTE:Speaker notes: Mention the new shop', 'H1:Steps', 'OL(lower-roman):PlanBuildLaunch'];
+  if (JSON.stringify(shape) !== JSON.stringify(want)) throw new Error(JSON.stringify(shape));
+  await page.screenshot({ path: `${SP}/shots/slides-to-doc.png` });
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

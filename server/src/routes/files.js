@@ -43,7 +43,7 @@ import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.
 import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { odtFromDoc, docFromOdt, ODT_MIME, pageOfOdt } from '../office/odt.js';
-import { deckFromDoc } from '../office/docslides.js';
+import { deckFromDoc, docFromDeck } from '../office/docslides.js';
 import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/ods.js';
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
@@ -2265,6 +2265,21 @@ export default function fileRoutes({ maxUploadBytes }) {
     const id = insertFile({ owner: req.user.id, parentId, name: `${f.name} (slides)`, kind: 'slides', content: json, size: Buffer.byteLength(json), activity: { by: req.user.id, action: 'create', details: { from: f.name } } });
     audit(req, 'drive.create', { target: q('SELECT name FROM files WHERE id = ?').get(id).name, details: { from: f.name } });
     res.status(201).json({ ...publicFile(loadFile(id, req.user)), slides: deck.slides.length });
+  });
+
+  // Slides → Make a document: a new document beside the presentation, a Heading 1 for each slide (docslides.js).
+  r.post('/:id/make-doc', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'slides') throw bad('Only a presentation can be made into a document');
+    if (!mayTakeAway(f, roleFor(f.id, req.user.id))) throw new HttpError(403, 'Its owner has turned off copying for people who can only view it');
+    saveNow(f.id); // what's being changed right now goes in too
+    const doc = docFromDeck(JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}'));
+    const json = JSON.stringify(doc);
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
+    const id = insertFile({ owner: req.user.id, parentId, name: `${f.name} (document)`, kind: 'doc', content: json, size: Buffer.byteLength(json), activity: { by: req.user.id, action: 'create', details: { from: f.name } } });
+    audit(req, 'drive.create', { target: q('SELECT name FROM files WHERE id = ?').get(id).name, details: { from: f.name } });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
   r.post('/:id/open-as', async (req, res) => {

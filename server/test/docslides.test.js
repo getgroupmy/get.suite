@@ -85,3 +85,40 @@ test('Make a presentation: beside the document, for editors and viewers (not whe
   const none = await ann('POST', `/api/files/${bare}/make-slides`);
   assert.equal(none.status, 400); assert.match(none.body.error, /Heading 1/);
 });
+
+test('Slides → Make a document: a Heading 1 a slide, list boxes as lists (levels inside), tables, notes; and back again', async () => {
+  const { docFromDeck } = await import('../src/office/docslides.js');
+  const T = (role, text, y, extra = {}) => ({ id: `${role}${y}`, type: 'text', role, text, x: 6, y, w: 80, h: 10, ...extra });
+  const deck = { slides: [
+    { id: 'a', items: [T('title', 'Plan 2027', 30), T('subtitle', 'Our plan', 54)] },
+    { id: 'b', items: [T('body', 'Customers\n\tRetail\n\tOnline\nHiring', 26, { list: 'disc' }), T('title', 'Goals', 6)], notes: 'Mention the new shop\nKeep it short' },
+    { id: 'c', items: [T('title', 'Steps', 6), T('body', 'Plan\nBuild', 26, { list: 'lower-roman' }), { id: 't', type: 'table', y: 70, x: 6, header: true, cells: [['Who', 'What'], ['Kim', 'Budget']] }] },
+    { id: 'd', skip: true, items: [T('title', 'Hidden', 6)] },
+    { id: 'e', items: [T('body', 'No title here', 40)] },
+  ] };
+  const doc = docFromDeck(deck);
+  const show = (n) => (n.type === 'heading' ? `H${n.attrs.level}:${n.content[0].text}` : n.type === 'paragraph' ? `P:${n.content?.[0]?.text || ''}`
+    : /List$/.test(n.type) ? `${n.type === 'orderedList' ? `OL${n.attrs?.listStyle ? `(${n.attrs.listStyle})` : ''}` : 'UL'}[${n.content.map((li) => li.content.map(show).join('')).join(',')}]`
+      : n.type === 'blockquote' ? `Q[${n.content.map(show).join('|')}]` : n.type === 'table' ? `T[${n.content.map((r) => r.content.map((c) => `${c.type === 'tableHeader' ? '*' : ''}${c.content[0].content?.[0]?.text}`).join('/')).join(';')}]` : n.type);
+  assert.deepEqual(doc.content.map(show), [
+    'P:Our plan',
+    'H1:Goals', 'UL[P:CustomersUL[P:Retail,P:Online],P:Hiring]', 'Q[P:Speaker notes: Mention the new shop|P:Keep it short]',
+    'H1:Steps', 'OL(lower-roman)[P:Plan,P:Build]', 'T[*Who/*What;Kim/Budget]',
+    'H1:Slide 5', 'P:No title here',
+  ]);
+  // Back to slides: the same points.
+  const back = deckFromDoc(doc, 'Plan 2027');
+  assert.equal(back.slides[1].items[1].text, 'Customers\n\tRetail\n\tOnline\nHiring');
+  assert.equal(back.slides[2].items[1].list, 'lower-roman');
+  assert.equal(back.slides[1].notes, 'Mention the new shop\nKeep it short', 'the notes, notes again');
+});
+
+test('the endpoint: beside the presentation; only presentations', async () => {
+  const deckId = (await ann('POST', '/api/files/new', { kind: 'slides', name: 'Pitch', parent_id: folder, content: { theme: 'light', slides: [{ id: 's', items: [{ id: 't', type: 'text', role: 'title', text: 'Why us', x: 6, y: 6, w: 88, h: 16 }] }] } })).body.id;
+  const r = await ann('POST', `/api/files/${deckId}/make-doc`);
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.name, r.body.kind, r.body.parent_id], ['Pitch (document)', 'doc', folder]);
+  const content = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content;
+  assert.equal(JSON.stringify(content).includes('Why us'), true);
+  assert.equal((await ann('POST', `/api/files/${docId}/make-doc`)).status, 400);
+});
