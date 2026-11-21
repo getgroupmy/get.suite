@@ -59,11 +59,23 @@ export function PublishedSheet({ book, base = null }) {
     const evaluate = bookEvaluator(book.sheets, at, null, book.functions); // other sheets, named ranges and named functions work too
     let maxR = 0, maxC = 0;
     for (const k of Object.keys(sheet.cells || {})) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
+    // Pictures over the cells: each in the cell its corner is over, the same distance in (this table's columns are
+    // as wide as their text, so the picture stays with its cell rather than at the same spot on the page).
+    const pictures = new Map();
+    for (const p of base ? (sheet.pictures || []) : []) {
+      if (!p?.file) continue;
+      let c = 0, ox = Math.max(0, (Number(p.x) || 0) - 46), r = 0, oy = Math.max(0, (Number(p.y) || 0) - 24);
+      for (let w; c < 51 && ox >= (w = Number(sheet.widths?.[colName(c)]) || 100); c++) ox -= w;
+      for (let h; r < 999 && oy >= (h = Number(sheet.rowHeights?.[String(r + 1)]) || 24); r++) oy -= h;
+      const k = cellKey(c, r);
+      pictures.set(k, [...(pictures.get(k) || []), { ...p, ox, oy }]);
+      maxR = Math.max(maxR, r); maxC = Math.max(maxC, c);
+    }
     maxR = Math.min(maxR, 999); maxC = Math.min(maxC, 51);
     const value = (k) => { let v; try { v = evaluate(k); } catch (e) { v = { error: e.code || '#ERROR!' }; } return formatNumber(v, sheet.formats?.[k]) ?? display(v); };
     const image = (k) => { try { return evaluate.imageOf?.(k) || null; } catch { return null; } };
-    return { rows: maxR + 1, cols: maxC + 1, value, image };
-  }, [sheet, book, at]);
+    return { rows: maxR + 1, cols: maxC + 1, value, image, pictures };
+  }, [sheet, book, at, base]);
   return (
     <div className="stack">
       {book.sheets.length > 1 && <div className="tabs" role="tablist" aria-label="Sheets">{book.sheets.map((s, i) => <button key={s.name} type="button" role="tab" aria-selected={i === at} className={i === at ? 'on' : ''} onClick={() => setAt(i)}>{s.name}</button>)}</div>}
@@ -71,7 +83,7 @@ export function PublishedSheet({ book, base = null }) {
         <table className="pub-sheet">
           <thead><tr><th />{Array.from({ length: view.cols }, (_, c) => <th key={c} scope="col">{colName(c)}</th>)}</tr></thead>
           <tbody>{Array.from({ length: view.rows }, (_, r) => (
-            <tr key={r} style={heightOf(sheet.rowHeights, r) ? { height: heightOf(sheet.rowHeights, r), '--rh': `${heightOf(sheet.rowHeights, r) - 4}px` } : undefined}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r); return <td key={k} data-k={k} style={cellStyle(sheet.formats?.[k])}>{base && view.image(k) ? <CellPicture image={view.image(k)} base={base} label={`Picture in ${k}`} /> : view.value(k)}</td>; })}</tr>
+            <tr key={r} style={heightOf(sheet.rowHeights, r) ? { height: heightOf(sheet.rowHeights, r), '--rh': `${heightOf(sheet.rowHeights, r) - 4}px` } : undefined}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r), pics = view.pictures.get(k); return <td key={k} data-k={k} className={pics ? 'has-pictures' : undefined} style={cellStyle(sheet.formats?.[k])}>{base && view.image(k) ? <CellPicture image={view.image(k)} base={base} label={`Picture in ${k}`} /> : view.value(k)}{pics?.map((p, i) => <img key={i} className="pub-picture" src={`${base}/pictures/${encodeURIComponent(p.file)}`} alt={p.alt || ''} style={{ left: p.ox, top: p.oy, width: p.w, height: p.h }} />)}</td>; })}</tr>
           ))}</tbody>
         </table>
       </div>

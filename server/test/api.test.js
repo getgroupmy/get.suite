@@ -16022,6 +16022,25 @@ test('publish: a published document keeps its normal text and page colour', asyn
   assert.equal('look' in (await client()('GET', `/api/public/pub/${p2.path.split('/').pop()}?peek=1`)).body, false);
 });
 
+test('publish: a published spreadsheet carries the pictures over its cells, and anyone with the link sees them', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=menu-photo.png', png, { raw: true })).body;
+  const other = (await owner('POST', '/api/files/upload?name=private.png', png, { raw: true })).body;
+  const sheet = { name: 'Menu', cells: { A1: 'Soup' }, rowHeights: { 2: 60 }, pictures: { p1: { file: pic.id, alt: 'Soup bowl', x: 246, y: 72, w: 40, h: 30 } } };
+  const f = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Lunch menu', content: { sheets: [sheet, { name: 'Private', hidden: true, cells: {}, pictures: { q: { file: other.id, x: 46, y: 24, w: 10, h: 10 } } }] } })).body;
+  const token = (await owner('PUT', `/api/publish/${f.id}`, { on: true })).body.path.split('/').pop();
+  const anyone = client();
+  const page = (await anyone('GET', `/api/public/pub/${token}?peek=1`)).body;
+  assert.deepEqual(page.content.sheets.map((s) => s.name), ['Menu']);
+  assert.deepEqual(page.content.sheets[0].pictures, [{ file: pic.id, alt: 'Soup bowl', x: 246, y: 72, w: 40, h: 30 }]);
+  assert.deepEqual(page.content.sheets[0].rowHeights, { 2: 60 }, 'its row heights, to place them');
+  const got = await anyone('GET', `/api/public/pub/${token}/pictures/${pic.id}`);
+  assert.equal(got.status, 200);
+  assert.match(got.headers.get('content-type'), /^image\/png/);
+  assert.equal((await anyone('GET', `/api/public/pub/${token}/pictures/${(await owner('POST', '/api/files/upload?name=x.png', png, { raw: true })).body.id}`)).status, 404, 'not a picture it doesn\'t use');
+  assert.equal((await anyone('GET', `/api/public/pub/${token}/pictures/${other.id}`)).status, 404, 'not one on a hidden sheet');
+});
+
 test('previews of Word and OpenDocument files look like the file: normal text and page colour', async () => {
   const { officePreview } = await import('../src/office/preview.js');
   const { wordFromDoc } = await import('../src/office/word.js');

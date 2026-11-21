@@ -88,8 +88,8 @@ export function publicPublishRoutes() {
     let content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(p.file_id).content || 'null');
     if (p.kind === 'doc') content = withoutSuggestions(content);
     if (p.kind === 'slides') content = { ...content, slides: (content?.slides || []).filter((s) => !s.skip).map(({ notes, ...s }) => s) }; // no speaker notes, no skipped slides
-    // A spreadsheet: its shown sheets, formulas reading a hidden one given as their values.
-    if (p.kind === 'sheet') content = { sheets: publishedBook(content).map((s) => ({ name: s.name, cells: s.cells || {}, formats: s.formats || {}, widths: s.widths || s.colWidths || {}, merges: s.merges || [], ...(s.names && { names: s.names }) })), ...(content?.functions?.length && { functions: content.functions }) }; // each sheet's named ranges, and the named functions, for its formulas
+    // A spreadsheet: its shown sheets, formulas reading a hidden one given as their values; the pictures over their cells.
+    if (p.kind === 'sheet') content = { sheets: publishedBook(content).map((s) => ({ name: s.name, cells: s.cells || {}, formats: s.formats || {}, widths: s.widths || s.colWidths || {}, merges: s.merges || [], ...(s.names && { names: s.names }), ...(s.rowHeights && { rowHeights: s.rowHeights }), ...(s.pictures && Object.keys(s.pictures).length && { pictures: Object.values(s.pictures).slice(0, 50).map(({ file, alt, x, y, w, h }) => ({ file, alt, x, y, w, h })) }) })), ...(content?.functions?.length && { functions: content.functions }) }; // each sheet's named ranges, and the named functions, for its formulas
     if (!req.query.peek) q('UPDATE published_files SET views = views + 1 WHERE file_id = ?').run(p.file_id);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex');
@@ -102,7 +102,7 @@ export function publicPublishRoutes() {
     const p = published(req.params.token);
     const content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(p.file_id).content || '{}');
     const pic = String(req.params.pic);
-    if (!picturesIn(p.kind, content).has(pic)) throw notFound('Picture not found');
+    if (!picturesIn(p.kind, p.kind === 'sheet' ? { sheets: publishedBook(content) } : content).has(pic)) throw notFound('Picture not found'); // (a hidden sheet's: not published)
     const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pic);
     if (!f || !/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(f.mime || '') || !atLeast(roleFor(p.file_id, f.owner_id) || '', 'editor')) throw notFound('Picture not found');
     res.setHeader('Content-Type', f.mime);

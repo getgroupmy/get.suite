@@ -361,6 +361,25 @@ await step('Alt text… in a picture\'s menu: what a screen reader says, kept, a
   const drawing = await zip.file(Object.keys(zip.files).find((n) => /^xl\/drawings\/drawing\d+\.xml$/.test(n))).async('string');
   if (!/descr="Team logo, purple"/.test(drawing)) throw new Error(`the download: ${drawing.slice(0, 400)}`);
 });
+await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
+  if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');
+  const pub = (await api(page, 'PUT', `/publish/${f.id}`, { on: true })).body;
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const anon = await ctx.newPage();
+  anon.on('pageerror', (e) => errors.push(`anonymous: ${e.message}`));
+  await anon.goto(`${B}${pub.path}`);
+  const pics = anon.locator('.pub-sheet img.pub-picture');
+  await until(async () => (await pics.count()) === 2);
+  await until(async () => (await pics.evaluateAll((l) => l.map((i) => i.complete && i.naturalWidth))).join() === '150,64');
+  // The pasted one over C5 (its corner at the cell's corner), the dropped one 10 × 6 pixels into F12.
+  for (const [alt, key, dx, dy, w] of [['Team logo, purple', 'C5', 0, 0, 150], ['Stamp', 'F12', 10, 6, 64]]) {
+    const img = anon.locator(`.pub-sheet td[data-k="${key}"] img.pub-picture[alt="${alt}"]`);
+    const [a, td] = [await img.boundingBox(), await anon.locator(`.pub-sheet td[data-k="${key}"]`).boundingBox()];
+    if (!a || Math.abs(a.x - td.x - 1 - dx) > 2 || Math.abs(a.y - td.y - 1 - dy) > 2 || Math.round(a.width) !== w) throw new Error(`${alt}: ${JSON.stringify([a, td])}`);
+  }
+  await ctx.close();
+});
 await step('a colleague who can edit copies the sheet with Olivia\'s picture to a new spreadsheet of their own: the picture shows there', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Team photo');
   if (!f) throw new Error('no Team photo spreadsheet (an earlier step failed)');
