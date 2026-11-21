@@ -7,7 +7,7 @@ import path from 'node:path';
 import PptxGenJS from 'pptxgenjs';
 import { parseXml, elements } from '../davxml.js';
 import { chartDataFromXml } from './xlsxcharts.js';
-import { BULLETS, NUMBERINGS, bulletOfWord } from './liststyle.js';
+import { BULLETS, NUMBERINGS, bulletOfWord, slideListLines } from './liststyle.js';
 // A text box as a list (its `list`: a bullet or numbering of liststyle.js), as PowerPoint writes one on each paragraph.
 const PPT_NUM = { decimal: 'arabicPeriod', 'lower-alpha': 'alphaLcPeriod', 'upper-alpha': 'alphaUcPeriod', 'lower-roman': 'romanLcPeriod', 'upper-roman': 'romanUcPeriod' };
 const NUM_OF_PPT = Object.fromEntries(Object.entries(PPT_NUM).map(([k, v]) => [v, k]));
@@ -535,7 +535,9 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       // A slide number field: the presentation numbers its slides (not a text box of its own).
       if (deep(el, A, 'fld').some((f) => attr(f, 'type') === 'slidenum')) { numbered.add(slides.length); continue; }
       const paras = deep(el, A, 'p');
-      const texts = paras.map((p) => deep(p, A, 't').map((t) => t.text).join(''));
+      // (a list's points under others: a tab per level at the line's start, as the editor keeps them, in a box that's a list)
+      const listed = !!listOf(el).list;
+      const texts = paras.map((p) => '\t'.repeat(listed ? Math.min(3, Number(attr(kid(p, A, 'pPr'), 'lvl')) || 0) : 0) + deep(p, A, 't').map((t) => t.text).join(''));
       const content = texts.join('\n').replace(/\n+$/, '');
       const geom = attr(deep(kid(el, P, 'spPr'), A, 'prstGeom')[0], 'prst');
       if (geom === 'line' || geom === 'straightConnector1') {
@@ -767,9 +769,9 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         const look = { fontSize: ptSize(it.size || 24, Win), bold: !!it.bold, italic: !!it.italic, ...(it.underline && { underline: { style: 'sng' } }), color: color(it.color, theme.text), fontFace: FONT };
         const box = { ...(it.fill && { fill: { color: color(it.fill, theme.accent) } }), ...outline(it) }; // the box's own colour and outline, when it has them
         const list = SLIDE_LISTS.includes(it.list) ? it.list : null;
-        if (hyperlink || list) { // the whole text is the link; a list: each line a paragraph with its bullet or number
-          const lines = String(it.text || '').split('\n');
-          slide.addText(lines.map((t, k) => ({ text: t, options: { ...look, ...(hyperlink && { hyperlink }), ...(list && { bullet: pptBullet(list) }), breakLine: k < lines.length - 1 } })), { ...pos, ...box, align: it.align || 'left', valign: 'top', margin: 0 });
+        if (hyperlink || list) { // the whole text is the link; a list: each line a paragraph with its bullet or number, at its level
+          const lines = list ? slideListLines(it.text, list) : String(it.text || '').split('\n').map((t) => ({ text: t, level: 0 }));
+          slide.addText(lines.map((l, k) => ({ text: l.text, options: { ...look, ...(hyperlink && { hyperlink }), ...(list && { bullet: pptBullet(l.level && BULLETS.some((b) => b[0] === list) ? 'dash' : list), ...(l.level && { indentLevel: l.level }) }), breakLine: k < lines.length - 1 } })), { ...pos, ...box, align: it.align || 'left', valign: 'top', margin: 0 });
         } else slide.addText(it.text || '', { ...pos, ...look, ...box, align: it.align || 'left', valign: 'top', margin: 0 });
       } else if (it.type === 'shape' && (it.shape === 'line' || it.shape === 'arrow')) {
         // A line from one side (or corner) of its box to the other; arrows end in a triangle.

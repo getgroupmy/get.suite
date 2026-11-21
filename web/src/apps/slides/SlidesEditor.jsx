@@ -1,6 +1,7 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
 import { BULLETS, NUMBERINGS, slideListLines } from '../docs/liststyle.js';
+import { indentLines } from './slidelist.js';
 import { placeInHash, placeLink } from '../../components/placelink.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Captions, { canCaption } from './Captions.jsx';
@@ -944,19 +945,31 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
           inner = editable && editing === it.id
             ? <textarea autoFocus className="slide-text editing" style={style} defaultValue={it.text} aria-label="Text"
                 onPointerDown={(e) => e.stopPropagation()}
-                onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.currentTarget.blur(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.currentTarget.blur(); }
+                  else if (e.key === 'Tab' && it.list) { // in a list: the lines under the cursor a level in (a point under the one above), or out
+                    e.preventDefault();
+                    const ta = e.currentTarget, v = ta.value, start = ta.selectionStart, end = ta.selectionEnd, from = v.lastIndexOf('\n', start - 1) + 1;
+                    const out = indentLines(v, from, end, e.shiftKey ? -1 : 1);
+                    if (out.text === v) return;
+                    ta.value = out.text; // (which puts the cursor at the end: put back where it was, moved with its line)
+                    ta.setSelectionRange(Math.max(from, start + out.first), Math.max(from, end + out.total));
+                    onChange(it.id, { text: out.text });
+                  }
+                }}
                 onChange={(e) => onChange(it.id, { text: e.target.value })} /* saved as you type */
                 onBlur={() => onEdit(null)} />
             : built !== undefined && steps.get(it.id)?.paras
               ? ( // presenting, a line a click: those not in yet keep their place
                 <div className="slide-text" style={style}>{String(it.text).split('\n').map((l, k) => {
                   const at = steps.get(it.id).paras[k];
-                  const mark = it.list ? slideListLines(it.text, it.list)[k].marker : null;
-                  return <div key={k} className={`slide-para ${it.list ? 'listed' : ''} ${at === built ? `anim-${it.anim}` : ''}`} data-para-built={at <= built ? 'yes' : 'no'}
+                  const ln = it.list ? slideListLines(it.text, it.list)[k] : null, mark = ln?.marker;
+                  if (ln) l = ln.text;
+                  return <div key={k} className={`slide-para ${it.list ? 'listed' : ''} ${at === built ? `anim-${it.anim}` : ''}`} data-level={ln?.level || undefined} data-para-built={at <= built ? 'yes' : 'no'}
                     style={{ ...(at > built && { visibility: 'hidden' }), ...(at === built && k === steps.get(it.id).paras.indexOf(at) && steps.get(it.id).delay && at === steps.get(it.id).step && { animationDelay: `${steps.get(it.id).delay}s` }) }}>{mark && <span className="slide-mark">{mark}</span>}{l || '\u00a0'}</div>;
                 })}</div>)
               : it.list && it.text // a list: each line with its bullet or number, hanging
-                ? <div className="slide-text" style={style}>{slideListLines(it.text, it.list).map((l, k) => <div key={k} className="slide-para listed">{l.marker && <span className="slide-mark">{l.marker}</span>}{l.text || '\u00a0'}</div>)}</div>
+                ? <div className="slide-text" style={style}>{slideListLines(it.text, it.list).map((l, k) => <div key={k} className="slide-para listed" data-level={l.level || undefined}>{l.marker && <span className="slide-mark">{l.marker}</span>}{l.text || '\u00a0'}</div>)}</div>
                 : <div className={`slide-text ${!it.text ? 'slide-placeholder' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
         } else if (it.type === 'image') {
           // Through the deck (works for everyone who can open it, once saved); just after inserting,

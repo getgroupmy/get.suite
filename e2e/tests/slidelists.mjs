@@ -74,12 +74,27 @@ await step('bullets instead: ✓ on each line', async () => {
   await page.getByLabel('List', { exact: true }).selectOption({ label: 'i. ii. iii.' });
   await until(async () => (await marks(stage())).join() === 'i.,ii.,iii.');
 });
+await step('Tab makes a line a point under the one above (counted on its own); Shift+Tab takes it back', async () => {
+  await page.locator('.slide-stage [aria-label^="Text: Welcome"]').dblclick();
+  const ta = page.getByRole('textbox', { name: 'Text', exact: true });
+  await ta.evaluate((el) => { el.focus(); const at = el.value.indexOf('Budget') + 2; el.setSelectionRange(at, at); });
+  await page.keyboard.press('Tab');
+  if (await ta.inputValue() !== 'Welcome\n\tBudget\n\nNext steps') throw new Error(JSON.stringify(await ta.inputValue()));
+  await page.keyboard.press('Shift+Tab');
+  if (await ta.inputValue() !== 'Welcome\nBudget\n\nNext steps') throw new Error('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Escape');
+  await until(async () => (await marks(stage())).join() === 'i.,i.,ii.');
+  const indent = await stage().locator('.slide-para.listed', { hasText: 'Budget' }).evaluate((el) => parseFloat(getComputedStyle(el).marginLeft));
+  if (!(indent > 0)) throw new Error(`indent ${indent}`);
+  await page.screenshot({ path: `${SP}/shots/slide-list-levels.png` });
+});
 await step('presenting shows them too', async () => {
   await saved();
   await page.getByRole('button', { name: 'Present' }).first().click();
   const p = page.getByRole('dialog', { name: 'Presenting' });
   await p.getByText('Next steps').waitFor();
-  if ((await marks(p)).join() !== 'i.,ii.,iii.') throw new Error((await marks(p)).join());
+  if ((await marks(p)).join() !== 'i.,i.,ii.') throw new Error((await marks(p)).join());
   await page.keyboard.press('Escape');
 });
 for (const format of ['pptx', 'odp']) await step(`${format === 'pptx' ? 'a PowerPoint' : 'an OpenDocument'} download opened again keeps the list`, async () => {
@@ -90,7 +105,7 @@ for (const format of ['pptx', 'odp']) await step(`${format === 'pptx' ? 'a Power
   const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
   const deck = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content;
   const box = deck.slides[0].items.find((it) => it.type === 'text' && /Welcome/.test(it.text));
-  if (box?.list !== 'lower-roman' || box.text !== 'Welcome\nBudget\n\nNext steps') throw new Error(`${format}: ${JSON.stringify(box)}`);
+  if (box?.list !== 'lower-roman' || box.text !== 'Welcome\n\tBudget\n\nNext steps') throw new Error(`${format}: ${JSON.stringify(box)}`);
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

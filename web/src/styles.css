@@ -3413,3 +3413,6 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 /* A slide text box as a list: each line's bullet or number hanging to its left. */
 .slide-para.listed { padding-left: 2em; text-indent: -2em; }
 .slide-para.listed .slide-mark { display: inline-block; width: 2em; padding-right: 0.45em; box-sizing: border-box; text-align: right; text-indent: 0; }
+.slide-para.listed[data-level="1"] { margin-left: 1.6em; }
+.slide-para.listed[data-level="2"] { margin-left: 3.2em; }
+.slide-para.listed[data-level="3"] { margin-left: 4.8em; }

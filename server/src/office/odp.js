@@ -8,7 +8,7 @@ import JSZip from 'jszip';
 import path from 'node:path';
 import { parseDocument } from 'htmlparser2';
 import { themeOfDeck, numberShown } from './powerpoint.js';
-import { BULLETS, bulletOfWord } from './liststyle.js';
+import { BULLETS, bulletOfWord, slideListLines } from './liststyle.js';
 // A text box's list (liststyle.js) as ODF writes one: a number format or a bullet character.
 const ODF_NUM = { decimal: '1', 'lower-alpha': 'a', 'upper-alpha': 'A', 'lower-roman': 'i', 'upper-roman': 'I' };
 const NUM_OF_ODF = Object.fromEntries(Object.entries(ODF_NUM).map(([k, v]) => [v, k]));
@@ -176,14 +176,28 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation', c
   const listStyles = new Map();
   const listParas = (text, ts, ps, href, list) => {
     if (!ODF_NUM[list] && !BULLETS.some((b) => b[0] === list)) return paras(text, ts, ps, href);
-    if (!listStyles.has(list)) {
+    if (!listStyles.has(list)) { // (its levels: the first as chosen; points under others numbered alike, or with –)
       const name = `L${listStyles.size + 1}`, tag = ODF_NUM[list] ? 'text:list-level-style-number' : 'text:list-level-style-bullet';
-      const level = ODF_NUM[list] ? `<${tag} text:level="1" style:num-suffix="." style:num-format="${ODF_NUM[list]}">` : `<${tag} text:level="1" text:bullet-char="${BULLETS.find((b) => b[0] === list)[3]}">`;
-      auto.push(`<text:list-style style:name="${name}">${level}<style:list-level-properties text:space-before="0cm" text:min-label-width="0.9cm"/></${tag}></text:list-style>`);
+      const levels = [1, 2, 3, 4].map((lv) => `${ODF_NUM[list] ? `<${tag} text:level="${lv}" style:num-suffix="." style:num-format="${ODF_NUM[list]}">` : `<${tag} text:level="${lv}" text:bullet-char="${lv === 1 ? BULLETS.find((b) => b[0] === list)[3] : '–'}">`}<style:list-level-properties text:space-before="${(lv - 1) * 0.9}cm" text:min-label-width="0.9cm"/></${tag}>`).join('');
+      auto.push(`<text:list-style style:name="${name}">${levels}</text:list-style>`);
       listStyles.set(list, name);
     }
-    const items = String(text ?? '').split('\n').map((l) => { const p = paras(l, ts, ps, href); return l.trim() ? `<text:list-item>${p}</text:list-item>` : `<text:list-header>${p}</text:list-header>`; });
-    return `<text:list text:style-name="${listStyles.get(list)}">${items.join('')}</text:list>`;
+    // Each line an item (an empty one a header: no bullet or number, not counted); a point under another, a list inside its item.
+    const lines = slideListLines(text, list);
+    let k = 0;
+    const listAt = (level) => {
+      let out = '';
+      while (k < lines.length && lines[k].level >= level) {
+        const l = lines[k++];
+        let inner = paras(l.text, ts, ps, href);
+        if (k < lines.length && lines[k].level > level) inner += `<text:list>${listAt(level + 1)}</text:list>`;
+        out += l.text.trim() ? `<text:list-item>${inner}</text:list-item>` : `<text:list-header>${inner}</text:list-header>`;
+      }
+      return out;
+    };
+    let body = '';
+    while (k < lines.length) body += listAt(0); // (a first line deeper than the next: taken at its own level)
+    return `<text:list text:style-name="${listStyles.get(list)}">${body}</text:list>`;
   };
   const graphic = (it, { fill, stroke, valign } = {}) => {
     const f = fill ? `draw:fill="solid" draw:fill-color="${fill}"` : 'draw:fill="none"';
@@ -407,6 +421,18 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
   };
   const linkIn = (el) => { const a = (function find(n) { for (const k of tags(n)) { if (k.name === 'text:a' || k.name === 'draw:a') return k; const f = find(k); if (f) return f; } return null; })(el); const h = a?.attribs['xlink:href']; return h && /^(https?:|mailto:)/i.test(h) ? { url: h } : null; };
   const paraText = (el) => tags(el).filter((k) => k.name === 'text:p' || k.name === 'text:h' || k.name === 'text:list').map((k) => (k.name === 'text:list' ? tags(k).filter((c) => c.name === 'text:list-item' || c.name === 'text:list-header').map((li) => paraText(li)).join('\n') : textOf(k))).join('\n');
+  // A listed box's lines: a tab at the start for each list it's inside beyond the first (a point under another).
+  const listText = (el) => {
+    const out = [];
+    (function walk(n, depth) {
+      for (const k of tags(n)) {
+        if (k.name === 'text:p' || k.name === 'text:h') out.push('\t'.repeat(Math.max(0, Math.min(3, depth - 1))) + textOf(k));
+        else if (k.name === 'text:list') walk(k, depth + 1);
+        else if (k.name === 'text:list-item' || k.name === 'text:list-header') walk(k, depth);
+      }
+    })(el, 0);
+    return out.join('\n');
+  };
   // A box's list: the look of the first list in it (its list style's first level), as { list } (or {}).
   const listIn = (el) => {
     const lst = (function find(n) { for (const k of tags(n)) { if (k.name === 'text:list') return k; const f = find(k); if (f) return f; } return null; })(el);
@@ -514,7 +540,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
             if (rows.length) slide.items.push({ id: fresh(), type: 'table', ...boxOf(el), cells: rows.slice(0, 30).map((r) => r.slice(0, 12)), ...((tbl.attribs['table:use-first-row-styles'] === 'true' || boldFirstRow(tbl)) && { header: true }), size: textLook(tags(tags(tbl, 'table:table-row')[0], 'table:table-cell')[0] || {}, 18).size });
           } else if (img) { const id = await pictureFor(img.attribs['xlink:href']); if (id) slide.items.push({ id: fresh(), type: 'image', ...boxOf(el), fileId: id, ...(alt && { alt }), ...lk }); }
           else if (box) {
-            const text = paraText(box);
+            const text = listIn(box).list ? listText(box) : paraText(box);
             if (!text.trim()) return;
             const fill = fillOf(g);
             slide.items.push({ id: fresh(), type: 'text', ...(el.attribs['presentation:class'] === 'title' && { role: 'title' }), ...boxOf(el), text, ...textLook(box, 18), ...(fill && { fill }), ...outlineOf(g), ...(linkIn(box) || lk.link ? { link: linkIn(box) || lk.link } : {}), ...listIn(box) });
@@ -524,7 +550,7 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
           const shape = el.name === 'draw:ellipse' ? 'ellipse' : el.name === 'draw:rect' ? (el.attribs['draw:corner-radius'] ? 'round' : 'rect') : OUR_SHAPES[geo] || (/ellipse|circle/.test(geo || '') ? 'ellipse' : 'rect');
           const text = paraText(el);
           // A plain box with words and no fill (how Impress keeps a .pptx text box) is a text box, not a shape.
-          if (shape === 'rect' && g['draw:fill'] === 'none' && text.trim()) { slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text, ...textLook(el, 18), ...outlineOf(g), ...(linkIn(el) || lk.link ? { link: linkIn(el) || lk.link } : {}), ...listIn(el) }); return; }
+          if (shape === 'rect' && g['draw:fill'] === 'none' && text.trim()) { slide.items.push({ id: fresh(), type: 'text', ...boxOf(el), text: listIn(el).list ? listText(el) : text, ...textLook(el, 18), ...outlineOf(g), ...(linkIn(el) || lk.link ? { link: linkIn(el) || lk.link } : {}), ...listIn(el) }); return; }
           slide.items.push({ id: fresh(), type: 'shape', shape, ...boxOf(el), fill: fillOf(g) || 'accent', ...outlineOf(g), ...(text.trim() && { text, ...textLook(el, 18) }), ...lk });
         } else if (el.name === 'draw:line') {
           const [x1, y1, x2, y2] = ['svg:x1', 'svg:y1', 'svg:x2', 'svg:y2'].map((k) => toCm(el.attribs[k]) || 0);

@@ -71,3 +71,44 @@ test('OpenDocument (.odp): a list style per box, empty lines unnumbered; read ba
     assert.equal(lists(await deckFromOdp(lo('p.pptx', 'odp', 'b'), { savePicture: async () => null }).then((d) => d.deck || d)), 'lower-roman:3 check:2 disc:2 -:1', 'PowerPoint saved as .odp by LibreOffice');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('levels (a tab at a line’s start: a point under the one above): PowerPoint’s lvl, nested .odp lists, the PDF; as LibreOffice shows them', async (t) => {
+  const { odpFromDeck, deckFromOdp } = await import('../src/office/odp.js');
+  const { pdfFromDeck } = await import('../src/office/slidepdf.js');
+  const text = 'Plan\n\tCosts\n\tPeople\nDo\n\tOne';
+  const d = { slides: [{ id: 's1', items: [T('a', text, 'lower-roman', 5), T('b', 'Done\n\tMinutes', 'check', 50)] }] };
+  const pptx = await powerPointFromDeck(d, 'Levels');
+  const xml = await (await JSZip.loadAsync(pptx)).file('ppt/slides/slide1.xml').async('string');
+  assert.equal((xml.match(/<a:pPr[^>]*lvl="1"/g) || []).length, 4, 'four points a level in');
+  const fromPptx = await deckFromPowerPoint(pptx, { savePicture: async () => null });
+  assert.deepEqual((fromPptx.deck || fromPptx).slides[0].items.map((it) => [it.list, it.text]), [['lower-roman', text], ['check', 'Done\n\tMinutes']]);
+  const odp = await odpFromDeck(d, { title: 'Levels' });
+  const content = await (await JSZip.loadAsync(odp)).file('content.xml').async('string');
+  assert.match(content, /<text:list-item><text:p[^>]*>.*?Plan.*?<\/text:p><text:list><text:list-item>/);
+  const fromOdp = await deckFromOdp(odp, { savePicture: async () => null });
+  assert.deepEqual((fromOdp.deck || fromOdp).slides[0].items.map((it) => [it.list, it.text]), [['lower-roman', text], ['check', 'Done\n\tMinutes']]);
+  const { execFileSync } = await import('node:child_process');
+  let pdfText;
+  try { pdfText = execFileSync('pdftotext', ['-', '-'], { input: Buffer.from(await pdfFromDeck(d, 'Levels')) }).toString().replace(/\s+/g, ' '); } catch { t.diagnostic('pdftotext not installed: skipped'); return; }
+  assert.match(pdfText, /i\. Plan i\. Costs ii\. People ii\. Do i\. One ✓ Done – Minutes/, pdfText);
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-slv-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.pptx'), pptx); fs.writeFileSync(path.join(dir, 'e.odp'), odp);
+    for (const f of ['d.pptx', 'e.odp']) {
+      lo(f, 'pdf', 'pdf');
+      // (as laid out: each marker on the line of its words, further in for points under others)
+      const shown = execFileSync('pdftotext', ['-layout', path.join(dir, 'pdf', f.replace(/\.\w+$/, '.pdf')), '-']).toString();
+      const at = (re) => { const m = shown.split('\n').find((l) => re.test(l)); assert.ok(m, `${f}: ${re} in\n${shown}`); return m.search(/\S/); };
+      const top = at(/^\s*i\.\s+Plan\s*$/), sub = at(/^\s*i\.\s+Costs\s*$/);
+      at(/^\s*ii\.\s+People\s*$/); at(/^\s*ii\.\s+Do\s*$/); at(/^\s*i\.\s+One\s*$/);
+      assert.ok(sub > top, `${f}: Costs further in than Plan`);
+    }
+    const back = await deckFromPowerPoint(lo('d.pptx', 'pptx', 'a'), { savePicture: async () => null });
+    assert.equal((back.deck || back).slides[0].items.find((it) => it.list === 'lower-roman')?.text, text, 'PowerPoint → LibreOffice → PowerPoint');
+    const backOdp = await deckFromOdp(lo('e.odp', 'odp', 'b'), { savePicture: async () => null });
+    assert.equal((backOdp.deck || backOdp).slides[0].items.find((it) => it.list === 'lower-roman')?.text, text, '.odp → LibreOffice → .odp');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

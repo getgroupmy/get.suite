@@ -89,10 +89,22 @@ export function readLabel(label, open = null) {
   return null;
 }
 
-/** A slide text box as a list (its `list`: a bullet or numbering above): each line with its marker ("ii.", "✓"; none on an empty line). */
+/** Most levels a slide list goes in (Tab at the start of a line: a point under the one above). */
+export const SLIDE_LEVELS = 4;
+/**
+ * A slide text box as a list (its `list`: a bullet or numbering above): each line with its level (tabs at its start, up
+ * to SLIDE_LEVELS - 1), its words, and its marker ("ii.", "✓"; none on an empty line). Numbers count at each level, starting
+ * again under a new point above; a point under another shows – (bullets) or its level's own count (numbers).
+ */
 export function slideListLines(text, list) {
-  const lines = String(text || '').split('\n');
   const isNum = NUMBERINGS.some(([k]) => k === list), isBullet = BULLETS.some(([k]) => k === list);
-  let n = 0;
-  return lines.map((t) => ({ text: t, marker: !t.trim() || (!isNum && !isBullet) ? null : isNum ? listLabel(list, ++n) : bulletChar(list) }));
+  const counts = [];
+  return String(text || '').split('\n').map((raw) => {
+    const level = Math.min(SLIDE_LEVELS - 1, /^\t*/.exec(raw)[0].length);
+    const t = raw.slice(/^\t*/.exec(raw)[0].length);
+    if (!t.trim() || (!isNum && !isBullet)) return { text: t, level, marker: null };
+    counts.length = level + 1;
+    counts[level] = (counts[level] || 0) + 1;
+    return { text: t, level, marker: isNum ? listLabel(list, counts[level]) : level ? '–' : bulletChar(list) };
+  });
 }

@@ -9,7 +9,7 @@ import { themeOfDeck } from './powerpoint.js';
 import { chartTable } from './sheetchart.js';
 import { slideListLines } from './liststyle.js';
 /** A text box's words, each line with its bullet or number when it's a list. */
-const boxText = (it) => (it.list ? slideListLines(it.text, it.list).map((l) => (l.marker ? `${l.marker} ${l.text}` : l.text)).join('\n') : it.text || '');
+const boxText = (it) => (it.list ? slideListLines(it.text, it.list).map((l) => '    '.repeat(l.level) + (l.marker ? `${l.marker} ${l.text}` : l.text)).join('\n') : it.text || ''); // (a point under another indented)
 /** Every list marker the deck's boxes show (for the fonts to find, beside the deck's own text). */
 const markersOf = (deck) => (deck.slides || []).flatMap((s) => (s.items || []).filter((it) => it.list).flatMap((it) => slideListLines(it.text, it.list).map((l) => l.marker || ''))).join('');
 import { drawChart, plottable } from './sheetpdfchart.js';
