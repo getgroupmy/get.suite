@@ -57,6 +57,11 @@ const signIn = async (p, email) => {
   await p.getByRole('link', { name: 'Mail' }).click();
 };
 
+// Mail reopens an email left open when the page was last closed: close it before starting another.
+const closeOpenCompose = async () => {
+  await page.waitForTimeout(500);
+  for (const open of await page.getByRole('dialog').all()) { const close = open.getByRole('button', { name: 'Close' }); if (await close.count()) { await close.first().click(); await open.waitFor({ state: 'detached' }).catch(() => {}); } }
+};
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -115,6 +120,7 @@ await step('opening another message stops the reading', async () => {
   await bar().waitFor({ state: 'detached' });
 });
 await step('🎤 in a new message types what’s said; an admin can turn voice typing off for everyone', async () => {
+  await closeOpenCompose();
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('Subject').fill('Dictated');
   await page.getByRole('textbox', { name: 'Message' }).click();
@@ -136,6 +142,7 @@ await step('🎤 in a new message types what’s said; an admin can turn voice t
   await box.uncheck();
   await page.getByText('Voice typing is off for everyone').waitFor();
   await page.goto(`${B}/mail/INBOX`);
+  await closeOpenCompose();
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('Subject').waitFor();
   if (await page.getByRole('button', { name: 'Voice typing: type by speaking' }).count()) throw new Error('still offered');

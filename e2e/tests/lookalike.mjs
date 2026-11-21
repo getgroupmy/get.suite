@@ -29,6 +29,11 @@ const signIn = async (p, email) => {
   await p.getByRole('link', { name: 'Mail' }).click();
 };
 
+// Mail reopens an email left open when the page was last closed: close it before starting another.
+const closeOpenCompose = async () => {
+  await page.waitForTimeout(500);
+  for (const open of await page.getByRole('dialog').all()) { const close = open.getByRole('button', { name: 'Close' }); if (await close.count()) { await close.first().click(); await open.waitFor({ state: 'detached' }).catch(() => {}); } }
+};
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -91,6 +96,7 @@ await step('replies that would go to another site than the email came from are p
   await page.locator('.mail-reader').getByRole('button', { name: 'Reply', exact: true }).click();
   await page.getByLabel('To', { exact: true }).waitFor();
   await until(() => page.locator('.compose').evaluate((f) => (f.innerText + [...f.querySelectorAll('input')].map((i) => i.value).join(' ')).includes('billing.initech@freemail.example')));
+  await closeOpenCompose();
   await open('Monthly statement');
   if (await page.locator('.mail-reader').getByText(/replies to this email go to/).count()) throw new Error('warned without a Reply-To');
 });
@@ -113,6 +119,7 @@ await step('“You don’t often get email from …” for an outside address se
 });
 await step('writing to a lookalike address: a red warning, and Send asks first', async () => {
   await page.goto(`${B}/mail/INBOX`);
+  await closeOpenCompose();
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('To', { exact: true }).fill('accounts@acrne.com');
   await page.getByLabel('Subject').fill('Payment');
@@ -183,6 +190,7 @@ await step('at phone width: the grouped warnings and the lookalike line in a new
     await page.screenshot({ path: `${SP}/shots/warnings-phone.png` });
     await axe(page, 'warnings at phone width');
     await page.goto(`${B}/mail/INBOX`);
+    await closeOpenCompose();
     await page.getByRole('button', { name: 'Compose' }).click();
     await page.getByLabel('To', { exact: true }).fill('accounts@acrne.com');
     await page.locator('.compose-lookalike').waitFor();

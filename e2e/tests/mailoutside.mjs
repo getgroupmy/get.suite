@@ -30,6 +30,11 @@ const signIn = async (p, email) => {
   await p.getByRole('link', { name: 'Mail' }).click();
 };
 
+// Mail reopens an email left open when the page was last closed: close it before starting another.
+const closeOpenCompose = async () => {
+  await page.waitForTimeout(500);
+  for (const open of await page.getByRole('dialog').all()) { const close = open.getByRole('button', { name: 'Close' }); if (await close.count()) { await close.first().click(); await open.waitFor({ state: 'detached' }).catch(() => {}); } }
+};
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -47,6 +52,7 @@ const send = async (subject) => { for (let k = 0; k < 10; k++) { if ((await api(
 const reader = () => page.locator('.mail-reader');
 const row = (s) => page.locator('.mail-list').getByText(s, { exact: true });
 await step('outside the company: a notice names who it goes to, new ones marked; a contact is not new', async () => {
+  await closeOpenCompose();
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('To', { exact: true }).fill('olivia@acme.com, pat@partner.example, new@stranger.example');
   await page.getByLabel('Subject').click();
@@ -73,6 +79,7 @@ await step('Admin asks before mail goes outside: Send asks, Go back keeps the me
   await page.getByText('Mail now asks before a message goes outside the company').waitFor();
   await page.goto(B + '/mail');
   const run = Date.now().toString(36);
+  await closeOpenCompose();
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('To', { exact: true }).fill('olivia@acme.com, pat@partner.example');
   await page.getByLabel('Subject').fill(`Quote ${run}`);
@@ -88,6 +95,7 @@ await step('Admin asks before mail goes outside: Send asks, Go back keeps the me
   await dlg.getByRole('button', { name: 'Send', exact: true }).click();
   await page.getByText(/Sent to 2 recipients/).waitFor({ timeout: 20000 });
   // Inside only: no question.
+  await closeOpenCompose();
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('To', { exact: true }).fill('olivia@acme.com');
   await page.getByLabel('Subject').fill(`Inside ${run}`);

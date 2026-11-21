@@ -30,6 +30,11 @@ const signIn = async (p, email) => {
   await p.getByRole('link', { name: 'Mail' }).click();
 };
 
+// Mail reopens an email left open when the page was last closed: close it before starting another.
+const closeOpenCompose = async () => {
+  await page.waitForTimeout(500);
+  for (const open of await page.getByRole('dialog').all()) { const close = open.getByRole('button', { name: 'Close' }); if (await close.count()) { await close.first().click(); await open.waitFor({ state: 'detached' }).catch(() => {}); } }
+};
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -97,6 +102,7 @@ await step('default reply: the sender again, Reply first', async () => {
   await page.getByLabel('Reply to the sender').check();
   await page.getByText('Saved').first().waitFor();
   await page.goto(`${B}/mail`);
+  await closeOpenCompose();
   await row('Group note').click();
   await reader().getByText('About Group note').waitFor();
   const first = (await reader().locator('.reader-reply button').first().textContent()).trim();
@@ -136,6 +142,7 @@ await step('default text style: chosen in Settings, shown while writing, and in 
   await page.getByText('Saved').first().waitFor();
   if ((await api(page, 'GET', '/auth/me')).body.user.mail_style?.font !== 'Georgia') throw new Error('not saved');
   await page.goto(`${B}/mail`);
+  await closeOpenCompose();
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('To', { exact: true }).fill('olivia@acme.com');
   await page.getByLabel('Subject').fill('Styled note');

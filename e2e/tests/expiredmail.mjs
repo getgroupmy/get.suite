@@ -36,10 +36,9 @@ await step('an email written as the session ends is waiting after signing in', a
   await page.getByLabel('To', { exact: true }).fill('olivia@acme.com');
   await page.getByLabel('Subject').fill('Quarterly figures');
   await page.getByRole('textbox', { name: 'Message' }).click();
-  await page.keyboard.type('The numbers are in. ');
-  await ctx.clearCookies();
-  await page.keyboard.type('Revenue is up eleven percent.');
-  await page.waitForTimeout(500);
+  await page.keyboard.type('The numbers are in. Revenue is up eleven percent.');
+  await page.waitForTimeout(300);
+  await ctx.clearCookies(); // the session ends with the email still open
   await page.getByRole('button', { name: 'Send', exact: true }).click({ timeout: 3000 }).catch(() => {});
   await page.getByLabel(/Password/).first().waitFor({ timeout: 15000 });
   await page.getByLabel(/Email/).first().fill('olivia@acme.com');
