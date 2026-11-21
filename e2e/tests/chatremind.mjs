@@ -111,6 +111,22 @@ await step('/remind me to submit my timesheet every friday 4pm: repeats, listed 
   await page.getByRole('button', { name: 'Cancel reminder: submit my timesheet' }).click();
   await page.getByText('No reminders').waitFor();
 });
+await step('/remind #team to order lunch in 1 minute: posted in #team for everyone (Kim sees it come in)', async () => {
+  const team = (await api(page, 'POST', '/chat/channels', { name: 'team' })).body.id;
+  await page.goto(`${B}/chat/${general}`);
+  await run(page, '/remind #nope to order lunch in 1 hour');
+  await page.getByText('You’re not in a channel called #nope').waitFor();
+  await run(page, '/remind #team to order lunch in 1 minute');
+  await page.getByText(/^I'll post in #team .*: ⏰ Reminder: order lunch$/).waitFor();
+  await side(page).getByRole('button', { name: /Reminders/ }).click();
+  await page.getByRole('list', { name: 'Reminders' }).getByText(/#team · posted there/).waitFor();
+  const kim = await mk('kim2'); await signIn(kim, 'kim@acme.com');
+  await kim.goto(`${B}/chat/${team}`);
+  await kim.locator('.msg', { hasText: '⏰ Reminder: order lunch' }).waitFor({ timeout: 100e3 });
+  await kim.locator('.msg', { hasText: '⏰ Reminder: order lunch' }).getByText('Olivia Owner').waitFor();
+  await page.getByText('No reminders').waitFor();
+  await kim.screenshot({ path: `${SP}/shots/chat-remind-channel.png` });
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

@@ -131,3 +131,30 @@ test('repeating: every Friday at 16:00 (in the person’s zone), moving on after
   assert.equal((await ann('DELETE', `/api/chat/reminders/own/${r.body.id}`)).status, 200);
   assert.ok(!(await ann('GET', '/api/chat/reminders')).body.some((x) => x.id === r.body.id));
 });
+
+test('posted in the conversation: a message from whoever set it, repeating if asked; refused where they can’t post', async () => {
+  const { sendDueChat } = await import('../src/routes/chat.js');
+  const team = (await ann('POST', '/api/chat/channels', { name: 'team' })).body.id;
+  const at = Date.now() + 5 * 60e3;
+  const r = await ann('POST', `/api/chat/channels/${team}/reminders`, { text: 'submit timesheets', at, post: true, repeat: { rule: { freq: 'weekly' }, tz: 'UTC' } });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.post, true);
+  assert.equal(r.body.channel, 'team');
+  assert.equal((await ann('GET', '/api/chat/reminders')).body.find((x) => x.id === r.body.id).post, true);
+  sendDueChat(at + 1000);
+  const msgs = (await ben('GET', `/api/chat/channels/${team}/messages`)).body;
+  assert.deepEqual(msgs.map((m) => [m.user_name, m.body]), [['Ann Owner', '⏰ Reminder: submit timesheets']]);
+  assert.ok(!(await bell(ann)).some((n) => /submit timesheets/.test(n.title)), 'posted, not a personal reminder');
+  assert.equal((await ann('GET', '/api/chat/reminders')).body.find((x) => x.id === r.body.id).at, at + 7 * 864e5, 'next week');
+  // Archived since: not posted, and the setter is told.
+  await ann('PATCH', `/api/chat/channels/${team}`, { archived: true });
+  sendDueChat(at + 7 * 864e5 + 1000);
+  assert.equal((await ben('GET', `/api/chat/channels/${team}/messages`)).body.length, 1);
+  assert.ok((await bell(ann)).some((n) => n.title === 'A reminder couldn’t be posted in #team'));
+  // An announcement channel: only its posters may set one there.
+  const news = (await ann('POST', '/api/chat/channels', { name: 'news' })).body.id;
+  const me = (await ann('GET', '/api/auth/me')).body.user;
+  await ann('PATCH', `/api/chat/channels/${news}`, { posters: [me.id] });
+  assert.equal((await ben('POST', `/api/chat/channels/${news}/reminders`, { text: 'x', at: Date.now() + 36e5, post: true })).status, 403);
+  assert.equal((await ben('POST', `/api/chat/channels/${news}/reminders`, { text: 'x', at: Date.now() + 36e5 })).status, 201, 'one for himself is fine');
+});

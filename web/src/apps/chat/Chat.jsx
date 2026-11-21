@@ -833,7 +833,7 @@ export default function Chat() {
                 {reminderList.map((r) => r.own ? (
                   <li key={r.id} className="row">
                     <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); navigate(`/chat/${r.channel_id}`); }}>
-                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`} · {r.for_name ? `for ${r.for_name}` : 'your reminder'}{r.repeat ? ` · 🔁 ${describeRule(r.repeat, r.at)}` : ''}</span>
+                      <span className="muted small">⏰ {whenText(r.at)} · {r.dm ? 'Direct message' : `#${r.channel}`} · {r.post ? 'posted there' : r.for_name ? `for ${r.for_name}` : 'your reminder'}{r.repeat ? ` · 🔁 ${describeRule(r.repeat, r.at)}` : ''}</span>
                       <span>{r.text}</span>
                     </button>
                     <button type="button" className="icon-btn" aria-label={`Cancel reminder: ${r.text.slice(0, 40)}`} title="Cancel the reminder"
@@ -1104,7 +1104,13 @@ async function channelSlash(slash, c, { toast, navigate, reload }) {
   if (slash.cmd === 'remind') { // a reminder for you, linking back here
     const w = remindWhen(slash.text);
     if (w.error) throw new Error(w.error);
-    const r = await post(`/chat/channels/${c.id}/reminders`, w);
+    let target = c;
+    if (w.channel) { // "#launch": that channel, if you're in it
+      target = (await get('/chat/channels')).channels.find((x) => !x.dm_key && x.name === w.channel && !x.left);
+      if (!target) throw new Error(`You’re not in a channel called #${w.channel}`);
+    }
+    const r = await post(`/chat/channels/${target.id}/reminders`, { text: w.text, at: w.at, ...(w.for && { for: w.for }), ...(w.repeat && { repeat: w.repeat }), ...(w.post && { post: true }) });
+    if (r.post) { toast(`I'll post in ${r.channel ? `#${r.channel}` : 'this conversation'} ${whenText(r.at)}${r.repeat ? ` (${describeRule(r.repeat, r.at).toLowerCase()})` : ''}: ⏰ Reminder: ${w.text}`); return true; }
     toast(`I'll remind ${r.for_name || 'you'} ${whenText(r.at)}${r.repeat ? ` (${describeRule(r.repeat, r.at).toLowerCase()})` : ''}: ${w.text}`);
     return true;
   }

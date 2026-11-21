@@ -14,7 +14,7 @@ export const SLASH = [
   { cmd: 'topic', alone: true, hint: '/topic what it’s about', what: 'set the channel’s topic (alone: clear it)' },
   { cmd: 'mute', alone: true, hint: '/mute 2h', what: 'mute this conversation (for a while, or until /mute off)' },
   { cmd: 'leave', alone: true, hint: '/leave', what: 'leave this channel' },
-  { cmd: 'remind', hint: '/remind me to call Kim in 2h', what: 'a reminder for you, or @someone (in 2h, tomorrow 9am, every fri 4pm…)' },
+  { cmd: 'remind', hint: '/remind me to call Kim in 2h', what: 'a reminder for you, @someone or #channel (in 2h, tomorrow 9am, every fri 4pm…)' },
 ];
 
 const UNIT = { m: 60e3, h: 36e5, d: 864e5, w: 7 * 864e5 };
@@ -27,6 +27,9 @@ export function remindWhen(input, now = new Date()) {
   // "@kim@acme.com to …": for a colleague (as the @ list writes them); "me": yourself.
   const who = /^@([\w.+-]+@[\w.-]+\.[a-z]{2,})\s+/i.exec(s);
   if (who) s = s.slice(who[0].length);
+  // "here …" or "#launch …": posted in that conversation, for everyone in it.
+  const place = !who && /^(?:here|#([a-z0-9_-]+))\s+/i.exec(s);
+  if (place) s = s.slice(place[0].length);
   s = s.replace(/^me\s+/i, '').replace(/^(?:to|about|that)\s+/i, '');
   let at = null, text = s, repeat = null;
   const rel = /\s+in\s+(\d{1,4}|an?|one|half\s+an?)\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)$/i.exec(` ${s}`);
@@ -50,7 +53,7 @@ export function remindWhen(input, now = new Date()) {
   if (at < now.getTime() + 30e3 && !repeat) return { error: 'That time has passed: pick a later one' };
   if (at > now.getTime() + 365 * 864e5) return { error: 'A reminder can be up to a year ahead' };
   if (text.length > 500) return { error: 'A reminder is at most 500 characters' };
-  return { text, at, ...(who && { for: who[1].toLowerCase() }), ...(repeat && { repeat }) };
+  return { text, at, ...(who && { for: who[1].toLowerCase() }), ...(place && { post: true, ...(place[1] && { channel: place[1].toLowerCase() }) }), ...(repeat && { repeat }) };
 }
 
 /** "/invite @kim@acme.com @ben@acme.com": { usernames }. */

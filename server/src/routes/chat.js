@@ -444,6 +444,8 @@ q('CREATE INDEX IF NOT EXISTS chat_own_reminders_at ON chat_own_reminders(at)').
 if (!q("SELECT 1 FROM pragma_table_info('chat_own_reminders') WHERE name = 'for_user_id'").get()) q('ALTER TABLE chat_own_reminders ADD COLUMN for_user_id TEXT REFERENCES users(id) ON DELETE CASCADE').run();
 // Repeating (/remind me to submit my timesheet every friday 4pm): JSON { rule (as Calendar's), first (ms), tz }.
 if (!q("SELECT 1 FROM pragma_table_info('chat_own_reminders') WHERE name = 'repeat'").get()) q('ALTER TABLE chat_own_reminders ADD COLUMN repeat TEXT').run();
+// Posted in the conversation instead (/remind #launch to … or /remind here to …): a message from whoever set it.
+if (!q("SELECT 1 FROM pragma_table_info('chat_own_reminders') WHERE name = 'post'").get()) q('ALTER TABLE chat_own_reminders ADD COLUMN post INTEGER NOT NULL DEFAULT 0').run();
 /** A repeating reminder's next time after `t` (ms), or null when the rule has ended. */
 export function nextRemind(repeat, t) {
   const ev = { id: 'r', start: repeat.first, end: repeat.first + 1, all_day: 0, tz: repeat.tz, rrule: repeat.rule };
@@ -465,6 +467,13 @@ function remindDue(at) {
     const next = repeat ? nextRemind(repeat, Math.max(at, r.at)) : null;
     if (next) q('UPDATE chat_own_reminders SET at = ? WHERE id = ?').run(next, r.id);
     else q('DELETE FROM chat_own_reminders WHERE id = ?').run(r.id);
+    if (r.post) { // in the conversation, as its setter; told when that's no longer possible
+      const setter = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(r.user_id);
+      try { if (setter) deliver(writable(r.channel_id, setter), setter, { body: `⏰ Reminder: ${r.text}`, files: [], poll: null, parent: null }); }
+      catch (e) { notify([r.user_id], { kind: 'chat', title: `A reminder couldn’t be posted in #${r.channel}`, body: `${e.message}: “${r.text}”`, link: '/chat', actor: null }); }
+      sendTo([r.user_id], { type: 'chat-reminders' });
+      continue;
+    }
     const to = r.for_user_id || r.user_id;
     const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(to);
     if (!user) { sendTo([r.user_id], { type: 'chat-reminders' }); continue; }
@@ -1920,17 +1929,19 @@ export default function chatRoutes() {
     }
     if (!Number.isFinite(at) || at < Date.now() + 30e3 || at > Date.now() + 366 * 864e5) throw bad('Choose a time from a minute to a year from now');
     if (remindersOf(req.user.id) >= MAX_REMINDERS) throw bad('You have enough reminders already');
+    const post = !!req.body?.post;
+    if (post) { writable(c.id, req.user); if (!mayPost(c, req.user, null)) throw new HttpError(403, 'Only some people post in this channel'); }
     let forUser = null;
-    if (req.body?.for) {
+    if (req.body?.for && !post) {
       const name = String(req.body.for).replace(/^@/, '').trim().toLowerCase();
       forUser = q('SELECT id, name FROM users WHERE org_id = ? AND disabled = 0 AND LOWER(username) = ?').get(req.user.org_id, name);
       if (!forUser) throw bad(`Not a colleague here: ${name}`);
       if (forUser.id === req.user.id) forUser = null; // "@me": yourself
     }
     const id = uid();
-    q('INSERT INTO chat_own_reminders (id, user_id, channel_id, text, at, created_at, for_user_id, repeat) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, req.user.id, c.id, text, Math.round(at), now(), forUser?.id ?? null, repeat ? JSON.stringify(repeat) : null);
+    q('INSERT INTO chat_own_reminders (id, user_id, channel_id, text, at, created_at, for_user_id, repeat, post) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, req.user.id, c.id, text, Math.round(at), now(), forUser?.id ?? null, repeat ? JSON.stringify(repeat) : null, post ? 1 : 0);
     sendTo([req.user.id], { type: 'chat-reminders' });
-    res.status(201).json({ id, text, at: Math.round(at), channel_id: c.id, for_name: forUser?.name ?? null, repeat: repeat?.rule ?? null });
+    res.status(201).json({ id, text, at: Math.round(at), channel_id: c.id, channel: c.dm_key ? null : c.name, for_name: forUser?.name ?? null, repeat: repeat?.rule ?? null, post });
   });
   r.delete('/reminders/own/:id', (req, res) => {
     if (!q('DELETE FROM chat_own_reminders WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id).changes) throw notFound('Reminder not found');
@@ -1940,9 +1951,9 @@ export default function chatRoutes() {
 
   // Your reminders, soonest first: about messages, and your own ({ own: true, id, text }).
   r.get('/reminders', (req, res) => {
-    const own = q(`SELECT r.id, r.text, r.at, r.channel_id, r.repeat, c.name AS channel, c.dm_key, f.name AS for_name FROM chat_own_reminders r JOIN channels c ON c.id = r.channel_id
+    const own = q(`SELECT r.id, r.text, r.at, r.channel_id, r.repeat, r.post, c.name AS channel, c.dm_key, f.name AS for_name FROM chat_own_reminders r JOIN channels c ON c.id = r.channel_id
                    LEFT JOIN users f ON f.id = r.for_user_id WHERE r.user_id = ?`).all(req.user.id)
-      .map(({ dm_key, repeat, ...x }) => ({ ...x, own: true, dm: !!dm_key, repeat: repeat ? JSON.parse(repeat).rule : null }));
+      .map(({ dm_key, repeat, ...x }) => ({ ...x, own: true, dm: !!dm_key, post: !!x.post, repeat: repeat ? JSON.parse(repeat).rule : null }));
     res.json([...own, ...q(`SELECT r.message_id, r.at, m.body, m.channel_id, m.parent_id, json_array_length(COALESCE(m.files, '[]')) AS files, json_extract(m.email, '$.subject') AS email_subject, u.name AS author, c.name AS channel, c.dm_key
                 FROM chat_reminders r JOIN messages m ON m.id = r.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
                 WHERE r.user_id = ? ORDER BY r.at`).all(req.user.id)
