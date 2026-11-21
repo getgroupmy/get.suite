@@ -1557,7 +1557,8 @@ export default function SheetEditor() {
         <div className="chart-layer">
           {Object.entries(pictures).map(([pid, pic]) => (
             <PictureCard key={pid} zoom={zoom / 100} fileId={file.id} picture={shownAt(pic)} canEdit={!readOnly}
-              onChange={(next) => writePicture(pid, keptAt(next))} onDelete={() => writePicture(pid, null)} onAlt={() => setDialog({ type: 'picture-alt', id: pid })} />
+              onChange={(next) => writePicture(pid, keptAt(next))} onDelete={() => writePicture(pid, null)} onAlt={() => setDialog({ type: 'picture-alt', id: pid })}
+              onDuplicate={() => { const id = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20); writePicture(id, { ...pic, x: Math.round(pic.x) + 16, y: Math.round(pic.y) + 16 }); }} />
           ))}
           {Object.entries(charts).map(([cid, ch]) => (
             <ChartCard key={cid} id={cid} zoom={zoom / 100} chart={shownAt(ch)} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}

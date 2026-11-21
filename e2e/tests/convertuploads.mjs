@@ -504,6 +504,37 @@ await step('rows hidden above pictures: each still shows over its own cell, and 
   await until(async () => over(logo, 'C7', 0, 0));
   await until(async () => (await kept()) === before, 10000);
 });
+await step('Duplicate (in a picture\'s menu, or Ctrl+D): a copy of it a little lower and to the right, of the same picture', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
+  await page.goto(`${B}/sheets/${f.id}`);
+  const stamps = page.locator('.sheet-picture[aria-label="Picture: Stamp"]');
+  await stamps.first().waitFor();
+  const saved = async () => Object.values((await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0].pictures || {}).filter((p) => p.alt === 'Stamp');
+  const [orig] = await saved();
+  await stamps.first().hover();
+  await stamps.first().getByRole('button', { name: 'Options for picture Stamp' }).click();
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click();
+  await until(async () => (await stamps.count()) === 2);
+  const [a, b] = [await stamps.nth(0).boundingBox(), await stamps.nth(1).boundingBox()];
+  const [first, second] = [a, b].sort((p, q) => p.x - q.x);
+  if (Math.round(second.x - first.x) !== 16 || Math.round(second.y - first.y) !== 16 || Math.round(second.width) !== Math.round(first.width)) throw new Error(JSON.stringify([a, b]));
+  await until(async () => { const l = await saved(); return l.length === 2 && l.every((p) => p.file === orig.file); }, 10000);
+  // Ctrl+D on a picture that has the focus.
+  await stamps.nth(1).focus();
+  await page.keyboard.press('Control+d');
+  await until(async () => (await stamps.count()) === 3);
+  await until(async () => (await saved()).length === 3, 10000);
+  // Delete the copies (Delete on each), for the steps after.
+  for (let i = 0; i < 2; i++) {
+    const all = await saved();
+    const boxes = await stamps.evaluateAll((l) => l.map((x) => x.getBoundingClientRect().x));
+    await stamps.nth(boxes.indexOf(Math.max(...boxes))).focus();
+    await page.keyboard.press('Delete');
+    await until(async () => (await saved()).length === all.length - 1, 10000);
+  }
+  const [left] = await saved();
+  if (left.x !== orig.x || left.y !== orig.y) throw new Error('the original was deleted, not the copy');
+});
 await step('Print or save as PDF: the pictures and the chart over the cells are on the printed page, in their cells', async () => {
   const printOf = async (name) => {
     const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === name);
