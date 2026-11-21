@@ -28,6 +28,12 @@ test('Word: the styles are written as Word’s own numbering formats and bullets
   assert.match(numbering, /<w:lvlText w:val="–"\/>/);
   assert.match(numbering, /<w:lvlText w:val="✓"\/>/);
   assert.equal(show(await docFromWord(docx)), want);
+  // A list and the one inside it: one numbering in Word (levels 0 and 1 of the same w:num), as Word makes them.
+  const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml').async('string');
+  const numOf = (text) => /<w:numId w:val="(\d+)"/.exec(xml.slice(xml.lastIndexOf('<w:p>', xml.indexOf(`>${text}<`)), xml.indexOf(`>${text}<`)))?.[1];
+  assert.equal(numOf('Intro'), numOf('Point a'));
+  assert.equal(numOf('Intro'), numOf('Body'));
+  assert.notEqual(numOf('Intro'), numOf('Alpha'), 'the next list at the top: its own');
   // LibreOffice: what it shows for the file, and its own Word file read back.
   const { execFileSync } = await import('node:child_process');
   try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
@@ -59,7 +65,9 @@ test('OpenDocument (.odt): written as ODF list styles (number formats, bullet ch
     const text = lo('d.odt', 'txt:Text', 't').toString('utf8').replace(/\s+/g, ' ');
     assert.match(text, /i\. Intro a\. Point a b\. Point b ii\. Body Then C\. Alpha D\. Beta And/, text);
     assert.equal(show(await docFromOdt(lo('d.odt', 'odt', 'a'))), want, '.odt → LibreOffice → .odt');
-    // (Not checked: a Word download saved as .odt by LibreOffice, which splits a list with a differently styled list
-    // inside it into separate lists; the README says so.)
+    // A Word download saved as .odt by LibreOffice: one list with the other inside it, as the download makes a list
+    // and the lists inside it one list definition (LibreOffice split them apart when they were separate ones).
+    fs.writeFileSync(path.join(dir, 'w.docx'), await wordFromDoc(doc, 'Styles'));
+    assert.equal(show(await docFromOdt(lo('w.docx', 'odt', 'b'))), want, 'Word saved as .odt by LibreOffice');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

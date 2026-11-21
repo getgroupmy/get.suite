@@ -76,6 +76,26 @@ for (const format of ['docx', 'odt']) await step(`${format === 'docx' ? 'a Word'
   const lists = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.content.filter((n) => /List$/.test(n.type)).map((n) => n.attrs?.listStyle || n.attrs?.bullet);
   if (lists.join() !== 'lower-roman,check') throw new Error(`${format}: ${lists.join()}`);
 });
+await step('a list with another inside it: a Word download LibreOffice saves as .odt opens as one list, the other inside', async () => {
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { console.log('(LibreOffice is not installed here: skipped)'); return; }
+  const fs = await import('node:fs'); const path = await import('node:path');
+  const nested = { type: 'orderedList', attrs: { listStyle: 'lower-alpha' }, content: ['Point a', 'Point b'].map((t) => ({ type: 'listItem', content: [P(t)] })) };
+  const outer = { type: 'orderedList', attrs: { listStyle: 'upper-roman' }, content: [{ type: 'listItem', content: [P('Intro'), nested] }, { type: 'listItem', content: [P('Body')] }] };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Outline', content: { type: 'doc', content: [outer] } })).body.id;
+  const bytes = await page.evaluate(async (i) => [...new Uint8Array(await (await fetch(`/api/files/${i}/export?format=docx`)).arrayBuffer())], id);
+  const dir = fs.mkdtempSync(path.join(SP, 'lo-'));
+  fs.writeFileSync(path.join(dir, 'Outline.docx'), Buffer.from(bytes));
+  execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', 'odt', '--outdir', path.join(dir, 'out'), path.join(dir, 'Outline.docx')], { stdio: 'ignore', timeout: 120000 });
+  const odt = [...fs.readFileSync(path.join(dir, 'out', 'Outline.odt'))];
+  fs.rmSync(dir, { recursive: true, force: true });
+  const up = await page.evaluate(async (b) => (await fetch('/api/files/upload?name=Outline.odt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: new Uint8Array(b) })).json(), odt);
+  const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
+  await page.goto(`${B}/docs/${opened.body.id}`);
+  await page.getByText('Point b').waitFor();
+  const shape = await page.locator('.paper .tiptap').evaluate((ed) => [...ed.children].filter((c) => /^[OU]L$/.test(c.tagName)).map((l) => `${getComputedStyle(l).listStyleType}[${[...l.children].map((li) => li.querySelector('p').textContent + ([...li.querySelectorAll(':scope > ol')].map((o) => `(${getComputedStyle(o).listStyleType}:${o.children.length})`).join(''))).join(',')}]`).join(' '));
+  if (shape !== 'upper-roman[Intro(lower-alpha:2),Body]') throw new Error(shape);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

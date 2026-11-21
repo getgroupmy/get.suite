@@ -917,7 +917,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   gather(doc || {});
   const top = Math.min(...contents.map((h) => h.level));
   let headingNo = 0;
-  let listNo = 0; const starts = new Set(), bullets = new Set(); // numbered lists: one numbering instance each, and the styles and first numbers they use; bullets other than ●
+  let listNo = 0; const starts = new Set(), bullets = new Set(), trees = []; // numbered lists: one numbering instance each, and the styles and first numbers they use; bullets other than ●
   const allLabels = headingLabels(levels);
   let headingAt = 0;
   // (styled TOC Heading and TOC 1…, made Word's own table of contents once written: see withContentsField)
@@ -998,8 +998,21 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         if (n.type === 'orderedList') starts.add(`${style}|${start}`);
         const bullet = n.type === 'bulletList' && BULLETS.some(([k]) => k === n.attrs?.bullet) && n.attrs.bullet !== 'disc' ? n.attrs.bullet : null;
         if (bullet) bullets.add(bullet);
-        const numbering = { reference: `numbers-${style}-${start}`, level, instance: ++listNo };
-        for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? (bullet ? { numbering: { reference: `bullets-${bullet}`, level } } : { bullet: { level } }) : { numbering } });
+        // A list and the lists inside it are one list definition in Word, each depth a level of it (as Word itself makes
+        // them, and so LibreOffice keeps them one list): its levels look like the first list at each depth. A list inside
+        // that doesn't (two differently styled lists at one depth) gets a definition of its own, as a list at the top does.
+        const look = n.type === 'orderedList' ? `n:${style}:${start}` : `b:${bullet || 'disc'}`;
+        let tree = ctx.tree;
+        if (!tree) {
+          const spec = [];
+          (function scan(list, d) { if (d > 8 - level) return; spec[d] ??= list.type === 'orderedList' ? `n:${NUMBERINGS.some(([k]) => k === list.attrs?.listStyle) ? list.attrs.listStyle : 'decimal'}:${Math.max(1, Math.min(9999, Math.round(Number(list.attrs?.start) || 1)))}` : `b:${BULLETS.some(([k]) => k === list.attrs?.bullet) ? list.attrs.bullet : 'disc'}`; for (const li of list.content || []) for (const c of li.content || []) if (c.type === 'bulletList' || c.type === 'orderedList') scan(c, d + 1); })(n, 0);
+          tree = { ref: `tree-${trees.length}`, base: level, spec, instance: ++listNo };
+          trees.push(tree);
+        }
+        const inTree = tree.spec[level - tree.base] === look;
+        const numbering = inTree ? { reference: tree.ref, level, instance: tree.instance } : { reference: `numbers-${style}-${start}`, level, instance: ++listNo };
+        const para = inTree ? { numbering } : n.type === 'bulletList' ? (bullet ? { numbering: { reference: `bullets-${bullet}`, level } } : { bullet: { level } }) : { numbering };
+        for (const li of n.content || []) walk(li.content, { level, para, tree: inTree ? tree : null });
       } else if (n.type === 'taskList') {
         // A checklist: each item's first paragraph gets a box (☐, or ☒ when ticked); the rest follow indented.
         const level = (ctx.level ?? -1) + 1;
@@ -1085,6 +1098,13 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       children: String(c.text || '').split('\n').map((line) => new Paragraph(line)),
     })) } }),
     numbering: { config: [{ reference: 'checklist', levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.BULLET, text: ' ', alignment: AlignmentType.START, style: { paragraph: { indent: { left: 360 * (level + 1), hanging: 280 } } } })) }, ...[...new Set(['decimal|1', ...starts])].map((key) => { const [style, s] = key.split('|'); const start = Number(s); return { reference: `numbers-${style}-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: WORD_NUMBERING[style], text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }; }),
+      // A list tree's levels: numbered ones in their style from their first number, bullets their own (the usual ● ○ ■ by depth).
+      ...trees.map((t) => ({ reference: t.ref, levels: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((level) => {
+        const [kind, v, st] = (t.spec[level - t.base] || 'n:decimal:1').split(':');
+        const indent = { style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } };
+        return kind === 'n' ? { level, start: Number(st), format: WORD_NUMBERING[v], text: `%${level + 1}.`, alignment: AlignmentType.START, ...indent }
+          : { level, format: LevelFormat.BULLET, text: v === 'disc' ? ['•', '◦', '▪'][level % 3] : BULLETS.find((b) => b[0] === v)[3], alignment: AlignmentType.START, ...indent };
+      }) })),
       ...[...bullets].map((b) => ({ reference: `bullets-${b}`, levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.BULLET, text: BULLETS.find((x) => x[0] === b)[3], alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }))] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
     styles: {
