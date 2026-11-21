@@ -89,6 +89,11 @@ await step('Tab makes a line a point under the one above (counted on its own); S
   if (!(indent > 0)) throw new Error(`indent ${indent}`);
   await page.screenshot({ path: `${SP}/shots/slide-list-levels.png` });
 });
+await step('the plain-text download reads as the slide shows: numbers, the point under another indented', async () => {
+  await saved();
+  const txt = await page.evaluate(async (id) => (await fetch(`/api/files/${id}/export?format=txt`)).text(), deckId);
+  if (!/i\. Welcome\n  i\. Budget\nii\. Next steps/.test(txt)) throw new Error(txt);
+});
 await step('presenting shows them too', async () => {
   await saved();
   await page.getByRole('button', { name: 'Present' }).first().click();

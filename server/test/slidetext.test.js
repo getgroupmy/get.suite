@@ -23,3 +23,12 @@ test('a presentation as plain text: titles, words in reading order, tables, char
   ].join('\n\n\n') + '\n');
   assert.equal(textFromDeck({}), '\n');
 });
+
+test('a list box reads as it shows: each point with its bullet or number, points under others indented', () => {
+  const deck = { slides: [{ items: [
+    { type: 'text', role: 'title', text: 'Plan', x: 6, y: 6 },
+    { type: 'text', role: 'body', text: 'Hire\n\tDesigner\n\tEngineer\n\nShip', list: 'lower-roman', x: 6, y: 26 },
+    { type: 'text', role: 'body', text: 'Milk\n\tOat', list: 'check', x: 6, y: 60 },
+  ] }] };
+  assert.equal(textFromDeck(deck), 'Slide 1: Plan\n\ni. Hire\n  i. Designer\n  ii. Engineer\nii. Ship\n\n✓ Milk\n  – Oat\n');
+});
