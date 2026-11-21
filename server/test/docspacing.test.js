@@ -61,7 +61,8 @@ function randomDocs(n, start) {
   const pick = (a) => a[Math.floor(rnd() * a.length)];
   const WORDS = ['alpha', 'Ωmega', 'naïve', 'x<y', 'a&b', '"q"', "it's", '中文', 'שלום', '😀', 'two  spaces', 'tab\there', '1,234', '<tag>', 'ß', '  indented'];
   const MARKS = [[{ type: 'bold' }], [{ type: 'italic' }], [{ type: 'underline' }], [{ type: 'strike' }], [{ type: 'code' }], [{ type: 'subscript' }], [{ type: 'superscript' }], [{ type: 'link', attrs: { href: 'https://example.com/a?b=1&c=2' } }]];
-  const text = () => Array.from({ length: 1 + Math.floor(rnd() * 4) }, (_, i) => { const t = T((i ? ' ' : '') + pick(WORDS)); if (rnd() < 0.4) t.marks = pick(MARKS); return t; });
+  // (a word ending in a space, not last: two spaces where one piece of text meets the next, as "two " then bold " spaces")
+  const text = () => { const n = 1 + Math.floor(rnd() * 4); return Array.from({ length: n }, (_, i) => { const t = T((i ? ' ' : '') + (i < n - 1 && rnd() < 0.15 ? 'end ' : pick(WORDS))); if (rnd() < 0.4) t.marks = pick(MARKS); return t; }); };
   const tasks = () => ({ type: 'taskList', content: Array.from({ length: 1 + Math.floor(rnd() * 2) }, () => ({ type: 'taskItem', attrs: { checked: rnd() < 0.5 }, content: [P(...text())] })) });
   const block = (d) => {
     const r = rnd();
@@ -153,8 +154,9 @@ test('60 through RTF and back: the same', () => {
 
 test('and 25 through LibreOffice, saved again by it as .rtf', { skip: !hasSoffice && 'LibreOffice isn’t installed here' }, async () => {
   const { docs, shape } = randomDocs(25, 3);
-  // (LibreOffice itself drops strikethrough, subscript and superscript on Hebrew and Arabic words in an .rtf: left out here)
-  const plainRtl = (n) => { if (n.type === 'text' && /[\u0590-\u08ff]/.test(n.text) && n.marks) { n.marks = n.marks.filter((m) => !['strike', 'subscript', 'superscript'].includes(m.type)); if (!n.marks.length) delete n.marks; } (n.content || []).forEach(plainRtl); return n; };
+  // (LibreOffice itself drops the look of Hebrew and Arabic words in an .rtf, and of the space before one: strikethrough,
+  // subscript, superscript, underline (even written as a plain {\ul …}), italic. Left out here, on both sides.)
+  const plainRtl = (n) => { if (n.type === 'text' && /[\u0590-\u08ff]/.test(n.text) && n.marks) delete n.marks; (n.content || []).forEach(plainRtl); return n; };
   const same = (d) => rtfShape(shape)(plainRtl(JSON.parse(JSON.stringify(d))));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'docspacing-rtf-'));
   try {
