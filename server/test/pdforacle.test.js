@@ -170,3 +170,41 @@ print(json.dumps([list(i.image.size) for pg in pypdf.PdfReader(io.BytesIO(base64
     assert.deepEqual(sizes, [[40, 30]], `${kind}: the picture`);
   }
 });
+
+test('spreadsheet PDFs: charts over the cells drawn from their worked-out values (pdfplumber reads the bars back): 12 random column charts', { skip: !hasPy && 'no pypdf/pdfplumber here' }, async () => {
+  const { pdfFromSheet } = await import('../src/office/sheetpdf.js');
+  let s = Number(process.env.SEED) || 20261121;
+  const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const int = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  for (let n = 0; n < 12; n++) {
+    const k = int(2, 6), values = Array.from({ length: k }, () => int(1, 90));
+    const cells = { A1: 'Item', B1: 'Amount' };
+    values.forEach((v, i) => { cells[`A${i + 2}`] = `Item ${i + 1}`; cells[`B${i + 2}`] = i % 2 ? `=${v}*1` : String(v); }); // (some from formulas)
+    const row = int(0, 60), col = int(3, 6);
+    const title = `Chart ${n}`;
+    cells[`${String.fromCharCode(64 + col)}${row + 1}`] = 'HERE'; // (in the cell to its left: one in its own cell would run into its title)
+    const sheet = { name: 'S', cells, colWidths: {}, charts: { c: { type: 'column', range: `A1:B${k + 1}`, title, x: 46 + col * 100 + 4, y: 24 + row * 24 + 3, w: 360, h: 260 } } };
+    const pdf = await pdfFromSheet({ sheets: [sheet] }, 'Charts');
+    const seen = python(`
+import sys, io, json, base64, pdfplumber
+out = []
+with pdfplumber.open(io.BytesIO(base64.b64decode(sys.stdin.read()))) as pdf:
+    for page in pdf.pages:
+        words = [w['text'] for w in page.extract_words()]
+        if 'Chart' not in words: continue
+        here = [w for w in page.extract_words() if w['text'] == 'HERE']
+        title = [w for w in page.extract_words() if w['text'] == 'Chart'][0]
+        blue = [r for r in page.rects if tuple(round(c, 2) for c in (r.get('non_stroking_color') or ())) == (0.1, 0.45, 0.91)]
+        out.append({ 'page': page.page_number, 'bars': [round(r['height'], 2) for r in sorted(blue, key=lambda r: r['x0'])], 'here': [here[0]['x0'], here[0]['top']] if here else None, 'title': [title['x0'], title['top']] })
+print(json.dumps(out))`, pdf.toString('base64'));
+    assert.equal(seen.length, 1, `sheet ${n}: the chart on one page: ${JSON.stringify(seen)}`);
+    const [p] = seen;
+    assert.equal(p.bars.length, k, `sheet ${n}: a bar for each value ${JSON.stringify(p.bars)}`);
+    const max = Math.max(...values);
+    p.bars.forEach((hgt, i) => assert.ok(Math.abs(hgt / Math.max(...p.bars) - values[i] / max) < 0.02, `sheet ${n}: bar ${i} ${hgt} for ${values[i]}`));
+    assert.ok(p.here, `sheet ${n}: on the page with its cell ${JSON.stringify({ p, row, col })}`);
+    assert.ok(p.title[0] > p.here[0] + 75 - 6 && p.title[0] < p.here[0] + 150, `sheet ${n}: starting in its cell's column ${JSON.stringify(p)}`);
+    // (34 rows to a page: a chart whose cell is near a page's foot is moved up to fit on it, rather than left out)
+    if (row % 34 < 14) assert.ok(p.title[1] > p.here[1] - 6 && p.title[1] < p.here[1] + 30, `sheet ${n}: starting in its cell ${JSON.stringify(p)}`);
+  }
+});

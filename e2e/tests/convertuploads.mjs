@@ -423,6 +423,23 @@ await step('the spreadsheet with a chart, published to the web: the chart is dra
   if (!/Jan/.test(text) || !/Feb/.test(text)) throw new Error(`the chart's labels: ${text}`);
   await ctx.close();
 });
+await step('the spreadsheet with a chart, downloaded as PDF: the chart is drawn in it, its bars from the cells (read by pdfplumber)', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Moving chart');
+  if (!f) throw new Error('no Moving chart spreadsheet (an earlier step failed)');
+  const pdf = await page.evaluate(async (id) => { const b = new Uint8Array(await (await fetch(`/api/files/${id}/export?format=pdf`)).arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s); }, f.id);
+  const r = spawnSync('python3', ['-I', '-c', `
+import sys, io, json, base64, pdfplumber
+with pdfplumber.open(io.BytesIO(base64.b64decode(sys.stdin.read()))) as pdf:
+    p = pdf.pages[0]
+    blue = [r for r in p.rects if tuple(round(c, 2) for c in (r.get('non_stroking_color') or ())) == (0.1, 0.45, 0.91)]
+    print(json.dumps({ 'text': p.extract_text(), 'bars': [round(r['height'], 2) for r in sorted(blue, key=lambda r: r['x0'])] }))
+`], { input: pdf });
+  if (r.status !== 0) { console.log('(no pdfplumber here: skipped)'); return; }
+  const got = JSON.parse(String(r.stdout));
+  if (!/Sales by month/.test(got.text)) throw new Error('no chart title in the PDF');
+  if (got.bars.length !== 2 || Math.abs(got.bars[0] / got.bars[1] - 10 / 12) > 0.02) throw new Error(`the bars: ${JSON.stringify(got.bars)} (Jan 10, Feb 12)`);
+});
 await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
   if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');

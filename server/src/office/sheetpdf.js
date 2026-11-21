@@ -2,12 +2,13 @@
 // (the same formula engine as the page, copied in sheetcalc/), shown as the page shows them (number formats),
 // bold, italic, underline, strike, text colour, fill, alignment and borders, column widths and hidden rows and
 // columns as in the sheet, gridlines; landscape A4 pages, the sheet's frozen rows repeated at the top of each page,
-// columns that don't fit on further pages. Characters the standard fonts lack show as "?".
+// columns that don't fit on further pages; the pictures and charts over the cells. Characters the standard fonts lack show as "?".
 import { asDrawn, withFallbackFonts } from './pdffonts.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { bookEvaluator, display, colName, parseRef } from '../sheetcalc/formula.js';
 import { formulaHiddenRows } from '../sheetcalc/hiddenrows.js';
 import { formatNumber } from '../sheetcalc/cellformat.js';
+import { chartNumbers, drawChart } from './sheetpdfchart.js';
 
 const PW = 841.89, PH = 595.28, M = 28; // A4 landscape
 const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return null; const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
@@ -44,6 +45,16 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
       for (let w; c < 200 && ox >= (w = Number(sheet.colWidths?.[colName(c)]) || 100); c++) ox -= w;
       for (let h; r < 5000 && oy >= (h = Number(sheet.rowHeights?.[String(r + 1)]) || 24); r++) oy -= h;
       pics.push({ img, c, r, ox, oy: oy / (Number(sheet.rowHeights?.[String(r + 1)]) || 24), w: Math.max(8, Number(p.w) || 200), h: Math.max(8, Number(p.h) || 150), alt: p.alt });
+      maxR = Math.max(maxR, r); maxC = Math.max(maxC, c);
+    }
+    // Charts over the cells: drawn there the same way (from the cells' worked-out values).
+    const charts = [];
+    for (const ch of Object.values(sheet.charts || {}).slice(0, 30)) {
+      if (!ch?.range || !Number.isFinite(Number(ch.x)) || !Number.isFinite(Number(ch.y))) continue;
+      let c = 0, ox = Math.max(0, Number(ch.x) - 46), r = 0, oy = Math.max(0, Number(ch.y) - 24);
+      for (let w; c < 200 && ox >= (w = Number(sheet.colWidths?.[colName(c)]) || 100); c++) ox -= w;
+      for (let h; r < 5000 && oy >= (h = Number(sheet.rowHeights?.[String(r + 1)]) || 24); r++) oy -= h;
+      charts.push({ chart: ch, data: chartNumbers(ch, (k) => ev(k)), c, r, ox, oy: oy / (Number(sheet.rowHeights?.[String(r + 1)]) || 24), w: Math.max(160, Number(ch.w) || 480), h: Math.max(120, Number(ch.h) || 300) });
       maxR = Math.max(maxR, r); maxC = Math.max(maxC, c);
     }
     maxR = Math.min(maxR, 5000); maxC = Math.min(maxC, 200);
@@ -96,6 +107,14 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
           y -= rowH;
         }
         // (a frozen row's picture once, on the first page)
+        for (const ch of charts) {
+          if (!rowTop.has(ch.r) || !colLeft.has(ch.c) || (start > 0 && head.includes(ch.r))) continue;
+          // At three quarters of its size (smaller only if wider or taller than the page), from its cell's corner;
+          // moved up or left as far as it must be to stay on the page, rather than left out.
+          const k = Math.min(0.75, (PW - 2 * M) / ch.w, (PH - 2 * M - 22) / ch.h);
+          const x0 = Math.min(colLeft.get(ch.c) + ch.ox * 0.75, PW - M - ch.w * k), top = Math.max(rowTop.get(ch.r) - ch.oy * rowH, M + ch.h * k);
+          drawChart(page, ch.chart, ch.data, { x: x0, y: top, w: ch.w * k, h: ch.h * k }, F.r, safe);
+        }
         for (const p of pics) {
           if (!rowTop.has(p.r) || !colLeft.has(p.c) || (start > 0 && head.includes(p.r))) continue;
           const x0 = colLeft.get(p.c) + p.ox * 0.75, top = rowTop.get(p.r) - p.oy * rowH;
