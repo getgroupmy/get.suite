@@ -1,6 +1,7 @@
 // Markdown both ways for Docs: a document (TipTap JSON) as Markdown (GitHub style: tables, task
-// lists, strikethrough, footnotes), and a .md file opened as a document. Underline, colours and
-// highlight have no Markdown, so they're left out; pictures become their names.
+// lists, strikethrough, footnotes), and a .md file opened as a document. Underline, superscript and subscript as HTML
+// (<u>, <sup>, <sub>), which most Markdown readers show; colours and highlight have no Markdown, so they're left out;
+// pictures become their names.
 import { flattenTabs } from './doctabs.js';
 import { chartTable } from './sheetchart.js';
 import { chipText, dateText, eventLines } from './chiptext.js';
@@ -24,7 +25,11 @@ function inline(nodes = [], notes) {
     if (n.type === 'image') { out += n.attrs?.alt || n.attrs?.title || ''; continue; }
     if (n.type !== 'text') { out += inline(n.content, notes); continue; }
     const marks = new Map((n.marks || []).map((m) => [m.type, m]));
-    if (marks.has('code')) { const tick = n.text.includes('`') ? '``' : '`'; out += `${tick}${n.text}${tick}`; continue; }
+    if (marks.has('code')) { // (spaces at its ends outside the backticks, so two pieces of code side by side stay two)
+      const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(n.text);
+      const tick = core.includes('`') ? '``' : '`';
+      out += lead + (core ? `${tick}${core}${tick}` : '') + trail; continue;
+    }
     let t = escapeText(n.text);
     // Keep spaces outside the markers (**word** , not ** word **).
     const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(t);
@@ -32,6 +37,7 @@ function inline(nodes = [], notes) {
     if (t) {
       if (marks.has('superscript')) t = `<sup>${t}</sup>`; // Markdown has none of its own; most readers take the HTML
       if (marks.has('subscript')) t = `<sub>${t}</sub>`;
+      if (marks.has('underline')) t = `<u>${t}</u>`;
       if (marks.has('strike')) t = `~~${t}~~`;
       if (marks.has('italic')) t = `*${t}*`;
       if (marks.has('bold')) t = `**${t}**`;
@@ -40,7 +46,7 @@ function inline(nodes = [], notes) {
     }
     out += lead + t + trail;
   }
-  return out;
+  return out.replace(/^ +/, (sp) => '&#32;'.repeat(sp.length)); // (spaces a paragraph, item or heading starts with: Markdown would drop them)
 }
 
 const cell = (c, notes) => (c.content || []).map((p) => inline(p.content, notes)).join(' ').replace(/\|/g, '\\|').replace(/\n/g, ' ');
@@ -131,7 +137,8 @@ export function inlineFromMarkdown(s, notes = {}, marks = []) {
       i += m[0].length; continue;
     }
     if ((m = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1/.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'bold'])); i += m[0].length; continue; }
-    if ((m = /^<(sup|sub)>([\s\S]*?)<\/\1>/i.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, m[1].toLowerCase() === 'sup' ? 'superscript' : 'subscript'])); i += m[0].length; continue; }
+    if ((m = /^<(sup|sub|u|ins)>([\s\S]*?)<\/\1>/i.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, { sup: 'superscript', sub: 'subscript', u: 'underline', ins: 'underline' }[m[1].toLowerCase()]])); i += m[0].length; continue; }
+    if ((m = /^&#(?:(\d{1,7})|x([0-9a-f]{1,6}));/i.exec(rest))) { const cp = m[1] ? Number(m[1]) : parseInt(m[2], 16); if (cp > 0 && cp <= 0x10ffff) { buf += String.fromCodePoint(cp); i += m[0].length; continue; } } // (&#32; a space a paragraph starts with)
     if ((m = /^~~(?=\S)([\s\S]*?\S)~~/.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[1], notes, [...marks, 'strike'])); i += m[0].length; continue; }
     if ((m = /^([*_])(?=\S)([\s\S]*?\S)\1(?![*_\w])/.exec(rest)) && (s[i] === '*' || !/\w/.test(s[i - 1] || ''))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'italic'])); i += m[0].length; continue; }
     buf += s[i]; i++;

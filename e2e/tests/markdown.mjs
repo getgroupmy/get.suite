@@ -40,7 +40,7 @@ await step('setup', async () => {
   await page.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
 });
 await step('open a Markdown file as a document', async () => {
-  const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n';
+  const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n&#32;&#32;Note: <u>signed</u> off.\n';
   await page.evaluate(async (text) => fetch('/api/files/upload?name=minutes.md', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: text }), md);
   await page.goto(B + '/drive');
   await page.getByLabel('Actions for minutes.md').click();
@@ -49,6 +49,8 @@ await step('open a Markdown file as a document', async () => {
   await page.getByRole('heading', { name: 'Minutes' }).waitFor();
   await page.locator('.paper strong', { hasText: 'three' }).waitFor();
   await page.locator('.paper li[data-checked="true"]', { hasText: 'budget' }).waitFor();
+  await page.locator('.paper u', { hasText: 'signed' }).waitFor(); // <u> is underline, and &#32; a space kept
+  if (!(await page.locator('.paper p', { hasText: 'Note:' }).innerText()).startsWith('  Note:')) throw new Error('the spaces starting the paragraph');
 });
 await step('download a document as Markdown', async () => {
   await page.locator('.paper p', { hasText: 'We agreed' }).click();
@@ -60,6 +62,7 @@ await step('download a document as Markdown', async () => {
   if (dl.suggestedFilename() !== 'minutes.md') throw new Error(dl.suggestedFilename());
   const text = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
   if (!text.startsWith('# Minutes\n\nWe agreed on **three** things: Done.\n\n- [x] budget\n- [ ] hiring')) throw new Error(JSON.stringify(text));
+  if (!text.includes('&#32;&#32;Note: <u>signed</u> off.')) throw new Error(`underline and leading spaces: ${JSON.stringify(text)}`);
 });
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();

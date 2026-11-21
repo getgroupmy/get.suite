@@ -4,7 +4,9 @@
 // words, marks, links, tabs and double spaces, and each must come back with the same text, marks, ticks and nesting. It
 // found a checklist inside a list coming back as "☐ …" lines (.odt) or moved out of the list (.docx), and an item's own
 // leading spaces taken with the one after its box. Through LibreOffice, .odt gained an empty paragraph after a table
-// that ends the document (the one LibreOffice adds); it's left out now.
+// that ends the document (the one LibreOffice adds); it's left out now. Through Markdown, underline was lost (it's <u>
+// now, as superscript is <sup>), spaces starting a paragraph, item or heading were dropped (written as &#32; now), and two
+// pieces of code side by side ran their backticks together.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,6 +15,7 @@ import path from 'node:path';
 import { soffice, hasSoffice } from './soffice.js';
 import { wordFromDoc, docFromWord } from '../src/office/word.js';
 import { odtFromDoc, docFromOdt } from '../src/office/odt.js';
+import { markdownFromDoc, docFromMarkdown } from '../src/office/markdown.js';
 
 const T = (text, marks) => ({ type: 'text', text, ...(marks && { marks }) });
 const P = (...c) => ({ type: 'paragraph', content: c });
@@ -101,5 +104,21 @@ test('and 25 more through LibreOffice, saved again by it as .docx and as .odt', 
       }
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  assert.deepEqual(wrong, []);
+});
+
+test('and 60 through Markdown (.md download, a .md file opened): the same, but for marks on spaces at the edge of a word', () => {
+  const { docs, shape } = randomDocs(60, 11);
+  // (Markdown can't mark a space at the edge of bold or code, ** x**: those spaces come back plain, as they're written)
+  const unmarkEdges = (n) => {
+    if (n.content) n.content = n.content.flatMap((c) => {
+      if (c.type !== 'text' || !c.marks?.length) return [c];
+      const [, a, core, z] = /^(\s*)([\s\S]*?)(\s*)$/.exec(c.text);
+      return [...(a ? [T(a)] : []), ...(core ? [{ ...c, text: core }] : []), ...(z ? [T(z)] : [])];
+    }).map(unmarkEdges);
+    return n;
+  };
+  const same = (d) => shape(unmarkEdges(JSON.parse(JSON.stringify(d))));
+  const wrong = docs.flatMap((doc, k) => (same(docFromMarkdown(markdownFromDoc(doc))) === same(doc) ? [] : [`#${k}`]));
   assert.deepEqual(wrong, []);
 });
