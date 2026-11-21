@@ -120,6 +120,48 @@ await step('⋮ → Save to Drive as a document: an editable document with its l
   if (await looks(ol) !== 'lower-roman') throw new Error(`ol: ${await looks(ol)}`);
   if (await looks(ed.locator('ul', { hasText: 'Minutes sent' })) !== '"✓ "') throw new Error('ul');
 }, gina);
+await step('Docs ⋮ → Send as email: the document is the email, its lists and picture with it', async () => {
+  const picId = await page.evaluate(async () => {
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+    const r = await fetch('/api/files/upload?name=dot.png', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: png });
+    return (await r.json()).id;
+  });
+  const T = (text) => ({ type: 'text', text });
+  const content = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 1 }, content: [T('Weekly update')] },
+    { type: 'paragraph', content: [T('Where we are:')] },
+    { type: 'orderedList', attrs: { start: 1, listStyle: 'upper-alpha' }, content: ['Hiring', 'Office move'].map((t) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [T(t)] }] })) },
+    { type: 'image', attrs: { fileId: picId, alt: 'Team photo' } },
+  ] };
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Weekly update', content })).body;
+  await page.goto(`${B}/docs/${doc.id}`);
+  await page.locator('.paper .tiptap li', { hasText: 'Office move' }).waitFor();
+  await page.locator('.paper .tiptap img[alt="Team photo"]').waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Send as email' }).click();
+  await page.waitForURL(/\/mail/);
+  const ed = page.locator('.compose-editor');
+  await ed.locator('li', { hasText: 'Office move' }).waitFor();
+  if (await page.getByLabel('Subject').inputValue() !== 'Weekly update') throw new Error('subject');
+  const title = ed.locator('span', { hasText: 'Weekly update' });
+  if (await title.evaluate((el) => getComputedStyle(el).fontSize) !== '24px') throw new Error('the title as Huge bold text');
+  if (await looks(ed.locator('ol')) !== 'upper-alpha') throw new Error(`ol: ${await looks(ed.locator('ol'))}`);
+  await ed.locator('img[alt="Team photo"]').waitFor();
+  await page.getByLabel('To', { exact: true }).fill('gina@globex.com');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText('Sent to 1 recipient').waitFor();
+  // Gina gets it as written, the picture inside the email.
+  await gina.goto(`${B}/mail`);
+  const row = gina.locator('.msg-list li', { hasText: 'Weekly update' }).first();
+  await refreshUntil(gina, row);
+  await row.locator('.msg-row').click();
+  const frame = gina.frameLocator('iframe.mail-html');
+  await frame.locator('li', { hasText: 'Office move' }).waitFor();
+  if (await looks(frame.locator('ol')) !== 'upper-alpha') throw new Error('received ol');
+  const img = frame.locator('img[alt="Team photo"]');
+  await img.waitFor();
+  if (!(await img.evaluate((el) => el.complete && el.naturalWidth === 1))) throw new Error('picture not shown: ' + await img.getAttribute('src'));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

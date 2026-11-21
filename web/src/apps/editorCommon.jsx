@@ -110,6 +110,14 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { toast('Your browser’s storage is off', 'error'); return; }
     navigate('/mail?compose_doc=1');
   };
+  // Send as email: a new message in Mail whose text is the document (its formatting, lists and pictures), its name the subject.
+  const sendAsEmail = async () => {
+    try {
+      const { subject, html } = await get(`/files/${file.id}/email-body`);
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ subject, html }));
+      navigate('/mail?compose_doc=1');
+    } catch (e) { toast(e instanceof DOMException ? 'Your browser’s storage is off' : e.message, 'error'); }
+  };
   // Locked: nobody can change it (editors can lock; whoever locked it, or the owner, can unlock).
   const { user } = useAuth();
   const canUnlock = file?.locked_at && (file.locked_by === user?.id || file.role === 'owner');
@@ -128,6 +136,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     ...(mail?.enabled && canEdit ? [{ label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(file, { navigate, toast }) }] : []),
     ...(canEdit ? [{ label: 'Schedule a meeting with people with access', icon: 'calendar', onClick: () => meetPeopleWithAccess(file, { navigate, toast }) }] : []),
     ...(mail?.enabled ? [{ label: 'Email link', icon: 'mail', onClick: () => emailIt(false) }, ...(takeOff ? [] : [{ label: 'Email as attachment…', icon: 'mail', onClick: () => emailIt(true) }])] : []),
+    ...(mail?.enabled && icon === 'doc' && !takeOff ? [{ label: 'Send as email', icon: 'mail', onClick: sendAsEmail }] : []),
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
     ...(file.role === 'owner' ? [{ label: 'Publish to the web…', icon: 'link', onClick: () => setPublishing(true) }] : []),
     ...(canEdit && icon === 'doc' && !file.locked_at ? [{ label: 'Send for signature…', icon: 'edit', onClick: () => setSigning(true) }] : []),

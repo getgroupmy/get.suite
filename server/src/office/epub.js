@@ -17,7 +17,7 @@ const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').re
 const textOf = (n) => (n.type === 'text' ? n.text || '' : (n.content || []).map(textOf).join(''));
 
 /** The writer of a document's blocks as XHTML (pictures: file id → { path: the src to use }); notes collects footnotes. */
-function bookWriter(doc, pictures, { toc = false } = {}) {
+function bookWriter(doc, pictures, { toc = false, email = false } = {}) {
   // Headings: each an id (h1, h2…), in order, for a table of contents to link to.
   const heads = [];
   (function walk(list) { for (const n of list || []) { if (n.type === 'heading') heads.push(n); else if (n.content && n.type !== 'table') walk(n.content); } })(doc?.content);
@@ -33,8 +33,8 @@ function bookWriter(doc, pictures, { toc = false } = {}) {
   const notes = [];
   const inline = (list = []) => list.map((n) => {
     if (n.type === 'hardBreak') return '<br/>';
-    if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); const k = notes.length; return `<a epub:type="noteref" id="r${k}" href="#n${k}"><sup>${k}</sup></a>`; }
-    if (n.type === 'math' && String(n.attrs?.latex || '').trim()) return latexToMathElement(String(n.attrs.latex).trim()); // (MathML: EPUB 3 readers draw it)
+    if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); const k = notes.length; return email ? `<sup>${k}</sup>` : `<a epub:type="noteref" id="r${k}" href="#n${k}"><sup>${k}</sup></a>`; }
+    if (n.type === 'math' && String(n.attrs?.latex || '').trim() && !email) return latexToMathElement(String(n.attrs.latex).trim()); // (MathML: EPUB 3 readers draw it)
     if (n.type === 'image') { const p = pictures.get(n.attrs?.fileId); return p ? `<img src="${p.path}" alt="${x(n.attrs?.alt || '')}"/>` : x(n.attrs?.alt ? `[${n.attrs.alt}]` : ''); }
     let t = n.type === 'text' ? n.text || '' : n.type === 'mention' ? `@${n.attrs?.name || ''}` : n.type === 'datechip' ? dateText(n.attrs?.date) : n.type === 'filechip' ? n.attrs?.name || ''
       : n.type === 'dropchip' ? chipText(n.attrs) : n.type === 'math' ? n.attrs?.latex || '' : n.type === 'citation' ? inText(n.attrs) : null;
@@ -55,6 +55,10 @@ function bookWriter(doc, pictures, { toc = false } = {}) {
   const align = (n) => (['center', 'right', 'justify'].includes(n.attrs?.textAlign) ? ` style="text-align: ${n.attrs.textAlign}"` : '');
   const blocks = (list = []) => list.map((n) => {
     const t = n.type;
+    // (in an email: a picture on its own, not inside a paragraph, as Mail's editor keeps them; headings as big bold text,
+    // which it has instead: Huge for a title, Large for Heading 2, bold for the rest)
+    if (email && (t === 'image' || (t === 'paragraph' && n.content?.length && n.content.every((c) => c.type === 'image')))) return inline(t === 'image' ? [n] : n.content);
+    if (email && t === 'heading') { const lv = n.attrs?.level || 1; const big = lv === 1 ? '24px' : lv === 2 ? '18px' : null; const txt = inline(n.content); return `<p${align(n)}><strong>${big ? `<span style="font-size: ${big}">${txt}</span>` : txt}</strong></p>`; }
     if (t === 'paragraph') return `<p${align(n)}>${inline(n.content)}</p>`;
     if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); return `<h${lv}${toc ? ` id="${headId(n)}"` : ''}${align(n)}>${inline(n.content)}</h${lv}>`; }
     if (t === 'bulletList' || t === 'orderedList') { // (in its own style: as the editor writes one, which reading systems show)
@@ -62,13 +66,14 @@ function bookWriter(doc, pictures, { toc = false } = {}) {
         : cleanBullet(n.attrs?.bullet) ? ` style='list-style-type: "${bulletChar(n.attrs.bullet)} "'` : '';
       return `<${t === 'bulletList' ? 'ul' : 'ol'}${look}>${(n.content || []).map((li) => `<li>${blocks(li.content)}</li>`).join('')}</${t === 'bulletList' ? 'ul' : 'ol'}>`;
     }
+    if (t === 'taskList' && email) return (n.content || []).map((li) => `<p>${li.attrs?.checked ? '☒' : '☐'} ${blocks(li.content).replace(/^<p>|<\/p>$/g, '')}</p>`).join('');
     if (t === 'taskList') return `<ul class="tasks">${(n.content || []).map((li) => `<li>${li.attrs?.checked ? '☒' : '☐'} ${blocks(li.content).replace(/^<p>|<\/p>$/g, '')}</li>`).join('')}</ul>`;
     if (t === 'blockquote') return `<blockquote>${blocks(n.content)}</blockquote>`;
     if (t === 'codeBlock') return `<pre><code>${x((n.content || []).map((c) => c.text).join(''))}</code></pre>`;
     if (t === 'horizontalRule') return '<hr/>';
     if (t === 'image') return `<p class="picture">${inline([n])}</p>`;
     if (t === 'table') return `<table>${(n.content || []).map((r) => `<tr>${(r.content || []).map((c) => { const tag = c.type === 'tableHeader' ? 'th' : 'td'; return `<${tag}${c.attrs?.colspan > 1 ? ` colspan="${c.attrs.colspan}"` : ''}>${blocks(c.content)}</${tag}>`; }).join('')}</tr>`).join('')}</table>`;
-    if (t === 'sheetChart') { const { title: ct, rows } = chartTable(n.attrs); const svg = chartSvg(n.attrs); return `<p><strong>${x(ct)}</strong></p>${svg ? `<div class="chart">${svg}</div>` : ''}${rows.length ? `<table>${rows.map((r, i) => `<tr>${r.map((v) => `<${i ? 'td' : 'th'}>${x(v)}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table>` : ''}`; }
+    if (t === 'sheetChart') { const { title: ct, rows } = chartTable(n.attrs); const svg = email ? '' : chartSvg(n.attrs); return `<p><strong>${x(ct)}</strong></p>${svg ? `<div class="chart">${svg}</div>` : ''}${rows.length ? `<table>${rows.map((r, i) => `<tr>${r.map((v) => `<${i ? 'td' : 'th'}>${x(v)}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table>` : ''}`; }
     if (t === 'references') return `<h2>References</h2>${sourcesOf(doc).map((s) => `<p class="ref">${reference(s).map((p) => (p.italic ? `<em>${x(p.text)}</em>` : x(p.text))).join('')}</p>`).join('')}`;
     if (t === 'emailDraft' || t === 'eventDraft') {
       const a = n.attrs || {};
@@ -157,6 +162,23 @@ export async function htmlFromDoc(doc, title = 'Document', { pictureData, lang =
   const css = 'body { font-family: Georgia, serif; line-height: 1.5; max-width: 46em; margin: 2em auto; padding: 0 1em; } img { max-width: 100%; } table { border-collapse: collapse; } td, th { border: 1px solid #999; padding: 0.2em 0.4em; } blockquote { margin-left: 1em; padding-left: 0.8em; border-left: 3px solid #bbb; } pre { white-space: pre-wrap; background: #f6f6f6; padding: 0.5em; } ul.tasks { list-style: none; padding-left: 0.5em; } .notes { font-size: 0.9em; } .ref { padding-left: 2em; text-indent: -2em; } .toc ul { list-style: none; padding-left: 0; } .toc2 { margin-left: 1em; } .toc3 { margin-left: 2em; } .toc4, .toc5, .toc6 { margin-left: 3em; }';
   const head = nodes.find((n) => n.type !== 'tableOfContents')?.type === 'heading' ? '' : `<h1>${x(title)}</h1>\n`; // (its own first heading is its title)
   return Buffer.from(`<!DOCTYPE html>\n<html lang="${x(lang)}"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${x(title)}</title><style>${css}</style></head><body>\n${head}${body}\n${endnotes}</body></html>\n`, 'utf8');
+}
+
+/**
+ * The document as the text of an email (Docs → Send as email): its own formatting as Mail's editor takes it (headings,
+ * bold, links, tables, lists in their numbering and bullets), pictures by their Drive address (`canSee(id)`: only those
+ * the sender may open; Mail embeds them when it's sent), equations as their LaTeX, checklists with ☐ / ☒, charts as
+ * their table, footnotes as numbers with the notes at the end. No table of contents (its links go nowhere in an email).
+ */
+export function emailHtmlFromDoc(doc, { canSee = () => false } = {}) {
+  doc = flattenTabs(doc);
+  const nodes = (doc?.content || []).filter((n) => n.type !== 'pageBreak' && n.type !== 'tableOfContents');
+  const pictures = new Map();
+  for (const id of new Set(JSON.stringify(nodes).match(/"fileId":"[^"]+"/g)?.map((m) => m.slice(10, -1)) || [])) if (canSee(id)) pictures.set(id, { path: `/api/files/${id}/raw` });
+  const w = bookWriter(doc, pictures, { email: true });
+  const body = w.blocks(nodes).replace(/ class="[^"]*"/g, '').replace(/\n/g, '');
+  const notes = w.notes.length ? `<hr/>${w.notes.map((t, k) => `<p><sup>${k + 1}</sup> ${x(t)}</p>`).join('')}` : '';
+  return body + notes || '<p></p>';
 }
 
 /** The document as plain text: paragraphs apart by an empty line, lists with - or 1., tables by tabs, footnotes at the end. */
