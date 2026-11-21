@@ -13,6 +13,10 @@ import { chartTable } from './sheetchart.js';
 import { dataChartObject, dataChartFromObject } from './odpchart.js';
 import { latexToMathml, mathmlToLatex } from './mathml.js';
 import { docFromHtml, columnWidthsOf, widthOfPicture, joinReplacements } from './word.js';
+import { BULLETS, cleanNumbering, bulletOfWord } from './liststyle.js';
+// List styles (liststyle.js) as ODF writes them: a number format, or a bullet character.
+const ODF_NUM = { 'lower-alpha': 'a', 'upper-alpha': 'A', 'lower-roman': 'i', 'upper-roman': 'I', decimal: '1' };
+const NUM_OF_ODF = Object.fromEntries(Object.entries(ODF_NUM).map(([k, v]) => [v, k]));
 import { headingsOfDoc, linksToHeadings } from './anchors.js';
 
 // The Docs toolbar's fonts (as written in files → the editor's CSS) and sizes (pt).
@@ -113,6 +117,7 @@ export function normalText(page) {
 
 export async function odtFromDoc(doc, title = 'Document', { pictureData, page = null, comments = [], signatures = null } = {}) {
   doc = flattenTabs(doc);
+  const listLooks = new Set(); // list styles of their own the lists use (LNum_lower-roman, LBul_check…)
   // Comment threads: each an annotation where its words start (its replies after it, as LibreOffice writes them),
   // ended where its words end. The text nodes carrying each thread's mark, first and last.
   const threads = new Map((comments || []).map((c) => [c.id, c]));
@@ -280,7 +285,11 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); out += `<text:h text:style-name="${styleOf(`Heading_20_${lv}`, n.attrs)}" text:outline-level="${lv}">${tocMark(n)}${keepSpaces(inline(n.content))}</text:h>`; }
       else if (t === 'bulletList' || t === 'orderedList') {
         const start = t === 'orderedList' ? Math.max(1, Math.min(9999, Math.round(Number(n.attrs?.start) || 1))) : 1; // (a numbered list's first number)
-        out += `<text:list text:style-name="${t === 'orderedList' ? 'LNum' : 'LBul'}">${(n.content || []).map((li, i) => `<text:list-item${i === 0 && start > 1 ? ` text:start-value="${start}"` : ''}>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
+        // A list with a style of its own (a. i. …, ○ ✓ …): a list style of its own, the same at every level.
+        const own = t === 'orderedList' ? (ODF_NUM[n.attrs?.listStyle] && n.attrs.listStyle !== 'decimal' ? `LNum_${n.attrs.listStyle}` : null)
+          : (BULLETS.some(([k]) => k === n.attrs?.bullet) && n.attrs.bullet !== 'disc' ? `LBul_${n.attrs.bullet}` : null);
+        if (own) listLooks.add(own);
+        out += `<text:list text:style-name="${own || (t === 'orderedList' ? 'LNum' : 'LBul')}">${(n.content || []).map((li, i) => `<text:list-item${i === 0 && start > 1 ? ` text:start-value="${start}"` : ''}>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
       } else if (t === 'taskList') { // (a list whose bullet is a space, each item starting with its box: a list to LibreOffice and pandoc)
         out += '<text:list text:style-name="LTask">';
         for (const li of n.content || []) {
@@ -395,7 +404,8 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 <style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999"/></style:style>
 <text:list-style style:name="LBul">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-bullet text:level="${l}" text:bullet-char="${'•◦▪'[(l - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-bullet>`).join('')}</text:list-style>
 <text:list-style style:name="LTask">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-bullet text:level="${l}" text:bullet-char=" "><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-bullet>`).join('')}</text:list-style>
-<text:list-style style:name="LNum">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-number text:level="${l}" style:num-suffix="." style:num-format="${['1', 'a', 'i'][(l - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-number>`).join('')}</text:list-style>
+${[...listLooks].map((name) => { const [kind, v] = name.split('_'); return `<text:list-style style:name="${name}">${[1, 2, 3, 4, 5, 6].map((l) => (kind === 'LNum' ? `<text:list-level-style-number text:level="${l}" style:num-suffix="." style:num-format="${ODF_NUM[v]}">` : `<text:list-level-style-bullet text:level="${l}" text:bullet-char="${BULLETS.find((b) => b[0] === v)[3]}">`) + `<style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties>${kind === 'LNum' ? '</text:list-level-style-number>' : '</text:list-level-style-bullet>'}`).join('')}</text:list-style>`; }).join('')}
+<text:list-style style:name="LNum">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-number text:level="${l}" style:num-suffix="." style:num-format="1"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-number>`).join('')}</text:list-style>
 </office:automatic-styles><office:body><office:text>${changedRegions.length ? `<text:tracked-changes text:track-changes="false">${changedRegions.join('')}</text:tracked-changes>` : ''}${body}</office:text></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles ${NS}><office:styles>${lineNumbersXml(page)}
@@ -524,6 +534,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
   // The styles: what each text style looks like, how each paragraph style is aligned, which lists are numbered.
   const styles = new Map(), numbered = new Map();
   const numberedFrom = new Map(); // a list style's first number at each level
+  const listLooksOf = new Map(); // a list style's look at each level: { num: '1' | 'a' | … } or { bullet: '•' | … }
   let lastNumbered = 0; // the last number of the latest numbered list at the top (for a list that carries on from it)
   const readStyles = (node) => {
     for (const el of kids(node)) {
@@ -537,6 +548,7 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         styles.set(name, { parent: el.attribs['style:parent-style-name'], tp, pp, cp, colp, list: el.attribs['style:list-style-name'], level: Number(el.attribs['style:default-outline-level']) || 0 });
       } else if (el.name === 'text:list-style') {
         numbered.set(el.attribs['style:name'], kids(el).filter((c) => c.type === 'tag').map((c) => c.name === 'text:list-level-style-number'));
+        listLooksOf.set(el.attribs['style:name'], kids(el).filter((c) => c.type === 'tag').map((c) => (c.name === 'text:list-level-style-number' ? { num: c.attribs?.['style:num-format'] ?? '1' } : { bullet: c.attribs?.['text:bullet-char'] ?? '' })));
         numberedFrom.set(el.attribs['style:name'], kids(el).filter((c) => c.type === 'tag').map((c) => Number(c.attribs?.['text:start-value']) || 1));
       }
       readStyles(el);
@@ -768,7 +780,13 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         const carries = c.attribs['text:continue-numbering'] === 'true' || !!c.attribs['text:continue-list'];
         const start = Number(lis[0]?.attribs?.['text:start-value']) || (carries && depth === 0 && lastNumbered ? lastNumbered + 1 : (numberedFrom.get(ls) || [])[depth] || 1);
         if (isNum && depth === 0) lastNumbered = start + lis.length - 1;
-        out += isNum ? `<ol${start > 1 ? ` start="${start}"` : ''}>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`;
+        // Its look at this level, when not the usual one (1. at every level, as the editor shows them; bullets • ◦ ▪ going
+        // in, as the download, LibreOffice and browsers show them).
+        const lk = (listLooksOf.get(ls) || [])[depth] || {};
+        const numLook = isNum && lk.num ? cleanNumbering(NUM_OF_ODF[lk.num]) : null;
+        const bulLook = !isNum && lk.bullet !== undefined ? bulletOfWord(lk.bullet) : null;
+        const bul = bulLook && bulLook !== ['disc', 'circle', 'square'][depth % 3] ? bulLook : null;
+        out += isNum ? `<ol${start > 1 ? ` start="${start}"` : ''}${numLook ? ` data-list-style="${numLook}"` : ''}>${items.join('')}</ol>` : `<ul${bul ? ` data-bullet="${bul}"` : ''}>${items.join('')}</ul>`;
       } else if (c.name === 'table:table') {
         const rows = [];
         const collect = (n) => { for (const k of kids(n)) { if (k.name === 'table:table-row') rows.push({ row: k, head: n.name === 'table:table-header-rows' }); else if (/^table:table-(header-)?rows$/.test(k.name)) collect(k); } };

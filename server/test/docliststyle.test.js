@@ -41,3 +41,25 @@ test('Word: the styles are written as Word’s own numbering formats and bullets
     assert.equal(show(await docFromWord(lo('d.docx', 'docx', 'a'))), want, 'Word → LibreOffice → Word');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('OpenDocument (.odt): written as ODF list styles (number formats, bullet characters), read back; and LibreOffice’s', async (t) => {
+  const { odtFromDoc, docFromOdt } = await import('../src/office/odt.js');
+  const odt = await odtFromDoc(doc, 'Styles');
+  const content = await (await JSZip.loadAsync(odt)).file('content.xml').async('string');
+  assert.match(content, /<text:list-style style:name="LNum_lower-roman"><text:list-level-style-number text:level="1" style:num-suffix="." style:num-format="i">/);
+  assert.match(content, /<text:list-style style:name="LBul_check"><text:list-level-style-bullet text:level="1" text:bullet-char="✓">/);
+  assert.equal(show(await docFromOdt(odt)), want);
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('soffice', ['--version'], { stdio: 'ignore', timeout: 30000 }); } catch { t.diagnostic('LibreOffice not installed: its part skipped'); return; }
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-lso-'));
+  const lo = (f, as, out) => { execFileSync('soffice', [`-env:UserInstallation=file://${dir}/profile`, '--headless', '--convert-to', as, '--outdir', path.join(dir, out), path.join(dir, f)], { stdio: 'ignore', timeout: 120000 }); return fs.readFileSync(path.join(dir, out, f.replace(/\.\w+$/, `.${as.split(':')[0]}`))); };
+  try {
+    fs.writeFileSync(path.join(dir, 'd.odt'), odt);
+    const text = lo('d.odt', 'txt:Text', 't').toString('utf8').replace(/\s+/g, ' ');
+    assert.match(text, /i\. Intro a\. Point a b\. Point b ii\. Body Then C\. Alpha D\. Beta And/, text);
+    assert.equal(show(await docFromOdt(lo('d.odt', 'odt', 'a'))), want, '.odt → LibreOffice → .odt');
+    // (Not checked: a Word download saved as .odt by LibreOffice, which splits a list with a differently styled list
+    // inside it into separate lists; the README says so.)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

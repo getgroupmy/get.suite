@@ -67,14 +67,14 @@ await step('kept: after reloading, both still look so', async () => {
   await page.getByText('Eggs').waitFor();
   if ((await lookOf(page, 'ol', 'Unpack')) !== 'lower-roman' || (await lookOf(page, 'ul', 'Milk')) !== '"✓ "') throw new Error('lost');
 });
-await step('a Word download opened again keeps them', async () => {
-  const up = await page.evaluate(async (id) => {
-    const bytes = await (await fetch(`/api/files/${id}/export?format=docx`)).arrayBuffer();
-    return (await fetch('/api/files/upload?name=Plan%20copy.docx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
-  }, docId);
+for (const format of ['docx', 'odt']) await step(`${format === 'docx' ? 'a Word' : 'an OpenDocument'} download opened again keeps them`, async () => {
+  const up = await page.evaluate(async ([id, f]) => {
+    const bytes = await (await fetch(`/api/files/${id}/export?format=${f}`)).arrayBuffer();
+    return (await fetch(`/api/files/upload?name=Plan%20copy.${f}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes })).json();
+  }, [docId, format]);
   const opened = await api(page, 'POST', `/files/${up.id}/open-as`);
   const lists = (await api(page, 'GET', `/files/${opened.body.id}/content`)).body.content.content.filter((n) => /List$/.test(n.type)).map((n) => n.attrs?.listStyle || n.attrs?.bullet);
-  if (lists.join() !== 'lower-roman,check') throw new Error(lists.join());
+  if (lists.join() !== 'lower-roman,check') throw new Error(`${format}: ${lists.join()}`);
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
