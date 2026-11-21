@@ -46,8 +46,8 @@ export async function officePreview(buf, filename, userId) {
     if (type === 'docx') { kind = 'doc'; content = (await docFromWord(buf, { savePicture })).doc; look = lookOf(await pageOfWord(buf)); }
     else if (type === 'odt') { kind = 'doc'; content = (await docFromOdt(buf, { savePicture })).doc; look = lookOf(await pageOfOdt(buf)); }
     else if (type === 'md') { kind = 'doc'; content = docFromMarkdown(buf.toString('utf8')); }
-    else if (type === 'xlsx') { kind = 'sheet'; content = await sheetFromExcel(buf); }
-    else if (type === 'ods') { kind = 'sheet'; content = await sheetFromOds(buf); }
+    else if (type === 'xlsx') { kind = 'sheet'; content = await sheetFromExcel(buf, { savePicture }); } // (pictures over the cells too)
+    else if (type === 'ods') { kind = 'sheet'; content = await sheetFromOds(buf, { savePicture }); }
     else if (type === 'odp') { kind = 'slides'; content = await deckFromOdp(buf, { savePicture }); }
     else { kind = 'slides'; content = await deckFromPowerPoint(buf, { savePicture }); }
   } catch { throw bad("This file couldn't be read, so there's no preview: download it instead"); }

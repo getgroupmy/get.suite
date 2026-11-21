@@ -22,7 +22,7 @@ export default function OfficePreview({ url }) {
     <div className="office-preview" aria-label="Preview">
       {data.kind === 'doc' ? <DocPreview content={data.content} pictureBase={base} look={data.look} />
         : data.kind === 'slides' ? <PublishedDeck deck={data.content} base={base} />
-        : <PublishedSheet book={data.content} />}
+        : <PublishedSheet book={data.content} base={base} />}
     </div>
   );
 }

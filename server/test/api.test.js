@@ -1256,6 +1256,23 @@ test('Office previews: Word, Excel and PowerPoint read without a copy; pictures 
   assert.equal(shown.status, 200);
   assert.equal(shown.headers.get('content-type'), 'image/png');
   assert.equal(await count(), before, 'nothing is added to Drive');
+  // A spreadsheet's pictures over its cells (Excel or OpenDocument): in the preview, from the preview, nothing kept.
+  const { excelFromSheet } = await import('../src/office/excel.js');
+  const { odsFromSheet } = await import('../src/office/ods.js');
+  const logo = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pictured = { sheets: [{ name: 'Brand', cells: { A1: 'Logo' }, pictures: { p: { file: 'logo', alt: 'Logo', x: 246, y: 72, w: 40, h: 30 } } }] };
+  const pictureData = async () => ({ data: logo, mime: 'image/png' });
+  for (const [name, buf] of [['Brand.xlsx', await excelFromSheet(pictured, { pictureData })], ['Brand.ods', await odsFromSheet(pictured, { pictureData })]]) {
+    const f = await up(name, buf);
+    const before2 = await count();
+    const pv = (await owner('GET', `/api/files/${f.id}/preview`)).body;
+    const placed = Object.values(pv.content.sheets[0].pictures || {});
+    assert.deepEqual(placed.map((x) => [x.x, x.y, x.w, x.h, x.alt]), [[246, 72, 40, 30, 'Logo']], name);
+    const got = await owner('GET', `/api/office-preview/${pv.token}/pictures/${placed[0].file}`, undefined, { binary: true });
+    assert.equal(got.status, 200, name);
+    assert.ok(got.body.equals(logo), `${name}: the picture itself`);
+    assert.equal(await count(), before2, `${name}: nothing added to Drive`);
+  }
 
   // Someone the file is shared with may preview it; nobody else sees its pictures or the file.
   const colleague = client();

@@ -95,6 +95,24 @@ await step('Drive’s preview of that Word file shows it in its normal text', as
   const css = await pv.evaluate((el) => `${getComputedStyle(el).fontFamily}|${getComputedStyle(el).fontSize}`);
   if (!/Georgia/.test(css) || !css.endsWith('16px')) throw new Error(css); // 12 pt
 });
+await step('Drive’s preview of an Excel file shows the picture over its cells, without converting it', async () => {
+  const { excelFromSheet } = await import(`${ROOT}/server/src/office/excel.js`);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAKElEQVR42u3OMQEAAAgDoNm/tKbwgQJ0Uhk1NBQQEBAQEBAQEBAQEBAQ1gWjYCbJAAAAAElFTkSuQmCC', 'base64'); // 64 × 32
+  const xlsx = await excelFromSheet({ sheets: [{ name: 'Brand', cells: { A1: 'Our logo', B2: '=2+2' }, pictures: { p: { file: 'logo', alt: 'Company logo', x: 46 + 200, y: 24 + 48, w: 64, h: 32 } } }] }, { pictureData: async () => ({ data: png, mime: 'image/png' }) });
+  await page.evaluate(async (data) => {
+    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    await fetch('/api/files/upload?name=Brand%20sheet.xlsx', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: bytes });
+  }, xlsx.toString('base64'));
+  await page.goto(`${B}/drive`);
+  await page.getByText('Brand sheet.xlsx', { exact: true }).first().dblclick();
+  await page.locator('.office-preview .pub-sheet td[data-k="B2"]', { hasText: '4' }).waitFor();
+  const img = page.locator('.office-preview .pub-sheet td[data-k="C3"] img.pub-picture[alt="Company logo"]');
+  await img.waitFor();
+  await until(async () => (await img.evaluate((i) => i.complete && i.naturalWidth)) === 64); // (it wasn't there)
+  const kept = (await api(page, 'GET', '/files?view=mine')).body.filter((f) => /logo|Brand sheet pictures/i.test(f.name));
+  if (kept.length) throw new Error(`added to Drive: ${kept.map((f) => f.name)}`);
+  await page.keyboard.press('Escape');
+});
 await step('an .odt download keeps the page: Letter, landscape, light yellow, header, footer, page numbers, two columns, line numbers, watermark; and comes back', async () => {
   const d = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Odt page', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Wide and yellow' }] }] } })).body;
   await api(page, 'PATCH', `/files/${d.id}`, { page_setup: { size: 'letter', orientation: 'landscape', pageColor: '#fff2cc', header: 'Acme & Co', footer: 'Private', numbers: true, columns: 2, lineNumbers: true, watermark: 'DRAFT' } });
