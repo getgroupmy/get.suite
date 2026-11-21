@@ -279,7 +279,8 @@ export default function SlidesEditor() {
     } catch (e) { toast(e.message, 'error'); }
   }
   // A picture behind everything on the slide, filling it (PNG, JPEG or GIF: what PowerPoint takes as a background too).
-  const setBackground = (fileId) => change((d) => ({ ...d, slides: d.slides.map((s, i) => { if (i !== slideIndex) return s; const { bgImage, ...rest } = s; return fileId ? { ...rest, bgImage: fileId } : rest; }) }));
+  // (a step of its own for Undo, however soon after another change it comes)
+  const setBackground = (fileId) => { history.ownStep(); change((d) => ({ ...d, slides: d.slides.map((s, i) => { if (i !== slideIndex) return s; const { bgImage, ...rest } = s; return fileId ? { ...rest, bgImage: fileId } : rest; }) })); history.ownStep(); };
   async function setBackgroundPicture(f) {
     if (!f) return;
     if (!/^image\/(png|jpeg|gif)$/.test(f.type)) return toast('Choose a PNG, JPEG or GIF picture', 'error');
