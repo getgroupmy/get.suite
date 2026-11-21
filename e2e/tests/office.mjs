@@ -41,7 +41,7 @@ await step('setup: upload a Word, an Excel and a PowerPoint file', async () => {
   await upload('Agreement.docx', docx.toString('base64'));
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Quote'); ws.getCell('A1').value = 'Bolts'; ws.getCell('B1').value = 120; ws.getCell('B2').value = { formula: 'B1*2' };
   await upload('Quote.xlsx', Buffer.from(await wb.xlsx.writeBuffer()).toString('base64'));
-  const p = new PptxGenJS(); p.layout = 'LAYOUT_WIDE'; p.addSlide().addText('Kick-off', { x: 1, y: 2, w: 11, h: 1.5, fontSize: 40, bold: true, align: 'center' });
+  const p = new PptxGenJS(); p.layout = 'LAYOUT_WIDE'; p.addSlide().addText('Kick-off', { x: 1, y: 2, w: 11, h: 1.5, fontSize: 13.4, bold: true, align: 'center' });
   await upload('Kickoff.pptx', (await p.write({ outputType: 'nodebuffer' })).toString('base64'));
 });
 
@@ -79,6 +79,10 @@ await step('PowerPoint: open as a presentation, download as PowerPoint', async (
   await page.getByRole('button', { name: 'More' }).click();
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as PowerPoint (.pptx)' }).click()]);
   if (dl.suggestedFilename() !== 'Kickoff.pptx') throw new Error(dl.suggestedFilename());
+  // its size as it came in, to a tenth of a point, as PowerPoint and python-pptx read it (13.4 went out as 13)
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('python3', ['-I', '-c', 'import sys\nfrom pptx import Presentation\nfor sh in Presentation(sys.argv[1]).slides[0].shapes:\n  for p in sh.text_frame.paragraphs if sh.has_text_frame else []:\n    for r in p.runs:\n      if r.text == "Kick-off": print(r.font.size.pt)', await dl.path()], { encoding: 'utf8' });
+  if (r.status === 0 && r.stdout.trim() !== '13.4') throw new Error(`the title is ${r.stdout.trim()}pt`);
 });
 
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));

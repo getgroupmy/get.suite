@@ -712,6 +712,8 @@ function xmlSafe(v) {
   return v;
 }
 
+/** A box's font size in points (Slides keeps it relative to the slide's width), to a tenth: a whole point made 14 13 and 44 42. */
+const ptSize = (size, widthIn) => Math.round(size * widthIn * 72 / 100) / 10;
 export async function powerPointFromDeck(deck, { pictureData, title = 'Presentation', comments = [] } = {}) {
   deck = xmlSafe(deck); comments = xmlSafe(comments); title = xmlSafe(title);
   const pptx = new PptxGenJS();
@@ -744,7 +746,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       const hyperlink = linkFor(it.link, deck.slides || []); // a web page or another slide, followed when presenting
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin, ...(Number(it.rot) && { rotate: ((Number(it.rot) % 360) + 360) % 360 }) };
       if (it.type === 'text') {
-        const look = { fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, ...(it.underline && { underline: { style: 'sng' } }), color: color(it.color, theme.text), fontFace: FONT };
+        const look = { fontSize: ptSize(it.size || 24, Win), bold: !!it.bold, italic: !!it.italic, ...(it.underline && { underline: { style: 'sng' } }), color: color(it.color, theme.text), fontFace: FONT };
         const box = { ...(it.fill && { fill: { color: color(it.fill, theme.accent) } }), ...outline(it) }; // the box's own colour and outline, when it has them
         if (hyperlink) { // the whole text is the link
           const lines = String(it.text || '').split('\n');
@@ -760,10 +762,10 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         const kind = pptx.ShapeType[PPT_SHAPES[it.shape]] || pptx.ShapeType.rect;
         const look = { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' }, ...outline(it) };
         // Text in the shape: centred in the middle, in the slide's background colour unless chosen.
-        if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, ...(it.underline && { underline: { style: 'sng' } }), color: color(it.color, theme.bg), fontFace: FONT, align: it.align || 'center', valign: 'middle' });
+        if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: ptSize(it.size || 20, Win), bold: !!it.bold, italic: !!it.italic, ...(it.underline && { underline: { style: 'sng' } }), color: color(it.color, theme.bg), fontFace: FONT, align: it.align || 'center', valign: 'middle' });
         else slide.addShape(kind, look);
       } else if (it.type === 'table' && it.cells?.length) {
-        const fontSize = Math.round((it.size || 18) * Win * 72 / 1000);
+        const fontSize = ptSize(it.size || 18, Win);
         const rows = it.cells.map((r, ri) => r.map((text) => ({ text: String(text ?? ''), options: { fontSize, color: color(null, theme.text), fontFace: FONT,
           ...(it.header && ri === 0 && { bold: true, fill: { color: color('accent', theme.accent) }, color: color(theme.bg, theme.bg) }) } })));
         slide.addTable(rows, { ...pos, colW: Array(it.cells[0].length).fill(pos.w / it.cells[0].length), border: { type: 'solid', pt: 1, color: color(null, theme.text) }, valign: 'middle', autoPage: false });
