@@ -454,7 +454,11 @@ export default function SheetEditor() {
   function writeSheet(fn) {
     if (readOnly) return;
     const cur = dataRef.current;
+    // Each change of this kind (hiding, freezing, widths, a picture moved…) is a step of its own for Undo, however
+    // soon after another it comes: typing's changes a moment apart still go together.
+    history.ownStep();
     commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, ...fn(s) } : s)) });
+    history.ownStep();
   }
   useEffect(() => {
     if (!data?.sheets?.[active]?.hidden) return;
@@ -547,7 +551,9 @@ export default function SheetEditor() {
       if (picture) p[id] = picture; else delete p[id];
       return { ...s, pictures: p };
     });
+    history.ownStep();
     commitData({ ...cur, sheets });
+    history.ownStep();
   }
   function writeChart(id, chart) {
     if (readOnly) return;
@@ -558,7 +564,9 @@ export default function SheetEditor() {
       if (chart) c[id] = chart; else delete c[id];
       return { ...s, charts: c };
     });
+    history.ownStep();
     commitData({ ...cur, sheets });
+    history.ownStep();
   }
 
   /** A new chart of the selected cells (or, with one cell selected, the data around it), placed to their right. */
@@ -576,8 +584,10 @@ export default function SheetEditor() {
   function changeStructure(change) {
     if (readOnly) return;
     const cur = dataRef.current;
-    // References to this sheet from the others move too.
+    // References to this sheet from the others move too. (A step of its own for Undo.)
+    history.ownStep();
     commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => { if (i !== active) return s; const a = applyStructure(s, change); return { ...a, ...(s.filter && { filter: adjustFilter(s.filter, change) }), ...(a.slicers && { slicers: adjustSlicers(a.slicers, change) }), ...(s.views && { views: adjustViews(s.views, change) }) }; }) }); // (slicers as applyStructure moved them, their ranges adjusted)
+    history.ownStep();
     // Comments move with their cell; a deleted cell's thread is marked as such.
     for (const t of threads) {
       if ((t.anchor?.sheet || 0) !== active || !t.anchor?.cell || t.anchor.gone) continue;
