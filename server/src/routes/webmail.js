@@ -69,7 +69,7 @@ import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 import { syncAwayEvent } from '../mail/vacation.js';
-import { pdfFromEmail } from '../mail/emailpdf.js';
+import { pdfFromEmail, emailDoc } from '../mail/emailpdf.js';
 
 // Saved searches (Mail sidebar → Searches).
 // Emoji reactions you sent (to show them on the message; the reaction email itself isn't kept in Sent).
@@ -1669,6 +1669,17 @@ export default function webmailRoutes() {
     const file = await saveEmailPdf(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), zoneOf(req.body?.time_zone), folderId);
     sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
     res.status(201).json({ folder_id: folderId, file });
+  });
+  // Or as a document to edit (its formatting kept), in the same folder.
+  r.post('/messages/:uid/save-doc', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), false);
+    const { doc, name } = emailDoc(parsed, { timeZone: zoneOf(req.body?.time_zone), rich: true });
+    const json = JSON.stringify(doc);
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const folderId = savedEmailsFolder(req.user);
+    const id = insertFile({ owner: req.user.id, parentId: folderId, name: cleanName(name), kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
+    res.status(201).json({ folder_id: folderId, file: q('SELECT id, name, kind FROM files WHERE id = ?').get(id) });
   });
   // Several at once: { folder, uids: [...] } (up to 50), a PDF each.
   r.post('/messages/save-pdf', async (req, res) => {

@@ -102,6 +102,24 @@ await step('…and forwarding keeps them in the message she writes', async () =>
   if (await looks(ol) !== 'lower-roman') throw new Error(`ol: ${await looks(ol)}`);
   if (await looks(gina.locator('.compose-editor ul', { hasText: 'Minutes sent' })) !== '"✓ "') throw new Error('ul');
 }, gina);
+await step('⋮ → Save to Drive as a document: an editable document with its lists as they look', async () => {
+  await gina.keyboard.press('Escape').catch(() => {});
+  await gina.goto(`${B}/mail`);
+  const row = gina.locator('.msg-list li', { hasText: 'Agenda' }).first();
+  await refreshUntil(gina, row);
+  await row.locator('.msg-row').click();
+  await gina.getByRole('button', { name: 'More for this message' }).click();
+  await gina.getByRole('menuitem', { name: 'Save to Drive as a document' }).click();
+  await gina.getByText(/^Saved to Drive: Saved emails \/ Agenda \(\d{4}-\d\d-\d\d\)$/).waitFor();
+  await gina.getByRole('button', { name: 'Open', exact: true }).click();
+  await gina.waitForURL(/\/docs\//);
+  const ed = gina.locator('.paper .tiptap');
+  await ed.locator('h2', { hasText: 'Agenda' }).waitFor();
+  await ed.getByText(/^From:/).waitFor();
+  const ol = ed.locator('ol', { hasText: 'Budget' });
+  if (await looks(ol) !== 'lower-roman') throw new Error(`ol: ${await looks(ol)}`);
+  if (await looks(ed.locator('ul', { hasText: 'Minutes sent' })) !== '"✓ "') throw new Error('ul');
+}, gina);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

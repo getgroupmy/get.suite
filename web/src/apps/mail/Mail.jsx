@@ -1009,6 +1009,12 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
               toast(`Saved to Drive: Saved emails / ${r.file.name}`);
             } catch (e) { toast(e.message, 'error'); }
           } },
+          { label: 'Save to Drive as a document', icon: 'doc', onClick: async () => { // (to edit: its formatting kept)
+            try {
+              const r = await post(`/mail/messages/${uid}/save-doc${mailboxParam().replace(/^&/, '?')}`, { folder, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+              toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.file.id}`) } });
+            } catch (e) { toast(e.message, 'error'); }
+          } },
           ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
         ]} />
         {sharing && <ShareInChat uid={uid} folder={folder} subject={m.subject} onClose={() => setSharing(false)} />}

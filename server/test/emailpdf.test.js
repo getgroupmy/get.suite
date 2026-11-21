@@ -34,3 +34,28 @@ test('an email with no subject or text still makes a PDF', async () => {
   assert.equal(name, '(no subject).pdf');
   assert.equal((await PDFDocument.load(buf)).getPageCount(), 1);
 });
+
+test('as a document to edit: headers, then its formatting as written (lists and their look, tables, bold), attachments’ names', async () => {
+  const { emailDoc } = await import('../src/mail/emailpdf.js');
+  const parsed = {
+    subject: 'Order 1234', date: new Date(Date.UTC(2026, 10, 21, 9, 30)),
+    from: { value: [{ name: 'Kim Park', address: 'kim@example.com' }] }, to: { value: [{ address: 'olivia@acme.com' }] },
+    html: '<p>Hi, <b>please</b> confirm:</p><ol type="i"><li>Size</li><li>Colour</li></ol><table><tr><td>Qty</td><td>3</td></tr></table><img src="cid:x">',
+    text: 'Hi, please confirm', attachments: [{ filename: 'quote.pdf', size: 2048 }, { filename: 'logo.png', related: true }],
+  };
+  const { doc, name } = emailDoc(parsed, { timeZone: 'Europe/London', rich: true });
+  assert.equal(name, 'Order 1234 (2026-11-21)');
+  const types = doc.content.map((n) => n.type);
+  assert.deepEqual(types.slice(0, 5), ['heading', 'paragraph', 'paragraph', 'paragraph', 'horizontalRule'], 'subject, From, To, Date, a line');
+  assert.match(doc.content[3].content[1].text, /^Saturday,? 21 November 2026 at 09:30$/);
+  const ol = doc.content.find((n) => n.type === 'orderedList');
+  assert.equal(ol.attrs.listStyle, 'lower-roman');
+  assert.ok(doc.content.some((n) => n.type === 'table'));
+  assert.ok(JSON.stringify(doc).includes('"bold"'));
+  assert.ok(!JSON.stringify(doc).includes('cid:'), 'pictures left out');
+  assert.match(JSON.stringify(doc.content.at(-1)), /quote\.pdf \(2 KB\)/);
+  assert.ok(!JSON.stringify(doc).includes('logo.png'), 'not the pictures inside it');
+  // Plain text only: its lines.
+  const plain = emailDoc({ ...parsed, html: '' }, { rich: true }).doc;
+  assert.ok(plain.content.some((n) => n.content?.[0]?.text === 'Hi, please confirm'));
+});

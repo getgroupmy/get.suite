@@ -1,19 +1,27 @@
 // An email as a PDF (Mail → Save to Drive as PDF): its subject, who it's from and to, the date, its text, and the
 // names of its attachments, laid out by the document PDF writer (office/pdfdoc.js).
 import { pdfFromDoc } from '../office/pdfdoc.js';
+import { docFromHtml } from '../office/word.js';
+import { forwardHtml } from './forwardhtml.js';
 
 const P = (text, marks) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text, ...(marks && { marks }) }] } : {}) });
 const who = (list) => (list?.value || []).map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).filter(Boolean).join(', ');
 
-/** `parsed` is mailparser's message. Returns { buf, name }. */
-export async function pdfFromEmail(parsed, { timeZone = 'UTC' } = {}) {
+/**
+ * The email as a document (TipTap JSON) and the name to keep it under ("Subject (2026-11-21)"): its subject, headers, a
+ * line, its words, and its attachments' names. `rich`: its formatting as written (bold, lists and their look, tables,
+ * links, colours: the email's HTML read as replies and forwards read it, pictures left out), else its plain text.
+ */
+export function emailDoc(parsed, { timeZone = 'UTC', rich = false } = {}) {
   const subject = String(parsed.subject || '(no subject)').trim();
   const date = parsed.date instanceof Date && !Number.isNaN(parsed.date.valueOf()) ? parsed.date : null;
   const when = date ? date.toLocaleString('en-GB', { timeZone, dateStyle: 'full', timeStyle: 'short' }).replace(/\s+/g, ' ') : ''; // (plain spaces: the date's own are ones PDF fonts lack)
   const head = [['From', who(parsed.from)], ['To', who(parsed.to)], ['Cc', who(parsed.cc)], ['Date', when]].filter(([, v]) => v)
     .map(([k, v]) => ({ type: 'paragraph', content: [{ type: 'text', text: `${k}: `, marks: [{ type: 'bold' }] }, { type: 'text', text: v }] }));
   const text = String(parsed.text || '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  const body = text ? text.split('\n').map((l) => P(l)) : [P('(no text)', [{ type: 'italic' }])];
+  let body = null;
+  if (rich && parsed.html) { try { body = docFromHtml(forwardHtml(parsed.html, () => null).html).content.filter((n) => n.type !== 'paragraph' || n.content?.length); } catch { body = null; } }
+  if (!body?.length) body = text ? text.split('\n').map((l) => P(l)) : [P('(no text)', [{ type: 'italic' }])];
   const files = (parsed.attachments || []).filter((a) => !a.related && a.filename);
   const doc = { type: 'doc', content: [
     { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: subject }] },
@@ -22,8 +30,14 @@ export async function pdfFromEmail(parsed, { timeZone = 'UTC' } = {}) {
     ...body,
     ...(files.length ? [{ type: 'horizontalRule' }, P(`Attachments (${files.length})`, [{ type: 'bold' }]), { type: 'bulletList', content: files.map((a) => ({ type: 'listItem', content: [P(`${a.filename} (${Math.max(1, Math.round((a.size || a.content?.length || 0) / 1024))} KB)`)] })) }] : []),
   ] };
-  const buf = await pdfFromDoc(doc, subject, { setup: { size: 'a4', margin: 'normal' } });
   const day = date ? date.toISOString().slice(0, 10) : '';
-  const name = `${subject.replace(/[\\/:*?"<>|\r\n\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Email'}${day ? ` (${day})` : ''}.pdf`;
-  return { buf, name };
+  const name = `${subject.replace(/[\\/:*?"<>|\r\n\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Email'}${day ? ` (${day})` : ''}`;
+  return { doc, name, subject };
+}
+
+/** `parsed` is mailparser's message. Returns { buf, name }. */
+export async function pdfFromEmail(parsed, { timeZone = 'UTC' } = {}) {
+  const { doc, name, subject } = emailDoc(parsed, { timeZone });
+  const buf = await pdfFromDoc(doc, subject, { setup: { size: 'a4', margin: 'normal' } });
+  return { buf, name: `${name}.pdf` };
 }
