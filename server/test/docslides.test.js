@@ -122,3 +122,16 @@ test('the endpoint: beside the presentation; only presentations', async () => {
   assert.equal(JSON.stringify(content).includes('Why us'), true);
   assert.equal((await ann('POST', `/api/files/${docId}/make-doc`)).status, 400);
 });
+
+test('a presentation as Markdown: a # heading a slide, its points as lists (nested under others), notes as a quote', async () => {
+  const deckId = (await ann('POST', '/api/files/new', { kind: 'slides', name: 'Roadmap', content: { theme: 'light', slides: [
+    { id: 's1', items: [{ id: 't', type: 'text', role: 'title', text: 'Q1', x: 6, y: 6, w: 88, h: 16 }, { id: 'b', type: 'text', role: 'body', text: 'Hire\n\tDesigner\nShip', list: 'decimal', x: 6, y: 26, w: 88, h: 60 }], notes: 'Say thanks' },
+  ] } })).body.id;
+  const res = await fetch(`${base}/api/files/${deckId}/export?format=md`, { headers: { cookie: await (async () => { const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'ann@acme.com', password: 'password123' }) }); return r.headers.get('set-cookie').split(';')[0]; })() } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition') || '', /Roadmap\.md/);
+  const md = await res.text();
+  assert.match(md, /^# Q1\n/m);
+  assert.match(md, /^1\. Hire\n\s+1\. Designer\n2\. Ship$/m);
+  assert.match(md, /^> Speaker notes: Say thanks$/m);
+});

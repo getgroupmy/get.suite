@@ -241,6 +241,8 @@ Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propos
 
 The other way, **Slides ⋮ → Make a document** writes a presentation out as a document beside it, *Pitch (document)*. A title slide's subtitle opens it, and each other slide becomes a **Heading 1** with its title (or *Slide 5*). Under the heading, a list box becomes a list (points under others in a list inside, its numbering kept), other boxes and shapes with words become paragraphs, and tables become tables. Speaker notes become a quote starting *Speaker notes:*. Skipped slides are left out. Making a presentation from that document again gives the same slides back, notes included.
 
+**⋮ → Download as Markdown (.md)** in Slides gives the same outline as a Markdown file: a `#` heading a slide, its points as lists, its notes as a quote.
+
 ## Action items to Tasks (Docs)
 
 Write action items as checklist items that mention someone, like *☐ @Kim send the figures by Friday* (the **Meeting notes** a calendar event makes have a list ready). **⋮ → Send action items to Tasks** lists the unticked ones and, after you choose, makes each a task in that person's Tasks (on their first list, under **Assigned to me**), given by you, with 📄 linking back to the document. A date or time in the item (*by Friday*, *tomorrow 3pm*) becomes the due date, as in Tasks' quick add; an item mentioning two people goes to both. Sending again leaves items already sent alone (the list shows them as *already sent* or *done ✓*). If someone can't open the document, you're told, so you can share it.

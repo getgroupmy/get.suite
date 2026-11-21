@@ -2301,7 +2301,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     // Numbered headings (page setup): written into the text where the format has no numbering of its own.
     const numbered = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
-    if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
+    if (type === 'md') return Buffer.from(markdownFromDoc(f.kind === 'slides' ? docFromDeck(content) : numbered), 'utf8'); // (a presentation as Make a document writes it: a # heading a slide)
     if (type === 'html') return htmlFromDoc(numbered, f.name, { pictureData });
     if (type === 'rtf') return Buffer.from(rtfFromDoc(numbered), 'latin1');
     if ((type === 'csv' || type === 'tsv') && f.kind === 'sheet') { const n = Math.max(0, Math.min((content.sheets || []).length - 1, Number(sheetIndex) || 0)); return Buffer.from(`\uFEFF${await delimitedFromSheet(content, n, type === 'tsv' ? '\t' : ',')}`, 'utf8'); } // (with a byte-order mark: Excel then reads it as UTF-8)
@@ -2316,7 +2316,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
   };
   // Which types each kind can be had as (the first is the usual one).
-  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'txt', 'pdf'] };
+  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'md', 'txt', 'pdf'] };
   const exportType = (f, format) => (EXPORT_TYPES[f.kind]?.includes(format) ? format : EXPORT_AS[f.kind]);
 
   // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint (or OpenDocument, Markdown).

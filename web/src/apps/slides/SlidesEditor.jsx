@@ -377,6 +377,7 @@ export default function SlidesEditor() {
           { label: 'Download as OpenDocument (.odp)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=odp`; } },
           { label: 'Download as PDF (.pdf)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=pdf`; } },
           { label: 'Download as PDF with speaker notes', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=pdf&notes=1`; } },
+          { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=md`; } },
           { label: 'Download as plain text (.txt)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=txt`; } },
           ...(!readOnly ? ['-', { label: `Loop: start again after the last slide${deck.loop ? ' ✓' : ''}`, onClick: () => change((d) => { const { loop, ...rest } = d; return loop ? rest : { ...rest, loop: true }; }) }, ...[[null, 'Slide numbers: off'], [true, 'Slide numbers: every slide'], ['skip-first', 'Slide numbers: all but the first']].map(([v, label]) => ({ label: `${label}${(deck.numbers || null) === v ? ' ✓' : ''}`, onClick: () => change((d) => { const { numbers, ...rest } = d; return v ? { ...rest, numbers: v } : rest; }) })),
             '-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) })),

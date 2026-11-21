@@ -89,6 +89,13 @@ await step('back the other way: Slides ⋮ → Make a document gives a Heading 1
   if (JSON.stringify(shape) !== JSON.stringify(want)) throw new Error(JSON.stringify(shape));
   await page.screenshot({ path: `${SP}/shots/slides-to-doc.png` });
 });
+await step('the presentation downloads as Markdown: a # heading a slide, its points as lists', async () => {
+  const deck = (await api(page, 'GET', '/files')).body;
+  const list = Array.isArray(deck) ? deck : deck.files || deck.items || [];
+  const slidesId = list.find((f) => f.name === 'Plan 2027 (slides)').id;
+  const md = await page.evaluate(async (id) => (await fetch(`/api/files/${id}/export?format=md`)).text(), slidesId);
+  if (!/^# Goals$/m.test(md) || !/^- Customers\n\s+- Retail/m.test(md) || !/^1\. Plan\n2\. Build\n3\. Launch$/m.test(md) || !/^> Speaker notes: Mention the new shop$/m.test(md)) throw new Error(md);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
