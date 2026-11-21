@@ -77,6 +77,21 @@ await step('Everyone: Kim sees it in Signature, and can’t change it', async ()
   await d.getByLabel('Company signature').getByText('Kim Park').waitFor();
   if (await d.getByRole('button', { name: 'Save' }).count()) throw new Error('no save when it is for everyone');
 });
+await step('a company signature with script tricks in it: Kim sees the text, and nothing runs', async () => {
+  const r = await api(page, 'PATCH', '/orgs/current', { signature_template: '<p>{name}<img src=x onerror="window.__ran=1"><script>window.__ran=2</script></p><p><a href="javascript:window.__ran=3">Our site</a> <svg onload="window.__ran=4"></svg><span onmouseover="window.__ran=5">Hover</span></p><p>&lt;b&gt;not bold&lt;/b&gt;</p>' });
+  if (r.status !== 200) throw new Error(JSON.stringify(r.body));
+  await kim.goto(`${B}/mail`);
+  await kim.getByRole('button', { name: 'Signature' }).click();
+  const sig = kim.getByRole('dialog', { name: 'Signatures' }).getByLabel('Company signature');
+  await sig.getByText('Kim Park').waitFor();
+  await sig.getByText('<b>not bold</b>').waitFor();
+  await sig.getByText('Hover').hover();
+  await sig.getByText('Our site').click();
+  await kim.waitForTimeout(500);
+  const html = await sig.innerHTML();
+  if (/onerror|onload|onmouseover|<script|<svg|javascript:/i.test(html)) throw new Error(html);
+  if (await kim.evaluate(() => window.__ran)) throw new Error(`ran ${await kim.evaluate(() => window.__ran)}`);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
