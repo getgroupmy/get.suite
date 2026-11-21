@@ -98,6 +98,7 @@ export default function Chat() {
   const [search, setSearch] = useState(null); // { q, results }
   const navigate = useNavigate();
   const toast = useToast();
+  const mail = useMailStatus();
   const { user } = useAuth();
   const [channels, setChannels] = useState([]);
   const [online, setOnline] = useState([]);
@@ -978,6 +979,14 @@ export default function Chat() {
               { label: 'Save to Drive as a document', icon: 'doc', onClick: async () => { // (yours, in My Drive: to keep, edit or share as a write-up)
                 try { const r = await post(`/chat/channels/${current.id}/save-doc`, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }); toast(`Saved “${r.name}” in My Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
               } },
+              ...(mail?.enabled ? [{ label: 'Send as email', icon: 'mail', onClick: async () => { // (a new message in Mail with the conversation in it, to send to someone outside)
+                try {
+                  const r = await get(`/chat/channels/${current.id}/email-body?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
+                  localStorage.setItem(DRAFT_KEY, JSON.stringify({ subject: r.subject, html: `<p></p>${r.html}` }));
+                  if (r.count < r.of) toast(`The latest ${r.count} of ${r.of} messages are in the email: download the conversation for all of it`);
+                  navigate('/mail?compose_doc=1');
+                } catch (e) { toast(e instanceof DOMException ? 'Your browser’s storage is off' : e.message, 'error'); }
+              } }] : []),
             ]} />
             {!current.dm_key && <button type="button" className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>}
           </div>

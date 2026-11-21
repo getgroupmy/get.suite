@@ -24,6 +24,8 @@ import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile, resolveParent } from './files.js';
 import { conversationText, conversationHtml, conversationDoc, cardLines } from '../chatexport.js';
+import { emailHtmlFromDoc } from '../office/epub.js';
+const EMAIL_MESSAGES = 500; // (Send as email: the latest ones, a long history being better downloaded)
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 import { contactCard, colleagueCard, addContactFrom } from './contacts.js';
 import { afterHoursOfIds, awayOfIds } from '../mail/afterhours.js';
@@ -1204,6 +1206,15 @@ export default function chatRoutes() {
     const name = `${title.replace(/^#/, '').trim().slice(0, 80) || 'Conversation'} (chat)`;
     const id = insertFile({ owner: req.user.id, parentId: null, name, kind: 'doc', content: json, size: Buffer.byteLength(json) });
     res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
+  });
+
+  // Send as email: the conversation (its latest 500 messages) as an email's text, to start a new message with, as
+  // Save to Drive as a document writes it (a heading a day, who and when in bold, thread replies in a quote).
+  r.get('/channels/:id/email-body', (req, res) => {
+    const { title, messages } = conversationFor(req.params.id, req.user);
+    if (!messages.length) throw bad('There is nothing in this conversation yet');
+    const doc = conversationDoc(title, messages.slice(-EMAIL_MESSAGES), { tz: String(req.query.tz || 'UTC') });
+    res.json({ subject: title, html: emailHtmlFromDoc(doc), count: Math.min(messages.length, EMAIL_MESSAGES), of: messages.length });
   });
 
   // Ring the others in a direct message (or a small private channel) for a video call you've started

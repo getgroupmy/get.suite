@@ -131,3 +131,22 @@ test('saved to Drive as a document: a heading a day, who and when in bold, repli
   const outsider = (await ben('POST', '/api/chat/channels', { name: 'empty-one' })).body.id;
   assert.equal((await ben('POST', `/api/chat/channels/${outsider}/save-doc`, {})).status, 400, 'nothing in it yet');
 });
+
+test('sent as an email: the conversation as the email’s text, a reply also sent counted once', async () => {
+  const r = await ben('GET', `/api/chat/channels/${ch}/email-body?tz=Europe/London`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.subject, '#launch');
+  const h = r.body.html;
+  assert.match(h, /^<p><strong><span style="font-size: 24px">#launch<\/span><\/strong><\/p><p><em>Saved /);
+  assert.match(h, /<p><strong><span style="font-size: 18px">\w+day, \d+ \w+ \d{4}<\/span><\/strong><\/p>/, 'a heading a day');
+  assert.match(h, /<p><strong>Ann Owner<\/strong> · \d\d:\d\d<\/p><p>Which date for the launch\?<\/p>/);
+  assert.match(h, /<blockquote>/, 'replies in a quote');
+  assert.equal(h.split('Crisps').length - 1, 1, 'the reply also sent to the conversation: once');
+  assert.equal(r.body.count, r.body.of);
+  // Not someone else's conversation; not an empty one.
+  const priv = (await ann('POST', '/api/chat/channels', { name: 'ann-only', private: true })).body.id;
+  await ann('POST', `/api/chat/channels/${priv}/messages`, { body: 'Secret' });
+  assert.equal((await ben('GET', `/api/chat/channels/${priv}/email-body`)).status, 404);
+  const empty = (await ben('POST', '/api/chat/channels', { name: 'empty-two' })).body.id;
+  assert.equal((await ben('GET', `/api/chat/channels/${empty}/email-body`)).status, 400);
+});

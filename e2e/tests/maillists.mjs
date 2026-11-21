@@ -240,6 +240,19 @@ await step('Drive ⋮ → Send as email on a presentation: a heading a slide, it
   if (await ed.getByText('Not for the email').count()) throw new Error('speaker notes in the email');
   if (await page.getByLabel('Subject').inputValue() !== 'Board deck') throw new Error('subject');
 });
+await step('Chat → Send as email: the conversation in a new email, who and when in bold, its subject the channel', async () => {
+  const ch = (await api(page, 'POST', '/chat/channels', { name: 'supplier-call' })).body;
+  await api(page, 'POST', `/chat/channels/${ch.id}/messages`, { body: 'Prices go up 3% in January' });
+  await page.goto(`${B}/chat/${ch.id}`);
+  await page.getByText('Prices go up 3% in January').waitFor();
+  await page.getByRole('button', { name: 'Download conversation' }).click();
+  await page.getByRole('menuitem', { name: 'Send as email' }).click();
+  await page.waitForURL(/\/mail/);
+  const ed = page.locator('.compose-editor');
+  await ed.getByText('Prices go up 3% in January').waitFor();
+  await ed.locator('strong', { hasText: 'Olivia Owner' }).waitFor();
+  if (await page.getByLabel('Subject').inputValue() !== '#supplier-call') throw new Error('subject');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
