@@ -1,10 +1,11 @@
 // Changing a sheet's structure: inserting and deleting rows or columns (formulas, formats, widths,
-// chart ranges, rules, dropdowns and commented cells follow), and sorting rows. Pure functions on the sheet's JSON.
+// chart ranges, rules, dropdowns, commented cells and pictures over the cells follow), and sorting rows. Pure functions on the sheet's JSON.
 import { colName, colIndex, cellKey, parseRef, shiftFormula, sheetPrefix } from './formula.js';
 import { adjustHide } from './hide.js';
 import { adjustGroups } from './groups.js';
 import { adjustBands } from './bands.js';
 import { adjustRowHeights } from './rowheights.js';
+import { movePictures } from './pictures.js';
 
 /**
  * A structural change: on `axis` ('row' | 'col'), `count` > 0 inserts that many before index `at`;
@@ -150,6 +151,11 @@ export function applyStructure(sheet, change) {
   // Protected ranges move with their cells (whole-sheet ones stay); one whose cells all went goes too.
   const prot = sheet.protected && sheet.protected.flatMap((p) => { if (!p.range) return [p]; const range = adjustRange(p.range, change); return range ? [{ ...p, range }] : []; });
   const out = { ...sheet, cells, colWidths, ...(sheet.rowHeights && { rowHeights: adjustRowHeights(sheet.rowHeights, change) }), ...(sheet.formats && { formats }), ...(sheet.notes && { notes }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
+  // Pictures over the cells move with the cells they're over (one whose cell went: to where it was).
+  if (sheet.pictures) {
+    const by = (axis) => (axis === change.axis ? (i) => moveIndex(i, change) : null);
+    out.pictures = movePictures(sheet.pictures, sheet, out, { col: by('col'), row: by('row'), colGone: change.at, rowGone: change.at });
+  }
   if (hide) out.hide = hide; else delete out.hide;
   const groups = adjustGroups(sheet.groups, change);
   if (groups) out.groups = groups; else delete out.groups;

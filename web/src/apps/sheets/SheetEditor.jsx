@@ -16,6 +16,7 @@ import { EditorHeader, ReadOnlyBanner } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { PictureCard } from './SheetPictures.jsx';
+import { movePictures } from './pictures.js';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
 import { removeDuplicates, splitColumn, trimText, changeCase, mapText, shuffleRows } from './data.js';
@@ -475,7 +476,9 @@ export default function SheetEditor() {
   const dragTab = useRef(null); // a tab being dragged to a new place (its sheet's place)
   const [dropAt, setDropAt] = useState(null);
   const newSheetId = () => (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
-  const setWidth = (c, w) => writeSheet((s) => ({ colWidths: { ...(s.colWidths || {}), [colName(c)]: Math.round(Math.max(MIN_W, Math.min(MAX_W, w))) } }));
+  // (pictures over the cells to its right, or below, move with their cells)
+  const resized = (s, next) => ({ ...next, ...(s.pictures && { pictures: movePictures(s.pictures, s, { ...s, ...next }) }) });
+  const setWidth = (c, w) => writeSheet((s) => resized(s, { colWidths: { ...(s.colWidths || {}), [colName(c)]: Math.round(Math.max(MIN_W, Math.min(MAX_W, w))) } }));
   /** Hide rows or columns a..b (or show them again). The selection steps off any it hides. */
   const hideSpan = (axis, a, b, show = false) => {
     writeSheet((s) => ({ hide: setHidden(s.hide, axis, a, b, show) }));
@@ -492,7 +495,7 @@ export default function SheetEditor() {
     return { frozen: f.rows || f.cols ? f : null };
   });
   /** Rows a..b (0-based) to h pixels tall, or back to the standard height (h empty). */
-  const setRowHeight = (a, b, h) => writeSheet((sh) => ({ rowHeights: setHeights(sh.rowHeights, a, b, h) }));
+  const setRowHeight = (a, b, h) => writeSheet((sh) => resized(sh, { rowHeights: setHeights(sh.rowHeights, a, b, h) }));
   /** Drag a row number's bottom edge to make the row taller or shorter; double-click for the standard height. */
   const startRowResize = (r) => (e) => {
     if (readOnly || e.button !== 0) return;

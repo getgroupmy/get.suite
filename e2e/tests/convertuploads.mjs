@@ -361,6 +361,30 @@ await step('Alt text… in a picture\'s menu: what a screen reader says, kept, a
   const drawing = await zip.file(Object.keys(zip.files).find((n) => /^xl\/drawings\/drawing\d+\.xml$/.test(n))).async('string');
   if (!/descr="Team logo, purple"/.test(drawing)) throw new Error(`the download: ${drawing.slice(0, 400)}`);
 });
+await step('pictures move with their cells: rows inserted above, a column before them widened', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
+  if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');
+  await page.goto(`${B}/sheets/${f.id}`);
+  const cell = (k) => page.locator(`.grid td[data-k="${k}"]`);
+  const logo = page.locator('.sheet-picture[aria-label="Picture: Team logo, purple"]'), stamp = page.locator('.sheet-picture[aria-label="Picture: Stamp"]');
+  await logo.waitFor();
+  const over = async (pic, key, dx, dy) => { const [a, c] = [await pic.boundingBox(), await cell(key).boundingBox()]; return a && c && Math.abs(a.x - c.x - dx) <= 2 && Math.abs(a.y - c.y - dy) <= 2; };
+  // Two rows above row 3: the logo (C5) is over C7 now, the stamp (10 × 6 into F12) over F14.
+  await cell('A3').click();
+  await page.keyboard.down('Shift'); await cell('A4').click(); await page.keyboard.up('Shift');
+  await cell('A3').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: /Insert 2 rows above/ }).click();
+  await until(async () => (await over(logo, 'C7', 0, 0)) && (await over(stamp, 'F14', 10, 6)));
+  // Column B 80 pixels wider: both move 80 to the right, still over their cells.
+  const sep = page.getByRole('separator', { name: 'Resize column B' });
+  const b = await sep.boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2); await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2 + 40, b.y + b.height / 2, { steps: 4 }); await page.mouse.move(b.x + b.width / 2 + 80, b.y + b.height / 2, { steps: 4 }); await page.mouse.up();
+  await until(async () => (await over(logo, 'C7', 0, 0)) && (await over(stamp, 'F14', 10, 6)));
+  // Saved so: where Excel finds them too.
+  const pics = await until(async () => { const c = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0]; const p = Object.values(c.pictures || {}); return c.colWidths?.B >= 170 && p.find((q) => q.alt === 'Stamp')?.y === 24 + 24 * 13 + 6 ? p : null; }, 10000);
+  if (!pics) throw new Error('not saved');
+});
 await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
   if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');
@@ -372,8 +396,8 @@ await step('the spreadsheet with pictures, published to the web: someone without
   const pics = anon.locator('.pub-sheet img.pub-picture');
   await until(async () => (await pics.count()) === 2);
   await until(async () => (await pics.evaluateAll((l) => l.map((i) => i.complete && i.naturalWidth))).join() === '150,64');
-  // The pasted one over C5 (its corner at the cell's corner), the dropped one 10 × 6 pixels into F12.
-  for (const [alt, key, dx, dy, w] of [['Team logo, purple', 'C5', 0, 0, 150], ['Stamp', 'F12', 10, 6, 64]]) {
+  // The pasted one over C7 (its corner at the cell's corner), the dropped one 10 × 6 pixels into F14.
+  for (const [alt, key, dx, dy, w] of [['Team logo, purple', 'C7', 0, 0, 150], ['Stamp', 'F14', 10, 6, 64]]) { // (moved down two rows by the step before)
     const img = anon.locator(`.pub-sheet td[data-k="${key}"] img.pub-picture[alt="${alt}"]`);
     const [a, td] = [await img.boundingBox(), await anon.locator(`.pub-sheet td[data-k="${key}"]`).boundingBox()];
     if (!a || Math.abs(a.x - td.x - 1 - dx) > 2 || Math.abs(a.y - td.y - 1 - dy) > 2 || Math.round(a.width) !== w) throw new Error(`${alt}: ${JSON.stringify([a, td])}`);
