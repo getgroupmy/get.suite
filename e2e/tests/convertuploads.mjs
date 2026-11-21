@@ -405,6 +405,24 @@ await step('charts and slicers move with their cells too: two rows inserted abov
   const saved = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0];
   if (saved.charts.c1.range !== 'A3:B5' || saved.charts.c1.y !== 24 + 24 * 4) throw new Error(JSON.stringify(saved.charts));
 });
+await step('the spreadsheet with a chart, published to the web: the chart is drawn over its cell, from its cells', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Moving chart');
+  if (!f) throw new Error('no Moving chart spreadsheet (the step before failed)');
+  const pub = (await api(page, 'PUT', `/publish/${f.id}`, { on: true })).body;
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const anon = await ctx.newPage();
+  anon.on('pageerror', (e) => errors.push(`anonymous: ${e.message}`));
+  await anon.goto(`${B}${pub.path}`);
+  const chart = anon.locator('.pub-sheet td[data-k="C5"] .pub-chart[aria-label="Chart: Sales by month"]');
+  await chart.waitFor();
+  await chart.locator('svg').first().waitFor();
+  const [a, td] = [await chart.boundingBox(), await anon.locator('.pub-sheet td[data-k="C5"]').boundingBox()];
+  if (Math.abs(a.x - td.x - 1) > 2 || Math.abs(a.y - td.y - 1) > 2 || Math.round(a.width) !== 360) throw new Error(JSON.stringify([a, td]));
+  // Its bars, from the cells: Jan and Feb.
+  const text = await chart.innerText();
+  if (!/Jan/.test(text) || !/Feb/.test(text)) throw new Error(`the chart's labels: ${text}`);
+  await ctx.close();
+});
 await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
   if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');

@@ -2299,6 +2299,8 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .pub-sheet th { background: var(--hover, #f1f3f4); font-weight: normal; color: var(--muted); }
 .pub-sheet td.has-pictures { position: relative; overflow: visible; }
 .pub-sheet .pub-picture { position: absolute; z-index: 1; max-width: none; pointer-events: none; }
+.pub-sheet .pub-chart { position: absolute; z-index: 1; margin: 0; padding: 6px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); white-space: normal; display: flex; flex-direction: column; }
+.pub-sheet .pub-chart figcaption { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
 .embed-code summary { cursor: pointer; } .embed-code textarea { font-family: monospace; font-size: .8rem; } .pub-page.embedded .pub-main { padding-top: 8px; }
 .pub-head[hidden], .link-head[hidden] { display: none; }
 

@@ -8,6 +8,8 @@ import { bookEvaluator, cellKey, colName, display, parseRef } from './sheets/for
 import { formatNumber, cellStyle } from './sheets/cellformat.js';
 import { CellPicture } from './sheets/SheetPicture.jsx';
 import { heightOf } from './sheets/rowheights.js';
+import ChartView from './sheets/Chart.jsx';
+import { chartData } from './sheets/charts.js';
 
 export default function PublishedPage({ token }) {
   const [data, setData] = useState(null);
@@ -61,21 +63,24 @@ export function PublishedSheet({ book, base = null }) {
     for (const k of Object.keys(sheet.cells || {})) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
     // Pictures over the cells: each in the cell its corner is over, the same distance in (this table's columns are
     // as wide as their text, so the picture stays with its cell rather than at the same spot on the page).
-    const pictures = new Map();
+    // Charts too (they need no pictures from the server).
+    const pictures = new Map(), charts = new Map();
     const widths = sheet.widths || sheet.colWidths;
-    for (const p of base ? Object.values(sheet.pictures || {}) : []) { // (a list as published, or by id as kept)
-      if (!p?.file) continue;
+    const anchor = (into, p) => {
       let c = 0, ox = Math.max(0, (Number(p.x) || 0) - 46), r = 0, oy = Math.max(0, (Number(p.y) || 0) - 24);
       for (let w; c < 51 && ox >= (w = Number(widths?.[colName(c)]) || 100); c++) ox -= w;
       for (let h; r < 999 && oy >= (h = Number(sheet.rowHeights?.[String(r + 1)]) || 24); r++) oy -= h;
       const k = cellKey(c, r);
-      pictures.set(k, [...(pictures.get(k) || []), { ...p, ox, oy }]);
+      into.set(k, [...(into.get(k) || []), { ...p, ox, oy }]);
       maxR = Math.max(maxR, r); maxC = Math.max(maxC, c);
-    }
+    };
+    for (const p of base ? Object.values(sheet.pictures || {}) : []) if (p?.file) anchor(pictures, p); // (a list as published, or by id as kept)
+    for (const ch of Object.values(sheet.charts || {})) if (ch?.range && Number.isFinite(Number(ch.x)) && Number.isFinite(Number(ch.y))) anchor(charts, ch);
     maxR = Math.min(maxR, 999); maxC = Math.min(maxC, 51);
     const value = (k) => { let v; try { v = evaluate(k); } catch (e) { v = { error: e.code || '#ERROR!' }; } return formatNumber(v, sheet.formats?.[k]) ?? display(v); };
     const image = (k) => { try { return evaluate.imageOf?.(k) || null; } catch { return null; } };
-    return { rows: maxR + 1, cols: maxC + 1, value, image, pictures };
+    const raw = (k) => { try { return evaluate(k); } catch { return null; } };
+    return { rows: maxR + 1, cols: maxC + 1, value, image, pictures, charts, raw };
   }, [sheet, book, at, base]);
   return (
     <div className="stack">
@@ -84,10 +89,22 @@ export function PublishedSheet({ book, base = null }) {
         <table className="pub-sheet">
           <thead><tr><th />{Array.from({ length: view.cols }, (_, c) => <th key={c} scope="col">{colName(c)}</th>)}</tr></thead>
           <tbody>{Array.from({ length: view.rows }, (_, r) => (
-            <tr key={r} style={heightOf(sheet.rowHeights, r) ? { height: heightOf(sheet.rowHeights, r), '--rh': `${heightOf(sheet.rowHeights, r) - 4}px` } : undefined}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r), pics = view.pictures.get(k); return <td key={k} data-k={k} className={pics ? 'has-pictures' : undefined} style={cellStyle(sheet.formats?.[k])}>{base && view.image(k) ? <CellPicture image={view.image(k)} base={base} label={`Picture in ${k}`} /> : view.value(k)}{pics?.map((p, i) => <img key={i} className="pub-picture" src={`${base}/pictures/${encodeURIComponent(p.file)}`} alt={p.alt || ''} style={{ left: p.ox, top: p.oy, width: p.w, height: p.h }} />)}</td>; })}</tr>
+            <tr key={r} style={heightOf(sheet.rowHeights, r) ? { height: heightOf(sheet.rowHeights, r), '--rh': `${heightOf(sheet.rowHeights, r) - 4}px` } : undefined}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r), pics = view.pictures.get(k), chs = view.charts.get(k); return <td key={k} data-k={k} className={pics || chs ? 'has-pictures' : undefined} style={cellStyle(sheet.formats?.[k])}>{base && view.image(k) ? <CellPicture image={view.image(k)} base={base} label={`Picture in ${k}`} /> : view.value(k)}{pics?.map((p, i) => <img key={i} className="pub-picture" src={`${base}/pictures/${encodeURIComponent(p.file)}`} alt={p.alt || ''} style={{ left: p.ox, top: p.oy, width: p.w, height: p.h }} />)}{chs?.map((ch, i) => <PublishedChart key={`c${i}`} chart={ch} value={view.raw} />)}</td>; })}</tr>
           ))}</tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+/** A chart over the cells of a published spreadsheet: its title and the chart, at its size. */
+function PublishedChart({ chart, value }) {
+  const w = Math.max(160, Number(chart.w) || 480), h = Math.max(120, Number(chart.h) || 300);
+  const data = chartData(chart.range, value);
+  return (
+    <figure className="pub-chart" style={{ left: chart.ox, top: chart.oy, width: w, height: h }} aria-label={`Chart: ${chart.title || 'Untitled'}`}>
+      {chart.title && <figcaption>{chart.title}</figcaption>}
+      <ChartView type={chart.type} data={data} width={w - 20} height={h - (chart.title ? 44 : 20)} />
+    </figure>
   );
 }
