@@ -767,6 +767,64 @@ test('share links: “tell me when it’s opened”, the first time and then at 
   assert.equal((await opal('PATCH', `/api/links/${quiet.id}`, { notify_open: false })).body.notify_open, false);
 });
 
+test('public folder links: documents, spreadsheets and presentations inside are shown as published and downloaded as Office files', async () => {
+  const pub = client();
+  const sharer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'folderdocs', domain: 'acme.com', name: 'Folder Docs', password: 'password123' })).status, 201);
+  await login(sharer, 'folderdocs@acme.com');
+  const JSZip = (await import('jszip')).default;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const folder = (await sharer('POST', '/api/files/folder', { name: 'Handover' })).body;
+  const pic = (await sharer('POST', '/api/files/upload?name=chart.png', png, { raw: true })).body;
+  const unused = (await sharer('POST', '/api/files/upload?name=unused.png', png, { raw: true })).body;
+  const doc = (await sharer('POST', '/api/files/new', { kind: 'doc', name: 'Report', parent_id: folder.id, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Results are in.' }] }, { type: 'image', attrs: { fileId: pic.id, src: `/api/files/x/pictures/${pic.id}` } }] } })).body;
+  const sheet = (await sharer('POST', '/api/files/new', { kind: 'sheet', name: 'Figures', parent_id: folder.id, content: { sheets: [{ name: 'Totals', cells: { A1: 'Total', B1: '=2+3' }, pictures: { p: { file: pic.id, x: 246, y: 72, w: 30, h: 20 } } }, { name: 'Workings', hidden: true, cells: { A1: 'secret' } }] } })).body;
+  const deck = (await sharer('POST', '/api/files/new', { kind: 'slides', name: 'Pitch', parent_id: folder.id, content: { slides: [{ id: 'a', items: [{ id: 't', type: 'text', text: 'Hello', x: 5, y: 5, w: 50, h: 10 }], notes: 'Say hello warmly' }, { id: 'b', skip: true, items: [] }] } })).body;
+  const outside = (await sharer('POST', '/api/files/new', { kind: 'doc', name: 'Not in it' })).body;
+  const fl = (await sharer('POST', '/api/links', { file_id: folder.id })).body;
+  const top = (await pub('GET', `/api/public/links/${fl.token}`)).body;
+  assert.deepEqual(top.items.map((i) => [i.name, i.kind]).sort(), [['Figures', 'sheet'], ['Pitch', 'slides'], ['Report', 'doc']]);
+  const show = async (id) => (await pub('GET', `/api/public/links/${fl.token}/content?item=${id}`)).body;
+  assert.match(JSON.stringify((await show(doc.id)).content), /Results are in\./);
+  const book = (await show(sheet.id)).content;
+  assert.deepEqual(book.sheets.map((x) => x.name), ['Totals'], 'not its hidden sheet');
+  assert.equal(book.sheets[0].pictures.p.file, pic.id);
+  const slides = (await show(deck.id)).content.slides;
+  assert.deepEqual([slides.length, 'notes' in slides[0]], [1, false], 'no skipped slides, no speaker notes');
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/content?item=${outside.id}`)).status, 404, 'nothing outside the folder');
+  // Pictures they use, and nothing else.
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/items/${doc.id}/-/pictures/${pic.id}`)).status, 200);
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/items/${sheet.id}/-/pictures/${pic.id}`)).status, 200);
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/items/${doc.id}/-/pictures/${unused.id}`)).status, 404);
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/items/${outside.id}/-/pictures/${pic.id}`)).status, 404);
+  // Downloads: Word, Excel and PowerPoint files, pictures and all; not when downloading is turned off.
+  const get = async (id) => { const r = await pub('GET', `/api/public/links/${fl.token}/raw?item=${id}&download`, undefined, { binary: true }); return { r, zip: r.status === 200 ? await JSZip.loadAsync(r.body) : null }; };
+  const w = await get(doc.id);
+  assert.match(w.r.headers.get('content-disposition'), /filename\*=UTF-8''Report\.docx/);
+  assert.match(await w.zip.file('word/document.xml').async('string'), /Results are in\./);
+  assert.ok(Object.keys(w.zip.files).some((n) => /^word\/media\//.test(n)), 'with its picture');
+  const x = await get(sheet.id);
+  assert.match(x.r.headers.get('content-type'), /spreadsheetml/);
+  assert.ok(Object.keys(x.zip.files).includes('xl/media/image1.png'), 'the picture over its cells');
+  assert.equal((await x.zip.file('xl/workbook.xml').async('string')).includes('Workings'), false, 'not the hidden sheet');
+  const pp = await get(deck.id);
+  assert.match(pp.r.headers.get('content-disposition'), /Pitch\.pptx/);
+  const all = (await Promise.all(Object.keys(pp.zip.files).filter((n) => n.endsWith('.xml')).map((n) => pp.zip.file(n).async('string')))).join('');
+  assert.ok(all.includes('Hello') && !all.includes('Say hello warmly'), 'its slide, not its speaker notes');
+  const { q } = await import('../src/db.js');
+  q('UPDATE files SET no_download = 1 WHERE id = ?').run(doc.id);
+  assert.equal((await get(doc.id)).r.status, 403);
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}`)).body.items.find((i) => i.id === doc.id).no_download, true, 'the page says so');
+  assert.equal((await show(doc.id)).name, 'Report', 'still shown');
+  // A password on the link covers them too.
+  const locked = (await sharer('POST', '/api/links', { file_id: folder.id, password: 'handover-1' })).body;
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/content?item=${sheet.id}`)).status, 401);
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/items/${sheet.id}/-/pictures/${pic.id}`)).status, 401);
+  const { key } = (await pub('POST', `/api/public/links/${locked.token}/unlock`, { password: 'handover-1' })).body;
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/items/${sheet.id}/${key}/pictures/${pic.id}`)).status, 200, 'with its key');
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/content?item=${sheet.id}`, undefined, { headers: { 'x-link-key': key } })).status, 200);
+});
+
 test('public share links: no account needed; expiry, password, folders, revoking, company switch', async () => {
   const pub = client(); // nobody signed in
   const sharer = client();
@@ -861,7 +919,7 @@ test('public share links: no account needed; expiry, password, folders, revoking
   await sharer('PATCH', `/api/files/${binned.id}`, { trashed: true });
   const fl = (await sharer('POST', '/api/links', { file_id: folder.id })).body;
   const top = (await pub('GET', `/api/public/links/${fl.token}`)).body;
-  assert.deepEqual(top.items.map((i) => i.name), ['Drafts'], 'trashed files and docs are left out');
+  assert.deepEqual(top.items.map((i) => [i.name, i.kind]), [['Drafts', 'folder'], ['Notes', 'doc']], 'trashed files left out; documents shown');
   const down = (await pub('GET', `/api/public/links/${fl.token}?folder=${sub.id}`)).body;
   assert.deepEqual(down.path.map((p) => p.name), ['Deliverables', 'Drafts']);
   assert.deepEqual(down.items.map((i) => i.name), ['a.txt']);

@@ -137,6 +137,35 @@ await step('browse the folder, view and download files inside', async () => {
   await anon.getByRole('heading', { name: 'For client' }).waitFor();
 });
 
+await step('a document and a spreadsheet in the shared folder: shown read-only with their pictures, downloaded as Word', async () => {
+  const folder = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'folder' && x.name === 'For client');
+  const pic = await upload(page, 'mark.png', PNG.toString('base64'), null);
+  await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Proposal', parent_id: folder.id, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'We propose three phases.' }] }, { type: 'image', attrs: { fileId: pic.id, src: `/api/files/x/pictures/${pic.id}`, alt: 'Our mark' } }] } });
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Prices', parent_id: folder.id, content: { sheets: [{ name: 'Prices', cells: { A1: 'Phase', B1: 'Cost', A2: 'One', B2: '=1200*2' }, pictures: { p: { file: pic.id, alt: 'Mark', x: 46 + 200, y: 24 + 24, w: 64, h: 32 } } }, { name: 'Margins', hidden: true, cells: { A1: 'internal' } }] } });
+  await anon.reload();
+  await anon.getByRole('heading', { name: 'For client' }).waitFor();
+  await anon.getByLabel('Download Proposal as Word').waitFor();
+  const [dl] = await Promise.all([anon.waitForEvent('download'), anon.getByLabel('Download Proposal as Word').click()]);
+  if (dl.suggestedFilename() !== 'Proposal.docx') throw new Error(dl.suggestedFilename());
+  await anon.getByRole('button', { name: 'Proposal' }).click();
+  await anon.getByRole('heading', { name: 'Proposal' }).waitFor();
+  await anon.getByText('We propose three phases.').waitFor();
+  const img = anon.locator('.link-doc img').first();
+  await img.waitFor();
+  for (let i = 0; i < 50 && !(await img.evaluate((x) => x.complete && x.naturalWidth > 0)); i++) await anon.waitForTimeout(100);
+  if (!(await img.evaluate((x) => x.naturalWidth))) throw new Error('the picture didn\'t load (the link has a password: its key must go with it)');
+  await anon.getByRole('button', { name: 'Back to For client' }).click();
+  await anon.getByRole('button', { name: 'Prices' }).click();
+  await anon.locator('.pub-sheet td[data-k="B2"]', { hasText: '2400' }).waitFor();
+  const mark = anon.locator('.pub-sheet td[data-k="C2"] img.pub-picture[alt="Mark"]');
+  await mark.waitFor();
+  for (let i = 0; i < 50 && !(await mark.evaluate((x) => x.complete && x.naturalWidth > 0)); i++) await anon.waitForTimeout(100);
+  if (!(await mark.evaluate((x) => x.naturalWidth))) throw new Error('the spreadsheet\'s picture didn\'t load');
+  if (await anon.getByText('internal').count()) throw new Error('its hidden sheet shows');
+  await anon.getByRole('link', { name: 'Download as Excel' }).waitFor();
+  await anon.getByRole('button', { name: 'Back to For client' }).click();
+});
+
 await step('phone width', async () => {
   await anon.setViewportSize({ width: 375, height: 740 });
   await anon.goto(fileLink);

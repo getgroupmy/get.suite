@@ -12,15 +12,40 @@ import fs from 'node:fs';
 import { q, FILES_DIR } from '../db.js';
 import { uid, now, bad, notFound, forbidden, HttpError, isInlineSafe, mimeFor } from '../util.js';
 import { cleanRequest, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
-import { roleFor, subtreeIds } from '../access.js';
+import { roleFor, subtreeIds, atLeast } from '../access.js';
 import { hashPassword, verifyPassword, requireAdmin } from '../auth.js';
 import * as guard from '../security/guard.js';
-import { receiveUpload, insertFile, cleanName } from './files.js';
+import { receiveUpload, insertFile, cleanName, picturesIn } from './files.js';
+import { withoutSuggestions } from '../office/suggestions.js';
+import { publishedBook } from '../office/sheetvalues.js';
+import { saveNow, CO_EDITED } from '../collab.js';
+import { wordFromDoc } from '../office/word.js';
+import { excelFromSheet } from '../office/excel.js';
+import { powerPointFromDeck } from '../office/powerpoint.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
 import { csvCell } from '../csvcell.js';
 
 const LINKABLE = ['file', 'folder'];
+// Inside a linked folder, documents, spreadsheets and presentations are shown (read-only) and downloaded as Office files.
+const OPENABLE = ['doc', 'sheet', 'slides'];
+const OFFICE = { doc: ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], sheet: ['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], slides: ['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'] };
+/** What someone with the link sees of a document, spreadsheet or presentation: as a published one shows it. */
+function linkedContent(f) {
+  if (CO_EDITED.includes(f.kind)) saveNow(f.id); // what's being typed right now
+  let content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || 'null');
+  if (f.kind === 'doc') content = withoutSuggestions(content);
+  if (f.kind === 'slides') content = { ...content, slides: (content?.slides || []).filter((x) => !x.skip).map(({ notes, ...x }) => x) }; // no speaker notes, no skipped slides
+  if (f.kind === 'sheet') content = { sheets: publishedBook(content), ...(content?.functions?.length && { functions: content.functions }) }; // its shown sheets
+  return content;
+}
+/** A picture `content` uses, if it shows in the file (its owner can edit it): { data, mime } or null. */
+function linkedPicture(f, content, pic) {
+  if (!picturesIn(f.kind, content).has(String(pic))) return null;
+  const p = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(pic));
+  if (!p || !/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(p.mime || '') || !atLeast(roleFor(f.id, p.owner_id) || '', 'editor')) return null;
+  return { data: fs.readFileSync(path.join(FILES_DIR, p.storage)), mime: p.mime, file: p };
+}
 const MAX_EXPIRY_DAYS = 365;
 
 /** The proof of a typed password, sent with later requests; changes if the password changes. */
@@ -275,11 +300,11 @@ function itemIn(l, itemId) {
   if (!itemId || itemId === l.file_id) return q('SELECT * FROM files WHERE id = ?').get(l.file_id);
   if (l.kind !== 'folder') throw notFound('Not found');
   const f = q('SELECT * FROM files WHERE id = ?').get(String(itemId));
-  if (!f || !LINKABLE.includes(f.kind) || !subtreeIds(l.file_id).includes(f.id) || trashedOnTheWay(f.id, l.file_id)) throw notFound('Not found');
+  if (!f || !(LINKABLE.includes(f.kind) || OPENABLE.includes(f.kind)) || !subtreeIds(l.file_id).includes(f.id) || trashedOnTheWay(f.id, l.file_id)) throw notFound('Not found');
   return f;
 }
 
-const shown = (f) => ({ id: f.id, name: f.name, kind: f.kind, mime: f.mime, size: f.size, updated_at: f.updated_at });
+const shown = (f) => ({ id: f.id, name: f.name, kind: f.kind, mime: f.mime, size: f.size, updated_at: f.updated_at, ...(f.no_download && { no_download: true }) });
 
 /** No account needed. Mounted at /api/public (before the signed-in routes). */
 export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
@@ -306,7 +331,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     if (l.kind === 'folder') {
       const folder = itemIn(l, req.query.folder);
       if (folder.kind !== 'folder') throw bad('Not a folder');
-      info.items = q(`SELECT * FROM files WHERE parent_id = ? AND trashed = 0 AND kind IN ('file', 'folder')
+      info.items = q(`SELECT * FROM files WHERE parent_id = ? AND trashed = 0 AND kind IN ('file', 'folder', 'doc', 'sheet', 'slides')
                       ORDER BY (kind = 'folder') DESC, name COLLATE NOCASE`).all(folder.id).map(shown);
       // Breadcrumbs from the linked folder down to this one.
       const trail = [];
@@ -332,11 +357,21 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
   });
 
   // The file itself (?item= for a file inside a linked folder; ?download to save it).
-  r.get('/links/:token/raw', (req, res) => {
+  r.get('/links/:token/raw', async (req, res) => {
     const l = liveLink(req.params.token);
     if (!unlocked(l, req)) throw new HttpError(401, 'This link needs a password');
     if (l.mode === 'upload') throw notFound('Not found');
     const f = itemIn(l, req.query.item);
+    if (OPENABLE.includes(f.kind)) { // a document, spreadsheet or presentation: as a Word, Excel or PowerPoint file
+      if (f.no_download) throw new HttpError(403, 'Downloading this file is turned off');
+      const content = linkedContent(f);
+      const pictureData = async (id) => linkedPicture(f, content, id);
+      const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData }) : f.kind === 'sheet' ? await excelFromSheet(content, { pictureData }) : await powerPointFromDeck(content, { title: f.name, pictureData });
+      const [ext, mime] = OFFICE[f.kind];
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${ext}`)}`);
+      return res.end(buf);
+    }
     if (f.kind !== 'file') throw bad('Not a file');
     const inline = req.query.download === undefined && isInlineSafe(f.mime);
     if (!inline && f.no_download) throw new HttpError(403, 'Downloading this file is turned off'); // links are view-only: look, don't take
@@ -348,6 +383,29 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
 
   // A file request: send one file into the linked folder (?name=, &from= who's sending it). The file
   // belongs to the folder's owner and counts towards their company's storage.
+  // A document, spreadsheet or presentation inside a linked folder (?item=), to show; and the pictures it uses.
+  r.get('/links/:token/content', (req, res) => {
+    const l = liveLink(req.params.token);
+    if (!unlocked(l, req)) throw new HttpError(401, 'This link needs a password');
+    if (l.mode === 'upload') throw notFound('Not found');
+    const f = itemIn(l, req.query.item);
+    if (!OPENABLE.includes(f.kind)) throw bad('Not a document, spreadsheet or presentation');
+    res.json({ ...shown(f), content: linkedContent(f) });
+  });
+  // (at a path of their own, as pages show pictures at <base>/pictures/<id>: the item, and the password key or "-")
+  r.get('/links/:token/items/:item/:key/pictures/:pic', (req, res) => {
+    const l = liveLink(req.params.token);
+    if (!unlocked(l, { get: () => null, query: { key: req.params.key === '-' ? '' : req.params.key } })) throw new HttpError(401, 'This link needs a password');
+    if (l.mode === 'upload') throw notFound('Not found');
+    const f = itemIn(l, req.params.item);
+    if (!OPENABLE.includes(f.kind)) throw notFound('Picture not found');
+    const got = linkedPicture(f, linkedContent(f), req.params.pic);
+    if (!got) throw notFound('Picture not found');
+    res.setHeader('Content-Type', got.mime);
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.sendFile(path.join(FILES_DIR, got.file.storage));
+  });
+
   r.post('/links/:token/upload', async (req, res) => {
     const l = liveLink(req.params.token);
     if (l.mode !== 'upload') throw notFound('Not found');

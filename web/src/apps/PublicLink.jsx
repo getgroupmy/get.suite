@@ -1,8 +1,12 @@
 // The page someone without an account sees when they open a share link: /s/<token>.
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { formatBytes, formatDate } from '../api.js';
 import Icon, { fileIcon } from '../components/Icon.jsx';
 
+const LinkedItem = lazy(() => import('./LinkedItem.jsx'));
+const OPENABLE = ['doc', 'sheet', 'slides'];
+const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation' };
+const OFFICE = { doc: 'Word', sheet: 'Excel', slides: 'PowerPoint' };
 const keyName = (token) => `nw.link.${token}`;
 const readKey = (token) => { try { return sessionStorage.getItem(keyName(token)) || ''; } catch { return ''; } };
 const saveKey = (token, key) => { try { sessionStorage.setItem(keyName(token), key); } catch {} };
@@ -49,7 +53,9 @@ export default function PublicLink({ token }) {
   else if (open) body = (
     <>
       <button type="button" className="link-btn" onClick={() => setOpen(null)}><Icon name="back" size={18} /> Back to {info.path.at(-1).name}</button>
-      <FileView file={open} src={raw(open.id)} download={raw(open.id, true)} />
+      {OPENABLE.includes(open.kind)
+        ? <ItemView token={token} linkKey={key} item={open} download={raw(open.id, true)} />
+        : <FileView file={open} src={raw(open.id)} download={raw(open.id, true)} />}
     </>
   );
   else body = <FolderView info={info} onFolder={(id) => setFolder(id === info.root ? null : id)} onOpen={setOpen} download={(id) => raw(id, true)} />;
@@ -108,6 +114,29 @@ function FileView({ file, src, download }) {
   );
 }
 
+/** A document, spreadsheet or presentation inside the linked folder: read-only, with Download as an Office file. */
+function ItemView({ token, linkKey, item, download }) {
+  const [got, setGot] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let live = true;
+    call('GET', `/${encodeURIComponent(token)}/content?item=${encodeURIComponent(item.id)}`, linkKey).then((x) => live && setGot(x)).catch((e) => live && setError(e));
+    return () => { live = false; };
+  }, [token, linkKey, item.id]);
+  const base = `/api/public/links/${encodeURIComponent(token)}/items/${encodeURIComponent(item.id)}/${encodeURIComponent(linkKey || '-')}`;
+  return (
+    <section className="link-file stack">
+      <div className="row link-file-head">
+        <Icon name={fileIcon(item)} size={32} />
+        <div className="grow"><h1 className="ellipsis">{item.name}</h1><p className="muted small">{KIND_NAME[item.kind]} · modified {formatDate(item.updated_at)}</p></div>
+        {!item.no_download && <a className="btn primary" href={download}><Icon name="download" size={18} /> Download as {OFFICE[item.kind]}</a>}
+      </div>
+      {error ? <p className="error" role="alert">{error.message}</p> : !got ? <p className="muted">Loading…</p>
+        : <Suspense fallback={<p className="muted">Loading…</p>}><LinkedItem item={got} base={base} /></Suspense>}
+    </section>
+  );
+}
+
 function FolderView({ info, onFolder, onOpen, download }) {
   return (
     <section className="link-folder stack">
@@ -124,6 +153,8 @@ function FolderView({ info, onFolder, onOpen, download }) {
               <button type="button" className="link-btn grow ellipsis" onClick={() => (f.kind === 'folder' ? onFolder(f.id) : onOpen(f))}>{f.name}</button>
               {f.kind === 'file' && <><span className="muted small">{formatBytes(f.size)}</span>
                 <a className="icon-btn" href={download(f.id)} aria-label={`Download ${f.name}`}><Icon name="download" size={18} /></a></>}
+              {OPENABLE.includes(f.kind) && <><span className="muted small">{KIND_NAME[f.kind]}</span>
+                {!f.no_download && <a className="icon-btn" href={download(f.id)} aria-label={`Download ${f.name} as ${OFFICE[f.kind]}`}><Icon name="download" size={18} /></a>}</>}
             </li>
           ))}
         </ul>

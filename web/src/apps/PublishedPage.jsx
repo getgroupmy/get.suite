@@ -62,10 +62,11 @@ export function PublishedSheet({ book, base = null }) {
     // Pictures over the cells: each in the cell its corner is over, the same distance in (this table's columns are
     // as wide as their text, so the picture stays with its cell rather than at the same spot on the page).
     const pictures = new Map();
-    for (const p of base ? (sheet.pictures || []) : []) {
+    const widths = sheet.widths || sheet.colWidths;
+    for (const p of base ? Object.values(sheet.pictures || {}) : []) { // (a list as published, or by id as kept)
       if (!p?.file) continue;
       let c = 0, ox = Math.max(0, (Number(p.x) || 0) - 46), r = 0, oy = Math.max(0, (Number(p.y) || 0) - 24);
-      for (let w; c < 51 && ox >= (w = Number(sheet.widths?.[colName(c)]) || 100); c++) ox -= w;
+      for (let w; c < 51 && ox >= (w = Number(widths?.[colName(c)]) || 100); c++) ox -= w;
       for (let h; r < 999 && oy >= (h = Number(sheet.rowHeights?.[String(r + 1)]) || 24); r++) oy -= h;
       const k = cellKey(c, r);
       pictures.set(k, [...(pictures.get(k) || []), { ...p, ox, oy }]);
