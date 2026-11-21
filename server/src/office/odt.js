@@ -24,6 +24,29 @@ export const ODT_MIME = 'application/vnd.oasis.opendocument.text';
 const x = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** Text as ODF wants it: runs of spaces as <text:s/>, tabs and line breaks as elements. */
 const odfText = (s) => x(s).replace(/\t/g, '<text:tab/>').replace(/\n/g, '<text:line-break/>').replace(/ {2,}/g, (m) => ` <text:s text:c="${m.length - 1}"/>`);
+/**
+ * A paragraph's content with every space that follows another written as <text:s/>. ODF readers fold a space into one
+ * just before it even across elements ("noon <text:change/> then": LibreOffice reads "noon then", the space after a
+ * deleted word lost; "a " then " b" in bold the same). Text in comments, footnotes and pictures isn't the paragraph's.
+ */
+function keepSpaces(xml) {
+  let out = '', prev = true, skip = 0;
+  for (let i = 0; i < xml.length;) {
+    if (xml[i] === '<') {
+      const end = xml.indexOf('>', i);
+      const tag = xml.slice(i, end + 1);
+      out += tag; i = end + 1;
+      const [, close, name] = /^<(\/?)([\w:.-]+)/.exec(tag) || [];
+      if (/^(office:annotation|text:note|draw:frame)$/.test(name) && !tag.endsWith('/>')) skip += close ? -1 : 1;
+      else if (!skip && /^text:(s|tab|line-break)$/.test(name)) prev = true;
+      continue;
+    }
+    const ch = xml[i++];
+    if (!skip) { if (ch === ' ') { out += prev ? '<text:s/>' : ' '; prev = true; continue; } prev = false; }
+    out += ch;
+  }
+  return out;
+}
 /** A space starting a paragraph written as <text:s/> (an ordinary one there is dropped by every reader of the file). */
 const keepLeadingSpace = (xml) => xml.replace(/(<text:[ph]\b[^>]*[^/]>(?:<text:(?:span|a)\b[^>]*>)*) /g, '$1<text:s/>');
 const COLOR = /^#[0-9a-f]{6}$/i;
@@ -113,7 +136,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   const sheetChartObject = (n, w = 17, h = 8) => { let d = n.attrs?.data; if (typeof d === 'string') { try { d = JSON.parse(d); } catch { d = null; } } return d?.series?.length ? dataChartObject({ chartType: n.attrs?.chartType || 'column', title: n.attrs?.title || '', data: d }, w, h) : null; };
   let noteNo = 0;
   const inline = (nodes = []) => {
-    let out = '';
+    let out = '', before = {}; // (the look of the text just before: see a deletion's below)
     for (const n of nodes) {
       const t = n.type;
       if (t === 'hardBreak') { out += '<text:line-break/>'; continue; }
@@ -159,6 +182,10 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       if (COLOR.test(hl || '')) props.bg = hl;
       if (t === 'mention' || t === 'datechip' || t === 'filechip') props.color = '#1a73e8';
       if (t === 'dropchip') props.bold = 1;
+      // Deleted words are kept apart from the text, and LibreOffice gives them the look of the character before
+      // them: bold, italic, underlined or struck through only there is turned off for them by name.
+      if (marks.has('suggestDelete')) for (const k of ['bold', 'italic', 'underline', 'strike']) if (before[k] && !props[k]) props[`no_${k}`] = 1;
+      if (!marks.has('suggestDelete')) before = props;
       let run = odfText(text);
       if (Object.keys(props).length) run = `<text:span text:style-name="${textStyle(props)}">${run}</text:span>`;
       const href = marks.get('link')?.attrs?.href;
@@ -225,7 +252,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
   const cellStyle = (bg) => { const hex = /^#([0-9a-f]{6})$/i.exec(bg || '')?.[1]?.toLowerCase(); if (!hex) return 'Cell'; cellColours.add(hex); return `Cell_${hex}`; };
   const cellStyles = () => [...cellColours].map((hex) => `<style:style style:name="Cell_${hex}" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999" fo:background-color="#${hex}"/></style:style>`).join('');
   const spacedStyles = () => [...spaced].map(([key, name]) => { const [base, props] = key.split('|'); return `<style:style style:name="${name}" style:family="paragraph" style:parent-style-name="${base}"><style:paragraph-properties ${props}/></style:style>`; }).join('');
-  const para = (n, style = 'Standard') => `<text:p text:style-name="${styleOf(style, n.attrs)}">${inline(n.content)}</text:p>`;
+  const para = (n, style = 'Standard') => `<text:p text:style-name="${styleOf(style, n.attrs)}">${keepSpaces(inline(n.content))}</text:p>`;
   // A table of contents: LibreOffice's own (it updates it, Tools → Update), its entries links to bookmarks on the
   // headings (toc_1…, as in the Word download).
   const headings = headingsOfDoc(doc).map((h) => ({ ...h, level: Math.min(6, h.level) })); // (as the editor lists them, with their anchors)
@@ -247,14 +274,14 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       const t = n.type;
       if (t === 'paragraph') out += para(n, ctx.style || 'Standard');
       else if (t === 'tableOfContents') out += contentsXml();
-      else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); out += `<text:h text:style-name="${styleOf(`Heading_20_${lv}`, n.attrs)}" text:outline-level="${lv}">${tocMark(n)}${inline(n.content)}</text:h>`; }
+      else if (t === 'heading') { const lv = Math.min(6, n.attrs?.level || 1); out += `<text:h text:style-name="${styleOf(`Heading_20_${lv}`, n.attrs)}" text:outline-level="${lv}">${tocMark(n)}${keepSpaces(inline(n.content))}</text:h>`; }
       else if (t === 'bulletList' || t === 'orderedList') {
         const start = t === 'orderedList' ? Math.max(1, Math.min(9999, Math.round(Number(n.attrs?.start) || 1))) : 1; // (a numbered list's first number)
         out += `<text:list text:style-name="${t === 'orderedList' ? 'LNum' : 'LBul'}">${(n.content || []).map((li, i) => `<text:list-item${i === 0 && start > 1 ? ` text:start-value="${start}"` : ''}>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
       } else if (t === 'taskList') {
         for (const li of n.content || []) {
           const [first, ...rest] = li.content || [];
-          out += `<text:p text:style-name="Standard">${li.attrs?.checked ? '☑' : '☐'}<text:s/>${first?.type === 'paragraph' ? inline(first.content) : ''}</text:p>${blocks(first?.type === 'paragraph' ? rest : li.content, ctx)}`; // (the space after the box as <text:s/>: an item's own leading spaces aren't folded into it)
+          out += `<text:p text:style-name="Standard">${li.attrs?.checked ? '☑' : '☐'}<text:s/>${first?.type === 'paragraph' ? keepSpaces(inline(first.content)) : ''}</text:p>${blocks(first?.type === 'paragraph' ? rest : li.content, ctx)}`; // (the space after the box as <text:s/>: an item's own leading spaces aren't folded into it)
         }
       } else if (t === 'blockquote') out += blocks(n.content, { ...ctx, style: 'Quotations' });
       else if (t === 'codeBlock') out += `<text:p text:style-name="Preformatted_20_Text">${odfText((n.content || []).map((c) => c.text).join(''))}</text:p>`;
@@ -344,6 +371,9 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
     p.italic && 'fo:font-style="italic" style:font-style-asian="italic" style:font-style-complex="italic"',
     p.underline && 'style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"',
     p.strike && 'style:text-line-through-style="solid"',
+    p.no_bold && 'fo:font-weight="normal" style:font-weight-asian="normal" style:font-weight-complex="normal"',
+    p.no_italic && 'fo:font-style="normal" style:font-style-asian="normal" style:font-style-complex="normal"',
+    p.no_underline && 'style:text-underline-style="none"', p.no_strike && 'style:text-line-through-style="none"',
     p.code && 'style:font-name="Liberation Mono" fo:font-family="\'Liberation Mono\'"',
     p.sup && 'style:text-position="super 58%"', p.sub && 'style:text-position="sub 58%"',
     p.color && `fo:color="${p.color}"`, p.bg && `fo:background-color="${p.bg}"`,

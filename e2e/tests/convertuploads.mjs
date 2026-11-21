@@ -95,6 +95,20 @@ await step('an OpenDocument file ending with a table, as LibreOffice saves it (a
   const blocks = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.content.map((n) => n.type);
   if (blocks.join() !== 'paragraph,table') throw new Error(blocks.join());
 });
+await step('a Word file with a space each side of where bold starts, and a suggested deletion, opens with both spaces', async () => {
+  const { wordFromDoc } = await import(`${ROOT}/server/src/office/word.js`);
+  const del = { type: 'suggestDelete', attrs: { id: 's1', by: 'u1', name: 'Kim Park', at: Date.UTC(2026, 0, 4, 9, 30) } };
+  const buf = await wordFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'two ' }, { type: 'text', text: ' spaces', marks: [{ type: 'bold' }] }, { type: 'text', text: ' and ' }, { type: 'text', text: 'old', marks: [del] }, { type: 'text', text: ' words' }] }] }, 'Spaced');
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'Spaced.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: buf });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === 'Spaced'));
+  await page.goto(`${B}/docs/${f.id}`);
+  const editor = page.locator('.ProseMirror').first();
+  await editor.getByText('spaces').waitFor();
+  const text = await editor.evaluate((el) => el.textContent);
+  if (text !== 'two  spaces and old words') throw new Error(JSON.stringify(text)); // (it was "two spaces": one space lost where bold starts)
+  await editor.locator('del', { hasText: 'old' }).first().waitFor();
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';

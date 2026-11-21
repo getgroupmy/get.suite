@@ -1038,11 +1038,19 @@ export function docFromHtml(html) { return checklists(generateJSON(html || '<p><
 // HTML would fold into one space: held as private characters through the HTML step, then put back.
 const HELD_SPACE = '\uE005', HELD_TAB = '\uE006';
 export function holdSpacing(html) {
-  return String(html).replace(/(<pre\b[\s\S]*?<\/pre>)|(<(?:p|h[1-6]|li|td|th)\b[^>]*>)?([^<]+)/g, (m, pre, open, t) => {
-    if (pre) return pre;
+  // (a space just after another is held even when a tag comes between them: "two <b> spaces</b>" would fold to one)
+  let prevSpace = false;
+  return String(html).replace(/(<pre\b[\s\S]*?<\/pre>)|(<[^>]*>)|([^<]+)/g, (m, pre, tag, t) => {
+    if (pre) { prevSpace = false; return pre; }
+    if (tag) {
+      if (/^<(p|h[1-6]|li|td|th|br)\b/i.test(tag)) prevSpace = true; // a paragraph's start (or a line's): a space there is dropped
+      else if (/^<\/?(p|h[1-6]|li|td|th|div|blockquote|ul|ol|table|tbody|thead|tr|pre|hr|img)\b/i.test(tag)) prevSpace = false;
+      return tag;
+    }
     let out = t.replace(/\t/g, HELD_TAB).replace(/ {2,}/g, (sp) => HELD_SPACE.repeat(sp.length));
-    if (open) out = out.replace(/^ /, HELD_SPACE);
-    return (open || '') + out;
+    if (prevSpace) out = out.replace(/^ /, HELD_SPACE);
+    if (out) prevSpace = out.endsWith(' ');
+    return out;
   });
 }
 /** The spacing held by holdSpacing, back as spaces and tabs in the document's text. */

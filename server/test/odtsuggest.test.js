@@ -26,7 +26,7 @@ test('.odt out: each suggestion a changed region (who, when; a deletion\'s words
   assert.match(xml, /<office:text><text:tracked-changes text:track-changes="false"><text:changed-region text:id="ct1"><text:deletion><office:change-info><dc:creator>Kim Park<\/dc:creator><dc:date>2026-11-03T09:30:00<\/dc:date><\/office:change-info><text:p>Monday<\/text:p><\/text:deletion><\/text:changed-region>/);
   // (a space before a change: written as <text:s/> or plain, the same text in ODF)
   assert.match(xml, /The meeting is on(?: |<text:s\/>)<text:change text:change-id="ct1"\/><text:change-start text:change-id="ct2"\/>Tuesday<text:change-end text:change-id="ct2"\/>/);
-  assert.match(xml, /<text:deletion>(?:(?!<\/text:deletion>).)*<text:p><text:s\/>please<\/text:p>/, 'a space at the start of deleted words is kept');
+  assert.match(xml, /<text:deletion>(?:(?!<\/text:deletion>).)*<text:p>(<text:span text:style-name="T\d+">)?<text:s\/>please(<\/text:span>)?<\/text:p>/, 'a space at the start of deleted words is kept (in a span turning off the bold before it)');
   assert.doesNotMatch(await (await JSZip.loadAsync(await odtFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Plain' }] }] }, 'T'))).file('content.xml').async('string'), /tracked-changes/);
 });
 
