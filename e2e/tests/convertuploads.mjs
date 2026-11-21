@@ -183,6 +183,26 @@ buf = io.BytesIO(); wb.save(buf); sys.stdout.buffer.write(buf.getvalue())
   const struck = await grid.getByText('Code', { exact: true }).evaluate((el) => getComputedStyle(el.closest('[role="gridcell"]') || el).textDecorationLine);
   if (/line-through/.test(struck)) throw new Error('struck through'); // (every cell was)
 });
+await step('a Word file made by python-docx: an item in its "List Bullet 2" style opens a level down', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('python3', ['-I', '-c', `
+import sys, io
+from docx import Document
+d = Document()
+d.add_paragraph('Fruit', style='List Bullet')
+d.add_paragraph('Apples', style='List Bullet 2')
+d.add_paragraph('Vegetables', style='List Bullet')
+buf = io.BytesIO(); d.save(buf); sys.stdout.buffer.write(buf.getvalue())
+`]);
+  if (r.status !== 0) { console.log('(no python-docx here: skipped)'); return; }
+  await page.goto(`${B}/drive`);
+  await page.locator('input[type="file"]:not([webkitdirectory])').first().setInputFiles({ name: 'From python-docx.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: r.stdout });
+  const f = await until(async () => (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === 'From python-docx'));
+  await page.goto(`${B}/docs/${f.id}`);
+  const ed = page.locator('.ProseMirror').first();
+  await ed.locator('ul ul li', { hasText: 'Apples' }).waitFor(); // (it was the second of three at the same level)
+  if ((await ed.locator(':scope > ul > li').count()) !== 2) throw new Error('two items at the top');
+});
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
   await page.goto(`${B}/drive`);
   const csv = 'Item,Price,Share,Due\nDesk,"$1,250.00",40%,05/12/2026\nLamp,"1,234",12.5%,20 Dec 2026\n';
