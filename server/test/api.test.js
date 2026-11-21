@@ -16308,6 +16308,35 @@ test('Sheets: a copied sheet\'s pictures in cells are copied for the spreadsheet
   assert.equal((await owner('GET', `/api/files/${n.id}/pictures/${/drive:([A-Za-z0-9_-]+)/.exec(c2)[1]}`)).status, 200, 'in a new spreadsheet too');
 });
 
+test('Sheets: pictures over a sheet\'s cells are copied for the spreadsheet a copy goes to (a sheet copied, or the whole spreadsheet), so they show there', async () => {
+  assert.equal((await owner('POST', '/api/users', { local: 'floatsam', domain: 'acme.com', name: 'Float Sam', password: 'password123' })).status, 201);
+  const sam = client(); await login(sam, 'floatsam@acme.com');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await sam('POST', '/api/files/upload?name=badge.png', png, { raw: true })).body;
+  const placed = { file: pic.id, alt: 'Badge', x: 246, y: 72, w: 40, h: 30 };
+  const book = (await sam('POST', '/api/files/new', { kind: 'sheet', name: 'Sam badges', content: { sheets: [{ name: 'Badges', cells: { A1: 'Team' }, pictures: { p1: placed } }] } })).body;
+  const me = (await owner('GET', '/api/auth/me')).body.user.id;
+  await sam('PUT', `/api/files/${book.id}/shares`, { shares: [{ user_id: me, role: 'editor' }] });
+  const shows = async (fileId, picId) => (await owner('GET', `/api/files/${fileId}/pictures/${picId}`)).status;
+  const pictureOf = async (fileId, i) => Object.values((await owner('GET', `/api/files/${fileId}/content`)).body.content.sheets[i].pictures || {})[0];
+  // A sheet copied to my spreadsheet: Sam's picture wouldn't show there (Sam can't edit it), so it's copied for me.
+  const mine = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'My badges', content: { sheets: [{ name: 'S', cells: {} }] } })).body;
+  assert.equal(await shows(mine.id, pic.id), 404);
+  assert.equal((await owner('POST', `/api/files/${book.id}/sheets/0/copy-to`, { target: mine.id })).status, 201);
+  const there = await pictureOf(mine.id, 1);
+  assert.ok(there && there.file !== pic.id, JSON.stringify(there));
+  assert.deepEqual({ ...there, file: pic.id }, placed, 'where it was, its size and name');
+  assert.equal(await shows(mine.id, there.file), 200, 'the copy shows');
+  // To a new spreadsheet of its own.
+  const n = (await owner('POST', `/api/files/${book.id}/sheets/0/copy-to`, { new: true })).body;
+  assert.equal(await shows(n.id, (await pictureOf(n.id, 0)).file), 200, 'in a new spreadsheet too');
+  // Make a copy of the whole spreadsheet.
+  const whole = (await owner('POST', `/api/files/${book.id}/copy`, {})).body;
+  const p = await pictureOf(whole.id, 0);
+  assert.ok(p.file !== pic.id);
+  assert.equal(await shows(whole.id, p.file), 200, 'Make a copy: shows');
+});
+
 test('Slides: copy several slides at once, in the presentation\'s order, to another presentation or a new one', async () => {
   const t = (id, text) => ({ id, items: [{ id: `${id}i`, type: 'text', text, x: 0, y: 0, w: 50, h: 10 }] });
   const src = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Many slides', content: { slides: [t('a', 'One'), t('b', 'Two'), t('c', 'Three'), t('d', 'Four')] } })).body;

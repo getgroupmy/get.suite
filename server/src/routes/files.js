@@ -2218,13 +2218,14 @@ export default function fileRoutes({ maxUploadBytes }) {
     // In another spreadsheet, formulas that read the original's other sheets (or this one by a name it no longer has
     // there) would find nothing: they come as the values they work out to.
     const standalone = (copy) => ({ ...copy, cells: cellsWithValuesFrom(srcData, index, srcData.sheets.filter((x, j) => j !== index || copy.name !== sheet.name)) });
-    // Pictures in its cells (=IMAGE("drive:…")) copied for the spreadsheet it goes to, which shows only files someone
+    // Pictures in its cells (=IMAGE("drive:…")) and over them copied for the spreadsheet it goes to, which shows only files someone
     // who can edit it owns; the formulas then show the copies.
     const withPictures = (copy, target) => {
       const files = copiedMedia(f, picturesIn('sheet', { sheets: [sheet] }), req.user, target);
       if (!files.size) return copy;
       const swap = (v) => (typeof v === 'string' ? v.replace(/"drive:([A-Za-z0-9_-]{4,64})"/g, (m, id) => (files.has(id) ? `"drive:${files.get(id)}"` : m)) : v);
-      return { ...copy, cells: Object.fromEntries(Object.entries(copy.cells || {}).map(([k, v]) => [k, swap(v)])) };
+      const pictures = copy.pictures && Object.fromEntries(Object.entries(copy.pictures).map(([k, p]) => [k, files.has(p?.file) ? { ...p, file: files.get(p.file) } : p])); // (and the pictures over its cells)
+      return { ...copy, cells: Object.fromEntries(Object.entries(copy.cells || {}).map(([k, v]) => [k, swap(v)])), ...(pictures && { pictures }) };
     };
     if (req.body?.new) { // a spreadsheet of its own with this sheet (shown), named after it
       const copy = standalone(sheetCopyFor(sheet, []));

@@ -342,6 +342,26 @@ await step('a picture pasted (Ctrl+V of a screenshot) goes over the cursor\'s ce
   const saved = await until(async () => { const c = (await api(page, 'GET', `/files/${sheet.id}/content`)).body.content; const p = Object.values(c.sheets[0].pictures || {}); return p.length === 2 ? p : null; }, 10000);
   if (saved.map((p) => p.alt).sort().join() !== 'Stamp,image') throw new Error(JSON.stringify(saved));
 });
+await step('a colleague who can edit copies the sheet with Olivia\'s picture to a new spreadsheet of their own: the picture shows there', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Team photo');
+  if (!f) throw new Error('no Team photo spreadsheet (an earlier step failed)');
+  const liam = await mk('liam-copy');
+  await signIn(liam, 'liam@acme.com');
+  const lid = (await api(liam, 'GET', '/auth/me')).body?.user?.id;
+  if (!lid) throw new Error('no Liam');
+  await api(page, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: lid, role: 'editor' }] });
+  await liam.goto(`${B}/sheets/${f.id}`);
+  await liam.locator('.sheet-picture img').waitFor();
+  await liam.locator('button.tab-menu').first().click();
+  await liam.getByRole('menuitem', { name: 'Copy to a new spreadsheet' }).click();
+  const link = liam.getByRole('link', { name: 'Open it' });
+  await link.waitFor();
+  await liam.goto(new URL(await link.getAttribute('href'), B).href);
+  const img = liam.locator('.sheet-picture img');
+  await img.waitFor();
+  await until(async () => (await img.evaluate((i) => i.complete && i.naturalWidth)) === 960, 10000); // (a broken picture: Olivia can't edit Liam's spreadsheet)
+  await liam.close();
+});
 await step('the spreadsheet with a picture, downloaded as PDF: the picture is on its page (read by pypdf)', async () => {
   const { spawnSync } = await import('node:child_process');
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Team photo');
