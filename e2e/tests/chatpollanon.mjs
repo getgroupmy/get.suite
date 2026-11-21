@@ -72,6 +72,21 @@ await step('Kim’s own choice stays marked after a reload; Olivia votes too and
   await poll(kim).getByRole('button', { name: 'Too much: 1 vote', pressed: true }).waitFor(); // (still hers, through the live update)
   await poll(kim).getByText(/2 people voted/).waitFor();
 });
+await step('a poll closing in a minute closes live for Kim, and Olivia gets the result in the bell', async () => {
+  const m = (await api(page, 'POST', `/chat/channels/${ch}/messages`, { poll: { question: 'Coffee run?', options: ['Yes', 'No'], closes_at: Date.now() + 62e3 } })).body;
+  const p = kim.getByRole('group', { name: 'Poll: Coffee run?' });
+  await p.waitFor();
+  await p.getByRole('button', { name: /^Yes: 0 votes/ }).click();
+  await p.getByText(/· Closes /).waitFor();
+  await p.getByText(/^Closed ·/).waitFor({ timeout: 100e3 }); // (no reload)
+  if (!(await p.getByRole('button', { name: /^No: 0 votes/ }).isDisabled())) throw new Error('still open');
+  await page.goto(`${B}/drive`);
+  const bellBtn = page.getByRole('button', { name: /Notifications/ }).first();
+  await bellBtn.click();
+  await page.getByText('Poll closed: Coffee run?').waitFor();
+  await page.getByText('Yes 1, No 0 · 1 person voted').waitFor();
+  if (!m.id) throw new Error('no poll');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

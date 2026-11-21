@@ -148,6 +148,9 @@ q(`CREATE TABLE IF NOT EXISTS poll_votes (
   PRIMARY KEY (message_id, user_id, option_id)
 )`).run();
 const MAX_OPTIONS = 10;
+// Polls closing by themselves (closes_at): looked at when due, so everyone's poll shows closed and whoever asked hears the result.
+q('CREATE TABLE IF NOT EXISTS chat_poll_closing (message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE, at INTEGER NOT NULL)').run();
+q('CREATE INDEX IF NOT EXISTS chat_poll_closing_at ON chat_poll_closing(at)').run();
 // Forwarded messages: a copy of another message (who wrote it, where, when, its text), below an optional note.
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'forwarded')) q('ALTER TABLE messages ADD COLUMN forwarded TEXT').run();
 
@@ -359,6 +362,7 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null, contact
   const id = uid();
   q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded, contact, email, echo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null, contact ? JSON.stringify(contact) : null, email ? JSON.stringify(email) : null, echo ? JSON.stringify(echo) : null);
   q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
+  if (poll?.closes_at) q('INSERT OR REPLACE INTO chat_poll_closing (message_id, at) VALUES (?, ?)').run(id, poll.closes_at);
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
   if (echo) return msg; // a thread reply's copy in the conversation: its mentions, pushes and preview came with the reply
@@ -515,10 +519,30 @@ function remindDue(at) {
 }
 
 /** Send what's due, and remind about what's due (every few seconds; started with the server). */
+/** Polls whose closing time has come: closed for everyone (live), and whoever asked told the result in the bell. */
+function closeDuePolls(at) {
+  const due = q('SELECT p.message_id, m.poll, m.user_id, m.channel_id, m.parent_id FROM chat_poll_closing p JOIN messages m ON m.id = p.message_id WHERE p.at <= ? LIMIT 100').all(at);
+  for (const r of due) {
+    q('DELETE FROM chat_poll_closing WHERE message_id = ?').run(r.message_id);
+    const p = r.poll ? JSON.parse(r.poll) : null;
+    if (!p || p.closed_at || !p.closes_at || p.closes_at > at) continue; // (closed by hand, or its time changed)
+    q('UPDATE messages SET poll = ? WHERE id = ?').run(JSON.stringify({ ...p, closed_at: p.closes_at }), r.message_id);
+    const msg = one(r.message_id);
+    const c = q('SELECT * FROM channels WHERE id = ?').get(r.channel_id);
+    if (c) sendTo(audience(c), { type: 'message-updated', message: msg });
+    if (r.user_id) {
+      const results = msg.poll.options.map((o) => `${o.text} ${o.count}`).join(', ');
+      notify([r.user_id], { kind: 'chat', title: `Poll closed: ${p.question}`, body: `${results} · ${msg.poll.voters} ${msg.poll.voters === 1 ? 'person' : 'people'} voted`,
+        link: `/chat/${r.channel_id}?msg=${r.parent_id || r.message_id}${r.parent_id ? `&thread=${r.parent_id}` : ''}`, actor: null });
+    }
+  }
+}
+
 export function sendDueChat(at = Date.now()) {
   const due = q('SELECT * FROM chat_scheduled WHERE send_at <= ? AND error IS NULL ORDER BY send_at LIMIT 100').all(at);
   for (const row of due) sendScheduled(row);
   remindDue(at);
+  closeDuePolls(at);
   endMutes(at);
   return due.length;
 }
@@ -1822,6 +1846,8 @@ export default function chatRoutes() {
     // (reopened: its closing time, if passed, goes; one still to come stays)
     const { closes_at: closesAt, ...rest } = p;
     q('UPDATE messages SET poll = ? WHERE id = ?').run(JSON.stringify({ ...rest, ...(closesAt && (closed || closesAt > Date.now()) && { closes_at: closesAt }), closed_at: closed ? now() : null }), m.id);
+    if (closed || !(closesAt > Date.now())) q('DELETE FROM chat_poll_closing WHERE message_id = ?').run(m.id);
+    else q('INSERT OR REPLACE INTO chat_poll_closing (message_id, at) VALUES (?, ?)').run(m.id, closesAt); // (reopened before its time: closes then after all)
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     res.json(msg);

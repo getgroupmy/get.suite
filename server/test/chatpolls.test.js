@@ -76,3 +76,28 @@ test('closing by itself: votes until then, closed after; reopening clears a pass
   assert.equal((await ann('POST', `/api/chat/messages/${poll.id}/poll/close`, { closed: false })).status, 200);
   assert.equal((await ben('POST', `/api/chat/messages/${poll.id}/vote`, { options: ['o2'] })).status, 200);
 });
+
+test('when its time comes: closed for everyone, and whoever asked gets the result in the bell (not after closing it by hand)', async () => {
+  const { sendDueChat } = await import('../src/routes/chat.js');
+  const bell = async (who) => { const b = (await who('GET', '/api/notifications')).body; return b.items || b.notifications || b; };
+  const closesAt = Date.now() + 61e3;
+  const poll = (await ann('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Team lunch day?', options: ['Tue', 'Thu'], closes_at: closesAt, anonymous: true } })).body;
+  await ben('POST', `/api/chat/messages/${poll.id}/vote`, { options: ['o2'] });
+  sendDueChat(closesAt - 5000);
+  assert.ok(!(await bell(ann)).some((n) => /Team lunch day/.test(n.title)), 'not yet');
+  sendDueChat(closesAt + 1000);
+  const n = (await bell(ann)).find((x) => x.title === 'Poll closed: Team lunch day?');
+  assert.ok(n);
+  assert.equal(n.body, 'Tue 0, Thu 1 · 1 person voted');
+  assert.equal(n.link, `/chat/${ch}?msg=${poll.id}`);
+  const { q } = await import('../src/db.js');
+  assert.equal(JSON.parse(q('SELECT poll FROM messages WHERE id = ?').get(poll.id).poll).closed_at, closesAt, 'stored closed');
+  sendDueChat(closesAt + 60e3);
+  assert.equal((await bell(ann)).filter((x) => x.title === 'Poll closed: Team lunch day?').length, 1, 'told once');
+  // Closed by hand first: nothing more when its time comes.
+  const at2 = Date.now() + 61e3;
+  const p2 = (await ann('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Snacks?', options: ['Fruit', 'Crisps'], closes_at: at2 } })).body;
+  await ann('POST', `/api/chat/messages/${p2.id}/poll/close`, {});
+  sendDueChat(at2 + 1000);
+  assert.ok(!(await bell(ann)).some((x) => /Snacks/.test(x.title)));
+});
