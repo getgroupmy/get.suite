@@ -136,6 +136,19 @@ await step('Delete several, asked first', async () => {
   await page.getByRole('tab', { name: 'Directory' }).click();
   if (await page.getByLabel('Select all shown').count()) throw new Error('selecting colleagues');
 });
+await step('a group from pasted addresses with Outlook-style names ("Doe, Jo" <…>): each one person', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  await page.getByRole('button', { name: 'New group' }).click();
+  const dlg = page.getByRole('dialog', { name: 'New group' });
+  await dlg.getByLabel('Group name').fill('Outlook paste');
+  await dlg.getByLabel('People').fill('"Doe, Jo" <jo@example.com>, "Lee; Ann" <ann@example.com>');
+  await dlg.getByText('2 people').waitFor(); // (it was 1, and "Doe" not an email address)
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Outlook paste');
+  if (JSON.stringify(g.members.map((m) => [m.name, m.email])) !== JSON.stringify([['Doe, Jo', 'jo@example.com'], ['Lee; Ann', 'ann@example.com']])) throw new Error(JSON.stringify(g.members));
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

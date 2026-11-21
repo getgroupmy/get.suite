@@ -27,3 +27,14 @@ test('reading a list of addresses', async () => {
     list: [{ name: 'Ann Board', email: 'ann@example.org' }, { name: '', email: 'ben@example.org' }, { name: 'Cat C', email: 'cat@example.org' }], bad: ['nope'],
   });
 });
+
+test('a quoted name with a comma or semicolon in it ("Doe, Jo", as Outlook writes names) is one address', async () => {
+  const { parseAddresses, currentToken } = await import('./addresses.js');
+  assert.deepEqual(parseAddresses('"Doe, Jo" <jo@example.org>, "Lee; Ann" <ann@example.org>; ben@example.org'), {
+    list: [{ name: 'Doe, Jo', email: 'jo@example.org' }, { name: 'Lee; Ann', email: 'ann@example.org' }, { name: '', email: 'ben@example.org' }], bad: [],
+  });
+  // (it was "Doe" and "Jo" <jo@…>: one not an address, the other named Jo")
+  const v = '"Doe, Jo" <jo@example.org>, be';
+  assert.deepEqual(currentToken(v, v.length), { start: 27, end: v.length, text: 'be' });
+  assert.equal(currentToken(v, 3).text, '"Doe, Jo" <jo@example.org>', 'the caret inside the quoted name: the whole address');
+});
