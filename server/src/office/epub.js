@@ -9,6 +9,7 @@ import { flattenTabs } from './doctabs.js';
 import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { chartTable } from './sheetchart.js';
+import { chartSvg } from './sheetpdfchart.js';
 
 export const EPUB_MIME = 'application/epub+zip';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -62,7 +63,7 @@ function bookWriter(doc, pictures, { toc = false } = {}) {
     if (t === 'horizontalRule') return '<hr/>';
     if (t === 'image') return `<p class="picture">${inline([n])}</p>`;
     if (t === 'table') return `<table>${(n.content || []).map((r) => `<tr>${(r.content || []).map((c) => { const tag = c.type === 'tableHeader' ? 'th' : 'td'; return `<${tag}${c.attrs?.colspan > 1 ? ` colspan="${c.attrs.colspan}"` : ''}>${blocks(c.content)}</${tag}>`; }).join('')}</tr>`).join('')}</table>`;
-    if (t === 'sheetChart') { const { title: ct, rows } = chartTable(n.attrs); return `<p><strong>${x(ct)}</strong></p>${rows.length ? `<table>${rows.map((r, i) => `<tr>${r.map((v) => `<${i ? 'td' : 'th'}>${x(v)}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table>` : ''}`; }
+    if (t === 'sheetChart') { const { title: ct, rows } = chartTable(n.attrs); const svg = chartSvg(n.attrs); return `<p><strong>${x(ct)}</strong></p>${svg ? `<div class="chart">${svg}</div>` : ''}${rows.length ? `<table>${rows.map((r, i) => `<tr>${r.map((v) => `<${i ? 'td' : 'th'}>${x(v)}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table>` : ''}`; }
     if (t === 'references') return `<h2>References</h2>${sourcesOf(doc).map((s) => `<p class="ref">${reference(s).map((p) => (p.italic ? `<em>${x(p.text)}</em>` : x(p.text))).join('')}</p>`).join('')}`;
     if (t === 'emailDraft' || t === 'eventDraft') {
       const a = n.attrs || {};

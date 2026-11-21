@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
+import { spawnSync } from 'node:child_process';
 import { parseDocument } from 'htmlparser2';
 const { epubFromDoc, htmlFromDoc, textFromDoc, EPUB_MIME } = await import('../src/office/epub.js');
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -119,4 +120,47 @@ test('the document as plain text (.txt)', () => {
     '> Keep receipts.',
   ].join('\n\n') + '\n\n[1] Or ask Kim.\n');
   assert.equal(textFromDoc({ type: 'doc', content: [] }), '\n');
+});
+
+test('a chart from Sheets in an e-book and a web page download: drawn as an SVG picture (bars in proportion, read by Python), its figures still under it', { skip: spawnSync('python3', ['-c', 'import xml.etree.ElementTree']).status !== 0 && 'no python here' }, async () => {
+  const data = { categories: ['North', 'South', 'East'], series: [{ name: 'Units', values: [12, 30, 18] }] };
+  const d = { type: 'doc', content: [P(T('By region')), { type: 'sheetChart', attrs: { title: 'Units by region', chartType: 'column', data: JSON.stringify(data) } }] };
+  const zip = await JSZip.loadAsync(await epubFromDoc(d, 'Regions'));
+  const chapter = await zip.file(Object.keys(zip.files).find((n) => /\.xhtml$/.test(n) && !/nav/.test(n))).async('string');
+  const html = (await htmlFromDoc(d, 'Regions')).toString('utf8');
+  const read = (text, strict) => JSON.parse(spawnSync('python3', ['-I', '-c', `
+import sys, json
+text = sys.stdin.read()
+bars, svgs, cells = [], 0, []
+if ${strict ? 'True' : 'False'}:
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(text)  # an e-book's page must be well-formed XML
+    for el in root.iter():
+        tag = el.tag.split('}')[-1]
+        if tag == 'svg': svgs += 1
+        if tag == 'rect' and el.get('fill') == '#1a73e8': bars.append(float(el.get('height')))
+        if tag in ('td', 'th'): cells.append(''.join(el.itertext()))
+else:
+    from html.parser import HTMLParser
+    class P(HTMLParser):
+        cell = None
+        def handle_starttag(self, tag, attrs):
+            global svgs
+            a = dict(attrs)
+            if tag == 'svg': svgs += 1
+            if tag == 'rect' and a.get('fill') == '#1a73e8': bars.append(float(a['height']))
+            if tag in ('td', 'th'): self.cell = ''
+        def handle_data(self, d):
+            if self.cell is not None: self.cell += d
+        def handle_endtag(self, tag):
+            if tag in ('td', 'th') and self.cell is not None: cells.append(self.cell); self.cell = None
+    P().feed(text)
+print(json.dumps({ 'bars': bars, 'svgs': svgs, 'cells': cells }))`], { input: text }).stdout);
+  for (const [kind, got] of [['epub', read(chapter, true)], ['html', read(html, false)]]) {
+    assert.equal(got.svgs, 1, kind);
+    const bars = got.bars.filter((h) => !(h < 12)); // (not a legend swatch: one series has none)
+    assert.equal(bars.length, 3, `${kind}: ${JSON.stringify(got.bars)}`);
+    bars.forEach((h, i) => assert.ok(Math.abs(h / Math.max(...bars) - data.series[0].values[i] / 30) < 0.02, `${kind}: bar ${i}`));
+    assert.ok(got.cells.includes('South') && got.cells.includes('30'), `${kind}: its figures still there for screen readers`);
+  }
 });

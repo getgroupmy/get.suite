@@ -460,6 +460,19 @@ with pdfplumber.open(io.BytesIO(base64.b64decode(sys.stdin.read()))) as pdf:
     if (got.bars.length !== 3 || Math.abs(got.bars[0] / got.bars[1] - 12 / 30) > 0.02 || Math.abs(got.bars[2] / got.bars[1] - 18 / 30) > 0.02) throw new Error(`${f.name}: the bars ${JSON.stringify(got.bars)}`);
   }
 });
+await step('the document with a chart, downloaded as a web page and opened in the browser: the chart is drawn (bars measured on screen), its figures under it', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'doc' && x.name === 'Region report');
+  if (!f) throw new Error('no Region report (the step before failed)');
+  const html = await page.evaluate(async (id) => (await fetch(`/api/files/${id}/export?format=html`)).text(), f.id);
+  const ctx = await browser.newContext({ viewport: { width: 1000, height: 900 } });
+  const view = await ctx.newPage();
+  await view.setContent(html);
+  const bars = await view.locator('svg rect[fill="#1a73e8"]').evaluateAll((rs) => rs.map((r) => r.getBoundingClientRect().height).filter((h) => h >= 12));
+  if (bars.length !== 3 || Math.abs(bars[0] / bars[1] - 12 / 30) > 0.02 || Math.abs(bars[2] / bars[1] - 18 / 30) > 0.02) throw new Error(`the bars on screen: ${JSON.stringify(bars)}`);
+  if (await view.getByRole('img', { name: 'Units by region' }).count() !== 1) throw new Error('the chart has no name for screen readers');
+  await view.getByRole('cell', { name: 'South' }).waitFor();
+  await ctx.close();
+});
 await step('the spreadsheet with pictures, published to the web: someone without an account sees each picture in its cell', async () => {
   const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
   if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');

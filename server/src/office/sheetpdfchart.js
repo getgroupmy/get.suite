@@ -135,3 +135,26 @@ export function drawChart(page, chart, data, { x, y, w, h }, font, safe = (t) =>
     });
   });
 }
+
+/**
+ * The same chart as an SVG picture (for web pages and e-books): drawChart onto a stand-in page that writes SVG
+ * instead of PDF, `width` × `height` pixels. Null when it has no numbers. Text widths are estimated (no font files).
+ */
+export function chartSvg({ title = '', chartType = 'column', data } = {}, width = 560, height = 320) {
+  const d = plottable(data);
+  if (!d) return null;
+  const H = height, out = [];
+  const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const hex = (c) => (c ? `#${[c.red, c.green, c.blue].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('')}` : 'none');
+  const n = (v) => Math.round(v * 100) / 100;
+  const page = {
+    drawRectangle: ({ x, y, width: w, height: h, color, borderColor, borderWidth, opacity }) => out.push(`<rect x="${n(x)}" y="${n(H - y - h)}" width="${n(w)}" height="${n(h)}" fill="${hex(color)}"${borderColor ? ` stroke="${hex(borderColor)}" stroke-width="${n(borderWidth || 1)}"` : ''}${opacity !== undefined ? ` fill-opacity="${opacity}"` : ''}/>`),
+    drawText: (t, { x, y, size, color }) => out.push(`<text x="${n(x)}" y="${n(H - y)}" font-size="${n(size)}" fill="${hex(color)}" font-family="Helvetica, Arial, sans-serif">${esc(t)}</text>`),
+    drawLine: ({ start, end, thickness, color }) => out.push(`<line x1="${n(start.x)}" y1="${n(H - start.y)}" x2="${n(end.x)}" y2="${n(H - end.y)}" stroke="${hex(color)}" stroke-width="${n(thickness || 1)}"/>`),
+    drawCircle: ({ x, y, size, color }) => out.push(`<circle cx="${n(x)}" cy="${n(H - y)}" r="${n(size)}" fill="${hex(color)}"/>`),
+    drawSvgPath: (p, { x = 0, y = 0, color, borderColor, borderWidth, opacity }) => out.push(`<path transform="translate(${n(x)} ${n(H - y)})" d="${esc(p)}" fill="${hex(color)}"${borderColor ? ` stroke="${hex(borderColor)}" stroke-width="${n(borderWidth || 1)}"` : ''}${opacity !== undefined ? ` fill-opacity="${opacity}"` : ''}/>`),
+  };
+  const font = { widthOfTextAtSize: (t, size) => String(t).length * size * 0.52 };
+  drawChart(page, { type: chartType, title }, d, { x: 0.5, y: H - 0.5, w: width - 1, h: height - 1 }, font, (t) => t, { scale: Math.max(1, width / 400) });
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${esc(title || 'Chart')}">${out.join('')}</svg>`;
+}
