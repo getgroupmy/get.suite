@@ -301,6 +301,20 @@ b = io.BytesIO(); P.new('RGB', (960, 480), (30, 120, 220)).save(b, 'PNG'); sys.s
   if (saved.alt !== 'Team day' || saved.w !== 480) throw new Error(JSON.stringify(saved));
   await liam.close();
 });
+await step('the spreadsheet with a picture, downloaded as PDF: the picture is on its page (read by pypdf)', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Team photo');
+  if (!f) throw new Error('no Team photo spreadsheet (the step before failed)');
+  const pdf = await page.evaluate(async (id) => { const r = await fetch(`/api/files/${id}/export?format=pdf`); const b = new Uint8Array(await r.arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return [r.headers.get('content-type'), btoa(s)]; }, f.id);
+  if (!/pdf/.test(pdf[0])) throw new Error(pdf[0]);
+  const r = spawnSync('python3', ['-I', '-c', `
+import sys, io, json, base64, pypdf
+print(json.dumps([[n, list(i.image.size)] for n, pg in enumerate(pypdf.PdfReader(io.BytesIO(base64.b64decode(sys.stdin.read()))).pages) for i in pg.images]))
+`], { input: pdf[1] });
+  if (r.status !== 0) { console.log('(no pypdf here: skipped)'); return; }
+  const got = JSON.parse(String(r.stdout));
+  if (JSON.stringify(got) !== JSON.stringify([[0, [960, 480]]])) throw new Error(`the pictures in the PDF: ${JSON.stringify(got)}`); // (none: pictures weren't drawn)
+});
 await step('a Word file made by python-docx: an item in its "List Bullet 2" style opens a level down', async () => {
   const { spawnSync } = await import('node:child_process');
   const r = spawnSync('python3', ['-I', '-c', `

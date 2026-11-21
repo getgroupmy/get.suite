@@ -36,7 +36,7 @@ export async function combine(parts) {
         if (out.getPageCount() + src.getPageCount() > MAX_PAGES) throw new Error(`At most ${MAX_PAGES} pages`);
         for (const page of await out.copyPages(src, src.getPageIndices())) out.addPage(page);
       } else {
-        const img = p.type === 'png' ? await out.embedPng(p.bytes) : await out.embedJpg(p.bytes);
+        const img = p.type === 'png' ? await out.embedPng(new Uint8Array(p.bytes)) : await out.embedJpg(new Uint8Array(p.bytes));
         const wide = img.width > img.height;
         const [w, h] = wide ? [A4[1], A4[0]] : A4;
         const margin = 36, scale = Math.min((w - 2 * margin) / img.width, (h - 2 * margin) / img.height, 1);

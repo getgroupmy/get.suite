@@ -169,7 +169,7 @@ async function layout(doc, title, { pictureData, setup = null, author = '', lang
     if (!pictures.has(id)) {
       const got = await pictureData?.(id);
       let img = null;
-      try { img = got && /png/.test(got.mime) ? await pdf.embedPng(got.data) : got && /jpe?g/.test(got.mime) ? await pdf.embedJpg(got.data) : null; } catch { img = null; }
+      try { img = got && /png/.test(got.mime) ? await pdf.embedPng(new Uint8Array(got.data)) : got && /jpe?g/.test(got.mime) ? await pdf.embedJpg(new Uint8Array(got.data)) : null; } catch { img = null; }
       pictures.set(id, img);
     }
     const img = pictures.get(id);

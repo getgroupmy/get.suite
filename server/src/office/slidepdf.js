@@ -31,7 +31,7 @@ export async function pdfFromDeck(deck, title = 'Presentation', { pictureData, a
     if (!images.has(id)) {
       const got = await pictureData?.(id);
       let img = null;
-      try { img = got && /png/.test(got.mime) ? await pdf.embedPng(got.data) : got && /jpe?g/.test(got.mime) ? await pdf.embedJpg(got.data) : null; } catch { img = null; }
+      try { img = got && /png/.test(got.mime) ? await pdf.embedPng(new Uint8Array(got.data)) : got && /jpe?g/.test(got.mime) ? await pdf.embedJpg(new Uint8Array(got.data)) : null; } catch { img = null; }
       images.set(id, img);
     }
     return images.get(id);

@@ -86,3 +86,87 @@ test('25 random documents as PDF: the outline (headings, levels, pages), the lin
   });
   assert.deepEqual(wrong.slice(0, 10), []);
 });
+
+test('spreadsheet PDFs: 15 random sheets with pictures, read by pdfplumber: each picture on the page with its cell, its corner in that cell, its shape kept', { skip: !hasPy && 'no pypdf/pdfplumber here' }, async () => {
+  const { pdfFromSheet } = await import('../src/office/sheetpdf.js');
+  const { spawnSync: run } = await import('node:child_process');
+  const pil = run('python3', ['-c', 'import PIL']).status === 0;
+  if (!pil) return;
+  let s = Number(process.env.SEED) || 20261121;
+  const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const int = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  const L = (i) => String.fromCharCode(65 + i);
+  for (let n = 0; n < 15; n++) {
+    const colWidths = {}, rowHeights = {};
+    for (let c = 0; c < 14; c++) if (rnd() < 0.3) colWidths[L(c)] = int(50, 220);
+    for (let r = 1; r <= 80; r++) if (rnd() < 0.1) rowHeights[String(r)] = int(20, 60);
+    const cells = {}, pictures = {}, want = [];
+    const colX = (c) => { let x = 0; for (let k = 0; k < c; k++) x += colWidths[L(k)] ?? 100; return x; };
+    const rowY = (r) => { let y = 0; for (let k = 1; k <= r; k++) y += rowHeights[String(k)] ?? 24; return y; };
+    for (let k = 0; k < int(1, 4); k++) {
+      const c = int(0, 13), r = int(0, 79), key = `${L(c)}${r + 1}`;
+      if (cells[key]) continue;
+      cells[key] = key; // (the cell says which it is)
+      const w = int(10, 180), h = int(10, 120);
+      const ox = int(0, (colWidths[L(c)] ?? 100) - 6), oy = int(0, (rowHeights[String(r + 1)] ?? 24) - 6);
+      pictures[`p${k}`] = { file: `f${k}`, x: 46 + colX(c) + ox, y: 24 + rowY(r) + oy, w, h, kind: rnd() < 0.5 ? 'PNG' : 'JPEG' };
+      want.push({ key, w, h });
+    }
+    const data = JSON.parse(run('python3', ['-I', '-c', `
+import sys, json, io, base64
+from PIL import Image
+out = {}
+for k, p in json.load(sys.stdin).items():
+    b = io.BytesIO(); Image.new('RGB', (p['w'], p['h']), (30, 90, 200)).save(b, p['kind']); out[p['file']] = [base64.b64encode(b.getvalue()).decode(), 'image/png' if p['kind'] == 'PNG' else 'image/jpeg']
+print(json.dumps(out))`], { input: JSON.stringify(pictures) }).stdout);
+    const sheet = { name: 'Sheet1', cells, colWidths, rowHeights, pictures: Object.fromEntries(Object.entries(pictures).map(([k, { kind, ...p }]) => [k, p])) };
+    const pdf = await pdfFromSheet({ sheets: [sheet] }, 'Pictures', { pictureData: async (id) => ({ data: Buffer.from(data[id][0], 'base64'), mime: data[id][1] }) });
+    const seen = python(`
+import sys, json, io, base64, pdfplumber
+out = []
+with pdfplumber.open(io.BytesIO(base64.b64decode(sys.stdin.read()))) as pdf:
+    for page in pdf.pages:
+        words = page.extract_words()
+        rects = [r for r in page.rects if r['width'] > 5 and r['height'] > 5]
+        for im in page.images:
+            x, t = im['x0'] + 0.3, im['top'] + 0.3
+            cell = [r for r in rects if r['x0'] <= x < r['x1'] and r['top'] <= t < r['bottom']]
+            label = [w['text'] for w in words if cell and cell[0]['x0'] <= w['x0'] < cell[0]['x1'] and cell[0]['top'] <= w['top'] < cell[0]['bottom']]
+            out.append({ 'page': page.page_number, 'label': label, 'w': im['width'], 'h': im['height'] })
+print(json.dumps(out))`, pdf.toString('base64'));
+    // The pictures themselves, by pypdf (pdfplumber gives two plain one-colour JPEGs on a page the first one's size).
+    const sources = python(`
+import sys, io, json, base64, pypdf
+print(json.dumps(sorted([list(i.image.size) for pg in pypdf.PdfReader(io.BytesIO(base64.b64decode(sys.stdin.read()))).pages for i in pg.images])))`, pdf.toString('base64'));
+    assert.deepEqual(sources, want.map((w) => [w.w, w.h]).sort((a, b) => a[0] - b[0] || a[1] - b[1]), `sheet ${n}: the pictures themselves, each once ${JSON.stringify(sheet)}`);
+    assert.equal(seen.length, want.length, `sheet ${n}: every picture drawn once (${JSON.stringify(seen)})`);
+    for (const w of want) {
+      const got = seen.find((g) => g.label.includes(w.key));
+      assert.ok(got, `sheet ${n}: the picture of ${w.key} has its corner in ${w.key}: ${JSON.stringify(seen)} ${JSON.stringify(sheet.pictures)}`);
+      assert.ok(Math.abs(got.w / got.h - w.w / w.h) < 0.02 && got.w <= w.w * 0.75 + 0.5, `sheet ${n}: its shape kept, at most 3/4 size: ${JSON.stringify(got)}`);
+    }
+  }
+});
+
+test('a small JPEG (under 4 KB, as Node reads it: a slice of a shared buffer) is in Docs, Slides and Sheets PDFs; pdf-lib took it for not a JPEG, and the picture was left out', { skip: !hasPy && 'no pypdf here' }, async () => {
+  const { spawnSync: run } = await import('node:child_process');
+  if (run('python3', ['-c', 'import PIL']).status !== 0) return;
+  const jpg = run('python3', ['-I', '-c', "import sys, io\nfrom PIL import Image\nb = io.BytesIO(); Image.new('RGB', (40, 30), (200, 60, 20)).save(b, 'JPEG'); sys.stdout.buffer.write(b.getvalue())"]).stdout;
+  const pooled = Buffer.from(jpg.toString('base64'), 'base64'); // (small buffers share Node's pool, as fs.readFileSync's do)
+  assert.ok(pooled.byteOffset > 0 || Buffer.poolSize < jpg.length, 'a slice of the shared pool');
+  const pictureData = async () => ({ data: pooled, mime: 'image/jpeg' });
+  const { pdfFromDoc } = await import('../src/office/pdfdoc.js');
+  const { pdfFromDeck } = await import('../src/office/slidepdf.js');
+  const { pdfFromSheet } = await import('../src/office/sheetpdf.js');
+  const made = {
+    doc: await pdfFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Logo:' }] }, { type: 'image', attrs: { fileId: 'logo', src: '/x' } }] }, 'D', { pictureData }),
+    slides: await pdfFromDeck({ slides: [{ id: 's', items: [{ id: 'i', type: 'image', fileId: 'logo', x: 10, y: 10, w: 30, h: 20 }] }] }, 'S', { pictureData }),
+    sheet: await pdfFromSheet({ sheets: [{ name: 'S', cells: { A1: 'x' }, pictures: { p: { file: 'logo', x: 46, y: 24, w: 40, h: 30 } } }] }, 'T', { pictureData }),
+  };
+  for (const [kind, pdf] of Object.entries(made)) {
+    const sizes = python(`
+import sys, io, json, base64, pypdf
+print(json.dumps([list(i.image.size) for pg in pypdf.PdfReader(io.BytesIO(base64.b64decode(sys.stdin.read()))).pages for i in pg.images]))`, pdf.toString('base64'));
+    assert.deepEqual(sizes, [[40, 30]], `${kind}: the picture`);
+  }
+});

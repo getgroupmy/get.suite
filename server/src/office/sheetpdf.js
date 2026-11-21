@@ -12,7 +12,7 @@ import { formatNumber } from '../sheetcalc/cellformat.js';
 const PW = 841.89, PH = 595.28, M = 28; // A4 landscape
 const hexRgb = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return null; const n = parseInt(m[1], 16); return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
 
-export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', lang = 'en' } = {}) {
+export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', lang = 'en', pictureData } = {}) {
   const pdf = await PDFDocument.create();
   pdf.setTitle(title);
   pdf.setCreator('Workspace');
@@ -32,6 +32,20 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
     // The used range: cells with something in them (spilled results too).
     let maxR = -1, maxC = -1;
     for (const k of [...Object.keys(sheet.cells || {}), ...(ev.spilledKeys?.() || [])]) { const p = parseRef(k); if (p && sheet.cells?.[k] !== '' ) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
+    // Pictures over the cells (PNG and JPEG, as PDFs take them): each on the page with the cell its corner is over,
+    // placed from that cell's corner, at three quarters of its size in pixels (as the columns are), made smaller to fit the page.
+    const pics = [];
+    for (const p of pictureData ? Object.values(sheet.pictures || {}).slice(0, 50) : []) {
+      let got = null, img = null;
+      try { got = p?.file ? await pictureData(p.file) : null; } catch { got = null; }
+      try { img = got && /png/.test(got.mime) ? await pdf.embedPng(new Uint8Array(got.data)) : got && /jpe?g/.test(got.mime) ? await pdf.embedJpg(new Uint8Array(got.data)) : null; } catch { img = null; }
+      if (!img) continue;
+      let c = 0, ox = Math.max(0, (Number(p.x) || 0) - 46), r = 0, oy = Math.max(0, (Number(p.y) || 0) - 24);
+      for (let w; c < 200 && ox >= (w = Number(sheet.colWidths?.[colName(c)]) || 100); c++) ox -= w;
+      for (let h; r < 5000 && oy >= (h = Number(sheet.rowHeights?.[String(r + 1)]) || 24); r++) oy -= h;
+      pics.push({ img, c, r, ox, oy: oy / (Number(sheet.rowHeights?.[String(r + 1)]) || 24), w: Math.max(8, Number(p.w) || 200), h: Math.max(8, Number(p.h) || 150), alt: p.alt });
+      maxR = Math.max(maxR, r); maxC = Math.max(maxC, c);
+    }
     maxR = Math.min(maxR, 5000); maxC = Math.min(maxC, 200);
     const hiddenRows = new Set((sheet.hide?.rows || []).map(Number)), hiddenCols = new Set((sheet.hide?.cols || []).map(Number));
     const rows = Array.from({ length: maxR + 1 }, (_, r) => r).filter((r) => !hiddenRows.has(r));
@@ -53,10 +67,13 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
         const page = fonts.page(pdf.addPage([PW, PH]));
         page.drawText(safe(sheets.length > 1 ? `${title} — ${sheet.name}` : title), { x: M, y: PH - M - 10, size: 11, font: F.b, color: rgb(0.2, 0.2, 0.2) });
         let y = PH - M - 22;
+        const rowTop = new Map(), colLeft = new Map();
         for (const r of [...head, ...body.slice(start, start + perPage)]) {
           let x = M;
+          rowTop.set(r, y);
           for (const c of group) {
             const k = `${colName(c)}${r + 1}`, f = formats[k] || {}, w = width(c);
+            colLeft.set(c, x);
             if (f.fill && hexRgb(f.fill)) page.drawRectangle({ x, y: y - rowH, width: w, height: rowH, color: hexRgb(f.fill) });
             page.drawRectangle({ x, y: y - rowH, width: w, height: rowH, borderColor: rgb(0.85, 0.85, 0.85), borderWidth: 0.4 });
             for (const [side, line] of [['t', [[x, y], [x + w, y]]], ['b', [[x, y - rowH], [x + w, y - rowH]]], ['l', [[x, y], [x, y - rowH]]], ['r', [[x + w, y], [x + w, y - rowH]]]]) {
@@ -77,6 +94,14 @@ export async function pdfFromSheet(data, title = 'Spreadsheet', { author = '', l
             x += w;
           }
           y -= rowH;
+        }
+        // (a frozen row's picture once, on the first page)
+        for (const p of pics) {
+          if (!rowTop.has(p.r) || !colLeft.has(p.c) || (start > 0 && head.includes(p.r))) continue;
+          const x0 = colLeft.get(p.c) + p.ox * 0.75, top = rowTop.get(p.r) - p.oy * rowH;
+          const k = Math.min(0.75, (PW - M - x0) / p.w, (top - M) / p.h);
+          if (k <= 0) continue;
+          page.drawImage(p.img, { x: x0, y: top - p.h * k, width: p.w * k, height: p.h * k });
         }
         if (groups.length > 1 || body.length > perPage) page.drawText(`Rows ${(body[start] ?? 0) + 1}–${(body[Math.min(start + perPage, body.length) - 1] ?? 0) + 1}, columns ${colName(group[0] ?? 0)}–${colName(group[group.length - 1] ?? 0)}`, { x: M, y: M - 14, size: 8, font: F.r, color: rgb(0.45, 0.45, 0.45) });
       }
