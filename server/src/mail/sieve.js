@@ -138,11 +138,21 @@ function rulesSieve(rules, labels = new Map()) {
   return out.join('\n');
 }
 
+/**
+ * A From address with its name, as mail needs it: a name with a ; " \ , ( ) < > : @ . [ ] (or any but letters, digits,
+ * spaces, ' and -) in quotes, so the reply's sender is one address. (Unquoted, Dovecot refused the whole script: every
+ * filter stopped, not only the reply.)
+ */
+export function fromHeader(name, address) {
+  const n = String(name ?? '').replace(/[\r\n\t]+/g, ' ').trim();
+  if (!n) return address;
+  return /^[\p{L}\p{N}\p{M} '-]+$/u.test(n) ? `${n} <${address}>` : `"${n.replace(/[\\"]/g, (c) => `\\${c}`)}" <${address}>`;
+}
 function vacationSieveBlock({ subject, body, start_date, end_date, name, username, addresses }) {
   const conds = ['string :is "${deleted}" ""'];
   if (start_date) conds.push(`currentdate :value "ge" "date" ${sieveString(start_date)}`);
   if (end_date) conds.push(`currentdate :value "le" "date" ${sieveString(end_date)}`);
-  const action = `vacation :days 1 :subject ${sieveString(subject || 'Out of office')} :from ${sieveString(`${name} <${username}>`)}`
+  const action = `vacation :days 1 :subject ${sieveString(subject || 'Out of office')} :from ${sieveString(fromHeader(name, username))}`
     + ` :addresses [${addresses.map(sieveString).join(', ')}] ${sieveString(body)};`;
   return `# Vacation auto-reply (not sent for mail a rule deleted)\nif allof(${conds.join(', ')}) {\n  ${action}\n}`;
 }

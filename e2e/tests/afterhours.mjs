@@ -30,6 +30,13 @@ const signIn = async (p, email) => {
   await p.getByRole('link', { name: 'Mail' }).click();
 };
 
+// A new message (one left open before comes back when Mail opens again: closed first, kept in Drafts).
+const compose = async () => {
+  const open = page.getByRole('dialog', { name: 'New message' });
+  await page.waitForTimeout(500);
+  if (await open.count()) { await open.getByRole('button', { name: 'Close' }).click(); await open.waitFor({ state: 'detached' }); }
+  await page.getByRole('button', { name: 'Compose' }).click();
+};
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -58,7 +65,7 @@ await step('after hours: writing to a colleague whose day is over says their loc
   const today = new Date().getUTCDay();
   const h = await api(kim, 'PUT', '/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today), start: 0, end: 1440, tz: 'UTC' } });
   if (h.status !== 200) throw new Error(`hours ${h.status}`);
-  await page.getByRole('button', { name: 'Compose' }).click();
+  await compose();
   await page.getByLabel('To', { exact: true }).fill('kim@acme.com');
   await page.getByLabel('Subject').fill('Plan for tomorrow');
   const note = page.locator('.compose-late');
@@ -88,7 +95,7 @@ await step('away: writing to a colleague whose vacation reply is on says so, wit
   const v = await api(lee, 'PUT', '/mail/vacation', { enabled: true, subject: 'At the trade fair', body: 'Back soon.', end_date: end });
   if (v.status !== 200) throw new Error(`vacation ${v.status}`);
   await page.goto(`${B}/mail`);
-  await page.getByRole('button', { name: 'Compose' }).click();
+  await compose();
   await page.getByLabel('To', { exact: true }).fill('lee@acme.com');
   await page.getByLabel('Subject').click();
   const note = page.locator('.compose-away');
@@ -104,7 +111,7 @@ await step('away: writing to a colleague whose vacation reply is on says so, wit
 });
 await step('a message to 25 people or more says how many it goes to', async () => {
   await page.goto(`${B}/mail`);
-  await page.getByRole('button', { name: 'Compose' }).click();
+  await compose();
   const many = Array.from({ length: 24 }, (_, i) => `person${i}@partner.example`).join(', ');
   await page.getByLabel('To', { exact: true }).fill(many);
   await page.getByLabel('Subject').click();
@@ -118,7 +125,7 @@ await step('Settings: tips while writing off hides the notes; back on, they show
   await page.getByRole('checkbox', { name: 'Show tips under the addresses as I write an email' }).uncheck();
   await page.getByText('Tips while writing are off').waitFor();
   await page.goto(`${B}/mail`);
-  await page.getByRole('button', { name: 'Compose' }).click();
+  await compose();
   const many = Array.from({ length: 25 }, (_, i) => `person${i}@partner.example`).join(', ');
   await page.getByLabel('To', { exact: true }).fill(many);
   await page.getByLabel('Subject').click();
@@ -129,7 +136,7 @@ await step('Settings: tips while writing off hides the notes; back on, they show
   await page.getByRole('checkbox', { name: 'Show tips under the addresses as I write an email' }).check();
   await page.getByText('Tips while writing are on').waitFor();
   await page.goto(`${B}/mail`);
-  await page.getByRole('button', { name: 'Compose' }).click();
+  await compose();
   await page.getByLabel('To', { exact: true }).fill(many);
   await page.getByLabel('Subject').click();
   await page.getByText('25 people').waitFor();

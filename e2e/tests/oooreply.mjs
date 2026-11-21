@@ -98,6 +98,9 @@ await step('an assistant drafts an email to everyone a document is shared with; 
   const r = await mcp('draft_email', { to_people_with_access: `file:${doc.id}`, to: 'kim@acme.com', subject: 'Offsite plan comments', body: 'Please add your comments by Friday.' });
   if (r.isError || r.structuredContent.to !== 'kim@acme.com, Lee Lane <lee@acme.com>') throw new Error(JSON.stringify(r)); // (Kim already there: not twice)
   await page.goto(`${B}/mail/Drafts`);
+  // (the draft opened in the step before comes back when Mail opens again: closed first)
+  await page.waitForTimeout(500);
+  for (const open of await page.getByRole('dialog').all()) { const close = open.getByRole('button', { name: 'Close' }); if (await close.count()) await close.first().click(); }
   await page.locator('.mail-list').getByText('Offsite plan comments', { exact: true }).first().click();
   const d = page.getByRole('dialog').filter({ hasText: 'Please add your comments by Friday.' }).first();
   await d.waitFor();
