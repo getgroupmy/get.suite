@@ -414,10 +414,13 @@ test('Word: a checklist gets boxes, ticked or not, and nested items indented', a
   ] }] };
   const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'List'))).file('word/document.xml').async('string');
   const text = xml.replace(/<[^>]+>/g, '');
-  assert.match(text, /☑ Book the room/);
+  assert.match(text, /☒ Book the room/); // (☒: Word's own ticked box, as pandoc has it)
   assert.match(text, /☐ Send the agenda/);
   assert.match(text, /☐ Ask Kim for numbers/);
-  assert.match(xml, /<w:ind w:left="720" w:hanging="280"\/>/, 'the nested one is indented further');
+  // (a list, whose bullet is a space: the nested one a level down, indented further by the list's level)
+  assert.match(xml.match(/<w:p>(?:(?!<\/w:p>).)*Ask Kim/)[0], /<w:ilvl w:val="1"\/>/, 'the nested one a level down');
+  const numbering = await (await JSZip.loadAsync(await wordFromDoc(doc, 'List'))).file('word/numbering.xml').async('string');
+  assert.match(numbering, /<w:lvl w:ilvl="1"[^>]*>(?:(?!<\/w:lvl>).)*<w:ind w:left="720" w:hanging="280"\/>/, 'indented further');
 });
 
 test('Word: boxed paragraphs come back as a checklist', async () => {

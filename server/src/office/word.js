@@ -497,6 +497,14 @@ function checklists(doc) {
     // (as Word has it from a Docs file: a list level with no bullet of its own, read as a list)
     const boxed = (li) => li.content?.[0]?.type === 'paragraph' && li.content[0].content?.[0]?.type === 'text' && BOX.test(li.content[0].content[0].text);
     let n;
+    // (a bulleted list where only some items start with a box: two lists side by side that came in as one, as mammoth joins
+    // neighbouring lists, a checklist after a bullet list from pandoc: each run of items its own list)
+    if (raw.type === 'bulletList' && raw.content?.length > 1 && raw.content.some(boxed) && !raw.content.every(boxed)) {
+      const runs = [];
+      for (const li of raw.content) { const b = boxed(li); if (runs.length && runs[runs.length - 1].b === b) runs[runs.length - 1].items.push(li); else runs.push({ b, items: [li] }); }
+      out.push(...checklists({ content: runs.map((r) => ({ ...raw, content: r.items })) }).content);
+      continue;
+    }
     if ((raw.type === 'bulletList' || raw.type === 'orderedList') && raw.content?.length && raw.content.every(boxed)) {
       n = { type: 'taskList', content: raw.content.map((li) => {
         const [p, ...more] = li.content, [t, ...after] = p.content, m = BOX.exec(t.text), rest = t.text.slice(m[0].length);
@@ -950,13 +958,14 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         const numbering = { reference: `numbers-${start}`, level, instance: ++listNo };
         for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering } });
       } else if (n.type === 'taskList') {
-        // A checklist: each item's first paragraph gets a box (☐, or ☑ when ticked); the rest follow indented.
+        // A checklist: each item's first paragraph gets a box (☐, or ☒ when ticked); the rest follow indented.
         const level = (ctx.level ?? -1) + 1;
         for (const li of n.content || []) {
           const [first, ...rest] = li.content || [];
-          const box = new TextRun({ text: li.attrs?.checked ? '☑ ' : '☐ ' });
-          // (inside a list: a level of it with no bullet of its own, so it stays in the list in Word and when read back)
-          const inList = { indent: { left: 360 * (level + 1), hanging: 280 }, ...(level > 0 && { numbering: { reference: 'checklist', level } }) };
+          const box = new TextRun({ text: li.attrs?.checked ? '☒ ' : '☐ ' }); // (☒: Word's own ticked box, as pandoc writes and reads it)
+          // (a list level with no bullet of its own, so it's a list in Word and when read back, pandoc's reading included:
+          // indented paragraphs alone read as a quote there)
+          const inList = { numbering: { reference: 'checklist', level } }; // (its indent the list level's: one of its own reads as a quote in pandoc)
           paras.push(new Paragraph({ children: [box, ...runs(first?.type === 'paragraph' ? first.content : [])], ...inList }));
           walk(first?.type === 'paragraph' ? rest : li.content, { level });
         }
@@ -1032,7 +1041,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       ...(c.parentId !== undefined && { parentId: c.parentId }), ...(c.resolved && { resolved: true }),
       children: String(c.text || '').split('\n').map((line) => new Paragraph(line)),
     })) } }),
-    numbering: { config: [{ reference: 'checklist', levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.NONE, text: '', alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 280 } } } })) }, ...[...new Set([1, ...starts])].map((start) => ({ reference: `numbers-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }))] },
+    numbering: { config: [{ reference: 'checklist', levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.BULLET, text: ' ', alignment: AlignmentType.START, style: { paragraph: { indent: { left: 360 * (level + 1), hanging: 280 } } } })) }, ...[...new Set([1, ...starts])].map((start) => ({ reference: `numbers-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }))] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
     styles: {
       default: {

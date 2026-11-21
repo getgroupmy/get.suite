@@ -281,11 +281,13 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
       else if (t === 'bulletList' || t === 'orderedList') {
         const start = t === 'orderedList' ? Math.max(1, Math.min(9999, Math.round(Number(n.attrs?.start) || 1))) : 1; // (a numbered list's first number)
         out += `<text:list text:style-name="${t === 'orderedList' ? 'LNum' : 'LBul'}">${(n.content || []).map((li, i) => `<text:list-item${i === 0 && start > 1 ? ` text:start-value="${start}"` : ''}>${blocks(li.content, ctx)}</text:list-item>`).join('')}</text:list>`;
-      } else if (t === 'taskList') {
+      } else if (t === 'taskList') { // (a list whose bullet is a space, each item starting with its box: a list to LibreOffice and pandoc)
+        out += '<text:list text:style-name="LTask">';
         for (const li of n.content || []) {
           const [first, ...rest] = li.content || [];
-          out += `<text:p text:style-name="Standard">${li.attrs?.checked ? '☑' : '☐'}<text:s/>${first?.type === 'paragraph' ? keepSpaces(inline(first.content)) : ''}</text:p>${blocks(first?.type === 'paragraph' ? rest : li.content, ctx)}`; // (the space after the box as <text:s/>: an item's own leading spaces aren't folded into it)
+          out += `<text:list-item><text:p text:style-name="Standard">${li.attrs?.checked ? '☒' : '☐'}<text:s/>${first?.type === 'paragraph' ? keepSpaces(inline(first.content)) : ''}</text:p>${blocks(first?.type === 'paragraph' ? rest : li.content, ctx)}</text:list-item>`; // (the space after the box as <text:s/>: an item's own leading spaces aren't folded into it)
         }
+        out += '</text:list>';
       } else if (t === 'blockquote') out += blocks(n.content, { ...ctx, style: 'Quotations' });
       else if (t === 'codeBlock') out += `<text:p text:style-name="Preformatted_20_Text">${odfText((n.content || []).map((c) => c.text).join(''))}</text:p>`;
       else if (t === 'horizontalRule') out += '<text:p text:style-name="Horizontal_20_Line"/>';
@@ -392,6 +394,7 @@ export async function odtFromDoc(doc, title = 'Document', { pictureData, page = 
 <style:style style:name="Tbl" style:family="table"><style:table-properties style:width="17cm" table:align="margins"/></style:style>
 <style:style style:name="Cell" style:family="table-cell"><style:table-cell-properties fo:padding="0.1cm" fo:border="0.5pt solid #999999"/></style:style>
 <text:list-style style:name="LBul">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-bullet text:level="${l}" text:bullet-char="${'•◦▪'[(l - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-bullet>`).join('')}</text:list-style>
+<text:list-style style:name="LTask">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-bullet text:level="${l}" text:bullet-char=" "><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-bullet>`).join('')}</text:list-style>
 <text:list-style style:name="LNum">${[1, 2, 3, 4, 5, 6].map((l) => `<text:list-level-style-number text:level="${l}" style:num-suffix="." style:num-format="${['1', 'a', 'i'][(l - 1) % 3]}"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="${0.63 * l}cm" fo:text-indent="-0.63cm" fo:margin-left="${0.63 * l}cm"/></style:list-level-properties></text:list-level-style-number>`).join('')}</text:list-style>
 </office:automatic-styles><office:body><office:text>${changedRegions.length ? `<text:tracked-changes text:track-changes="false">${changedRegions.join('')}</text:tracked-changes>` : ''}${body}</office:text></office:body></office:document-content>`;
   const styles = `<?xml version="1.0" encoding="UTF-8"?>

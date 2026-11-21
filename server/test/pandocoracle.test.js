@@ -36,27 +36,31 @@ function block(depth = 0) {
   const r = rnd();
   if (r < 0.4 || depth > 1) return P();
   if (r < 0.55) return { type: 'heading', attrs: { level: 1 + Math.floor(rnd() * 3) }, content: words() };
+  if (r < 0.62 && !depth) return { type: 'taskList', content: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ type: 'taskItem', attrs: { checked: rnd() < 0.5 }, content: [P()] })) };
   if (r < 0.85) return { type: pick(['bulletList', 'orderedList']), content: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ type: 'listItem', content: [P(), ...(rnd() < 0.3 ? [{ type: pick(['bulletList', 'orderedList']), content: [{ type: 'listItem', content: [P()] }] }] : [])] })) };
   if (r < 0.92 || depth) return { type: 'blockquote', content: [P(), ...(rnd() < 0.3 ? [P()] : [])] };
   if (r < 0.96) return { type: 'codeBlock', attrs: { language: null }, content: [{ type: 'text', text: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => words().map((t) => t.text).join('')).join('\n') }] };
   const cols = 2 + Math.floor(rnd() * 2);
   return { type: 'table', content: Array.from({ length: 2 + Math.floor(rnd() * 2) }, (_, r) => ({ type: 'tableRow', content: Array.from({ length: cols }, () => ({ type: r ? 'tableCell' : 'tableHeader', content: [P()] })) })) };
 }
-const randomDocs = (n, start) => (seed = BASE + start, Array.from({ length: n }, () => ({ type: 'doc', content: Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => block()) })));
+// (two code blocks one after the other are one in a Word file, as anyone reads it: joined here too)
+const joinCode = (list) => list.reduce((out, b) => { const last = out[out.length - 1]; if (b.type === 'codeBlock' && last?.type === 'codeBlock') last.content[0].text += `\n${b.content[0].text}`; else out.push(b); return out; }, []);
+const randomDocs = (n, start) => (seed = BASE + start, Array.from({ length: n }, () => ({ type: 'doc', content: joinCode(Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => block())) })));
 
 // ---- a document as lines to compare: "• • h2: word{bold} word{}" (nesting, kind, each word with its look) ----
 const markName = (m) => (m.type === 'link' ? `link:${m.attrs.href}` : m.type);
 function ourShape(doc) {
   const lines = [];
-  const walk = (n, path) => {
+  const walk = (n, path, tick = null) => {
+    if (n.type === 'taskItem') { (n.content || []).forEach((c, k) => walk(c, path, k ? null : n.attrs?.checked ? '☒' : '☐')); return; } // (as pandoc has a checklist: bullets starting ☐ or ☒)
     if (n.type === 'paragraph' || n.type === 'heading') {
-      const ws = [];
+      const ws = tick ? [`${tick}{}`] : [];
       for (const t of n.content || []) for (const part of String(t.text || '').split(/(\s+)/)) if (part && !/^\s+$/.test(part)) ws.push(`${part}{${(t.marks || []).map(markName).sort().join(',')}}`);
       lines.push(`${path.join('')}${n.type === 'heading' ? `h${n.attrs.level}` : 'p'}: ${ws.join(' ')}`);
       return;
     }
     if (n.type === 'codeBlock') { lines.push(`${path.join('')}code: ${(n.content || []).map((c) => c.text).join('')}`); return; }
-    const mark = { bulletList: '•', orderedList: '#', blockquote: '>', table: 'T' }[n.type];
+    const mark = { bulletList: '•', taskList: '•', orderedList: '#', blockquote: '>', table: 'T' }[n.type];
     for (const c of n.content || []) walk(c, mark ? [...path, mark] : path);
   };
   walk(doc.doc || doc, []);

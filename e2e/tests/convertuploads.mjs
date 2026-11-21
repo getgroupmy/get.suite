@@ -112,7 +112,7 @@ await step('a Word file with a space each side of where bold starts, and a sugge
 await step('Word and OpenDocument files made by pandoc (from Markdown) open with their quotes, code, lists and headings', async () => {
   const { spawnSync } = await import('node:child_process');
   if (spawnSync('pandoc', ['--version']).status !== 0) { console.log('(no pandoc here: skipped)'); return; }
-  const md = '## Plan\n\n> Quoted words\n\nRun `npm test` first.\n\n- Fruit\n  1. Apples\n  2. Pears\n\n```\nnpm install\nnpm test\n```\n';
+  const md = '## Plan\n\n> Quoted words\n\nRun `npm test` first.\n\n- Fruit\n  1. Apples\n  2. Pears\n\n```\nnpm install\nnpm test\n```\n\n- [ ] Open item\n- [x] Done item\n\n* Plain bullet\n';
   for (const [ext, mime] of [['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], ['odt', 'application/vnd.oasis.opendocument.text']]) {
     const buf = spawnSync('pandoc', ['-f', 'gfm', '-t', ext], { input: md }).stdout;
     await page.goto(`${B}/drive`);
@@ -126,6 +126,9 @@ await step('Word and OpenDocument files made by pandoc (from Markdown) open with
     await ed.locator('blockquote', { hasText: 'Quoted words' }).waitFor();
     await ed.locator('p code', { hasText: 'npm test' }).waitFor();
     await ed.locator('ul ol li', { hasText: 'Apples' }).waitFor();
+    // a checklist, and the bullet list after it apart from it (they came in as one list, the box nested in a bullet)
+    const lists = await ed.locator(':scope > ul').evaluateAll((l) => l.map((u) => `${u.getAttribute('data-type') || 'ul'}:${u.querySelectorAll(':scope > li').length}`));
+    if (JSON.stringify(lists.slice(-2)) !== JSON.stringify(['taskList:2', 'ul:1'])) throw new Error(`${ext}: lists ${JSON.stringify(lists)}`);
     const pres = await ed.locator('pre').evaluateAll((l) => l.map((p) => p.textContent));
     if (JSON.stringify(pres) !== JSON.stringify(['npm install\nnpm test'])) throw new Error(`${ext}: code block ${JSON.stringify(pres)}`); // (a block a line from .odt; paragraphs of code from .docx)
   }

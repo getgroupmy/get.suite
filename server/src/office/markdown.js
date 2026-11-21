@@ -53,14 +53,18 @@ const cell = (c, notes) => (c.content || []).map((p) => inline(p.content, notes)
 
 function blocks(nodes = [], notes, indent = '') {
   const out = [];
+  let prevMark = null; // a list right after another of its kind changes its marker (- for *, 1. for 1)): one list to any reader otherwise
   for (const n of nodes) {
     const t = n.type;
+    const ordered = t === 'orderedList', listy = ordered || t === 'bulletList' || t === 'taskList';
+    const mark = !listy ? null : ordered ? (prevMark === '.' ? ')' : '.') : (prevMark === '-' ? '*' : '-');
+    prevMark = mark;
     if (t === 'paragraph') out.push(indent + inline(n.content, notes));
     else if (t === 'heading') out.push(`${'#'.repeat(Math.min(6, n.attrs?.level || 1))} ${inline(n.content, notes)}`);
     else if (t === 'bulletList' || t === 'orderedList' || t === 'taskList') {
       const lines = [];
       (n.content || []).forEach((li, i) => {
-        const marker = t === 'orderedList' ? `${(n.attrs?.start || 1) + i}.` : t === 'taskList' ? `- [${li.attrs?.checked ? 'x' : ' '}]` : '-';
+        const marker = t === 'orderedList' ? `${(n.attrs?.start || 1) + i}${mark}` : t === 'taskList' ? `${mark} [${li.attrs?.checked ? 'x' : ' '}]` : mark;
         const [first, ...rest] = li.content || [];
         const head = first?.type === 'paragraph' ? inline(first.content, notes) : '';
         lines.push(`${indent}${marker} ${head}`);
@@ -206,6 +210,7 @@ function parseBlocks(lines, notes) {
       while (i < lines.length) {
         const lm = LIST_RE.exec(lines[i]);
         if (!lm || lm[1].length !== base || /\d/.test(lm[2]) !== ordered) break;
+        if (lm[2].replace(/\d+/, '') !== m[2].replace(/\d+/, '')) break; // (another bullet, or ) for ., starts another list)
         const body = [lm[3]];
         for (i++; i < lines.length; i++) {
           const l = lines[i];

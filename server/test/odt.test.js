@@ -35,7 +35,7 @@ test('OpenDocument text out: a file LibreOffice opens, with styles, lists, notes
   assert.match(xml, /<text:a xlink:type="simple" xlink:href="https:\/\/a\.example\/x\?y=1&amp;z=2">a link<\/text:a>/);
   assert.match(xml, /<text:note [^>]*text:note-class="footnote"><text:note-citation>1<\/text:note-citation><text:note-body><text:p[^>]*>Source: survey/);
   assert.match(xml, /<text:list text:style-name="LNum"><text:list-item><text:p[^>]*>one<\/text:p><text:list text:style-name="LBul">/);
-  assert.match(xml, /☑(?: |<text:s\/>)done[\s\S]*☐(?: |<text:s\/>)to do/); // (the space after a box: <text:s/>, so an item's own leading spaces aren't folded into it)
+  assert.match(xml, /☒(?: |<text:s\/>)done[\s\S]*☐(?: |<text:s\/>)to do/); // (the space after a box: <text:s/>, so an item's own leading spaces aren't folded into it)
   assert.match(xml, /text:style-name="Quotations">quoted/);
   assert.match(xml, /let <text:s text:c="1"\/>x = 1;/, 'runs of spaces kept');
   assert.match(xml, /@Kim Park[\s\S]*9 Nov 2026[\s\S]*Budget/);
