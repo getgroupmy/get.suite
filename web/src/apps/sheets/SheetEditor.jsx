@@ -16,7 +16,7 @@ import { EditorHeader, ReadOnlyBanner } from '../editorCommon.jsx';
 import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { PictureCard } from './SheetPictures.jsx';
-import { movePictures, anchorOf } from './pictures.js';
+import { movePictures, anchorOf, toScreen, fromScreen } from './pictures.js';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
 import { removeDuplicates, splitColumn, trimText, changeCase, mapText, shuffleRows } from './data.js';
@@ -569,7 +569,7 @@ export default function SheetEditor() {
     let x = 160, y = 40;
     if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(), z = zRef.current; x = (a.left - b.left + wrap.scrollLeft) / z + 12; y = (a.top - b.top + wrap.scrollTop) / z; }
     const cid = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
-    setDialog({ type: 'chart', chart: { id: null, newId: cid, type: 'column', range: rangeText(g), title: '', x: Math.round(x), y: Math.round(y), w: 480, h: 300 } });
+    setDialog({ type: 'chart', chart: { id: null, newId: cid, type: 'column', range: rangeText(g), title: '', ...keptAt({ x: Math.round(x), y: Math.round(y) }), w: 480, h: 300 } }); // (placed on the sheet as shown)
   }
 
   /** Insert or delete rows or columns on this sheet ({ axis, at, count }; count < 0 deletes). */
@@ -920,6 +920,12 @@ export default function SheetEditor() {
     writeSheet(() => ({ filter: { range: rangeText(g), hidden: {} } }));
     gridRef.current?.focus();
   };
+  // Pictures, charts and slicers are kept against all rows and columns (as Excel keeps them, and the downloads read them);
+  // on the sheet, hidden and filtered-out ones take no room, so each is shown, and dragged, over the same cell.
+  const sizes = { colWidths, rowHeights: sheet?.rowHeights || {} };
+  const hiddenRC = { rows: hidden, cols: hiddenCols };
+  const shownAt = (p) => toScreen(p, sizes, hiddenRC);
+  const keptAt = (p) => fromScreen(p, sizes, hiddenRC);
   /** For printing: the pictures and charts over the printed cells, each in the cell its corner is over (a chart as drawn on the sheet). */
   function printOverlays(area) {
     const out = [];
@@ -953,7 +959,7 @@ export default function SheetEditor() {
       try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
       const id = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
       const alt = f.name.replace(/\.[^.]+$/, '').slice(0, 200);
-      writePicture(id, { file: up.id, ...(alt && { alt }), x: Math.round(x), y: Math.round(y), w: Math.max(8, Math.round(nw * k)), h: Math.max(8, Math.round(nh * k)) });
+      writePicture(id, { file: up.id, ...(alt && { alt }), ...keptAt({ x: Math.round(x), y: Math.round(y) }), w: Math.max(8, Math.round(nw * k)), h: Math.max(8, Math.round(nh * k)) });
     } catch (e) { toast(e.message, 'error'); }
     gridRef.current?.focus();
   }
@@ -967,7 +973,7 @@ export default function SheetEditor() {
     let x = 160, y = 40;
     if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(), z = zRef.current; x = (a.left - b.left + wrap.scrollLeft) / z + 12; y = (a.top - b.top + wrap.scrollTop) / z; }
     const id = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
-    writeSheet((s) => ({ slicers: { ...(s.slicers || {}), [id]: { range: rangeText(g), col, hidden: [], x: Math.round(x), y: Math.round(y) } } }));
+    writeSheet((s) => ({ slicers: { ...(s.slicers || {}), [id]: { range: rangeText(g), col, hidden: [], ...keptAt({ x: Math.round(x), y: Math.round(y) }) } } }));
     toast(`Slicer added for ${display(evaluate(`${col}${g.r1 + 1}`)) || `column ${col}`}: click it to choose what to show`);
     gridRef.current?.focus();
   };
@@ -1550,12 +1556,12 @@ export default function SheetEditor() {
         {handleAt && <span className="fill-handle" style={{ left: handleAt.left, top: handleAt.top }} onMouseDown={startFill} title="Drag to fill (Ctrl+D fills down, Ctrl+R right)" aria-hidden="true" />}
         <div className="chart-layer">
           {Object.entries(pictures).map(([pid, pic]) => (
-            <PictureCard key={pid} zoom={zoom / 100} fileId={file.id} picture={pic} canEdit={!readOnly}
-              onChange={(next) => writePicture(pid, next)} onDelete={() => writePicture(pid, null)} onAlt={() => setDialog({ type: 'picture-alt', id: pid })} />
+            <PictureCard key={pid} zoom={zoom / 100} fileId={file.id} picture={shownAt(pic)} canEdit={!readOnly}
+              onChange={(next) => writePicture(pid, keptAt(next))} onDelete={() => writePicture(pid, null)} onAlt={() => setDialog({ type: 'picture-alt', id: pid })} />
           ))}
           {Object.entries(charts).map(([cid, ch]) => (
-            <ChartCard key={cid} id={cid} zoom={zoom / 100} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
-              onChange={(next) => writeChart(cid, next)}
+            <ChartCard key={cid} id={cid} zoom={zoom / 100} chart={shownAt(ch)} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
+              onChange={(next) => writeChart(cid, keptAt(next))}
               onEdit={() => setDialog({ type: 'chart', chart: { ...ch, id: cid } })}
               onDelete={() => writeChart(cid, null)} />
           ))}
@@ -1564,9 +1570,9 @@ export default function SheetEditor() {
             if (!g) return null;
             const headings = Array.from({ length: g.c2 - g.c1 + 1 }, (_, i) => ({ col: colName(g.c1 + i), name: display(evaluate(cellKey(g.c1 + i, g.r1))) }));
             return (
-              <SlicerCard key={id} zoom={zoom / 100} slicer={sl} heading={headings.find((h) => h.col === sl.col)?.name || `Column ${sl.col}`} headings={headings} canEdit={!readOnly}
+              <SlicerCard key={id} zoom={zoom / 100} slicer={shownAt(sl)} heading={headings.find((h) => h.col === sl.col)?.name || `Column ${sl.col}`} headings={headings} canEdit={!readOnly}
                 values={columnValues(slicerAsFilter(sl), cells, evaluate, colIndex(sl.col))}
-                onChange={(next) => writeSlicer(id, next)} onDelete={() => writeSlicer(id, null)} />
+                onChange={(next) => writeSlicer(id, keptAt(next))} onDelete={() => writeSlicer(id, null)} />
             );
           })}
         </div>

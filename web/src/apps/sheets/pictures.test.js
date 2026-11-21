@@ -67,3 +67,28 @@ test('charts and slicers move with their cells too; one with no place of its own
   const wider = applyStructure(sheet, { axis: 'col', at: 0, count: 1 });
   assert.equal(wider.charts.c.x, 251 + 100, 'a column before: 100 pixels on');
 });
+
+test('hidden and filtered-out rows and columns take no room on the sheet: a picture shows over the same cell, as far in, and is kept against all of them', async () => {
+  const { toScreen, fromScreen } = await import('./pictures.js');
+  for (let n = 0; n < 300; n++) {
+    const colWidths = {}, rowHeights = {};
+    for (let c = 0; c < 10; c++) if (rnd() < 0.3) colWidths[colName(c)] = int(30, 200);
+    for (let r = 1; r <= 40; r++) if (rnd() < 0.2) rowHeights[String(r)] = int(16, 80);
+    const sizes = { colWidths, rowHeights };
+    const rows = new Set(Array.from({ length: int(0, 8) }, () => int(0, 35))), cols = new Set(Array.from({ length: int(0, 3) }, () => int(0, 8)));
+    const p = { x: 46 + int(0, 900), y: 24 + int(0, 800), w: 50, h: 40 };
+    const a = anchorOf(p, colWidths, rowHeights);
+    if (rows.has(a.row) || cols.has(a.col)) continue; // (its own cell shown: the rest is checked below)
+    const shown = toScreen(p, sizes, { rows, cols });
+    // On the sheet as shown, it's that far from its cell's corner, which is the sum of the rows and columns shown before it.
+    let x = 46, y = 24;
+    for (let c = 0; c < a.col; c++) if (!cols.has(c)) x += colWidths[colName(c)] ?? 100;
+    for (let r = 0; r < a.row; r++) if (!rows.has(r)) y += rowHeights[String(r + 1)] ?? 24;
+    assert.deepEqual([shown.x, shown.y], [Math.round(x + a.dx), Math.round(y + a.dy)], JSON.stringify({ p, a, rows: [...rows], cols: [...cols] }));
+    assert.deepEqual(fromScreen(shown, sizes, { rows, cols }), { ...p }, 'and back');
+  }
+  // Its own row hidden: it shows at the top of the next row shown.
+  const p = { x: 46 + 10, y: 24 + 24 * 3 + 5 };
+  assert.deepEqual(toScreen(p, {}, { rows: new Set([3]), cols: new Set() }), { x: 56, y: 24 + 24 * 3 });
+  assert.equal(toScreen(p, {}, { rows: new Set(), cols: new Set() }), p, 'nothing hidden: as it is');
+});

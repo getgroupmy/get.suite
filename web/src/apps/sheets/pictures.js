@@ -40,3 +40,28 @@ export function movePictures(pictures, before, after, move = {}) {
   }
   return out;
 }
+
+/**
+ * Where a picture (or chart, or slicer) kept against all rows and columns shows on the sheet, where hidden and
+ * filtered-out rows and columns take no room: the same cell, as far in (at the next row or column shown when its own is
+ * hidden). `hidden` is { rows: Set, cols: Set } of 0-based indexes.
+ */
+export function toScreen(p, sizes, hidden) {
+  if (!Number.isFinite(Number(p?.x)) || !Number.isFinite(Number(p?.y)) || (!hidden?.rows?.size && !hidden?.cols?.size)) return p;
+  const a = anchorOf(p, sizes.colWidths, sizes.rowHeights);
+  const shown = { colWidths: { ...sizes.colWidths }, rowHeights: { ...sizes.rowHeights } };
+  for (const c of hidden.cols || []) shown.colWidths[colName(c)] = 1e-9; // (no room)
+  for (const r of hidden.rows || []) shown.rowHeights[String(r + 1)] = 1e-9;
+  const at = { ...a, dx: hidden.cols?.has(a.col) ? 0 : a.dx, dy: hidden.rows?.has(a.row) ? 0 : a.dy };
+  return { ...p, ...placeOf(at, shown.colWidths, shown.rowHeights) };
+}
+
+/** The other way: a place on the sheet as shown (dragged or dropped there) as kept, against all rows and columns. */
+export function fromScreen(p, sizes, hidden) {
+  if (!Number.isFinite(Number(p?.x)) || !Number.isFinite(Number(p?.y)) || (!hidden?.rows?.size && !hidden?.cols?.size)) return p;
+  // The cell it's over on the sheet as shown, skipping hidden rows and columns.
+  let col = 0, dx = Math.max(0, Number(p.x) - GRID_LEFT), row = 0, dy = Math.max(0, Number(p.y) - GRID_TOP);
+  for (;;) { if (hidden.cols?.has(col)) { col++; continue; } const w = widthOf(sizes.colWidths, col); if (col >= 16383 || dx < w) break; dx -= w; col++; }
+  for (;;) { if (hidden.rows?.has(row)) { row++; continue; } const h = heightOf(sizes.rowHeights, row); if (row >= 1048575 || dy < h) break; dy -= h; row++; }
+  return { ...p, ...placeOf({ col, row, dx, dy }, sizes.colWidths, sizes.rowHeights) };
+}

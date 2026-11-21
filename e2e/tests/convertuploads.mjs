@@ -473,6 +473,37 @@ await step('the document with a chart, downloaded as a web page and opened in th
   await view.getByRole('cell', { name: 'South' }).waitFor();
   await ctx.close();
 });
+await step('rows hidden above pictures: each still shows over its own cell, and is kept where it was; shown again, as before', async () => {
+  const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === 'Pasted pictures');
+  if (!f) throw new Error('no Pasted pictures spreadsheet (an earlier step failed)');
+  await page.goto(`${B}/sheets/${f.id}`);
+  const cell = (k) => page.locator(`.grid td[data-k="${k}"]`);
+  const logo = page.locator('.sheet-picture[aria-label="Picture: Team logo, purple"]'), stamp = page.locator('.sheet-picture[aria-label="Picture: Stamp"]');
+  await logo.waitFor();
+  const over = async (pic, key, dx, dy) => { const [a, c] = [await pic.boundingBox(), await cell(key).boundingBox()]; return a && c && Math.abs(a.x - c.x - dx) <= 2 && Math.abs(a.y - c.y - dy) <= 2; };
+  const kept = async () => JSON.stringify(Object.values((await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0].pictures || {}).map((p) => [p.x, p.y]).sort());
+  const before = await kept();
+  await page.locator('.grid tbody th', { hasText: /^3$/ }).click();
+  await page.locator('.grid tbody th', { hasText: /^4$/ }).click({ modifiers: ['Shift'] });
+  await page.locator('.grid tbody th', { hasText: /^4$/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Hide rows 3–4', exact: true }).click();
+  await until(async () => (await cell('A3').count()) === 0);
+  await until(async () => (await over(logo, 'C7', 0, 0)) && (await over(stamp, 'F14', 10, 6))); // (they stayed where they were on the page)
+  // Moving one while rows are hidden keeps it against all rows: a column to the right, still over row 7.
+  const box = await logo.boundingBox();
+  await page.mouse.move(box.x + 20, box.y + 20); await page.mouse.down(); await page.mouse.move(box.x + 70, box.y + 20, { steps: 4 }); await page.mouse.move(box.x + 120, box.y + 20, { steps: 4 }); await page.mouse.up();
+  await until(async () => over(logo, 'D7', 0, 0));
+  await page.getByRole('button', { name: 'Show hidden rows 3–4' }).click();
+  await cell('A3').waitFor();
+  await until(async () => (await over(logo, 'D7', 0, 0)) && (await over(stamp, 'F14', 10, 6)));
+  const after = JSON.parse(await kept()), was = JSON.parse(before);
+  if (!after.some(([x, y]) => y === was.find(([, yy]) => yy === y)?.[1])) throw new Error(`kept: ${JSON.stringify([was, after])}`);
+  // Put back (a column to the left) for the steps after.
+  const b2 = await logo.boundingBox();
+  await page.mouse.move(b2.x + 20, b2.y + 20); await page.mouse.down(); await page.mouse.move(b2.x - 30, b2.y + 20, { steps: 4 }); await page.mouse.move(b2.x - 80, b2.y + 20, { steps: 4 }); await page.mouse.up();
+  await until(async () => over(logo, 'C7', 0, 0));
+  await until(async () => (await kept()) === before, 10000);
+});
 await step('Print or save as PDF: the pictures and the chart over the cells are on the printed page, in their cells', async () => {
   const printOf = async (name) => {
     const f = (await api(page, 'GET', '/files?view=mine')).body.find((x) => x.kind === 'sheet' && x.name === name);
