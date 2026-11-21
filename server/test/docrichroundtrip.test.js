@@ -33,7 +33,7 @@ const doc = { type: 'doc', content: [
   P(T('Line one'), { type: 'hardBreak' }, T('Line two')),
 ] };
 // Attributes left at their defaults (null, 0, rowspan 1…) and column widths aren't compared; nor the order of a node's keys.
-const DEFAULTS = { textAlign: null, lineHeight: null, spaceBefore: null, spaceAfter: null, indent: 0, type: null, language: null, rowspan: 1, colspan: 1, align: null, background: null };
+const DEFAULTS = { textAlign: null, lineHeight: null, spaceBefore: null, spaceAfter: null, indent: 0, type: null, language: null, rowspan: 1, colspan: 1, align: null, background: null, listStyle: null, bullet: null };
 const EMPTY_STYLE = new Set(['color', 'backgroundColor', 'fontFamily', 'fontSize']); // (a textStyle's unset parts come back as '')
 const clean = (n) => {
   if (Array.isArray(n)) return n.map(clean);

@@ -45,6 +45,7 @@ import { Autocorrect } from './autocorrect.js';
 import { sortTransaction } from './sortlines.js';
 import { Superscript, Subscript } from './scripts.js';
 import { Indent } from './indent.js';
+import { ListStyle, NUMBERINGS, BULLETS } from './liststyle.js';
 import { DocPrefsDialog } from './DocPrefs.jsx';
 import { CASES, caseTransaction } from './textcase.js';
 import { FindBar } from './FindBar.jsx';
@@ -293,7 +294,7 @@ function SharedDoc({ file, setFile }) {
       StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false, document: false }), // undo is per person, from Collaboration
       TabbedDocument, DocTab, // tabs (doctabs.js)
       Autocorrect.configure({ enabled: () => !!prefsRef.current.autocorrect, subs: () => prefsRef.current.subs }),
-      Superscript, Subscript, Indent,
+      Superscript, Subscript, Indent, ListStyle,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Placeholder.configure({ placeholder: 'Start typing…' }),
       Collaboration.configure({ document: ydoc }),
@@ -1162,6 +1163,21 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         <button type="button" className="tb labelled" aria-label="Alt text" title={editor.getAttributes('image').alt ? `Alt text: ${editor.getAttributes('image').alt}` : 'Describe the picture for screen readers'}
           onMouseDown={(e) => e.preventDefault()} onClick={() => setAltEdit({ pos: editor.state.selection.from, alt: editor.getAttributes('image').alt })}>Alt text</button>
       </>}
+      {(editor.isActive('orderedList') || editor.isActive('bulletList')) && (() => {
+        // The innermost list around the cursor: its numbering (1. a. i. …) or its bullet (● ○ ■ …).
+        const { $from } = editor.state.selection;
+        let d = $from.depth; while (d > 0 && !['orderedList', 'bulletList'].includes($from.node(d).type.name)) d--;
+        if (!d) return null;
+        const node = $from.node(d), pos = $from.before(d), numbered = node.type.name === 'orderedList';
+        const set = (attrs) => editor.chain().command(({ tr }) => { tr.setNodeMarkup(pos, null, { ...node.attrs, ...attrs }); return true; }).run();
+        return numbered
+          ? <select aria-label="Numbering style" title="How this list is numbered" value={node.attrs.listStyle || 'decimal'} onChange={(e) => set({ listStyle: e.target.value === 'decimal' ? null : e.target.value })}>
+            {NUMBERINGS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+          : <select aria-label="Bullet style" title="The bullet this list shows" value={node.attrs.bullet || 'disc'} onChange={(e) => set({ bullet: e.target.value === 'disc' ? null : e.target.value })}>
+            {BULLETS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>;
+      })()}
       {editor.isActive('orderedList') && (() => {
         // In a numbered list: the number it starts at, or carrying on from the numbered list before it.
         const list = listAt(editor.state.selection.$from);

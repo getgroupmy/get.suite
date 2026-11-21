@@ -13,6 +13,7 @@ import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { imageSize } from 'image-size';
 import { generateJSON } from '@tiptap/html/server';
+import { ListStyle, NUMBERINGS, BULLETS, numberingOfWord, bulletOfWord } from './liststyle.js';
 import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import Image from '@tiptap/extension-image';
@@ -134,7 +135,7 @@ const SheetChartNode = Node.create({ name: 'sheetChart', group: 'block', atom: t
 const MathNode = Node.create({ name: 'math', group: 'inline', inline: true, atom: true, addAttributes: () => ({ latex: { default: '', parseHTML: (el) => el.getAttribute('data-latex') || '' } }), parseHTML: () => [{ tag: 'span[data-math]' }], renderHTML: ({ HTMLAttributes }) => ['span', { 'data-math': '', 'data-latex': HTMLAttributes.latex }] });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, MathNode, SheetChartNode, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete, TocNode,
+  DocImage, Table, TableRow, DocTableHeader, DocTableCell, TextStyle, Color, BackgroundColor, FontFamily, FontSize, ParagraphSpacing, MathNode, SheetChartNode, PageBreakNode, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete, TocNode, ListStyle,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -158,6 +159,8 @@ const HIGHLIGHTS = { yellow: 'ffff00', green: '00ff00', cyan: '00ffff', magenta:
 // The Docs toolbar's fonts (Word's name → the editor's CSS) and sizes (pt), for runs in a Word file.
 const WORD_FONTS = { arial: 'Arial, Helvetica, sans-serif', georgia: 'Georgia, serif', 'times new roman': '"Times New Roman", Times, serif', verdana: 'Verdana, Geneva, sans-serif', 'trebuchet ms': '"Trebuchet MS", sans-serif', 'courier new': '"Courier New", Courier, monospace' };
 const DOC_SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36];
+// Numbering styles (liststyle.js) as the docx library writes them.
+const WORD_NUMBERING = { decimal: LevelFormat.DECIMAL, 'lower-alpha': LevelFormat.LOWER_LETTER, 'upper-alpha': LevelFormat.UPPER_LETTER, 'lower-roman': LevelFormat.LOWER_ROMAN, 'upper-roman': LevelFormat.UPPER_ROMAN };
 const WORD_ALIGN = { center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' };
 const marker = (text) => `<w:r><w:t xml:space="preserve">${MK}${text}${MK_END}</w:t></w:r>`;
 /** document.xml with markers before aligned paragraphs' text and around coloured or highlighted runs. */
@@ -170,7 +173,7 @@ export function wordListCounter(numberingXml = '') {
   const abstracts = new Map(); // abstractNumId → { ilvl → { start, fmt } }
   for (const [, id, body] of String(numberingXml).matchAll(/<w:abstractNum\b[^>]*w:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g)) {
     const lv = {};
-    for (const [, il, lb] of body.matchAll(/<w:lvl\b[^>]*w:ilvl="(\d+)"[^>]*>([\s\S]*?)<\/w:lvl>/g)) lv[il] = { start: Number(/<w:start w:val="(\d+)"/.exec(lb)?.[1] ?? 1), fmt: /<w:numFmt w:val="(\w+)"/.exec(lb)?.[1] || 'decimal' };
+    for (const [, il, lb] of body.matchAll(/<w:lvl\b[^>]*w:ilvl="(\d+)"[^>]*>([\s\S]*?)<\/w:lvl>/g)) lv[il] = { start: Number(/<w:start w:val="(\d+)"/.exec(lb)?.[1] ?? 1), fmt: /<w:numFmt w:val="(\w+)"/.exec(lb)?.[1] || 'decimal', text: /<w:lvlText w:val="([^"]*)"/.exec(lb)?.[1] ?? '' };
     abstracts.set(id, lv);
   }
   const nums = new Map(); // numId → { abs, overrides: { ilvl → start } }
@@ -181,7 +184,17 @@ export function wordListCounter(numberingXml = '') {
   }
   const counts = new Map(); // abstractNumId → { ilvl → last number }
   const restarted = new Set(); // numId:ilvl whose own start was used
-  return (numId, ilvl) => {
+  /** A list paragraph's look: { numbering } (a. i. …, not 1.) or { bullet } (○ ■ …, not ●), or {}. */
+  const lookOf = (numId, ilvl) => {
+    const num = nums.get(String(numId)); const lv = num && abstracts.get(num.abs)?.[ilvl];
+    if (!lv) return {};
+    // (the usual ones too: two lists side by side that look different are told apart by them)
+    // A level's own usual bullet (● ○ ■ going in, as Word and browsers show nested lists) is the plain one.
+    if (lv.fmt === 'bullet') { const b = bulletOfWord(lv.text.replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCodePoint(parseInt(h, 16)))) || 'disc'; return { bullet: b === ['disc', 'circle', 'square'][Number(ilvl) % 3] ? 'disc' : b }; }
+    if (lv.fmt === 'none') return {};
+    return { numbering: numberingOfWord(lv.fmt) || 'decimal' };
+  };
+  const counter = (numId, ilvl) => {
     const num = nums.get(String(numId)); const lv = num && abstracts.get(num.abs)?.[ilvl];
     if (!lv || lv.fmt === 'bullet' || lv.fmt === 'none') return null;
     const c = counts.get(num.abs) || {}; counts.set(num.abs, c);
@@ -191,6 +204,8 @@ export function wordListCounter(numberingXml = '') {
     else c[ilvl] = c[ilvl] === undefined ? lv.start : c[ilvl] + 1;
     return c[ilvl];
   };
+  counter.lookOf = lookOf;
+  return counter;
 }
 /** A run's font that means inline code: Consolas, or another fixed-width font that isn't one of Docs' own fonts. */
 const isCodeFont = (f) => !!f && (/^consolas$/i.test(f) || (/mono|courier|consolas/i.test(f) && !WORD_FONTS[f.toLowerCase()]));
@@ -209,8 +224,12 @@ export function markWordXml(xml, { numbering = '' } = {}) {
     .replace(/<w:p\b[^>]*>(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g, (para) => {
       const np = /<w:numPr>([\s\S]*?)<\/w:numPr>/.exec(para)?.[1];
       if (!np) return para;
-      const n = count(/<w:numId w:val="(\d+)"/.exec(np)?.[1], /<w:ilvl w:val="(\d+)"/.exec(np)?.[1] || '0');
-      return n && n !== 1 ? para.replace(/(<\/w:pPr>)/, `$1${marker(`ls:${n}`)}`) : para;
+      const numId = /<w:numId w:val="(\d+)"/.exec(np)?.[1], ilvl = /<w:ilvl w:val="(\d+)"/.exec(np)?.[1] || '0';
+      const n = count(numId, ilvl);
+      // …and its look, when not the usual 1. or ● (marked first: the start marker follows it).
+      const look = count.lookOf(numId, ilvl);
+      const marks = `${look.numbering ? marker(`lf:${look.numbering}`) : look.bullet ? marker(`lb:${look.bullet}`) : ''}${n && n !== 1 ? marker(`ls:${n}`) : ''}`;
+      return marks ? para.replace(/(<\/w:pPr>)/, `$1${marks}`) : para;
     })
     // Inline code (Consolas, as the download writes it, or another fixed-width font Docs doesn't offer, as LibreOffice
     // writes ours), outside code blocks: marked, made code afterwards.
@@ -313,7 +332,11 @@ export function unmarkWordHtml(html, commentId = null) {
     .replace(re('(?:<p[^>]*>)?MKch:([^END]*)END(?:</p>)?'), (m, enc) => chartFigureHtml(enc)) // a chart
     .replace(re('<p>MKtocEND</p>'), '<nav data-toc=""></nav>') // a table of contents: Docs' own
     .replace(re('MKcdEND'), '<code>').replace(re('MK/cdEND'), '</code>')
-    .replace(re('<ol>((?:<li>)(?:<p>)?)MKls:(\\d+)END'), (m, open, n) => `<ol start="${n}">${open}`)
+    .replace(/^[\s\S]*$/, (h) => splitByLook(h, re))
+    .replace(re('<ol>((?:<li>)(?:<p>)?)MKlf:([a-z-]+)END'), (m, open, v) => (v === 'decimal' ? `<ol>${open}` : `<ol data-list-style="${v}">${open}`))
+    .replace(re('<ul>((?:<li>)(?:<p>)?)MKlb:([a-z-]+)END'), (m, open, v) => (v === 'disc' ? `<ul>${open}` : `<ul data-bullet="${v}">${open}`))
+    .replace(re('MKl[fb]:[a-z-]+END'), '')
+    .replace(re('<ol([^>]*)>((?:<li>)(?:<p>)?)MKls:(\\d+)END'), (m, attrs, open, n) => `<ol${attrs} start="${n}">${open}`)
     .replace(re('MKls:\\d+END'), '')
     // (the tags around a marker are its own paragraph's: never a paragraph before it, with its pictures)
     .replace(re('<p>(?:<(?!/?p[\\s>])[^>]+>)*MKhrEND(?:</[^p][^>]*>)*</p>'), '<hr>')
@@ -322,6 +345,22 @@ export function unmarkWordHtml(html, commentId = null) {
     .replace(re('<p>(?:<(?!/?p[\\s>])[^>]+>)*MKpbEND(?:</[^p][^>]*>)*</p>'), '<div data-page-break></div>')
     .replace(re('MKpbEND'), '</p><div data-page-break></div><p>')
     .replace(re('MK[^END]*END'), '');
+}
+/**
+ * Lists side by side in Word that look different (an ✓ list after a – list) come out of the converter as one list:
+ * split where an item's look (its lf:/lb: marker) changes from the item before it at that level.
+ */
+function splitByLook(html, re) {
+  const stack = []; // per open list: { tag, look }
+  return html.replace(re('<(ol|ul)>|</(ol|ul)>|<li>((?:<p>)?)MKl[fb]:([a-z-]+)END'), (m, open, close, p, look) => {
+    if (open) { stack.push({ tag: open, look: null }); return m; }
+    if (close) { stack.pop(); return m; }
+    const top = stack.at(-1);
+    if (!top) return m;
+    if (top.look === null || top.look === look) { top.look = look; return m; }
+    top.look = look;
+    return `</${top.tag}><${top.tag}><li>${p}${MK}l${top.tag === 'ol' ? 'f' : 'b'}:${look}${MK_END}`;
+  });
 }
 /** A Word file's comments: Map(Word's id → { author, text, at (ms, or null) }). */
 export async function commentsOfWord(buffer) {
@@ -878,7 +917,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   gather(doc || {});
   const top = Math.min(...contents.map((h) => h.level));
   let headingNo = 0;
-  let listNo = 0; const starts = new Set(); // numbered lists: one numbering instance each, and the first numbers they use
+  let listNo = 0; const starts = new Set(), bullets = new Set(); // numbered lists: one numbering instance each, and the styles and first numbers they use; bullets other than ●
   const allLabels = headingLabels(levels);
   let headingAt = 0;
   // (styled TOC Heading and TOC 1…, made Word's own table of contents once written: see withContentsField)
@@ -954,9 +993,13 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         const level = (ctx.level ?? -1) + 1;
         // Each numbered list counts on its own (from its own first number), not on from the one before.
         const start = Math.max(1, Math.min(9999, Math.round(Number(n.attrs?.start) || 1)));
-        if (n.type === 'orderedList') starts.add(start);
-        const numbering = { reference: `numbers-${start}`, level, instance: ++listNo };
-        for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering } });
+        // …in its own style (1. a. i. …), and a bulleted list with its own bullet (○ ■ – …) as a list definition of its own.
+        const style = NUMBERINGS.some(([k]) => k === n.attrs?.listStyle) ? n.attrs.listStyle : 'decimal';
+        if (n.type === 'orderedList') starts.add(`${style}|${start}`);
+        const bullet = n.type === 'bulletList' && BULLETS.some(([k]) => k === n.attrs?.bullet) && n.attrs.bullet !== 'disc' ? n.attrs.bullet : null;
+        if (bullet) bullets.add(bullet);
+        const numbering = { reference: `numbers-${style}-${start}`, level, instance: ++listNo };
+        for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? (bullet ? { numbering: { reference: `bullets-${bullet}`, level } } : { bullet: { level } }) : { numbering } });
       } else if (n.type === 'taskList') {
         // A checklist: each item's first paragraph gets a box (☐, or ☒ when ticked); the rest follow indented.
         const level = (ctx.level ?? -1) + 1;
@@ -1041,7 +1084,8 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       ...(c.parentId !== undefined && { parentId: c.parentId }), ...(c.resolved && { resolved: true }),
       children: String(c.text || '').split('\n').map((line) => new Paragraph(line)),
     })) } }),
-    numbering: { config: [{ reference: 'checklist', levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.BULLET, text: ' ', alignment: AlignmentType.START, style: { paragraph: { indent: { left: 360 * (level + 1), hanging: 280 } } } })) }, ...[...new Set([1, ...starts])].map((start) => ({ reference: `numbers-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }))] },
+    numbering: { config: [{ reference: 'checklist', levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.BULLET, text: ' ', alignment: AlignmentType.START, style: { paragraph: { indent: { left: 360 * (level + 1), hanging: 280 } } } })) }, ...[...new Set(['decimal|1', ...starts])].map((key) => { const [style, s] = key.split('|'); const start = Number(s); return { reference: `numbers-${style}-${start}`, levels: [0, 1, 2, 3].map((level) => ({ level, ...(level === 0 && { start }), format: WORD_NUMBERING[style], text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }; }),
+      ...[...bullets].map((b) => ({ reference: `bullets-${b}`, levels: [0, 1, 2, 3, 4].map((level) => ({ level, format: LevelFormat.BULLET, text: BULLETS.find((x) => x[0] === b)[3], alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }))] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
     styles: {
       default: {
