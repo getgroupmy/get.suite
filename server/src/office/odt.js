@@ -731,7 +731,11 @@ export async function docFromOdt(buffer, { savePicture } = {}) {
         if (st.pp['fo:break-before'] === 'page' && out) { out += '<div data-page-break=""></div>'; if (!raw.trim()) continue; }
         if (!raw.replace(/<[^>]+>/g, '').trim() && !/<img |data-/.test(raw) && (named(/^horizontal( |_20_|_)line$/) || ruleOnly(st.pp))) { out += '<hr>'; continue; }
         // Code: LibreOffice's "Preformatted Text", or Word's "Code" kept from a .docx.
-        if (named(/preformatted|^code$|^source(_20_| )text$|^html(_20_| )code$/)) { out += `<pre><code>${raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')}</code></pre>`; continue; } // (its spaces: SPACE, made ordinary below)
+        if (named(/preformatted|^code$|^source(_20_| )(text|code)$|^html(_20_| )code$/)) { // (one paragraph a line, as pandoc and LibreOffice write a longer one: the lines of one code block)
+          const code = raw.replace(/<br>/g, '\n').replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ');
+          out = out.endsWith('</code></pre>') ? `${out.slice(0, -13)}\n${code}</code></pre>` : `${out}<pre><code>${code}</code></pre>`;
+          continue;
+        } // (its spaces: SPACE, made ordinary below)
         if (/^\s*(<img [^>]*>\s*)+$/.test(raw)) { // a picture on its own line: no empty paragraph around it, aligned as its line
           const al = { center: 'center', end: 'right', right: 'right' }[st.pp['fo:text-align']];
           out += al ? raw.replace(/<img /g, `<img align="${al}" `) : raw;

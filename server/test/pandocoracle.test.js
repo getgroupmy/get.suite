@@ -37,7 +37,10 @@ function block(depth = 0) {
   if (r < 0.4 || depth > 1) return P();
   if (r < 0.55) return { type: 'heading', attrs: { level: 1 + Math.floor(rnd() * 3) }, content: words() };
   if (r < 0.85) return { type: pick(['bulletList', 'orderedList']), content: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => ({ type: 'listItem', content: [P(), ...(rnd() < 0.3 ? [{ type: pick(['bulletList', 'orderedList']), content: [{ type: 'listItem', content: [P()] }] }] : [])] })) };
-  return { type: 'blockquote', content: [P(), ...(rnd() < 0.3 ? [P()] : [])] };
+  if (r < 0.92 || depth) return { type: 'blockquote', content: [P(), ...(rnd() < 0.3 ? [P()] : [])] };
+  if (r < 0.96) return { type: 'codeBlock', attrs: { language: null }, content: [{ type: 'text', text: Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => words().map((t) => t.text).join('')).join('\n') }] };
+  const cols = 2 + Math.floor(rnd() * 2);
+  return { type: 'table', content: Array.from({ length: 2 + Math.floor(rnd() * 2) }, (_, r) => ({ type: 'tableRow', content: Array.from({ length: cols }, () => ({ type: r ? 'tableCell' : 'tableHeader', content: [P()] })) })) };
 }
 const randomDocs = (n, start) => (seed = BASE + start, Array.from({ length: n }, () => ({ type: 'doc', content: Array.from({ length: 1 + Math.floor(rnd() * 5) }, () => block()) })));
 
@@ -52,7 +55,8 @@ function ourShape(doc) {
       lines.push(`${path.join('')}${n.type === 'heading' ? `h${n.attrs.level}` : 'p'}: ${ws.join(' ')}`);
       return;
     }
-    const mark = { bulletList: '•', orderedList: '#', blockquote: '>' }[n.type];
+    if (n.type === 'codeBlock') { lines.push(`${path.join('')}code: ${(n.content || []).map((c) => c.text).join('')}`); return; }
+    const mark = { bulletList: '•', orderedList: '#', blockquote: '>', table: 'T' }[n.type];
     for (const c of n.content || []) walk(c, mark ? [...path, mark] : path);
   };
   walk(doc.doc || doc, []);
@@ -91,6 +95,13 @@ function pandocShape(ast) {
       case 'OrderedList': for (const item of b.c[1]) for (const c of item) walk(c, [...path, '#']); break;
       case 'BlockQuote': for (const c of b.c) walk(c, [...path, '>']); break;
       case 'Div': for (const c of b.c[1]) walk(c, path); break;
+      case 'RawBlock': if (!/^<!--[\s\S]*-->\s*$/.test(b.c[1])) lines.push(`${path.join('')}?RawBlock`); break; // (an HTML comment: nothing)
+      case 'CodeBlock': lines.push(`${path.join('')}code: ${b.c[1].replace(/\n$/, '')}`); break;
+      case 'Table': { // [attr, caption, colspecs, head [attr, rows], bodies [[attr, n, head rows, rows]], foot]: each cell's blocks, row by row
+        const rows = [...b.c[3][1], ...b.c[4].flatMap((body) => [...body[2], ...body[3]]), ...b.c[5][1]];
+        for (const row of rows) for (const cell of row[1]) { if (!cell[4].length) lines.push(`${path.join('')}Tp: `); for (const c of cell[4]) walk(c, [...path, 'T']); }
+        break;
+      }
       default: lines.push(`${path.join('')}?${b.t}`);
     }
   };
@@ -104,8 +115,12 @@ test('60 random documents, read by pandoc from our Markdown, .docx and .odt: the
     const want = ourShape(doc);
     assert.deepEqual(read('gfm', markdownFromDoc(doc)), want, `document ${i}, Markdown:\n${markdownFromDoc(doc)}`);
     assert.deepEqual(read('docx', await wordFromDoc(doc, 'T')), want, `document ${i}, .docx`);
-    // (pandoc reads underline in an .odt as italic, its own .odt's too)
-    assert.deepEqual(read('odt', await odtFromDoc(doc, 'T')), want.map((l) => l.replace(/\{([^}]*)\}/g, (m, k) => `{${[...new Set(k.split(',').filter(Boolean).map((x) => (x === 'underline' ? 'italic' : x)))].sort().join(',')}}`)), `document ${i}, .odt`);
+    // (pandoc reads underline in an .odt as italic, its own .odt's too; and a table's heading row as empty, LibreOffice's
+    // own too: tables are left out here, and checked through LibreOffice elsewhere)
+    // (nor does it read a code block in an .odt, its own included: they're left out of the .odt written for it)
+    const noTables = (l) => !/^[•#>]*T/.test(l);
+    const noCode = { ...doc, content: doc.content.filter((b) => b.type !== 'codeBlock') };
+    if (noCode.content.length) assert.deepEqual(read('odt', await odtFromDoc(noCode, 'T')).filter(noTables), ourShape(noCode).filter(noTables).map((l) => l.replace(/\{([^}]*)\}/g, (m, k) => `{${[...new Set(k.split(',').filter(Boolean).map((x) => (x === 'underline' ? 'italic' : x)))].sort().join(',')}}`)), `document ${i}, .odt`);
   }
 });
 
@@ -126,10 +141,11 @@ test('and 60 as Markdown written by pandoc (its own way of writing it, GitHub\'s
   for (const [i, doc] of randomDocs(60, 3).entries()) {
     for (const to of ['gfm', 'commonmark']) {
       const md = String(pandoc(['-f', 'gfm', '-t', to], markdownFromDoc(doc)));
-      if (/^\s*(~~~|```)/m.test(md)) continue; // (a line pandoc wrapped to start with "~~~": a code block to anyone reading it)
+      if (/^\s*(?:(?:[-*+]|\d+[.)])\s+)?(~~~|```)/m.test(md) && !doc.content.some((b) => b.type === 'codeBlock')) continue; // (a line, or list item, pandoc began with "~~~": a code block to anyone reading it)
       // (and leaving out a line where pandoc reads one word with two looks, as it reads its own "~~~tilde~~~": "~", struck
       // "tilde", "~"; the random words never have that, so it's pandoc's writing that is unclear there)
       const theirs = read(to, md), ours = ourShape(await docFromMarkdown(md));
+      if (theirs.includes('?RawBlock')) continue; // (CommonMark has no tables: pandoc writes one as HTML, which isn't read as a table)
       const unclear = new Set(theirs.map((l, k) => (/\{\?\}/.test(l) ? k : -1)).filter((k) => k >= 0));
       assert.deepEqual(ours.filter((l, k) => !unclear.has(k)), theirs.filter((l, k) => !unclear.has(k)), `document ${i}, pandoc's ${to}:\n${md}`);
     }

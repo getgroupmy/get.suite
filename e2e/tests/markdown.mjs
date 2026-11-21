@@ -65,7 +65,7 @@ await step('download a document as Markdown', async () => {
   if (!text.includes('&#32;&#32;Note: <u>signed</u> off.')) throw new Error(`underline and leading spaces: ${JSON.stringify(text)}`);
 });
 await step('a Markdown file written by another program: ***both***, escaped stars inside bold, <s> and ~~~struck~~~', async () => {
-  const md = 'Plan: ***both*** and **\\*starred\\*** then <s>gone</s> and ~~~tilde~~~ end.\n';
+  const md = 'Plan: ***both*** and **\\*starred\\*** then <s>gone</s> and ~~~tilde~~~ end.\n\n- a list\n\n<!-- -->\n\n    indented code\n    second line\n';
   await page.evaluate(async (text) => fetch('/api/files/upload?name=other.md', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: text }), md);
   await page.goto(B + '/drive');
   await page.getByLabel('Actions for other.md').click();
@@ -75,7 +75,8 @@ await step('a Markdown file written by another program: ***both***, escaped star
   await ed.getByText('Plan:').waitFor();
   const got = await ed.evaluate((el) => [el.textContent, el.querySelector('strong em, em strong')?.textContent, el.querySelector('strong')?.textContent, [...el.querySelectorAll('s')].map((x) => x.textContent).join('|')]);
   // (were "Plan: *both* and …" with a bold "*both", "*starred\" bold and a stray "*", and <s>gone</s> as it was written)
-  if (JSON.stringify(got) !== JSON.stringify(['Plan: both and *starred* then gone and ~tilde~ end.', 'both', 'both', 'gone|~tilde~'])) throw new Error(JSON.stringify(got));
+  if (JSON.stringify(got) !== JSON.stringify(['Plan: both and *starred* then gone and ~tilde~ end.a listindented code\nsecond line', 'both', 'both', 'gone|~tilde~'])) throw new Error(JSON.stringify(got));
+  if ((await ed.locator('pre').textContent()) !== 'indented code\nsecond line') throw new Error('indented code isn\'t a code block'); // (the <!-- --> between pandoc writes isn't text either)
 });
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();

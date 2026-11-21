@@ -174,6 +174,16 @@ function parseBlocks(lines, notes) {
       out.push({ type: 'codeBlock', attrs: { language: m[2] || null }, ...(code.length && { content: [{ type: 'text', text: code.join('\n') }] }) });
       continue;
     }
+    if (/^\s*<!--/.test(line)) { // an HTML comment between blocks (pandoc writes <!-- --> to keep a list and what follows apart)
+      for (; i < lines.length && !lines[i].includes('-->'); i++);
+      i++; continue;
+    }
+    if (/^( {4}|\t)/.test(line)) { // code indented by four spaces (or a tab), as CommonMark has it besides ``` fences
+      const code = [];
+      for (; i < lines.length && (/^( {4}|\t)/.test(lines[i]) || (!lines[i].trim() && /^( {4}|\t)/.test(lines[i + 1] || ''))); i++) code.push(lines[i].replace(/^( {4}|\t)/, ''));
+      out.push({ type: 'codeBlock', attrs: { language: null }, content: [{ type: 'text', text: code.join('\n') }] });
+      continue;
+    }
     if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line))) { out.push({ type: 'heading', attrs: { level: m[1].length }, content: inlineFromMarkdown(m[2], notes) }); i++; continue; }
     if (/^ {0,3}([-*_])( *\1){2,} *$/.test(line)) { out.push({ type: 'horizontalRule' }); i++; continue; }
     if (/^\s*>/.test(line)) {

@@ -112,7 +112,7 @@ await step('a Word file with a space each side of where bold starts, and a sugge
 await step('Word and OpenDocument files made by pandoc (from Markdown) open with their quotes, code, lists and headings', async () => {
   const { spawnSync } = await import('node:child_process');
   if (spawnSync('pandoc', ['--version']).status !== 0) { console.log('(no pandoc here: skipped)'); return; }
-  const md = '## Plan\n\n> Quoted words\n\nRun `npm test` first.\n\n- Fruit\n  1. Apples\n  2. Pears\n';
+  const md = '## Plan\n\n> Quoted words\n\nRun `npm test` first.\n\n- Fruit\n  1. Apples\n  2. Pears\n\n```\nnpm install\nnpm test\n```\n';
   for (const [ext, mime] of [['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], ['odt', 'application/vnd.oasis.opendocument.text']]) {
     const buf = spawnSync('pandoc', ['-f', 'gfm', '-t', ext], { input: md }).stdout;
     await page.goto(`${B}/drive`);
@@ -124,8 +124,10 @@ await step('Word and OpenDocument files made by pandoc (from Markdown) open with
     if (await ed.locator('h2 em').count()) throw new Error(`${ext}: the heading came in italic`);
     if ((await ed.locator('> p').first().textContent()) === '') throw new Error(`${ext}: an empty paragraph first`);
     await ed.locator('blockquote', { hasText: 'Quoted words' }).waitFor();
-    await ed.locator('code', { hasText: 'npm test' }).waitFor();
+    await ed.locator('p code', { hasText: 'npm test' }).waitFor();
     await ed.locator('ul ol li', { hasText: 'Apples' }).waitFor();
+    const pres = await ed.locator('pre').evaluateAll((l) => l.map((p) => p.textContent));
+    if (JSON.stringify(pres) !== JSON.stringify(['npm install\nnpm test'])) throw new Error(`${ext}: code block ${JSON.stringify(pres)}`); // (a block a line from .odt; paragraphs of code from .docx)
   }
 });
 await step('a CSV uploaded becomes a spreadsheet whose amounts and dates are numbers and dates, shown as written', async () => {
