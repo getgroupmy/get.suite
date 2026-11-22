@@ -278,6 +278,13 @@ function flagLinks(user, list) {
     const mine = q('SELECT message_id, option_id FROM poll_votes WHERE user_id = ? AND message_id IN (SELECT value FROM json_each(?))').all(user.id, JSON.stringify(polls.map((m) => m.id)));
     for (const m of polls) m.poll = { ...m.poll, mine: mine.filter((v) => v.message_id === m.id).map((v) => v.option_id) };
   }
+  // Tasks to do about a message (made with Add to Tasks, on lists you can see): how many, on the messages that have any.
+  if (list.length) {
+    const todo = new Map(q(`SELECT t.link_url AS url, COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id
+                            WHERE t.done_at IS NULL AND t.link_url LIKE '/chat/%' AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                            GROUP BY t.link_url`).all(user.id, user.id).map((x) => [x.url, x.n]));
+    if (todo.size) for (const m of list) { const n = todo.get(`/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`); if (n) m.tasks_open = n; }
+  }
   for (const m of list) {
     if (!m.body || (m.user_org_id && m.user_org_id === user.org_id)) continue;
     const hosts = new Set();

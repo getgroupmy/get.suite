@@ -492,3 +492,25 @@ test('Drive lists how many open tasks are about each file and folder (yours to s
   assert.equal((await ann('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: miaId, role: 'viewer' }] })).status, 200);
   assert.deepEqual(Object.values(await inside(mia)).filter(Boolean), []);
 });
+
+test('Chat marks the messages that have tasks to do about them (yours to see), replies too', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const ch = (await ann('POST', '/api/chat/channels', { name: 'task-marks' })).body.id;
+  const say = async (body, parent) => (await ann('POST', `/api/chat/channels/${ch}/messages`, { body, ...(parent && { parent_id: parent }) })).body;
+  const first = await say('Can someone book the room?'), plain = await say('Nothing to do here');
+  const reply = await say('And order lunch', first.id);
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Chat marks' })).body.id;
+  const add = (url) => ann('POST', `/api/tasks/lists/${list}/tasks`, { title: `About ${url}`, link: { url, label: 'Chat message' } });
+  const one = (await add(`/chat/${ch}?msg=${first.id}`)).body;
+  assert.equal((await add(`/chat/${ch}?msg=${reply.id}&thread=${first.id}`)).status, 201);
+  const marks = async (who) => Object.fromEntries((await who('GET', `/api/chat/channels/${ch}/messages`)).body.map((m) => [m.id, m.tasks_open]));
+  assert.deepEqual(await marks(ann), { [first.id]: 1, [plain.id]: undefined });
+  const thread = (await ann('GET', `/api/chat/messages/${first.id}/replies`)).body;
+  assert.equal(thread.replies.find((m) => m.id === reply.id).tasks_open, 1);
+  // Ticked off, the mark goes; a colleague in the channel never saw it (the task is on a list of yours).
+  assert.deepEqual(Object.values(await marks(mia)).filter(Boolean), []);
+  assert.equal((await ann('PATCH', `/api/tasks/tasks/${one.id}`, { done: true })).status, 200);
+  assert.equal((await marks(ann))[first.id], undefined);
+});

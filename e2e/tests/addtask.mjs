@@ -97,11 +97,17 @@ await step('a chat message becomes a task that links back to it', async () => {
   await msg.hover();
   await msg.getByRole('button', { name: 'Add to Tasks' }).click();
   await page.getByText('Added to My tasks').waitFor();
+  await msg.getByRole('button', { name: '1 task to do about this message' }).waitFor(); // (marked at once)
   await page.goto(`${B}/tasks`);
   await page.locator('.task-title', { hasText: /^Book the meeting room for Monday$/ }).click();
   await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Chat message from Olivia Owner/ }).click();
   await page.waitForURL(new RegExp(`/chat/${ch}`));
   await page.locator('.msg', { hasText: 'the meeting room for Monday' }).waitFor();
+  // Back in the conversation (loaded afresh), the message still carries its task, and opens it.
+  await page.locator('.msg', { hasText: 'the meeting room for Monday' }).getByRole('button', { name: '1 task to do about this message' }).click();
+  await page.getByRole('menuitem', { name: /^Book the meeting room for Monday/ }).click();
+  await page.waitForURL(/\/tasks\/.+\?task=/);
+  await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Chat message from Olivia Owner/ }).waitFor();
 });
 await step('Tasks → Use for Add to Tasks: a chat message then goes to the list chosen', async () => {
   const list = (await api(page, 'POST', '/tasks/lists', { name: 'Follow-ups' })).body.id;

@@ -39,6 +39,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast, withDa
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords, MentionedAway } from '../../components/mentions.jsx';
+import TasksAbout from '../../components/TasksAbout.jsx';
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 import { isPaused, pauseUntil } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
@@ -1361,12 +1362,14 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   const editEmo = useEmojiTyping(editBox, editText ?? '', setEditText, editing ? ownEmoji.map((e) => ({ name: e.name, img: imageUrl(e.name) })) : []);
   const [savingTo, setSavingTo] = useState(null); // { messageId, file }: Save to a folder…
   const [card, setCard] = useState(false); // the author's card
+  const [taskBump, setTaskBump] = useState(0); // (a task just made from it: show the count at once)
+  const taskUrl = `/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`;
   const toTask = () => addToTasksWithToast(toast, navigate, {
     // A shared email: its subject (and who it's from, in the notes) when the message has no words of its own.
     title: titleFromText(m.body) || (m.poll ? m.poll.question : m.email ? (m.email.subject || '(no subject)') : 'Chat message'),
     ...(m.email && { notes: `Email from ${m.email.from?.name || m.email.from?.address || 'someone'}${m.email.subject ? `: ${m.email.subject}` : ''}${m.email.text ? `\n\n${m.email.text.slice(0, 500)}` : ''}` }),
-    link: { url: `/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`, label: `Chat message from ${m.user_name || 'someone'}` },
-  });
+    link: { url: taskUrl, label: `Chat message from ${m.user_name || 'someone'}` },
+  }).then(() => setTaskBump((n) => n + 1));
   // Save to Notes: a note of your own with the message, who wrote it where and when, and a link back to it.
   const toNote = async () => {
     try {
@@ -1432,6 +1435,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </a>
         )}
         {m.files?.length > 0 && <MessageFiles m={m} mine={m.user_id === user.id} />}
+        {(m.tasks_open > 0 || taskBump > 0) && <div className="msg-tasks"><TasksAbout url={taskUrl} what="message" bump={taskBump} /></div>}
         {m.reactions?.length > 0 && (
           <div className="reactions">
             {m.reactions.map((r) => {
