@@ -64,3 +64,13 @@ export function taskEmail(t, { locale, link = '', listName = '' } = {}) {
   ].join('');
   return { subject: t.title || 'Task', html };
 }
+
+/**
+ * One task as a note of your own (its details → Save to Notes): the title; then when it's due and who it's for, its
+ * notes, its steps as lines (☐ / ✓) and a link back to the task.
+ */
+export function taskNote(t, { locale, link = '', listName = '' } = {}) {
+  const meta = [t.done ? 'Done' : '', dueText(t, locale) && `Due ${dueText(t, locale)}`, t.assignee_name && `For ${t.assignee_name}`, listName && `In ${listName}`].filter(Boolean).join(' · ');
+  const body = [meta, (t.notes || '').trim(), (t.steps || []).map((x) => `${x.done ? '✓' : '☐'} ${x.title}`).join('\n'), link && `Open the task: ${link}`].filter(Boolean).join('\n\n');
+  return { title: (t.title || 'Task').slice(0, 200), body: body.slice(0, 20000) };
+}

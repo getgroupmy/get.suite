@@ -115,6 +115,20 @@ await step('List actions → Open in Sheets: the list as a spreadsheet in your D
   await page.getByText('Pack the books', { exact: true }).first().waitFor();
   await page.getByText('Done', { exact: true }).first().waitFor();
 });
+await step('a task’s details → Save to Notes: a note with its notes, steps and a link back', async () => {
+  const t = (await api(page, 'POST', `/tasks/lists/${list.id}/tasks`, { title: 'Hire the van', notes: 'A long-wheelbase one' })).body;
+  await api(page, 'POST', `/tasks/tasks/${t.id}/steps`, { title: 'Compare prices' });
+  await page.goto(`${B}/tasks/${list.id}?task=${t.id}`);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  await d.getByRole('button', { name: 'Save to Notes' }).click();
+  await page.getByText('Saved to Notes: Hire the van').waitFor();
+  const notes = (await api(page, 'GET', '/notes')).body;
+  const n = (notes.notes || notes).find((x) => x.title === 'Hire the van');
+  if (!n || !/A long-wheelbase one/.test(n.body) || !/☐ Compare prices/.test(n.body) || !new RegExp(`Open the task: https?://[^/\\s]+/tasks/${list.id}\\?task=${t.id}`).test(n.body)) throw new Error(JSON.stringify(n));
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/notes/);
+  await page.getByText('A long-wheelbase one').first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

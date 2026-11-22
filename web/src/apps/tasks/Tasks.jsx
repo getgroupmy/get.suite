@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
-import { listPrintHtml, listEmail, taskEmail } from './listprint.js';
+import { listPrintHtml, listEmail, taskEmail, taskNote } from './listprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import SendInChat from '../../components/SendInChat.jsx';
@@ -1255,6 +1255,13 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
     catch { toast('Your browser’s storage is off', 'error'); return; }
     goTo('/mail?compose_doc=1');
   };
+  // Save to Notes: a note of your own with what the task says now and a link back to it.
+  const saveToNotes = async () => {
+    try {
+      const made = await post('/notes', taskNote({ ...task, title: title.trim() || task.title, notes }, { link: taskLink(task), listName: lists.find((l) => l.id === task.list_id)?.name || '' }));
+      toast(`Saved to Notes: ${made.title}`, 'info', { action: { label: 'Open', onClick: () => goTo(`/notes?note=${made.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const copyLink = async () => {
     const url = taskLink(task);
     try { await navigator.clipboard.writeText(url); toast('Link to the task copied: people on this list can open it'); } catch { toast(url); }
@@ -1266,6 +1273,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
         <button type="button" className={`icon-btn myday-btn ${inMyDay ? 'on' : ''}`} aria-pressed={!!inMyDay} aria-label={inMyDay ? 'Remove from My Day' : 'Add to My Day'} title={inMyDay ? 'In My Day (click to take it off)' : 'Add to My Day: your list for today'} onClick={() => onMyDay(!inMyDay)}>☀</button>
         <button type="button" className="icon-btn" aria-label="Copy link to task" title="Copy link to task (paste it in Chat, an email or a document)" onClick={copyLink}><Icon name="link" /></button>
         <button type="button" className="icon-btn" aria-label="Send in Chat" title="Send in Chat: a link to it in a conversation (it shows as a task card)" onClick={() => setChattingOne(true)}><Icon name="chat" /></button>
+        <button type="button" className="icon-btn" aria-label="Save to Notes" title="Save to Notes: a note of your own with the task, its notes and steps, and a link back" onClick={saveToNotes}><Icon name="note" /></button>
         {mailOn?.enabled && <button type="button" className="icon-btn" aria-label="Send by email" title="Send by email: a new email with the task, its notes and steps" onClick={emailTask}><Icon name="mail" /></button>}
         {chattingOne && createPortal(<SendInChat items={[{ name: task.title, url: taskLink(task) }]} what="the task" onClose={() => setChattingOne(false)} />, document.body)}
         <button type="button" className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="close" /></button></div>

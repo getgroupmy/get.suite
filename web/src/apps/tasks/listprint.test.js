@@ -21,7 +21,7 @@ test('due dates', () => {
   assert.match(dueText({ due: '2026-12-01' }, 'en-GB'), /^Tue,? 1 Dec 2026$/);
 });
 
-import { listEmail, taskEmail } from './listprint.js';
+import { listEmail, taskEmail, taskNote } from './listprint.js';
 test('a list as an email: open tasks as a checklist with dates and steps, done ones only if asked, a link back', () => {
   const open = [{ title: 'Book <venue>', due: '2026-12-01', assignee_name: 'Kim', steps: [{ title: 'Call', done: true }, { title: 'Pay' }], important: true }];
   const done = [{ title: 'Pick a date' }];
@@ -48,4 +48,13 @@ test('one task as an email: its title as the subject; due, who, notes and steps;
   assert.match(done.html, /<s>Sent<\/s>/);
   assert.match(done.html, />Done</);
   assert.doesNotMatch(done.html, /The task in Tasks/);
+});
+
+test('one task as a note: its title; due, who and list; notes; steps as lines; a link back', () => {
+  const n = taskNote({ title: 'Book the venue', due: '2026-12-01', assignee_name: 'Kim Park', notes: 'Ask for the big room ',
+    steps: [{ title: 'Call', done: true }, { title: 'Pay deposit', done: false }] }, { locale: 'en-GB', link: 'https://ws.test/tasks/l1?task=t1', listName: 'Party' });
+  assert.equal(n.title, 'Book the venue');
+  assert.equal(n.body, 'Due Tue, 1 Dec 2026 · For Kim Park · In Party\n\nAsk for the big room\n\n✓ Call\n☐ Pay deposit\n\nOpen the task: https://ws.test/tasks/l1?task=t1');
+  assert.deepEqual(taskNote({ title: 'Bare' }), { title: 'Bare', body: '' });
+  assert.equal(taskNote({ title: 'Sent', done: true }).body, 'Done');
 });
