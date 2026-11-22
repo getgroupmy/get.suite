@@ -1,3 +1,4 @@
+import { agendaDoc } from './agendadoc.js';
 import { has } from '../../fold.js';
 import WorldClock from './WorldClock.jsx';
 import { unreachable, changeAdd, appendKept, offlineId, eventsCovering, keepChange } from '../offlinedocs.js';
@@ -1429,6 +1430,17 @@ function PrintAgenda({ onClose, weekStart = 1 }) {
   const days = to > from ? daysFromTo(range.from, range.to) : [];
   const list = events ? scheduleOf(events, days) : [];
   const title = `${range.from.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })} – ${range.to.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  // Copy to a document: the agenda as a document of yours, to keep and add to.
+  const navigate = useNavigate();
+  const toast = useToast();
+  const toDoc = async () => {
+    try {
+      const content = agendaDoc(title, list, { dayName: (d) => d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }), time: fmtTime });
+      const f = await post('/files/new', { kind: 'doc', name: `Agenda ${title}`, content });
+      toast(`Made “${f.name}” in your Drive`);
+      navigate(`/docs/${f.id}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const print = () => {
     document.body.classList.add('printing-agenda');
     const done = () => { document.body.classList.remove('printing-agenda'); window.removeEventListener('afterprint', done); };
@@ -1453,7 +1465,7 @@ function PrintAgenda({ onClose, weekStart = 1 }) {
     </div>
   );
   return (<>
-    <Modal wide title="Print or save as PDF" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn primary" disabled={events === null} onClick={print}><Icon name="print" size={18} /> Print</button></>}>
+    <Modal wide title="Print or save as PDF" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn" disabled={events === null} onClick={toDoc}><Icon name="doc" size={18} /> Copy to a document</button><button type="button" className="btn primary" disabled={events === null} onClick={print}><Icon name="print" size={18} /> Print</button></>}>
       <div className="stack">
         <div className="row wrap">
           <label className="field"><span>What to print</span>

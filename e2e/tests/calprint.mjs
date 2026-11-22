@@ -68,6 +68,19 @@ await step('printing shows only the agenda', async () => {
   if (!text.includes('Board meeting') || !text.includes('Room 4')) throw new Error(text);
   await page.emulateMedia({ media: 'screen' });
 });
+await step('Copy to a document: the agenda as a document, a heading a day and a table of times and events', async () => {
+  await page.evaluate(() => document.body.classList.remove('printing-agenda'));
+  await page.getByRole('dialog', { name: 'Print or save as PDF' }).getByRole('button', { name: 'Copy to a document' }).click();
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.paper .tiptap');
+  await ed.locator('h1').first().waitFor();
+  const row = ed.locator('tr', { hasText: 'Board meeting' });
+  await row.getByText('· Room 4').waitFor();
+  await row.locator('strong', { hasText: 'Board meeting' }).waitFor();
+  await ed.locator('tr', { hasText: 'Team lunch' }).waitFor();
+  if (await ed.getByText('Far away').count()) throw new Error('only this week');
+  if (!(await ed.locator('h2').count())) throw new Error('a heading a day');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
