@@ -102,6 +102,23 @@ await step('a note whose title names a day and time: Schedule time for it… set
   const want = new Date(); want.setDate(want.getDate() + 1); want.setHours(9, 0, 0, 0);
   if (!ev || ev.start !== want.getTime() || !/Bring the form/.test(ev.description)) throw new Error(JSON.stringify(ev && [new Date(ev.start).toString(), ev.description]));
 });
+await step('items that name a day: their tasks are due then, the others have no date', async () => {
+  await api(page, 'POST', '/notes', { title: 'Dated list', items: [{ text: 'Renew passport tomorrow' }, { text: 'Buy a guidebook' }] });
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Dated tasks' })).body.id;
+  await api(page, 'PUT', '/tasks/inbox', { list_id: list });
+  await page.goto(`${B}/notes`);
+  await card('Dated list').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Copy unticked items to Tasks' }).click();
+  const pick = page.getByRole('dialog', { name: 'Copy to Tasks' });
+  await pick.getByLabel('List').selectOption({ label: 'Dated tasks' }); // (several lists by now: it asks which)
+  await pick.getByRole('button', { name: 'Copy', exact: true }).click();
+  await page.getByText('2 tasks added to Dated tasks').waitFor();
+  const tm = new Date(); tm.setDate(tm.getDate() + 1);
+  const tomorrow = `${tm.getFullYear()}-${String(tm.getMonth() + 1).padStart(2, '0')}-${String(tm.getDate()).padStart(2, '0')}`;
+  const made = Object.fromEntries((await api(page, 'GET', `/tasks/lists/${list}/tasks`)).body.map((t) => [t.title, t.due]));
+  if (made['Renew passport tomorrow'] !== tomorrow || made['Buy a guidebook'] !== null) throw new Error(JSON.stringify(made));
+  await api(page, 'PUT', '/tasks/inbox', { list_id: null });
+});
 await step('copy to a document', async () => {
   await page.goto(`${B}/notes`);
   await card('Trip').getByRole('button', { name: 'More' }).click();

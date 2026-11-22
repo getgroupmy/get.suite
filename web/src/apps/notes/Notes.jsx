@@ -11,6 +11,7 @@ import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
 import TasksAbout from '../../components/TasksAbout.jsx';
+import { dueFromText } from '../tasks/addtask.js';
 import { printHtml } from '../mail/mailprint.js';
 import { notePrintHtml, notesPrintHtml, noteEmail, notesEmail, noteEventAt } from './noteprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
@@ -116,7 +117,10 @@ export default function Notes() {
   const [history, setHistory] = useState(null); // a note whose earlier versions are shown
   const [toTasks, setToTasks] = useState(null); // { note, lists }: choosing the task list its items go to
   const copyToTasks = async (n, listId) => {
-    const r = await post(`/notes/${n.id}/tasks`, listId ? { list_id: listId } : {});
+    // The day an unticked item names ("Book hotel friday") becomes its task's due date, read as Tasks' quick add reads it.
+    const dues = {};
+    for (const it of n.items || []) { const d = !it.done && it.id ? dueFromText(it.text).due : null; if (d) dues[it.id] = d; }
+    const r = await post(`/notes/${n.id}/tasks`, { ...(listId && { list_id: listId }), ...(Object.keys(dues).length && { dues }) });
     toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } });
   };
   const [labelling, setLabelling] = useState(null);

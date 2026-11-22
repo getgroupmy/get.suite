@@ -233,16 +233,18 @@ export function taskItems(items, para) {
  * A checklist's unticked items as tasks: a main item with its unticked sub-items as the task's steps;
  * an unticked sub-item of a ticked item is a task of its own.
  */
-export function tasksFromItems(items) {
+export function tasksFromItems(items, dues = {}) {
   const out = [];
   let parent = null; // the task being filled with steps
+  // dues: { <item id>: 'YYYY-MM-DD' }, the day an item names as the browser read it (quick add's reading); others have none.
+  const dueOf = (it) => (it.id && /^\d{4}-\d{2}-\d{2}$/.test(String(dues?.[it.id] || '')) && !Number.isNaN(Date.parse(dues[it.id])) ? { due: dues[it.id] } : {});
   for (const it of items) {
     const text = String(it.text || '').trim();
-    if (!it.indent) { parent = !it.done && text ? { title: text, steps: [] } : null; if (parent) out.push(parent); continue; }
+    if (!it.indent) { parent = !it.done && text ? { title: text, steps: [], ...dueOf(it) } : null; if (parent) out.push(parent); continue; }
     if (it.done || !text) continue;
-    if (parent) parent.steps.push(text); else out.push({ title: text, steps: [] });
+    if (parent) parent.steps.push(text); else out.push({ title: text, steps: [], ...dueOf(it) });
   }
-  return out.map((t) => (t.steps.length ? t : t.title));
+  return out.map((t) => (t.steps.length || t.due ? t : t.title));
 }
 export function cleanLabels(list) {
   if (!Array.isArray(list)) throw bad('labels must be a list');
@@ -993,7 +995,7 @@ export default function noteRoutes() {
   // The checklist's unticked items (or the note itself) as tasks on your first list, or the list chosen.
   r.post('/:id/tasks', (req, res) => {
     const n = load(req.params.id, req.user);
-    const items = n.items ? tasksFromItems(JSON.parse(n.items)) : [];
+    const items = n.items ? tasksFromItems(JSON.parse(n.items), req.body?.dues && typeof req.body.dues === 'object' ? req.body.dues : {}) : [];
     const titles = items.length ? items : [n.title || (n.body || '').split('\n')[0]].filter((x) => x && x.trim());
     if (!titles.length) throw bad('Nothing to add as a task');
     // { list_id }: a list of yours or one shared with you; otherwise your first list.

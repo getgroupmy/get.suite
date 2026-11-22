@@ -526,3 +526,19 @@ test('Contacts says how many tasks to do are about each contact of yours', async
   assert.equal((await ann('PATCH', `/api/tasks/tasks/${t.id}`, { done: true })).status, 200);
   assert.equal((await marks())['Dana O’Reed & Co'], undefined);
 });
+
+test('a note’s items to Tasks with the days they name: each task due then; a bad or stray day is ignored', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const note = (await ann('POST', '/api/notes', { title: 'Trip dates', items: [{ text: 'Book hotel friday' }, { text: 'Passport', done: true }, { text: 'Taxi' }, { text: 'Tickets tomorrow' }, { text: 'Seat 12A', indent: 1 }] })).body;
+  const [hotel, passport, taxi, tickets] = note.items;
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Trip dates list' })).body.id;
+  const r = await ann('POST', `/api/notes/${note.id}/tasks`, { list_id: list, dues: { [hotel.id]: '2026-11-27', [passport.id]: '2026-11-28', [taxi.id]: 'next week', [tickets.id]: '2026-11-24', nobody: '2026-12-01' } });
+  assert.deepEqual([r.status, r.body.added], [201, 3]);
+  const made = Object.fromEntries((await ann('GET', `/api/tasks/lists/${list}/tasks`)).body.map((t) => [t.title, [t.due, t.steps.map((x) => x.title)]]));
+  assert.deepEqual(made, { 'Book hotel friday': ['2026-11-27', []], Taxi: [null, []], 'Tickets tomorrow': ['2026-11-24', ['Seat 12A']] });
+  // Without dues, as before: no dates.
+  const plain = (await ann('POST', '/api/tasks/lists', { name: 'Trip no dates' })).body.id;
+  await ann('POST', `/api/notes/${note.id}/tasks`, { list_id: plain });
+  assert.ok((await ann('GET', `/api/tasks/lists/${plain}/tasks`)).body.every((t) => t.due === null));
+});

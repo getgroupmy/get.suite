@@ -394,15 +394,15 @@ export function openTasksAbout(url, userId) {
   return q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id
             WHERE t.done_at IS NULL AND t.link_url = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))`).get(url, userId, userId).n;
 }
-/** Add tasks on top of a list: each a title, or { title, steps: [titles] } for a task with steps; `link` ({ url, label }) is where they all link back to. Returns how many. */
+/** Add tasks on top of a list: each a title, or { title, steps: [titles], due } for a task with steps or a due day; `link` ({ url, label }) is where they all link back to. Returns how many. */
 export function addTasks(listId, userId, titles, link = null) {
   let top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(listId).p ?? 1) - titles.length;
   const t = now();
   for (const x of titles) {
     const title = typeof x === 'string' ? x : x.title;
     const steps = typeof x === 'object' && x.steps?.length ? JSON.stringify(x.steps.slice(0, 100).map((st) => ({ id: uid().slice(0, 8), title: String(st).slice(0, 500), done: false }))) : null;
-    q('INSERT INTO tasks (id, list_id, title, steps, position, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(uid(), listId, title.slice(0, 500), steps, top++, link?.url || null, link?.label || null, userId, t, t);
+    q('INSERT INTO tasks (id, list_id, title, steps, due, position, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(uid(), listId, title.slice(0, 500), steps, (typeof x === 'object' && x.due) || null, top++, link?.url || null, link?.label || null, userId, t, t);
   }
   return titles.length;
 }
