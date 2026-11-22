@@ -171,6 +171,16 @@ await step('Download (CSV): every link, as a spreadsheet', async () => {
   const row = lines.find((l) => l.startsWith('Audit folder,'));
   if (!row || !/View and download \(folder\),Olivia Owner,olivia@acme.com,\/s\/[\w-]+,yes,/.test(row) || lines.length !== 2) throw new Error(lines.join(' | '));
 });
+await step('Open in Sheets: the same list in a new spreadsheet', async () => {
+  await page.goto(`${B}/admin?tab=links`);
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.getByText(/^Made “Share links \d{4}-\d{2}-\d{2}” in your Drive$/).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'File or folder' }).waitFor();
+  await page.locator('[data-k="A2"]', { hasText: 'Audit folder' }).waitFor();
+  await page.locator('[data-k="F2"]', { hasText: 'yes' }).waitFor();
+});
 await step('Made by Kim Park → only Kim’s links; Stop all of them; Olivia’s stay', async () => {
   for (const n of ['Plans A', 'Plans B']) {
     const fid = (await api(kim, 'POST', '/files/folder', { name: n })).body.id;

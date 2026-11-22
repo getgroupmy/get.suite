@@ -26,6 +26,7 @@ import { powerPointFromDeck } from '../office/powerpoint.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
 import { csvCell } from '../csvcell.js';
+import { sheetFromRows } from '../office/tablesheet.js';
 
 const LINKABLE = ['file', 'folder'];
 // Documents, spreadsheets and presentations (linked themselves, or inside a linked folder) are shown read-only and
@@ -204,13 +205,14 @@ export function linkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
 
   // Admin → Share links: every link made by someone in the company (newest first; expired ones only with ?expired=1),
   // with its file, who made it, how often it was opened. Admins can stop any of them (DELETE below).
-  r.get('/all', requireAdmin, (req, res) => {
+  const allLinks = (orgId, expired) => {
     const rows = q(`SELECT l.*, f.name AS file_name, f.kind AS file_kind, f.trashed, u.name AS owner_name, u.username AS owner_email
                     FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by
-                    WHERE u.org_id = ? ORDER BY l.created_at DESC LIMIT 1000`).all(req.user.org_id);
+                    WHERE u.org_id = ? ORDER BY l.created_at DESC LIMIT 1000`).all(orgId);
     const out = rows.map((l) => ({ ...describeLink(l), file_name: l.file_name, file_kind: l.file_kind, trashed: !!l.trashed, created_by: l.created_by, owner_name: l.owner_name, owner_email: l.owner_email }));
-    res.json(req.query.expired === '1' ? out : out.filter((l) => !l.expired));
-  });
+    return expired ? out : out.filter((l) => !l.expired);
+  };
+  r.get('/all', requireAdmin, (req, res) => res.json(allLinks(req.user.org_id, req.query.expired === '1')));
 
   // Apply the company's rules to the links that already exist: links without a password (when one is required)
   // stop; links that last too long (or never expire) are shortened to the limit from now. Owners are told what
@@ -249,21 +251,31 @@ export function linkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     res.json({ stopped: ids.length });
   });
 
-  // The same list as a spreadsheet (CSV), for an audit: every link, expired ones too.
-  r.get('/all.csv', requireAdmin, (req, res) => {
-    const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
+  // The same list as a spreadsheet, for an audit: every link, expired ones too (CSV, or a new spreadsheet of the admin's).
+  const linksTable = (orgId) => {
     const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
     const rows = q(`SELECT l.*, f.name AS file_name, f.kind AS file_kind, f.trashed, u.name AS owner_name, u.username AS owner_email
                     FROM share_links l JOIN files f ON f.id = l.file_id JOIN users u ON u.id = l.created_by
-                    WHERE u.org_id = ? ORDER BY l.created_at DESC`).all(req.user.org_id);
-    const lines = [['File or folder', 'Kind', 'Made by', 'Email', 'Link', 'Password', 'Made (UTC)', 'Works until (UTC)', 'Expired', 'Opened', 'Last opened (UTC)', 'In the trash'].join(',')];
-    for (const l of rows) {
-      const d = describeLink(l);
-      lines.push([l.file_name, d.mode === 'upload' ? 'File request' : `View and download (${l.file_kind})`, l.owner_name, l.owner_email, `/s/${l.token}`, d.has_password ? 'yes' : 'no',
-        iso(l.created_at), l.expires_at ? iso(l.expires_at) : 'no expiry', d.expired ? 'yes' : 'no', l.opens || 0, iso(l.last_opened), l.trashed ? 'yes' : 'no'].map(cell).join(','));
-    }
-    audit(req, 'link.export', { details: { links: rows.length } });
-    res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', 'attachment; filename="share-links.csv"').send(`\ufeff${lines.join('\r\n')}\r\n`);
+                    WHERE u.org_id = ? ORDER BY l.created_at DESC`).all(orgId);
+    return [['File or folder', 'Kind', 'Made by', 'Email', 'Link', 'Password', 'Made (UTC)', 'Works until (UTC)', 'Expired', 'Opened', 'Last opened (UTC)', 'In the trash'],
+      ...rows.map((l) => {
+        const d = describeLink(l);
+        return [l.file_name, d.mode === 'upload' ? 'File request' : `View and download (${l.file_kind})`, l.owner_name, l.owner_email, `/s/${l.token}`, d.has_password ? 'yes' : 'no',
+          iso(l.created_at), l.expires_at ? iso(l.expires_at) : 'no expiry', d.expired ? 'yes' : 'no', l.opens || 0, iso(l.last_opened), l.trashed ? 'yes' : 'no'];
+      })];
+  };
+  r.get('/all.csv', requireAdmin, (req, res) => {
+    const table = linksTable(req.user.org_id);
+    audit(req, 'link.export', { details: { links: table.length - 1 } });
+    res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', 'attachment; filename="share-links.csv"').send(`\ufeff${table.map((r) => r.map((v) => csvCell(v)).join(',')).join('\r\n')}\r\n`);
+  });
+  r.post('/all/sheet', requireAdmin, (req, res) => {
+    const table = linksTable(req.user.org_id);
+    if (table.length < 2) throw bad('There are no share links to list');
+    const json = JSON.stringify(sheetFromRows(table.map((r, i) => (i ? r.map((v) => String(v)) : r)), { header: true, name: 'Share links' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `Share links ${new Date(now()).toISOString().slice(0, 10)}`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    audit(req, 'link.export', { details: { links: table.length - 1, as: 'spreadsheet' } });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, links: table.length - 1 });
   });
 
   r.delete('/:id', (req, res) => {

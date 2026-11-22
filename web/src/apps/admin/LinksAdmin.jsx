@@ -3,6 +3,7 @@
 // was opened. An admin can stop any of them; whoever made it is told.
 import { has } from '../../fold.js';
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { get, post, del, formatDate } from '../../api.js';
 import { useAuth } from '../../App.jsx';
 import Icon from '../../components/Icon.jsx';
@@ -10,6 +11,7 @@ import { ConfirmModal, useToast } from '../../components/ui.jsx';
 
 export default function LinksAdmin() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [links, setLinks] = useState(null);
   const [expired, setExpired] = useState(false);
   const [stopping, setStopping] = useState(null);
@@ -43,7 +45,10 @@ export default function LinksAdmin() {
           </select>
         </label>
         {by && shown.some((l) => !l.expired) && <button type="button" className="btn small danger" onClick={() => setStoppingAll(true)}>Stop all of {byName}’s links…</button>}
-        <span className="grow" /><a className="btn small" href="/api/links/all.csv" download><Icon name="download" size={16} /> Download (CSV)</a></div>
+        <span className="grow" /><a className="btn small" href="/api/links/all.csv" download><Icon name="download" size={16} /> Download (CSV)</a>
+        <button type="button" className="btn small" onClick={async () => {
+          try { const r = await post('/links/all/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+        }}><Icon name="sheet" size={16} /> Open in Sheets</button></div>
       <label className="check"><input type="checkbox" checked={expired} onChange={(e) => setExpired(e.target.checked)} /> Show expired links too</label>
       {links === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted">No {expired ? '' : 'working '}links.</p> : (
         <div className="card" style={{ padding: 0 }}>

@@ -253,3 +253,27 @@ test('the storage report in Sheets (admins): a row per person in MB, biggest fir
   assert.ok(Number(sh.cells[`G${olivia}`]) > 0, 'she has files');
   assert.ok(!Number.isNaN(Number(sh.cells[`C${olivia}`])));
 });
+
+test('share links in Sheets (admins): the same rows as the CSV, a row a link; logged', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  await ann('PATCH', '/api/orgs/current', { allow_links: true });
+  assert.equal((await mia('POST', '/api/links/all/sheet', {})).status, 403);
+  const before = (await ann('GET', '/api/links/all')).body.length;
+  if (!before) assert.equal((await ann('POST', '/api/links/all/sheet', {})).status, 400, 'no links yet');
+  const f = (await mia('POST', '/api/files/new', { kind: 'doc', name: 'Price list' })).body;
+  const l = await mia('POST', '/api/links', { file_id: f.id, password: 'pass-1234' });
+  assert.ok(l.status < 300, JSON.stringify(l.body));
+  const r = await ann('POST', '/api/links/all/sheet', {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.match(r.body.name, /^Share links \d{4}-\d{2}-\d{2}/);
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual(['A1', 'C1', 'F1', 'J1'].map((k) => sh.cells[k]), ['File or folder', 'Made by', 'Password', 'Opened']);
+  const row = Object.keys(sh.cells).find((k) => sh.cells[k] === 'Price list').slice(1);
+  assert.deepEqual(['C', 'D', 'F', 'I', 'J'].map((c) => sh.cells[`${c}${row}`]), ['Mia Member', 'mia@acme.com', 'yes', 'no', '0']);
+  assert.match(sh.cells[`E${row}`], /^\/s\//);
+  // The CSV has the same heading row.
+  const csv = await fetch(`${base}/api/links/all.csv`, { headers: { cookie: (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'olivia@acme.com', password: 'password123' }) })).headers.get('set-cookie').split(';')[0] } });
+  assert.match(await csv.text(), /^﻿?File or folder,Kind,Made by,Email,Link,Password,/);
+});
