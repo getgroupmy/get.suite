@@ -1104,6 +1104,14 @@ export default function formRoutes() {
     if (out.added) sendTo([req.user.id], { type: 'contacts-changed' });
     res.json({ ...out, with_email: people.length });
   });
+  r.post('/:id/summary-slides', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    const responses = responsesOf(f.id);
+    if (!responses.length) throw bad('No responses yet');
+    const json = JSON.stringify(summaryDeck(f, responses, { tz: String(req.body?.tz || 'UTC') }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${f.title} (results)`.slice(0, 200), kind: 'slides', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
+  });
   r.delete('/:id/sheet', (req, res) => {
     const f = ownForm(req.params.id, req.user);
     q('UPDATE forms SET linked_sheet = NULL WHERE id = ?').run(f.id);
@@ -1454,6 +1462,41 @@ export function publicFormRoutes() {
     res.json({ ok: true, confirmation: form.confirmation || '', edit_key: resp.edit_key, ...(result && { score: result.score, max: result.max, right: result.right, feedback: result.feedback }) });
   });
   return r;
+}
+
+/**
+ * A form's summary as a presentation (Forms → Summary as a presentation), for showing the results in a meeting: a title
+ * slide (the form and how many answered, when), then a slide per question: a bar chart of how the answers went (a
+ * grid's rows as columns of each answer), a ranking as a table, or the first typed answers as points.
+ */
+export function summaryDeck(form, responses, { now = Date.now(), tz = 'UTC' } = {}) {
+  let n = 0;
+  const id = () => `f${(n++).toString(36)}${crypto.randomBytes(3).toString('hex')}`;
+  const t = (role, x, y, w, h, size, extra = {}) => ({ id: id(), type: 'text', role, x, y, w, h, size, ...extra });
+  const when = new Intl.DateTimeFormat('en-GB', { timeZone: tz, dateStyle: 'long' }).format(new Date(now));
+  const slides = [{ id: id(), items: [t('title', 8, 30, 84, 20, 44, { bold: true, align: 'center', text: form.title || 'Untitled form' }),
+    t('subtitle', 15, 54, 70, 12, 24, { align: 'center', text: `${responses.length} response${responses.length === 1 ? '' : 's'}, as of ${when}` })] }];
+  const cut = (x, k) => String(x ?? '').replace(/\s+/g, ' ').slice(0, k);
+  for (const s of publicSummary(form.questions, responses)) {
+    const head = [t('title', 6, 5, 88, 13, 30, { bold: true, text: cut(s.title, 200) }),
+      t('body', 6, 17, 88, 6, 14, { text: `${s.answered} answered${s.average != null ? ` · average ${s.average}` : ''}` })];
+    const chart = (chartType, categories, series) => ({ id: id(), type: 'chart', x: 8, y: 25, w: 84, h: 68, chartType, title: '', data: { categories: categories.map((c) => cut(c, 60)), series } });
+    let body;
+    if (s.ranks) {
+      const rows = [['Option', 'Average place', 'Put first'], ...s.ranks.slice(0, 19).map((r) => [cut(r.label, 100), String(r.average ?? '—'), String(r.first)])];
+      body = { id: id(), type: 'table', x: 8, y: 25, w: 84, h: Math.min(68, 8 + rows.length * 6), size: rows.length > 10 ? 12 : 16, header: true, cells: rows };
+    } else if (s.bars) body = chart('bar', s.bars.map((b) => b.label), [{ name: 'Responses', values: s.bars.map((b) => b.count) }]);
+    else if (s.grid) {
+      const cols = s.grid[0]?.bars.map((b) => b.label) || [];
+      body = chart('stackedColumn', s.grid.map((g) => g.row), cols.map((c, k) => ({ name: cut(c, 60), values: s.grid.map((g) => g.bars[k]?.count || 0) })));
+    } else {
+      const typed = responses.map((r) => r.answers?.[s.id]).filter((a) => typeof a === 'string' && a.trim()).map((a) => cut(a.trim(), 200));
+      if (!typed.length) continue; // (an upload or signature: nothing to show)
+      body = t('body', 6, 25, 88, 66, 20, { text: [...typed.slice(0, 8), ...(typed.length > 8 ? [`… and ${typed.length - 8} more`] : [])].join('\n'), list: 'disc' });
+    }
+    slides.push({ id: id(), items: [...head, body] });
+  }
+  return { theme: 'light', slides };
 }
 
 /**

@@ -154,6 +154,14 @@ await step('Summary as a document: a table per question of how the answers went,
   await table.locator('th', { hasText: 'Responses' }).waitFor();
   await table.locator('tr', { hasText: '67%' }).waitFor();
 });
+await step('Summary as a presentation: the results as slides, a chart of each question', async () => {
+  await page.goBack();
+  await page.getByRole('button', { name: 'Summary as a presentation' }).click();
+  await page.waitForURL(/\/slides\//);
+  await page.getByText('Team lunch', { exact: true }).first().waitFor();
+  await page.getByText(/^3 responses, as of /).first().waitFor();
+  await page.locator('.slide-chart').first().waitFor();
+});
 await step('an AI assistant writes up the form’s results (form_summary_document): the document opens with them', async () => {
   await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
   const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Survey helper', scope: 'write', days: 30 })).body.token;

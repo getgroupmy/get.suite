@@ -87,3 +87,27 @@ test('respondents to Contacts: collected addresses, named from the Name question
   assert.deepEqual([r2.body.added, r2.body.names], [1, ['Uma Upton']], 'a colleague’s response: the address they gave, not their own');
   assert.equal((await mia('POST', `/api/forms/${f.id}/contacts`, {})).status, 404, 'only those who can edit the form');
 });
+
+test('the summary as a presentation: a title slide, then a chart of each choice question and the typed answers as points', async () => {
+  const olivia = client(), mia = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const made = (await olivia('POST', '/api/forms', { title: 'Offsite vote' })).body;
+  const f = (await olivia('PUT', `/api/forms/${made.id}`, { questions: [
+    { id: 'where', type: 'choice', title: 'Where?', options: ['Lake', 'City'] },
+    { id: 'idea', type: 'paragraph', title: 'One idea' },
+  ] })).body;
+  assert.equal((await olivia('POST', `/api/forms/${f.id}/summary-slides`, {})).status, 400, 'nothing yet');
+  for (const a of [{ where: 'Lake', idea: 'Kayaks' }, { where: 'Lake' }, { where: 'City', idea: 'A museum' }]) assert.equal((await mia('POST', `/api/public/forms/${f.token}`, { answers: a })).status, 201);
+  const r = await olivia('POST', `/api/forms/${f.id}/summary-slides`, { tz: 'UTC' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Offsite vote (results)');
+  const deck = (await olivia('GET', `/api/files/${r.body.id}/content`)).body.content;
+  assert.equal(deck.slides.length, 3);
+  assert.deepEqual(deck.slides[0].items.map((x) => x.text), ['Offsite vote', `3 responses, as of ${new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', dateStyle: 'long' }).format(new Date())}`]);
+  const chart = deck.slides[1].items.find((x) => x.type === 'chart');
+  assert.deepEqual([chart.chartType, chart.data.categories, chart.data.series[0].values], ['bar', ['Lake', 'City'], [2, 1]]);
+  assert.equal(deck.slides[1].items.find((x) => x.role === 'title').text, 'Where?');
+  assert.equal(deck.slides[2].items.find((x) => x.role === 'body' && x.list).text, 'Kayaks\nA museum');
+  assert.equal((await mia('POST', `/api/forms/${f.id}/summary-slides`, {})).status, 404, 'only those who can edit the form');
+});
