@@ -117,3 +117,44 @@ export async function sheetReadingText(data, { maxCells = 20000 } = {}) {
   }
   return out.join('\n').trim();
 }
+
+export const TABLE_CELLS = 2000;
+/**
+ * A sheet's cells as a table to put in a document (Docs → Insert table from a spreadsheet): the values the sheet shows
+ * (worked-out formulas, number formats), each with whether it's bold, from `range` ("B2:D9") or the cells in use;
+ * hidden rows and columns left out. { range, rows: [[{ text, bold }]] }, or an error message for a range too big or
+ * not understood.
+ */
+export async function sheetTable(data, index = 0, range = '') {
+  const { bookEvaluator: be, display, parseRef, colName } = await import('../sheetcalc/formula.js');
+  const { formatNumber } = await import('../sheetcalc/cellformat.js');
+  const s = data?.sheets?.[index];
+  if (!s) return { error: 'That sheet isn’t there' };
+  let ev;
+  try { ev = be(data.sheets, index, null, data.functions, formulaHiddenRows); } catch { ev = () => ''; }
+  let area;
+  if (String(range || '').trim()) {
+    const m = /^\s*\$?([A-Z]+)\$?(\d+)\s*(?::\s*\$?([A-Z]+)\$?(\d+))?\s*$/i.exec(range);
+    const a = m && parseRef(`${m[1].toUpperCase()}${m[2]}`), b = m && parseRef(`${(m[3] || m[1]).toUpperCase()}${m[4] || m[2]}`);
+    if (!a || !b) return { error: 'Give the cells as a range, like A1:D10' };
+    area = { c1: Math.min(a.c, b.c), r1: Math.min(a.r, b.r), c2: Math.max(a.c, b.c), r2: Math.max(a.r, b.r) };
+  } else {
+    for (const k of [...Object.keys(s.cells || {}).filter((k) => s.cells[k] !== '' && s.cells[k] != null), ...(ev.spilledKeys?.() || [])]) {
+      const p = parseRef(k);
+      if (p) area = area ? { c1: Math.min(area.c1, p.c), r1: Math.min(area.r1, p.r), c2: Math.max(area.c2, p.c), r2: Math.max(area.r2, p.r) } : { c1: p.c, r1: p.r, c2: p.c, r2: p.r };
+    }
+    if (!area) return { error: 'That sheet is empty' };
+  }
+  const hiddenRows = new Set((s.hide?.rows || []).map(Number)), hiddenCols = new Set((s.hide?.cols || []).map(Number));
+  const cols = [];
+  for (let c = area.c1; c <= area.c2; c++) if (!hiddenCols.has(c)) cols.push(c);
+  const rowsWanted = [];
+  for (let r = area.r1; r <= area.r2; r++) if (!hiddenRows.has(r)) rowsWanted.push(r);
+  if (cols.length * rowsWanted.length > TABLE_CELLS) return { error: `That’s too many cells for a table (up to ${TABLE_CELLS.toLocaleString('en')}): give a smaller range` };
+  const rows = rowsWanted.map((r) => cols.map((c) => {
+    const k = `${colName(c)}${r + 1}`;
+    let v; try { v = ev(k); } catch { v = { error: '#ERROR!' }; }
+    return { text: String(formatNumber(v, s.formats?.[k]) ?? display(v)), bold: !!s.formats?.[k]?.b };
+  }));
+  return { range: `${colName(area.c1)}${area.r1 + 1}:${colName(area.c2)}${area.r2 + 1}`, rows };
+}

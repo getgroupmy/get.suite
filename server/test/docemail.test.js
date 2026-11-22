@@ -1,3 +1,4 @@
+// Also Docs → Insert table from a spreadsheet (a sheet's cells as a table to put in a document).
 // Docs → Send as email: the document as an email's text (lists in their own look, pictures only the sender may open,
 // checklists, equations and footnotes in a form an email keeps), refused for view-only files with downloading off.
 import { test, before, after } from 'node:test';
@@ -95,4 +96,28 @@ test('a presentation as an email: a heading a slide, its points as lists, no spe
   const h = r.body.html;
   assert.match(h, /^<p>Sales team<\/p><p><strong><span style="font-size: 24px">Wins<\/span><\/strong><\/p><ol style="list-style-type: upper-alpha"><li><p>Two new clients<\/p><ol style="list-style-type: upper-alpha"><li><p>Acme<\/p><\/li><\/ol><\/li><li><p>Record month<\/p><\/li><\/ol>$/);
   assert.doesNotMatch(h, /secret|Hidden/);
+});
+
+test('a spreadsheet’s cells as a table for a document: values as shown, bold kept, hidden rows left out, a range', async () => {
+  const sheet = { sheets: [
+    { name: 'Costs', cells: { A1: 'Item', B1: 'Cost', A2: 'Chairs', B2: '1200', A3: 'Secret', B3: '9', A4: 'Total', B4: '=B2+B3' },
+      formats: { A1: { b: true }, B1: { b: true }, B2: { num: 'currency', cur: 'USD', dp: 2 }, B4: { num: 'currency', cur: 'USD', dp: 2 } }, hide: { rows: [2] } },
+    { name: 'Empty', cells: {} },
+  ] };
+  const f = (await ann('POST', '/api/files/new', { name: 'Budget', kind: 'sheet', content: sheet })).body;
+  const r = await ann('GET', `/api/files/${f.id}/table`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.sheets.map((s) => s.name), ['Costs', 'Empty']);
+  assert.equal(r.body.range, 'A1:B4');
+  assert.deepEqual(r.body.rows.map((row) => row.map((c) => c.text)), [['Item', 'Cost'], ['Chairs', '$1,200.00'], ['Total', '$1,209.00']]);
+  assert.deepEqual(r.body.rows[0].map((c) => c.bold), [true, true]);
+  // A range; another sheet; ranges not understood or too big; not a spreadsheet; someone without access.
+  const part = (await ann('GET', `/api/files/${f.id}/table?range=${encodeURIComponent('b4:a4')}`)).body;
+  assert.deepEqual([part.range, part.rows.map((row) => row.map((c) => c.text))], ['A4:B4', [['Total', '$1,209.00']]]);
+  assert.match((await ann('GET', `/api/files/${f.id}/table?sheet=1`)).body.error, /empty/);
+  assert.match((await ann('GET', `/api/files/${f.id}/table?range=nonsense`)).body.error, /like A1:D10/);
+  assert.match((await ann('GET', `/api/files/${f.id}/table?range=A1:Z200`)).body.error, /too many cells/);
+  const d = (await ann('POST', '/api/files/new', { name: 'D', kind: 'doc' })).body;
+  assert.equal((await ann('GET', `/api/files/${d.id}/table`)).status, 400);
+  assert.equal((await ben('GET', `/api/files/${f.id}/table`)).status, 404);
 });

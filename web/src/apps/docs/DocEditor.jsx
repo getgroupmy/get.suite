@@ -55,6 +55,7 @@ import { ActionItemsDialog } from './ActionItems.jsx';
 import { TableOfContents } from './toc.js';
 import { SheetChart } from './sheetchart.jsx';
 import { ChartPick } from '../ChartLink.jsx';
+import { SheetTableDialog } from './SheetTable.jsx';
 import { SignedPrintPage } from './Signatures.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
@@ -217,6 +218,7 @@ function SharedDoc({ file, setFile }) {
   // A link to another file in Drive, named after it. If people who can open this document can't
   // open that one, the owner is offered to share it with them (everyone else is told who can't).
   const [linkingFile, setLinkingFile] = useState(false);
+  const [tableFrom, setTableFrom] = useState(null); // Insert table from a spreadsheet: { step: 'file' } or { step: 'cells', file }
   const [chartFrom, setChartFrom] = useState(null); // choosing a chart: { step: 'file' } or { step: 'chart', file }
   const linkFile = async (f) => {
     const href = openUrl(f);
@@ -847,6 +849,7 @@ function SharedDoc({ file, setFile }) {
             try { const r = await post(`/files/${file.id}/make-slides`); toast(`Made “${r.name}”: ${r.slides} slides`); navigate(`/slides/${r.id}`); } catch (e) { toast(e.message, 'error'); }
           } },
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
+          ...(!readOnly ? [{ label: 'Insert table from a spreadsheet…', icon: 'sheet', onClick: () => setTableFrom({ step: 'file' }) }] : []),
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
           { label: 'Focus mode', icon: 'doc', onClick: () => setFocusMode(true) },
@@ -868,6 +871,9 @@ function SharedDoc({ file, setFile }) {
       {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
       {drawing && <DrawPad title="Drawing" saveLabel="Insert" onClose={() => { setDrawing(null); refocus(); }}
         onSave={(f) => addPicturesRef.current([new File([f], 'Drawing.png', { type: 'image/png' })], drawing.at)} />}
+      {tableFrom?.step === 'file' && <DrivePicker title="Table from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setTableFrom(null)} onPick={(f) => setTableFrom({ step: 'cells', file: f })} />}
+      {tableFrom?.step === 'cells' && <SheetTableDialog file={tableFrom.file} onClose={() => setTableFrom(null)}
+        onInsert={(node) => { setTableFrom(null); editor.chain().focus().insertContent(node).run(); }} />}
       {chartFrom?.step === 'file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setChartFrom(null)} onPick={(f) => setChartFrom({ step: 'chart', file: f })} />}
       {chartFrom?.step === 'chart' && <ChartPick file={chartFrom.file} onClose={() => setChartFrom(null)}
         onPick={(ch) => { const f = chartFrom.file; setChartFrom(null); editor.chain().focus().insertSheetChart({ fileId: f.id, chartId: ch.id, title: ch.now.title, chartType: ch.now.chartType, data: JSON.stringify(ch.now.data) }).run(); }} />}

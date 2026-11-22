@@ -54,7 +54,7 @@ import { rtfFromDoc, docFromRtf } from '../office/rtf.js';
 import { pdfFromDoc } from '../office/pdfdoc.js';
 import { pdfFromDeck, notesPdfFromDeck } from '../office/slidepdf.js';
 import { pdfFromSheet } from '../office/sheetpdf.js';
-import { delimitedFromSheet, sheetReadingText, formulaResults, cellsWithValuesFrom } from '../office/sheetvalues.js';
+import { delimitedFromSheet, sheetReadingText, formulaResults, cellsWithValuesFrom, sheetTable } from '../office/sheetvalues.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -2333,6 +2333,20 @@ export default function fileRoutes({ maxUploadBytes }) {
     const doc = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
     const canSee = (id) => { const pic = q("SELECT id, mime FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(id); return !!pic && /^image\/(png|jpeg|gif|webp)$/.test(pic.mime || '') && !!roleFor(pic.id, req.user.id); };
     res.json({ subject: f.name, html: emailHtmlFromDoc(doc, { canSee }) });
+  });
+  // Insert table from a spreadsheet (Docs): a sheet's cells as they show, to put in a document as a table.
+  // ?sheet=<index>&range=A1:D10 (or the cells in use); with the spreadsheet's sheet names to pick from.
+  r.get('/:id/table', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'sheet') throw bad('Pick a spreadsheet');
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    saveNow(f.id);
+    const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const sheets = (data.sheets || []).map((s, i) => ({ index: i, name: s.name || `Sheet${i + 1}`, hidden: !!s.hidden }));
+    const index = Math.max(0, Math.min(sheets.length - 1, Number(req.query.sheet) || 0));
+    const t = await sheetTable(data, index, String(req.query.range || ''));
+    if (t.error) throw bad(t.error);
+    res.json({ name: f.name, sheets, sheet: index, ...t });
   });
   // Which types each kind can be had as (the first is the usual one).
   const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'md', 'txt', 'pdf'] };

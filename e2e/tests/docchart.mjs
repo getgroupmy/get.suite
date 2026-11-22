@@ -90,6 +90,26 @@ for (const format of ['docx', 'odt']) await step(`the ${format === 'docx' ? 'Wor
   await fig.locator('.slide-chart-title').click();
   await page.locator('.doc-chart-bar').getByText('Up to date').waitFor(); // linked: checked against the spreadsheet
 });
+await step('⋮ → Insert table from a spreadsheet: the cells as a table, worked-out values (B2 is 50 by now), a header row', async () => {
+  const d2 = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Table report' })).body;
+  await page.goto(`${B}/docs/${d2.id}`);
+  await page.locator('.ProseMirror').click();
+  await page.keyboard.type('The figures:');
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Insert table from a spreadsheet…' }).click();
+  await page.getByRole('dialog', { name: 'Table from a spreadsheet' }).getByRole('button', { name: /Figures/ }).click();
+  const dlg = page.getByRole('dialog', { name: 'Table from “Figures”' });
+  await dlg.getByLabel('Cells').fill('nonsense');
+  await dlg.getByRole('button', { name: 'Insert table' }).click();
+  await dlg.getByRole('alert').getByText(/like A1:D10/).waitFor();
+  await dlg.getByLabel('Cells').fill('');
+  await dlg.getByRole('button', { name: 'Insert table' }).click();
+  const table = page.locator('.ProseMirror table');
+  await table.waitFor();
+  const rows = await table.locator('tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => `${c.tagName}:${c.textContent}`).join('|')));
+  if (JSON.stringify(rows) !== JSON.stringify(['TH:Month|TH:Sales', 'TD:Jan|TD:50', 'TD:Feb|TD:100'])) throw new Error(JSON.stringify(rows));
+  await until(async () => JSON.stringify((await api(page, 'GET', `/files/${d2.id}/content`)).body.content).includes('"tableHeader"'), 15000);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
