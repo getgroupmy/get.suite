@@ -284,6 +284,18 @@ await step('an AI assistant files an email in Notes (create_note with from_email
   await page.getByText(/Open the email: http/).first().waitFor();
   await page.getByText(/ii\. Budget/).first().waitFor();
 });
+await step('several ticked → Save to Drive as documents: a document each in Saved emails', async () => {
+  await gina.goto(`${B}/mail`);
+  await refreshUntil(gina, gina.locator('.msg-list li', { hasText: 'Quote' }));
+  await gina.getByLabel('Select Agenda').first().check();
+  await gina.getByLabel('Select Quote').first().check();
+  await gina.locator('.mail-bulk').getByRole('button', { name: 'Save to Drive as documents' }).click();
+  await gina.getByText('Saved 2 documents to Drive: Saved emails').waitFor();
+  await gina.getByRole('button', { name: 'Show', exact: true }).click();
+  await gina.waitForURL(/\/drive\/folder\//);
+  await gina.getByText(/^Quote \(\d{4}-\d\d-\d\d\)$/).first().waitFor();
+  await gina.getByText(/^Agenda \(\d{4}-\d\d-\d\d\)$/).first().waitFor();
+}, gina);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

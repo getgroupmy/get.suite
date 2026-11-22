@@ -2236,6 +2236,17 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.match(ndBody.html, /<p>Hi all,<\/p><p>the news &lt;in short&gt;:<\/p><p><strong><span style="font-size: 24px">This month<\/span><\/strong><\/p><ol style="list-style-type: lower-roman"><li><p>New office<\/p><\/li>/);
   const badDoc = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'draft_email', arguments: { to: 'bob@acme.com', subject: 'x' } } }) });
   assert.match(JSON.stringify(await badDoc.json()), /Give the message \(body\), or a document/);
+  // Several emails saved to Drive as documents at once (here one; none, too many and a missing one refused).
+  const pelicanUid = Number(listed.messages[0].id.split(':').pop());
+  const docs = await olivia('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: [pelicanUid, pelicanUid], time_zone: 'UTC' });
+  assert.equal(docs.status, 201, JSON.stringify(docs.body));
+  assert.equal(docs.body.files.length, 1, 'the same email once');
+  assert.match(docs.body.files[0].name, new RegExp(`^${subject} \\(\\d{4}-\\d\\d-\\d\\d\\)$`));
+  const docBody = JSON.stringify((await olivia('GET', `/api/files/${docs.body.files[0].id}/content`)).body.content);
+  assert.match(docBody, /The pelican numbers are in\./);
+  assert.equal((await olivia('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: [] })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: Array.from({ length: 51 }, (_, i) => i + 1) })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: [999999] })).status, 404);
   // A note from an email (create_note with from_email): its subject, who and what, a link back; the assistant's words first.
   const fromMail = await call('create_note', { from_email: listed.messages[0].id, text: 'Check the figures' });
   assert.deepEqual([fromMail.title, fromMail.from_email], [subject, true]);

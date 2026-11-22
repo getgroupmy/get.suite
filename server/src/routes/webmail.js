@@ -1680,15 +1680,31 @@ export default function webmailRoutes() {
     const link = parsed.messageId ? `${base}/mail?open=${encodeURIComponent(parsed.messageId)}` : `${base}/mail/${encodeURIComponent(folder)}/${uid}`;
     res.json(emailNote(parsed, { timeZone: zoneOf(req.query.time_zone), link }));
   });
-  r.post('/messages/:uid/save-doc', async (req, res) => {
-    const { parsed } = await loadMessage(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), false);
-    const { doc, name } = emailDoc(parsed, { timeZone: zoneOf(req.body?.time_zone), rich: true });
+  // An email as a document in Saved emails (its formatting kept, to edit): the file made.
+  const saveEmailDoc = async (user, folder, uid, timeZone, folderId) => {
+    const { parsed } = await loadMessage(user, folder, uid, false);
+    const { doc, name } = emailDoc(parsed, { timeZone, rich: true });
     const json = JSON.stringify(doc);
-    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    checkQuota(user.org_id, Buffer.byteLength(json), user.id);
+    const id = insertFile({ owner: user.id, parentId: folderId, name: cleanName(name), kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    return q('SELECT id, name, kind FROM files WHERE id = ?').get(id);
+  };
+  r.post('/messages/:uid/save-doc', async (req, res) => {
     const folderId = savedEmailsFolder(req.user);
-    const id = insertFile({ owner: req.user.id, parentId: folderId, name: cleanName(name), kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    const file = await saveEmailDoc(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), zoneOf(req.body?.time_zone), folderId);
     sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
-    res.status(201).json({ folder_id: folderId, file: q('SELECT id, name, kind FROM files WHERE id = ?').get(id) });
+    res.status(201).json({ folder_id: folderId, file });
+  });
+  // Several at once: { folder, uids: [...] } (up to 50), a document each.
+  r.post('/messages/save-doc', async (req, res) => {
+    const uids = Array.isArray(req.body?.uids) ? [...new Set(req.body.uids.map(Number).filter((u) => Number.isInteger(u) && u > 0))] : [];
+    if (!uids.length) throw bad('Pick some emails');
+    if (uids.length > 50) throw bad('Save up to 50 emails at a time');
+    const folderId = savedEmailsFolder(req.user);
+    const files = [];
+    try { for (const uid of uids) files.push(await saveEmailDoc(req.user, String(req.body?.folder || 'INBOX'), uid, zoneOf(req.body?.time_zone), folderId)); }
+    finally { if (files.length) sendTo([req.user.id], { type: 'files-changed', parent_id: folderId }); }
+    res.status(201).json({ folder_id: folderId, files });
   });
   // Several at once: { folder, uids: [...] } (up to 50), a PDF each.
   r.post('/messages/save-pdf', async (req, res) => {

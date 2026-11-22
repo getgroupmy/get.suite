@@ -618,6 +618,14 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 setChecked(new Set());
               } catch (e) { toast(e.message, 'error'); }
             }}>Save to Drive as PDF</button>
+            <button type="button" className="btn small" title="A document of each in Drive, in Saved emails, to edit (read ones stay as they were)" onClick={async () => {
+              if (sel.length > 50) { toast('Save up to 50 messages at a time', 'error'); return; }
+              try {
+                const r = await post(`/mail/messages/save-doc${mailboxParam().replace(/^&/, '?')}`, { folder, uids: sel, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+                toast(`Saved ${r.files.length === 1 ? '1 document' : `${r.files.length} documents`} to Drive: Saved emails`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
+                setChecked(new Set());
+              } catch (e) { toast(e.message, 'error'); }
+            }}>Save to Drive as documents</button>
             {!shared && <button type="button" className="btn small" title="Each as a card in a Chat conversation" onClick={() => {
               if (sel.length > 10) { toast('Share up to 10 emails at a time', 'error'); return; }
               setSharingMany(sel);
