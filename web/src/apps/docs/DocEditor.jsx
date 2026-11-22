@@ -56,7 +56,7 @@ import { TableOfContents } from './toc.js';
 import { SheetChart } from './sheetchart.jsx';
 import { ChartPick } from '../ChartLink.jsx';
 import { SheetTableDialog, tableNode } from './SheetTable.jsx';
-import { sortTableAtCursor } from './tablesort.js';
+import { sortTableAtCursor, addTotalsAtCursor } from './tablesort.js';
 import { SignedPrintPage } from './Signatures.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
@@ -1240,6 +1240,7 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         // (by the column the cursor is in, the heading row staying first)
         { label: 'Sort A to Z', onClick: () => { const why = sortTableAtCursor(editor, false); if (why) onTableMessage?.(why); }, disabled: !editor.isActive('table') },
         { label: 'Sort Z to A', onClick: () => { const why = sortTableAtCursor(editor, true); if (why) onTableMessage?.(why); }, disabled: !editor.isActive('table') },
+        { label: 'Add a totals row', onClick: () => { const why = addTotalsAtCursor(editor); if (why) onTableMessage?.(why); }, disabled: !editor.isActive('table') },
         '-',
         { label: 'Delete row', icon: 'trash', danger: true, onClick: () => c().deleteRow().run(), disabled: !editor.can().deleteRow() },
         { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },

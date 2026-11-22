@@ -174,6 +174,15 @@ await step('Table → Sort Z to A / A to Z by the cursor’s column: amounts by 
     return t.content.map((r) => r.content[0].content[0].content?.[0]?.text).join() === 'Item,Chairs,Desks,Lamps,Pens';
   }, 15000);
 });
+await step('Table → Add a totals row: each column of figures added up, written like its numbers, in bold', async () => {
+  await page.locator('.ProseMirror td', { hasText: 'Desks' }).click();
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Add a totals row' }).click();
+  const last = page.locator('.ProseMirror table tr').last();
+  await last.locator('strong', { hasText: '$1,559.50' }).waitFor();
+  if ((await last.locator('td').first().textContent()) !== 'Total') throw new Error(await last.textContent());
+  await until(async () => JSON.stringify((await api(page, 'GET', `/files/${page.url().split('/').pop().split('?')[0]}/content`)).body.content).includes('$1,559.50'), 15000);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

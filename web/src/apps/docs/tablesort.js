@@ -63,3 +63,65 @@ export function sortTableAtCursor(editor, desc = false) {
   editor.view.dispatch(tr.scrollIntoView());
   return null;
 }
+
+/** How a cell writes its number: { prefix, suffix, dp, commas }, from "$1,200.00", "12%", "€ 5", "350". */
+function styleOf(text) {
+  const t = String(text ?? '').trim();
+  const m = /^([-−]?\s*(?:[$€£¥₹]|RM|S\$)?\s*[-−]?)\s*([\d,]*\d(?:\.(\d+))?)\s*(%?)$/.exec(t);
+  if (!m) return null;
+  return { prefix: m[1].replace(/[-−]/g, '').trim(), suffix: m[4], dp: (m[3] || '').length, commas: m[2].includes(',') };
+}
+
+/**
+ * A totals row for rows of cell texts (the heading row left out when `head`): each column with numbers in it added up,
+ * written the way its numbers are ($, %, thousands separators, the most decimals used); "Total" in the first column when
+ * it has no numbers. null when no column has numbers.
+ */
+export function totalsRow(rows, head = false) {
+  const body = rows.slice(head ? 1 : 0);
+  const width = Math.max(0, ...rows.map((r) => r.length));
+  const out = [];
+  let any = false;
+  for (let c = 0; c < width; c++) {
+    const cells = body.map((r) => r[c]).filter((t) => numberOf(t) !== null);
+    if (!cells.length) { out.push(''); continue; }
+    any = true;
+    const styles = cells.map(styleOf).filter(Boolean);
+    const dp = Math.max(0, ...styles.map((s) => s.dp));
+    const sum = cells.reduce((a, t) => a + numberOf(t), 0);
+    const s0 = styles[0] || { prefix: '', suffix: '', commas: false };
+    const abs = Math.abs(sum).toFixed(dp);
+    const [int, frac] = abs.split('.');
+    const grouped = styles.some((s) => s.commas) ? int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : int;
+    out.push(`${sum < 0 ? '-' : ''}${s0.prefix}${grouped}${frac ? `.${frac}` : ''}${s0.suffix}`);
+  }
+  if (!any) return null;
+  if (!out[0]) out[0] = 'Total';
+  return out;
+}
+
+/** Add a totals row (bold) at the end of the table the cursor is in. Returns why it can't, or null. */
+export function addTotalsAtCursor(editor) {
+  const { state } = editor;
+  const $from = state.selection.$from;
+  let d = $from.depth;
+  while (d > 0 && $from.node(d).type.name !== 'table') d--;
+  if (!d) return 'Put the cursor in a table first';
+  const table = $from.node(d);
+  const texts = [];
+  let merged = false, head = true;
+  table.forEach((row, _o, i) => {
+    const r = [];
+    row.forEach((cell) => { r.push(cell.textContent); if ((cell.attrs.colspan || 1) > 1 || (cell.attrs.rowspan || 1) > 1) merged = true; if (i === 0 && cell.type.name !== 'tableHeader') head = false; });
+    texts.push(r);
+  });
+  if (merged) return 'A table with merged cells can’t be added up: unmerge them first';
+  const totals = totalsRow(texts, head && texts.length > 1);
+  if (!totals) return 'There are no figures in this table to add up';
+  const { schema } = state;
+  const cellOf = (t) => schema.nodes.tableCell.create(null, schema.nodes.paragraph.create(null, t ? schema.text(t, [schema.marks.bold.create()]) : null));
+  const row = schema.nodes.tableRow.create(null, totals.map(cellOf));
+  const end = $from.before(d) + table.nodeSize - 1; // (inside the table, after its last row)
+  editor.view.dispatch(state.tr.insert(end, row).scrollIntoView());
+  return null;
+}

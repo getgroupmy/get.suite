@@ -13,3 +13,11 @@ test('sorted A to Z and Z to A: numbers by value before words, words alphabetica
   // Stable: equal values keep their order.
   assert.deepEqual(sortOrder(['b', 'A', 'a', 'B']), [1, 2, 0, 3]);
 });
+
+test('a totals row: each column of figures added up, written like its numbers; "Total" first', async () => {
+  const { totalsRow } = await import('./tablesort.js');
+  const rows = [['Item', 'Cost', 'Qty', 'Share', 'Note'], ['Chairs', '$1,200.00', '3', '12%', 'blue'], ['Desks', '$350', '1,000', '8.5%', ''], ['Lamps', '', '2', '', 'x']];
+  assert.deepEqual(totalsRow(rows, true), ['Total', '$1,550.00', '1,005', '20.5%', '']);
+  assert.deepEqual(totalsRow([['10', 'a'], ['-15', 'b']]), ['-5', ''], 'a first column of figures is added up too (no "Total" over it)');
+  assert.equal(totalsRow([['Item'], ['x']], true), null);
+});
