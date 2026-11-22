@@ -515,6 +515,9 @@ export default function Drive() {
         try { const c = await post(`/files/${f.id}/pdf-copy`, {}); toast(c.replaced ? `${c.name} updated` : `${c.name} saved${c.parent_id === f.parent_id ? ' beside it' : ' in My Drive'}`); load(); } catch (e) { toast(e.message, 'error'); }
       } },
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
+      f.kind === 'folder' && { label: 'List contents in Sheets', icon: 'sheet', onClick: async () => {
+        try { const r = await post(`/files/${f.id}/contents-sheet`, {}); toast(`Made “${r.name}”${r.more ? ' (the first 5,000 items)' : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); load(); } catch (e) { toast(e.message, 'error'); }
+      } },
       mail?.enabled && f.kind !== 'folder' && !viewOnly(f) && { label: 'Email as attachment', icon: 'mail', onClick: () => emailFile(f) },
       mail?.enabled && (f.kind === 'doc' || f.kind === 'slides') && !viewOnly(f) && { label: 'Send as email', icon: 'mail', onClick: () => sendAsEmail(f) },
       (f.kind === 'doc' || (f.kind === 'file' && /\.(docx|odt|md|markdown|rtf|html?)$/i.test(f.name))) && !viewOnly(f) && { label: 'Open tables in Sheets', icon: 'sheet', onClick: async () => {

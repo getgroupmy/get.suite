@@ -128,6 +128,22 @@ await step('download a folder as a zip', async () => {
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as .zip' }).click()]);
   if (dl.suggestedFilename() !== 'Archive 2026.zip') throw new Error(dl.suggestedFilename());
 });
+await step('a folder’s ⋮ → List contents in Sheets: a row for each thing in it, with where and what', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Archive 2026', exact: true }).first().click();
+  await page.getByRole('menuitem', { name: 'List contents in Sheets' }).click();
+  await page.getByText('Made “Archive 2026 (contents)”').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Folder' }).waitFor();
+  await page.locator('[data-k="A2"]', { hasText: 'Archive 2026' }).waitFor();
+  const inside = (await api(page, 'GET', `/files?parent=${folderId}`)).body;
+  const names = (Array.isArray(inside) ? inside : inside.files || []).map((f) => f.name);
+  const id = page.url().split('/').pop().split('?')[0];
+  const cells = (await api(page, 'GET', `/files/${id}/content`)).body.content.sheets[0].cells;
+  for (const n of names) if (!Object.values(cells).includes(n)) throw new Error(`${n} missing: ${JSON.stringify(cells).slice(0, 300)}`);
+  if (!names.length) throw new Error('the folder has things in it by now');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

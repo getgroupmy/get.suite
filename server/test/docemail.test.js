@@ -190,3 +190,26 @@ test('Drive → Open tables in Sheets: a document’s tables, a Word file’s an
   assert.match((await ann('POST', `/api/files/${png.id}/tables-to-sheet`, {})).body.error, /Only documents/);
   assert.equal((await ben('POST', `/api/files/${d.id}/tables-to-sheet`, {})).status, 404);
 });
+
+test('Drive → List contents in Sheets: a folder’s files and folders inside, a row each with where, what, whose, size, when', async () => {
+  const top = (await ann('POST', '/api/files/folder', { name: 'Project X' })).body;
+  const inner = (await ann('POST', '/api/files/folder', { name: 'Designs', parent_id: top.id })).body;
+  await ann('POST', '/api/files/new', { kind: 'doc', name: 'Brief', parent_id: top.id });
+  const up = (await ann('POST', `/api/files/upload?name=logo.png&parent=${inner.id}`, null, PNG)).body;
+  assert.ok(up.id);
+  const r = await ann('POST', `/api/files/${top.id}/contents-sheet`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.kind, r.body.items, r.body.more], ['Project X (contents)', 'sheet', 3, false]);
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  const row = (n) => ['A', 'B', 'C', 'D', 'E'].map((c) => sh.cells[`${c}${n}`] ?? '');
+  assert.deepEqual(row(1), ['Folder', 'Name', 'Kind', 'Owner', 'Size (KB)']);
+  assert.deepEqual(row(2).slice(0, 4), ['Project X', 'Brief', 'Document', 'Ann Owner']);
+  assert.deepEqual(row(3).slice(0, 3), ['Project X', 'Designs', 'Folder']);
+  assert.deepEqual(row(4).slice(0, 4), ['Project X/Designs', 'logo.png', 'PNG file', 'Ann Owner']);
+  assert.match(sh.cells.F2, /^\d{4}-\d\d-\d\d$/);
+  // Not a folder; an empty one; someone without access.
+  const empty = (await ann('POST', '/api/files/folder', { name: 'Empty' })).body;
+  assert.match((await ann('POST', `/api/files/${empty.id}/contents-sheet`, {})).body.error, /empty/);
+  assert.equal((await ann('POST', `/api/files/${up.id}/contents-sheet`, {})).status, 400);
+  assert.equal((await ben('POST', `/api/files/${top.id}/contents-sheet`, {})).status, 404);
+});

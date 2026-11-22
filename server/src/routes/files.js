@@ -2408,6 +2408,32 @@ export default function fileRoutes({ maxUploadBytes }) {
     const id = insertFile({ owner: req.user.id, parentId, name: cleanName(`${f.kind === 'doc' ? f.name : f.name.replace(/\.[a-z]+$/i, '')} (tables)`), kind: 'sheet', content: json, size: Buffer.byteLength(json), activity: { by: req.user.id, action: 'create', details: { from: f.name } } });
     res.status(201).json({ ...publicFile(loadFile(id, req.user)), tables: tables.length });
   });
+  // List contents in Sheets (a folder): everything in it, folders inside too, a row each: where it is, its name, what it
+  // is, whose, its size, when it was last changed; the first 5,000, as a new spreadsheet in your Drive.
+  r.post('/:id/contents-sheet', (req, res) => {
+    const top = loadFile(req.params.id, req.user);
+    if (top.kind !== 'folder') throw bad('Choose a folder');
+    const KIND = { folder: 'Folder', doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation', form: 'Form' };
+    const rows = [['Folder', 'Name', 'Kind', 'Owner', 'Size (KB)', 'Modified']];
+    const names = new Map();
+    const ownerName = (id) => { if (!names.has(id)) names.set(id, q('SELECT name FROM users WHERE id = ?').get(id)?.name || ''); return names.get(id); };
+    let more = false;
+    const walk = (folderId, where) => {
+      for (const c of q('SELECT id, name, kind, size, owner_id, updated_at FROM files WHERE parent_id = ? AND trashed = 0 ORDER BY kind = ?, name COLLATE NOCASE').all(folderId, 'folder')) {
+        if (rows.length > 5000) { more = true; return; }
+        if (!roleFor(c.id, req.user.id)) continue;
+        const ext = c.kind === 'file' ? (/\.([a-z0-9]{1,8})$/i.exec(c.name)?.[1] || '').toUpperCase() : '';
+        rows.push([where, c.name, KIND[c.kind] || (ext ? `${ext} file` : 'File'), ownerName(c.owner_id), c.kind === 'folder' ? '' : (Math.round(((c.size || 0) / 1024) * 10) / 10).toString(), c.updated_at ? new Date(c.updated_at).toISOString().slice(0, 10) : '']);
+        if (c.kind === 'folder') walk(c.id, `${where}/${c.name}`);
+      }
+    };
+    walk(top.id, top.name);
+    if (rows.length === 1) throw bad('This folder is empty');
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Contents' }));
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const id = insertFile({ owner: req.user.id, parentId: null, name: cleanName(`${top.name} (contents)`), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ ...publicFile(loadFile(id, req.user)), items: rows.length - 1, more });
+  });
   // Which types each kind can be had as (the first is the usual one).
   const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'md', 'txt', 'pdf'] };
   const exportType = (f, format) => (EXPORT_TYPES[f.kind]?.includes(format) ? format : EXPORT_AS[f.kind]);
