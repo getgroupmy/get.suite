@@ -774,16 +774,23 @@ export const TOOLS = [
   },
   {
     name: 'append_to_document', title: 'Add to a document', readOnly: false,
-    description: 'Add text to the end of an existing Workspace document (e.g. today’s minutes to a running log). Lines become paragraphs; lines starting with #, ## or ### become headings. In a document with tabs, it goes at the end of the tab named (else the last tab).',
+    description: 'Add text to the end of an existing Workspace document (e.g. today’s minutes to a running log). Lines become paragraphs; lines starting with #, ## or ### become headings. In a document with tabs, it goes at the end of the tab named (else the last tab). With table_from, a spreadsheet’s cells follow as a table, as the sheet shows them (as Docs’ Insert table from a spreadsheet does): e.g. this month’s figures into a report.',
     inputSchema: {
-      type: 'object', required: ['file', 'text'],
-      properties: { file: { type: 'string', description: 'The document’s id (file:…, from search or list_files)' }, text: { type: 'string' }, tab: { type: 'string', description: 'In a document with tabs: which tab, by title' } },
+      type: 'object', required: ['file'],
+      properties: {
+        file: { type: 'string', description: 'The document’s id (file:…, from search or list_files)' }, text: { type: 'string' }, tab: { type: 'string', description: 'In a document with tabs: which tab, by title' },
+        table_from: {
+          type: 'object', required: ['file'], description: 'A spreadsheet’s cells to add as a table, after the text (up to 2,000 cells)',
+          properties: { file: { type: 'string', description: 'The spreadsheet’s id (file:…)' }, sheet: { type: 'string', description: 'The sheet’s name (else the first)' }, range: { type: 'string', description: 'Like A1:D10 (else all the cells in use)' }, header: { type: 'boolean', default: true, description: 'The first row as a header row' } },
+        },
+      },
     },
     async run(api, a) {
       const id = String(a.file || '').replace(/^file:/, '');
-      const r = await api('POST', `/files/${encodeURIComponent(id)}/append`, { text: a.text, tab: a.tab || null });
+      if (!String(a.text || '').trim() && !a.table_from) throw new ToolError('Give the text to add, or a spreadsheet’s cells (table_from)');
+      const r = await api('POST', `/files/${encodeURIComponent(id)}/append`, { text: a.text || '', tab: a.tab || null, ...(a.table_from && { table_from: a.table_from }) });
       const f = await api('GET', `/files/${encodeURIComponent(id)}`);
-      return { added_paragraphs: r.added, tab: r.tab, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
+      return { added_paragraphs: r.added - (r.table_rows ? 1 : 0), ...(r.table_rows && { table_rows: r.table_rows }), tab: r.tab, name: f.name, url: fileUrl({ ...f, kind: 'doc' }) };
     },
   },
   {

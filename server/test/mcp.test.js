@@ -311,6 +311,18 @@ test('add to a document: at its end, or the end of a tab; a spreadsheet refused'
   const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'S' })).body;
   assert.match((await call(rw, 'append_to_document', { file: `file:${sheet.id}`, text: 'x' })).content[0].text, /only be added to a document/);
   assert.equal((await call(ro, 'append_to_document', { file: doc.id, text: 'x' })).isError, true, 'not with a read-only token');
+  // A spreadsheet's cells as a table after the text: values as shown, a header row, a named sheet and a range.
+  const figs = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Figures', content: { sheets: [{ name: 'Notes', cells: { A1: 'x' } },
+    { name: 'March', cells: { A1: 'Region', B1: 'Sales', A2: 'North', B2: '1200', A3: 'South', B3: '=B2/2', C9: 'stray' }, formats: { B2: { num: 'currency', cur: 'USD', dp: 0 }, B3: { num: 'currency', cur: 'USD', dp: 0 } } }] } })).body;
+  const t = await call(rw, 'append_to_document', { file: doc.id, text: '## March figures', table_from: { file: `file:${figs.id}`, sheet: 'March', range: 'A1:B3' } });
+  assert.ok(!t.isError, JSON.stringify(t));
+  assert.deepEqual([t.structuredContent.added_paragraphs, t.structuredContent.table_rows], [1, 3]);
+  const last = (await owner('GET', `/api/files/${doc.id.replace(/^file:/, '')}/content`)).body.content.content.at(-1);
+  assert.equal(last.type, 'table');
+  assert.deepEqual(last.content.map((r) => r.content.map((c) => `${c.type === 'tableHeader' ? 'H' : ''}${c.content[0].content?.[0]?.text || ''}`).join('|')), ['HRegion|HSales', 'North|$1,200', 'South|$600']);
+  assert.match((await call(rw, 'append_to_document', { file: doc.id, table_from: { file: `file:${figs.id}`, sheet: 'April' } })).content[0].text, /no sheet called “April”/);
+  assert.match((await call(rw, 'append_to_document', { file: doc.id })).content[0].text, /Give the text to add, or a spreadsheet’s cells/);
+  assert.match((await call(rw, 'append_to_document', { file: doc.id, table_from: { file: doc.id } })).content[0].text, /table_from is a spreadsheet/);
 });
 
 test('answer an invitation from a colleague: yes with a note (the organizer is told); not one’s own events', async () => {

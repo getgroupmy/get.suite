@@ -1699,20 +1699,36 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Add text to the end of a document: { text, tab? } (lines; # headings), into the tab named in a document
   // of tabs (else the last). Open in someone's browser, it appears live; otherwise saved straight away.
-  r.post('/:id/append', (req, res) => {
+  r.post('/:id/append', async (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.kind !== 'doc') throw bad('Text can only be added to a document');
     notLocked(f);
     const text = String(req.body?.text ?? '');
-    if (!text.trim()) throw bad('Give the text to add');
+    const from = req.body?.table_from; // a spreadsheet's cells as a table after the text: { file, sheet?, range?, header? }
+    if (!text.trim() && !from) throw bad('Give the text to add');
     if (text.length > 200000) throw bad('That’s too much text to add at once');
+    let table = null;
+    if (from) {
+      const sf = loadFile(String(from.file || '').replace(/^file:/, ''), req.user);
+      if (sf.kind !== 'sheet') throw bad('table_from is a spreadsheet');
+      if (!mayTakeAway(sf, sf.role)) throw forbidden(NO_TAKING);
+      saveNow(sf.id);
+      const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(sf.id).content || '{}');
+      const byName = typeof from.sheet === 'string' ? (data.sheets || []).findIndex((x) => x.name === from.sheet) : Number(from.sheet) || 0;
+      if (byName < 0) throw bad(`“${sf.name}” has no sheet called “${from.sheet}”`);
+      const t = await sheetTable(data, byName, String(from.range || ''));
+      if (t.error) throw bad(t.error);
+      const head = from.header !== false && t.rows.length > 1;
+      const cell = (c, h) => ({ type: h ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', ...(c.text && { content: [{ type: 'text', text: c.text, ...(c.bold && !h && { marks: [{ type: 'bold' }] }) }] }) }] });
+      table = { type: 'table', content: t.rows.map((row, i) => ({ type: 'tableRow', content: row.map((c) => cell(c, head && i === 0)) })) };
+    }
     saveNow(f.id);
     const cur = q('SELECT updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
     if ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS) snapshot(f.id);
-    const nodes = docFromText(text).content;
+    const nodes = [...(text.trim() ? docFromText(text).content : []), ...(table ? [table] : [])];
     const tab = appendToDocument(f.id, nodes, req.body?.tab ? String(req.body.tab) : null, req.user.id);
     recordActivity(f.id, req.user.id, 'edit');
-    res.json({ added: nodes.length, tab });
+    res.json({ added: nodes.length, tab, ...(table && { table_rows: table.content.length }) });
   });
 
   // Find and replace in a document's text: { find, replace, all?, match_case? }, live for anyone editing it; the

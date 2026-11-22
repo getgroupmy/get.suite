@@ -110,6 +110,20 @@ await step('⋮ → Insert table from a spreadsheet: the cells as a table, worke
   if (JSON.stringify(rows) !== JSON.stringify(['TH:Month|TH:Sales', 'TD:Jan|TD:50', 'TD:Feb|TD:100'])) throw new Error(JSON.stringify(rows));
   await until(async () => JSON.stringify((await api(page, 'GET', `/files/${d2.id}/content`)).body.content).includes('"tableHeader"'), 15000);
 });
+await step('an AI assistant adds a spreadsheet’s cells to a document as a table (append_to_document with table_from)', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Report helper', scope: 'write', days: 30 })).body.token;
+  const d3 = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Monthly report' })).body;
+  const r = await page.evaluate(async ([t, doc, sh]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'append_to_document', arguments: { file: `file:${doc}`, text: '## Sales', table_from: { file: `file:${sh}` } } } }) })).json()).result, [tok, d3.id, sheet.id]);
+  if (r?.isError || r?.structuredContent?.table_rows !== 3) throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/docs/${d3.id}`);
+  const table = page.locator('.ProseMirror table');
+  await table.waitFor();
+  await page.locator('.ProseMirror h2', { hasText: 'Sales' }).waitFor();
+  const rows = await table.locator('tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => `${c.tagName}:${c.textContent}`).join('|')));
+  if (JSON.stringify(rows) !== JSON.stringify(['TH:Month|TH:Sales', 'TD:Jan|TD:50', 'TD:Feb|TD:100'])) throw new Error(JSON.stringify(rows));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
