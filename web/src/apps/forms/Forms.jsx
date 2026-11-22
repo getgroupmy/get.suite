@@ -17,6 +17,7 @@ import { EmbedCode } from '../editorCommon.jsx';
 import SendInChat from '../../components/SendInChat.jsx';
 import { useAuth } from '../../App.jsx';
 import { addToTasksWithToast } from '../tasks/addtask.js';
+import TasksAbout from '../../components/TasksAbout.jsx';
 import QRCode from 'qrcode';
 import { TYPES, HAS_OPTIONS, GRIDS, MAX_RANKED, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
 import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
@@ -522,6 +523,7 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
   const [sp] = useSearchParams();
   const want = sp.get('r');
   const went = useRef(null);
+  const [taskBump, setTaskBump] = useState(0); // (a task was just made from a response: count again)
   useEffect(() => {
     if (!want || !all || went.current === want) return;
     const i = all.findIndex((r) => r.id === want);
@@ -647,7 +649,8 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
               <button type="button" className="icon-btn" aria-label="Previous response" disabled={at === 0} onClick={() => setAt(at - 1)}>‹</button>
               <span className="grow small">{Math.min(at, responses.length - 1) + 1} of {responses.length} · {formatDate(one.created_at)}{one.updated_at ? ` · changed ${formatDate(one.updated_at)}` : ''}{one.user ? ` · ${one.user.name} (${one.user.email})` : one.email ? ` · ${one.email}` : ''}{one.max ? ` · Score ${one.score} / ${one.max}` : ''}</span>
               <button type="button" className="icon-btn" aria-label="Next response" disabled={at >= responses.length - 1} onClick={() => setAt(at + 1)}>›</button>
-              <button type="button" className="icon-btn" aria-label="Add this response to Tasks" title="Add to Tasks: a task to follow up, linking back to this response" onClick={() => addToTasksWithToast(toast, navigate, { title: `Follow up: ${form.title || 'Untitled form'}${one.user ? ` (${one.user.name})` : ''}`, link: { url: `/forms/${form.id}?tab=responses&r=${one.id}`, label: `Form response: ${form.title || 'Untitled form'}` } })}><Icon name="check" size={18} /></button>
+              <button type="button" className="icon-btn" aria-label="Add this response to Tasks" title="Add to Tasks: a task to follow up, linking back to this response" onClick={() => addToTasksWithToast(toast, navigate, { title: `Follow up: ${form.title || 'Untitled form'}${one.user ? ` (${one.user.name})` : ''}`, link: { url: `/forms/${form.id}?tab=responses&r=${one.id}`, label: `Form response: ${form.title || 'Untitled form'}` } }).then(() => setTaskBump((n) => n + 1))}><Icon name="check" size={18} /></button>
+              <TasksAbout key={one.id} url={`/forms/${form.id}?tab=responses&r=${one.id}`} what="response" bump={taskBump} />
               <button type="button" className="icon-btn" aria-label="Print this response" title="Print this response (or save it as PDF)" onClick={() => printHtml(responsesPrintHtml(form, [one], { when: formatDate }).replace(/Response 1 of 1 · /, ''))}><Icon name="print" size={18} /></button>
               <button type="button" className="icon-btn" aria-label="Delete this response" onClick={async () => { await del(`/forms/${form.id}/responses/${one.id}`); setAt(Math.max(0, at - 1)); reload(); }}><Icon name="trash" size={18} /></button>
             </div>

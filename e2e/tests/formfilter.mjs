@@ -113,9 +113,18 @@ await step('Individual → Add this response to Tasks: a task that links back to
   await page.waitForURL(/\/forms\/[\w-]+\?tab=responses&r=/);
   await page.getByText(/^3 of 4 ·/).waitFor();
   await page.getByText('Tram ride').waitFor();
+  // That response says there is a task to do about it; the next one doesn't.
+  await page.getByRole('button', { name: '1 task to do about this response' }).waitFor();
   // (and it doesn't hold you there: Next still moves on)
   await page.getByRole('button', { name: 'Next response' }).click();
   await page.getByText(/^4 of 4 ·/).waitFor();
+  await page.getByRole('button', { name: /tasks? to do about this response/ }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Previous response' }).click();
+  await page.getByRole('button', { name: '1 task to do about this response' }).click();
+  await page.getByRole('menuitem', { name: /^Follow up: Offsite/ }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  await page.goBack();
+  await page.getByText(/^3 of 4 ·/).waitFor();
 });
 await step('a form that makes a task of each response: the task opens that response', async () => {
   const list = (await api(page, 'POST', '/tasks/lists', { name: 'Offsite replies' })).body.id;
