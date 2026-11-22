@@ -2247,6 +2247,17 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.equal((await olivia('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: [] })).status, 400);
   assert.equal((await olivia('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: Array.from({ length: 51 }, (_, i) => i + 1) })).status, 400);
   assert.equal((await olivia('POST', '/api/mail/messages/save-doc', { folder: 'INBOX', uids: [999999] })).status, 404);
+  // A spreadsheet from the tables in an email (create_spreadsheet with from_email), named as asked; none: explained.
+  const tSubject = `Figures ${Date.now()}`;
+  assert.equal((await bob('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: tSubject, text: 'See the table', html: '<p>See the table</p><table><tr><th>Region</th><th>Sales</th></tr><tr><td>North</td><td>$1,200.00</td></tr></table>' })).status, 200);
+  await eventually(async () => (await inbox(olivia, tSubject))[0], 30000);
+  const tMail = (await call('list_mail', { query: tSubject })).messages[0];
+  const fromTables = await call('create_spreadsheet', { from_email: tMail.id, name: 'Regional sales' });
+  assert.deepEqual([fromTables.name, fromTables.tables, fromTables.folder], ['Regional sales', 1, 'Saved emails']);
+  const tSheet = (await olivia('GET', `/api/files/${fromTables.id.slice(5)}/content`)).body.content.sheets[0];
+  assert.deepEqual([tSheet.cells.A2, tSheet.cells.B2, tSheet.formats.B2, tSheet.formats.A1], ['North', '1200', { num: 'currency', cur: 'USD', dp: 2 }, { b: true }]);
+  const noTables = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_spreadsheet', arguments: { from_email: listed.messages[0].id } } }) });
+  assert.match(JSON.stringify(await noTables.json()), /no tables of figures/);
   // A note from an email (create_note with from_email): its subject, who and what, a link back; the assistant's words first.
   const fromMail = await call('create_note', { from_email: listed.messages[0].id, text: 'Check the figures' });
   assert.deepEqual([fromMail.title, fromMail.from_email], [subject, true]);

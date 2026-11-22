@@ -684,10 +684,11 @@ export const TOOLS = [
   },
   {
     name: 'create_spreadsheet', title: 'Make a spreadsheet', readOnly: false,
-    description: 'Make a new Workspace spreadsheet in the person’s Drive from rows of cells (e.g. a table of figures, a list to track). The first row is the heading row: bold, kept in view when scrolling. Cells are text, numbers, true/false or null; text starting with = is a formula (=SUM(B2:B9)).',
+    description: 'Make a new Workspace spreadsheet in the person’s Drive from rows of cells (e.g. a table of figures, a list to track). The first row is the heading row: bold, kept in view when scrolling. Cells are text, numbers, true/false or null; text starting with = is a formula (=SUM(B2:B9)). Or, given an email (from_email, its mail:… id), from the tables of figures in it, as Mail’s Open tables in Sheets makes it (a sheet each, numbers read as typed, in Saved emails): no need to copy them out by hand.',
     inputSchema: {
-      type: 'object', required: ['name', 'rows'],
+      type: 'object',
       properties: {
+        from_email: { type: 'string', description: 'The id (mail:…) of an email whose tables to use, instead of rows' },
         name: { type: 'string' },
         rows: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'array', maxItems: 50, items: { type: ['string', 'number', 'boolean', 'null'] } } },
         sheet: { type: 'string', description: 'The sheet’s (tab’s) name; Sheet1 when left out' },
@@ -696,6 +697,15 @@ export const TOOLS = [
       },
     },
     async run(api, a) {
+      if (a.from_email) {
+        const m0 = /^mail:(.+):(\d+)$/.exec(String(a.from_email));
+        if (!m0) throw new ToolError('from_email is an email’s id, like mail:INBOX:42 (from list_mail or search)');
+        const r = await api('POST', `/mail/messages/${m0[2]}/tables-to-sheet`, { folder: m0[1] });
+        let f = r.file;
+        if (a.name && String(a.name).trim()) f = await api('PATCH', `/files/${encodeURIComponent(f.id)}`, { name: String(a.name).slice(0, 200) });
+        return { id: `file:${f.id}`, name: f.name, tables: r.tables, folder: 'Saved emails', url: fileUrl({ ...f, kind: 'sheet' }) };
+      }
+      if (!Array.isArray(a.rows) || !a.rows.length) throw new ToolError('Give the rows of cells, or an email to take the tables from (from_email)');
       const sheetName = String(a.sheet || 'Sheet1').trim().slice(0, 100) || 'Sheet1';
       let made;
       try { made = appendRows({ sheets: [{ name: sheetName, cells: {}, colWidths: {} }] }, { rows: a.rows }); } catch (e) { throw new ToolError(e.message); }

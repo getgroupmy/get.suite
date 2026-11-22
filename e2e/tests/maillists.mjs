@@ -362,6 +362,17 @@ await step('Mail ⋮ → Open tables in Sheets: the email’s table as a spreads
   if (await gina.getByRole('menuitem', { name: 'Open tables in Sheets' }).count()) throw new Error('offered without a table');
   await gina.keyboard.press('Escape');
 }, gina);
+await step('an AI assistant makes a spreadsheet from an email’s tables (create_spreadsheet with from_email)', async () => {
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Sheets helper', scope: 'write', days: 30 })).body.token;
+  const call = (name, args) => page.evaluate(async ([t, n, a]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) })).json()).result, [tok, name, args]);
+  const sent = (await call('list_mail', { folder: 'Sent', query: 'Quote table' })).structuredContent.messages;
+  const r = await call('create_spreadsheet', { from_email: sent[0].id, name: 'Quote figures' });
+  if (r.isError || r.structuredContent.name !== 'Quote figures') throw new Error(JSON.stringify(r));
+  await page.goto(new URL(r.structuredContent.url, B).href);
+  await page.locator('[data-k="B4"]', { hasText: '$3.50' }).waitFor();
+  await page.locator('[data-k="A1"]', { hasText: 'Item' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
