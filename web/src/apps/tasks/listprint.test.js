@@ -21,7 +21,7 @@ test('due dates', () => {
   assert.match(dueText({ due: '2026-12-01' }, 'en-GB'), /^Tue,? 1 Dec 2026$/);
 });
 
-import { listEmail } from './listprint.js';
+import { listEmail, taskEmail } from './listprint.js';
 test('a list as an email: open tasks as a checklist with dates and steps, done ones only if asked, a link back', () => {
   const open = [{ title: 'Book <venue>', due: '2026-12-01', assignee_name: 'Kim', steps: [{ title: 'Call', done: true }, { title: 'Pay' }], important: true }];
   const done = [{ title: 'Pick a date' }];
@@ -33,4 +33,19 @@ test('a list as an email: open tasks as a checklist with dates and steps, done o
   assert.match(m.html, /The list in Tasks: <a href="https:\/\/ws\.test\/tasks\/l1">/);
   assert.match(listEmail('Party', open, done, { withDone: true }).html, /<strong>Done<\/strong>.*☑ <s>Pick a date<\/s>/);
   assert.match(listEmail('Empty', [], []).html, /Nothing left to do/);
+});
+
+test('one task as an email: its title as the subject; due, who, notes and steps; a link back; markup escaped', () => {
+  const m = taskEmail({ title: 'Book <the> venue', due: '2026-12-01', assignee_name: 'Kim Park', important: true, notes: 'Ask for the big room\nBy phone',
+    steps: [{ title: 'Call', done: true }, { title: 'Pay deposit', done: false }] }, { locale: 'en-GB', link: 'https://ws.test/tasks/l1?task=t1', listName: 'Party' });
+  assert.equal(m.subject, 'Book <the> venue');
+  assert.match(m.html, /<strong>Book &lt;the&gt; venue<\/strong>/);
+  assert.match(m.html, /Due Tue, 1 Dec 2026 · For Kim Park · ★ Important · In Party/);
+  assert.match(m.html, /Ask for the big room<br>By phone/);
+  assert.match(m.html, /☑ Call<\/li><li>☐ Pay deposit/);
+  assert.match(m.html, /href="https:\/\/ws\.test\/tasks\/l1\?task=t1"/);
+  const done = taskEmail({ title: 'Sent', done: true });
+  assert.match(done.html, /<s>Sent<\/s>/);
+  assert.match(done.html, />Done</);
+  assert.doesNotMatch(done.html, /The task in Tasks/);
 });

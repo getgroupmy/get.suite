@@ -47,3 +47,20 @@ export function listEmail(name, open, done = [], { locale, link = '', withDone =
   ].join('');
   return { subject: name, html };
 }
+
+/**
+ * One task as a new email (its details → Send by email): the title as the subject; then whether it's done, when it's
+ * due, who it's for, its notes and its steps as a checklist, and a link back to it in Tasks.
+ */
+export function taskEmail(t, { locale, link = '', listName = '' } = {}) {
+  const meta = [t.done ? 'Done' : '', dueText(t, locale) && `Due ${esc(dueText(t, locale))}`, t.assignee_name && `For ${esc(t.assignee_name)}`, t.important ? '★ Important' : '',
+    listName && `In ${esc(listName)}`].filter(Boolean).join(' · ');
+  const html = [
+    `<p><strong>${t.done ? `<s>${esc(t.title)}</s>` : esc(t.title)}</strong></p>`,
+    meta ? `<p style="color:#5f6368">${meta}</p>` : '',
+    t.notes ? `<p>${esc(t.notes).replace(/\n/g, '<br>')}</p>` : '',
+    t.steps?.length ? `<ul style="list-style:none;padding:0">${t.steps.map((x) => `<li>${x.done ? '☑' : '☐'} ${esc(x.title)}</li>`).join('')}</ul>` : '',
+    link ? `<p style="color:#5f6368;font-size:12px">The task in Tasks: <a href="${esc(link)}">${esc(link)}</a></p>` : '',
+  ].join('');
+  return { subject: t.title || 'Task', html };
+}

@@ -133,6 +133,23 @@ await step('a shared list ⋮ → Email the list’s people: a new email to ever
   if (!/Kim List <kimlist@acme\.com>/.test(to) || /olivia@/.test(to)) throw new Error(`To: ${to}`);
   if ((await compose.getByLabel('Subject').inputValue()) !== 'Trade fair') throw new Error('subject');
 });
+await step('a task’s details → Send by email: a new email with the task, its due date, notes and steps', async () => {
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Printing' })).body.id;
+  const t = (await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Order the banners', due: '2026-12-01', notes: 'Two metres wide' })).body;
+  await api(page, 'POST', `/tasks/tasks/${t.id}/steps`, { title: 'Get a quote' });
+  await page.goto(`${B}/tasks/${list}?task=${t.id}`);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  await d.getByRole('button', { name: 'Send by email' }).click();
+  await page.waitForURL(/\/mail/);
+  const compose = page.getByRole('dialog', { name: /New message|Order the banners/ });
+  await compose.getByLabel('Subject').waitFor();
+  if ((await compose.getByLabel('Subject').inputValue()) !== 'Order the banners') throw new Error('subject');
+  const body = compose.getByRole('textbox', { name: 'Message' });
+  await body.getByText('Two metres wide').waitFor();
+  await body.getByText(/Due .*Dec.*2026 · In Printing/).waitFor();
+  await body.getByText('☐ Get a quote').waitFor();
+  await body.getByRole('link', { name: new RegExp(`/tasks/${list}`) }).waitFor();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);
