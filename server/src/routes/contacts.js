@@ -464,6 +464,20 @@ export default function contactRoutes() {
     catch (e) { if (/contacts file/.test(e.message)) throw bad('This sheet isn’t laid out as contacts: give it a Name or Email column (and Phone, Company, Job title, Address, Notes… if you like)'); throw e; }
   });
 
+  // A colleague saved as a contact of yours (from their card): { user_id }, with their work phone, job title and the
+  // company's name, so they sync to your phone with the rest. One already there (by address) is given back, not doubled.
+  r.post('/from-colleague', (req, res) => {
+    const u = q('SELECT id, name, username, job_title, work_phone, org_id FROM users WHERE id = ? AND disabled = 0').get(String(req.body?.user_id || ''));
+    if (!u || u.org_id !== req.user.org_id) throw notFound('No such person');
+    if (u.id === req.user.id) throw bad('That’s you');
+    const had = q('SELECT * FROM contacts WHERE owner_id = ? AND LOWER(email) = ?').get(req.user.id, u.username.toLowerCase());
+    if (had) return res.json({ ...withMore(had), already: true });
+    const id = uid();
+    q('INSERT INTO contacts (id, owner_id, name, email, phone, company, title, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.user.id, (u.name || u.username).slice(0, 200), u.username.toLowerCase(), u.work_phone || null, q('SELECT name FROM orgs WHERE id = ?').get(u.org_id)?.name || null, u.job_title || null, now());
+    res.status(201).json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(id)));
+  });
+
   // Add everyone on an email to Contacts: { people: [{ name, email }] } (its sender and recipients). Colleagues, you, and
   // anyone already in your contacts are left out; a name missing is made from the address.
   r.post('/add-people', (req, res) => {

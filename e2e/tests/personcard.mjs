@@ -71,6 +71,18 @@ await step('Message opens a chat with them; See their calendar adds them there',
   await r.getByRole('button', { name: 'Message' }).click();
   await page.waitForURL(/\/chat\//);
 });
+await step('Add to my contacts: Kim saved with her phone and job, not twice', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Directory' }).click();
+  await page.getByRole('button', { name: 'Kim Park', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Kim Park' });
+  await d.getByRole('button', { name: 'Add to my contacts' }).click();
+  await page.getByText('Kim Park added to your contacts').waitFor();
+  await d.getByRole('button', { name: 'Add to my contacts' }).click();
+  await page.getByText('Kim Park is already in your contacts').waitFor();
+  const mine = (await api(page, 'GET', '/contacts')).body.filter((c) => c.email === 'kim@acme.com');
+  if (mine.length !== 1 || mine[0].phone !== '+60 3-555 0101' || mine[0].title !== 'Designer') throw new Error(JSON.stringify(mine));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -277,3 +277,19 @@ test('share links in Sheets (admins): the same rows as the CSV, a row a link; lo
   const csv = await fetch(`${base}/api/links/all.csv`, { headers: { cookie: (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'olivia@acme.com', password: 'password123' }) })).headers.get('set-cookie').split(';')[0] } });
   assert.match(await csv.text(), /^﻿?File or folder,Kind,Made by,Email,Link,Password,/);
 });
+
+test('a colleague saved as a contact: name, address, work phone, job title and company; not twice, not yourself, not someone unknown', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const miaId = (await mia('GET', '/api/auth/me')).body.user.id, annId = (await ann('GET', '/api/auth/me')).body.user.id;
+  assert.equal((await ann('PATCH', `/api/users/${miaId}`, { job_title: 'Buyer', work_phone: '+44 20 7946 0199' })).status, 200);
+  const r = await ann('POST', '/api/contacts/from-colleague', { user_id: miaId });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.email, r.body.phone, r.body.title, r.body.company], ['Mia Member', 'mia@acme.com', '+44 20 7946 0199', 'Buyer', 'Acme']);
+  const again = await ann('POST', '/api/contacts/from-colleague', { user_id: miaId });
+  assert.deepEqual([again.status, again.body.already, again.body.id], [200, true, r.body.id]);
+  assert.equal((await ann('GET', '/api/contacts')).body.filter((c) => c.email === 'mia@acme.com').length, 1);
+  assert.equal((await ann('POST', '/api/contacts/from-colleague', { user_id: annId })).status, 400);
+  assert.equal((await ann('POST', '/api/contacts/from-colleague', { user_id: 'nobody' })).status, 404);
+});

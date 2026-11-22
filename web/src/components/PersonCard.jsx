@@ -129,6 +129,10 @@ export default function PersonCard({ userId, onClose }) {
             <button type="button" className="btn" onClick={() => { onClose(); navigate(`/mail?compose=${encodeURIComponent(card.email)}`); }}><Icon name="mail" size={16} /> Email</button>
             <button type="button" className="btn" onClick={schedule} title="A new event with them, at the first time you're both free"><Icon name="calendar" size={16} /> Schedule a meeting</button>
             <button type="button" className="btn" onClick={seeCalendar}><Icon name="calendar" size={16} /> See their calendar</button>
+            <button type="button" className="btn" title="Save them to your own contacts (name, address, work phone, job title), so they sync to your phone" onClick={async () => {
+              try { const c = await post('/contacts/from-colleague', { user_id: card.id }); toast(c.already ? `${c.name} is already in your contacts` : `${c.name} added to your contacts`); }
+              catch (e) { toast(e.message, 'error'); }
+            }}><Icon name="person" size={16} /> Add to my contacts</button>
           </div>
         )}
         <Thanks person={card} me={user.id} />
