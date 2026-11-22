@@ -460,7 +460,7 @@ test('create_task about something: the task links back to it; only addresses in 
   assert.ok(!(await Promise.all(lists.map(async (l) => (await owner('GET', `/api/tasks/lists/${l.id}/tasks`)).body))).flat().some((x) => ['Away', 'Admin'].includes(x.title)));
 });
 
-test('an event’s url opens that event, and a contact’s finds them: from create, fetch, search and update', async () => {
+test('an event’s or a task’s url opens it, and a contact’s finds them: from create, list, fetch, search and update', async () => {
   const start = new Date(Date.now() + 3 * 864e5); start.setUTCHours(10, 0, 0, 0);
   const ev = (await call(rw, 'create_event', { title: 'Walrus review', start: start.toISOString(), end: new Date(start.getTime() + 36e5).toISOString() })).structuredContent;
   const id = ev.id.replace(/^event:/, '');
@@ -469,9 +469,16 @@ test('an event’s url opens that event, and a contact’s finds them: from crea
   assert.equal((await call(rw, 'fetch', { id: ev.id })).structuredContent.url, url);
   assert.equal((await call(rw, 'search', { query: 'Walrus' })).structuredContent.results.find((x) => x.id === ev.id)?.url, url);
   assert.equal((await call(rw, 'update_event', { id: ev.id, location: 'Room 3' })).structuredContent.url, url);
+  assert.equal((await call(rw, 'list_events', { from: new Date(start.getTime() - 36e5).toISOString(), to: new Date(start.getTime() + 2 * 36e5).toISOString() })).structuredContent.events.find((x) => x.id === ev.id)?.url, url);
   // …so a task about it links to the event itself.
   const t = (await call(rw, 'create_task', { title: 'Prepare the walrus review', about: url, about_title: 'Event: Walrus review' })).structuredContent;
   assert.equal(t.about, url);
+  // A task's url opens the task on its list: when made, listed, changed and ticked off.
+  const mine = (await call(rw, 'list_tasks', {})).structuredContent.lists.flatMap((l) => l.tasks).find((x) => x.id === t.id);
+  assert.match(t.url, /\/tasks\/[\w-]+\?task=[\w-]+$/);
+  assert.equal(mine.url, t.url);
+  assert.equal((await call(rw, 'update_task', { id: t.id, important: true })).structuredContent.url, t.url);
+  assert.equal((await call(rw, 'complete_task', { id: t.id })).structuredContent.url, t.url);
   const c = (await call(rw, 'create_contact', { name: 'Wanda Walrus', email: 'wanda@walrus.test' })).structuredContent;
   assert.match((await call(rw, 'fetch', { id: c.id })).structuredContent.url, /\/contacts\?q=Wanda%20Walrus$/);
 });

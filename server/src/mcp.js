@@ -55,6 +55,8 @@ const PUBLIC = () => (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 const link = (p) => `${PUBLIC()}${p}`;
 /** An event's own address: it opens the event (that occurrence of a repeating one), as Copy link in Calendar gives. */
 const eventUrl = (e) => link(`/calendar?event=${e.id}${e.rrule ? `&at=${e.start}` : ''}`);
+/** A task's own address: it opens the task on its list (just Tasks when the list isn't known). */
+const taskUrl = (t) => link(t.list_id ? `/tasks/${t.list_id}?task=${t.id}` : '/tasks');
 /** What a task links back to (the email, file, event… it was made from): { about: { title, url } }, or nothing. */
 const aboutOf = (t) => (t.link_url ? { about: { title: t.link_label || 'Linked', url: /^https?:\/\//.test(t.link_url) ? t.link_url : link(t.link_url) } } : {});
 /** A time from the assistant: ISO text ("2026-11-20T15:00", "2026-11-20") or milliseconds. */
@@ -206,7 +208,7 @@ export const TOOLS = [
       if (to <= from || to - from > 366 * DAY) throw new ToolError('Pick a time span of up to a year, with to after from');
       const rows = await api('GET', `/events?from=${from}&to=${to}`);
       const events = (Array.isArray(rows) ? rows : rows.events || []).flatMap((e) => expand(e, from, to)).filter((e) => e.start < to && e.end > from).sort((x, y) => x.start - y.start).slice(0, 200)
-        .map((e) => ({ id: `event:${e.id}`, title: e.title, start: iso(e.start), end: iso(e.end), all_day: !!e.all_day, location: e.location || null, organizer: e.organizer_name || null, my_answer: e.my_status || null }));
+        .map((e) => ({ id: `event:${e.id}`, title: e.title, start: iso(e.start), end: iso(e.end), all_day: !!e.all_day, location: e.location || null, organizer: e.organizer_name || null, my_answer: e.my_status || null, url: eventUrl(e) }));
       return { events };
     },
   },
@@ -249,7 +251,7 @@ export const TOOLS = [
       const out = [];
       for (const l of lists.slice(0, 30)) {
         const tasks = (await api('GET', `/tasks/lists/${l.id}/tasks`)).filter((t) => a.include_done || !t.done).slice(0, 200)
-          .map((t) => ({ id: `task:${t.id}`, title: t.title, done: !!t.done, due: t.due || null, assignee: t.assignee_name || null, important: !!t.important, ...aboutOf(t) }));
+          .map((t) => ({ id: `task:${t.id}`, title: t.title, done: !!t.done, due: t.due || null, assignee: t.assignee_name || null, important: !!t.important, url: taskUrl({ ...t, list_id: l.id }), ...aboutOf(t) }));
         out.push({ id: l.id, name: l.name, owner: l.owner_name, tasks });
       }
       return { lists: out };
@@ -373,7 +375,7 @@ export const TOOLS = [
     async run(api, a) {
       const id = String(a.id || '').replace(/^task:/, '');
       const t = await api('PATCH', `/tasks/tasks/${encodeURIComponent(id)}`, { done: a.done !== false });
-      return { id: `task:${t.id || id}`, title: t.title, done: !!t.done };
+      return { id: `task:${t.id || id}`, title: t.title, done: !!t.done, url: taskUrl({ id, ...t }) };
     },
   },
   {
@@ -403,7 +405,7 @@ export const TOOLS = [
       if (a.important !== undefined) body.important = !!a.important;
       if (!Object.keys(body).length) throw new ToolError('Say what to change: title, notes, due, due_time or important');
       const t = await api('PATCH', `/tasks/tasks/${encodeURIComponent(id)}`, body);
-      return { id: `task:${t.id || id}`, title: t.title, due: t.due || null, due_time: t.due_time || null, important: !!t.important, done: !!t.done, url: link('/tasks') };
+      return { id: `task:${t.id || id}`, title: t.title, due: t.due || null, due_time: t.due_time || null, important: !!t.important, done: !!t.done, url: taskUrl({ id, ...t }) };
     },
   },
   {

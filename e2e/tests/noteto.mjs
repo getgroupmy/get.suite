@@ -129,6 +129,11 @@ await step('an assistant’s create_task about the note: the task links back to 
     body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_tasks', arguments: { list: 'Trip prep' } } }) })).json()).result, tok);
   const mine = back.structuredContent.lists[0].tasks.find((x) => x.title === 'Check the trip note');
   if (!mine || mine.about?.title !== 'Note: Trip' || !mine.about.url.endsWith(`/notes?note=${note.id}`)) throw new Error(JSON.stringify(back.structuredContent));
+  // …and each task's own address opens that task.
+  await page.goto(new URL(mine.url, B).href);
+  const details = page.getByRole('complementary', { name: 'Task details' });
+  await details.getByRole('link', { name: 'Note: Trip' }).waitFor();
+  if ((await details.getByLabel('Task', { exact: true }).inputValue()) !== 'Check the trip note') throw new Error('another task opened');
   const list = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.name === 'Trip prep').id;
   await page.goto(`${B}/tasks/${list}`);
   await page.locator('.task', { hasText: 'Check the trip note' }).getByText('Check the trip note').click();
