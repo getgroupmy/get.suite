@@ -560,9 +560,17 @@ export const TOOLS = [
   },
   {
     name: 'create_note', title: 'Add a note', readOnly: false,
-    description: 'Add a note to the person’s Notes (a checklist when items are given).',
-    inputSchema: { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string' }, items: { type: 'array', items: { type: 'string' }, description: 'Checklist items' } } },
+    description: 'Add a note to the person’s Notes (a checklist when items are given). Given an email (from_email, its mail:… id), the note is made from it as Mail’s Save to Notes does: its subject as the title, who it’s from and when, what it says without the quoted history, and a link back to the email; text, if given, goes first.',
+    inputSchema: { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string' }, items: { type: 'array', items: { type: 'string' }, description: 'Checklist items' }, from_email: { type: 'string', description: 'The id (mail:…) of an email to make the note from' } } },
     async run(api, a) {
+      if (a.from_email) {
+        const m0 = /^mail:(.+):(\d+)$/.exec(String(a.from_email));
+        if (!m0) throw new ToolError('from_email is an email’s id, like mail:INBOX:42 (from list_mail or search)');
+        const made = await api('GET', `/mail/messages/${m0[2]}/note?folder=${encodeURIComponent(m0[1])}`);
+        const body = [String(a.text || '').trim(), made.body].filter(Boolean).join('\n\n').slice(0, 20000);
+        const n = await api('POST', '/notes', { title: String(a.title || '') || made.title, body });
+        return { id: `note:${n.id}`, title: n.title, from_email: true, url: link(`/notes?note=${n.id}`) };
+      }
       const items = Array.isArray(a.items) && a.items.length ? a.items.map((t) => ({ text: String(t) })) : undefined;
       const n = await api('POST', '/notes', { title: String(a.title || ''), body: items ? '' : String(a.text || ''), ...(items && { items }) });
       return { id: `note:${n.id}`, title: n.title, url: link('/notes') };

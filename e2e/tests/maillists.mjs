@@ -272,6 +272,18 @@ await step('Mail ⋮ → Save to Notes: a note with what the email says and a li
   await gina.goto(link);
   await gina.frameLocator('iframe.mail-html').locator('li', { hasText: 'Budget' }).waitFor();
 }, gina);
+await step('an AI assistant files an email in Notes (create_note with from_email): the note opens with it', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Notes helper', scope: 'write', days: 30 })).body.token;
+  const call = (name, args) => page.evaluate(async ([t, n, a]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) })).json()).result, [tok, name, args]);
+  const sent = (await call('list_mail', { folder: 'Sent', query: 'Agenda' })).structuredContent.messages;
+  const r = await call('create_note', { from_email: sent[0].id });
+  if (r.isError || r.structuredContent.title !== 'Agenda') throw new Error(JSON.stringify(r));
+  await page.goto(new URL(r.structuredContent.url, B).href);
+  await page.getByText(/Open the email: http/).first().waitFor();
+  await page.getByText(/ii\. Budget/).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

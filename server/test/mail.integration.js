@@ -2236,6 +2236,14 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.match(ndBody.html, /<p>Hi all,<\/p><p>the news &lt;in short&gt;:<\/p><p><strong><span style="font-size: 24px">This month<\/span><\/strong><\/p><ol style="list-style-type: lower-roman"><li><p>New office<\/p><\/li>/);
   const badDoc = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'draft_email', arguments: { to: 'bob@acme.com', subject: 'x' } } }) });
   assert.match(JSON.stringify(await badDoc.json()), /Give the message \(body\), or a document/);
+  // A note from an email (create_note with from_email): its subject, who and what, a link back; the assistant's words first.
+  const fromMail = await call('create_note', { from_email: listed.messages[0].id, text: 'Check the figures' });
+  assert.deepEqual([fromMail.title, fromMail.from_email], [subject, true]);
+  const allNotes = (await olivia('GET', '/api/notes')).body;
+  const theNote = (allNotes.notes || allNotes).find((x) => x.id === fromMail.id.slice(5));
+  assert.match(theNote.body, /^Check the figures\n\nFrom: .*bob@acme\.com.* · \d+ \w+ \d{4}, \d\d:\d\d\n\nThe pelican numbers are in\.\n\nOpen the email: http:\/\/127\.0\.0\.1:\d+\/mail\?open=%3C/);
+  const badNote = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_note', arguments: { from_email: 'INBOX:1' } } }) });
+  assert.match(JSON.stringify(await badNote.json()), /from_email is an email’s id/);
   // Tidy: read and starred, then archived (it leaves the Inbox, arrives in Archive, still starred).
   const tidy = await call('update_email', { ids: [listed.messages[0].id], read: true, starred: true });
   assert.deepEqual([tidy.changed, tidy.read, tidy.starred], [1, true, true]);
