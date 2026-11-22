@@ -49,6 +49,15 @@ await step('copy unticked items to Tasks', async () => {
   await page.locator('.task', { hasText: 'Book hotel' }).waitFor();
   await page.locator('.task', { hasText: 'Taxi' }).waitFor();
 });
+await step('each task links back to the note it came from', async () => {
+  await page.locator('.task', { hasText: 'Taxi' }).getByText('Taxi').click();
+  const link = page.getByRole('link', { name: 'Note: Trip' });
+  await link.waitFor();
+  if (!(await link.textContent()).includes('📝')) throw new Error(await link.textContent());
+  await link.click();
+  await page.waitForURL(/\/notes/);
+  await page.getByRole('dialog', { name: 'Trip' }).getByRole('button', { name: 'Close', exact: true }).last().click(); // (the note, open)
+});
 await step('copy to a document', async () => {
   await page.goto(`${B}/notes`);
   await card('Trip').getByRole('button', { name: 'More' }).click();

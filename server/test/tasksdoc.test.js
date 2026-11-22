@@ -320,6 +320,10 @@ test('a note’s unticked items to Tasks on the list you choose (yours or shared
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.deepEqual([r.body.added, r.body.list.name], [2, 'Moving day']);
   assert.deepEqual((await ann('GET', `/api/tasks/lists/${chosen}/tasks`)).body.map((t) => t.title).sort(), ['Hire van', 'Pack']);
+  // Each links back to the note.
+  assert.deepEqual((await ann('GET', `/api/tasks/lists/${chosen}/tasks`)).body.map((t) => [t.link_url, t.link_label]), Array(2).fill([`/notes?note=${note.id}`, 'Note: Move']));
+  const kept = (await ann('GET', `/api/tasks/lists/${chosen}/tasks`)).body[0];
+  assert.equal((await ann('PATCH', `/api/tasks/tasks/${kept.id}`, { link: { url: kept.link_url, label: kept.link_label } })).status, 200, 'a link to a note is one a task may carry');
   // Without a list: the first list, as before.
   const first = await ann('POST', `/api/notes/${note.id}/tasks`, {});
   assert.equal(first.status, 201);
@@ -428,7 +432,7 @@ test('a task can link back to a calendar event (as to an email or a chat message
   assert.equal((await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url: 'https://evil.example/calendar', label: 'x' } })).status, 400);
   assert.equal((await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url: '/admin', label: 'x' } })).status, 400);
   // And to a file in Drive (a spreadsheet, a presentation, a folder or a preview), to a contact, or to a form's response.
-  for (const url of ['/sheets/abc', '/slides/abc', '/drive/folder/abc', '/drive?preview=abc', '/contacts?q=Dana%20Reed', '/forms/abc?tab=responses&r=def']) {
+  for (const url of ['/sheets/abc', '/slides/abc', '/drive/folder/abc', '/drive?preview=abc', '/contacts?q=Dana%20Reed', '/forms/abc?tab=responses&r=def', '/notes?note=abc']) {
     const f = await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: `Review ${url}`, link: { url, label: 'File: Budget' } });
     assert.deepEqual([f.status, f.body.link_url], [201, url], url);
   }

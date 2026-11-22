@@ -997,7 +997,9 @@ export default function noteRoutes() {
     if (!titles.length) throw bad('Nothing to add as a task');
     // { list_id }: a list of yours or one shared with you; otherwise your first list.
     const list = req.body?.list_id ? taskListChoice(req.body.list_id, req.user) : myFirstList(req.user.id);
-    addTasks(list.id, req.user.id, titles);
+    // Each links back to the note (it opens for whoever can see the note).
+    const about = (n.title || (n.body || '').split('\n')[0] || 'Checklist').trim().slice(0, 80);
+    addTasks(list.id, req.user.id, titles, { url: `/notes?note=${n.id}`, label: `Note: ${about}` });
     sendTo(taskListPeople(list.id), { type: 'tasks-changed', list_id: list.id });
     res.status(201).json({ added: titles.length, list: { id: list.id, name: list.name } });
   });
