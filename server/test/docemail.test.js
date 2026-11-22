@@ -153,3 +153,40 @@ test('a document’s table opened in Sheets: numbers read as typed, the header b
   assert.deepEqual([ss.cells.B1, ss.formats.B1, ss.frozen], ['1234', { num: 'number', dp: 0 }, undefined]);
   assert.equal((await ben('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [['a']] })).status, 404);
 });
+
+test('Drive → Open tables in Sheets: a document’s tables, a Word file’s and a web page’s, a sheet each', async () => {
+  const T = (rows, head = true) => ({ type: 'table', content: rows.map((r, i) => ({ type: 'tableRow', content: r.map((t) => ({ type: head && !i ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', ...(t && { content: [{ type: 'text', text: t }] }) }] })) })) });
+  const d = (await ann('POST', '/api/files/new', { name: 'Quarterly', kind: 'doc', content: { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Intro' }] },
+    T([['Region', 'Sales'], ['North', '$1,200.00']]),
+    T([['Only', 'one row']]),
+    T([['Item', 'Qty'], ['Bolts', '1,000']], false),
+  ] } })).body;
+  const r = await ann('POST', `/api/files/${d.id}/tables-to-sheet`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.kind, r.body.tables], ['Quarterly (tables)', 'sheet', 2]);
+  const book = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets;
+  assert.deepEqual(book.map((s) => s.name), ['Table 1', 'Table 2']);
+  assert.deepEqual([book[0].cells.B2, book[0].formats.A1, book[1].cells.B2], ['1200', { b: true }, '1000']);
+  // A Word file (made by downloading the document) and a web page, uploaded to Drive.
+  const { wordFromDoc } = await import('../src/office/word.js');
+  const docx = await wordFromDoc({ type: 'doc', content: [T([['Month', 'Cost'], ['Jan', '$50.00']])] }, 'Costs');
+  const upW = (await ann('POST', '/api/files/upload?name=Costs.docx', null, docx)).body;
+  const fromWord = await ann('POST', `/api/files/${upW.id}/tables-to-sheet`, {});
+  assert.equal(fromWord.status, 201, JSON.stringify(fromWord.body));
+  const ws = (await ann('GET', `/api/files/${fromWord.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([fromWord.body.name, ws.cells.A2, ws.cells.B2], ['Costs (tables)', 'Jan', '50']);
+  const html = Buffer.from('<html><body><h1>Prices</h1><table><tr><th>Item</th><th>Price</th></tr><tr><td>Nuts</td><td>12%</td></tr></table></body></html>');
+  const up = (await ann('POST', '/api/files/upload?name=prices.html', null, html)).body;
+  const fromHtml = await ann('POST', `/api/files/${up.id}/tables-to-sheet`, {});
+  assert.equal(fromHtml.status, 201, JSON.stringify(fromHtml.body));
+  assert.equal(fromHtml.body.name, 'prices (tables)');
+  const hs = (await ann('GET', `/api/files/${fromHtml.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([hs.name, hs.cells.A2, hs.cells.B2, hs.formats.B2], ['Sheet1', 'Nuts', '0.12', { num: 'percent', dp: 0 }]);
+  // No tables; a kind of file without any; someone without access.
+  const plain = (await ann('POST', '/api/files/new', { name: 'Plain', kind: 'doc' })).body;
+  assert.match((await ann('POST', `/api/files/${plain.id}/tables-to-sheet`, {})).body.error, /has no tables of figures/);
+  const png = (await ann('POST', '/api/files/upload?name=x.png', null, PNG)).body;
+  assert.match((await ann('POST', `/api/files/${png.id}/tables-to-sheet`, {})).body.error, /Only documents/);
+  assert.equal((await ben('POST', `/api/files/${d.id}/tables-to-sheet`, {})).status, 404);
+});

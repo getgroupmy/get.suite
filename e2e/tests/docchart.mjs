@@ -65,7 +65,7 @@ await step('Update brings in the spreadsheet\'s new figures', async () => {
   await page.locator('.ProseMirror .doc-chart .slide-chart-title').click();
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await page.getByRole('button', { name: '↻ Update chart' }).click();
-  await until(async () => JSON.parse((await chartNode()).attrs.data).series[0].values.join() === '50,100', 15000);
+  await until(async () => { const n = await chartNode(); return n && JSON.parse(n.attrs.data).series[0].values.join() === '50,100'; }, 15000); // (missing for a moment while the document saves)
   await page.locator('.doc-chart-bar').getByText('Up to date').waitFor();
 });
 await step('a reader without the spreadsheet still sees the chart; downloads have its figures', async () => {
@@ -139,6 +139,16 @@ await step('Table → Open in Sheets: the document’s table as a new spreadshee
   const id = page.url().split('/').pop().split('?')[0];
   const sh = (await api(page, 'GET', `/files/${id}/content`)).body.content.sheets[0];
   if (sh.cells.B2 !== '1200' || sh.cells.B3 !== '350' || !sh.formats?.A1?.b || sh.frozen?.rows !== 1) throw new Error(JSON.stringify(sh));
+});
+await step('Drive ⋮ → Open tables in Sheets: every table in the document as a spreadsheet beside it', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Budget notes', exact: true }).first().click();
+  await page.getByRole('menuitem', { name: 'Open tables in Sheets' }).click();
+  await page.getByText('Made “Budget notes (tables)”').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="B2"]', { hasText: '$1,200.00' }).waitFor();
+  await page.locator('[data-k="A3"]', { hasText: 'Desks' }).waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');

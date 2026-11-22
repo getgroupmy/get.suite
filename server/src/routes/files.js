@@ -48,7 +48,7 @@ import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/o
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
-import { sheetFromRows, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
+import { sheetFromRows, sheetFromTables, tablesIn, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
 import { rtfFromDoc, docFromRtf } from '../office/rtf.js';
@@ -2381,6 +2381,32 @@ export default function fileRoutes({ maxUploadBytes }) {
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const id = insertFile({ owner: req.user.id, parentId, name: cleanName(`${f.name} (table)`), kind: 'sheet', content: json, size: Buffer.byteLength(json), activity: { by: req.user.id, action: 'create', details: { from: f.name } } });
     res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
+  // Open tables in Sheets (Drive): every table of figures in a document, or in a Word, OpenDocument, Markdown, Rich
+  // Text or web page file, as a spreadsheet beside it, a sheet each (as Mail does for an email's tables).
+  r.post('/:id/tables-to-sheet', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    let doc;
+    if (f.kind === 'doc') { saveNow(f.id); doc = withoutSuggestions(JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}')); }
+    else {
+      const type = f.kind === 'file' ? (/\.([a-z]+)$/i.exec(f.name) || [])[1]?.toLowerCase() : null;
+      if (!['docx', 'odt', 'md', 'markdown', 'rtf', 'html', 'htm'].includes(type)) throw bad('Only documents, and Word, OpenDocument, Markdown, Rich Text and web page files, have tables to open this way');
+      if (f.size > MAX_CONVERT) throw bad('This file is too large (50 MB at most)');
+      const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
+      const noPictures = async () => null; // (only the tables' words are wanted)
+      try {
+        doc = type === 'docx' ? (await docFromWord(buf, { savePicture: noPictures })).doc : type === 'odt' ? (await docFromOdt(buf, { savePicture: noPictures })).doc
+          : type === 'rtf' ? docFromRtf(buf) : type === 'html' || type === 'htm' ? await docFromWebPage(buf, { savePicture: noPictures }) : docFromMarkdown(buf.toString('utf8'));
+      } catch { throw bad("This file couldn't be read"); }
+    }
+    const tables = tablesIn(doc).slice(0, 50);
+    if (!tables.length) throw bad(`“${f.name}” has no tables of figures`);
+    const json = JSON.stringify(sheetFromTables(tables));
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
+    const id = insertFile({ owner: req.user.id, parentId, name: cleanName(`${f.kind === 'doc' ? f.name : f.name.replace(/\.[a-z]+$/i, '')} (tables)`), kind: 'sheet', content: json, size: Buffer.byteLength(json), activity: { by: req.user.id, action: 'create', details: { from: f.name } } });
+    res.status(201).json({ ...publicFile(loadFile(id, req.user)), tables: tables.length });
   });
   // Which types each kind can be had as (the first is the usual one).
   const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'md', 'txt', 'pdf'] };

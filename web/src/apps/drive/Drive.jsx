@@ -517,6 +517,9 @@ export default function Drive() {
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
       mail?.enabled && f.kind !== 'folder' && !viewOnly(f) && { label: 'Email as attachment', icon: 'mail', onClick: () => emailFile(f) },
       mail?.enabled && (f.kind === 'doc' || f.kind === 'slides') && !viewOnly(f) && { label: 'Send as email', icon: 'mail', onClick: () => sendAsEmail(f) },
+      (f.kind === 'doc' || (f.kind === 'file' && /\.(docx|odt|md|markdown|rtf|html?)$/i.test(f.name))) && !viewOnly(f) && { label: 'Open tables in Sheets', icon: 'sheet', onClick: async () => {
+        try { const r = await post(`/files/${f.id}/tables-to-sheet`, {}); toast(`Made “${r.name}”${r.tables > 1 ? ` (${r.tables} tables, a sheet each)` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); load(); } catch (e) { toast(e.message, 'error'); }
+      } },
       { label: 'Copy link', icon: 'link', onClick: () => copyLinks([f]) },
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
       ['doc', 'sheet', 'slides'].includes(f.kind) && { label: pinned.has(f.id) ? 'Don’t keep offline' : 'Make available offline', icon: 'download', onClick: () => toggleOffline(f) },
