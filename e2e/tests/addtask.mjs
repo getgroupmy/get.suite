@@ -84,7 +84,7 @@ await step('after the email is archived, the task still opens it', async () => {
   if (/INBOX/.test(page.url())) throw new Error('still inbox ' + page.url());
   await page.locator('.reader').getByText('Can you send the quote by Friday?').waitFor();
   // The email shows its open task beside Add to Tasks (wherever it has moved to), and opens it.
-  await page.locator('.reader-actions').getByRole('button', { name: '1 open task about this email' }).click();
+  await page.locator('.reader-actions').getByRole('button', { name: '1 task to do about this email' }).click();
   await page.getByRole('menuitem', { name: /^Quote for Globex/ }).click();
   await page.waitForURL(/\/tasks\/.+\?task=/);
   await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Email from Raj Kumar/ }).waitFor();

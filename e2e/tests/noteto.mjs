@@ -58,6 +58,18 @@ await step('each task links back to the note it came from', async () => {
   await page.waitForURL(/\/notes/);
   await page.getByRole('dialog', { name: 'Trip' }).getByRole('button', { name: 'Close', exact: true }).last().click(); // (the note, open)
 });
+await step('the note’s card counts its open tasks and opens them; ticked off, the count goes down', async () => {
+  await page.goto(`${B}/notes`);
+  await card('Trip').getByRole('button', { name: '2 tasks to do about this note' }).click();
+  await page.getByRole('menuitem', { name: 'Taxi' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  if ((await d.getByLabel('Task', { exact: true }).inputValue()) !== 'Taxi') throw new Error('another task opened');
+  const taxi = /task=([\w-]+)/.exec(page.url())[1];
+  await api(page, 'PATCH', `/tasks/tasks/${taxi}`, { done: true });
+  await page.goto(`${B}/notes`);
+  await card('Trip').getByRole('button', { name: '1 task to do about this note' }).waitFor();
+});
 await step('Schedule time for it…: a new event with the note in it, saved to the calendar', async () => {
   await page.goto(`${B}/notes`);
   await card('Trip').getByRole('button', { name: 'More' }).click();

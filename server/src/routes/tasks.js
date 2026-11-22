@@ -389,6 +389,11 @@ export function myFirstList(userId) {
   if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(userId)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), userId, 'My tasks', now());
   return q('SELECT * FROM task_lists WHERE owner_id = ? ORDER BY created_at LIMIT 1').get(userId);
 }
+/** How many open tasks link to a path (a note, a file, an event…), on lists the person can see. */
+export function openTasksAbout(url, userId) {
+  return q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id
+            WHERE t.done_at IS NULL AND t.link_url = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))`).get(url, userId, userId).n;
+}
 /** Add tasks on top of a list: each a title, or { title, steps: [titles] } for a task with steps; `link` ({ url, label }) is where they all link back to. Returns how many. */
 export function addTasks(listId, userId, titles, link = null) {
   let top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(listId).p ?? 1) - titles.length;

@@ -18,7 +18,7 @@ export default function TasksAbout({ url, what = 'file', bump = 0, className = '
     return () => { gone = true; };
   }, [url, bump]);
   if (!tasks.length) return null;
-  const label = `${tasks.length === 1 ? '1 open task' : `${tasks.length} open tasks`} about this ${what}`;
+  const label = `${tasks.length === 1 ? '1 task' : `${tasks.length} tasks`} to do about this ${what}`; // (not “open”: buttons named Open sit nearby)
   return <Menu trigger={(p) => <button type="button" className={className} aria-label={label} title={label} {...p}><Icon name="check" size={16} /> {tasks.length}</button>}
     items={tasks.map((t) => ({ label: `${t.title}${t.due ? ` · due ${t.due}` : ''}`, icon: 'check', onClick: () => navigate(`/tasks/${t.list_id}?task=${t.id}`) }))} />;
 }

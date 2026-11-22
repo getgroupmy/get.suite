@@ -10,6 +10,7 @@ import { get, post, patch, put, del, onLive } from '../../api.js';
 import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
+import TasksAbout from '../../components/TasksAbout.jsx';
 import { printHtml } from '../mail/mailprint.js';
 import { notePrintHtml, notesPrintHtml, noteEmail, notesEmail, noteEvent } from './noteprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
@@ -598,6 +599,7 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           {done.length > 0 && <li className="muted small">{done.length} ticked {done.length === 1 ? 'item' : 'items'}</li>}
         </ul>
       )}
+      {n.tasks_open > 0 && <div className="note-chips" onClick={(e) => e.stopPropagation()}><TasksAbout url={`/notes?note=${n.id}`} what="note" bump={n.tasks_open} /></div>}
       {(n.labels.length > 0 || n.shared.length > 0 || !n.mine || n.remind_at) && (
         <div className="note-chips">
           {n.remind_at && <span className={`note-chip remind ${n.remind_at < Date.now() ? 'past' : ''}`}>⏰ {reminderText(n.remind_at)}{n.remind_repeat && <span title={REPEAT_CHOICES.find(([v]) => v === n.remind_repeat)?.[1]} aria-label={`repeats ${n.remind_repeat}`}> 🔁</span>}<button type="button" className="chip-x" aria-label="Remove reminder" onClick={() => onRemind(null)}>×</button></span>}

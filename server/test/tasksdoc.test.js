@@ -324,6 +324,13 @@ test('a note’s unticked items to Tasks on the list you choose (yours or shared
   assert.deepEqual((await ann('GET', `/api/tasks/lists/${chosen}/tasks`)).body.map((t) => [t.link_url, t.link_label]), Array(2).fill([`/notes?note=${note.id}`, 'Note: Move']));
   const kept = (await ann('GET', `/api/tasks/lists/${chosen}/tasks`)).body[0];
   assert.equal((await ann('PATCH', `/api/tasks/tasks/${kept.id}`, { link: { url: kept.link_url, label: kept.link_label } })).status, 200, 'a link to a note is one a task may carry');
+  // The note counts its open tasks (on lists you can see); ticking one off takes it out of the count.
+  const counted = async (who) => (await who('GET', '/api/notes')).body.find((n) => n.id === note.id)?.tasks_open;
+  assert.equal(await counted(ann), 2);
+  assert.equal((await ann('PATCH', `/api/tasks/tasks/${kept.id}`, { done: true })).status, 200);
+  assert.equal(await counted(ann), 1);
+  assert.equal((await ann('PUT', `/api/notes/${note.id}/shares`, { user_ids: [(await mia('GET', '/api/auth/me')).body.user?.id || (await mia('GET', '/api/auth/me')).body.id] })).status, 200);
+  assert.equal(await counted(mia), 0, 'someone the note is shared with sees none of your private tasks');
   // Without a list: the first list, as before.
   const first = await ann('POST', `/api/notes/${note.id}/tasks`, {});
   assert.equal(first.status, 201);

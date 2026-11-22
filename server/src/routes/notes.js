@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
 import { checkQuota } from '../tenancy.js';
-import { myFirstList, addTasks, taskListChoice, taskListPeople } from './tasks.js';
+import { myFirstList, addTasks, taskListChoice, taskListPeople, openTasksAbout } from './tasks.js';
 import { noteFits, noteFilterOf } from '../notefilter.js';
 
 q(`CREATE TABLE IF NOT EXISTS notes (
@@ -270,6 +270,7 @@ function shape(n, me) {
     labels: JSON.parse(n.labels || '[]'), ...(n.daily_date && { daily_date: n.daily_date }), remind_at: n.remind_at ?? null, remind_repeat: n.remind_repeat || null, remind_reset: !!n.remind_reset, pictures: picturesOf(n.id).map((p) => p.id), recordings: recordingsOf(n.id).map((x) => ({ id: x.id, duration_ms: x.duration_ms, created_at: x.created_at })), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
+    ...(me && { tasks_open: openTasksAbout(`/notes?note=${n.id}`, me) }), // open tasks made from it (Copy to Tasks), on lists you can see
   };
 }
 /**
