@@ -380,6 +380,13 @@ export default function contactRoutes() {
     q('UPDATE contact_groups SET name = ?, members = ? WHERE id = ?').run(name, JSON.stringify(members), g.id);
     res.json(groupsOf(req.user.id).find((x) => x.id === g.id));
   });
+  // A group's members saved as contacts of yours (a group made from an email, an event or a form holds addresses, not
+  // contacts): colleagues, you and anyone already there are left out.
+  r.post('/groups/:id/add-to-contacts', (req, res) => {
+    const g = ownGroup(req);
+    if (!g.members.length) throw bad('This group has nobody in it yet');
+    res.json(addPeople(req.user, g.members));
+  });
   // A group in a new spreadsheet: each member's name and address, with the phone, company and job title of
   // the contact they are (if they're one of yours), the heading row bold and kept in view.
   r.post('/groups/:id/sheet', (req, res) => {

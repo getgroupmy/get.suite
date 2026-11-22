@@ -745,6 +745,10 @@ function Groups({ filter }) {
                     navigate('/calendar', { state: { newEvent: ev } });
                     if (moved) toast(`The first hour you’re all free: ${new Date(ev.start).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
                   }}><Icon name="calendar" size={18} /></button>
+                  <button className="icon-btn" aria-label={`Add ${g.name}’s members to Contacts`} title="Save the group's people as contacts of yours (colleagues and those already there left out)" disabled={!g.members.length} onClick={async () => {
+                    try { const r = await post(`/contacts/groups/${g.id}/add-to-contacts`, {}); toast(r.added ? `Added ${r.added === 1 ? r.names[0] : `${r.added} people`} to your contacts` : 'Everyone in this group is already in your contacts or a colleague'); }
+                    catch (e) { toast(e.message, 'error'); }
+                  }}><Icon name="person" size={18} /></button>
                   <button className="icon-btn" aria-label={`Open ${g.name} in Sheets`} title="The group in a new spreadsheet: names, addresses, phones and companies" disabled={!g.members.length} onClick={async () => {
                     try { const r = await post(`/contacts/groups/${g.id}/sheet`, {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); }
                     catch (e) { toast(e.message, 'error'); }

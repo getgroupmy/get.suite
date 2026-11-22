@@ -75,6 +75,18 @@ await step('Contacts → Groups → Open in Sheets: the group’s people in a sp
   await page.locator('[data-k="B2"]', { hasText: 'kim@acme.com' }).waitFor();
   await page.locator('[data-k="C3"]', { hasText: '+1 555 0142' }).waitFor();
 });
+await step('Contacts → Groups → Add members to Contacts: an outside member saved, colleagues left out', async () => {
+  const g = await api(page, 'POST', '/contacts/groups', { name: 'Suppliers', members: [{ name: 'Sia Supply', email: 'sia@supply.example' }, { name: 'Kim Park', email: 'kim@acme.com' }] });
+  if (g.status !== 201) throw new Error(JSON.stringify(g.body));
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  await page.getByRole('button', { name: 'Add Suppliers’s members to Contacts' }).click();
+  await page.getByText('Added Sia Supply to your contacts').waitFor();
+  await page.getByRole('button', { name: 'Add Suppliers’s members to Contacts' }).click();
+  await page.getByText('Everyone in this group is already in your contacts or a colleague').waitFor();
+  const mine = (await api(page, 'GET', '/contacts')).body;
+  if (!mine.some((c) => c.email === 'sia@supply.example') || mine.filter((c) => c.email === 'kim@acme.com').length > 1) throw new Error(JSON.stringify(mine.map((c) => c.email)));
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

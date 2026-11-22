@@ -372,3 +372,22 @@ test('a comment assigned to you becomes a task on the list you chose for Add to 
   assert.match(there[0].title, /check the dates/i);
   await mia('PUT', '/api/tasks/inbox', { list_id: null });
 });
+
+test('a group’s members added to Contacts: new ones by name, colleagues and existing contacts left out; only your own group', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  await ann('POST', '/api/contacts', { name: 'Yan Known', email: 'yan@club.example' });
+  const g = (await ann('POST', '/api/contacts/groups', { name: 'Book club', members: [
+    { name: 'Zoe Zest', email: 'zoe@club.example' }, { name: '', email: 'abe@club.example' }, { name: 'Yan', email: 'yan@club.example' }, { name: 'Mia Member', email: 'mia@acme.com' }] })).body;
+  const r = await ann('POST', `/api/contacts/groups/${g.id}/add-to-contacts`, {});
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.skipped, r.body.names], [2, 2, ['Zoe Zest', 'abe']]);
+  const mine = (await ann('GET', '/api/contacts')).body;
+  assert.ok(mine.some((c) => c.email === 'zoe@club.example' && c.name === 'Zoe Zest'));
+  assert.equal(mine.filter((c) => c.email === 'yan@club.example').length, 1);
+  assert.deepEqual((await ann('POST', `/api/contacts/groups/${g.id}/add-to-contacts`, {})).body.added, 0);
+  assert.equal((await mia('POST', `/api/contacts/groups/${g.id}/add-to-contacts`, {})).status, 404);
+  const empty = (await ann('POST', '/api/contacts/groups', { name: 'Empty club', members: [] })).body;
+  assert.equal((await ann('POST', `/api/contacts/groups/${empty.id}/add-to-contacts`, {})).status, 400);
+});
