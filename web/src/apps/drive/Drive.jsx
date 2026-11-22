@@ -28,6 +28,7 @@ import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { linkEmail } from './linkemail.js';
 import { addToTasksWithToast } from '../tasks/addtask.js';
+import TasksAbout from '../../components/TasksAbout.jsx';
 import MyLinks from './MyLinks.jsx';
 import { sortFiles, isPicture, sharers } from './drivesort.js';
 
@@ -1472,6 +1473,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
     <Modal wide title={file.name} onClose={onClose} footer={<>
+      <TasksAbout url={`/drive?preview=${file.id}`} className="btn" />
       <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}<NewCount n={fresh.length} /></button>
       {isZip && !viewOnly(file) && <button type="button" className="btn primary" disabled={unpacking} title="Unpack it into a folder of the same name next to it" onClick={extract}><Icon name="folder" size={18} /> {unpacking ? 'Unpacking…' : 'Extract here'}</button>}
       {officeAs(file) && <button type="button" className="btn primary" title="Workspace makes an editable copy next to it; the original stays as it is" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}

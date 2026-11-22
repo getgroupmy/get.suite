@@ -80,6 +80,11 @@ await step('a file’s ⋮ → Add to Tasks: a task that links back to the file'
   if (!(await link.textContent()).includes('📁')) throw new Error(await link.textContent());
   await link.click();
   await page.locator('.modal, .preview', { hasText: 'b.txt' }).first().waitFor();
+  // The preview lists the task to do about it, and opens it in Tasks.
+  await page.getByRole('dialog', { name: 'b.txt' }).getByRole('button', { name: '1 task to do about this file' }).click();
+  await page.getByRole('menuitem', { name: 'b.txt' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  await page.getByRole('link', { name: /File: b\.txt/ }).waitFor();
   await page.goto(`${B}/drive`);
   await row('c.txt').waitFor();
   // Its row now says there is a task to do about it (and only its row).
