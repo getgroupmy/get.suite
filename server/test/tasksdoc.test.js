@@ -439,7 +439,7 @@ test('a task can link back to a calendar event (as to an email or a chat message
   assert.equal((await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url: 'https://evil.example/calendar', label: 'x' } })).status, 400);
   assert.equal((await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url: '/admin', label: 'x' } })).status, 400);
   // And to a file in Drive (a spreadsheet, a presentation, a folder or a preview), to a contact, or to a form's response.
-  for (const url of ['/sheets/abc', '/slides/abc', '/drive/folder/abc', '/drive?preview=abc', '/contacts?q=Dana%20Reed', '/forms/abc?tab=responses&r=def', '/notes?note=abc']) {
+  for (const url of ['/sheets/abc', '/slides/abc', '/drive/folder/abc', '/drive?preview=abc', '/contacts?q=Dana%20Reed', '/forms/abc?tab=responses&r=def', '/notes?note=abc', '/slides/abc#slide=s3']) {
     const f = await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: `Review ${url}`, link: { url, label: 'File: Budget' } });
     assert.deepEqual([f.status, f.body.link_url], [201, url], url);
   }

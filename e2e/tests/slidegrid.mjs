@@ -100,6 +100,21 @@ await step('choose several in the grid and copy them to another presentation, or
   if (await page.getByRole('button', { name: 'Slide 3', exact: true }).count()) throw new Error('more than the two');
   if ((await order()) !== 'S1,S2,S3,S4,S5') throw new Error('the original changed');
 });
+await step('a slide → Add slide to Tasks: a task named after the slide that opens the presentation on it', async () => {
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByRole('button', { name: 'Slide 4', exact: true }).click();
+  await page.getByRole('button', { name: 'Options for slide 4' }).click();
+  await page.getByRole('menuitem', { name: 'Add slide to Tasks' }).click();
+  await page.locator('.toast', { hasText: /^Added to / }).last().getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  if ((await d.getByLabel('Task', { exact: true }).inputValue()) !== 'S4') throw new Error(await d.getByLabel('Task', { exact: true }).inputValue());
+  const link = d.getByRole('link', { name: /Slide 4: / });
+  if (!(await link.textContent()).includes('🖼')) throw new Error(await link.textContent());
+  await link.click();
+  await page.waitForURL(/\/slides\//);
+  await page.getByText('Slide 4 of 5').waitFor();
+});
 await step('Copy link to slide: the link opens the presentation on that slide', async () => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
   await page.goto(`${B}/slides/${deck.id}`);

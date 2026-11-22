@@ -33,6 +33,7 @@ import {
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, ANIM_STARTS, isExit, buildState, buildSteps, stepCount, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges, groupMembers, sharedGroup, groupItems, ungroupItems } from './slidemath.js';
 import { cleanLink, linkTarget, linkLabel, slideTitle, dropLinksTo } from './slidelinks.js';
+import { addToTasksWithToast } from '../tasks/addtask.js';
 import { PRINT_LAYOUTS, printPages, isPortrait } from './printlayout.js';
 import { slideFileName, zipStored } from './slideimages.js';
 
@@ -648,6 +649,9 @@ export default function SlidesEditor() {
                 <Menu trigger={(p) => <button type="button" className="icon-btn thumb-menu" aria-label={`Options for slide ${i + 1}`} {...p}><Icon name="more" size={16} /></button>} items={[
                   { label: 'Duplicate', onClick: slideAction((d) => duplicateSlide(d, i)) },
                   { label: 'Copy link to slide', icon: 'link', onClick: () => copySlideLink(i) },
+                  { label: 'Add slide to Tasks', icon: 'check', onClick: () => addToTasksWithToast(toast, navigate, { // (a task that opens the presentation on this slide)
+                    title: slideTitle(deck.slides[i]) || `Slide ${i + 1} of ${file?.name || 'the presentation'}`,
+                    link: { url: placeLink('', `/slides/${id}`, 'slide', deck.slides[i].id), label: `Slide ${i + 1}: ${file?.name || 'Presentation'}` } }) },
                   { label: 'Copy to another presentation…', onClick: () => setDialog({ type: 'copy-slide-to', slide: deck.slides[i].id, number: i + 1 }) },
                   { label: 'Copy to a new presentation', onClick: async () => {
                     try {
