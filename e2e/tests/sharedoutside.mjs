@@ -108,6 +108,16 @@ await step('narrow to one company and stop everything shared with it', async () 
   await page.getByRole('status').getByText('Nothing matches.').waitFor();
 });
 
+await step('Open in Sheets: the list in a new spreadsheet in the admin’s Drive', async () => {
+  await page.getByLabel('Find').fill('');
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.getByText(/^Made “Shared outside \d{4}-\d{2}-\d{2}” in your Drive$/).waitFor();
+  const mine = (await api(page, 'GET', '/files')).body;
+  const f = (mine.files || mine).find((x) => /^Shared outside \d{4}/.test(x.name));
+  if (!f) throw new Error('no spreadsheet in Drive');
+  const cells = (await api(page, 'GET', `/files/${f.id}/content`)).body.content.sheets[0].cells;
+  if (cells.A1 !== 'File or folder' || cells.A2 !== 'Launch plan.txt' || cells.G2 !== 'Initech' || cells.H2 !== 'Can view') throw new Error(JSON.stringify(cells));
+});
 await step('Download (CSV), and the security checkup points here', async () => {
   await page.getByLabel('Find').fill('');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Download (CSV)' }).click()]);

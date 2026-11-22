@@ -67,6 +67,15 @@ test('Admin → Shared outside: what the company shares with other companies, an
   assert.equal(lines.length, 4);
   assert.equal(lines[1], 'Joint project,folder,Kim Park,kim@acme.com,Gil,gil@globex.com,Globex,Can edit,,no');
   assert.equal((await kim('GET', '/api/external-shares/export.csv')).status, 403);
+  // The same rows in a new spreadsheet of the admin's.
+  assert.equal((await kim('POST', '/api/external-shares/sheet', {})).status, 403);
+  const sheet = await ana('POST', '/api/external-shares/sheet', {});
+  assert.equal(sheet.status, 201, JSON.stringify(sheet.body));
+  assert.match(sheet.body.name, /^Shared outside \d{4}-\d{2}-\d{2}/);
+  assert.equal(sheet.body.shares, 3);
+  const cells = (await ana('GET', `/api/files/${sheet.body.id}/content`)).body.content.sheets[0].cells;
+  assert.deepEqual(['A1', 'G1', 'H1'].map((k) => cells[k]), ['File or folder', 'Company', 'Access']);
+  assert.deepEqual(['A2', 'C2', 'F2', 'G2', 'H2'].map((k) => cells[k]), ['Joint project', 'Kim Park', 'gil@globex.com', 'Globex', 'Can edit']);
   // Stop one: Ivy can't open the plan any more; Kim is told.
   assert.equal((await ivy('GET', `/api/files/${plan.id}/raw`)).status, 200);
   assert.equal((await ana('DELETE', `/api/external-shares/${plan.id}/${id('ivy@initech.com')}`)).status, 200);

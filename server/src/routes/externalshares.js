@@ -8,6 +8,8 @@ import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
 import { csvCell } from '../csvcell.js';
+import { sheetFromRows } from '../office/tablesheet.js';
+import { insertFile } from './files.js';
 
 /** Every share from someone in `orgId` to someone outside it that still works, newest file first. */
 export function externalShares(orgId, at = Date.now()) {
@@ -62,16 +64,25 @@ export function externalShareRoutes() {
     }
     res.json({ items, companies: [...companies.values()].map((c) => ({ ...c, people: c.people.size })).sort((a, b) => b.items - a.items) });
   });
-  // The same list as a spreadsheet (CSV), for an audit.
-  r.get('/export.csv', (req, res) => {
-    const cell = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
+  // The same list as a spreadsheet, for an audit: a CSV to download, or a new spreadsheet of the admin's.
+  const sharesTable = (orgId) => {
     const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
     const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit' };
-    const rows = externalShares(req.user.org_id);
-    const lines = [['File or folder', 'Kind', 'Shared by', 'Their email', 'With', 'Email', 'Company', 'Access', 'Until (UTC)', 'In the trash'].join(',')];
-    for (const x of rows) lines.push([x.file_name, x.kind, x.owner_name, x.owner_email, x.with_name, x.with_email, x.with_company, ROLE[x.role] || x.role, x.expires_at ? iso(x.expires_at) : '', x.trashed ? 'yes' : 'no'].map(cell).join(','));
-    audit(req, 'file.share_export', { details: { shares: rows.length } });
-    res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', 'attachment; filename="shared-outside.csv"').send(`\ufeff${lines.join('\r\n')}\r\n`);
+    return [['File or folder', 'Kind', 'Shared by', 'Their email', 'With', 'Email', 'Company', 'Access', 'Until (UTC)', 'In the trash'],
+      ...externalShares(orgId).map((x) => [x.file_name, x.kind, x.owner_name, x.owner_email, x.with_name, x.with_email, x.with_company, ROLE[x.role] || x.role, x.expires_at ? iso(x.expires_at) : '', x.trashed ? 'yes' : 'no'])];
+  };
+  r.get('/export.csv', (req, res) => {
+    const table = sharesTable(req.user.org_id);
+    audit(req, 'file.share_export', { details: { shares: table.length - 1 } });
+    res.set('content-type', 'text/csv; charset=utf-8').set('content-disposition', 'attachment; filename="shared-outside.csv"').send(`\ufeff${table.map((r) => r.map((v) => csvCell(v)).join(',')).join('\r\n')}\r\n`);
+  });
+  r.post('/sheet', (req, res) => {
+    const table = sharesTable(req.user.org_id);
+    if (table.length < 2) throw bad('Nothing is shared outside the company');
+    const json = JSON.stringify(sheetFromRows(table.map((r, i) => (i ? r.map((v) => String(v ?? '')) : r)), { header: true, name: 'Shared outside' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `Shared outside ${new Date().toISOString().slice(0, 10)}`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    audit(req, 'file.share_export', { details: { shares: table.length - 1, as: 'spreadsheet' } });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, shares: table.length - 1 });
   });
   // The company's limit on outside shares (Company settings), applied to the shares that already exist:
   // each without an end, or ending later than the limit, now ends that many days from now. Owners are told.

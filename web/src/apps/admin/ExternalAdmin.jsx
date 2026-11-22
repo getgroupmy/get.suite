@@ -3,6 +3,7 @@
 // whoever shared it is told.
 import { has } from '../../fold.js';
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { get, post, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
@@ -11,6 +12,7 @@ const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit' 
 
 export default function ExternalAdmin({ allowExternal, limitDays }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [company, setCompany] = useState('');
   const [find, setFind] = useState('');
@@ -55,6 +57,9 @@ export default function ExternalAdmin({ allowExternal, limitDays }) {
         <label className="check small"><input type="checkbox" checked={soon} onChange={(e) => setSoon(e.target.checked)} /> Ending within a week{endingSoon ? ` (${endingSoon})` : ''}</label>
         {picked && <button type="button" className="btn small danger" onClick={() => setStoppingCompany(picked)}>Stop sharing everything with {picked.name}…</button>}
         <span className="grow" /><a className="btn small" href="/api/external-shares/export.csv" download><Icon name="download" size={16} /> Download (CSV)</a>
+        <button type="button" className="btn small" onClick={async () => {
+          try { const r = await post('/external-shares/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+        }}><Icon name="sheet" size={16} /> Open in Sheets</button>
       </div>
       {data === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted" role="status">{data.items.length ? 'Nothing matches.' : 'Nothing is shared outside the company.'}</p> : (
         <div className="card" style={{ padding: 0 }}>
