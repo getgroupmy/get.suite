@@ -108,8 +108,8 @@ export function contactsFromFile(text) {
 }
 
 const csvField = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
-/** Contacts as a CSV that Gmail, Outlook and spreadsheets read. */
-export function contactsToCsv(list) {
+/** Contacts as rows of a table (the heading row first), in the columns Gmail and Outlook write. */
+export function contactsTable(list) {
   // Other addresses and numbers as Gmail writes them ("E-mail 2 - Type", "E-mail 2 - Value"…), as many as the most anyone has.
   const more = list.map((c) => ({ e: cleanMore(c.more_emails, 'emails'), p: cleanMore(c.more_phones, 'phones') }));
   const ne = Math.max(0, ...more.map((m) => m.e.length)), np = Math.max(0, ...more.map((m) => m.p.length));
@@ -126,6 +126,8 @@ export function contactsToCsv(list) {
     ...Array.from({ length: np }, (_, i) => (more[k].p[i] ? [label(more[k].p[i].type), more[k].p[i].value] : ['', ''])).flat(),
     ...Array.from({ length: nd }, (_, i) => (ev[k][i] ? [ev[k][i].label, ev[k][i].date] : ['', ''])).flat(),
     ...Array.from({ length: nf }, (_, i) => (cf[k][i] ? [cf[k][i].label, cf[k][i].value] : ['', ''])).flat()])];
-  return `﻿${rows.map((r) => r.map(csvField).join(',')).join('\r\n')}\r\n`;
+  return rows.map((r) => r.map((v) => (v == null ? '' : String(v))));
 }
+/** Contacts as a CSV that Gmail, Outlook and spreadsheets read. */
+export const contactsToCsv = (list) => `\ufeff${contactsTable(list).map((r) => r.map(csvField).join(',')).join('\r\n')}\r\n`;
 export const contactsToVcf = (list) => list.map((c) => buildVcard(c)).join('');

@@ -77,6 +77,16 @@ await step('Export → CSV: a contact whose name is a formula comes out as text 
   const line = require('node:fs').readFileSync(await dl.path(), 'utf8').split('\r\n').find((l) => l.includes('evil@example.com')) || '';
   if (!line.startsWith(`"'=HYPERLINK(""http://evil.example"",""Click me"")",evil@example.com,+60 12-345 6789,`)) throw new Error(`the line is: ${line}`);
 });
+await step('Export → Open in Sheets: the contacts as a spreadsheet, a name that looks like a formula and the phone shown as written', async () => {
+  await page.getByRole('button', { name: 'Export' }).click();
+  await page.getByRole('menuitem', { name: 'Open in Sheets' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Name' }).waitFor();
+  await page.getByText('=HYPERLINK("http://evil.example","Click me")', { exact: true }).first().waitFor();
+  await page.getByText('+60 12-345 6789', { exact: true }).first().waitFor();
+  if (await page.getByText('Click me', { exact: true }).count()) throw new Error('the formula ran');
+  await page.goBack();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

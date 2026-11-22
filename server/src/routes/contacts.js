@@ -5,7 +5,9 @@ import { outEvent } from './calendar.js';
 import { q, tx, fold } from '../db.js';
 import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
-import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../contactfiles.js';
+import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT, contactsTable } from '../contactfiles.js';
+import { sheetFromRows } from '../office/tablesheet.js';
+import { insertFile } from './files.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { sendTo } from '../hub.js';
 import { notify } from '../notifications.js';
@@ -498,6 +500,20 @@ export default function contactRoutes() {
     res.setHeader('Content-Type', csv ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contacts.${csv ? 'csv' : 'vcf'}"`);
     res.send(csv ? contactsToCsv(list) : contactsToVcf(list.map(withPhoto)));
+  });
+
+  // Open in Sheets: your contacts (all, or ?ids the ticked ones) as a new spreadsheet in My Drive, in the CSV's columns,
+  // the heading row bold and kept in view; numbers such as phones stay as written.
+  r.post('/sheet', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? new Set(req.body.ids.map(String)) : null;
+    if (ids && !ids.size) throw bad('No contacts selected');
+    let list = q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id);
+    if (ids) { list = list.filter((c) => ids.has(c.id)); if (list.length < ids.size) throw notFound('Contact not found'); }
+    if (!list.length) throw bad('You have no contacts yet');
+    const rows = contactsTable(list).map((r, i) => (i ? r.map((v) => (/^[\d\s()+.-]{6,}$/.test(v) && /\d/.test(v) ? `'${v}` : v)) : r)); // (a phone stays as written)
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Contacts' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: ids ? `Contacts (${list.length})` : 'Contacts', kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, contacts: list.length });
   });
 
   // One contact as a vCard to pass on (to a phone, by email, or as a QR code): what it says without your

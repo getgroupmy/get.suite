@@ -57,6 +57,10 @@ export default function Contacts() {
   const [history, setHistory] = useState(null); // a contact whose emails and meetings are shown
   const toast = useToast();
   const navigate = useNavigate();
+  // Open in Sheets: your contacts (or the ticked ones) as a new spreadsheet in My Drive.
+  const toSheet = async (ids) => {
+    try { const r = await post('/contacts/sheet', ids ? { ids } : {}); toast(`Made “${r.name}” in your Drive`); navigate(`/sheets/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+  };
   const { user } = useAuth();
   // Keyboard (contactkeys.js): J / K move between the people listed (the focus with them), and the row's
   // own buttons do the rest: Enter or O opens (edit, or a colleague's card), S stars, # deletes; C a new one.
@@ -187,6 +191,7 @@ export default function Contacts() {
         <Menu trigger={(p) => <button className="btn" {...p}><Icon name="download" size={18} /> Export</button>} items={[
           { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=vcf'; } },
           { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=csv'; } },
+          { label: 'Open in Sheets', icon: 'sheet', onClick: () => toSheet(null) },
           { label: 'Print the list', icon: 'print', onClick: () => printHtml(contactsPrintHtml(contacts || [], { title: 'My contacts' })) },
         ]} />
         <button className="btn" onClick={() => setMerging(true)} title="Find contacts that are the same person and merge them">Merge duplicates</button>
@@ -246,6 +251,7 @@ export default function Contacts() {
               <Menu trigger={(p) => <button type="button" className="btn small" {...p}><Icon name="download" size={16} /> Export selected</button>} items={[
                 { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?ids=${[...picked].join(',')}`; } },
                 { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?format=csv&ids=${[...picked].join(',')}`; } },
+                { label: 'Open in Sheets', icon: 'sheet', onClick: () => toSheet([...picked]) },
               ]} />
               <button type="button" className="btn small" title="Each as a card in a Chat conversation: colleagues can add them to their contacts" onClick={() => setSending(chosen)}><Icon name="chat" size={16} /> Send in Chat…</button>
               <button type="button" className="btn small" onClick={() => printHtml(contactsPrintHtml(chosen, { title: 'Contacts' }))}><Icon name="print" size={16} /> Print</button>
