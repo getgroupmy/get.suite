@@ -1701,6 +1701,12 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   const [pickingFile, setPickingFile] = useState(false);
   // Meeting notes: made (once) on the server, attached here, and opened in a new tab.
   const [notesId, setNotesId] = useState(event.notes_id || null);
+  // Guest list in Sheets: who's invited and how they've answered, in a new spreadsheet (opened in a new tab).
+  const guestSheet = async () => {
+    const tab = window.open('', '_blank');
+    try { const r = await post(`/events/${event.id}/guests-sheet`, {}); if (tab) tab.location.href = `/sheets/${r.id}`; else window.location.href = `/sheets/${r.id}`; }
+    catch (e) { tab?.close(); toast(e.message, 'error'); }
+  };
   const takeNotes = async () => {
     const tab = window.open('', '_blank');
     try {
@@ -2005,7 +2011,9 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             <Attachments list={attachments} onRemove={(a) => setAttachments(attachments.filter((x) => x.id !== a.id))} />
             <span className="row"><button type="button" className="btn small" onClick={() => setPickingFile(true)}><Icon name="attach" size={16} /> Attach from Drive</button>
               {event.id && <button type="button" className="btn small" onClick={takeNotes} title="A document for this meeting: when it is, who's coming, the agenda, notes and action items. Guests can edit it.">
-                📝 {attachments.some((a) => a.id === notesId) ? 'Open meeting notes' : 'Take meeting notes'}</button>}</span>
+                📝 {attachments.some((a) => a.id === notesId) ? 'Open meeting notes' : 'Take meeting notes'}</button>}
+              {event.id && (event.guests || []).length > 0 && <button type="button" className="btn small" onClick={guestSheet} title="Who's invited and how they've answered, in a new spreadsheet">
+                <Icon name="sheet" size={16} /> Guest list in Sheets</button>}</span>
             {attachments.length > 0 && (guests.length > 0 || guestInput.trim()) && <span className="muted small">Guests can view the files you own. They see the others only if they can already open them.</span>}
           </div>
         )}

@@ -82,6 +82,19 @@ await step('asking again opens the same notes', async () => {
   const r = await api(page, 'POST', `/events/${ev.id}/notes`, {});
   if (r.status !== 200 || r.body.id !== notes) throw new Error(JSON.stringify(r));
 });
+await step('Guest list in Sheets: who’s invited and how they answered, in a spreadsheet that opens in a new tab', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radio', { name: 'Schedule' }).click();
+  await page.getByText('Budget review', { exact: true }).first().click();
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  const [tab] = await Promise.all([page.waitForEvent('popup'), dlg.getByRole('button', { name: /Guest list in Sheets/ }).click()]);
+  await tab.waitForURL(/\/sheets\//);
+  await tab.locator('[data-k="A1"]', { hasText: 'Name' }).waitFor();
+  await tab.locator('[data-k="C2"]', { hasText: 'Organizer' }).waitFor();
+  await tab.locator('[data-k="A3"]', { hasText: 'Kim Park' }).waitFor();
+  await tab.locator('[data-k="C3"]', { hasText: /Going|Not answered|Maybe|Not going/ }).waitFor();
+  await tab.close();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

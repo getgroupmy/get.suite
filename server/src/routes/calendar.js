@@ -1,4 +1,5 @@
 import { userById } from '../auth.js';
+import { sheetFromRows } from '../office/tablesheet.js';
 import { namesIn } from '../meet.js';
 import { canEditCalendar, seesDetails } from '../calshare.js';
 import { audit } from '../audit.js';
@@ -1055,6 +1056,23 @@ export default function calendarRoutes() {
     const name = `${String(row.title || 'Event').replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').trim().slice(0, 80) || 'Event'}.ics`;
     res.setHeader('Content-Disposition', `attachment; filename="event.ics"; filename*=UTF-8''${encodeURIComponent(name)}`);
     res.send(ics);
+  });
+
+  // Guest list in Sheets: who's invited to one of your events and how they've answered, as a new spreadsheet (a row each:
+  // name, email, answer, their note, colleague or from outside), you first as the organizer.
+  r.post('/:id/guests-sheet', (req, res) => {
+    const row = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
+    if (!row) throw notFound();
+    const guests = guestsOf(row.id), outside = outsideOf(row.id);
+    if (!guests.length && !outside.length) throw bad('This event has no guests');
+    const said = (st) => ({ yes: 'Going', no: 'Not going', maybe: 'Maybe' }[st] || 'Not answered');
+    const rows = [['Name', 'Email', 'Answer', 'Note', 'Guest'],
+      [req.user.name, req.user.email || req.user.username, 'Organizer', '', 'Colleague'],
+      ...guests.filter((g) => g.id !== req.user.id).map((g) => [g.name, g.email, said(g.status), g.answer_note || '', 'Colleague']),
+      ...outside.map((g) => ['', g.email, said(g.status), g.answer_note || '', 'From outside'])];
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Guests' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${row.title || 'Event'} (guests)`.slice(0, 200), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, guests: guests.length + outside.length });
   });
 
   r.post('/:id/notes', (req, res) => {
