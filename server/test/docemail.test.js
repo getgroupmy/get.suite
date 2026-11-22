@@ -224,3 +224,23 @@ test('a spreadsheet from rows the app worked out (sheet-from-rows): numbers read
   assert.equal((await ann('POST', '/api/files/sheet-from-rows', { rows: [[1, 2]] })).status, 400);
   assert.equal((await ann('POST', '/api/files/sheet-from-rows', { rows: [Array(101).fill('x')] })).status, 400);
 });
+
+test('Sheets → Add events to Calendar: a sheet laid out as a calendar’s CSV becomes events; again: none twice; not laid out so: explained', async () => {
+  const cells = { A1: 'Subject', B1: 'Start Date', C1: 'Start Time', D1: 'End Date', E1: 'End Time', F1: 'Location',
+    A2: 'Kick-off', B2: '2026-12-03', C2: '10:00', D2: '2026-12-03', E2: '11:30', F2: 'Room 4',
+    A3: 'Review', B3: '2026-12-10', C3: '14:00', D3: '2026-12-10', E3: '15:00' };
+  const sh = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Plan', content: { sheets: [{ name: 'Sheet1', cells }] } })).body;
+  const r = await ann('POST', `/api/files/${sh.id}/add-events`, { tz: 'Europe/London' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.added, 2);
+  const evs = (await ann('GET', `/api/events?from=${Date.UTC(2026, 11, 1)}&to=${Date.UTC(2026, 11, 31)}`)).body;
+  const k = evs.find((e) => e.title === 'Kick-off');
+  assert.deepEqual([k.location, k.start, k.end], ['Room 4', Date.UTC(2026, 11, 3, 10), Date.UTC(2026, 11, 3, 11, 30)]);
+  const again = (await ann('POST', `/api/files/${sh.id}/add-events`, { tz: 'Europe/London' })).body;
+  assert.equal(again.added, 0, JSON.stringify(again));
+  const plain = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Not a calendar', content: { sheets: [{ name: 'S', cells: { A1: 'Item', B1: 'Cost', A2: 'x', B2: '1' } }] } })).body;
+  assert.match((await ann('POST', `/api/files/${plain.id}/add-events`, {})).body.error, /laid out as a calendar/);
+  const d = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'D' })).body;
+  assert.equal((await ann('POST', `/api/files/${d.id}/add-events`, {})).status, 400);
+  assert.equal((await ben('POST', `/api/files/${sh.id}/add-events`, {})).status, 404);
+});

@@ -1420,6 +1420,12 @@ export default function SheetEditor() {
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           mail?.enabled && !viewOnly(file) && { label: 'Send as email', icon: 'mail', onClick: sendAsEmail },
+          !viewOnly(file) && { label: 'Add events to Calendar', icon: 'calendar', onClick: async () => { // (a sheet laid out as a calendar's CSV: Subject, Start Date, Start Time…)
+            try {
+              const r = await post(`/files/${id}/add-events`, { sheet: active, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });
+              toast(`Added ${r.added} event${r.added === 1 ? '' : 's'} to your calendar${r.skipped ? ` (${r.skipped} already there)` : ''}${r.failed ? `; ${r.failed} row${r.failed === 1 ? '' : 's'} couldn’t be read` : ''}`, 'info', { action: { label: 'Open Calendar', onClick: () => navigate('/calendar') } });
+            } catch (e) { toast(e.message, 'error'); }
+          } },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
           { label: 'Compare spreadsheets', icon: 'sheet', onClick: () => setDialog({ type: 'compare-pick' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },

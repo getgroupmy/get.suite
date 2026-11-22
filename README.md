@@ -670,6 +670,10 @@ Write a formula once and use it in any cell like a built-in function. **⋮ → 
 
 Protections move with their cells when the owner (or someone allowed) inserts or deletes rows and columns. Only the people allowed to edit a protection can change or remove it. The server checks every change, so live edits, saves and restoring an earlier version can't get around a protection either.
 
+## Events from a spreadsheet (Sheets)
+
+**⋮ → Add events to Calendar** adds a sheet's rows to your calendar when it's laid out as a calendar's CSV is: columns **Subject**, **Start Date** and **Start Time**, and if you like **End Date**, **End Time**, **All day event**, **Description** and **Location** (as Outlook and Google Calendar write them, so a schedule kept in a spreadsheet or pasted from one becomes events), its values as the sheet shows them, in your time zone. Rows already on your calendar (the same title and times) aren't added twice, and the message says how many were added and how many couldn't be read. A sheet laid out otherwise is explained rather than guessed at.
+
 ## Mail merge (Sheets)
 
 **⋮ → Mail merge…** (when this server has email) sends a personal email to each person in a sheet: headings in the first row (*First name*, *Email*, *Amount*…), one person per row below. Choose the column with the addresses (one called *Email* is picked for you), then write the subject and message using the headings as placeholders: `Dear {{First name}}, you owe {{Amount}}.` The **Insert** buttons put one in where the cursor is. A preview shows the email for each person (‹ ›), with values as the cells show them (formulas and number formats included); a placeholder that isn't a heading is pointed out before anything is sent.

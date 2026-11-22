@@ -95,6 +95,19 @@ await step('Open in Sheets: the agenda a row an event, with its hours', async ()
   if (!row || cells[`D${row}`] !== '1' || cells[`F${row}`] !== 'Room 4' || !/^\d\d:\d\d$/.test(cells[`B${row}`])) throw new Error(JSON.stringify(cells));
   if (Object.values(cells).includes('Far away')) throw new Error('only this week');
 });
+await step('Sheets ⋮ → Add events to Calendar: a sheet laid out as a calendar’s CSV, its rows on the calendar', async () => {
+  const t = new Date(); const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Plan', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Subject', B1: 'Start Date', C1: 'Start Time', D1: 'End Date', E1: 'End Time', A2: 'Sprint planning', B2: day, C2: '09:00', D2: day, E2: '09:45' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A2"]', { hasText: 'Sprint planning' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Add events to Calendar' }).click();
+  await page.getByText('Added 1 event to your calendar').waitFor();
+  await page.getByRole('button', { name: 'Open Calendar' }).click();
+  await page.waitForURL(/\/calendar/);
+  await page.getByText('Sprint planning').first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

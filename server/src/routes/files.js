@@ -48,6 +48,7 @@ import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/o
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
+import { importCalendar } from '../calimport.js';
 import { sheetFromRows, sheetFromTables, tablesIn, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
@@ -2446,6 +2447,22 @@ export default function fileRoutes({ maxUploadBytes }) {
     checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
     const id = insertFile({ owner: req.user.id, parentId: resolveParent(req.body?.parent_id, req.user), name, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
     res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
+  // Add events to Calendar (Sheets): a sheet laid out as a calendar's CSV (Subject, Start Date, Start Time, End Date,
+  // End Time, All day event, Description, Location, as Outlook and Google Calendar write it) added to your calendar,
+  // its values as the sheet shows them; ones already there (the same title and times) left out.
+  r.post('/:id/add-events', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'sheet') throw bad('Only a spreadsheet’s rows become events');
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    saveNow(f.id);
+    const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(req.body?.sheet) || 0));
+    const csv = await delimitedFromSheet(data, index, ',');
+    const r2 = importCalendar(req.user.id, csv.replace(/^\ufeff/, ''), String(req.body?.tz || 'UTC'));
+    if (r2.error) throw bad(r2.error.replace('This isn’t a calendar file (.ics) or a calendar exported as CSV', 'This sheet isn’t laid out as a calendar: give it columns Subject, Start Date and Start Time (and End Date, End Time, All day event, Description, Location if you like)'));
+    if (r2.added) sendTo([req.user.id], { type: 'events-changed' });
+    res.json(r2);
   });
   // Which types each kind can be had as (the first is the usual one).
   const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'md', 'txt', 'pdf'] };
