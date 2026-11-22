@@ -982,6 +982,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
   const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
   const allFirst = user.mail_reply === 'all' && others.length > 0;
+  const everyone = [...(m.from ? [m.from] : []), ...m.to, ...m.cc].filter((a, i, all) => a.address && !mine.includes(a.address) && a.address !== user.username && all.findIndex((b) => b.address === a.address) === i);
   // Done with it: back to the list, or (when it has gone from here) to the next one, by your setting.
   const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) (p === 'flags' ? onClose : onRemoved || onClose)(); };
   // Mute: replies in this conversation skip the Inbox from now on; this message goes to Archive.
@@ -1047,6 +1048,12 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             } catch (e) { toast(e.message, 'error'); }
           } }]),
           ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
+          ...(everyone.length > 1 ? [{ label: 'Add everyone to Contacts', icon: 'person', onClick: async () => { // (sender and recipients; colleagues and contacts left out)
+            try {
+              const r = await post('/contacts/add-people', { people: everyone.map((a) => ({ name: a.name, email: a.address })) });
+              toast(r.added ? `Added ${r.added === 1 ? r.names[0] : `${r.added} people`} to your contacts${r.skipped ? ` (${r.skipped} already there or colleagues)` : ''}` : 'Everyone here is already in your contacts or a colleague', 'info', r.added ? { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } } : undefined);
+            } catch (e) { toast(e.message, 'error'); }
+          } }] : []),
         ]} />
         {sharing && <ShareInChat uid={uid} folder={folder} subject={m.subject} onClose={() => setSharing(false)} />}
         <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={async () => {

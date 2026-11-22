@@ -76,6 +76,29 @@ await step('messages from colleagues show no button', async () => {
   await page.waitForTimeout(800);
   if (await page.locator('.mail-reader').getByRole('button', { name: 'Add to contacts' }).count()) throw new Error('button for a colleague');
 });
+await step('⋮ → Add everyone to Contacts: the sender’s colleagues on cc added, Gina (already a contact) not twice', async () => {
+  const ctx = await browser.newContext();
+  const g = await ctx.newPage();
+  await g.goto(B);
+  await g.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'gina@globex.com', password: 'password123' }) }));
+  for (const [local, name] of [['ben', 'Ben Barge'], ['hal', 'Hal Harbour']]) {
+    const u = await api(g, 'POST', '/users', { local, domain: 'globex.com', name, password: 'password123' });
+    if (u.status !== 201) throw new Error(JSON.stringify(u.body));
+  }
+  for (let k = 0; k < 10; k++) { if ((await api(g, 'POST', '/mail/send', { to: 'olivia@acme.com', cc: 'Ben Barge <ben@globex.com>, Hal Harbour <hal@globex.com>', subject: 'Crew list', text: 'The crew for March.' })).status === 200) break; await g.waitForTimeout(1500); }
+  await ctx.close();
+  await page.locator('.mail-list').getByText('Crew list', { exact: true }).waitFor({ timeout: 30000 });
+  await page.locator('.mail-list').getByText('Crew list', { exact: true }).click();
+  await page.locator('.mail-reader').getByText('The crew for March.').waitFor();
+  await page.getByRole('button', { name: 'More for this message' }).click();
+  await page.getByRole('menuitem', { name: 'Add everyone to Contacts' }).click();
+  await page.getByText('Added 2 people to your contacts (1 already there or colleagues)').waitFor();
+  const list = (await api(page, 'GET', '/contacts')).body;
+  if (!list.some((c) => c.name === 'Ben Barge' && c.email === 'ben@globex.com') || !list.some((c) => c.name === 'Hal Harbour') || list.filter((c) => c.email === 'gina@globex.com').length !== 1) throw new Error(JSON.stringify(list));
+  await page.getByRole('button', { name: 'Open Contacts' }).click();
+  await page.waitForURL(/\/contacts/);
+  await page.getByText('Hal Harbour').first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

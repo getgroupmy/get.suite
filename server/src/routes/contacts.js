@@ -411,6 +411,27 @@ export default function contactRoutes() {
     catch (e) { if (/contacts file/.test(e.message)) throw bad('This sheet isn’t laid out as contacts: give it a Name or Email column (and Phone, Company, Job title, Address, Notes… if you like)'); throw e; }
   });
 
+  // Add everyone on an email to Contacts: { people: [{ name, email }] } (its sender and recipients). Colleagues, you, and
+  // anyone already in your contacts are left out; a name missing is made from the address.
+  r.post('/add-people', (req, res) => {
+    const people = Array.isArray(req.body?.people) ? req.body.people.slice(0, 200) : [];
+    const have = new Set(q('SELECT LOWER(email) AS e FROM contacts WHERE owner_id = ? AND email IS NOT NULL').all(req.user.id).map((c) => c.e));
+    const colleagues = new Set(q('SELECT LOWER(username) AS e FROM users WHERE org_id = ? AND disabled = 0').all(req.user.org_id).map((u) => u.e));
+    const added = [];
+    let skipped = 0;
+    for (const p of people) {
+      const email = String(p?.email || '').trim().toLowerCase();
+      if (!EMAIL_RE.test(email)) continue;
+      if (have.has(email) || colleagues.has(email) || email === req.user.username.toLowerCase()) { skipped++; continue; }
+      const name = (String(p?.name || '').replace(/[\r\n]+/g, ' ').trim() || email.split('@')[0]).slice(0, 200);
+      q('INSERT INTO contacts (id, owner_id, name, email, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), req.user.id, name, email, now());
+      have.add(email);
+      added.push(name);
+    }
+    if (!added.length && !skipped) throw bad('No email addresses to add');
+    res.json({ added: added.length, skipped, names: added.slice(0, 10) });
+  });
+
   // Is this address one of your contacts, or a colleague? (For "Add to contacts" on a message.)
   r.get('/lookup', (req, res) => {
     const email = String(req.query.email || '').trim().toLowerCase();

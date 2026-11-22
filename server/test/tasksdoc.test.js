@@ -93,3 +93,19 @@ test('a sheet’s rows added to Contacts (from-sheet): read as Import reads a CS
   assert.match(no.body.error, /laid out as contacts/);
   assert.equal((await ann('POST', '/api/contacts/from-sheet', { file: 'nope' })).status, 404);
 });
+
+test('everyone on an email added to Contacts (add-people): not you, not colleagues, not anyone already there', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  await ann('POST', '/api/contacts', { name: 'Kit Known', email: 'kit@known.example' });
+  const r = await ann('POST', '/api/contacts/add-people', { people: [
+    { name: 'Pia Port', email: 'pia@port.example' }, { name: '', email: 'Quin@Port.example' }, { name: 'Kit K', email: 'KIT@known.example' },
+    { name: 'Mia Member', email: 'mia@acme.com' }, { name: 'Me', email: 'olivia@acme.com' }, { name: 'Bad', email: 'not an address' }, { name: 'Pia again', email: 'pia@port.example' }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.skipped, r.body.names], [2, 4, ['Pia Port', 'quin']]);
+  const mine = (await ann('GET', '/api/contacts')).body;
+  assert.ok(mine.some((c) => c.email === 'quin@port.example' && c.name === 'quin'));
+  assert.ok(!mine.some((c) => c.email === 'mia@acme.com'));
+  assert.equal(mine.filter((c) => c.email === 'kit@known.example').length, 1);
+  assert.equal((await ann('POST', '/api/contacts/add-people', { people: [] })).status, 400);
+});
