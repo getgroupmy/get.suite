@@ -9,6 +9,8 @@ import { zoneOrUtc } from '../ics.js';
 import { fromWallClock } from '../calmath.js';
 import { publicHolidays, COUNTRIES } from '../publicholidays.js';
 import { csvCell } from '../csvcell.js';
+import { sheetFromRows } from '../office/tablesheet.js';
+import { insertFile } from './files.js';
 
 q(`CREATE TABLE IF NOT EXISTS time_off (
   id TEXT PRIMARY KEY,
@@ -235,35 +237,41 @@ export default function timeOffRoutes() {
   });
 
   // Everyone's vacation balance for a year (admins), for HR and payroll: allowance, carried over, taken, waiting, left.
-  r.get('/balances.csv', (req, res) => {
-    if (!req.user.is_admin) throw forbidden('Only admins download the time off report');
-    const year = Number(req.query.year) || new Date().getUTCFullYear();
-    const cell = (v) => csvCell(v); // (csvcell.js)
-    const people = q('SELECT id, name, username FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name COLLATE NOCASE').all(req.user.org_id);
-    const lines = [['Name', 'Email', 'Started', `Days for ${year}`, 'Carried over', 'Taken', 'Waiting for an answer', 'Left']].concat(people.map((u) => {
+  const yearOf = (v) => Number(v) || new Date().getUTCFullYear();
+  const balancesTable = (user, year) => {
+    if (!user.is_admin) throw forbidden('Only admins download the time off report');
+    const people = q('SELECT id, name, username FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name COLLATE NOCASE').all(user.org_id);
+    return [['Name', 'Email', 'Started', `Days for ${year}`, 'Carried over', 'Taken', 'Waiting for an answer', 'Left']].concat(people.map((u) => {
       const b = balanceOf(u.id, year);
       return [u.name, u.username, startOf(u.id), b.days ?? 'no limit', b.carried, b.used, b.pending, b.days === null ? '' : b.left];
     }));
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="vacation-balances-${year}.csv"`);
-    res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);
-  });
-  // A year's time off as a spreadsheet (admins, for payroll): one row per approved request, with the
-  // working days it took in that year; ?all=1 adds waiting, declined and cancelled ones.
-  r.get('/report.csv', (req, res) => {
-    if (!req.user.is_admin) throw forbidden('Only admins download the time off report');
-    const year = Number(req.query.year) || new Date().getUTCFullYear();
-    const hol = holidaySet(req.user.org_id);
+  };
+  // A year's time off (admins, for payroll): one row per approved request, with the working days it took in that
+  // year; `all` adds waiting, declined and cancelled ones.
+  const reportTable = (user, year, all) => {
+    if (!user.is_admin) throw forbidden('Only admins download the time off report');
+    const hol = holidaySet(user.org_id);
     const rows = q(`SELECT t.*, u.name, u.username, d.name AS decided_by_name FROM time_off t JOIN users u ON u.id = t.user_id LEFT JOIN users d ON d.id = t.decided_by
-                    WHERE u.org_id = ? AND t.start_date <= ? AND t.end_date >= ? ${req.query.all ? '' : "AND t.status = 'approved'"} ORDER BY u.name, t.start_date`)
-      .all(req.user.org_id, `${year}-12-31`, `${year}-01-01`);
-    const cell = (v) => csvCell(v); // (csvcell.js)
-    const lines = [['Name', 'Email', 'Kind', 'First day', 'Last day', 'Part of the day', `Working days in ${year}`, 'Status', 'Decided by', 'Note']]
+                    WHERE u.org_id = ? AND t.start_date <= ? AND t.end_date >= ? ${all ? '' : "AND t.status = 'approved'"} ORDER BY u.name, t.start_date`)
+      .all(user.org_id, `${year}-12-31`, `${year}-01-01`);
+    return [['Name', 'Email', 'Kind', 'First day', 'Last day', 'Part of the day', `Working days in ${year}`, 'Status', 'Decided by', 'Note']]
       .concat(rows.map((t) => [t.name, t.username, KINDS[t.kind], t.start_date, t.end_date, t.half ? HALVES[t.half] : 'all day', daysOf(t, hol, year), t.status, t.decided_by_name || '', t.note || '']));
+  };
+  const sendCsv = (res, name, lines) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="time-off-${year}.csv"`);
-    res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);
-  });
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    res.send(`\ufeff${lines.map((l) => l.map((v) => csvCell(v)).join(',')).join('\r\n')}\r\n`);
+  };
+  // The same as a new spreadsheet of the admin's (numbers and dates as such, the heading row kept in view).
+  const sendSheet = (req, res, name, lines) => {
+    const json = JSON.stringify(sheetFromRows(lines.map((l, i) => (i ? l.map((v) => String(v ?? '')) : l)), { header: true, name: 'Time off' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, rows: lines.length - 1 });
+  };
+  r.get('/balances.csv', (req, res) => { const year = yearOf(req.query.year); sendCsv(res, `vacation-balances-${year}.csv`, balancesTable(req.user, year)); });
+  r.get('/report.csv', (req, res) => { const year = yearOf(req.query.year); sendCsv(res, `time-off-${year}.csv`, reportTable(req.user, year, !!req.query.all)); });
+  r.post('/balances/sheet', (req, res) => { const year = yearOf(req.body?.year); sendSheet(req, res, `Vacation balances ${year}`, balancesTable(req.user, year)); });
+  r.post('/report/sheet', (req, res) => { const year = yearOf(req.body?.year); sendSheet(req, res, `Time off ${year}${req.body?.all ? ' (every request)' : ''}`, reportTable(req.user, year, !!req.body?.all)); });
 
   // Company holidays: everyone sees them (for the calendar); admins add and remove them.
   r.get('/holidays', (req, res) => {

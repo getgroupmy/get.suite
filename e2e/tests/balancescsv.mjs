@@ -60,6 +60,15 @@ await step('Team: download everyone\'s balance for the year as a spreadsheet', a
   if (!lines.some((l) => /^Kim Park,kim@acme\.com,\d{4}-\d\d-\d\d,25,0,0,0,25$/.test(l))) throw new Error(text);
   if (!lines.some((l) => l.startsWith('Olivia Owner,olivia@acme.com,'))) throw new Error('owner');
 });
+await step('Team: everyone’s balance in Sheets, a new spreadsheet with a row each', async () => {
+  const dlg = page.getByRole('dialog', { name: 'Time off' });
+  await dlg.getByRole('button', { name: 'balances', exact: true }).click();
+  await page.getByText(`Made “Vacation balances ${y}” in your Drive`).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="D1"]', { hasText: `Days for ${y}` }).waitFor();
+  await page.getByText('Kim Park', { exact: true }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

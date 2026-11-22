@@ -227,6 +227,30 @@ test('the time off report: the year\'s approved time off as CSV, for admins', as
   assert.ok(all.split('\r\n').some((l) => l.includes('2027-12-30,2028-01-04,all day,2,')));
 });
 
+test('the time off report and balances in Sheets: the same rows as the CSV, numbers as numbers; admins only', async () => {
+  const boss = client(), tom = client();
+  await boss('POST', '/api/auth/login', { username: 'bea@acme.com', password: 'password123' });
+  await tom('POST', '/api/auth/login', { username: 'tom@acme.com', password: 'password123' });
+  assert.equal((await tom('POST', '/api/time-off/report/sheet', { year: 2027 })).status, 403);
+  assert.equal((await tom('POST', '/api/time-off/balances/sheet', { year: 2027 })).status, 403);
+  const r = await boss('POST', '/api/time-off/report/sheet', { year: 2027 });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Time off 2027');
+  const sh = (await boss('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual(['A1', 'D1', 'G1'].map((k) => sh.cells[k]), ['Name', 'First day', 'Working days in 2027']);
+  const row = Object.keys(sh.cells).find((k) => /^D\d+$/.test(k) && sh.cells[k] === '2027-04-01').slice(1);
+  assert.deepEqual(['A', 'G', 'H'].map((c) => sh.cells[`${c}${row}`]), ['Tom Team', '2', 'approved']);
+  const every = await boss('POST', '/api/time-off/report/sheet', { year: 2027, all: true });
+  assert.equal(every.body.name, 'Time off 2027 (every request)');
+  assert.ok(every.body.rows > r.body.rows);
+  const b = await boss('POST', '/api/time-off/balances/sheet', { year: 2027 });
+  assert.equal(b.status, 201, JSON.stringify(b.body));
+  const bs = (await boss('GET', `/api/files/${b.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([bs.cells.A1, bs.cells.D1, bs.cells.H1], ['Name', 'Days for 2027', 'Left']);
+  // The CSV still works the same.
+  assert.equal((await tom('GET', '/api/time-off/balances.csv?year=2027')).status, 403);
+});
+
 test('who\'s out: also colleagues with their Mail vacation reply on that day (time off listed once)', async () => {
   const { q } = await import('../src/db.js');
   const boss = client(), tom = client();

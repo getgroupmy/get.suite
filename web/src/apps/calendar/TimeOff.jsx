@@ -2,6 +2,7 @@
 // and (if people report to you, or you're an admin and they report to nobody) approve or decline theirs.
 // Approved time off shows on the calendar as an all-day out-of-office event.
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { get, post, put, del } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { localToday } from '../tasks/taskmath.js';
@@ -118,6 +119,12 @@ export default function TimeOff({ onClose, onChanged }) {
 /** The team: each person's vacation this year and their time off in the next three months; admins set allowances. */
 function Team({ team, onChanged }) {
   const toast = useToast();
+  const navigate = useNavigate();
+  // The report or the balances in a new spreadsheet of yours (the same rows as the .csv).
+  const toSheet = async (url, body) => {
+    try { const r = await post(url, body); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   const [company, setCompany] = useState(team.company_days ?? '');
   const [carry, setCarry] = useState(team.carry_over || 0);
   const [prorate, setProrate] = useState(!!team.prorate);
@@ -151,6 +158,10 @@ function Team({ team, onChanged }) {
           <a href={`/api/time-off/report.csv?year=${team.year}&all=1`} download>with every request</a>
           <span className="muted"> · </span>
           <a href={`/api/time-off/balances.csv?year=${team.year}`} download>Everyone's {team.year} balance (.csv)</a>
+          <span className="muted"> · in Sheets: </span>
+          <button type="button" className="link-btn" onClick={() => toSheet('/time-off/report/sheet', { year: team.year })}>time off</button>
+          <span className="muted">, </span>
+          <button type="button" className="link-btn" onClick={() => toSheet('/time-off/balances/sheet', { year: team.year })}>balances</button>
         </p>
       )}
       <table className="timeoff-team">
