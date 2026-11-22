@@ -391,3 +391,18 @@ test('a group’s members added to Contacts: new ones by name, colleagues and ex
   const empty = (await ann('POST', '/api/contacts/groups', { name: 'Empty club', members: [] })).body;
   assert.equal((await ann('POST', `/api/contacts/groups/${empty.id}/add-to-contacts`, {})).status, 400);
 });
+
+test('a document’s action item for you becomes a task on the list you chose for Add to Tasks', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const miaId = (await mia('GET', '/api/auth/me')).body.user.id;
+  const chosen = (await mia('POST', '/api/tasks/lists', { name: 'From meetings' })).body.id;
+  assert.equal((await mia('PUT', '/api/tasks/inbox', { list_id: chosen })).status, 200);
+  const doc = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'Minutes' })).body;
+  const r = await ann('POST', `/api/tasks/from-doc/${doc.id}`, { items: [{ user_id: miaId, title: 'Send the revised quote', text: 'Mia: send the revised quote' }] });
+  assert.ok(r.status < 300, JSON.stringify(r.body));
+  const there = (await mia('GET', `/api/tasks/lists/${chosen}/tasks`)).body.map((t) => t.title);
+  assert.deepEqual(there, ['Send the revised quote']);
+  await mia('PUT', '/api/tasks/inbox', { list_id: null });
+});

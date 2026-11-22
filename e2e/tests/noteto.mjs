@@ -77,6 +77,10 @@ await step('an AI assistant’s create_task goes to the list chosen with Use for
   await page.getByRole('button', { name: 'List actions' }).click();
   await page.getByRole('menuitem', { name: 'Use for Add to Tasks' }).click();
   await page.getByText('now uses “Trip prep”').waitFor();
+  // The sidebar marks that list (and only it).
+  const nav = page.getByRole('button', { name: /Trip prep/ }).filter({ has: page.getByRole('img', { name: 'Add to Tasks puts things here' }) });
+  await nav.first().waitFor();
+  if ((await page.getByRole('img', { name: 'Add to Tasks puts things here' }).count()) !== 1) throw new Error('one list is marked');
   await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
   const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Task helper', scope: 'write', days: 30 })).body.token;
   const r = await page.evaluate(async (t) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
