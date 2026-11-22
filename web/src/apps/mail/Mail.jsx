@@ -1868,6 +1868,18 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const dlpStop = (err, at = null) => { if (err.status !== 409 || !err.data?.dlp) return false; reopen(); setDlpWarn({ text: err.message, at }); return true; };
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
+  // Closing the tab or reloading during the wait sends it too (the request outlives the page), and the copy kept for
+  // "an email being written when the session ended" goes with it, so it isn't offered again after it was sent.
+  useEffect(() => {
+    const leave = () => {
+      if (!pendingSend.current) return;
+      try { sessionStorage.removeItem(unsavedMailKey(user)); } catch { /* storage off */ }
+      pendingSend.current({ keepalive: true });
+    };
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [scheduling, setScheduling] = useState(false);
   const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html, user?.mail_style) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(outsideOk.current && { outsideConfirmed: true }), ...(followUp && { followUp: Number(followUp) }), ...(confidential && { confidential: { days: Number(confidential) } }) });
   const stopAutosave = async () => {
@@ -1926,10 +1938,15 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     await stopAutosave();
     const body = { ...payload(), ...(dlpOk.current && { dlpConfirmed: true }) };
     const mailbox = currentSharedMailbox(); // as it is now: leaving Mail (or switching mailbox) during the wait still sends from here
-    const go = async () => {
+    let t = null;
+    let gone = false; // it goes once: when the wait is over, or sooner when Mail or the page is left (never both)
+    const go = async (how = {}) => {
+      if (gone) return;
+      gone = true;
+      clearTimeout(t);
       pendingSend.current = null;
       try {
-        const r = await post('/mail/send', body, { mailbox });
+        const r = await post('/mail/send', body, { mailbox, ...(how.keepalive && { keepalive: true }) });
         // Send & archive: the message replied to leaves the inbox once the reply is on its way.
         const archived = archiveAfter.current && body.replyTo?.uid
           ? await post('/mail/messages/move', { folder: body.replyTo.folder, uids: [body.replyTo.uid], to: 'archive' }, { mailbox }).then(() => true, () => false)
@@ -1949,8 +1966,8 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     };
     pendingSend.current = go;
     setWaiting(true);
-    const t = setTimeout(go, UNDO_SECONDS * 1000);
-    toast('Sending…', 'info', { duration: UNDO_SECONDS * 1000, action: { label: 'Undo', onClick: () => { clearTimeout(t); pendingSend.current = null; reopen(); } } });
+    t = setTimeout(() => go(), UNDO_SECONDS * 1000);
+    toast('Sending…', 'info', { duration: UNDO_SECONDS * 1000, action: { label: 'Undo', onClick: () => { if (gone) return; gone = true; clearTimeout(t); pendingSend.current = null; reopen(); } } });
   }
 
   /** Send at a chosen time: the server keeps it and sends it then. */

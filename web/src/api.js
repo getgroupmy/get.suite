@@ -41,6 +41,8 @@ export async function api(method, url, body, opts = {}) {
       credentials: 'same-origin',
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      // keepalive: the request outlives the page (sending an email as the tab closes); browsers allow it up to about 64 KB.
+      ...(opts.keepalive && body !== undefined && JSON.stringify(body).length < 60000 && { keepalive: true }),
     });
   } catch (e) {
     const kept = offlineKey && await keptAnswer(offlineKey);

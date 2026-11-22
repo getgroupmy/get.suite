@@ -63,6 +63,7 @@ const put = (from, subject) => page.evaluate(async ([f, s]) => (await fetch('/ap
   body: `From: ${f}\r\nTo: olivia@acme.com\r\nSubject: ${s}\r\nMessage-ID: <${s.replace(/\W/g, '')}@x>\r\nDate: ${new Date().toUTCString()}\r\n\r\nPlease change the bank details we pay into.\r\n` })).status, [from, subject]);
 const open = async (subject) => {
   await page.goto(`${B}/mail/INBOX`);
+  await closeOpenCompose(); // (an email left unsent by an earlier step opens again here: close it first)
   await page.locator('.msg-subject', { hasText: subject }).first().click();
   await page.locator('.mail-reader').getByText('Please change the bank details').waitFor();
 };
