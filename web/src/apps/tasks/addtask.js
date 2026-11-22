@@ -1,5 +1,6 @@
 // "Add to Tasks" from Mail and Chat: a task on the list you chose for it (your first list, My tasks, unless you say otherwise), linking back to where it came from.
 import { get, post } from '../../api.js';
+import { parseQuickEvent } from '../calendar/quickevent.js';
 
 /** The task's title from a chat message: its first line, without markup, at most 200 characters. */
 export function titleFromText(text) {
@@ -10,13 +11,18 @@ export function titleFromText(text) {
 
 /**
  * "Create event" on a chat message: a new event named after its first line, an hour from the next half hour, with
- * what it says, who wrote it and a link back in the description. `now` is a timestamp.
+ * what it says, who wrote it and a link back in the description; when its first line names a day or a time, then.
+ * `now` is a timestamp.
  */
 export function eventFromMessage(m, link = '', now = Date.now()) {
   const start = Math.ceil(now / 18e5) * 18e5;
   const said = String(m.body || '').trim().slice(0, 4000);
   const description = [said, [m.user_name && `From ${m.user_name} in Chat`, link].filter(Boolean).join(': ')].filter(Boolean).join('\n\n');
-  return { title: titleFromText(m.body), start, end: start + 36e5, all_day: 0, location: '', description };
+  // A day or time in its first line ("Demo thursday 3pm", "lunch tomorrow") sets when, as Calendar's quick add reads it.
+  const first = titleFromText(m.body), d = new Date(now), pad = (n) => String(n).padStart(2, '0');
+  const q = first ? parseQuickEvent(first, { today: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }) : null;
+  if (q) return { title: q.title || first, start: q.start, end: q.end, all_day: q.all_day, location: '', description };
+  return { title: first, start, end: start + 36e5, all_day: 0, location: '', description };
 }
 
 /** Where an email's task links to: by Message-ID when it has one (so it's found after it's moved). */

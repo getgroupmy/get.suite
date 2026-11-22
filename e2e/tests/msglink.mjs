@@ -104,6 +104,23 @@ await step('a message → Create event: a new event from it, with a link back th
   await page.goto(text.split(': ').pop().replace(/^https?:\/\/[^/]+/, B));
   await page.locator('.msg', { hasText: 'Thursday works for them' }).waitFor();
 });
+await step('a message naming a day and time → Create event: the event is then', async () => {
+  await api(page, 'POST', `/chat/channels/${pub}/messages`, { body: 'Walkthrough with Initech tomorrow 3pm' });
+  await page.goto(`${B}/chat/${pub}`);
+  const msg = page.locator('.msg', { hasText: 'Walkthrough with Initech' });
+  await msg.hover();
+  await msg.getByRole('button', { name: 'Create event' }).click();
+  await page.waitForURL(/\/calendar/);
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  if ((await dlg.getByLabel('Title').inputValue()) !== 'Walkthrough with Initech') throw new Error(await dlg.getByLabel('Title').inputValue());
+  await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const now = Date.now();
+  const evs = (await api(page, 'GET', `/events?from=${now - 36e5}&to=${now + 3 * 864e5}`)).body;
+  const ev = (Array.isArray(evs) ? evs : evs.events || []).find((e) => e.title === 'Walkthrough with Initech');
+  const want = new Date(); want.setDate(want.getDate() + 1); want.setHours(15, 0, 0, 0);
+  if (!ev || ev.start !== want.getTime() || ev.end - ev.start !== 36e5) throw new Error(JSON.stringify(ev && [new Date(ev.start).toString(), ev.end - ev.start]));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

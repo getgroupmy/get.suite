@@ -20,3 +20,14 @@ test('a chat message as a new event: its first line as the title, the next half 
   assert.equal(e.description, '**Demo** for Globex\nThursday works for them\n\nFrom Kim Park in Chat: https://ws.test/chat/c1?msg=m1');
   assert.deepEqual([eventFromMessage({}, '', now).title, eventFromMessage({}, '', now).description], ['', '']);
 });
+
+test('a chat message that names a day or time: the event is then, and the words for it leave the title', () => {
+  const now = new Date(2026, 10, 23, 9, 10).getTime(); // a Monday
+  const at = (e) => [e.title, new Date(e.start).getDate(), new Date(e.start).getHours(), new Date(e.start).getMinutes(), e.all_day];
+  assert.deepEqual(at(eventFromMessage({ body: 'Demo for Globex thursday 3pm\nBring the deck' }, '', now)), ['Demo for Globex', 26, 15, 0, 0]);
+  const lunch = eventFromMessage({ body: 'Lunch tomorrow' }, '', now);
+  assert.deepEqual([lunch.title, new Date(lunch.start).getDate(), lunch.all_day], ['Lunch', 24, 1]);
+  // The whole message stays in the description; a line with no day or time is the next half hour, as before.
+  assert.match(eventFromMessage({ body: 'Demo for Globex thursday 3pm\nBring the deck' }, '', now).description, /^Demo for Globex thursday 3pm\nBring the deck/);
+  assert.deepEqual(at(eventFromMessage({ body: 'Demo for Globex' }, '', now)), ['Demo for Globex', 23, 9, 30, 0]);
+});
