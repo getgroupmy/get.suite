@@ -7,6 +7,7 @@ import { localToday } from '../tasks/taskmath.js';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
 import { addToTasksWithToast } from '../tasks/addtask.js';
+import { useMailStatus } from '../../mailStatus.js';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, useToast } from '../../components/ui.jsx';
@@ -153,6 +154,9 @@ export default function Contacts() {
   const [sort, setSort] = useState('first'); // your own way of sorting your contacts
   useEffect(() => { get('/contacts/view').then((r) => setSort(r.sort)).catch(() => {}); }, []);
   const chooseSort = async (next) => { setSort(next); try { await put('/contacts/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
+  // Someone an event can invite: a colleague, or anyone with an address when this server sends email.
+  const mail = useMailStatus();
+  const canInvite = (c) => !!c.email && (!!mail?.enabled || directory.some((u) => (u.email || u.username || '').toLowerCase() === c.email.toLowerCase()));
   const filtered = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match).filter(whereOk);
   const list = tab === 'mine' ? sortContacts(filtered, sort) : filtered;
   // Thousands of contacts: the table is filled 200 rows at a time (Select all still takes everyone listed).
@@ -281,6 +285,10 @@ export default function Contacts() {
                     {tab === 'mine' && <button className={`icon-btn star ${c.starred ? 'on' : ''}`} aria-pressed={!!c.starred} aria-label={c.starred ? `Unstar ${c.name}` : `Star ${c.name}`} title={c.starred ? 'Starred: first in your contacts and when writing mail' : 'Star: keep them first in your contacts and when writing mail'}
                       onClick={async () => { try { await patch(`/contacts/${c.id}`, { starred: !c.starred }); load(); } catch (e) { toast(e.message, 'error'); } }}>{c.starred ? '★' : '☆'}</button>}
                     <button className="icon-btn" aria-label={`History with ${c.name}`} title="Your log of calls and meetings, and emails and meetings with them" onClick={() => setHistory(c)}><Icon name="clock" size={18} /></button>
+                    {canInvite(c) && <button className="icon-btn" aria-label={`Schedule a meeting with ${c.name}`} title="Schedule a meeting: a new event with them invited, to set and save" onClick={() => {
+                      const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
+                      navigate('/calendar', { state: { newEvent: { title: `Meeting with ${c.name}`, start: t.getTime(), end: t.getTime() + 30 * 60e3, all_day: 0, location: '', description: '', guests: [{ email: c.email, name: c.name }] } } });
+                    }}><Icon name="calendar" size={18} /></button>}
                     <button className="icon-btn" aria-label={`Add a task about ${c.name}`} title="Add to Tasks: a task to get in touch, linking back here" onClick={() => addToTasksWithToast(toast, navigate, { title: `Get in touch with ${c.name}`, link: { url: `/contacts?q=${encodeURIComponent(c.name)}`, label: `Contact: ${c.name}` } })}><Icon name="check" size={18} /></button>
                     <button className="icon-btn contact-qr" aria-label={`QR code for ${c.name}`} title="QR code: scan it with a phone's camera to add the contact, or download it as a vCard" onClick={() => setQr(c)}>▦</button>
                     <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>

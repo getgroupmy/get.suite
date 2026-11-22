@@ -105,6 +105,25 @@ await step('a contact’s ✓ → a task to get in touch, linking back to them',
   await page.getByRole('button', { name: 'Edit Tess Tasked' }).waitFor();
   if (await page.getByRole('button', { name: 'Edit Dee Logged' }).count()) throw new Error('not filtered to her');
 });
+await step('a contact’s 📅 → a new event with them invited; not offered for someone who can’t be invited', async () => {
+  await api(page, 'POST', '/users', { local: 'gus', domain: 'acme.com', name: 'Gus Colleague', password: 'password123' });
+  await api(page, 'POST', '/contacts', { name: 'Gus Guest', email: 'gus@acme.com' });
+  await api(page, 'POST', '/contacts', { name: 'Olga Outside', email: 'olga@outside.test' }); // (email is off here: she can't get an invitation)
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('button', { name: 'Schedule a meeting with Gus Guest' }).waitFor();
+  for (const who of ['Tess Tasked', 'Olga Outside']) if (await page.getByRole('button', { name: `Schedule a meeting with ${who}` }).count()) throw new Error(`offered for ${who}`);
+  await page.getByRole('button', { name: 'Schedule a meeting with Gus Guest' }).click();
+  await page.waitForURL(/\/calendar/);
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  if ((await dlg.getByLabel('Title').inputValue()) !== 'Meeting with Gus Guest') throw new Error(await dlg.getByLabel('Title').inputValue());
+  await dlg.getByText('1 guest:').waitFor();
+  await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const now = Date.now();
+  const evs = (await api(page, 'GET', `/events?from=${now - 864e5}&to=${now + 2 * 864e5}`)).body;
+  const ev = (Array.isArray(evs) ? evs : evs.events || []).find((e) => e.title === 'Meeting with Gus Guest');
+  if (!ev || ev.end - ev.start !== 30 * 60e3 || (ev.guests || []).map((g) => g.email).join() !== 'gus@acme.com') throw new Error(JSON.stringify(ev));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
