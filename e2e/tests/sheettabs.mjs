@@ -196,6 +196,27 @@ await step('Copy link to sheet: the link opens the spreadsheet on that sheet', a
   // Plan's A1 is =Budget!B1*2: the sheet that opens is Plan
   await page.locator('[data-k="A1"]').getByText('1800').waitFor();
 });
+await step('a cell → Add this cell to Tasks: a task of what it shows, due on the day it names, that opens the sheet on that cell', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Actions', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'What', A2: 'Send the report tomorrow', A3: 'File receipts' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A2"]', { hasText: 'Send the report' }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Add this cell to Tasks' }).click();
+  await page.locator('.toast', { hasText: /^Added to / }).last().getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  const d = page.getByRole('complementary', { name: 'Task details' });
+  if ((await d.getByLabel('Task', { exact: true }).inputValue()) !== 'Send the report tomorrow') throw new Error(await d.getByLabel('Task', { exact: true }).inputValue());
+  const tm = new Date(); tm.setDate(tm.getDate() + 1);
+  const tomorrow = `${tm.getFullYear()}-${String(tm.getMonth() + 1).padStart(2, '0')}-${String(tm.getDate()).padStart(2, '0')}`;
+  const all = [];
+  for (const l of (await api(page, 'GET', '/tasks/lists')).body.lists) all.push(...(await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body);
+  const t = all.find((x) => x.title === 'Send the report tomorrow');
+  if (!t || t.due !== tomorrow || t.link_url !== `/sheets/${sh.id}#sheet=Sheet1&range=A2`) throw new Error(JSON.stringify(t && [t.due, t.link_url]));
+  await d.getByRole('link', { name: 'Cell A2: Actions' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await until(async () => (await page.getByLabel('Name box').inputValue()) === 'A2', 10000);
+  // The spreadsheet's header counts it.
+  await page.getByRole('button', { name: '1 task to do about this file' }).waitFor();
+});
 await step('Copy link to this range: opening it selects those cells on that sheet; a link opened while it\'s open moves there', async () => {
   await page.goto(`${B}/sheets/${sheet.id}`);
   await until(async () => (await tabs(page)).includes('Budget'));

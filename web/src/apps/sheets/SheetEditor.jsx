@@ -58,6 +58,7 @@ import { sheetPrintHtml, sheetEmailHtml, usedArea } from './sheetprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 const MAX_EMAIL_CELLS = 5000; // (a bigger table is better as an attachment)
 import { viewOnly } from '../drive/viewonly.js';
+import { addToTasksWithToast, dueFromText } from '../tasks/addtask.js';
 import { SheetToTasksDialog } from './SheetToTasks.jsx';
 import { printHtml } from '../mail/mailprint.js';
 import { useUndo, undoKey } from '../useUndo.js';
@@ -1383,6 +1384,15 @@ export default function SheetEditor() {
     try { await navigator.clipboard.writeText(url); toast(`Link to ${selText} copied`); } catch { window.prompt('Copy this link', url); }
   } };
   noteItems.push(cellLinkItem);
+  // Add to Tasks: a task named after what the cell shows (due on the day it names, if it names one), that opens the
+  // spreadsheet with these cells selected.
+  noteItems.push({ label: selText.includes(':') ? 'Add this range to Tasks' : 'Add this cell to Tasks', icon: 'check', onClick: () => {
+    const text = String(shown(selKey) ?? '').replace(/\s+/g, ' ').trim();
+    addToTasksWithToast(toast, navigate, {
+      title: (text || `${selText} in ${file.name}`).slice(0, 200), ...dueFromText(text),
+      link: { url: placeLink('', `/sheets/${file.id}`, 'sheet', sheetName(active), { range: selText }), label: `${selText.includes(':') ? 'Cells' : 'Cell'} ${selText}: ${file.name}` },
+    });
+  } });
   const pasteItems = PASTE_MODES.map(([mode, label]) => ({ label: `Paste special: ${label.toLowerCase()}`, onClick: () => pasteAs(mode), disabled: !clip.current }));
   const ctxItems = readOnly ? [cellLinkItem] : ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...pasteItems, '-', ...noteItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
