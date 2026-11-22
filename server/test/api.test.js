@@ -2022,6 +2022,14 @@ test('booking pages: the people who booked added to Contacts, colleagues and con
   assert.ok(mine.some((c) => c.email === 'liv@visit.example' && c.name === 'Liv Visit'));
   assert.equal(mine.filter((c) => c.email === 'kai@visit.example').length, 1);
   assert.equal((await other('POST', `/api/bookings/${pg.id}/contacts`, {})).status, 404);
+  // The people to write to: those whose booking stands, each address once, newest first; not for someone else.
+  const ppl = (await a('GET', `/api/bookings/${pg.id}/people`)).body;
+  assert.deepEqual([ppl.title, ppl.people.map((x) => x.email)], ['Tour', ['bother@acme.com', 'kai@visit.example', 'liv@visit.example']]);
+  assert.equal(ppl.people.find((x) => x.email === 'liv@visit.example').name, 'Liv Visit');
+  assert.equal((await a('GET', `/api/bookings/${pg.id}/people?upcoming=1`)).body.people.length, 3, 'all still to come');
+  (await import('../src/db.js')).q("UPDATE bookings SET cancelled_at = ? WHERE page_id = ? AND lower(email) = 'kai@visit.example'").run(Date.now(), pg.id);
+  assert.deepEqual((await a('GET', `/api/bookings/${pg.id}/people`)).body.people.map((x) => x.email), ['bother@acme.com', 'liv@visit.example'], 'a cancelled booking is left out');
+  assert.equal((await other('GET', `/api/bookings/${pg.id}/people`)).status, 404);
   resetBookingLimits();
 });
 

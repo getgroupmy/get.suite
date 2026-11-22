@@ -271,6 +271,21 @@ export default function bookingRoutes() {
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
   });
+  // The people with a booking on this page that still stands (not cancelled), each address once, newest first: to write to
+  // them all (a change of room, a reminder of what to bring). ?upcoming=1: only bookings that haven't started yet.
+  r.get('/:id/people', (req, res) => {
+    const p = mine(req);
+    const rows = q(`SELECT b.name, b.email, e.start FROM bookings b JOIN events e ON e.id = b.event_id
+                    WHERE b.page_id = ? AND b.cancelled_at IS NULL AND b.email IS NOT NULL ORDER BY b.created_at DESC`).all(p.id);
+    const seen = new Set(), people = [];
+    for (const r of rows) {
+      const email = String(r.email).toLowerCase();
+      if (seen.has(email) || (req.query.upcoming === '1' && r.start < Date.now())) continue;
+      seen.add(email);
+      people.push({ name: r.name || '', email });
+    }
+    res.json({ title: p.title, people });
+  });
   // Add the people who booked through this page to your contacts (name and address as they gave them; cancelled
   // bookings too). Colleagues and anyone already there are left out.
   r.post('/:id/contacts', (req, res) => {

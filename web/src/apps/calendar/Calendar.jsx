@@ -2452,6 +2452,17 @@ const fromHhmm = (v) => { const [h, m] = String(v).split(':').map(Number); retur
 /** Your booking pages: links people use to book a free time with you. */
 function BookingPagesDialog({ onClose }) {
   const toast = useToast();
+  const navigate = useNavigate();
+  const mail = useMailStatus();
+  // Email the people who booked: a new email in Mail to everyone whose booking stands, the page's title as the subject.
+  const emailBooked = async (p) => {
+    try {
+      const r = await get(`/bookings/${p.id}/people`);
+      if (!r.people.length) { toast('Nobody has a booking on this page right now'); return; }
+      onClose();
+      navigate(`/mail?compose=${encodeURIComponent(r.people.map((x) => (x.name ? `${x.name.replace(/[",<>]/g, '')} <${x.email}>` : x.email)).join(', '))}&subject=${encodeURIComponent(r.title)}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const [pages, setPages] = useState(null);
   const [editing, setEditing] = useState(null);
   const load = () => get('/bookings').then(setPages).catch((e) => toast(e.message, 'error'));
@@ -2486,6 +2497,7 @@ function BookingPagesDialog({ onClose }) {
                 <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {myWeek().map(([d]) => d).filter((d) => p.days.includes(d)).map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.host_names?.length ? ` · with ${p.host_names.join(', ')}` : ''}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}</span></span>
                 <button type="button" className="btn small" onClick={() => copy(p)}>Copy link</button>
                 <a className="btn small" href={p.url} target="_blank" rel="noreferrer">Open</a>
+                {mail?.enabled && p.bookings > 0 && <button type="button" className="icon-btn" aria-label={`Email the people who booked ${p.title}`} title="A new email to everyone with a booking on this page" onClick={() => emailBooked(p)}><Icon name="mail" size={16} /></button>}
                 {p.booked_by > 0 && <button type="button" className="icon-btn" aria-label={`Add people who booked ${p.title} to Contacts`} title="Add the people who booked to your contacts" onClick={async () => {
                   try {
                     const r = await post(`/bookings/${p.id}/contacts`, {});
