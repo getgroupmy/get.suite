@@ -96,6 +96,27 @@ await step('by a rating, by words written, by left blank; nothing matching; clea
   await page.getByText('4 responses').waitFor();
   if (await bar.getByLabel('Answer to filter by').count()) throw new Error('filter stayed');
 });
+await step('Individual → Add this response to Tasks: a task that links back to that very response', async () => {
+  await page.getByRole('tab', { name: 'Individual' }).click();
+  await page.getByRole('button', { name: 'Next response' }).click();
+  await page.getByRole('button', { name: 'Next response' }).click();
+  await page.getByText(/^3 of 4 ·/).waitFor();
+  await page.getByText('Tram ride').waitFor();
+  await page.getByRole('button', { name: 'Add this response to Tasks' }).click();
+  await page.locator('.toast', { hasText: /^Added to / }).last().getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  await page.getByText(/^Follow up: Offsite/).first().waitFor();
+  const link = page.getByRole('link', { name: 'Form response: Offsite' });
+  await link.waitFor();
+  if (!(await link.textContent()).includes('📋')) throw new Error(await link.textContent());
+  await link.click();
+  await page.waitForURL(/\/forms\/[\w-]+\?tab=responses&r=/);
+  await page.getByText(/^3 of 4 ·/).waitFor();
+  await page.getByText('Tram ride').waitFor();
+  // (and it doesn't hold you there: Next still moves on)
+  await page.getByRole('button', { name: 'Next response' }).click();
+  await page.getByText(/^4 of 4 ·/).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

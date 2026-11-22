@@ -354,7 +354,7 @@ const todayOf = (v) => (typeof v === 'string' && DATE_RE.test(v) ? v : new Date(
 export function linkOf(v) {
   if (v == null || v === '') return { url: null, label: null };
   const url = String(v.url || '');
-  if (!/^\/(mail|chat|docs|sheets|slides|drive|calendar|contacts)(\/|\?|$)/.test(url) || url.length > 2000 || /[\s\\]/.test(url)) throw bad('Bad link'); // (back to where it came from: an email, a chat message, a file in Drive, a calendar event, a contact)
+  if (!/^\/(mail|chat|docs|sheets|slides|drive|calendar|contacts|forms)(\/|\?|$)/.test(url) || url.length > 2000 || /[\s\\]/.test(url)) throw bad('Bad link'); // (back to where it came from: an email, a chat message, a file in Drive, a calendar event, a contact, a form)
   return { url, label: String(v.label || '').trim().slice(0, 300) || null };
 }
 

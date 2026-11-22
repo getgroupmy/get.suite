@@ -78,5 +78,5 @@ export function taskNote(t, { locale, link = '', listName = '' } = {}) {
 /** The little picture for where a task links back to. */
 export function linkIcon(url) {
   const app = (/^\/(\w+)/.exec(url || '') || [])[1];
-  return { chat: '💬', docs: '📄', sheets: '📊', slides: '🖼', drive: '📁', calendar: '📅', contacts: '👤' }[app] || '✉';
+  return { chat: '💬', docs: '📄', sheets: '📊', slides: '🖼', drive: '📁', calendar: '📅', contacts: '👤', forms: '📋' }[app] || '✉';
 }
