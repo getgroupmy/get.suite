@@ -314,7 +314,12 @@ export default function contactRoutes() {
         .map((c) => withMore({ ...c, can_edit: !!c.can_edit })));
     }
     try { meetingsCountAsTouch(Date.now(), 2 * 864e5, req.user.id); } catch { /* counted hourly anyway */ }
-    res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.starred DESC, c.name COLLATE NOCASE').all(req.user.id).map((c) => withMore({ ...c, starred: !!c.starred })));
+    // Tasks to do about a contact (made with "Add a task about…", on lists you can see): how many, by the path they link back to.
+    const todo = new Map(q(`SELECT t.link_url AS url, COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id
+                            WHERE t.done_at IS NULL AND t.link_url LIKE '/contacts?q=%' AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                            GROUP BY t.link_url`).all(req.user.id, req.user.id).map((x) => [x.url, x.n]));
+    res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.starred DESC, c.name COLLATE NOCASE').all(req.user.id)
+      .map((c) => withMore({ ...c, starred: !!c.starred, ...(todo.get(`/contacts?q=${encodeURIComponent(c.name)}`) && { tasks_open: todo.get(`/contacts?q=${encodeURIComponent(c.name)}`) }) })));
   });
 
   // ---- photos ----

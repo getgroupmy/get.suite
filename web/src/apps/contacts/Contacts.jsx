@@ -7,6 +7,7 @@ import { localToday } from '../tasks/taskmath.js';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
 import { addToTasksWithToast } from '../tasks/addtask.js';
+import TasksAbout from '../../components/TasksAbout.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -289,7 +290,8 @@ export default function Contacts() {
                       const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
                       navigate('/calendar', { state: { newEvent: { title: `Meeting with ${c.name}`, start: t.getTime(), end: t.getTime() + 30 * 60e3, all_day: 0, location: '', description: '', guests: [{ email: c.email, name: c.name }] } } });
                     }}><Icon name="calendar" size={18} /></button>}
-                    <button className="icon-btn" aria-label={`Add a task about ${c.name}`} title="Add to Tasks: a task to get in touch, linking back here" onClick={() => addToTasksWithToast(toast, navigate, { title: `Get in touch with ${c.name}`, link: { url: `/contacts?q=${encodeURIComponent(c.name)}`, label: `Contact: ${c.name}` } })}><Icon name="check" size={18} /></button>
+                    <button className="icon-btn" aria-label={`Add a task about ${c.name}`} title="Add to Tasks: a task to get in touch, linking back here" onClick={() => addToTasksWithToast(toast, navigate, { title: `Get in touch with ${c.name}`, link: { url: `/contacts?q=${encodeURIComponent(c.name)}`, label: `Contact: ${c.name}` } }).then(load)}><Icon name="check" size={18} /></button>
+                    {c.tasks_open > 0 && <TasksAbout url={`/contacts?q=${encodeURIComponent(c.name)}`} what="contact" bump={c.tasks_open} />}
                     <button className="icon-btn contact-qr" aria-label={`QR code for ${c.name}`} title="QR code: scan it with a phone's camera to add the contact, or download it as a vCard" onClick={() => setQr(c)}>▦</button>
                     <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>

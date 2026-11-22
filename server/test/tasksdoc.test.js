@@ -514,3 +514,15 @@ test('Chat marks the messages that have tasks to do about them (yours to see), r
   assert.equal((await ann('PATCH', `/api/tasks/tasks/${one.id}`, { done: true })).status, 200);
   assert.equal((await marks(ann))[first.id], undefined);
 });
+
+test('Contacts says how many tasks to do are about each contact of yours', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const dana = (await ann('POST', '/api/contacts', { name: 'Dana O’Reed & Co' })).body, other = (await ann('POST', '/api/contacts', { name: 'Quiet Quinn' })).body;
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Contact marks' })).body.id;
+  const t = (await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Get in touch with Dana', link: { url: `/contacts?q=${encodeURIComponent(dana.name)}`, label: 'Contact: Dana' } })).body;
+  const marks = async () => Object.fromEntries((await ann('GET', '/api/contacts')).body.filter((c) => [dana.id, other.id].includes(c.id)).map((c) => [c.name, c.tasks_open]));
+  assert.deepEqual(await marks(), { 'Dana O’Reed & Co': 1, 'Quiet Quinn': undefined });
+  assert.equal((await ann('PATCH', `/api/tasks/tasks/${t.id}`, { done: true })).status, 200);
+  assert.equal((await marks())['Dana O’Reed & Co'], undefined);
+});

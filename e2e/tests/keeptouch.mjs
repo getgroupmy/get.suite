@@ -103,6 +103,12 @@ await step('a contact’s ✓ → a task to get in touch, linking back to them',
   await link.click();
   await page.waitForURL(/\/contacts\?q=Tess/);
   await page.getByRole('button', { name: 'Edit Tess Tasked' }).waitFor();
+  // Her row says there is a task to do about her, and opens it.
+  await page.getByRole('button', { name: '1 task to do about this contact' }).click();
+  await page.getByRole('menuitem', { name: 'Get in touch with Tess Tasked' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  await page.goBack();
+  await page.getByRole('button', { name: 'Edit Tess Tasked' }).waitFor();
   if (await page.getByRole('button', { name: 'Edit Dee Logged' }).count()) throw new Error('not filtered to her');
 });
 await step('a contact’s 📅 → a new event with them invited; not offered for someone who can’t be invited', async () => {
