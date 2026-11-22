@@ -2366,11 +2366,11 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (t.error) throw bad(t.error);
     res.json({ name: f.name, sheets, sheet: index, ...t });
   });
-  // Open in Sheets (a document's table): { rows: [[text]], header } as a new spreadsheet, "<document> (table)", beside the
+  // Open in Sheets (a table in a document or on a slide): { rows: [[text]], header } as a new spreadsheet, "<document> (table)", beside the
   // document when you can add to its folder (else in My Drive), numbers read as Sheets reads what's typed.
   r.post('/:id/table-to-sheet', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    if (f.kind !== 'doc') throw bad('Only a document’s table');
+    if (f.kind !== 'doc' && f.kind !== 'slides') throw bad('Only a table in a document or a presentation');
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     const rows = req.body?.rows;
     if (!Array.isArray(rows) || !rows.length || !rows.every((r) => Array.isArray(r))) throw bad('Give the table’s rows');

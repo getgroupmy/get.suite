@@ -144,5 +144,12 @@ test('a document’s table opened in Sheets: numbers read as typed, the header b
   assert.equal((await ann('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [Array(101).fill('x')] })).status, 400);
   assert.equal((await ann('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [[{ evil: 1 }]] })).status, 400);
   assert.equal((await ann('POST', `/api/files/${r.body.id}/table-to-sheet`, { rows: [['a']] })).status, 400);
+  // A table on a slide too, named after the presentation.
+  const deck = (await ann('POST', '/api/files/new', { name: 'Pitch', kind: 'slides' })).body;
+  const fromSlide = await ann('POST', `/api/files/${deck.id}/table-to-sheet`, { header: false, rows: [['North', '1,234'], ['South', '99']] });
+  assert.equal(fromSlide.status, 201);
+  assert.equal(fromSlide.body.name, 'Pitch (table)');
+  const ss = (await ann('GET', `/api/files/${fromSlide.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([ss.cells.B1, ss.formats.B1, ss.frozen], ['1234', { num: 'number', dp: 0 }, undefined]);
   assert.equal((await ben('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [['a']] })).status, 404);
 });

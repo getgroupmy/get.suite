@@ -101,6 +101,17 @@ await step('⋮ → Insert table from a spreadsheet: the cells as a slide table;
   }, 15000);
   if (JSON.stringify(got.cells) !== JSON.stringify([['Item', 'Price'], ['Bolts', '$1.50'], ['Nuts', '$3.00']]) || !got.header) throw new Error(JSON.stringify(got));
 });
+await step('a slide’s table → Open in Sheets: a spreadsheet of it, numbers read as typed', async () => {
+  await page.locator('.slide-stage [aria-label="Table"]').click();
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.getByText('Made “Prices deck (table)”').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="B3"]', { hasText: '$3.00' }).waitFor();
+  const id = page.url().split('/').pop().split('?')[0];
+  const sh = (await api(page, 'GET', `/files/${id}/content`)).body.content.sheets[0];
+  if (sh.cells.B2 !== '1.5' || sh.cells.A1 !== 'Item' || !sh.formats?.A1?.b) throw new Error(JSON.stringify(sh));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

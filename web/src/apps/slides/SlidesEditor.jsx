@@ -457,6 +457,12 @@ export default function SlidesEditor() {
             <button type="button" className="tb" aria-label="Add a column" title="Add a column at the right" disabled={item.cells[0].length >= 10} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length, item.cells[0].length + 1) })}>+ Column</button>
             <button type="button" className="tb" aria-label="Remove the last column" title="Remove the last column" disabled={item.cells[0].length <= 1} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length, item.cells[0].length - 1) })}>− Column</button>
             <button type="button" className={`tb ${item.header ? 'on' : ''}`} aria-pressed={!!item.header} aria-label="Heading row" title="First row as headings" onClick={() => setItem({ header: !item.header })}>Heading row</button>
+            <button type="button" className="tb" title="Make a spreadsheet of this table" onClick={async () => {
+              try {
+                const f = await post(`/files/${id}/table-to-sheet`, { rows: item.cells.map((r) => r.map((c) => String(c ?? ''))), header: !!item.header && item.cells.length > 1 });
+                toast(`Made “${f.name}”`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${f.id}`) } });
+              } catch (e) { toast(e.message, 'error'); }
+            }}>Open in Sheets</button>
           </>}
           {item?.type === 'shape' && (item.shape === 'line' || item.shape === 'arrow') && (
             <select className="tb-select" aria-label="Direction" value={item.dir || 'h'} onChange={(e) => setItem({ dir: e.target.value })}>
