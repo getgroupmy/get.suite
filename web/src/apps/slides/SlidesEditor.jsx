@@ -20,6 +20,7 @@ import DrivePicker from '../../components/DrivePicker.jsx';
 import { chartChanged } from './linkedchart.js';
 import { useChartNow, ChartPick, ChartBox } from '../ChartLink.jsx';
 import { SheetTableDialog } from '../docs/SheetTable.jsx';
+import { sortOrder } from '../docs/tablesort.js';
 import Icon from '../../components/Icon.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
@@ -457,6 +458,19 @@ export default function SlidesEditor() {
             <button type="button" className="tb" aria-label="Add a column" title="Add a column at the right" disabled={item.cells[0].length >= 10} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length, item.cells[0].length + 1) })}>+ Column</button>
             <button type="button" className="tb" aria-label="Remove the last column" title="Remove the last column" disabled={item.cells[0].length <= 1} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length, item.cells[0].length - 1) })}>− Column</button>
             <button type="button" className={`tb ${item.header ? 'on' : ''}`} aria-pressed={!!item.header} aria-label="Heading row" title="First row as headings" onClick={() => setItem({ header: !item.header })}>Heading row</button>
+            <select className="tb-select" aria-label="Sort rows" value="" onChange={(e) => { // (by a column, numbers by value; the heading row stays first)
+              const [c, dir] = e.target.value.split(':');
+              const head = item.header && item.cells.length > 1 ? 1 : 0;
+              const body = item.cells.slice(head);
+              const order = sortOrder(body.map((r) => r[Number(c)]), dir === 'desc');
+              setItem({ cells: [...item.cells.slice(0, head), ...order.map((i) => body[i])] });
+            }}>
+              <option value="" disabled>Sort rows…</option>
+              {item.cells[0].map((h, c) => {
+                const name = (item.header && String(h || '').trim()) || `Column ${c + 1}`;
+                return [<option key={`${c}a`} value={`${c}:asc`}>{name}: A → Z</option>, <option key={`${c}d`} value={`${c}:desc`}>{name}: Z → A</option>];
+              })}
+            </select>
             <button type="button" className="tb" title="Make a spreadsheet of this table" onClick={async () => {
               try {
                 const f = await post(`/files/${id}/table-to-sheet`, { rows: item.cells.map((r) => r.map((c) => String(c ?? ''))), header: !!item.header && item.cells.length > 1 });
