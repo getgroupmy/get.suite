@@ -118,3 +118,30 @@ test('others can add options (when the poll lets them): while it’s open, no re
   assert.equal((await ben('POST', `/api/chat/messages/${fixed.id}/poll/options`, { text: 'c' })).status, 403);
   assert.equal((await ann('POST', `/api/chat/messages/${p.id}/poll/options`, { text: 'Late' })).status, 400);
 });
+
+test('results in Sheets: a row per option with votes, share and who; an anonymous poll without who', async () => {
+  const p = (await ann('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Where to?', options: ['Lisbon', 'Porto', 'Faro'] } })).body;
+  await ann('POST', `/api/chat/messages/${p.id}/vote`, { options: ['o1'] });
+  await ben('POST', `/api/chat/messages/${p.id}/vote`, { options: ['o1'] });
+  const r = await ben('POST', `/api/chat/messages/${p.id}/poll/sheet`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Where to? (poll)');
+  const sh = (await ben('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  const row = (n) => ['A', 'B', 'C', 'D'].map((c) => sh.cells[`${c}${n}`] || '');
+  assert.deepEqual(row(1), ['Option', 'Votes', 'Share', 'Who']);
+  assert.deepEqual(row(2), ['Lisbon', '2', '1', 'Ann Owner, Ben Bell']);
+  assert.deepEqual(row(3), ['Porto', '0', '0', '']);
+  assert.equal(row(5)[0], '2 people voted');
+  assert.deepEqual(sh.formats.C2, { num: 'percent', dp: 0 });
+  // Anonymous: no Who column.
+  const anon = (await ann('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Happy?', options: ['Yes', 'No'], anonymous: true } })).body;
+  await ben('POST', `/api/chat/messages/${anon.id}/vote`, { options: ['o2'] });
+  const a = (await ann('GET', `/api/files/${(await ann('POST', `/api/chat/messages/${anon.id}/poll/sheet`, {})).body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([a.cells.D1, a.cells.B3, JSON.stringify(a.cells).includes('Ben')], [undefined, '1', false]);
+  // Not a poll; not your conversation.
+  const plain = (await ann('POST', `/api/chat/channels/${ch}/messages`, { body: 'hi' })).body;
+  assert.equal((await ann('POST', `/api/chat/messages/${plain.id}/poll/sheet`, {})).status, 404);
+  const secret = (await ann('POST', '/api/chat/channels', { name: 'ann-only-polls', private: true })).body.id;
+  const hidden = (await ann('POST', `/api/chat/channels/${secret}/messages`, { poll: { question: 'Secret?', options: ['a', 'b'] } })).body;
+  assert.equal((await ben('POST', `/api/chat/messages/${hidden.id}/poll/sheet`, {})).status, 404);
+});

@@ -68,6 +68,18 @@ await step('Kim votes; Olivia sees it live with the name; Kim changes their mind
   if ((await poll(kim).getByRole('button', { name: 'Pizza: 1 vote' }).getAttribute('aria-pressed')) !== 'true') throw new Error('marked as mine');
   await page.screenshot({ path: `${SP}/shots/chat-poll.png` });
 });
+await step('Results in Sheets: a row per option with its votes, share and who, in a new spreadsheet', async () => {
+  await poll(page).getByRole('button', { name: 'Results in Sheets' }).click();
+  await page.getByText('Made “Where shall we have lunch? (poll)” in your Drive').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A2"]', { hasText: 'Pizza' }).waitFor();
+  await page.locator('[data-k="C2"]', { hasText: '50%' }).waitFor();
+  await page.locator('[data-k="D2"]', { hasText: 'Kim Park' }).waitFor();
+  await page.locator('[data-k="D3"]', { hasText: 'Olivia Owner' }).waitFor();
+  await page.goBack();
+  await poll(page).waitFor();
+});
 await step('a poll cannot be edited; only who asked closes it, and then nobody votes', async () => {
   const msg = page.locator('.msg', { has: poll(page) });
   await msg.hover();

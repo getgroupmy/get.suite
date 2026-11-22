@@ -25,6 +25,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile, resolveParent } from './files.js';
 import { conversationText, conversationHtml, conversationDoc, cardLines, messageNote } from '../chatexport.js';
 import { emailHtmlFromDoc } from '../office/epub.js';
+import { sheetFromRows } from '../office/tablesheet.js';
 const EMAIL_MESSAGES = 500; // (Send as email: the latest ones, a long history being better downloaded)
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 import { contactCard, colleagueCard, addContactFrom } from './contacts.js';
@@ -1452,6 +1453,26 @@ export default function chatRoutes() {
     const link = `${base}/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`;
     res.json(messageNote({ who: m.user_name || m.bot || 'Someone', at: m.created_at, body: m.body || '', files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll, cards: cardLines(m) },
       { where, tz: String(req.query.tz || 'UTC'), link }));
+  });
+
+  // A poll's results in Sheets: a row per option with how many chose it and the share of those who voted, and who
+  // (not for an anonymous poll), as a new spreadsheet in My Drive.
+  r.post('/messages/:id/poll/sheet', (req, res) => {
+    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    if (!m?.poll || m.deleted_at) throw notFound();
+    loadChannel(m.channel_id, req.user);
+    const p = JSON.parse(m.poll);
+    const votes = q('SELECT v.option_id, v.user_id, u.name FROM poll_votes v LEFT JOIN users u ON u.id = v.user_id WHERE v.message_id = ? ORDER BY u.name').all(m.id);
+    const voters = new Set(votes.map((v) => v.user_id)).size;
+    const rows = [['Option', 'Votes', 'Share', ...(p.anonymous ? [] : ['Who'])],
+      ...p.options.map((o) => {
+        const ov = votes.filter((v) => v.option_id === o.id);
+        return [o.text, String(ov.length), `${voters ? Math.round((ov.length / voters) * 100) : 0}%`, ...(p.anonymous ? [] : [ov.map((v) => v.name || 'Someone').join(', ')])];
+      }),
+      [`${voters} ${voters === 1 ? 'person' : 'people'} voted`, '', '', ...(p.anonymous ? [] : [''])]];
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Results' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${String(p.question || 'Poll').slice(0, 150)} (poll)`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
   });
 
   r.post('/messages/:id/report', (req, res) => {

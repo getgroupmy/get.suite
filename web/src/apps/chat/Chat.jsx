@@ -1600,6 +1600,7 @@ function ForwardDialog({ message, channels, currentId, onClose, onSent }) {
 
 function Poll({ m, user }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const p = m.poll;
   // Your choice: from the votes, or (an anonymous poll, whose votes don't say who) as the server told you, kept through live updates.
   const [ownChoice, setOwnChoice] = useState(p.mine ?? null);
@@ -1654,6 +1655,9 @@ function Poll({ m, user }) {
       {m.user_id === user.id && (
         <button type="button" className="link-btn small" onClick={() => post(`/chat/messages/${m.id}/poll/close`, { closed: !closed }).catch((e) => toast(e.message, 'error'))}>{closed ? 'Reopen poll' : 'Close poll'}</button>
       )}
+      <button type="button" className="link-btn small" title="The results in a new spreadsheet in your Drive" onClick={async () => {
+        try { const r = await post(`/chat/messages/${m.id}/poll/sheet`, {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+      }}>Results in Sheets</button>
     </div>
   );
 }
