@@ -69,7 +69,7 @@ await step('drag a task into place; the order is kept', async () => {
 await step('details: notes and a due date; overdue and today show in colour', async () => {
   await task(page, 'Renew passport').locator('.task-main').click();
   const d = page.getByRole('complementary', { name: 'Task details' });
-  await d.getByLabel('Notes').fill('Photos first');
+  await d.getByLabel('Notes', { exact: true }).fill('Photos first');
   await d.getByLabel('Due date', { exact: true }).fill(iso(new Date()));
   await task(page, 'Renew passport').locator('.pill.due.soon', { hasText: 'Today' }).waitFor();
   await task(page, 'Renew passport').getByText('Photos first').waitFor();
