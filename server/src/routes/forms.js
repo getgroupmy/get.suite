@@ -1077,6 +1077,15 @@ export default function formRoutes() {
     }
     res.status(201).json({ id: fileId, linked: link });
   });
+  // Summary as a document: the summary in a new document of yours, to edit into a report.
+  r.post('/:id/summary-doc', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    const responses = responsesOf(f.id);
+    if (!responses.length) throw bad('No responses yet');
+    const json = JSON.stringify(summaryDoc(f, responses, { tz: String(req.body?.tz || 'UTC') }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${f.title} (summary)`.slice(0, 200), kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
+  });
   r.delete('/:id/sheet', (req, res) => {
     const f = ownForm(req.params.id, req.user);
     q('UPDATE forms SET linked_sheet = NULL WHERE id = ?').run(f.id);
@@ -1427,4 +1436,42 @@ export function publicFormRoutes() {
     res.json({ ok: true, confirmation: form.confirmation || '', edit_key: resp.edit_key, ...(result && { score: result.score, max: result.max, right: result.right, feedback: result.feedback }) });
   });
   return r;
+}
+
+/**
+ * A form's summary as a document (Responses → Summary as a document), to edit into a report: its title and how many
+ * answered, then per question a table of how the answers went (an option, how many, the share; a scale's average; a
+ * grid row by row; a ranking by average place), and for typed answers the answers themselves (the first 100).
+ */
+export function summaryDoc(form, responses, { now = Date.now(), tz = 'UTC' } = {}) {
+  const T = (text, marks) => ({ type: 'text', text: String(text), ...(marks && { marks }) });
+  const P = (text, marks) => ({ type: 'paragraph', ...(String(text ?? '') && { content: [T(text, marks)] }) });
+  const cell = (t, head) => ({ type: head ? 'tableHeader' : 'tableCell', content: [P(t)] });
+  const table = (rows) => ({ type: 'table', content: rows.map((r, i) => ({ type: 'tableRow', content: r.map((t) => cell(t, i === 0)) })) });
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const when = new Intl.DateTimeFormat('en-GB', { timeZone: tz, dateStyle: 'long' }).format(new Date(now));
+  const content = [
+    { type: 'heading', attrs: { level: 1 }, content: [T(form.title || 'Untitled form')] },
+    P(`${responses.length} response${responses.length === 1 ? '' : 's'}, as of ${when}`, [{ type: 'italic' }]),
+  ];
+  const summary = publicSummary(form.questions, responses);
+  for (const s of summary) {
+    content.push({ type: 'heading', attrs: { level: 2 }, content: [T(s.title)] });
+    content.push(P(`${s.answered} answered`, [{ type: 'italic' }]));
+    if (s.ranks) content.push(table([['Option', 'Average place', 'Put first'], ...s.ranks.map((r) => [r.label, r.average ?? '—', r.first])]));
+    else if (s.bars) {
+      content.push(table([['Answer', 'Responses', 'Share'], ...s.bars.map((b) => [b.label, b.count, pct(b.share)])]));
+      if (s.average != null) content.push(P(`Average: ${s.average}`, [{ type: 'bold' }]));
+    } else if (s.grid) {
+      const cols = s.grid[0]?.bars.map((b) => b.label) || [];
+      content.push(table([['', ...cols], ...s.grid.map((g) => [g.row, ...g.bars.map((b) => b.count)])]));
+    } else {
+      const typed = responses.map((r) => r.answers?.[s.id]).filter((a) => typeof a === 'string' && a.trim()).map((a) => a.trim());
+      if (typed.length) {
+        content.push({ type: 'bulletList', content: typed.slice(0, 100).map((a) => ({ type: 'listItem', content: [P(a.replace(/\s+/g, ' ').slice(0, 2000))] })) });
+        if (typed.length > 100) content.push(P(`… and ${typed.length - 100} more`, [{ type: 'italic' }]));
+      }
+    }
+  }
+  return { type: 'doc', content };
 }

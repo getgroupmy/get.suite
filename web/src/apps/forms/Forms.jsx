@@ -528,6 +528,10 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
     await flush();
     try { const r = await post(`/forms/${form.id}/sheet`); toast('Responses copied to a new spreadsheet in your Drive'); navigate(`/sheets/${r.id}`); } catch (e) { toast(e.message, 'error'); }
   };
+  // The summary as a document of yours (tables of how the answers went, typed answers listed), to edit into a report.
+  const toDoc = async () => {
+    try { const r = await post(`/forms/${form.id}/summary-doc`, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }); toast(`Made “${r.name}” in your Drive`); navigate(`/docs/${r.id}`); } catch (e) { toast(e.message, 'error'); }
+  };
   const one = responses[Math.min(at, responses.length - 1)];
   return (
     <div className="stack">
@@ -543,6 +547,7 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
             <button type="button" className="link-btn small" onClick={unlink}>Unlink</button></span>
           : <button type="button" className="btn" title="A spreadsheet in your Drive that each new response is added to as it arrives" onClick={linkSheet}><Icon name="sheet" size={18} /> Link to Sheets</button>}
         <button type="button" className="btn" title="A copy of the responses so far, in a new spreadsheet" onClick={toSheet}>Open in Sheets</button>
+        <button type="button" className="btn" title="The summary of the answers so far, in a new document to edit into a report" onClick={toDoc}>Summary as a document</button>
         {all.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
       </div>
       {closedNote(form) && <p className="muted small" style={{ margin: 0 }} role="status">{closedNote(form)}</p>}

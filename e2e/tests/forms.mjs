@@ -143,6 +143,17 @@ await step('open responses in Sheets', async () => {
   await page.getByText('Sushi', { exact: true }).first().waitFor();
   await page.getByText('rex@acme.com', { exact: true }).first().waitFor(); // people kept after going public
 });
+await step('Summary as a document: a table per question of how the answers went, in a new document', async () => {
+  await page.goBack();
+  await page.getByRole('button', { name: 'Summary as a document' }).click();
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.paper .tiptap');
+  await ed.locator('h1', { hasText: 'Team lunch' }).waitFor();
+  await ed.getByText(/^3 responses, as of /).waitFor();
+  const table = ed.locator('table').filter({ has: page.locator('td', { hasText: 'Sushi' }) }).first();
+  await table.locator('th', { hasText: 'Responses' }).waitFor();
+  await table.locator('tr', { hasText: '67%' }).waitFor();
+});
 await step('list shows the form; delete it', async () => {
   await page.goto(`${B}/forms`);
   const row = page.getByRole('list', { name: 'Your forms' }).getByRole('button', { name: /Team lunch/ });
