@@ -460,6 +460,22 @@ test('create_task about something: the task links back to it; only addresses in 
   assert.ok(!(await Promise.all(lists.map(async (l) => (await owner('GET', `/api/tasks/lists/${l.id}/tasks`)).body))).flat().some((x) => ['Away', 'Admin'].includes(x.title)));
 });
 
+test('an event’s url opens that event, and a contact’s finds them: from create, fetch, search and update', async () => {
+  const start = new Date(Date.now() + 3 * 864e5); start.setUTCHours(10, 0, 0, 0);
+  const ev = (await call(rw, 'create_event', { title: 'Walrus review', start: start.toISOString(), end: new Date(start.getTime() + 36e5).toISOString() })).structuredContent;
+  const id = ev.id.replace(/^event:/, '');
+  const url = `${new URL(ev.url).origin}/calendar?event=${id}`;
+  assert.equal(ev.url, url);
+  assert.equal((await call(rw, 'fetch', { id: ev.id })).structuredContent.url, url);
+  assert.equal((await call(rw, 'search', { query: 'Walrus' })).structuredContent.results.find((x) => x.id === ev.id)?.url, url);
+  assert.equal((await call(rw, 'update_event', { id: ev.id, location: 'Room 3' })).structuredContent.url, url);
+  // …so a task about it links to the event itself.
+  const t = (await call(rw, 'create_task', { title: 'Prepare the walrus review', about: url, about_title: 'Event: Walrus review' })).structuredContent;
+  assert.equal(t.about, url);
+  const c = (await call(rw, 'create_contact', { name: 'Wanda Walrus', email: 'wanda@walrus.test' })).structuredContent;
+  assert.match((await call(rw, 'fetch', { id: c.id })).structuredContent.url, /\/contacts\?q=Wanda%20Walrus$/);
+});
+
 test('create_task with no list named: the list chosen for Add to Tasks, else the first list', async () => {
   const lists = async () => (await owner('GET', '/api/tasks/lists')).body.lists;
   const first = (await lists()).find((l) => l.inbox);

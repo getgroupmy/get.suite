@@ -53,6 +53,8 @@ function apiFor(req) {
 class ToolError extends Error {}
 const PUBLIC = () => (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 const link = (p) => `${PUBLIC()}${p}`;
+/** An event's own address: it opens the event (that occurrence of a repeating one), as Copy link in Calendar gives. */
+const eventUrl = (e) => link(`/calendar?event=${e.id}${e.rrule ? `&at=${e.start}` : ''}`);
 /** What a task links back to (the email, file, event… it was made from): { about: { title, url } }, or nothing. */
 const aboutOf = (t) => (t.link_url ? { about: { title: t.link_label || 'Linked', url: /^https?:\/\//.test(t.link_url) ? t.link_url : link(t.link_url) } } : {});
 /** A time from the assistant: ISO text ("2026-11-20T15:00", "2026-11-20") or milliseconds. */
@@ -118,7 +120,7 @@ export const TOOLS = [
         ...(chat || []).slice(0, 10).map((m) => ({ id: `chat:${m.channel_id}:${m.id}`, title: `${m.user_name || 'Someone'} in ${m.where}: ${words(m.body, 80)}`, url: link(`/chat/${m.channel_id}?msg=${m.parent_id || m.id}`) })),
         ...(tasks || []).slice(0, 10).map((t) => ({ id: `task:${t.id}`, title: `${t.done ? '✓ ' : ''}${t.title} (${t.list_name})`, url: link(`/tasks/${t.list_id}?task=${t.id}`) })),
         ...(notes || []).slice(0, 10).map((n) => ({ id: `note:${n.id}`, title: n.title || words(n.body || (n.items || []).map((i) => i.text).join(', '), 80) || 'Note', url: link(`/notes?note=${n.id}`) })),
-        ...(events || []).slice(0, 10).map((e) => ({ id: `event:${e.id}`, title: `${e.title} (${iso(e.start)})`, url: link('/calendar') })),
+        ...(events || []).slice(0, 10).map((e) => ({ id: `event:${e.id}`, title: `${e.title} (${iso(e.start)})`, url: eventUrl(e) })),
         ...(contacts || []).filter((c) => [c.name, c.email, c.company].some((x) => String(x || '').toLowerCase().includes(low))).slice(0, 10)
           .map((c) => ({ id: `contact:${c.id}`, title: [c.name, c.email, c.company].filter(Boolean).join(' · '), url: link(`/contacts?q=${encodeURIComponent(c.name || c.email || '')}`) })),
       ];
@@ -183,13 +185,13 @@ export const TOOLS = [
         const text = [`${e.title}`, `When: ${iso(e.start)} – ${iso(e.end)}${e.all_day ? ' (all day)' : ''}`, e.location ? `Where: ${e.location}` : null,
           e.organizer_name ? `Organiser: ${e.organizer_name}` : null, e.guests?.length ? `Guests: ${e.guests.map((g) => `${g.name || g.email} (${g.status || 'invited'})`).join(', ')}` : null,
           e.description ? `\n${e.description}` : null].filter(Boolean).join('\n');
-        return { id, title: e.title, text, url: link('/calendar'), metadata: { start: iso(e.start), end: iso(e.end) } };
+        return { id, title: e.title, text, url: eventUrl(e), metadata: { start: iso(e.start), end: iso(e.end) } };
       }
       if (kind === 'contact') {
         const c = (await api('GET', '/contacts')).find((x) => x.id === a);
         if (!c) throw new ToolError('Contact not found');
         const text = [c.name, c.email && `Email: ${c.email}`, c.phone && `Phone: ${c.phone}`, c.company && `Company: ${c.company}`, c.title && `Job title: ${c.title}`, c.address && `Address: ${c.address}`, c.notes && `Notes: ${c.notes}`].filter(Boolean).join('\n');
-        return { id, title: c.name || c.email, text, url: link('/contacts'), metadata: {} };
+        return { id, title: c.name || c.email, text, url: link(`/contacts?q=${encodeURIComponent(c.name || c.email || '')}`), metadata: {} };
       }
       throw new ToolError('That id isn’t one search gave (file:…, mail:…, chat:…, task:…, note:…, event:… or contact:…)');
     },
@@ -232,7 +234,7 @@ export const TOOLS = [
         attachments = [id];
       }
       const e = await api('POST', '/events', { title: String(a.title || '').slice(0, 300), start, end, location: a.location || undefined, description: a.description || undefined, ...(guests.length && { guests }), ...(attachments && { attachments }) });
-      return { id: `event:${e.id}`, title: e.title, start: iso(e.start), end: iso(e.end), ...(guests.length && { invited: guests }), ...(attachments && { attached: (e.attachments || []).map((x) => x.name) }), url: link('/calendar') };
+      return { id: `event:${e.id}`, title: e.title, start: iso(e.start), end: iso(e.end), ...(guests.length && { invited: guests }), ...(attachments && { attached: (e.attachments || []).map((x) => x.name) }), url: eventUrl(e) };
     },
   },
   {
@@ -300,7 +302,7 @@ export const TOOLS = [
       for (const k of ['title', 'location', 'description']) if (a[k] !== undefined) body[k] = String(a[k]);
       if (!Object.keys(body).length) throw new ToolError('Say what to change: start, end, title, location or description');
       const s2 = await api('PATCH', `/events/${encodeURIComponent(id)}`, body);
-      return { id: `event:${id}`, title: s2.title, start: iso(s2.start), end: iso(s2.end), location: s2.location || null, guests_told: (s2.guests || []).length, url: link('/calendar') };
+      return { id: `event:${id}`, title: s2.title, start: iso(s2.start), end: iso(s2.end), location: s2.location || null, guests_told: (s2.guests || []).length, url: eventUrl({ ...s2, id }) };
     },
   },
   {
@@ -334,7 +336,7 @@ export const TOOLS = [
         if (/not found/i.test(e.message)) throw new ToolError('That isn’t an invitation the person can answer (their own events, or ones they aren’t invited to, have no answer)');
         throw e;
       }
-      return { id: `event:${id}`, answer: a.answer, ...(a.note && { note: String(a.note).slice(0, 300) }), url: link('/calendar') };
+      return { id: `event:${id}`, answer: a.answer, ...(a.note && { note: String(a.note).slice(0, 300) }), url: eventUrl({ id }) };
     },
   },
   {

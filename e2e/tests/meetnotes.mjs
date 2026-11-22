@@ -146,6 +146,18 @@ await step('event → Copy to Notes: a note with when, who and a link back that 
   await page.waitForURL(/\/notes/);
   await page.getByRole('dialog', { name: 'Launch crew' }).waitFor();
 });
+await step('the address an AI assistant is given for an event opens that event', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Event reader', scope: 'read', days: 30 })).body.token;
+  const r = await page.evaluate(async (t) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'search', arguments: { query: 'Launch crew' } } }) })).json()).result, tok);
+  const hit = (r.structuredContent?.results || []).find((x) => /^event:/.test(x.id) && /Launch crew/.test(x.title));
+  if (!hit || !/\/calendar\?event=[\w-]+/.test(hit.url)) throw new Error(JSON.stringify(r.structuredContent || r));
+  await page.goto(new URL(hit.url, B).href);
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  await dlg.waitFor();
+  if ((await dlg.getByLabel('Title').inputValue()) !== 'Launch crew') throw new Error(await dlg.getByLabel('Title').inputValue());
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
