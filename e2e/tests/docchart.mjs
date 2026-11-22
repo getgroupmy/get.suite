@@ -124,6 +124,22 @@ await step('an AI assistant adds a spreadsheet’s cells to a document as a tabl
   const rows = await table.locator('tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => `${c.tagName}:${c.textContent}`).join('|')));
   if (JSON.stringify(rows) !== JSON.stringify(['TH:Month|TH:Sales', 'TD:Jan|TD:50', 'TD:Feb|TD:100'])) throw new Error(JSON.stringify(rows));
 });
+await step('Table → Open in Sheets: the document’s table as a new spreadsheet, the header row bold and kept in view', async () => {
+  const d4 = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Budget notes', content: { type: 'doc', content: [
+    { type: 'table', content: [['Item', 'Cost'], ['Chairs', '$1,200.00'], ['Desks', '350']].map((r, i) => ({ type: 'tableRow', content: r.map((t) => ({ type: i ? 'tableCell' : 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] })) })) },
+  ] } })).body;
+  await page.goto(`${B}/docs/${d4.id}`);
+  await page.locator('.ProseMirror td', { hasText: 'Chairs' }).click();
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Open in Sheets' }).click();
+  await page.getByText('Made “Budget notes (table)”').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="B2"]', { hasText: '$1,200.00' }).waitFor();
+  const id = page.url().split('/').pop().split('?')[0];
+  const sh = (await api(page, 'GET', `/files/${id}/content`)).body.content.sheets[0];
+  if (sh.cells.B2 !== '1200' || sh.cells.B3 !== '350' || !sh.formats?.A1?.b || sh.frozen?.rows !== 1) throw new Error(JSON.stringify(sh));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

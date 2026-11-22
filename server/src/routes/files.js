@@ -48,6 +48,7 @@ import { odsFromSheet, sheetFromOds, commentsOfOds, ODS_MIME } from '../office/o
 import { odpFromDeck, deckFromOdp, commentsOfOdpDeck, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, htmlFromDoc, emailHtmlFromDoc, textFromDoc, EPUB_MIME } from '../office/epub.js';
+import { sheetFromRows, MAX_ROWS as TABLE_MAX_ROWS, MAX_COLS as TABLE_MAX_COLS } from '../office/tablesheet.js';
 import { textFromDeck } from '../office/slidetext.js';
 import { docFromTextFile, docFromWebPage, sheetFromDelimited } from '../office/plainimport.js';
 import { rtfFromDoc, docFromRtf } from '../office/rtf.js';
@@ -2364,6 +2365,22 @@ export default function fileRoutes({ maxUploadBytes }) {
     const t = await sheetTable(data, index, String(req.query.range || ''), req.query.for === 'slides' ? { maxRows: 20, maxCols: 10 } : {});
     if (t.error) throw bad(t.error);
     res.json({ name: f.name, sheets, sheet: index, ...t });
+  });
+  // Open in Sheets (a document's table): { rows: [[text]], header } as a new spreadsheet, "<document> (table)", beside the
+  // document when you can add to its folder (else in My Drive), numbers read as Sheets reads what's typed.
+  r.post('/:id/table-to-sheet', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'doc') throw bad('Only a document’s table');
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows) || !rows.length || !rows.every((r) => Array.isArray(r))) throw bad('Give the table’s rows');
+    if (rows.length > TABLE_MAX_ROWS || rows.some((r) => r.length > TABLE_MAX_COLS)) throw bad(`A table of up to ${TABLE_MAX_ROWS} rows and ${TABLE_MAX_COLS} columns`);
+    if (rows.some((r) => r.some((c) => typeof c !== 'string' || c.length > 50000))) throw bad('Each cell is its text');
+    const json = JSON.stringify(sheetFromRows(rows, { header: !!req.body?.header }));
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
+    const id = insertFile({ owner: req.user.id, parentId, name: cleanName(`${f.name} (table)`), kind: 'sheet', content: json, size: Buffer.byteLength(json), activity: { by: req.user.id, action: 'create', details: { from: f.name } } });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
   });
   // Which types each kind can be had as (the first is the usual one).
   const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'md', 'txt', 'pdf'] };

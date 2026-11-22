@@ -218,6 +218,20 @@ function SharedDoc({ file, setFile }) {
   // A link to another file in Drive, named after it. If people who can open this document can't
   // open that one, the owner is offered to share it with them (everyone else is told who can't).
   const [linkingFile, setLinkingFile] = useState(false);
+  // Table → Open in Sheets: the table the cursor is in, as a new spreadsheet (its cells' text; the header row as one).
+  const tableToSheet = async () => {
+    const $from = editor?.state.selection.$from;
+    let table = null;
+    for (let d = $from?.depth ?? -1; d > 0; d--) if ($from.node(d).type.name === 'table') { table = $from.node(d); break; }
+    if (!table) return;
+    const rows = [];
+    let header = true;
+    table.forEach((row, _o, i) => { const cells = []; row.forEach((cell) => { cells.push(cell.textBetween(0, cell.content.size, '\n', ' ')); if (i === 0 && cell.type.name !== 'tableHeader') header = false; }); rows.push(cells); });
+    try {
+      const f = await post(`/files/${file.id}/table-to-sheet`, { rows, header: header && rows.length > 1 });
+      toast(`Made “${f.name}”`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${f.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const [tableFrom, setTableFrom] = useState(null); // Insert table from a spreadsheet: { step: 'file' } or { step: 'cells', file }
   const [chartFrom, setChartFrom] = useState(null); // choosing a chart: { step: 'file' } or { step: 'chart', file }
   const linkFile = async (f) => {
@@ -868,7 +882,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as e-book (.epub)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=epub`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
+      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onTableToSheet={tableToSheet} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
       {drawing && <DrawPad title="Drawing" saveLabel="Insert" onClose={() => { setDrawing(null); refocus(); }}
         onSave={(f) => addPicturesRef.current([new File([f], 'Drawing.png', { type: 'image/png' })], drawing.at)} />}
       {tableFrom?.step === 'file' && <DrivePicker title="Table from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setTableFrom(null)} onPick={(f) => setTableFrom({ step: 'cells', file: f })} />}
@@ -1030,7 +1044,7 @@ function SharedDoc({ file, setFile }) {
   );
 }
 
-function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onLink, onChart, onDraw }) {
+function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onLink, onChart, onDraw, onTableToSheet }) {
   const [altEdit, setAltEdit] = useState(null); // { pos, alt } of the picture being described
   const pictureInput = useRef();
   const [, force] = useState(0);
@@ -1225,6 +1239,8 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         { label: 'Delete row', icon: 'trash', danger: true, onClick: () => c().deleteRow().run(), disabled: !editor.can().deleteRow() },
         { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },
         { label: 'Delete table', icon: 'trash', danger: true, onClick: () => c().deleteTable().run(), disabled: !editor.can().deleteTable() },
+        '-',
+        { label: 'Open in Sheets', icon: 'sheet', onClick: onTableToSheet, disabled: !editor.isActive('table') },
       ]} />
       <button type="button" className="tb labelled" title="Equation: write it in LaTeX, such as \frac{a}{b} or x^2 (or type $$…$$ in the text)" aria-label="Insert equation"
         onMouseDown={(e) => e.preventDefault()} onClick={onEquation}>∑ Equation</button>

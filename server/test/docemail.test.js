@@ -126,3 +126,23 @@ test('a spreadsheet’s cells as a table for a document: values as shown, bold k
   assert.equal((await ann('GET', `/api/files/${d.id}/table`)).status, 400);
   assert.equal((await ben('GET', `/api/files/${f.id}/table`)).status, 404);
 });
+
+test('a document’s table opened in Sheets: numbers read as typed, the header bold and kept in view, codes and formulas kept as text', async () => {
+  const d = (await ann('POST', '/api/files/new', { name: 'Plan', kind: 'doc' })).body;
+  const r = await ann('POST', `/api/files/${d.id}/table-to-sheet`, { header: true, rows: [['Item', 'Cost', 'Share', 'Code'], ['Chairs', '$1,200.00', '12%', '007'], ['Desks', '350', '', '=cmd()']] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.kind], ['Plan (table)', 'sheet']);
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual(sh.cells, { A1: 'Item', B1: 'Cost', C1: 'Share', D1: 'Code', A2: 'Chairs', B2: '1200', C2: '0.12', D2: "'007", A3: 'Desks', B3: '350', D3: "'=cmd()" });
+  assert.deepEqual([sh.formats.A1, sh.formats.B2, sh.formats.C2], [{ b: true }, { num: 'currency', cur: 'USD', dp: 2 }, { num: 'percent', dp: 0 }]);
+  assert.deepEqual(sh.frozen, { rows: 1, cols: 0 });
+  // Shown as it was written (its worked-out value and format).
+  const t = (await ann('GET', `/api/files/${r.body.id}/table`)).body.rows.map((row) => row.map((c) => c.text));
+  assert.deepEqual(t[1], ['Chairs', '$1,200.00', '12%', '007']);
+  // Refused: no rows, too big, not text; a spreadsheet; someone without access.
+  assert.equal((await ann('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [] })).status, 400);
+  assert.equal((await ann('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [Array(101).fill('x')] })).status, 400);
+  assert.equal((await ann('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [[{ evil: 1 }]] })).status, 400);
+  assert.equal((await ann('POST', `/api/files/${r.body.id}/table-to-sheet`, { rows: [['a']] })).status, 400);
+  assert.equal((await ben('POST', `/api/files/${d.id}/table-to-sheet`, { rows: [['a']] })).status, 404);
+});
