@@ -40,6 +40,7 @@ import { ForwardingDialog } from './Forwarding.jsx';
 import { MovePicker } from './MovePicker.jsx';
 import { AttachmentsDialog, FILE_ICON } from './Attachments.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
+import { SheetTableDialog, tableNode } from '../docs/SheetTable.jsx';
 import { parseAddresses } from '../../components/addresses.js';
 import { fileLinksIn } from '../chat/filelinks.js';
 import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
@@ -2198,6 +2199,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   const { user: me } = useAuth();
   const voiceOk = canVoiceType() && me?.voice_typing !== false; // the company may turn it off
   const [voice, setVoice] = useState(false);
+  const [tableFrom, setTableFrom] = useState(null); // Table from a spreadsheet: { step: 'file' } or { step: 'cells', file }
   const [, force] = useState(0);
   const toast = useToast();
   const fileInput = useRef();
@@ -2413,7 +2415,11 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           { label: 'Decrease indent (Ctrl+[)', icon: <IndentIcon out />, onSelect: () => c().outdent().run() },
           { label: 'Increase indent (Ctrl+])', icon: <IndentIcon />, onSelect: () => c().indent().run() },
           { label: 'Clear formatting', icon: 'Tx', onSelect: () => c().unsetAllMarks().clearNodes().run() },
+          { label: 'Table from a spreadsheet…', icon: '▦', onSelect: () => setTableFrom({ step: 'file' }) },
         ]} />
+        {tableFrom?.step === 'file' && <DrivePicker title="Table from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => { setTableFrom(null); refocus(); }} onPick={(f) => setTableFrom({ step: 'cells', file: f })} />}
+        {tableFrom?.step === 'cells' && <SheetTableDialog file={tableFrom.file} onClose={() => { setTableFrom(null); refocus(); }}
+          onInsert={({ rows, header }) => { setTableFrom(null); c().insertContent(tableNode(rows, header)).run(); }} />}
         {editor.isActive('image') && (
           <span className="img-sizes" role="group" aria-label="Picture size">
             <span className="sep" />

@@ -296,6 +296,37 @@ await step('several ticked → Save to Drive as documents: a document each in Sa
   await gina.getByText(/^Quote \(\d{4}-\d\d-\d\d\)$/).first().waitFor();
   await gina.getByText(/^Agenda \(\d{4}-\d\d-\d\d\)$/).first().waitFor();
 }, gina);
+await step('compose ⋮ → Table from a spreadsheet: the cells as shown, in the email Gina gets', async () => {
+  await page.goto(`${B}/mail`);
+  // (the conversation emailed in an earlier step is still open, unsent: closed, it waits in Drafts)
+  const left = page.getByRole('dialog', { name: '#supplier-call' });
+  await left.waitFor();
+  await left.getByRole('button', { name: 'Close', exact: true }).click();
+  await left.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByLabel('To', { exact: true }).fill('gina@globex.com');
+  await page.getByLabel('Subject').fill('Quote table');
+  await page.getByRole('textbox', { name: 'Message' }).click();
+  await page.keyboard.type('Prices below.');
+  await page.getByRole('button', { name: 'More formatting' }).click();
+  await page.getByRole('menuitem', { name: 'Table from a spreadsheet…' }).click();
+  await page.getByRole('dialog', { name: 'Table from a spreadsheet' }).getByRole('button', { name: /^Quote/ }).click();
+  await page.getByRole('dialog', { name: 'Table from “Quote”' }).getByRole('button', { name: 'Insert table' }).click();
+  const rowsOf = (loc) => loc.locator('table tr').evaluateAll((trs) => trs.map((tr) => [...tr.children].map((c) => c.textContent).join('|')));
+  const ed = page.locator('.compose-editor');
+  await ed.locator('table').waitFor();
+  const want = JSON.stringify(['Item|Price', 'Bolts|$1.50', 'Nuts|$2.00', 'Total|$3.50']);
+  if (JSON.stringify(await rowsOf(ed)) !== want) throw new Error(JSON.stringify(await rowsOf(ed)));
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByText('Sent to 1 recipient').waitFor();
+  await gina.goto(`${B}/mail`);
+  const row = gina.locator('.msg-list li', { hasText: 'Quote table' }).first();
+  await refreshUntil(gina, row);
+  await row.locator('.msg-row').click();
+  const frame = gina.frameLocator('iframe.mail-html');
+  await frame.locator('table').waitFor();
+  if (JSON.stringify(await rowsOf(frame.locator('body'))) !== want) throw new Error('received: ' + JSON.stringify(await rowsOf(frame.locator('body'))));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
