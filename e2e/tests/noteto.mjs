@@ -114,6 +114,19 @@ await step('an AI assistant’s create_task goes to the list chosen with Use for
   await page.goto(`${B}/tasks/${list}`);
   await page.locator('.task', { hasText: 'Renew travel insurance' }).waitFor();
 });
+await step('an assistant’s create_task about the note: the task links back to it and opens it', async () => {
+  const note = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Trip');
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Linker', scope: 'write', days: 30 })).body.token;
+  const r = await page.evaluate(async ([t, about]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_task', arguments: { title: 'Check the trip note', about, about_title: 'Note: Trip' } } }) })).json()).result, [tok, `/notes?note=${note.id}`]);
+  if (r?.isError || !/\/notes\?note=/.test(r.structuredContent.about || '')) throw new Error(JSON.stringify(r));
+  const list = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.name === 'Trip prep').id;
+  await page.goto(`${B}/tasks/${list}`);
+  await page.locator('.task', { hasText: 'Check the trip note' }).getByText('Check the trip note').click();
+  await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: 'Note: Trip' }).click();
+  await page.waitForURL(/\/notes/);
+  await page.getByRole('dialog', { name: 'Trip' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

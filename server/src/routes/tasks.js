@@ -349,7 +349,8 @@ const todayOf = (v) => (typeof v === 'string' && DATE_RE.test(v) ? v : new Date(
 
 /**
  * Where a task came from (an email, a chat message): a path inside Workspace and what to call it.
- * Only paths to Mail or Chat are kept, so a link on a task can't take anyone off-site.
+ * Only paths within the app are kept (Mail, Chat, a file, an event, a contact, a form, a note), so a link on a task
+ * can't take anyone off-site.
  */
 export function linkOf(v) {
   if (v == null || v === '') return { url: null, label: null };

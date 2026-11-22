@@ -337,15 +337,28 @@ export const TOOLS = [
   {
     name: 'create_task', title: 'Add a task', readOnly: false,
     description: 'Add a task to one of the person’s lists (by default the list they chose for Add to Tasks in Tasks, else their first list).',
-    inputSchema: { type: 'object', required: ['title'], properties: { title: { type: 'string' }, list: { type: 'string', description: 'A list’s name or id' }, due: { type: 'string', description: 'A day, YYYY-MM-DD' }, notes: { type: 'string' } } },
+    inputSchema: { type: 'object', required: ['title'], properties: { title: { type: 'string' }, list: { type: 'string', description: 'A list’s name or id' }, due: { type: 'string', description: 'A day, YYYY-MM-DD' }, notes: { type: 'string' },
+      about: { type: 'string', description: 'What the task is about, to link back to from the task: the url another tool returned for an email, chat message, file, event, note, contact or form in this Workspace' },
+      about_title: { type: 'string', description: 'What to call that link, e.g. “Email: Q4 budget”' } } },
     async run(api, a) {
+      // about: an address in this Workspace only, kept as a path (the task opens it for whoever may see it).
+      let about = null;
+      if (a.about) {
+        const text = String(a.about).trim();
+        let path = /^\/(?!\/)/.test(text) ? text : null; // a path as it is; a whole address only when it is this server's
+        if (!path) {
+          try { const u = new URL(text); if (PUBLIC() && u.origin === new URL(PUBLIC()).origin) path = `${u.pathname}${u.search}`; } catch { /* refused below */ }
+        }
+        if (!path) throw new ToolError('about must be an address in this Workspace (a url another tool returned)');
+        about = { url: path, label: String(a.about_title || 'Linked').slice(0, 300) };
+      }
       const r = await api('GET', '/tasks/lists');
       const lists = Array.isArray(r) ? r : r.lists || [];
       const list = a.list ? lists.find((l) => l.id === a.list || l.name.toLowerCase() === String(a.list).toLowerCase()) : lists.find((l) => l.inbox) || lists[0]; // (the list they chose for Add to Tasks)
       if (!list) throw new ToolError(`No list called “${a.list}”`);
       if (a.due && !/^\d{4}-\d{2}-\d{2}$/.test(a.due)) throw new ToolError('due is a day, like 2026-11-20');
-      const t = await api('POST', `/tasks/lists/${list.id}/tasks`, { title: String(a.title || '').slice(0, 500), ...(a.due && { due: a.due }), ...(a.notes && { notes: String(a.notes) }) });
-      return { id: `task:${t.id}`, title: t.title, list: list.name, due: t.due || null, url: link(`/tasks/${list.id}?task=${t.id}`) };
+      const t = await api('POST', `/tasks/lists/${list.id}/tasks`, { title: String(a.title || '').slice(0, 500), ...(a.due && { due: a.due }), ...(a.notes && { notes: String(a.notes) }), ...(about && { link: about }) });
+      return { id: `task:${t.id}`, title: t.title, list: list.name, due: t.due || null, url: link(`/tasks/${list.id}?task=${t.id}`), ...(t.link_url && { about: link(t.link_url) }) };
     },
   },
   {

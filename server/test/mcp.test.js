@@ -427,6 +427,25 @@ test('add a contact: found again by search and fetch; the same email isn’t add
   assert.equal((await call(ro, 'create_contact', { name: 'X' })).isError, true);
 });
 
+test('create_task about something: the task links back to it; only addresses in this Workspace', async () => {
+  const note = (await call(rw, 'create_note', { title: 'Supplier call', text: 'Ask about lead times' })).structuredContent;
+  const about = `${new URL(note.url).origin}/notes?note=${note.id.replace(/^note:/, '')}`;
+  const t = (await call(rw, 'create_task', { title: 'Follow up the supplier', about, about_title: 'Note: Supplier call' })).structuredContent;
+  assert.equal(t.about, about);
+  const lists = (await owner('GET', '/api/tasks/lists')).body.lists;
+  const saved = (await Promise.all(lists.map(async (l) => (await owner('GET', `/api/tasks/lists/${l.id}/tasks`)).body))).flat().find((x) => x.title === 'Follow up the supplier');
+  assert.deepEqual([saved.link_url, saved.link_label], [`/notes?note=${note.id.replace(/^note:/, '')}`, 'Note: Supplier call']);
+  // A path alone works too; without a title it is just “Linked”.
+  const p = (await call(rw, 'create_task', { title: 'By path', about: '/docs/abc' })).structuredContent;
+  assert.match(p.about, /\/docs\/abc$/);
+  // Not somewhere else on the web, and not a part of the app tasks don't link to.
+  const away = await call(rw, 'create_task', { title: 'Away', about: 'https://evil.example/docs/abc' });
+  assert.equal(away.isError, true);
+  assert.match(away.content[0].text, /an address in this Workspace/);
+  assert.equal((await call(rw, 'create_task', { title: 'Admin', about: '/admin' })).isError, true);
+  assert.ok(!(await Promise.all(lists.map(async (l) => (await owner('GET', `/api/tasks/lists/${l.id}/tasks`)).body))).flat().some((x) => ['Away', 'Admin'].includes(x.title)));
+});
+
 test('create_task with no list named: the list chosen for Add to Tasks, else the first list', async () => {
   const lists = async () => (await owner('GET', '/api/tasks/lists')).body.lists;
   const first = (await lists()).find((l) => l.inbox);
