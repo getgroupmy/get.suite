@@ -490,6 +490,10 @@ export default function Tasks() {
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               ...(mail?.enabled ? [{ label: 'Send by email', icon: 'mail', onClick: () => emailList(false) }, ...(done.length ? [{ label: 'Send by email, with completed', icon: 'mail', onClick: () => emailList(true) }] : [])] : []),
               ...(list ? [{ label: 'Copy to a document', icon: 'doc', onClick: () => listToDoc(false) }, ...(done.length ? [{ label: 'Copy to a document, with completed', icon: 'doc', onClick: () => listToDoc(true) }] : [])] : []),
+              ...(mail?.enabled && list.members.length ? [{ label: 'Email the list’s people', icon: 'mail', onClick: () => { // (its owner and everyone it's shared with, not you)
+                const to = [{ name: list.owner_name, username: list.owner_email }, ...list.members].filter((x) => x.username && x.username !== user.username);
+                navigate(`/mail?compose=${encodeURIComponent(to.map((x) => `${String(x.name || '').replace(/[",<>]/g, '')} <${x.username}>`).join(', '))}&subject=${encodeURIComponent(list.name)}`);
+              } }] : []),
               ...(list.members.length ? [{ label: 'Chat with the list’s people', icon: 'chat', onClick: async () => {
                 try { const r = await post(`/tasks/lists/${list.id}/chat`, {}); toast(r.created ? 'A channel for this list, with everyone on it' : r.added ? `Added ${r.added} more to the list’s channel` : 'The list’s channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
               } }] : []),

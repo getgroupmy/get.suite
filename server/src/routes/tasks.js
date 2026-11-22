@@ -491,7 +491,7 @@ export default function taskRoutes() {
     const me = req.user.id;
     // Everyone starts with a list of their own.
     if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(me)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), me, 'My tasks', now());
-    const lists = q(`SELECT l.id, l.name, l.owner_id, l.created_at, l.color, l.emoji, l.rate, u.name AS owner_name,
+    const lists = q(`SELECT l.id, l.name, l.owner_id, l.created_at, l.color, l.emoji, l.rate, u.name AS owner_name, u.username AS owner_email,
                        (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id AND t.done_at IS NULL) AS open
                      FROM task_lists l JOIN users u ON u.id = l.owner_id
                      WHERE l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)

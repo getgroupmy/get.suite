@@ -119,6 +119,20 @@ await step('Tasks → Use for Add to Tasks: a chat message then goes to the list
   await page.getByRole('menuitem', { name: 'Stop using for Add to Tasks' }).click();
   await page.getByText('Add to Tasks uses “My tasks” again').waitFor();
 });
+await step('a shared list ⋮ → Email the list’s people: a new email to everyone on it but you', async () => {
+  const kim = (await api(page, 'POST', '/users', { local: 'kimlist', domain: 'acme.com', name: 'Kim List', password: 'password123' })).body;
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Trade fair' })).body.id;
+  const m = await api(page, 'PUT', `/tasks/lists/${list}/members`, { user_ids: [kim.id] });
+  if (m.status >= 300) throw new Error(JSON.stringify(m.body));
+  await page.goto(`${B}/tasks/${list}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Email the list’s people' }).click();
+  await page.waitForURL(/\/mail/);
+  const compose = page.getByRole('dialog', { name: /New message|Trade fair/ });
+  const to = await compose.getByLabel('To', { exact: true }).inputValue();
+  if (!/Kim List <kimlist@acme\.com>/.test(to) || /olivia@/.test(to)) throw new Error(`To: ${to}`);
+  if ((await compose.getByLabel('Subject').inputValue()) !== 'Trade fair') throw new Error('subject');
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

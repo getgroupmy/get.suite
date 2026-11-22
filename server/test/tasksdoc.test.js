@@ -406,3 +406,14 @@ test('a document’s action item for you becomes a task on the list you chose fo
   assert.deepEqual(there, ['Send the revised quote']);
   await mia('PUT', '/api/tasks/inbox', { list_id: null });
 });
+
+test('a shared list says who to write to: its owner’s address and each member’s, for Email the list’s people', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const miaId = (await mia('GET', '/api/auth/me')).body.user.id;
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Stand crew' })).body.id;
+  await ann('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [miaId] });
+  const seen = (await mia('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list);
+  assert.deepEqual([seen.owner_email, seen.owner_name, seen.members.map((m) => m.username)], ['olivia@acme.com', 'Olivia Owner', ['mia@acme.com']]);
+});
