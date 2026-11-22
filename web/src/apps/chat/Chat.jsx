@@ -2402,6 +2402,16 @@ function WhoPosts({ channel, people, onSave }) {
 
 function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, onLeft }) {
   const toast = useToast();
+  const navigate = useNavigate();
+  const mail = useMailStatus();
+  // Email the members: a new email in Mail to everyone in the channel but you (accounts turned off left out).
+  const emailMembers = async () => {
+    try {
+      const to = (await get(`/chat/channels/${channel.id}/members`)).filter((m) => m.id !== me.id && !m.disabled && m.username);
+      if (!to.length) { toast('Nobody else is in this channel yet'); return; }
+      navigate(`/mail?compose=${encodeURIComponent(to.map((m) => `${String(m.name || '').replace(/[",<>]/g, '')} <${m.username}>`).join(', '))}&subject=${encodeURIComponent(`#${channel.name}`)}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const [topic, setTopic] = useState(channel.topic || '');
   const [name, setName] = useState(channel.name);
   const [members, setMembers] = useState(null);
@@ -2425,6 +2435,7 @@ function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, o
             <button className="btn" disabled={!name.trim() || name === channel.name}>Rename</button>
           </form>
         )}
+        {mail?.enabled && channel.private && <div className="row"><button type="button" className="btn" onClick={emailMembers}><Icon name="mail" size={16} /> Email the members</button></div>}
         {channel.private ? (
           <section className="stack" style={{ gap: 6 }}>
             <strong>Members{members ? ` (${members.length})` : ''}</strong>

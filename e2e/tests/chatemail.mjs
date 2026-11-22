@@ -61,6 +61,21 @@ await step('chat emails are turned on and off in Settings, and stay as set', asy
   await page.getByText('No more chat emails').waitFor();
   if ((await api(page, 'GET', '/chat/me/chat-email')).body.on) throw new Error('server says on');
 });
+await step('private channel settings → Email the members: a new email to everyone in it but you', async () => {
+  await api(page, 'POST', '/users', { local: 'lee', domain: 'acme.com', name: 'Lee Long', password: 'password123' });
+  const dir = (await api(page, 'GET', '/users/directory')).body;
+  const ids = ['kim@acme.com', 'lee@acme.com'].map((e) => dir.find((u) => u.username === e).id);
+  const ch = (await api(page, 'POST', '/chat/channels', { name: 'offsite-crew', private: true, members: ids })).body;
+  await page.goto(`${B}/chat/${ch.id}`);
+  await page.getByRole('button', { name: 'Channel settings' }).click();
+  const dlg = page.getByRole('dialog', { name: '#offsite-crew' });
+  await dlg.getByRole('button', { name: 'Email the members' }).click();
+  await page.waitForURL(/\/mail/);
+  const compose = page.getByRole('dialog', { name: /New message|#offsite-crew/ });
+  const to = await compose.getByLabel('To', { exact: true }).inputValue();
+  if (!/Kim Park <kim@acme\.com>/.test(to) || !/Lee Long <lee@acme\.com>/.test(to) || /olivia@/.test(to)) throw new Error(`To: ${to}`);
+  if ((await compose.getByLabel('Subject').inputValue()) !== '#offsite-crew') throw new Error('subject');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
