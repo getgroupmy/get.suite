@@ -40,7 +40,7 @@ import { whenText, laterChoices, ScheduleDialog } from '../../components/schedul
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords, MentionedAway } from '../../components/mentions.jsx';
 import TasksAbout from '../../components/TasksAbout.jsx';
-import { addToTasksWithToast, eventFromMessage, titleFromText } from '../tasks/addtask.js';
+import { addToTasksWithToast, eventFromMessage, titleFromText, dueFromText } from '../tasks/addtask.js';
 import { isPaused, pauseUntil } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
 import { newFromId, newCount, belowText } from './unread.js';
@@ -1368,6 +1368,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
     // A shared email: its subject (and who it's from, in the notes) when the message has no words of its own.
     title: titleFromText(m.body) || (m.poll ? m.poll.question : m.email ? (m.email.subject || '(no subject)') : 'Chat message'),
     ...(m.email && { notes: `Email from ${m.email.from?.name || m.email.from?.address || 'someone'}${m.email.subject ? `: ${m.email.subject}` : ''}${m.email.text ? `\n\n${m.email.text.slice(0, 500)}` : ''}` }),
+    ...(!m.email && !m.poll && dueFromText(m.body)), // (due on the day the message names, if it names one)
     link: { url: taskUrl, label: `Chat message from ${m.user_name || 'someone'}` },
   }).then(() => setTaskBump((n) => n + 1));
   // Save to Notes: a note of your own with the message, who wrote it where and when, and a link back to it.

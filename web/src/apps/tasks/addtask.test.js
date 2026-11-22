@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { titleFromText, mailLink, eventFromMessage } from './addtask.js';
+import { titleFromText, mailLink, eventFromMessage, dueFromText } from './addtask.js';
 
 test('a chat message becomes a short plain title', () => {
   assert.equal(titleFromText('\n  **Send** the _quote_ to Raj  \nthanks'), 'Send the quote to Raj');
@@ -30,4 +30,12 @@ test('a chat message that names a day or time: the event is then, and the words 
   // The whole message stays in the description; a line with no day or time is the next half hour, as before.
   assert.match(eventFromMessage({ body: 'Demo for Globex thursday 3pm\nBring the deck' }, '', now).description, /^Demo for Globex thursday 3pm\nBring the deck/);
   assert.deepEqual(at(eventFromMessage({ body: 'Demo for Globex' }, '', now)), ['Demo for Globex', 23, 9, 30, 0]);
+});
+
+test('a task from a message is due on the day its first line names; nothing when it names none', () => {
+  const now = new Date(2026, 10, 23, 9, 10).getTime(); // a Monday
+  assert.deepEqual(dueFromText('Send the quote by **friday**\nthanks', now), { due: '2026-11-27' });
+  assert.deepEqual(dueFromText('Call Raj tomorrow', now), { due: '2026-11-24' });
+  assert.deepEqual(dueFromText('Nothing dated here\nbut friday on the second line', now), {});
+  assert.deepEqual(dueFromText('', now), {});
 });

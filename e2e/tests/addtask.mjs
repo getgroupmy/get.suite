@@ -101,6 +101,13 @@ await step('a chat message becomes a task that links back to it', async () => {
   await msg.getByRole('button', { name: 'Add to Tasks' }).click();
   await page.getByText('Added to My tasks').waitFor();
   await msg.getByRole('button', { name: '1 task to do about this message' }).waitFor(); // (marked at once)
+  // The message says "for Monday": the task is due that day, with its title as written.
+  const mon = new Date(); mon.setDate(mon.getDate() + (((8 - mon.getDay()) % 7) || 7));
+  const monday = `${mon.getFullYear()}-${String(mon.getMonth() + 1).padStart(2, '0')}-${String(mon.getDate()).padStart(2, '0')}`;
+  const made = [];
+  for (const l of (await api(page, 'GET', '/tasks/lists')).body.lists) made.push(...(await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body);
+  const booked = made.find((t) => t.title === 'Book the meeting room for Monday');
+  if (!booked || booked.due !== monday) throw new Error(JSON.stringify(made.map((t) => [t.title, t.due])));
   await page.goto(`${B}/tasks`);
   await page.locator('.task-title', { hasText: /^Book the meeting room for Monday$/ }).click();
   await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Chat message from Olivia Owner/ }).click();

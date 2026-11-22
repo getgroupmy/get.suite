@@ -1,6 +1,7 @@
 // "Add to Tasks" from Mail and Chat: a task on the list you chose for it (your first list, My tasks, unless you say otherwise), linking back to where it came from.
 import { get, post } from '../../api.js';
 import { parseQuickEvent } from '../calendar/quickevent.js';
+import { parseQuickAdd } from './quickadd.js';
 
 /** The task's title from a chat message: its first line, without markup, at most 200 characters. */
 export function titleFromText(text) {
@@ -23,6 +24,18 @@ export function eventFromMessage(m, link = '', now = Date.now()) {
   const q = first ? parseQuickEvent(first, { today: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }) : null;
   if (q) return { title: q.title || first, start: q.start, end: q.end, all_day: q.all_day, location: '', description };
   return { title: first, start, end: start + 36e5, all_day: 0, location: '', description };
+}
+
+/**
+ * A due date for a task made from a message, when its first line names a day ("send the quote by friday",
+ * "call Raj tomorrow 3pm"): { due, due_time? }, read as Tasks' quick add reads it. Nothing when it names none.
+ * The title is left as written.
+ */
+export function dueFromText(text, now = Date.now()) {
+  const d = new Date(now), pad = (n) => String(n).padStart(2, '0');
+  const first = titleFromText(text);
+  const q = first ? parseQuickAdd(first, { today: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }) : null;
+  return q?.due ? { due: q.due, ...(q.due_time && { due_time: q.due_time }) } : {};
 }
 
 /** Where an email's task links to: by Message-ID when it has one (so it's found after it's moved). */
