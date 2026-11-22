@@ -82,6 +82,9 @@ await step('a file’s ⋮ → Add to Tasks: a task that links back to the file'
   await page.locator('.modal, .preview', { hasText: 'b.txt' }).first().waitFor();
   await page.goto(`${B}/drive`);
   await row('c.txt').waitFor();
+  // Its row now says there is a task to do about it (and only its row).
+  await row('b.txt').getByLabel('1 task to do').waitFor();
+  if (await row('c.txt').getByLabel(/tasks? to do/).count()) throw new Error('c.txt has no task');
 });
 await step('Send in Chat…: the links wait in the conversation’s message box', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'design' })).body.id;

@@ -468,3 +468,27 @@ test('tasks about something: the open ones that link to it, on lists you can see
   assert.equal((await about(ann, '/admin')).status, 400);
   assert.equal((await about(ann, '')).status, 400);
 });
+
+test('Drive lists how many open tasks are about each file and folder (yours to see), by kind', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const folder = (await ann('POST', '/api/files/folder', { name: 'Counted folder' })).body;
+  const mk = async (kind, name) => (await ann('POST', '/api/files/new', { kind, name, parent_id: folder.id })).body;
+  const doc = await mk('doc', 'Counted doc'), sheet = await mk('sheet', 'Counted sheet'), deck = await mk('slides', 'Counted deck');
+  await mk('doc', 'No tasks');
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Drive counts' })).body.id;
+  const add = (who, l, url) => who('POST', `/api/tasks/lists/${l}/tasks`, { title: `About ${url}`, link: { url, label: 'File' } });
+  await add(ann, list, `/docs/${doc.id}`);
+  const second = (await add(ann, list, `/docs/${doc.id}`)).body;
+  await add(ann, list, `/sheets/${sheet.id}`); await add(ann, list, `/slides/${deck.id}`); await add(ann, list, `/drive/folder/${folder.id}`);
+  const inside = async (who) => Object.fromEntries((await who('GET', `/api/files?parent=${folder.id}`)).body.map((f) => [f.name, f.tasks_open]));
+  assert.deepEqual(await inside(ann), { 'Counted doc': 2, 'Counted sheet': 1, 'Counted deck': 1, 'No tasks': undefined });
+  assert.equal((await ann('GET', '/api/files')).body.find((f) => f.id === folder.id).tasks_open, 1);
+  // Done ones don't count; someone else with the folder sees no count for your private tasks.
+  assert.equal((await ann('PATCH', `/api/tasks/tasks/${second.id}`, { done: true })).status, 200);
+  assert.equal((await inside(ann))['Counted doc'], 1);
+  const miaId = (await ann('GET', '/api/users/directory')).body.find((u) => u.username === 'mia@acme.com').id;
+  assert.equal((await ann('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: miaId, role: 'viewer' }] })).status, 200);
+  assert.deepEqual(Object.values(await inside(mia)).filter(Boolean), []);
+});

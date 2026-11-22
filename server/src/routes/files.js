@@ -726,7 +726,16 @@ export default function fileRoutes({ maxUploadBytes }) {
     const fresh = view === 'trash' ? new Map() : newCommentCounts(me, rows.filter((f) => f.kind !== 'folder').map((f) => f.id));
     const labels = new Map();
     for (const x of q('SELECT file_id, label FROM file_labels WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?)) ORDER BY label COLLATE NOCASE').all(me, JSON.stringify(rows.map((f) => f.id)))) labels.set(x.file_id, [...(labels.get(x.file_id) || []), x.label]);
-    res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(labels.has(f.id) && { labels: labels.get(f.id) }), ...(sizes.has(f.id) && sizes.get(f.id)), ...(fresh.get(f.id) && { new_comments: fresh.get(f.id) }) })));
+    // Open tasks about what's listed (made with Add to Tasks, on lists you can see): how many, by the path they link back to.
+    const todo = new Map();
+    if (view !== 'trash') {
+      for (const x of q(`SELECT t.link_url AS url, COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id
+                         WHERE t.done_at IS NULL AND (t.link_url LIKE '/docs/%' OR t.link_url LIKE '/sheets/%' OR t.link_url LIKE '/slides/%' OR t.link_url LIKE '/drive%')
+                           AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) GROUP BY t.link_url`).all(me, me)) todo.set(x.url, x.n);
+    }
+    const taskPath = (f) => ({ doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}`, folder: `/drive/folder/${f.id}` }[f.kind] || `/drive?preview=${f.id}`);
+    res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(labels.has(f.id) && { labels: labels.get(f.id) }), ...(sizes.has(f.id) && sizes.get(f.id)), ...(fresh.get(f.id) && { new_comments: fresh.get(f.id) }),
+      ...(todo.get(taskPath(f)) && { tasks_open: todo.get(taskPath(f)) }) })));
   });
 
   // Your labels, with how many of your files (that you can still open, not in the trash) have each.
