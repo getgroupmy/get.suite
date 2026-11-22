@@ -537,6 +537,14 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
   const toSlides = async () => {
     try { const r = await post(`/forms/${form.id}/summary-slides`, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }); toast(`Made “${r.name}” in your Drive`); navigate(`/slides/${r.id}`); } catch (e) { toast(e.message, 'error'); }
   };
+  // Email respondents: a new email in Mail to everyone who answered (each once, not you), the form's title as the subject.
+  const emailRespondents = async () => {
+    try {
+      const r = await get(`/forms/${form.id}/respondents`);
+      if (!r.people.length) { toast('Nobody else has answered with an address to write to'); return; }
+      navigate(`/mail?compose=${encodeURIComponent(r.people.map((x) => (x.name ? `${x.name.replace(/[",<>]/g, '')} <${x.email}>` : x.email)).join(', '))}&subject=${encodeURIComponent(r.title)}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   // Add respondents to Contacts: the addresses collected (or given in an email question), colleagues and contacts left out.
   const toContacts = async () => {
     try {
@@ -563,6 +571,7 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
         <button type="button" className="btn" title="The results so far as slides: a chart of each question's answers, to show in a meeting" onClick={toSlides}>Summary as a presentation</button>
         {all.length > 0 && (form.collect_email || form.questions.some((x) => x.type === 'short' && /e-?mail/i.test(x.title || ''))) && <button type="button" className="btn" title="The email addresses people gave, as contacts of yours (named from a name question)" onClick={toContacts}><Icon name="person" size={18} /> Add to Contacts</button>}
         {all.length > 0 && (form.audience !== 'public' || form.collect_email || form.questions.some((x) => x.type === 'short' && /e-?mail/i.test(x.title || ''))) && <button type="button" className="btn" title="A contact group of everyone who answered, to write to them all" onClick={() => setGrouping(true)}><Icon name="people" size={18} /> Make a contact group…</button>}
+        {form.mail && all.length > 0 && (form.audience !== 'public' || form.collect_email || form.questions.some((x) => x.type === 'short' && /e-?mail/i.test(x.title || ''))) && <button type="button" className="btn" title="A new email to everyone who answered" onClick={emailRespondents}><Icon name="mail" size={18} /> Email respondents</button>}
         {all.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
       </div>
       {closedNote(form) && <p className="muted small" style={{ margin: 0 }} role="status">{closedNote(form)}</p>}

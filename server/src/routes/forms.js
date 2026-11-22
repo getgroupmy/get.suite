@@ -1106,20 +1106,32 @@ export default function formRoutes() {
   });
   // A contact group of everyone who answered (to write to them all): { name }. Each respondent's own address — the
   // one the form collected, their account's on a company form, or else one given in an email question — once each.
-  r.post('/:id/contact-group', (req, res) => {
-    const f = ownForm(req.params.id, req.user);
-    const responses = responsesOf(f.id);
-    if (!responses.length) throw bad('No responses yet');
+  // Everyone who answered, once each, by the address the form has for them: the one it collected, their account's on
+  // a company form, or else one given in an email question (with a name, when their account or a name question gives one).
+  const respondentPeople = (f, responses) => {
     const qs = (f.questions || []).filter((x) => x.type === 'short');
     const nameQ = qs.find((x) => /\bname\b/i.test(x.title || '') && !/\b(company|business|organi[sz]ation|team|event|project)\b/i.test(x.title || ''));
     const emailQ = qs.find((x) => /e-?mail/i.test(x.title || ''));
     const ok = (e) => /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(e);
-    const people = responses.map((r) => ({ email: String(r.email || r.user?.email || (emailQ && r.answers?.[emailQ.id]) || '').trim().toLowerCase(),
-      name: r.user?.name || (nameQ ? String(r.answers?.[nameQ.id] || '').trim() : '') })).filter((p) => ok(p.email));
+    const seen = new Set();
+    return responses.map((r) => ({ email: String(r.email || r.user?.email || (emailQ && r.answers?.[emailQ.id]) || '').trim().toLowerCase(),
+      name: r.user?.name || (nameQ ? String(r.answers?.[nameQ.id] || '').trim() : '') }))
+      .filter((p) => ok(p.email) && !seen.has(p.email) && seen.add(p.email));
+  };
+  r.post('/:id/contact-group', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    const responses = responsesOf(f.id);
+    if (!responses.length) throw bad('No responses yet');
+    const people = respondentPeople(f, responses);
     if (!people.length) throw bad('This form’s responses have no email addresses: turn on Collect email addresses, or ask for one');
     const g = makeGroup(req.user.id, req.body?.name, people.slice(0, 501));
     sendTo([req.user.id], { type: 'contacts-changed' });
     res.status(201).json({ ...g, responses: responses.length });
+  });
+  // The same people, to write to (Email respondents): { title, people: [{ name, email }] }, you left out.
+  r.get('/:id/respondents', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    res.json({ title: f.title, people: respondentPeople(f, responsesOf(f.id)).filter((p) => p.email !== String(req.user.username).toLowerCase()) });
   });
   r.post('/:id/summary-slides', (req, res) => {
     const f = ownForm(req.params.id, req.user);

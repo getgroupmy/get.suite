@@ -95,6 +95,17 @@ await step('turning it off stops the emails', async () => {
   if (r.body.email_me !== false) throw new Error('still on');
 });
 
+await step('Responses → Email respondents: a new email to everyone who answered, the form’s title as the subject', async () => {
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('tab', { name: /Responses/ }).click();
+  await page.getByRole('button', { name: 'Email respondents' }).click();
+  await page.waitForURL(/\/mail/);
+  const compose = page.getByRole('dialog', { name: /New message|Lunch order/ });
+  const to = await compose.getByLabel('To', { exact: true }).inputValue();
+  if (!/Sam Sender <sam@acme\.com>/.test(to) || /olivia@/.test(to)) throw new Error(`To: ${to}`);
+  if ((await compose.getByLabel('Subject').inputValue()) !== 'Lunch order') throw new Error('subject');
+});
+
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

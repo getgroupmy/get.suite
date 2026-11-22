@@ -133,3 +133,23 @@ test('a contact group of everyone who answered: each respondent once, by the add
   assert.deepEqual([g.status, g.body.members], [201, [{ name: 'Mia Member', email: 'mia@acme.com' }]]);
   assert.equal((await mia('POST', `/api/forms/${pub.id}/contact-group`, { name: 'Mine' })).status, 404, 'only those who can edit the form');
 });
+
+test('the respondents to write to: each once by the address the form has, you left out; only for those who can edit the form', async () => {
+  const olivia = client(), mia = client(), anon = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  await olivia('PATCH', '/api/orgs/current', { allow_links: true });
+  const pub = (await olivia('PUT', `/api/forms/${(await olivia('POST', '/api/forms', { title: 'Open evening' })).body.id}`, { audience: 'public', collect_email: true, questions: [{ id: 'who', type: 'short', title: 'Your name' }] })).body;
+  assert.deepEqual((await olivia('GET', `/api/forms/${pub.id}/respondents`)).body, { title: 'Open evening', people: [] });
+  for (const [email, who] of [['Wes@Guest.example', 'Wes West'], ['wes@guest.example', 'Wes again'], ['xia@guest.example', '']]) {
+    assert.equal((await anon('POST', `/api/public/forms/${pub.token}`, { email, answers: { who } })).status, 201);
+  }
+  const got = (await olivia('GET', `/api/forms/${pub.id}/respondents`)).body.people.map((p) => `${p.name}<${p.email}>`).sort();
+  assert.deepEqual(got, ['<xia@guest.example>', 'Wes West<wes@guest.example>'].sort());
+  // A company form answered by a colleague and by its owner: the owner isn't written to.
+  const co = (await olivia('PUT', `/api/forms/${(await olivia('POST', '/api/forms', { title: 'Shirt sizes' })).body.id}`, { questions: [{ id: 'x', type: 'short', title: 'Size' }] })).body;
+  assert.equal((await mia('POST', `/api/public/forms/${co.token}`, { answers: { x: 'M' } })).status, 201);
+  assert.equal((await olivia('POST', `/api/public/forms/${co.token}`, { answers: { x: 'L' } })).status, 201);
+  assert.deepEqual((await olivia('GET', `/api/forms/${co.id}/respondents`)).body.people, [{ email: 'mia@acme.com', name: 'Mia Member' }]);
+  assert.equal((await mia('GET', `/api/forms/${co.id}/respondents`)).status, 404);
+});
