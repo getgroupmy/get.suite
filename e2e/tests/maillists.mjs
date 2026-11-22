@@ -373,6 +373,20 @@ await step('an AI assistant makes a spreadsheet from an email’s tables (create
   await page.locator('[data-k="B4"]', { hasText: '$3.50' }).waitFor();
   await page.locator('[data-k="A1"]', { hasText: 'Item' }).waitFor();
 });
+await step('Inbox ⋮ → List messages in Sheets, and a search’s results the same way', async () => {
+  await gina.goto(`${B}/mail`);
+  await refreshUntil(gina, gina.locator('.msg-list li', { hasText: 'Quote table' }));
+  await gina.getByRole('button', { name: 'Options for Inbox' }).click();
+  await gina.getByRole('menuitem', { name: 'List messages in Sheets' }).click();
+  await gina.getByText(/^Made “Mail Inbox” \(\d+ emails\)$/).waitFor();
+  await gina.getByRole('button', { name: 'Open', exact: true }).click();
+  await gina.waitForURL(/\/sheets\//);
+  await gina.locator('[data-k="E1"]', { hasText: 'Subject' }).waitFor();
+  await gina.getByText('Agenda', { exact: true }).first().waitFor();
+  await gina.goto(`${B}/mail?q=${encodeURIComponent('Quote table')}`);
+  await gina.getByRole('button', { name: 'List these in Sheets' }).click();
+  await gina.getByText(/^Made “Mail Inbox \(Quote table\)” \(2 emails\)$/).waitFor();
+}, gina);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

@@ -2258,6 +2258,15 @@ test('MCP: an assistant lists and reads mail, and writes a draft that waits in D
   assert.deepEqual([tSheet.cells.A2, tSheet.cells.B2, tSheet.formats.B2, tSheet.formats.A1], ['North', '1200', { num: 'currency', cur: 'USD', dp: 2 }, { b: true }]);
   const noTables = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_spreadsheet', arguments: { from_email: listed.messages[0].id } } }) });
   assert.match(JSON.stringify(await noTables.json()), /no tables of figures/);
+  // List messages in Sheets: those a search finds, a row each with when, who from, subject, read; nothing found: explained.
+  const listed2 = await olivia('POST', '/api/mail/messages/sheet', { folder: 'INBOX', q: subject, time_zone: 'UTC' });
+  assert.equal(listed2.status, 201, JSON.stringify(listed2.body));
+  assert.equal(listed2.body.emails, 1);
+  const ls = (await olivia('GET', `/api/files/${listed2.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([ls.cells.A1, ls.cells.C1, ls.cells.E1, ls.frozen], ['Date', 'From address', 'Subject', { rows: 1, cols: 0 }]);
+  assert.deepEqual([ls.cells.C2, ls.cells.E2], ['bob@acme.com', subject]);
+  assert.match(ls.cells.A2, /^\d{4}-\d\d-\d\d \d\d:\d\d$/);
+  assert.equal((await olivia('POST', '/api/mail/messages/sheet', { folder: 'INBOX', q: 'zzz-nothing-like-this-zzz' })).status, 400);
   // A note from an email (create_note with from_email): its subject, who and what, a link back; the assistant's words first.
   const fromMail = await call('create_note', { from_email: listed.messages[0].id, text: 'Check the figures' });
   assert.deepEqual([fromMail.title, fromMail.from_email], [subject, true]);

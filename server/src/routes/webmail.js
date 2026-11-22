@@ -70,7 +70,7 @@ import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 import { syncAwayEvent } from '../mail/vacation.js';
 import { pdfFromEmail, emailDoc, emailNote } from '../mail/emailpdf.js';
-import { tablesIn, sheetFromTables } from '../office/tablesheet.js';
+import { tablesIn, sheetFromTables, sheetFromRows } from '../office/tablesheet.js';
 import { docFromHtml } from '../office/word.js';
 
 // Saved searches (Mail sidebar → Searches).
@@ -1070,6 +1070,39 @@ export default function webmailRoutes() {
       catch (e) { if (!(await c.list()).some((b) => b.path === folder)) throw notFound('Folder not found'); throw e; }
     });
     res.json({ tag: folderTag(st), messages: st.messages ?? 0, unseen: st.unseen ?? 0 });
+  });
+
+  // List messages in Sheets: a folder's emails (or those a search finds), newest first, the latest 2,000, as a new
+  // spreadsheet in your Drive: when, who from, to, subject, read, starred, attachments, size and labels.
+  r.post('/messages/sheet', async (req, res) => {
+    const folder = String(req.body?.folder || 'INBOX');
+    const term = String(req.body?.q || '').trim();
+    const parsed = parseMailQuery(term);
+    if (parsed.error) throw bad(parsed.error);
+    const zone = zoneOf(req.body?.time_zone);
+    const labelName = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.name]));
+    const when = (ms) => { if (!ms) return ''; const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms)).map((x) => [x.type, x.value])); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`; };
+    const rows = await withFolder(req.user, folder, async (client) => {
+      let uids = (await client.search(parsed.query || { all: true }, { uid: true })) || [];
+      if (parsed.files) uids = await withFileNames(client, uids, parsed.files);
+      uids = uids.sort((a, b) => b - a).slice(0, 2000);
+      if (!uids.length) return [];
+      const out = [];
+      for await (const m of client.fetch(uids.join(','), { uid: true, envelope: true, flags: true, internalDate: true, bodyStructure: true, size: true }, { uid: true })) {
+        const env = m.envelope || {};
+        const from = env.from?.[0] || {};
+        out.push({ uid: m.uid, row: [when((env.date || m.internalDate)?.valueOf?.()), from.name || '', from.address || '', (env.to || []).map((t) => t.address).filter(Boolean).join(', '), env.subject || '',
+          m.flags.has('\\Seen') ? 'yes' : 'no', m.flags.has('\\Flagged') ? 'yes' : '', hasAttachment(m.bodyStructure) ? 'yes' : '', String(Math.max(1, Math.round((m.size || 0) / 1024))),
+          [...m.flags].map((f) => labelName.get(String(f).toLowerCase())).filter(Boolean).join(', ')] });
+      }
+      return out.sort((a, b) => b.uid - a.uid).map((x) => x.row);
+    });
+    if (!rows.length) throw bad(term ? 'No emails match that search' : 'This folder is empty');
+    const head = ['Date', 'From', 'From address', 'To', 'Subject', 'Read', 'Starred', 'Attachments', 'Size (KB)', 'Labels'];
+    const json = JSON.stringify(sheetFromRows([head, ...rows], { header: true, name: folder.slice(0, 30) || 'Mail' }));
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const id = insertFile({ owner: req.user.id, parentId: null, name: cleanName(`Mail ${folder === 'INBOX' ? 'Inbox' : folder}${term ? ` (${term.slice(0, 60)})` : ''}`), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, emails: rows.length });
   });
 
   r.get('/messages', async (req, res) => {

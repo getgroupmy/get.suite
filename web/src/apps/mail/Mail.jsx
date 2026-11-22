@@ -162,6 +162,13 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const refreshRef = useRef(null);
   const emlInput = useRef(null);
   // A .zip download, checked first so a refusal (empty, too big) is said here instead of saved as a file.
+  // List messages in Sheets: a folder's emails (or a search's), the latest 2,000, in a new spreadsheet in your Drive.
+  const listInSheets = async (path, term) => {
+    try {
+      const r = await post('/mail/messages/sheet', { folder: path, q: term, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });
+      toast(`Made “${r.name}” (${r.emails} email${r.emails === 1 ? '' : 's'})`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const downloadZip = async (url) => {
     try { await get(`${url}&check=1`); } catch (e) { toast(e.message, 'error'); return; }
     const l = document.createElement('a'); l.href = `/api${url}`; l.download = ''; document.body.appendChild(l); l.click(); l.remove();
@@ -499,6 +506,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   ...(followable ? [{ label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml or .zip)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'Download folder (.zip)', icon: 'download', onClick: () => downloadZip(`/mail/messages-eml.zip?folder=${encodeURIComponent(f.path)}&all=1`) }] : []),
+                  ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'List messages in Sheets', icon: 'sheet', onClick: () => listInSheets(f.path, '') }] : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                     { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
@@ -573,6 +581,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             <input name="q" defaultValue={q} key={q} placeholder={`Search ${current?.name || 'mail'}`} aria-label="Search mail" title="Words, &quot;exact phrases&quot;, -leave out, from: to: subject: has:attachment filename:pdf is:unread is:read is:starred before:2026-01-31 after: newer_than:7d older_than:1y larger:5M smaller:" />
           </form>
           <button className="icon-btn" aria-label="Refresh" onClick={refresh}><Icon name="restore" size={20} /></button>
+          {q && !shared && <button className="icon-btn" aria-label="List these in Sheets" title="The emails this search finds, in a new spreadsheet" onClick={() => listInSheets(folder, q)}><Icon name="sheet" size={20} /></button>}
           {current?.unseen > 0 && <button className="icon-btn" aria-label="Mark all as read" title={`Mark all ${current.unseen} unread in ${current.name} as read`}
             onClick={async () => { try { const r = await post('/mail/messages/read-all', { folder }); toast(`${r.marked} marked as read`); refresh(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="check" size={20} /></button>}
         </div>
