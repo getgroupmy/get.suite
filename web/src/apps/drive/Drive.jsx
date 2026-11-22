@@ -27,6 +27,7 @@ import { openUrl } from '../../components/DrivePicker.jsx';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { linkEmail } from './linkemail.js';
+import { addToTasksWithToast } from '../tasks/addtask.js';
 import MyLinks from './MyLinks.jsx';
 import { sortFiles, isPicture, sharers } from './drivesort.js';
 
@@ -524,6 +525,7 @@ export default function Drive() {
         try { const r = await post(`/files/${f.id}/tables-to-sheet`, {}); toast(`Made “${r.name}”${r.tables > 1 ? ` (${r.tables} tables, a sheet each)` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); load(); } catch (e) { toast(e.message, 'error'); }
       } },
       { label: 'Copy link', icon: 'link', onClick: () => copyLinks([f]) },
+      { label: 'Add to Tasks', icon: 'check', onClick: () => addToTasksWithToast(toast, navigate, { title: f.name, link: { url: openPath(f) || `/drive?preview=${f.id}`, label: `${f.kind === 'folder' ? 'Folder' : 'File'}: ${f.name}` } }) },
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
       ['doc', 'sheet', 'slides'].includes(f.kind) && { label: pinned.has(f.id) ? 'Don’t keep offline' : 'Make available offline', icon: 'download', onClick: () => toggleOffline(f) },
       user.is_admin && ['doc', 'sheet', 'slides'].includes(f.kind) && { label: f.template ? 'Remove from company templates' : 'Make a company template', icon: 'doc',

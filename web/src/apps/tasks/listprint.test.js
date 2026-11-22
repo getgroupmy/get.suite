@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listPrintHtml, dueText } from './listprint.js';
+import { listPrintHtml, dueText, linkIcon } from './listprint.js';
 
 test('a printed list: open tasks with what matters, then done ones, all escaped', () => {
   const html = listPrintHtml('Launch <1>', [
@@ -57,4 +57,9 @@ test('one task as a note: its title; due, who and list; notes; steps as lines; a
   assert.equal(n.body, 'Due Tue, 1 Dec 2026 · For Kim Park · In Party\n\nAsk for the big room\n\n✓ Call\n☐ Pay deposit\n\nOpen the task: https://ws.test/tasks/l1?task=t1');
   assert.deepEqual(taskNote({ title: 'Bare' }), { title: 'Bare', body: '' });
   assert.equal(taskNote({ title: 'Sent', done: true }).body, 'Done');
+});
+
+test('the picture beside a task’s link says where it goes', () => {
+  assert.deepEqual(['/chat/1', '/docs/1', '/sheets/1', '/slides/1', '/drive?preview=1', '/drive/folder/1', '/calendar?event=1', '/mail?open=1', null].map(linkIcon),
+    ['💬', '📄', '📊', '🖼', '📁', '📁', '📅', '✉', '✉']);
 });

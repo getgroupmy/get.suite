@@ -69,6 +69,20 @@ await step('a file’s ⋮ → Copy link', async () => {
   const text = await page.evaluate(() => navigator.clipboard.readText());
   if (!/^b\.txt: .*\/drive\?preview=[\w-]+$/.test(text)) throw new Error(text);
 });
+await step('a file’s ⋮ → Add to Tasks: a task that links back to the file', async () => {
+  await row('b.txt').getByRole('button', { name: 'Actions for b.txt' }).click();
+  await page.getByRole('menuitem', { name: 'Add to Tasks' }).click();
+  await page.locator('.toast', { hasText: /^Added to / }).last().getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  const link = page.getByRole('link', { name: /File: b\.txt/ });
+  await link.waitFor();
+  if (!/\/drive\?preview=[\w-]+$/.test(await link.getAttribute('href'))) throw new Error(await link.getAttribute('href'));
+  if (!(await link.textContent()).includes('📁')) throw new Error(await link.textContent());
+  await link.click();
+  await page.locator('.modal, .preview', { hasText: 'b.txt' }).first().waitFor();
+  await page.goto(`${B}/drive`);
+  await row('c.txt').waitFor();
+});
 await step('Send in Chat…: the links wait in the conversation’s message box', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'design' })).body.id;
   await page.goto(`${B}/drive`);

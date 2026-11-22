@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
-import { listPrintHtml, listEmail, taskEmail, taskNote } from './listprint.js';
+import { listPrintHtml, listEmail, taskEmail, taskNote, linkIcon } from './listprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import SendInChat from '../../components/SendInChat.jsx';
@@ -307,7 +307,7 @@ export default function Tasks() {
           <span className="task-title">{t.title}</span>
           <span className="task-meta">
             {virtual && <span className="muted small task-list-name">{t.list_color && <span className="list-dot" style={{ background: t.list_color }} aria-hidden="true" />}{t.list_emoji ? `${t.list_emoji} ` : ''}{t.list_name}</span>}
-            {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{t.link_url.startsWith('/chat') ? '💬' : t.link_url.startsWith('/docs') ? '📄' : '✉'}</span>}
+            {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{linkIcon(t.link_url)}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.priority && !t.done && (() => { const [, name, mark] = PRIORITIES.find(([k]) => k === t.priority); return <span className={`pill priority ${t.priority}`} title={`${name} priority`} aria-label={`${name} priority`}>{mark} {name}</span>; })()}
@@ -1285,7 +1285,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
       </label>
       {task.link_url && (
         <div className="field"><span>From</span>
-          <span className="row"><Link to={task.link_url} className="grow ellipsis">{task.link_url.startsWith('/chat') ? '💬' : task.link_url.startsWith('/docs') ? '📄' : '✉'} {task.link_label || 'Open'}</Link>
+          <span className="row"><Link to={task.link_url} className="grow ellipsis">{linkIcon(task.link_url)} {task.link_label || 'Open'}</Link>
             <button type="button" className="link-btn small" onClick={() => onChange({ link: null })}>Remove</button></span>
         </div>
       )}

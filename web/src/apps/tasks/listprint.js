@@ -74,3 +74,9 @@ export function taskNote(t, { locale, link = '', listName = '' } = {}) {
   const body = [meta, (t.notes || '').trim(), (t.steps || []).map((x) => `${x.done ? '✓' : '☐'} ${x.title}`).join('\n'), link && `Open the task: ${link}`].filter(Boolean).join('\n\n');
   return { title: (t.title || 'Task').slice(0, 200), body: body.slice(0, 20000) };
 }
+
+/** The little picture for where a task links back to. */
+export function linkIcon(url) {
+  const app = (/^\/(\w+)/.exec(url || '') || [])[1];
+  return { chat: '💬', docs: '📄', sheets: '📊', slides: '🖼', drive: '📁', calendar: '📅' }[app] || '✉';
+}
