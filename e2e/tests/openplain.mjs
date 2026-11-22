@@ -86,7 +86,7 @@ await step('Download as Rich Text (.rtf), and the .rtf opens as a document again
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download as Rich Text (.rtf)' }).click()]);
   if (dl.suggestedFilename() !== 'Memo.rtf') throw new Error(dl.suggestedFilename());
   const rtf = fs.readFileSync(await dl.path(), 'latin1');
-  if (!rtf.startsWith('{\\rtf1') || !rtf.includes('Caf\\u233?')) throw new Error(rtf.slice(0, 300));
+  if (!rtf.startsWith('{\\rtf1') || !/Caf\\u233(\?|\\'3f)/.test(rtf)) throw new Error(rtf.slice(0, 300)); // (the stand-in after \\u is written \\'3f, as Word does)
   await upload('Memo copy.rtf', rtf);
   await openFromDrive('Memo copy.rtf', 'document');
   await page.waitForURL(/\/docs\//);

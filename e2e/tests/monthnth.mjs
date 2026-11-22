@@ -83,12 +83,14 @@ await step('changing the start re-offers the right choices, and an open event sa
   await dlg.getByLabel('Starts').fill('2027-01-13'); // the second Wednesday
   await dlg.getByLabel('Repeat', { exact: true }).selectOption({ label: 'Monthly on the second Wednesday' });
   let opts = await dlg.getByLabel('Repeat', { exact: true }).locator('option').allInnerTexts();
-  if (opts.some((o) => /last/.test(o))) throw new Error('last offered mid-month: ' + opts.join(' / '));
+  if (opts.some((o) => /last (?!weekday)/.test(o))) throw new Error('last offered mid-month: ' + opts.join(' / ')); // ("the last weekday" of the month is always a choice)
   await dlg.getByLabel('Starts').fill('2027-01-29'); // the fifth Friday: only "the last"
   opts = await dlg.getByLabel('Repeat', { exact: true }).locator('option').allInnerTexts();
-  if (opts.some((o) => /fifth|on the \w+ Friday/.test(o) && !/last/.test(o)) || !opts.includes('Monthly on the last Friday')) throw new Error(opts.join(' / '));
-  if ((await dlg.getByLabel('Repeat', { exact: true }).inputValue()) !== 'monthly-last') throw new Error('choice not carried over');
-  await dlg.getByText('Monthly on the last Friday', { exact: true }).last().waitFor();
+  // (on a fifth Friday: "the fifth" and "the last" are both offered, and no first to fourth)
+  if (opts.some((o) => /on the (first|second|third|fourth) Friday/.test(o)) || !opts.includes('Monthly on the last Friday') || !opts.includes('Monthly on the fifth Friday')) throw new Error(opts.join(' / '));
+  // The choice carries over as what it was, a counted weekday: now the fifth Friday (offered since fifth weekdays repeat).
+  if ((await dlg.getByLabel('Repeat', { exact: true }).inputValue()) !== 'monthly-nth') throw new Error('choice not carried over: ' + await dlg.getByLabel('Repeat', { exact: true }).inputValue());
+  await dlg.getByText('Monthly on the fifth Friday', { exact: true }).last().waitFor();
   await dlg.getByRole('button', { name: 'Cancel' }).click();
 });
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }

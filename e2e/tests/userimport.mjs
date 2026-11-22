@@ -61,7 +61,7 @@ await step('Create 2 users: a password is made up for Kim and shown once; the li
   await dlg.locator('tr', { hasText: 'lee@acme.com' }).getByText('from the file').waitFor();
   const [dl] = await Promise.all([page.waitForEvent('download'), dlg.getByRole('button', { name: /Download sign-in details/ }).click()]);
   const text = await (await import('node:fs')).promises.readFile(await dl.path(), 'utf8');
-  if (!text.includes(`"Kim Park","kim@acme.com","${kimPassword}"`)) throw new Error(text);
+  if (!text.split(/\r?\n/).includes(`Kim Park,kim@acme.com,${kimPassword}`)) throw new Error(text); // (cells are quoted only when they need it)
   await dlg.getByRole('button', { name: 'Done' }).first().click();
   await page.getByText('kim@acme.com').first().waitFor();
 });

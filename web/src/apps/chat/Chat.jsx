@@ -2388,7 +2388,7 @@ function WelcomeNote({ channel, onSave }) {
     <div className="stack" style={{ gap: 6 }}>
       <label className="field"><span><strong>Welcome note</strong> <span className="muted small">for people who join from now on</span></span>
         <textarea rows={3} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} placeholder="Hi! Read the pinned messages first, and ask your questions in threads." /></label>
-      <div className="row"><button type="button" className="btn" disabled={text.trim() === (channel.welcome || '')} onClick={() => onSave(text.trim())}>Save</button></div>
+      <div className="row"><button type="button" className="btn" aria-label="Save welcome note" disabled={text.trim() === (channel.welcome || '')} onClick={() => onSave(text.trim())}>Save</button></div>
     </div>
   );
 }
@@ -2404,7 +2404,7 @@ function WhoPosts({ channel, people, onSave }) {
       <label className="check"><input type="radio" name="who-posts" checked={!some} onChange={() => setSome(false)} /> Everyone in the channel</label>
       <label className="check"><input type="radio" name="who-posts" checked={some} onChange={() => setSome(true)} /> Only some people (an announcement channel; everyone can still reply in threads and react)</label>
       {some && <PeoplePicker label="People who can post" people={people} chosen={chosen} onChange={setChosen} />}
-      <div className="row"><button type="button" className="btn" disabled={!changed} onClick={() => onSave(some ? [...chosen] : null)}>Save</button></div>
+      <div className="row"><button type="button" className="btn" aria-label="Save who can post" disabled={!changed} onClick={() => onSave(some ? [...chosen] : null)}>Save</button></div>
     </fieldset>
   );
 }

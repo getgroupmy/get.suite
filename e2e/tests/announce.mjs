@@ -44,7 +44,7 @@ await step('an announcements channel where only Kim (and admins) post', async ()
   const d = page.getByRole('dialog', { name: '#news' });
   await d.getByLabel(/Only some people/).check();
   await d.getByRole('group', { name: 'People who can post' }).or(d.locator('fieldset.people-pick')).first().getByLabel(/Kim Park/).check();
-  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.getByRole('button', { name: 'Save who can post' }).click();
   await page.getByText('Only the people chosen (and admins) can post now').waitFor();
 });
 await step('Rob sees a note instead of the message box; Kim posts; Rob replies in a thread', async () => {

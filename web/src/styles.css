@@ -3422,3 +3422,4 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .task-link:hover { background: var(--hover, rgba(0,0,0,.06)); }
 .mail-row-tasks { color: var(--accent); font-weight: 600; }
 .page-head > h1 { min-width: min(6em, 100%); } /* a page's name stays readable on a phone: the buttons wrap below it instead */
+.drive-head { flex-wrap: wrap; gap: 4px 8px; } .drive-head > h1 { min-width: min(8em, 100%); } /* on a phone the view's name stays on one line: the buttons wrap below it */
