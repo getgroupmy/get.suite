@@ -1,7 +1,7 @@
 // The activity log: who signed in (or failed to), changed accounts or settings, shared or deleted
 // files. Newest first, filtered by kind, words and dates, a page at a time, or downloaded as CSV.
 import { useCallback, useEffect, useState } from 'react';
-import { get } from '../../api.js';
+import { get, post } from '../../api.js';
 import { Empty, useToast } from '../../components/ui.jsx';
 
 const KINDS = [
@@ -78,6 +78,9 @@ export default function ActivityAdmin({ orgId, orgPicker, initialKind = '' }) {
           {filtered && <button type="button" className="link-btn small" onClick={() => { setKind(''); setText(''); setFrom(''); setTo(''); }}>Clear filters</button>}
           <span className="grow" />
           <a className="btn" href={`/api/audit/export?${params()}`} download>Download CSV</a>
+          <button type="button" className="btn" title="What's shown here, in a new spreadsheet in your Drive" onClick={async () => {
+            try { const r = await post(`/audit/sheet?${params()}`, {}); window.location.href = `/sheets/${r.id}`; } catch (e) { toast(e.message, 'error'); }
+          }}>Open in Sheets</button>
         </div>
         <p className="muted small" style={{ margin: 0 }}>
           Sign-ins, changes to people and settings, sharing and deleting files. Times are in your time zone; entries are kept for a year.

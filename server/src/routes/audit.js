@@ -6,6 +6,8 @@ import { requireAdmin } from '../auth.js';
 import { bad } from '../util.js';
 import { ACTIONS } from '../audit.js';
 import { csvCell } from '../csvcell.js';
+import { sheetFromRows } from '../office/tablesheet.js';
+import { insertFile } from './files.js';
 
 const csv = (v) => csvCell(v); // (csvcell.js: quoted as needed, kept from running as a formula)
 
@@ -42,13 +44,25 @@ export default function auditRoutes() {
     res.json({ entries: rows.slice(0, 100).map(shape), more: rows.length > 100, actions: ACTIONS });
   });
 
+  const HEAD = ['Time (UTC)', 'Who', 'What', 'Target', 'Details', 'IP address'];
+  const line = (e, time) => [time(e.at), e.actor_name || '', ACTIONS[e.action] || e.action, e.target || '', e.details || '', e.ip || ''];
   r.get('/export', (req, res) => {
     const { where, args } = query(req);
     const rows = q(`SELECT * FROM audit_log WHERE ${where} ORDER BY id DESC LIMIT 100000`).all(...args);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="activity.csv"');
-    res.send(`﻿${[['Time (UTC)', 'Who', 'What', 'Target', 'Details', 'IP address'].join(','),
-      ...rows.map((e) => [new Date(e.at).toISOString(), e.actor_name || '', ACTIONS[e.action] || e.action, e.target || '', e.details || '', e.ip || ''].map(csv).join(','))].join('\r\n')}\r\n`);
+    res.send(`\ufeff${[HEAD.join(','), ...rows.map((e) => line(e, (t) => new Date(t).toISOString()).map(csv).join(','))].join('\r\n')}\r\n`);
+  });
+  // Open in Sheets: what the log shows (the same filters) as a new spreadsheet in the admin's Drive, newest first, the
+  // latest 20,000; the heading row bold and kept in view, to sort and filter there.
+  r.post('/sheet', (req, res) => {
+    const { where, args } = query(req);
+    const rows = q(`SELECT * FROM audit_log WHERE ${where} ORDER BY id DESC LIMIT 20000`).all(...args);
+    if (!rows.length) throw bad('There is nothing in the activity log for these filters');
+    const table = [HEAD, ...rows.map((e) => line(e, (t) => new Date(t).toISOString().slice(0, 19).replace('T', ' ')).map((v, c) => (c === 0 ? v : String(v))))];
+    const json = JSON.stringify(sheetFromRows(table, { header: true, name: 'Activity' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `Activity log ${new Date().toISOString().slice(0, 10)}`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, entries: rows.length });
   });
   return r;
 }

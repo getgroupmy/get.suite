@@ -1580,6 +1580,8 @@ Each entry shows who did it, what it was done to, the details and the IP address
 
 **New sign-ins:** when your account signs in on a kind of device it hasn't used before (another browser or system, e.g. *Safari on iPhone*), you get a notification at once on the devices you're already using, with the address it came from and a link to Settings to change your password or sign that device out. Your very first sign-in isn't flagged. Turn it off in the bell's settings if you like.
 
+**Download CSV** saves what the log shows (with its search and filters) as a CSV file; **Open in Sheets** puts it in a new spreadsheet in your Drive instead, *Activity log (date)*, newest first (the latest 20,000), the time in UTC, the heading row bold and kept in view, to sort and filter there.
+
 ## Tasks
 
 - **Shared with me:** lists colleagues share with you sit under their own **Shared with me** heading in the sidebar, below your own, each with whose it is (*Launch plan from Olivia*).

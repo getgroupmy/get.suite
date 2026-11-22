@@ -120,6 +120,14 @@ await step('the admin activity log\'s search: accents don\'t matter (resume noel
     if (Date.now() > end) throw new Error('the search let others through');
   }
 });
+await step('Open in Sheets: what the log shows with its search, in a new spreadsheet', async () => {
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Time (UTC)' }).waitFor();
+  const id = page.url().split('/').pop().split('?')[0];
+  const cells = JSON.stringify((await api(page, 'GET', `/files/${id}/content`)).body.content.sheets[0].cells);
+  if (!cells.includes('Résumé Noël') || cells.includes('Board pack')) throw new Error(cells.slice(0, 400));
+});
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
 process.exit(failed ? 1 : 0);
