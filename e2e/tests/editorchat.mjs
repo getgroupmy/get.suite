@@ -179,7 +179,21 @@ await step('a document: select some words → Task: a task of those words that l
   const all = [];
   for (const l of lists) all.push(...(await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body);
   const t = all.find((x) => x.title === 'order the banners');
-  if (!t || t.link_url !== `/docs/${f.id}` || t.link_label !== 'File: Launch checklist') throw new Error(JSON.stringify(all.map((x) => [x.title, x.link_url])));
+  if (!t || t.link_url !== `/docs/${f.id}` || t.link_label !== 'File: Launch checklist' || t.due) throw new Error(JSON.stringify(all.map((x) => [x.title, x.link_url, x.due])));
+  // Words that name a day: the task is due then, titled as selected.
+  await page.locator('.ProseMirror').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Book the stand by tomorrow');
+  for (let i = 0; i < 26; i++) await page.keyboard.press('Shift+ArrowLeft');
+  await page.getByRole('button', { name: 'Add selection to Tasks' }).click();
+  await page.getByRole('button', { name: '2 tasks to do about this file' }).waitFor();
+  const tm = new Date(); tm.setDate(tm.getDate() + 1);
+  const tomorrow = `${tm.getFullYear()}-${String(tm.getMonth() + 1).padStart(2, '0')}-${String(tm.getDate()).padStart(2, '0')}`;
+  const again = [];
+  for (const l of lists) again.push(...(await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body);
+  const dated = again.find((x) => x.title === 'Book the stand by tomorrow');
+  if (!dated || dated.due !== tomorrow) throw new Error(JSON.stringify(again.map((x) => [x.title, x.due])));
 });
 await step('its document goes to the trash: the channel says so and doesn’t link to it', async () => {
   const chan = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.about_kind === 'file' && c.about_title === 'Contract notes');

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { keptDoc, unreachable, changeAdd } from '../offlinedocs.js';
 import { useKeptCopy, renameFile, RebuiltNote } from '../KeptCopy.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { addToTasksWithToast } from '../tasks/addtask.js';
+import { addToTasksWithToast, dueFromText } from '../tasks/addtask.js';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { TabbedDocument, DocTab, addTab, openTab, tabIdOfHash } from './doctabsext.js';
@@ -632,7 +632,7 @@ function SharedDoc({ file, setFile }) {
     const { from, to, empty } = editor.state.selection;
     const text = empty ? '' : editor.state.doc.textBetween(from, to, ' ').replace(/\s+/g, ' ').trim();
     if (!text) return;
-    addToTasksWithToast(toast, navigate, { title: text.length > 200 ? `${text.slice(0, 199)}…` : text, link: { url: `/docs/${file.id}`, label: `File: ${file.name}` } });
+    addToTasksWithToast(toast, navigate, { title: text.length > 200 ? `${text.slice(0, 199)}…` : text, ...dueFromText(text), link: { url: `/docs/${file.id}`, label: `File: ${file.name}` } }); // (due on the day the words name, if any)
   };
   const startComment = () => {
     editor.view.domObserver?.flush?.(); // take in a selection just made with the keyboard
