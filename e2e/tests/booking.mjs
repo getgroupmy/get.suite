@@ -118,6 +118,18 @@ await step('the visitor cancels with their link: off the calendar, and the owner
   const still = (await api(page, 'GET', `/events?from=${Date.now()}&to=${Date.now() + 3 * 864e5}`)).body.some((e) => e.title === 'Intro call: Oscar Out');
   if (still) throw new Error('still on the calendar');
 });
+await step('Booking pages → Add people who booked to Contacts: Oscar saved (his booking cancelled or not), not twice', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Add people who booked Intro call to Contacts' }).click();
+  await page.getByText('Added Oscar Out to your contacts').waitFor();
+  const list = (await api(page, 'GET', '/contacts')).body;
+  if (!list.some((c) => c.email === 'oscar@example.org' && c.name === 'Oscar Out')) throw new Error(JSON.stringify(list));
+  await dlg.getByRole('button', { name: 'Add people who booked Intro call to Contacts' }).click();
+  await page.getByText('Everyone who booked is already in your contacts or a colleague').waitFor();
+  await page.keyboard.press('Escape');
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

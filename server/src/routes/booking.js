@@ -6,6 +6,7 @@ import { binAndDelete, restoreFromBin } from '../recyclebin.js';
 import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
+import { addPeople } from './contacts.js';
 import crypto from 'node:crypto';
 import { q } from '../db.js';
 import { uid, str, bad, notFound, HttpError } from '../util.js';
@@ -189,7 +190,8 @@ function readPage(b, current = {}) {
 }
 const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
   host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
-  bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n });
+  bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n,
+  booked_by: q('SELECT COUNT(DISTINCT LOWER(email)) AS n FROM bookings WHERE page_id = ? AND email IS NOT NULL').get(p.id).n }); // (cancelled too: for Add to Contacts)
 
 /** Co-hosts asked for: colleagues in your company (not you). */
 function checkHosts(user, ids) {
@@ -259,6 +261,16 @@ export default function bookingRoutes() {
     q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ?, remind = ? WHERE id = ?`)
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
+  });
+  // Add the people who booked through this page to your contacts (name and address as they gave them; cancelled
+  // bookings too). Colleagues and anyone already there are left out.
+  r.post('/:id/contacts', (req, res) => {
+    const p = mine(req);
+    const people = q('SELECT name, email FROM bookings WHERE page_id = ? AND email IS NOT NULL ORDER BY created_at').all(p.id);
+    if (!people.length) throw bad('Nobody has booked through this page yet');
+    const out = addPeople(req.user, people);
+    if (out.added) sendTo([req.user.id], { type: 'contacts-changed' });
+    res.json({ ...out, booked: people.length });
   });
   // Deleted pages can be put back for 30 days (its link works again), recyclebin.js.
   r.delete('/:id', (req, res) => { const p = mine(req); res.json({ ok: true, bin_id: binAndDelete('booking_page', p.id, { ownerId: req.user.id, name: p.title, by: req.user.id }) }); });

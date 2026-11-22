@@ -1996,6 +1996,35 @@ test('booking pages: where the meeting happens (its own video meeting, or a plac
   assert.deepEqual([ev2.location, ev2.meet_code], ['14 Harbour St', null]);
 });
 
+test('booking pages: the people who booked added to Contacts, colleagues and contacts left out, only by the page’s owner', async () => {
+  const { resetBookingLimits } = await import('../src/routes/booking.js');
+  resetBookingLimits(); // (every test books from 127.0.0.1)
+  const a = client(), outsider = client(), other = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'bconts', domain: 'acme.com', name: 'Bea Contacts', password: 'password123' })).status, 201);
+  assert.equal((await owner('POST', '/api/users', { local: 'bother', domain: 'acme.com', name: 'Bo Other', password: 'password123' })).status, 201);
+  await login(a, 'bconts@acme.com');
+  await login(other, 'bother@acme.com');
+  const pg = (await a('POST', '/api/bookings', { title: 'Tour', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 2 })).body;
+  const tk = pg.url.split('/b/')[1];
+  assert.equal((await a('POST', `/api/bookings/${pg.id}/contacts`, {})).status, 400, 'nobody yet');
+  await a('POST', '/api/contacts', { name: 'Kai Known', email: 'kai@visit.example' });
+  const slots = (await outsider('GET', `/api/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
+  const who = [['Liv Visit', 'Liv@Visit.example'], ['Kai K', 'kai@visit.example'], ['Bo Other', 'bother@acme.com']];
+  for (let i = 0; i < who.length; i++) {
+    const r = await outsider('POST', `/api/public/book/${tk}`, { start: slots[i * 4], name: who[i][0], email: who[i][1] });
+    assert.ok(r.status < 300, JSON.stringify(r.body));
+  }
+  assert.equal((await a('GET', '/api/bookings')).body.find((x) => x.id === pg.id).booked_by, 3);
+  const r = await a('POST', `/api/bookings/${pg.id}/contacts`, {});
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.skipped, r.body.names, r.body.booked], [1, 2, ['Liv Visit'], 3]);
+  const mine = (await a('GET', '/api/contacts')).body;
+  assert.ok(mine.some((c) => c.email === 'liv@visit.example' && c.name === 'Liv Visit'));
+  assert.equal(mine.filter((c) => c.email === 'kai@visit.example').length, 1);
+  assert.equal((await other('POST', `/api/bookings/${pg.id}/contacts`, {})).status, 404);
+  resetBookingLimits();
+});
+
 test('booking pages: free times around busy ones; booking puts it on the calendar; taken times refused', async () => {
   const a = client(), outsider = client();
   assert.equal((await owner('POST', '/api/users', { local: 'booker', domain: 'acme.com', name: 'Bea Booker', password: 'password123' })).status, 201);

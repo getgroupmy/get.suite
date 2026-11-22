@@ -2461,6 +2461,12 @@ function BookingPagesDialog({ onClose }) {
                 <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {myWeek().map(([d]) => d).filter((d) => p.days.includes(d)).map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.host_names?.length ? ` · with ${p.host_names.join(', ')}` : ''}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}</span></span>
                 <button type="button" className="btn small" onClick={() => copy(p)}>Copy link</button>
                 <a className="btn small" href={p.url} target="_blank" rel="noreferrer">Open</a>
+                {p.booked_by > 0 && <button type="button" className="icon-btn" aria-label={`Add people who booked ${p.title} to Contacts`} title="Add the people who booked to your contacts" onClick={async () => {
+                  try {
+                    const r = await post(`/bookings/${p.id}/contacts`, {});
+                    toast(r.added ? `Added ${r.added === 1 ? r.names[0] : `${r.added} people`} to your contacts` : 'Everyone who booked is already in your contacts or a colleague');
+                  } catch (e) { toast(e.message, 'error'); }
+                }}><Icon name="person" size={16} /></button>}
                 <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
                 <button type="button" className="icon-btn" aria-label={`Delete ${p.title}`} onClick={async () => {
                   const r = await del(`/bookings/${p.id}`); load();
