@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get } from '../api.js';
+import { get, onLive } from '../api.js';
 import Icon from './Icon.jsx';
 import { Menu, useToast } from './ui.jsx';
 import { addToTasksWithToast } from '../apps/tasks/addtask.js';
@@ -14,8 +14,11 @@ export default function TasksAbout({ url, what = 'file', bump = 0, className = '
   const [tasks, setTasks] = useState([]);
   useEffect(() => {
     let gone = false;
-    get(`/tasks/about?url=${encodeURIComponent(url)}`).then((r) => { if (!gone) setTasks(Array.isArray(r) ? r : []); }).catch(() => {});
-    return () => { gone = true; };
+    const load = () => get(`/tasks/about?url=${encodeURIComponent(url)}`).then((r) => { if (!gone) setTasks(Array.isArray(r) ? r : []); }).catch(() => {});
+    load();
+    // Kept up to date: a task ticked off or added elsewhere (by you or someone on a shared list) changes the count here.
+    const off = onLive((m) => { if (m.type === 'tasks-changed') load(); });
+    return () => { gone = true; off(); };
   }, [url, bump]);
   if (!tasks.length) return null;
   const label = `${tasks.length === 1 ? '1 task' : `${tasks.length} tasks`} to do about this ${what}`; // (not “open”: buttons named Open sit nearby)

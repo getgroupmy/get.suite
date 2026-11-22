@@ -157,11 +157,13 @@ await step('the count follows the tasks: a second one makes 2 at once; ticked of
   }
   const lists = (await api(page, 'GET', '/tasks/lists')).body.lists;
   for (const l of lists) for (const t of (await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body) if (t.link_url === `/docs/${f.id}`) await api(page, 'PATCH', `/tasks/tasks/${t.id}`, { done: true });
-  await Promise.all([page.waitForResponse((r) => r.url().includes('/api/tasks/about')), page.reload()]); // (the count has been asked for again)
-  await page.locator('.ProseMirror').waitFor();
-  await page.locator('.editor-head').getByRole('button', { name: 'More' }).waitFor();
-  await page.waitForTimeout(300);
-  if (await page.getByRole('button', { name: /tasks? to do about this file/ }).count()) throw new Error('done tasks still counted');
+  // (live: the count goes without reloading the page, and comes back when one is reopened)
+  await page.getByRole('button', { name: /tasks? to do about this file/ }).waitFor({ state: 'detached' });
+  const any = [];
+  for (const l of lists) for (const t of (await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body) if (t.link_url === `/docs/${f.id}`) any.push(t);
+  if (!any.length) throw new Error('the tasks are gone');
+  await api(page, 'PATCH', `/tasks/tasks/${any[0].id}`, { done: false });
+  await page.getByRole('button', { name: '1 task to do about this file' }).waitFor();
 });
 await step('its document goes to the trash: the channel says so and doesn’t link to it', async () => {
   const chan = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.about_kind === 'file' && c.about_title === 'Contract notes');
