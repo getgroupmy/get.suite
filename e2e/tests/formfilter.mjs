@@ -117,6 +117,20 @@ await step('Individual → Add this response to Tasks: a task that links back to
   await page.getByRole('button', { name: 'Next response' }).click();
   await page.getByText(/^4 of 4 ·/).waitFor();
 });
+await step('a form that makes a task of each response: the task opens that response', async () => {
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Offsite replies' })).body.id;
+  await api(page, 'PUT', `/forms/${form.id}`, { task_list: list });
+  const r = await page.evaluate(async (t) => (await fetch(`/api/public/forms/${t}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ answers: { where: 'Porto', stars: 2, wish: 'Surf lesson' } }) })).status, form.token);
+  if (r !== 201) throw new Error(String(r));
+  await page.goto(`${B}/tasks/${list}`);
+  await page.locator('.task', { hasText: 'Response to “Offsite”' }).getByText(/Response to/).click();
+  const link = page.getByRole('link', { name: 'Form response: Offsite' });
+  await link.waitFor();
+  if (!(await link.textContent()).includes('📋')) throw new Error(await link.textContent());
+  await link.click();
+  await page.getByText(/^5 of 5 ·/).waitFor();
+  await page.getByText('Surf lesson').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

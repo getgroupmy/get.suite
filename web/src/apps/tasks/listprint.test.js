@@ -60,6 +60,7 @@ test('one task as a note: its title; due, who and list; notes; steps as lines; a
 });
 
 test('the picture beside a task’s link says where it goes', () => {
+  assert.equal(linkIcon('https://ws.test/forms/1?tab=responses'), '📋');
   assert.deepEqual(['/chat/1', '/docs/1', '/sheets/1', '/slides/1', '/drive?preview=1', '/drive/folder/1', '/calendar?event=1', '/contacts?q=Dana', '/forms/1?tab=responses', '/notes?note=1', '/mail?open=1', null].map(linkIcon),
     ['💬', '📄', '📊', '🖼', '📁', '📁', '📅', '👤', '📋', '📝', '✉', '✉']);
 });

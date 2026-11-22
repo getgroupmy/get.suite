@@ -43,7 +43,9 @@ test('each response becomes a task on the chosen list, titled by the chosen ques
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].title, 'A new laptop charger');
   assert.match(tasks[0].notes, /^From Mia Member\nWhat do you need\?: A new laptop charger\nHow urgent\?: Today$/);
-  assert.match(tasks[0].link_url, /\/forms\/[\w-]+\?tab=responses$/);
+  // Its link opens the form on this very response (a path within the app, like every other task link).
+  const sent = (await olivia('GET', `/api/forms/${f.id}/responses`)).body.responses;
+  assert.deepEqual([tasks[0].link_url, tasks[0].link_label], [`/forms/${f.id}?tab=responses&r=${sent[0].id}`, 'Form response: IT help']);
   // Without a title question: "Response to … from …".
   await olivia('PUT', `/api/forms/${f.id}`, { task_title: null });
   await mia('POST', `/api/public/forms/${f.token}`, { answers: { what: 'Printer' } });

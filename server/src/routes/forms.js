@@ -1433,7 +1433,7 @@ export function publicFormRoutes() {
         addTaskFor(form.task_list, {
           title: head ? head.replace(/\s+/g, ' ').slice(0, 200) : `Response to “${form.title}”${from ? ` from ${from}` : ''}`,
           notes: `${from ? `From ${from}\n` : ''}${answersText(form.questions, answers)}`,
-          url: `${baseUrlOf(req)}/forms/${form.id}?tab=responses`, label: `${form.title} (responses)`.slice(0, 100), by: form.owner_id,
+          url: `/forms/${form.id}?tab=responses&r=${id}`, label: `Form response: ${form.title}`.slice(0, 100), by: form.owner_id, // (opens on this very response)
         });
       } catch (e) { console.error('[forms] task:', e.message); }
     }
