@@ -40,7 +40,7 @@ import { whenText, laterChoices, ScheduleDialog } from '../../components/schedul
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords, MentionedAway } from '../../components/mentions.jsx';
 import TasksAbout from '../../components/TasksAbout.jsx';
-import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
+import { addToTasksWithToast, eventFromMessage, titleFromText } from '../tasks/addtask.js';
 import { isPaused, pauseUntil } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
 import { newFromId, newCount, belowText } from './unread.js';
@@ -1471,6 +1471,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         <button type="button" className="icon-btn" aria-label="Copy link to message" title="Copy link to message" onClick={copyLink}><Icon name="link" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Save to Notes" title="Save to Notes" onClick={toNote}><Icon name="note" size={16} /></button>
+        {!m.poll && <button type="button" className="icon-btn" aria-label="Create event" title="Create event: a new event in Calendar from this message, to set and save" onClick={() => navigate('/calendar', { state: { newEvent: eventFromMessage(m, messageLink(m)) } })}><Icon name="calendar" size={16} /></button>}
         {m.files?.some((f) => !f.gone) && m.user_id !== user.id && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}
           items={m.files.filter((f) => !f.gone).flatMap((f, _, live) => saveItems(toast, navigate, m.id, f, setSavingTo, live.length > 1))} />}
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}

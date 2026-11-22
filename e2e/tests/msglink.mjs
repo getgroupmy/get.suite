@@ -84,6 +84,26 @@ await step('a private message: shown to members, not to others', async () => {
   await lee.getByRole('link', { name: 'Message from Olivia Owner in #launch' }).waitFor();
   await lee.screenshot({ path: `${SP}/shots/msglink-lee.png` });
 });
+await step('a message → Create event: a new event from it, with a link back that opens the message', async () => {
+  const m = (await api(page, 'POST', `/chat/channels/${pub}/messages`, { body: '**Demo** for Globex\nThursday works for them' })).body;
+  await page.goto(`${B}/chat/${pub}`);
+  const msg = page.locator('.msg', { hasText: 'Thursday works for them' });
+  await msg.hover();
+  await msg.getByRole('button', { name: 'Create event' }).click();
+  await page.waitForURL(/\/calendar/);
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  if ((await dlg.getByLabel('Title').inputValue()) !== 'Demo for Globex') throw new Error(await dlg.getByLabel('Title').inputValue());
+  const text = await dlg.getByLabel('Description').inputValue();
+  if (!new RegExp(`^\\*\\*Demo\\*\\* for Globex\\nThursday works for them\\n\\nFrom Olivia Owner in Chat: https?://[^/\\s]+/chat/${pub}\\?msg=${m.id}$`).test(text)) throw new Error(text);
+  await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const now = Date.now();
+  const evs = (await api(page, 'GET', `/events?from=${now - 36e5}&to=${now + 2 * 864e5}`)).body;
+  const ev = (Array.isArray(evs) ? evs : evs.events || []).find((e) => e.title === 'Demo for Globex');
+  if (!ev || ev.end - ev.start !== 36e5 || ev.start < now) throw new Error(JSON.stringify(ev));
+  await page.goto(text.split(': ').pop().replace(/^https?:\/\/[^/]+/, B));
+  await page.locator('.msg', { hasText: 'Thursday works for them' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

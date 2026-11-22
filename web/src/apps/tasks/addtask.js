@@ -8,6 +8,17 @@ export function titleFromText(text) {
   return plain.length > 200 ? `${plain.slice(0, 199)}…` : plain;
 }
 
+/**
+ * "Create event" on a chat message: a new event named after its first line, an hour from the next half hour, with
+ * what it says, who wrote it and a link back in the description. `now` is a timestamp.
+ */
+export function eventFromMessage(m, link = '', now = Date.now()) {
+  const start = Math.ceil(now / 18e5) * 18e5;
+  const said = String(m.body || '').trim().slice(0, 4000);
+  const description = [said, [m.user_name && `From ${m.user_name} in Chat`, link].filter(Boolean).join(': ')].filter(Boolean).join('\n\n');
+  return { title: titleFromText(m.body), start, end: start + 36e5, all_day: 0, location: '', description };
+}
+
 /** Where an email's task links to: by Message-ID when it has one (so it's found after it's moved). */
 export function mailLink(m) {
   return m.messageId ? `/mail?open=${encodeURIComponent(m.messageId)}` : `/mail/${encodeURIComponent(m.folder)}/${m.uid}`;
