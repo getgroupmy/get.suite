@@ -85,8 +85,10 @@ export function teamWorkloadOf(userId, today) {
 }
 
 /** Workload as CSV (Excel opens it): one row per person, estimates in hours. `team` adds how many lists. */
-export function workloadCsv(people, { team = false } = {}) {
+export function workloadTable(people, { team = false } = {}) {
   const head = ['Person', ...(team ? ['Lists'] : []), 'Open', 'Overdue', 'This week', 'Next week', 'Later', 'No date', 'Estimated (hours)'];
-  const rows = people.map((p) => [p.name, ...(team ? [p.lists] : []), p.open, p.overdue, p.this_week, p.next_week, p.later, p.no_date, p.estimate ? Math.round((p.estimate / 60) * 100) / 100 : '']);
-  return `\ufeff${[head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  return [head, ...people.map((p) => [p.name, ...(team ? [p.lists] : []), p.open, p.overdue, p.this_week, p.next_week, p.later, p.no_date, p.estimate ? Math.round((p.estimate / 60) * 100) / 100 : ''])];
+}
+export function workloadCsv(people, opts = {}) {
+  return `\ufeff${workloadTable(people, opts).map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }

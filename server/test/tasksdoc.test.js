@@ -210,3 +210,28 @@ test('a sheet copied to a new presentation: a slide with its title and the table
   // The document copy still works through the shared step.
   assert.equal((await ann('POST', `/api/files/${sh.id}/sheet-doc`, {})).status, 201);
 });
+
+test('workload in Sheets: a list’s and the team’s, a row per person with the counts as numbers', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const miaId = (await mia('GET', '/api/auth/me')).body.user.id;
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Fair stand' })).body.id;
+  assert.equal((await ann('POST', `/api/tasks/lists/${list}/workload/sheet`, { today: '2026-11-18' })).status, 400, 'nobody yet');
+  await ann('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [miaId] });
+  await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Build the stand', due: '2026-11-01', assignee_id: miaId });
+  await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Order flyers', assignee_id: miaId });
+  const r = await ann('POST', `/api/tasks/lists/${list}/workload/sheet`, { today: '2026-11-18' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Workload Fair stand 2026-11-18');
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual(['A1', 'B1', 'C1'].map((k) => sh.cells[k]), ['Person', 'Open', 'Overdue']);
+  const row = Object.keys(sh.cells).find((k) => sh.cells[k] === 'Mia Member').slice(1);
+  assert.deepEqual(['B', 'C', 'G'].map((c) => sh.cells[`${c}${row}`]), ['2', '1', '1']);
+  const team = await mia('POST', '/api/tasks/workload/sheet', { today: '2026-11-18' });
+  assert.equal(team.status, 201, JSON.stringify(team.body));
+  const ts = (await mia('GET', `/api/files/${team.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([ts.cells.A1, ts.cells.B1], ['Person', 'Lists']);
+  const other = (await mia('POST', '/api/tasks/lists', { name: 'Mia own' })).body.id;
+  assert.equal((await ann('POST', `/api/tasks/lists/${other}/workload/sheet`, {})).status, 404);
+});

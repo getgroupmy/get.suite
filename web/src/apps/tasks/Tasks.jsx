@@ -1102,11 +1102,17 @@ function Workload({ list = null, onClose, onPick }) {
   const [w, setW] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => { get(list ? `/tasks/lists/${list.id}/workload?today=${localToday()}` : `/tasks/workload?today=${localToday()}`).then(setW).catch((e) => setError(e.message)); }, [list?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const navigate = useNavigate();
+  // Open in Sheets: the table in a new spreadsheet of yours (as the .csv has it).
+  const toSheet = async () => {
+    try { const r = await post(list ? `/tasks/lists/${list.id}/workload/sheet` : '/tasks/workload/sheet', { today: localToday() }); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   const most = w ? Math.max(1, ...w.people.map((p) => p.open)) : 1;
   const hours = (m) => (m ? (m >= 60 ? `${Math.round(m / 6) / 10} h` : `${m} min`) : '');
   const cols = [['overdue', 'Overdue'], ['this_week', 'This week'], ['next_week', 'Next week'], ['later', 'Later'], ['no_date', 'No date']];
   return (
-    <Modal wide title={list ? `Workload on “${list.name}”` : 'Team workload'} onClose={onClose} footer={<>{w?.people.length > 0 && <a className="btn" href={`/api/tasks/${list ? `lists/${list.id}/` : ''}workload.csv?today=${localToday()}`} download>Download (.csv)</a>}<button type="button" className="btn" onClick={onClose}>Close</button></>}>
+    <Modal wide title={list ? `Workload on “${list.name}”` : 'Team workload'} onClose={onClose} footer={<>{w?.people.length > 0 && <a className="btn" href={`/api/tasks/${list ? `lists/${list.id}/` : ''}workload.csv?today=${localToday()}`} download>Download (.csv)</a>}{w?.people.some((p) => p.open > 0) && <button type="button" className="btn" onClick={toSheet}>Open in Sheets</button>}<button type="button" className="btn" onClick={onClose}>Close</button></>}>
       {error && <p className="error">{error}</p>}
       {!w && !error && <p className="muted">Loading…</p>}
       {w && !list && !w.people.length && <p className="muted">Nobody to show yet: share a list with colleagues and give them tasks.</p>}

@@ -141,6 +141,15 @@ await step('Team workload: each person across the shared lists you’re on', asy
   const csv = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
   if (!/Person,Lists,Open,Overdue/.test(csv) || !/Kim Park,1,3,1,/.test(csv)) throw new Error(csv);
 });
+await step('Team workload → Open in Sheets: the same table in a new spreadsheet', async () => {
+  const dlg = page.getByRole('dialog', { name: 'Team workload' });
+  await dlg.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.getByText(/^Made “Team workload \d{4}-\d{2}-\d{2}” in your Drive$/).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="B1"]', { hasText: 'Lists' }).waitFor();
+  await page.getByText('Kim Park', { exact: true }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

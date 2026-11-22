@@ -2,7 +2,7 @@
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
 import { binAndDelete, restoreFromBin, binOf, noticeAfterUndo } from '../recyclebin.js';
-import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf, workloadCsv } from '../taskworkload.js';
+import { workloadOf, overdueFor, noteReminder, titlesText, teamWorkloadOf, workloadCsv, workloadTable } from '../taskworkload.js';
 import { listsFromGoogleTasks } from '../googletasks.js';
 import { boardFromTrello } from '../trello.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
@@ -719,6 +719,21 @@ export default function taskRoutes() {
     const list = loadList(req.params.id, req.user);
     const day = dayOf(req);
     sendCsv(res, `Workload ${list.name} ${day}.csv`, workloadCsv(workloadOf(list, day)));
+  });
+  // Workload in Sheets: the same table as the .csv, in a new spreadsheet of yours (numbers as numbers, the heading row kept
+  // in view), for the team's workload or a list's. { today } is the browser's day.
+  const workloadSheet = (req, res, name, table) => {
+    const open = table[0].indexOf('Open');
+    if (!table.slice(1).some((r) => Number(r[open]) > 0)) throw bad('Nobody has open tasks here');
+    const json = JSON.stringify(sheetFromRows(table.map((r, i) => (i ? r.map((v) => String(v)) : r)), { header: true, name: 'Workload' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: name.slice(0, 200), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, people: table.length - 1 });
+  };
+  r.post('/workload/sheet', (req, res) => { const day = dayOf({ query: { today: req.body?.today } }); workloadSheet(req, res, `Team workload ${day}`, workloadTable(teamWorkloadOf(req.user.id, day).people, { team: true })); });
+  r.post('/lists/:id/workload/sheet', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const day = dayOf({ query: { today: req.body?.today } });
+    workloadSheet(req, res, `Workload ${list.name} ${day}`, workloadTable(workloadOf(list, day)));
   });
   // Workload: open tasks per person on the list, by when they're due (taskworkload.js). ?today=YYYY-MM-DD (the browser's day).
   r.get('/lists/:id/workload', (req, res) => {
