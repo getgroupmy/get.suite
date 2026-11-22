@@ -493,6 +493,11 @@ export default function Tasks() {
               ...(list.members.length ? [{ label: 'Chat with the list’s people', icon: 'chat', onClick: async () => {
                 try { const r = await post(`/tasks/lists/${list.id}/chat`, {}); toast(r.created ? 'A channel for this list, with everyone on it' : r.added ? `Added ${r.added} more to the list’s channel` : 'The list’s channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
               } }] : []),
+              ...(list.inbox ? ((lists || []).find((l) => l.mine)?.id !== list.id ? [{ label: 'Stop using for Add to Tasks', icon: 'close', onClick: async () => {
+                try { const r = await put('/tasks/inbox', { list_id: null }); toast(`Add to Tasks uses “${r.list.name}” again`); loadLists(); } catch (e) { toast(e.message, 'error'); }
+              } }] : []) : [{ label: 'Use for Add to Tasks', icon: 'check', onClick: async () => { // (where Mail, Chat and Notes put the tasks they add)
+                try { await put('/tasks/inbox', { list_id: list.id }); toast(`Add to Tasks (in Mail, Chat and Notes) now uses “${list.name}”`); loadLists(); } catch (e) { toast(e.message, 'error'); }
+              } }]),
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); toast('Completed tasks deleted: ⋮ → Deleted tasks… puts them back'); } }] : []),
               { label: 'Activity…', icon: 'clock', onClick: () => setDialog('activity') },

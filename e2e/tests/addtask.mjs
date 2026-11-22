@@ -98,6 +98,27 @@ await step('a chat message becomes a task that links back to it', async () => {
   await page.waitForURL(new RegExp(`/chat/${ch}`));
   await page.locator('.msg', { hasText: 'the meeting room for Monday' }).waitFor();
 });
+await step('Tasks → Use for Add to Tasks: a chat message then goes to the list chosen', async () => {
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Follow-ups' })).body.id;
+  await page.goto(`${B}/tasks/${list}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Use for Add to Tasks' }).click();
+  await page.getByText('Add to Tasks (in Mail, Chat and Notes) now uses “Follow-ups”').waitFor();
+  const ch = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.name === 'office').id;
+  await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: 'Send the invoice to Globex' });
+  await page.goto(`${B}/chat/${ch}`);
+  const msg = page.locator('.msg', { hasText: 'Send the invoice to Globex' });
+  await msg.hover();
+  await msg.getByRole('button', { name: 'Add to Tasks' }).click();
+  await page.getByText('Added to Follow-ups').waitFor();
+  const titles = (await api(page, 'GET', `/tasks/lists/${list}/tasks`)).body.map((t) => t.title);
+  if (!titles.includes('Send the invoice to Globex')) throw new Error(titles.join());
+  // Back to the first list.
+  await page.goto(`${B}/tasks/${list}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Stop using for Add to Tasks' }).click();
+  await page.getByText('Add to Tasks uses “My tasks” again').waitFor();
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

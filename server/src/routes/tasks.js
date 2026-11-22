@@ -375,7 +375,16 @@ q(`CREATE TABLE IF NOT EXISTS doc_action_tasks (
 )`).run();
 const itemKey = (text) => String(text).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 300);
 
+// The list tasks added for you from elsewhere go to (Add to Tasks in Mail and Chat, a note's items, comments and
+// action items assigned to you): one you chose, while you're still on it; otherwise your first list.
+q(`CREATE TABLE IF NOT EXISTS task_inbox (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE
+)`).run();
 export function myFirstList(userId) {
+  const chosen = q(`SELECT l.* FROM task_inbox i JOIN task_lists l ON l.id = i.list_id
+                    WHERE i.user_id = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))`).get(userId, userId, userId);
+  if (chosen) return chosen;
   if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(userId)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), userId, 'My tasks', now());
   return q('SELECT * FROM task_lists WHERE owner_id = ? ORDER BY created_at LIMIT 1').get(userId);
 }
@@ -496,9 +505,20 @@ export default function taskRoutes() {
     // Due today or overdue in Planned (today as the browser sees it, ?today=YYYY-MM-DD).
     const today = dueOf(String(req.query.today || '')) || new Date().toISOString().slice(0, 10);
     const planned = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE ${PLANNED} AND t.due <= ?`).get(me, me, me, today).n;
-    res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important, planned });
+    const inbox = myFirstList(me).id; // where Add to Tasks puts things
+    res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, inbox: l.id === inbox, members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important, planned });
   });
 
+  // The list Add to Tasks uses: { list_id } (one of yours or one shared with you), or null for your first list again.
+  r.put('/inbox', (req, res) => {
+    if (req.body?.list_id) {
+      const list = loadList(String(req.body.list_id), req.user);
+      q('INSERT INTO task_inbox (user_id, list_id) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET list_id = excluded.list_id').run(req.user.id, list.id);
+    } else q('DELETE FROM task_inbox WHERE user_id = ?').run(req.user.id);
+    const list = myFirstList(req.user.id);
+    sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
+    res.json({ list: { id: list.id, name: list.name } });
+  });
   r.post('/lists', (req, res) => {
     if (q('SELECT COUNT(*) AS n FROM task_lists WHERE owner_id = ?').get(req.user.id).n >= MAX_LISTS) throw bad('Too many lists');
     const id = uid();

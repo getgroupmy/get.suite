@@ -329,3 +329,29 @@ test('a note’s unticked items to Tasks on the list you choose (yours or shared
   assert.equal((await ann('POST', `/api/notes/${note.id}/tasks`, { list_id: hers })).status, 404);
   assert.equal((await mia('GET', `/api/tasks/lists/${hers}/tasks`)).body.length, 0);
 });
+
+test('the list Add to Tasks uses: chosen (yours or shared with you), marked in the lists, used for a note’s items; back to the first list', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const marked = async () => (await ann('GET', '/api/tasks/lists')).body.lists.filter((l) => l.inbox).map((l) => l.id);
+  const first = (await marked())[0];
+  assert.ok(first, 'the first list to start with');
+  const inbox = (await ann('POST', '/api/tasks/lists', { name: 'Inbox' })).body.id;
+  const r = await ann('PUT', '/api/tasks/inbox', { list_id: inbox });
+  assert.deepEqual([r.status, r.body.list.name], [200, 'Inbox']);
+  assert.deepEqual(await marked(), [inbox]);
+  // A note's items, with no list named, go there now.
+  const note = (await ann('POST', '/api/notes', { title: 'Errand', items: [{ text: 'Post the parcel', done: false }] })).body;
+  assert.equal((await ann('POST', `/api/notes/${note.id}/tasks`, {})).body.list.id, inbox);
+  // Someone else's private list can't be chosen.
+  const hers = (await mia('POST', '/api/tasks/lists', { name: 'Mia inbox' })).body.id;
+  assert.equal((await ann('PUT', '/api/tasks/inbox', { list_id: hers })).status, 404);
+  assert.deepEqual(await marked(), [inbox]);
+  // The list deleted: back to the first; and null does the same.
+  assert.equal((await ann('DELETE', `/api/tasks/lists/${inbox}`)).status, 200);
+  assert.deepEqual(await marked(), [first]);
+  const again = (await ann('POST', '/api/tasks/lists', { name: 'Inbox 2' })).body.id;
+  await ann('PUT', '/api/tasks/inbox', { list_id: again });
+  assert.equal((await ann('PUT', '/api/tasks/inbox', { list_id: null })).body.list.id, first);
+});
