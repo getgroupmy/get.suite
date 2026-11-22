@@ -195,6 +195,18 @@ function loadManaged(id, user) {
   throw forbidden('Only the owner can change who has access');
 }
 
+// One sheet of a spreadsheet you can open, as CSV with its values as shown (for Add rows to Calendar / Tasks / Contacts):
+// not when its owner has turned off copying. `sheet` is its index (the first if out of range).
+export async function sheetAsCsv(fileId, sheet, user, notSheet = 'Choose a spreadsheet') {
+  const f = loadFile(String(fileId || ''), user);
+  if (f.kind !== 'sheet') throw bad(notSheet);
+  if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+  saveNow(f.id);
+  const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+  const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(sheet) || 0));
+  return (await delimitedFromSheet(data, index, ',')).replace(/^\ufeff/, '');
+}
+
 export function loadFile(id, user, needed = 'viewer') {
   const f = q(`SELECT ${COLS}, f.storage ${FROM} WHERE f.id = ?`).get(id);
   if (!f) throw notFound('File not found');
@@ -2452,14 +2464,8 @@ export default function fileRoutes({ maxUploadBytes }) {
   // End Time, All day event, Description, Location, as Outlook and Google Calendar write it) added to your calendar,
   // its values as the sheet shows them; ones already there (the same title and times) left out.
   r.post('/:id/add-events', async (req, res) => {
-    const f = loadFile(req.params.id, req.user);
-    if (f.kind !== 'sheet') throw bad('Only a spreadsheet’s rows become events');
-    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
-    saveNow(f.id);
-    const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
-    const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(req.body?.sheet) || 0));
-    const csv = await delimitedFromSheet(data, index, ',');
-    const r2 = importCalendar(req.user.id, csv.replace(/^\ufeff/, ''), String(req.body?.tz || 'UTC'));
+    const csv = await sheetAsCsv(req.params.id, req.body?.sheet, req.user, 'Only a spreadsheet’s rows become events');
+    const r2 = importCalendar(req.user.id, csv, String(req.body?.tz || 'UTC'));
     if (r2.error) throw bad(r2.error.replace('This isn’t a calendar file (.ics) or a calendar exported as CSV', 'This sheet isn’t laid out as a calendar: give it columns Subject, Start Date and Start Time (and End Date, End Time, All day event, Description, Location if you like)'));
     if (r2.added) sendTo([req.user.id], { type: 'events-changed' });
     res.json(r2);

@@ -7,7 +7,7 @@ import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
 import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT, contactsTable } from '../contactfiles.js';
 import { sheetFromRows } from '../office/tablesheet.js';
-import { insertFile } from './files.js';
+import { insertFile, sheetAsCsv } from './files.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { sendTo } from '../hub.js';
 import { notify } from '../notifications.js';
@@ -401,6 +401,14 @@ export default function contactRoutes() {
   // Import a .vcf (one or many cards) or a CSV export (Gmail, Outlook, or Name/Email columns).
   r.post('/import', express.text({ type: () => true, limit: '20mb' }), (req, res) => {
     res.json(importContacts(req.user, req.body));
+  });
+
+  // Add rows to Contacts (Sheets): { file, sheet } — the sheet read as Import reads a CSV (Name, Email, Phone, Company…);
+  // anyone already in your contacts isn't added twice.
+  r.post('/from-sheet', async (req, res) => {
+    const csv = await sheetAsCsv(req.body?.file, req.body?.sheet, req.user);
+    try { res.json(importContacts(req.user, csv)); }
+    catch (e) { if (/contacts file/.test(e.message)) throw bad('This sheet isn’t laid out as contacts: give it a Name or Email column (and Phone, Company, Job title, Address, Notes… if you like)'); throw e; }
   });
 
   // Is this address one of your contacts, or a colleague? (For "Add to contacts" on a message.)

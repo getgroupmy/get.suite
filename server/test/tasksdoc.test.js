@@ -75,3 +75,21 @@ test('a sheet’s rows added to a list (from-sheet): read as Import from CSV rea
   assert.equal((await ann('POST', `/api/tasks/lists/${list}/from-sheet`, { file: d.id })).status, 400);
   assert.equal((await ann('POST', `/api/tasks/lists/${list}/from-sheet`, { file: 'nope' })).status, 404);
 });
+
+test('a sheet’s rows added to Contacts (from-sheet): read as Import reads a CSV, no one added twice, a sheet not so laid out explained', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const sh = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Suppliers', content: { sheets: [{ name: 'S', cells: {
+    A1: 'Name', B1: 'Email', C1: 'Phone', D1: 'Company', A2: 'Rhea Rowe', B2: 'rhea@supply.example', C2: "'+44 20 7946 0000", D2: 'Rowe Paper', A3: 'Sol Sand', B3: 'sol@supply.example' } }] } })).body;
+  const r = await ann('POST', '/api/contacts/from-sheet', { file: sh.id });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.skipped], [2, 0]);
+  const rhea = (await ann('GET', '/api/contacts')).body.find((c) => c.email === 'rhea@supply.example');
+  assert.deepEqual([rhea.name, rhea.phone, rhea.company], ['Rhea Rowe', '+44 20 7946 0000', 'Rowe Paper']);
+  assert.deepEqual((await ann('POST', '/api/contacts/from-sheet', { file: sh.id })).body, { added: 0, skipped: 2 });
+  const nums = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Numbers', content: { sheets: [{ name: 'S', cells: { A1: 'x', B1: 'y', A2: '1', B2: '2' } }] } })).body;
+  const no = await ann('POST', '/api/contacts/from-sheet', { file: nums.id });
+  assert.equal(no.status, 400);
+  assert.match(no.body.error, /laid out as contacts/);
+  assert.equal((await ann('POST', '/api/contacts/from-sheet', { file: 'nope' })).status, 404);
+});

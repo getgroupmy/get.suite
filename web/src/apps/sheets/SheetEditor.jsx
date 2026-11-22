@@ -1422,6 +1422,12 @@ export default function SheetEditor() {
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           mail?.enabled && !viewOnly(file) && { label: 'Send as email', icon: 'mail', onClick: sendAsEmail },
           !viewOnly(file) && { label: 'Add rows to Tasks…', icon: 'check', onClick: () => setDialog({ type: 'to-tasks' }) },
+          !viewOnly(file) && { label: 'Add rows to Contacts', icon: 'person', onClick: async () => {
+            try {
+              const r = await post('/contacts/from-sheet', { file: id, sheet: active });
+              toast(r.added ? `Added ${r.added} contact${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already in your contacts)` : ''}` : 'Everyone on this sheet is already in your contacts', 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
+            } catch (e) { toast(e.message, 'error'); }
+          } },
           !viewOnly(file) && { label: 'Add events to Calendar', icon: 'calendar', onClick: async () => { // (a sheet laid out as a calendar's CSV: Subject, Start Date, Start Time…)
             try {
               const r = await post(`/files/${id}/add-events`, { sheet: active, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });

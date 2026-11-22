@@ -128,6 +128,21 @@ await step('Sheets ⋮ → Add rows to Tasks…: each row a task in the list you
   const venue = ts.find((x) => x.title === 'Book the venue');
   if (!venue || venue.notes !== 'Ask for the big room' || !ts.some((x) => x.title === 'Order badges')) throw new Error(JSON.stringify(got).slice(0, 400));
 });
+await step('Sheets ⋮ → Add rows to Contacts: a sheet of names and emails becomes contacts, not twice', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Suppliers', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Name', B1: 'Email', C1: 'Company', A2: 'Rhea Rowe', B2: 'rhea@supply.example', C2: 'Rowe Paper' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A2"]', { hasText: 'Rhea Rowe' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Add rows to Contacts' }).click();
+  await page.getByText('Added 1 contact').waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Add rows to Contacts' }).click();
+  await page.getByText('Everyone on this sheet is already in your contacts').waitFor();
+  await page.getByRole('button', { name: 'Open Contacts' }).last().click();
+  await page.waitForURL(/\/contacts/);
+  await page.getByText('Rhea Rowe').first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

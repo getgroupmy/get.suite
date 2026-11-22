@@ -20,11 +20,9 @@ import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
 import { canReach } from '../tenancy.js';
-import { audienceFor, roleFor, atLeast, mayTakeAway } from '../access.js';
+import { audienceFor, roleFor, atLeast } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
-import { insertFile, loadFile } from './files.js';
-import { delimitedFromSheet } from '../office/sheetvalues.js';
-import { saveNow } from '../collab.js';
+import { insertFile, sheetAsCsv } from './files.js';
 import { scheduleTask, blocksOf, clashes } from '../taskblocks.js';
 import { recordChanges, historyOf, forgetGoneHistory, listActivity } from '../taskhistory.js';
 import { csvCell } from '../csvcell.js';
@@ -905,13 +903,7 @@ export default function taskRoutes() {
   // as Import from CSV reads them) added to the end of a list, its values as the sheet shows them. { file, sheet }
   r.post('/lists/:id/from-sheet', async (req, res) => {
     const list = loadList(req.params.id, req.user);
-    const f = loadFile(String(req.body?.file || ''), req.user);
-    if (f.kind !== 'sheet') throw bad('Choose a spreadsheet');
-    if (!mayTakeAway(f, f.role)) throw bad('Its owner has turned off copying from it');
-    saveNow(f.id);
-    const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
-    const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(req.body?.sheet) || 0));
-    const csvText = (await delimitedFromSheet(data, index, ',')).replace(/^\ufeff/, '');
+    const csvText = await sheetAsCsv(req.body?.file, req.body?.sheet, req.user);
     res.json({ ...importInto(list, csvText, req.user), list: { id: list.id, name: list.name } });
   });
 
