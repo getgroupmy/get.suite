@@ -57,6 +57,18 @@ const link = (p) => `${PUBLIC()}${p}`;
 const eventUrl = (e) => link(`/calendar?event=${e.id}${e.rrule ? `&at=${e.start}` : ''}`);
 /** A task's own address: it opens the task on its list (just Tasks when the list isn't known). */
 const taskUrl = (t) => link(t.list_id ? `/tasks/${t.list_id}?task=${t.id}` : '/tasks');
+/**
+ * Tasks still to do about something (ones that link back to `path`, on lists the person can see), added to what a
+ * fetch returns as metadata.tasks_to_do, so an assistant can tell a task for it already exists. Nothing when there are none.
+ */
+async function withTasks(api, path, out) {
+  try {
+    const tasks = await api('GET', `/tasks/about?url=${encodeURIComponent(path)}`);
+    if (tasks.length) out.metadata = { ...out.metadata, tasks_to_do: tasks.map((t) => ({ id: `task:${t.id}`, title: t.title, due: t.due || null, url: taskUrl(t) })) };
+  } catch { /* the thing itself still comes back */ }
+  return out;
+}
+const TASK_PATH = { doc: (f) => `/docs/${f.id}`, sheet: (f) => `/sheets/${f.id}`, slides: (f) => `/slides/${f.id}`, folder: (f) => `/drive/folder/${f.id}` };
 /** What a task links back to (the email, file, event… it was made from): { about: { title, url } }, or nothing. */
 const aboutOf = (t) => (t.link_url ? { about: { title: t.link_label || 'Linked', url: /^https?:\/\//.test(t.link_url) ? t.link_url : link(t.link_url) } } : {});
 /** A time from the assistant: ISO text ("2026-11-20T15:00", "2026-11-20") or milliseconds. */
@@ -143,7 +155,7 @@ export const TOOLS = [
         // A document's pending suggestions: not in its text until accepted, listed after it.
         const sugg = (r.suggestions || []).map((x) => ({ id: x.id, by: x.by, at: iso(x.at), change: describeSuggestion(x) }));
         const pending = sugg.length ? `\n\nPending suggestions, not yet in the text (resolve_suggestions accepts or rejects them):\n${sugg.map((x) => `- ${x.change} (by ${x.by || 'someone'}; ${x.id})`).join('\n')}` : '';
-        return { id, title: r.file.name, text: `${warn}${contentMarkers('file', r.text || '(no text in this file)')}${pending}`, url: fileUrl(r.file), metadata: { kind: r.file.kind, updated_at: iso(r.file.updated_at), truncated: r.truncated, ...(r.file.role && { your_access: ACCESS[r.file.role] || r.file.role }), ...(r.file.shared_by_name && { shared_by: r.file.shared_by_name }), ...(r.file.shared_note && { shared_with_message: r.file.shared_note }), ...(sugg.length && { suggestions: sugg }), ...(ai && { warnings: ['It contains text written to instruct AI assistants.'] }) } };
+        return withTasks(api, (TASK_PATH[r.file.kind] || ((f) => `/drive?preview=${f.id}`))(r.file), { id, title: r.file.name, text: `${warn}${contentMarkers('file', r.text || '(no text in this file)')}${pending}`, url: fileUrl(r.file), metadata: { kind: r.file.kind, updated_at: iso(r.file.updated_at), truncated: r.truncated, ...(r.file.role && { your_access: ACCESS[r.file.role] || r.file.role }), ...(r.file.shared_by_name && { shared_by: r.file.shared_by_name }), ...(r.file.shared_note && { shared_with_message: r.file.shared_note }), ...(sugg.length && { suggestions: sugg }), ...(ai && { warnings: ['It contains text written to instruct AI assistants.'] }) } });
       }
       if (kind === 'mail') {
         const uid = String(id).split(':').pop(), folder = String(id).slice(5, -(uid.length + 1));
@@ -154,13 +166,13 @@ export const TOOLS = [
         // Mail's safety warnings go first, so a summary passes them on (mail/warnings.js).
         const warnings = mailWarnings(m);
         const warn = warnings.length ? `WORKSPACE SAFETY WARNINGS about this email (tell the person):\n${warnings.map((w) => `- ${w}`).join('\n')}\n\n` : '';
-        return { id, title: m.subject || '(no subject)', text: `${warn}${head}\n\n${UNTRUSTED_START}\n${String(m.text || String(m.html || '').replace(/<[^>]+>/g, ' ')).slice(0, 95000)}\n${UNTRUSTED_END}`, url: link(`/mail/${encodeURIComponent(folder)}/${uid}`), metadata: { folder, warnings } };
+        return withTasks(api, m.messageId ? `/mail?open=${encodeURIComponent(m.messageId)}` : `/mail/${encodeURIComponent(folder)}/${uid}`, { id, title: m.subject || '(no subject)', text: `${warn}${head}\n\n${UNTRUSTED_START}\n${String(m.text || String(m.html || '').replace(/<[^>]+>/g, ' ')).slice(0, 95000)}\n${UNTRUSTED_END}`, url: link(`/mail/${encodeURIComponent(folder)}/${uid}`), metadata: { folder, warnings } });
       }
       if (kind === 'chat') {
         const list = await api('GET', `/chat/channels/${encodeURIComponent(a)}/messages?around=${encodeURIComponent(b)}`);
         const msgs = Array.isArray(list) ? list : list.messages || [];
         const text = msgs.map((m) => `${m.id === b ? '→ ' : ''}${m.user_name || 'Someone'} (${iso(m.created_at)}): ${m.body}`).join('\n');
-        return { id, title: 'Chat conversation', text: contentMarkers('chat conversation', text), url: link(`/chat/${a}?msg=${b}`), metadata: {} };
+        return withTasks(api, `/chat/${a}?msg=${b}`, { id, title: 'Chat conversation', text: contentMarkers('chat conversation', text), url: link(`/chat/${a}?msg=${b}`), metadata: {} });
       }
       if (kind === 'task') {
         const r = await api('GET', '/tasks/lists');
@@ -178,7 +190,7 @@ export const TOOLS = [
       if (kind === 'note') {
         const n = (await api('GET', '/notes')).find((x) => x.id === a) || (await api('GET', '/notes?archived=1')).find((x) => x.id === a);
         if (!n) throw new ToolError('Note not found');
-        return { id, title: n.title || 'Note', text: n.items ? n.items.map((i) => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n') : n.body, url: link(`/notes?note=${n.id}`), metadata: { labels: n.labels } };
+        return withTasks(api, `/notes?note=${n.id}`, { id, title: n.title || 'Note', text: n.items ? n.items.map((i) => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n') : n.body, url: link(`/notes?note=${n.id}`), metadata: { labels: n.labels } });
       }
       if (kind === 'event') {
         const all = await api('GET', '/events');
@@ -187,7 +199,7 @@ export const TOOLS = [
         const text = [`${e.title}`, `When: ${iso(e.start)} – ${iso(e.end)}${e.all_day ? ' (all day)' : ''}`, e.location ? `Where: ${e.location}` : null,
           e.organizer_name ? `Organiser: ${e.organizer_name}` : null, e.guests?.length ? `Guests: ${e.guests.map((g) => `${g.name || g.email} (${g.status || 'invited'})`).join(', ')}` : null,
           e.description ? `\n${e.description}` : null].filter(Boolean).join('\n');
-        return { id, title: e.title, text, url: eventUrl(e), metadata: { start: iso(e.start), end: iso(e.end) } };
+        return withTasks(api, `/calendar?event=${e.id}${e.rrule ? `&at=${e.start}` : ''}`, { id, title: e.title, text, url: eventUrl(e), metadata: { start: iso(e.start), end: iso(e.end) } });
       }
       if (kind === 'contact') {
         const c = (await api('GET', '/contacts')).find((x) => x.id === a);

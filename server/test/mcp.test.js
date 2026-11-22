@@ -446,6 +446,16 @@ test('create_task about something: the task links back to it; only addresses in 
   const listed = (await call(rw, 'list_tasks', {})).structuredContent.lists.flatMap((l) => l.tasks);
   assert.deepEqual(listed.find((x) => x.id === t.id).about, { title: 'Note: Supplier call', url: about });
   assert.equal('about' in listed.find((x) => x.title === 'About nothing'), false, 'tasks without a link say nothing');
+  // Fetching the note itself says a task to do about it already exists (so an assistant needn't make another); none, nothing.
+  const fetched = (await call(rw, 'fetch', { id: note.id })).structuredContent;
+  assert.deepEqual(fetched.metadata.tasks_to_do.map((x) => [x.id, x.title]), [[t.id, 'Follow up the supplier']]);
+  assert.match(fetched.metadata.tasks_to_do[0].url, /\/tasks\/[\w-]+\?task=/);
+  // A document too: a task about its address shows when the file is fetched.
+  const doc = (await call(rw, 'create_document', { name: 'Supplier terms', text: 'Net 30' })).structuredContent;
+  const dt = (await call(rw, 'create_task', { title: 'Read the terms', about: doc.url, about_title: 'File: Supplier terms' })).structuredContent;
+  assert.deepEqual((await call(rw, 'fetch', { id: doc.id })).structuredContent.metadata.tasks_to_do.map((x) => x.id), [dt.id]);
+  const bare = (await call(rw, 'create_note', { title: 'No tasks here', text: 'x' })).structuredContent;
+  assert.equal('tasks_to_do' in (await call(rw, 'fetch', { id: bare.id })).structuredContent.metadata, false);
   const got = (await call(rw, 'fetch', { id: t.id })).structuredContent;
   assert.deepEqual(got.metadata.about, { title: 'Note: Supplier call', url: about });
   assert.ok(got.text.includes(`About: Note: Supplier call (${about})`));
@@ -473,6 +483,7 @@ test('an event’s or a task’s url opens it, and a contact’s finds them: fro
   // …so a task about it links to the event itself.
   const t = (await call(rw, 'create_task', { title: 'Prepare the walrus review', about: url, about_title: 'Event: Walrus review' })).structuredContent;
   assert.equal(t.about, url);
+  assert.deepEqual((await call(rw, 'fetch', { id: ev.id })).structuredContent.metadata.tasks_to_do.map((x) => x.id), [t.id]); // (the event says so too)
   // A task's url opens the task on its list: when made, listed, changed and ticked off.
   const mine = (await call(rw, 'list_tasks', {})).structuredContent.lists.flatMap((l) => l.tasks).find((x) => x.id === t.id);
   assert.match(t.url, /\/tasks\/[\w-]+\?task=[\w-]+$/);

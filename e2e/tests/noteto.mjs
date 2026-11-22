@@ -141,6 +141,10 @@ await step('an assistant’s create_task about the note: the task links back to 
     body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_tasks', arguments: { list: 'Trip prep' } } }) })).json()).result, tok);
   const mine = back.structuredContent.lists[0].tasks.find((x) => x.title === 'Check the trip note');
   if (!mine || mine.about?.title !== 'Note: Trip' || !mine.about.url.endsWith(`/notes?note=${note.id}`)) throw new Error(JSON.stringify(back.structuredContent));
+  // Fetching the note again tells the assistant a task to do about it already exists.
+  const again = await page.evaluate(async ([t, id]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'fetch', arguments: { id } } }) })).json()).result, [tok, `note:${note.id}`]);
+  if (!(again.structuredContent.metadata.tasks_to_do || []).some((x) => x.title === 'Check the trip note')) throw new Error(JSON.stringify(again.structuredContent.metadata));
   // …and each task's own address opens that task.
   await page.goto(new URL(mine.url, B).href);
   const details = page.getByRole('complementary', { name: 'Task details' });
