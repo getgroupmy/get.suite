@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get } from '../api.js';
 import Icon from './Icon.jsx';
-import { Menu } from './ui.jsx';
+import { Menu, useToast } from './ui.jsx';
+import { addToTasksWithToast } from '../apps/tasks/addtask.js';
 
 /**
  * Open tasks about something (`url`: the path tasks made with Add to Tasks link back to), on any list you can see:
@@ -20,4 +21,15 @@ export default function TasksAbout({ url, what = 'file', bump = 0, className = '
   const label = `${tasks.length === 1 ? '1 open task' : `${tasks.length} open tasks`} about this ${what}`;
   return <Menu trigger={(p) => <button type="button" className={className} aria-label={label} title={label} {...p}><Icon name="check" size={16} /> {tasks.length}</button>}
     items={tasks.map((t) => ({ label: `${t.title}${t.due ? ` · due ${t.due}` : ''}`, icon: 'check', onClick: () => navigate(`/tasks/${t.list_id}?task=${t.id}`) }))} />;
+}
+
+/** The ✓ icon button that adds `item` ({ title, link: { url, label } }) to Tasks, with the open tasks already about it beside it. */
+export function AddToTasksButton({ item, what }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [bump, setBump] = useState(0);
+  return <>
+    <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={() => addToTasksWithToast(toast, navigate, item).then(() => setBump((n) => n + 1))}><Icon name="check" /></button>
+    <TasksAbout url={item.link.url} what={what} bump={bump} />
+  </>;
 }
