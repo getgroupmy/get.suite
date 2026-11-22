@@ -20,9 +20,11 @@ import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
 import { canReach } from '../tenancy.js';
-import { audienceFor, roleFor, atLeast } from '../access.js';
+import { audienceFor, roleFor, atLeast, mayTakeAway } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
-import { insertFile } from './files.js';
+import { insertFile, loadFile } from './files.js';
+import { delimitedFromSheet } from '../office/sheetvalues.js';
+import { saveNow } from '../collab.js';
 import { scheduleTask, blocksOf, clashes } from '../taskblocks.js';
 import { recordChanges, historyOf, forgetGoneHistory, listActivity } from '../taskhistory.js';
 import { csvCell } from '../csvcell.js';
@@ -883,18 +885,34 @@ export default function taskRoutes() {
     res.status(201).json(importTaskLists(req.user, req.body));
   });
 
-  r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
-    const list = loadList(req.params.id, req.user);
-    const found = tasksFromCsv(req.body);
+  // Tasks read from a CSV (or a sheet laid out as one) added to the end of a list.
+  const importInto = (list, csvText, user) => {
+    const found = tasksFromCsv(csvText);
     if (found.error) throw bad(found.error);
     const have = q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n;
     if (have + found.tasks.length > MAX_TASKS) throw bad(`This list can hold ${MAX_TASKS} tasks; there's room for ${Math.max(0, MAX_TASKS - have)} more`);
     const secs0 = sectionsOf(list.id);
     const fresh0 = [...new Set(found.tasks.map((x) => x.section).filter(Boolean))].filter((n) => !secs0.some((x) => x.name.toLowerCase() === n.toLowerCase()));
     if (secs0.length + fresh0.length > MAX_SECTIONS) throw bad(`A list can have ${MAX_SECTIONS} sections`);
-    tx(() => addCsvTasks(list, found, req.user));
+    tx(() => addCsvTasks(list, found, user));
     changed(list);
-    res.json({ added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped });
+    return { added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped };
+  };
+  r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
+    res.json(importInto(loadList(req.params.id, req.user), req.body, req.user));
+  });
+  // Add rows to Tasks (Sheets): a spreadsheet's sheet laid out as a tasks CSV (Title or Task, and Due, Notes, Steps…
+  // as Import from CSV reads them) added to the end of a list, its values as the sheet shows them. { file, sheet }
+  r.post('/lists/:id/from-sheet', async (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const f = loadFile(String(req.body?.file || ''), req.user);
+    if (f.kind !== 'sheet') throw bad('Choose a spreadsheet');
+    if (!mayTakeAway(f, f.role)) throw bad('Its owner has turned off copying from it');
+    saveNow(f.id);
+    const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(req.body?.sheet) || 0));
+    const csvText = (await delimitedFromSheet(data, index, ',')).replace(/^\ufeff/, '');
+    res.json({ ...importInto(list, csvText, req.user), list: { id: list.id, name: list.name } });
   });
 
   // The whole list as a spreadsheet (CSV, opens in Excel or Sheets): open tasks in order, then done ones.

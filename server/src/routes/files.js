@@ -195,7 +195,7 @@ function loadManaged(id, user) {
   throw forbidden('Only the owner can change who has access');
 }
 
-function loadFile(id, user, needed = 'viewer') {
+export function loadFile(id, user, needed = 'viewer') {
   const f = q(`SELECT ${COLS}, f.storage ${FROM} WHERE f.id = ?`).get(id);
   if (!f) throw notFound('File not found');
   const role = roleFor(id, user.id);

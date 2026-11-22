@@ -56,3 +56,22 @@ test('a list as a document: open tasks as a checklist by section with due date, 
   assert.equal(text(all.content.at(-1)), 'Book the room');
   assert.equal((await mia('POST', `/api/tasks/lists/${list}/doc`, {})).status, 404);
 });
+
+test('a sheet’s rows added to a list (from-sheet): read as Import from CSV reads them; a sheet not laid out so is explained', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'From the sheet' })).body.id;
+  const sh = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Jobs', content: { sheets: [{ name: 'S', cells: { A1: 'Title', B1: 'Due', C1: 'Notes', A2: 'Order chairs', B2: '2026-12-03', C2: 'Ten of them', A3: 'Book van', B3: '', C3: '' } }] } })).body;
+  const r = await ann('POST', `/api/tasks/lists/${list}/from-sheet`, { file: sh.id });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.list.name], [2, 'From the sheet']);
+  const tasks = (await ann('GET', `/api/tasks/lists/${list}/tasks`)).body;
+  const chairs = tasks.find((t) => t.title === 'Order chairs');
+  assert.deepEqual([chairs.due, chairs.notes], ['2026-12-03', 'Ten of them']);
+  assert.ok(tasks.some((t) => t.title === 'Book van'));
+  const notTasks = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Numbers', content: { sheets: [{ name: 'S', cells: { A1: 'x', B1: 'y', A2: '1', B2: '2' } }] } })).body;
+  assert.equal((await ann('POST', `/api/tasks/lists/${list}/from-sheet`, { file: notTasks.id })).status, 400);
+  const d = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'D' })).body;
+  assert.equal((await ann('POST', `/api/tasks/lists/${list}/from-sheet`, { file: d.id })).status, 400);
+  assert.equal((await ann('POST', `/api/tasks/lists/${list}/from-sheet`, { file: 'nope' })).status, 404);
+});

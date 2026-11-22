@@ -108,6 +108,26 @@ await step('Sheets ⋮ → Add events to Calendar: a sheet laid out as a calenda
   await page.waitForURL(/\/calendar/);
   await page.getByText('Sprint planning').first().waitFor();
 });
+await step('Sheets ⋮ → Add rows to Tasks…: each row a task in the list you pick', async () => {
+  const list = (await api(page, "POST", "/tasks/lists", { name: "Launch prep" })).body.id;
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Todo', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Title', B1: 'Notes', A2: 'Book the venue', B2: 'Ask for the big room', A3: 'Order badges' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A2"]', { hasText: 'Book the venue' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Add rows to Tasks…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Add rows to Tasks' });
+  await dlg.getByLabel('List').selectOption({ label: 'Launch prep' });
+  await dlg.getByRole('button', { name: 'Add tasks' }).click();
+  await page.getByText('Added 2 tasks to Launch prep').waitFor();
+  await page.getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(new RegExp(`/tasks/${list}`));
+  await page.getByText('Order badges').first().waitFor();
+  const got = (await api(page, 'GET', `/tasks/lists/${list}/tasks`)).body;
+  const ts = Array.isArray(got) ? got : got.tasks || [];
+  const venue = ts.find((x) => x.title === 'Book the venue');
+  if (!venue || venue.notes !== 'Ask for the big room' || !ts.some((x) => x.title === 'Order badges')) throw new Error(JSON.stringify(got).slice(0, 400));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

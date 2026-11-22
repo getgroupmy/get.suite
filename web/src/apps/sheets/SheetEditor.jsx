@@ -58,6 +58,7 @@ import { sheetPrintHtml, sheetEmailHtml, usedArea } from './sheetprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 const MAX_EMAIL_CELLS = 5000; // (a bigger table is better as an attachment)
 import { viewOnly } from '../drive/viewonly.js';
+import { SheetToTasksDialog } from './SheetToTasks.jsx';
 import { printHtml } from '../mail/mailprint.js';
 import { useUndo, undoKey } from '../useUndo.js';
 import { useFormulaAssist } from './FormulaAssist.jsx';
@@ -1420,6 +1421,7 @@ export default function SheetEditor() {
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           mail?.enabled && !viewOnly(file) && { label: 'Send as email', icon: 'mail', onClick: sendAsEmail },
+          !viewOnly(file) && { label: 'Add rows to Tasks…', icon: 'check', onClick: () => setDialog({ type: 'to-tasks' }) },
           !viewOnly(file) && { label: 'Add events to Calendar', icon: 'calendar', onClick: async () => { // (a sheet laid out as a calendar's CSV: Subject, Start Date, Start Time…)
             try {
               const r = await post(`/files/${id}/add-events`, { sheet: active, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });
@@ -1757,6 +1759,8 @@ export default function SheetEditor() {
         <FunctionsDialog functions={data.functions} canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => { const cur = dataRef.current; const { functions, ...rest } = cur; commitData(next.length ? { ...rest, functions: next } : rest); }} />
       )}
+      {dialog?.type === 'to-tasks' && <SheetToTasksDialog fileId={id} sheet={active} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+        onDone={(r) => { setDialog(null); toast(`Added ${r.added} task${r.added === 1 ? '' : 's'} to ${r.list.name}${r.skipped ? ` (${r.skipped} row${r.skipped === 1 ? '' : 's'} left out)` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); }} />}
       {dialog?.type === 'mailmerge' && <MailMergeDialog cells={cells} shown={shown} from={mail?.address || user.username} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}
       {dialog?.type === 'protect' && (
         <ProtectDialog fileId={file.id} sheetName={sheet.name} list={sheet.protected} initial={dialog.initial} me={user.id} ownerId={file.owner_id} ownerName={file.owner_name}

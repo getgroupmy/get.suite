@@ -674,6 +674,10 @@ Protections move with their cells when the owner (or someone allowed) inserts or
 
 **⋮ → Add events to Calendar** adds a sheet's rows to your calendar when it's laid out as a calendar's CSV is: columns **Subject**, **Start Date** and **Start Time**, and if you like **End Date**, **End Time**, **All day event**, **Description** and **Location** (as Outlook and Google Calendar write them, so a schedule kept in a spreadsheet or pasted from one becomes events), its values as the sheet shows them, in your time zone. Rows already on your calendar (the same title and times) aren't added twice, and the message says how many were added and how many couldn't be read. A sheet laid out otherwise is explained rather than guessed at.
 
+## Tasks from a spreadsheet (Sheets)
+
+**⋮ → Add rows to Tasks…** adds each row of the sheet you're on as a task at the end of a list you pick (your own lists and ones shared with you that you can edit). Lay it out as Tasks' **Import from CSV** reads it: a **Title** column, and if you like **Due**, **Notes**, **Steps**, **Done** and the others Tasks exports, with values as the sheet shows them. The message says how many tasks were added (and how many rows were left out), with **Open** to go to the list. A sheet whose owner has turned off copying can't be added.
+
 ## Mail merge (Sheets)
 
 **⋮ → Mail merge…** (when this server has email) sends a personal email to each person in a sheet: headings in the first row (*First name*, *Email*, *Amount*…), one person per row below. Choose the column with the addresses (one called *Email* is picked for you), then write the subject and message using the headings as placeholders: `Dear {{First name}}, you owe {{Amount}}.` The **Insert** buttons put one in where the cursor is. A preview shows the email for each person (‹ ›), with values as the cells show them (formulas and number formats included); a placeholder that isn't a heading is pointed out before anything is sent.
