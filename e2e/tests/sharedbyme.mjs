@@ -68,6 +68,17 @@ await step('Drive → Shared by me: your files others can open, with whom', asyn
   await until(async () => (await rows.filter({ hasText: 'Brief.txt' }).count()) === 0);
 });
 
+await step('Shared by me → Open in Sheets: a row per file and who it’s shared with', async () => {
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.getByText(/^Made “Shared by me \d{4}-\d{2}-\d{2}” in your Drive$/).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="C1"]', { hasText: 'Shared with' }).waitFor();
+  await page.locator('[data-k="A2"]', { hasText: 'Handbook.txt' }).waitFor();
+  await page.locator('[data-k="C2"]', { hasText: 'Everyone at Acme Trading' }).waitFor();
+  await page.locator('[data-k="F2"]', { hasText: 'Can view' }).waitFor();
+});
+
 await step('select and Stop sharing: gone from Shared by me, and Kim can no longer open it', async () => {
   await page.goto(`${B}/drive/sharedbyme`);
   const rows = page.locator('.files tbody tr');

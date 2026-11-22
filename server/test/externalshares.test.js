@@ -110,6 +110,19 @@ test('Drive → Shared by me: your files others can open, and with whom, in word
   q('UPDATE shares SET expires_at = ? WHERE file_id = ?').run(Date.now() - 1000, (await kim('GET', '/api/files?view=sharedbyme')).body.find((f) => f.name === 'memo.txt').id);
   assert.deepEqual((await mine()).map((x) => x[0]), ['deck.txt']);
   assert.deepEqual((await ana('GET', '/api/files?view=sharedbyme')).body, []);
+  // Open in Sheets: a row per file and who it's shared with.
+  const sheet = await kim('POST', '/api/files/shared-by-me/sheet', {});
+  assert.equal(sheet.status, 201, JSON.stringify(sheet.body));
+  assert.match(sheet.body.name, /^Shared by me \d{4}-\d{2}-\d{2}/);
+  assert.equal(sheet.body.shares, 3);
+  const cells = (await kim('GET', `/api/files/${sheet.body.id}/content`)).body.content.sheets[0].cells;
+  const row = (n) => ['A', 'B', 'C', 'D', 'E', 'F'].map((c) => cells[`${c}${n}`] || '');
+  assert.deepEqual(row(1), ['File or folder', 'Kind', 'Shared with', 'Email', 'Who', 'Access']);
+  assert.deepEqual([row(2), row(3), row(4)], [
+    ['deck.txt', 'File', 'Everyone at Acme', '', 'Company', 'Can view'],
+    ['deck.txt', 'File', 'Design', '', 'Group', 'Can view'],
+    ['deck.txt', 'File', 'Gil', 'gil@globex.com', 'Person (outside)', 'Can view']]);
+  assert.equal((await ana('POST', '/api/files/shared-by-me/sheet', {})).status, 400, 'nothing shared');
 });
 
 test('Home → Shared with you: what people shared with you directly lately, who and when', async () => {

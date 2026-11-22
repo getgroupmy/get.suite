@@ -2489,6 +2489,29 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json({ ...publicFile(loadFile(id, req.user)), items: rows.length - 1, more });
   });
   // A new spreadsheet from a table the app has worked out (Calendar's agenda in Sheets): { name, rows: [[text]], header },
+  // Shared by me → Open in Sheets: what you've shared, a row per file and who it's shared with (a person, a group, or
+  // everyone in the company), with their access and when it ends: your own sharing to look over or tidy up.
+  r.post('/shared-by-me/sheet', (req, res) => {
+    const me = req.user.id, at = Date.now();
+    const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit' };
+    const KIND = { folder: 'Folder', doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation' };
+    const orgName = q('SELECT name FROM orgs WHERE id = ?').get(req.user.org_id)?.name || 'the company';
+    const mine = q('SELECT id, name, kind, org_role FROM files WHERE owner_id = ? AND trashed = 0 AND is_drive = 0 ORDER BY name COLLATE NOCASE').all(me);
+    const rows = [];
+    for (const f of mine) {
+      const kind = KIND[f.kind] || 'File';
+      if (f.org_role) rows.push([f.name, kind, `Everyone at ${orgName}`, '', 'Company', ROLE[f.org_role] || f.org_role, '']);
+      for (const g of q('SELECT gr.name, g.role FROM group_shares g JOIN groups gr ON gr.id = g.group_id WHERE g.file_id = ? ORDER BY gr.name COLLATE NOCASE').all(f.id)) rows.push([f.name, kind, g.name, '', 'Group', ROLE[g.role] || g.role, '']);
+      for (const p of q(`SELECT u.name, u.username, u.org_id, s.direct_role, s.expires_at FROM shares s JOIN users u ON u.id = s.user_id
+                         WHERE s.file_id = ? AND s.direct_role IS NOT NULL AND (s.expires_at IS NULL OR s.expires_at > ?) ORDER BY u.name COLLATE NOCASE`).all(f.id, at)) {
+        rows.push([f.name, kind, p.name || p.username, p.username, p.org_id !== req.user.org_id ? 'Person (outside)' : 'Person', ROLE[p.direct_role] || p.direct_role, p.expires_at ? new Date(p.expires_at).toISOString().slice(0, 10) : '']);
+      }
+    }
+    if (!rows.length) throw bad('You haven’t shared anything yet');
+    const json = JSON.stringify(sheetFromRows([['File or folder', 'Kind', 'Shared with', 'Email', 'Who', 'Access', 'Until'], ...rows], { header: true, name: 'Shared by me' }));
+    const id = insertFile({ owner: me, parentId: null, name: `Shared by me ${new Date(at).toISOString().slice(0, 10)}`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, shares: rows.length });
+  });
   // read as Sheets reads what's typed, into My Drive (or a folder you can add to).
   r.post('/sheet-from-rows', (req, res) => {
     const rows = req.body?.rows;

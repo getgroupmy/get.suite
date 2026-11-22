@@ -729,6 +729,11 @@ export default function Drive() {
           {route.view === 'trash' && files?.length > 0 && (
             <button className="btn" onClick={() => setDialog({ type: 'empty-trash' })}>Empty trash</button>
           )}
+          {route.view === 'sharedbyme' && files?.length > 0 && (
+            <button className="btn" title="What you've shared and with whom, a row each, in a new spreadsheet" onClick={async () => {
+              try { const r = await post('/files/shared-by-me/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+            }}><Icon name="sheet" /> Open in Sheets</button>
+          )}
           {route.view === 'drives' && <button className="btn" onClick={() => setDialog({ type: 'drive' })}><Icon name="plus" /> New shared drive</button>}
           {route.view === 'mine' && crumbs[0]?.is_drive && (
             <button className="btn" onClick={async () => { try { setDialog({ type: 'share', file: await get(`/files/${crumbs[0].id}`) }); } catch (e) { toast(e.message, 'error'); } }}>
