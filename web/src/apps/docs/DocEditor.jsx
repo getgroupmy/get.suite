@@ -56,6 +56,7 @@ import { TableOfContents } from './toc.js';
 import { SheetChart } from './sheetchart.jsx';
 import { ChartPick } from '../ChartLink.jsx';
 import { SheetTableDialog, tableNode } from './SheetTable.jsx';
+import { sortTableAtCursor } from './tablesort.js';
 import { SignedPrintPage } from './Signatures.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
@@ -882,7 +883,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as e-book (.epub)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=epub`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onTableToSheet={tableToSheet} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
+      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onTableToSheet={tableToSheet} onTableMessage={(m) => toast(m, 'error')} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
       {drawing && <DrawPad title="Drawing" saveLabel="Insert" onClose={() => { setDrawing(null); refocus(); }}
         onSave={(f) => addPicturesRef.current([new File([f], 'Drawing.png', { type: 'image/png' })], drawing.at)} />}
       {tableFrom?.step === 'file' && <DrivePicker title="Table from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setTableFrom(null)} onPick={(f) => setTableFrom({ step: 'cells', file: f })} />}
@@ -1044,7 +1045,7 @@ function SharedDoc({ file, setFile }) {
   );
 }
 
-function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onLink, onChart, onDraw, onTableToSheet }) {
+function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onLink, onChart, onDraw, onTableToSheet, onTableMessage }) {
   const [altEdit, setAltEdit] = useState(null); // { pos, alt } of the picture being described
   const pictureInput = useRef();
   const [, force] = useState(0);
@@ -1235,6 +1236,10 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
           // (then the cursor in the merged cell, so typing goes there rather than over it)
           onClick: () => c().mergeCells().command(({ tr }) => { const cell = tr.selection.$anchorCell; if (cell) tr.setSelection(TextSelection.near(tr.doc.resolve(cell.pos + 1))); return true; }).run() },
         { label: 'Unmerge cells', onClick: () => c().splitCell().run(), disabled: !editor.can().splitCell() },
+        '-',
+        // (by the column the cursor is in, the heading row staying first)
+        { label: 'Sort A to Z', onClick: () => { const why = sortTableAtCursor(editor, false); if (why) onTableMessage?.(why); }, disabled: !editor.isActive('table') },
+        { label: 'Sort Z to A', onClick: () => { const why = sortTableAtCursor(editor, true); if (why) onTableMessage?.(why); }, disabled: !editor.isActive('table') },
         '-',
         { label: 'Delete row', icon: 'trash', danger: true, onClick: () => c().deleteRow().run(), disabled: !editor.can().deleteRow() },
         { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },

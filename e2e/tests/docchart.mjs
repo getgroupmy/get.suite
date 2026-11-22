@@ -150,6 +150,30 @@ await step('Drive ⋮ → Open tables in Sheets: every table in the document as 
   await page.locator('[data-k="B2"]', { hasText: '$1,200.00' }).waitFor();
   await page.locator('[data-k="A3"]', { hasText: 'Desks' }).waitFor();
 });
+await step('Table → Sort Z to A / A to Z by the cursor’s column: amounts by value, the heading row first, saved', async () => {
+  const rowsIn = [['Item', 'Cost'], ['Chairs', '$1,200.00'], ['Desks', '350'], ['Lamps', ''], ['Pens', '$9.50']];
+  const d5 = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Sorting', content: { type: 'doc', content: [
+    { type: 'table', content: rowsIn.map((r, i) => ({ type: 'tableRow', content: r.map((t) => ({ type: i ? 'tableCell' : 'tableHeader', content: [{ type: 'paragraph', ...(t && { content: [{ type: 'text', text: t }] }) }] })) })) },
+  ] } })).body;
+  await page.goto(`${B}/docs/${d5.id}`);
+  const shown = () => page.locator('.ProseMirror table tr').evaluateAll((trs) => trs.map((tr) => tr.children[0].textContent));
+  await page.locator('.ProseMirror td', { hasText: '350' }).click();
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Sort Z to A' }).click();
+  await until(async () => JSON.stringify(await shown()) === JSON.stringify(['Item', 'Chairs', 'Desks', 'Pens', 'Lamps'])).catch(async () => { throw new Error(`by cost: ${JSON.stringify(await shown())}`); });
+  await page.locator('.ProseMirror td', { hasText: 'Pens' }).click(); // (now by the Item column)
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Sort Z to A' }).click();
+  await until(async () => JSON.stringify(await shown()) === JSON.stringify(['Item', 'Pens', 'Lamps', 'Desks', 'Chairs'])).catch(async () => { throw new Error(`by item: ${JSON.stringify(await shown())}`); });
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Sort A to Z' }).click();
+  await until(async () => JSON.stringify(await shown()) === JSON.stringify(['Item', 'Chairs', 'Desks', 'Lamps', 'Pens'])).catch(async () => { throw new Error(`again by item (the cursor stayed in its cell): ${JSON.stringify(await shown())}`); });
+  // Saved as sorted.
+  await until(async () => {
+    const t = (await api(page, 'GET', `/files/${d5.id}/content`)).body.content.content.find((n) => n.type === 'table');
+    return t.content.map((r) => r.content[0].content[0].content?.[0]?.text).join() === 'Item,Chairs,Desks,Lamps,Pens';
+  }, 15000);
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
