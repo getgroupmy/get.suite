@@ -6,6 +6,7 @@ import { stepTask } from '../tasks/taskkeys.js';
 import { localToday } from '../tasks/taskmath.js';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
+import { addToTasksWithToast } from '../tasks/addtask.js';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, useToast } from '../../components/ui.jsx';
@@ -280,6 +281,7 @@ export default function Contacts() {
                     {tab === 'mine' && <button className={`icon-btn star ${c.starred ? 'on' : ''}`} aria-pressed={!!c.starred} aria-label={c.starred ? `Unstar ${c.name}` : `Star ${c.name}`} title={c.starred ? 'Starred: first in your contacts and when writing mail' : 'Star: keep them first in your contacts and when writing mail'}
                       onClick={async () => { try { await patch(`/contacts/${c.id}`, { starred: !c.starred }); load(); } catch (e) { toast(e.message, 'error'); } }}>{c.starred ? '★' : '☆'}</button>}
                     <button className="icon-btn" aria-label={`History with ${c.name}`} title="Your log of calls and meetings, and emails and meetings with them" onClick={() => setHistory(c)}><Icon name="clock" size={18} /></button>
+                    <button className="icon-btn" aria-label={`Add a task about ${c.name}`} title="Add to Tasks: a task to get in touch, linking back here" onClick={() => addToTasksWithToast(toast, navigate, { title: `Get in touch with ${c.name}`, link: { url: `/contacts?q=${encodeURIComponent(c.name)}`, label: `Contact: ${c.name}` } })}><Icon name="check" size={18} /></button>
                     <button className="icon-btn contact-qr" aria-label={`QR code for ${c.name}`} title="QR code: scan it with a phone's camera to add the contact, or download it as a vCard" onClick={() => setQr(c)}>▦</button>
                     <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>

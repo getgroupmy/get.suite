@@ -90,6 +90,21 @@ await step('log a call with a contact: it shows in their history and takes them 
   await page.waitForTimeout(500);
   if (await page.getByRole('list', { name: 'Keep in touch' }).getByText('Dee Logged').count()) throw new Error('still due');
 });
+await step('a contact’s ✓ → a task to get in touch, linking back to them', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Tess Tasked' });
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('button', { name: 'Add a task about Tess Tasked' }).click();
+  await page.locator('.toast', { hasText: /^Added to / }).last().getByRole('button', { name: 'Open' }).click();
+  await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+  await page.getByText('Get in touch with Tess Tasked').first().waitFor();
+  const link = page.getByRole('link', { name: 'Contact: Tess Tasked' });
+  await link.waitFor();
+  if (!(await link.textContent()).includes('👤')) throw new Error(await link.textContent());
+  await link.click();
+  await page.waitForURL(/\/contacts\?q=Tess/);
+  await page.getByRole('button', { name: 'Edit Tess Tasked' }).waitFor();
+  if (await page.getByRole('button', { name: 'Edit Dee Logged' }).count()) throw new Error('not filtered to her');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
