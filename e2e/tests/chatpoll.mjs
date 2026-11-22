@@ -80,6 +80,17 @@ await step('Results in Sheets: a row per option with its votes, share and who, i
   await page.goBack();
   await poll(page).waitFor();
 });
+await step('Results as a slide: the question and a chart of the votes, in a new presentation', async () => {
+  await poll(page).getByRole('button', { name: 'Results as a slide' }).click();
+  await page.getByText(/^Made “Where shall we have lunch\? \(poll\)( \(1\))?” in your Drive$/).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/slides\//);
+  await page.getByText('Where shall we have lunch?').first().waitFor();
+  await page.getByText('2 people voted').first().waitFor();
+  await page.locator('.slide-chart').first().waitFor();
+  await page.goBack();
+  await poll(page).waitFor();
+});
 await step('a poll cannot be edited; only who asked closes it, and then nobody votes', async () => {
   const msg = page.locator('.msg', { has: poll(page) });
   await msg.hover();

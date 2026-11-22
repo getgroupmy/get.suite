@@ -145,3 +145,21 @@ test('results in Sheets: a row per option with votes, share and who; an anonymou
   const hidden = (await ann('POST', `/api/chat/channels/${secret}/messages`, { poll: { question: 'Secret?', options: ['a', 'b'] } })).body;
   assert.equal((await ben('POST', `/api/chat/messages/${hidden.id}/poll/sheet`, {})).status, 404);
 });
+
+test('results as a slide: the question, how many voted and a bar chart of the votes; not a poll, not your conversation', async () => {
+  const p = (await ann('POST', `/api/chat/channels/${ch}/messages`, { poll: { question: 'Lunch?', options: ['Tacos', 'Ramen'] } })).body;
+  await ann('POST', `/api/chat/messages/${p.id}/vote`, { options: ['o2'] });
+  await ben('POST', `/api/chat/messages/${p.id}/vote`, { options: ['o2'] });
+  const r = await ben('POST', `/api/chat/messages/${p.id}/poll/slides`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Lunch? (poll)');
+  const items = (await ben('GET', `/api/files/${r.body.id}/content`)).body.content.slides[0].items;
+  assert.deepEqual(items.filter((x) => x.type === 'text').map((x) => x.text), ['Lunch?', '2 people voted']);
+  const chart = items.find((x) => x.type === 'chart');
+  assert.deepEqual([chart.chartType, chart.data.categories, chart.data.series[0].values], ['bar', ['Tacos', 'Ramen'], [0, 2]]);
+  const plain = (await ann('POST', `/api/chat/channels/${ch}/messages`, { body: 'hello' })).body;
+  assert.equal((await ann('POST', `/api/chat/messages/${plain.id}/poll/slides`, {})).status, 404);
+  const secret = (await ann('POST', '/api/chat/channels', { name: 'ann-only-slides', private: true })).body.id;
+  const hidden = (await ann('POST', `/api/chat/channels/${secret}/messages`, { poll: { question: 'Hush?', options: ['a', 'b'] } })).body;
+  assert.equal((await ben('POST', `/api/chat/messages/${hidden.id}/poll/slides`, {})).status, 404);
+});

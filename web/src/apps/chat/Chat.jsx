@@ -1658,6 +1658,9 @@ function Poll({ m, user }) {
       <button type="button" className="link-btn small" title="The results in a new spreadsheet in your Drive" onClick={async () => {
         try { const r = await post(`/chat/messages/${m.id}/poll/sheet`, {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
       }}>Results in Sheets</button>
+      <button type="button" className="link-btn small" title="The results as a slide with a chart, in a new presentation in your Drive" onClick={async () => {
+        try { const r = await post(`/chat/messages/${m.id}/poll/slides`, {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/slides/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+      }}>Results as a slide</button>
     </div>
   );
 }

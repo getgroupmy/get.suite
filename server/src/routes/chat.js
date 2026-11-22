@@ -1457,13 +1457,30 @@ export default function chatRoutes() {
 
   // A poll's results in Sheets: a row per option with how many chose it and the share of those who voted, and who
   // (not for an anonymous poll), as a new spreadsheet in My Drive.
-  r.post('/messages/:id/poll/sheet', (req, res) => {
+  // A poll's message and votes (for Results in Sheets / as a slide), if you can see its conversation.
+  const pollOf = (req) => {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
     if (!m?.poll || m.deleted_at) throw notFound();
     loadChannel(m.channel_id, req.user);
     const p = JSON.parse(m.poll);
     const votes = q('SELECT v.option_id, v.user_id, u.name FROM poll_votes v LEFT JOIN users u ON u.id = v.user_id WHERE v.message_id = ? ORDER BY u.name').all(m.id);
-    const voters = new Set(votes.map((v) => v.user_id)).size;
+    return { p, votes, voters: new Set(votes.map((v) => v.user_id)).size };
+  };
+  // Results as a slide: a new presentation of yours with the question and a bar chart of the votes, to show in a meeting.
+  r.post('/messages/:id/poll/slides', (req, res) => {
+    const { p, votes, voters } = pollOf(req);
+    const q1 = String(p.question || 'Poll').slice(0, 200);
+    const deck = { theme: 'light', slides: [{ id: uid(), items: [
+      { id: uid(), type: 'text', role: 'title', x: 6, y: 5, w: 88, h: 13, text: q1, size: 32, bold: true },
+      { id: uid(), type: 'text', role: 'body', x: 6, y: 17, w: 88, h: 6, text: `${voters} ${voters === 1 ? 'person' : 'people'} voted`, size: 14 },
+      { id: uid(), type: 'chart', x: 8, y: 25, w: 84, h: 68, chartType: 'bar', title: '', data: { categories: p.options.map((o) => String(o.text).slice(0, 60)), series: [{ name: 'Votes', values: p.options.map((o) => votes.filter((v) => v.option_id === o.id).length) }] } },
+    ] }] };
+    const json = JSON.stringify(deck);
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${q1.slice(0, 150)} (poll)`, kind: 'slides', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
+  });
+  r.post('/messages/:id/poll/sheet', (req, res) => {
+    const { p, votes, voters } = pollOf(req);
     const rows = [['Option', 'Votes', 'Share', ...(p.anonymous ? [] : ['Who'])],
       ...p.options.map((o) => {
         const ov = votes.filter((v) => v.option_id === o.id);
