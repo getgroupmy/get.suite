@@ -464,6 +464,12 @@ test('tasks about something: the open ones that link to it, on lists you can see
   assert.equal((await ann('PATCH', `/api/tasks/tasks/${two.id}`, { done: true })).status, 200);
   assert.deepEqual((await about(ann, '/docs/plan1')).body.map((t) => t.id), [one.id]);
   assert.deepEqual((await about(mia, '/docs/plan1')).body.map((t) => t.title), ['Mia reads the plan']);
+  // A task about a place inside the file (one slide) counts for the file; asking about that slide gives only its own.
+  const deckTask = (await add(ann, list, 'Fix slide three', '/slides/deck9#slide=s3')).body;
+  await add(ann, list, 'Whole deck', '/slides/deck9');
+  await add(ann, list, 'Another deck', '/slides/deck90#slide=s1');
+  assert.deepEqual((await about(ann, '/slides/deck9')).body.map((t) => t.title).sort(), ['Fix slide three', 'Whole deck']);
+  assert.deepEqual((await about(ann, '/slides/deck9#slide=s3')).body.map((t) => t.id), [deckTask.id]);
   assert.deepEqual((await about(ann, '/docs/none')).body, []);
   assert.equal((await about(ann, '/admin')).status, 400);
   assert.equal((await about(ann, '')).status, 400);
@@ -483,7 +489,8 @@ test('Drive lists how many open tasks are about each file and folder (yours to s
   const second = (await add(ann, list, `/docs/${doc.id}`)).body;
   await add(ann, list, `/sheets/${sheet.id}`); await add(ann, list, `/slides/${deck.id}`); await add(ann, list, `/drive/folder/${folder.id}`);
   const inside = async (who) => Object.fromEntries((await who('GET', `/api/files?parent=${folder.id}`)).body.map((f) => [f.name, f.tasks_open]));
-  assert.deepEqual(await inside(ann), { 'Counted doc': 2, 'Counted sheet': 1, 'Counted deck': 1, 'No tasks': undefined });
+  await add(ann, list, `/slides/${deck.id}#slide=s2`); // (about one slide: counts for the presentation)
+  assert.deepEqual(await inside(ann), { 'Counted doc': 2, 'Counted sheet': 1, 'Counted deck': 2, 'No tasks': undefined });
   assert.equal((await ann('GET', '/api/files')).body.find((f) => f.id === folder.id).tasks_open, 1);
   // Done ones don't count; someone else with the folder sees no count for your private tasks.
   assert.equal((await ann('PATCH', `/api/tasks/tasks/${second.id}`, { done: true })).status, 200);

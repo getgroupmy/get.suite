@@ -114,6 +114,10 @@ await step('a slide → Add slide to Tasks: a task named after the slide that op
   await link.click();
   await page.waitForURL(/\/slides\//);
   await page.getByText('Slide 4 of 5').waitFor();
+  // The presentation's header counts it (a task about one of its slides is about the presentation).
+  await page.getByRole('button', { name: '1 task to do about this file' }).click();
+  await page.getByRole('menuitem', { name: 'S4' }).waitFor();
+  await page.keyboard.press('Escape');
 });
 await step('Copy link to slide: the link opens the presentation on that slide', async () => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });

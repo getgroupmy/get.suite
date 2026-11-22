@@ -729,9 +729,11 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Open tasks about what's listed (made with Add to Tasks, on lists you can see): how many, by the path they link back to.
     const todo = new Map();
     if (view !== 'trash') {
-      for (const x of q(`SELECT t.link_url AS url, COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id
+      // (a task about a place inside a file, such as one slide, counts for the file: what follows # is left off)
+      for (const x of q(`SELECT CASE WHEN instr(t.link_url, '#') > 0 THEN substr(t.link_url, 1, instr(t.link_url, '#') - 1) ELSE t.link_url END AS url, COUNT(*) AS n
+                         FROM tasks t JOIN task_lists l ON l.id = t.list_id
                          WHERE t.done_at IS NULL AND (t.link_url LIKE '/docs/%' OR t.link_url LIKE '/sheets/%' OR t.link_url LIKE '/slides/%' OR t.link_url LIKE '/drive%')
-                           AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) GROUP BY t.link_url`).all(me, me)) todo.set(x.url, x.n);
+                           AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) GROUP BY 1`).all(me, me)) todo.set(x.url, x.n);
     }
     const taskPath = (f) => ({ doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}`, folder: `/drive/folder/${f.id}` }[f.kind] || `/drive?preview=${f.id}`);
     res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(labels.has(f.id) && { labels: labels.get(f.id) }), ...(sizes.has(f.id) && sizes.get(f.id)), ...(fresh.get(f.id) && { new_comments: fresh.get(f.id) }),

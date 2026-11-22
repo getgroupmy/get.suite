@@ -1024,8 +1024,10 @@ export default function taskRoutes() {
     const { url } = linkOf({ url: String(req.query.url || '') });
     if (!url) throw bad('Bad link');
     const me = req.user.id;
-    res.json(q(`${TASK} WHERE t.done_at IS NULL AND t.link_url = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
-                ORDER BY t.due IS NULL, t.due, t.position LIMIT 50`).all(url, me, me).map(shape));
+    // (and about a place inside it: a slide of the presentation, "/slides/<id>#slide=…", counts for the presentation)
+    const inside = url.includes('#') ? null : `${url.replace(/[%_!]/g, (x) => `!${x}`)}#%`;
+    res.json(q(`${TASK} WHERE t.done_at IS NULL AND (t.link_url = ? OR t.link_url LIKE ? ESCAPE '!') AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                ORDER BY t.due IS NULL, t.due, t.position LIMIT 50`).all(url, inside, me, me).map(shape));
   });
 
   // Open tasks with a tag, on any of your lists (soonest due first), and the tags in use there with how many open tasks have each.
