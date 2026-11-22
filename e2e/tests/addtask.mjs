@@ -74,6 +74,9 @@ await step('an email becomes a task on My tasks', async () => {
 });
 await step('after the email is archived, the task still opens it', async () => {
   await page.goto(`${B}/mail`);
+  // In the list, the message is marked as having a task to do (only it).
+  await page.locator('.msg-row', { hasText: 'Quote for Globex' }).getByLabel('1 task to do:').waitFor();
+  if ((await page.getByLabel(/tasks? to do:/).count()) !== 1) throw new Error('one message is marked');
   await inboxRow('Quote for Globex').click();
   await page.locator('.reader-actions').getByRole('button', { name: 'Archive' }).click();
   await page.getByText('Archived', { exact: true }).waitFor();

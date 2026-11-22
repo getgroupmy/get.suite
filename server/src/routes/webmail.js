@@ -1180,6 +1180,11 @@ export default function webmailRoutes() {
         if (!seenFrom.has(a)) { const w = incomingWarning(req.user, m.from); seenFrom.set(a, w?.lookalike ? 'name' : w?.domain_like ? 'domain' : null); }
         if (seenFrom.get(a)) m.suspicious = seenFrom.get(a);
       }
+      // Tasks to do about a message (made with Add to Tasks, on lists you can see): how many, on the messages that have any.
+      const todo = new Map(q(`SELECT t.link_url AS url, COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id
+                              WHERE t.done_at IS NULL AND t.link_url LIKE '/mail?open=%' AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                              GROUP BY t.link_url`).all(req.user.id, req.user.id).map((x) => [x.url, x.n]));
+      if (todo.size) for (const m of messages) { const n = m.messageId && todo.get(`/mail?open=${encodeURIComponent(m.messageId)}`); if (n) m.tasks_open = n; }
       // Nudges: in your own Inbox, mail from people you haven't answered in 3 to 14 days ("Received 5 days ago. Reply?").
       if (folder === 'INBOX' && messages.length && !req.user.shared_mailbox && !req.user.delegate && nudgesOn(req.user)) {
         const nudged = new Set((await client.search(nudgeQuery(), { uid: true })) || []);

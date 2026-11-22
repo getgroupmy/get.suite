@@ -3420,3 +3420,4 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .home-task-about { text-decoration: none; margin-left: 4px; }
 .task-link { text-decoration: none; padding: 4px; border-radius: 6px; }
 .task-link:hover { background: var(--hover, rgba(0,0,0,.06)); }
+.mail-row-tasks { color: var(--accent); font-weight: 600; }
