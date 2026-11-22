@@ -611,7 +611,7 @@ function KeyboardKeys() {
   return (
     <section className="card stack" aria-labelledby="keys-h">
       <h2 id="keys-h">Keyboard shortcuts</h2>
-      <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Single-key shortcuts (<kbd>C</kbd> to write in Mail, <kbd>G</kbd> then <kbd>M</kbd> to go to Mail, <kbd>?</kbd> for the list…)</label>
+      <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> <span>Single-key shortcuts (<kbd>C</kbd> to write in Mail, <kbd>G</kbd> then <kbd>M</kbd> to go to Mail, <kbd>?</kbd> for the list…)</span></label>
       <p className="muted small" style={{ margin: 0 }}>Turn them off if keys you press by accident (or speech input) set things off. Shortcuts with Ctrl or ⌘ (such as Ctrl+/ for the list) keep working.</p>
     </section>
   );
