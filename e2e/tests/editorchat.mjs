@@ -123,6 +123,23 @@ await step('from Drive too, for any file: Schedule a meeting with people with ac
   await dlg.getByText(/kim@acme\.com|Kim Park/).first().waitFor();
   await dlg.getByRole('button', { name: 'Cancel' }).click();
 });
+await step('Add to Tasks, from a spreadsheet and a presentation: a task that links back to its editor', async () => {
+  for (const [kind, app, icon] of [['sheet', 'sheets', '📊'], ['slides', 'slides', '🖼']]) {
+    const f = (await api(page, 'POST', '/files/new', { kind, name: `Review me ${kind}` })).body;
+    await page.goto(`${B}/${app}/${f.id}`);
+    await page.getByRole('button', { name: 'More' }).click();
+    await page.getByRole('menuitem', { name: 'Add to Tasks' }).click();
+    await page.locator('.toast', { hasText: /^Added to / }).last().getByRole('button', { name: 'Open' }).click();
+    await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+    const link = page.getByRole('link', { name: `File: Review me ${kind}` });
+    await link.waitFor();
+    if (await link.getAttribute('href') !== `/${app}/${f.id}`) throw new Error(await link.getAttribute('href'));
+    if (!(await link.textContent()).includes(icon)) throw new Error(await link.textContent());
+    await link.click();
+    await page.waitForURL(new RegExp(`/${app}/${f.id}$`));
+    await page.getByRole('button', { name: 'More' }).waitFor();
+  }
+});
 await step('its document goes to the trash: the channel says so and doesn’t link to it', async () => {
   const chan = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.about_kind === 'file' && c.about_title === 'Contract notes');
   const doc = (await api(page, 'GET', '/files?view=mine')).body.find((f) => f.name === 'Contract notes');
