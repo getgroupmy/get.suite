@@ -1195,6 +1195,25 @@ function SendEventInChat({ event, className }) {
   </>;
 }
 
+// Add guests to Contacts: the people invited from outside your company (and an outside organizer), saved to your contacts;
+// colleagues and anyone already there are left out (by the server). Offered when someone's address isn't at your domain.
+function AddGuestsToContacts({ event, className }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const domain = (user.username.split('@')[1] || '').toLowerCase();
+  const people = [...(event.organizer?.email ? [event.organizer] : []), ...(event.guests || [])]
+    .filter((g, i, all) => g.email && g.email !== user.username && all.findIndex((h) => h.email === g.email) === i);
+  if (!people.some((g) => g.email.split('@')[1]?.toLowerCase() !== domain)) return null;
+  const go = async () => {
+    try {
+      const r = await post('/contacts/add-people', { people: people.map((g) => ({ name: g.name || '', email: g.email })) });
+      toast(r.added ? `Added ${r.added === 1 ? r.names[0] : `${r.added} guests`} to your contacts` : 'Every guest is already in your contacts or a colleague', 'info', r.added ? { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } } : undefined);
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  return <button type="button" className={className} onClick={go}>Add guests to Contacts</button>;
+}
+
 // Chat with guests: the event's own private channel (made the first time; the same one after, with anyone invited since).
 function ChatWithGuests({ event, className }) {
   const navigate = useNavigate();
@@ -1245,7 +1264,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         {outside && <p className="muted small" role="note" style={{ margin: 0 }}>{event.organizer.name} works at {event.organizer.org || 'another company'}, outside yours. Be careful with links and files in the invitation that ask you to sign in or pay.</p>}
         <GuestList guests={event.guests} />
         <div><EmailGuests event={event} className="btn small" guestView /></div>
-        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /></p>
+        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /> · <AddGuestsToContacts event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
@@ -2022,7 +2041,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
               {event.id && <button type="button" className="btn small" onClick={takeNotes} title="A document for this meeting: when it is, who's coming, the agenda, notes and action items. Guests can edit it.">
                 📝 {attachments.some((a) => a.id === notesId) ? 'Open meeting notes' : 'Take meeting notes'}</button>}
               {event.id && (event.guests || []).length > 0 && <button type="button" className="btn small" onClick={guestSheet} title="Who's invited and how they've answered, in a new spreadsheet">
-                <Icon name="sheet" size={16} /> Guest list in Sheets</button>}</span>
+                <Icon name="sheet" size={16} /> Guest list in Sheets</button>}
+              {event.id && <AddGuestsToContacts event={event} className="btn small" />}</span>
             {attachments.length > 0 && (guests.length > 0 || guestInput.trim()) && <span className="muted small">Guests can view the files you own. They see the others only if they can already open them.</span>}
           </div>
         )}

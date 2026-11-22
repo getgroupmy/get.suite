@@ -173,6 +173,22 @@ await step('a repeating meeting with a contact counts each time it has happened'
   const row = page.locator('table.files tbody tr[aria-label="Dana Daily"]');
   await row.getByText('In touch today').waitFor({ timeout: 10000 });
 });
+await step('Calendar event → Add guests to Contacts: its guests from outside saved, not twice', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Eli Vendor', email: 'eli@vendor.example' });
+  const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(10, 0, 0, 0);
+  const r = await api(page, 'POST', '/events', { title: 'Vendor kickoff', start: t.getTime(), end: t.getTime() + 36e5, guests: ['eli@vendor.example', 'fay@vendor.example', 'gus@vendor.example'] });
+  if (r.status >= 300) throw new Error(JSON.stringify(r.body));
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radio', { name: 'Schedule' }).click();
+  await page.getByText('Vendor kickoff', { exact: true }).first().click();
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  await dlg.getByRole('button', { name: 'Add guests to Contacts' }).click();
+  await page.getByText('Added 2 guests to your contacts').waitFor();
+  const list = (await api(page, 'GET', '/contacts')).body;
+  if (!list.some((c) => c.email === 'fay@vendor.example' && c.name === 'fay') || !list.some((c) => c.email === 'gus@vendor.example') || list.filter((c) => c.email === 'eli@vendor.example').length !== 1) throw new Error(JSON.stringify(list));
+  await dlg.getByRole('button', { name: 'Add guests to Contacts' }).click();
+  await page.getByText('Every guest is already in your contacts or a colleague').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
