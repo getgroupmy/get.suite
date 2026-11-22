@@ -68,8 +68,9 @@ await step('Ctrl+F finds cells by what they show and moves between them', async 
   await bar.getByLabel('Search formulas').check();
   if ((await count()) !== '1 of 1') throw new Error(await count());
   await page.keyboard.press('Escape');
-  if (await bar.count()) throw new Error('closed');
-  if (await page.locator('.grid td.find-hit, .grid td.find-current').count()) throw new Error('highlights cleared');
+  await bar.waitFor({ state: 'detached' }); // (closed)
+  // (the grid repaints a moment after the bar goes: wait for the highlights to clear rather than look at once)
+  await page.locator('.grid td.find-hit, .grid td.find-current').first().waitFor({ state: 'detached', timeout: 5000 }).catch(() => { throw new Error('highlights cleared'); });
 });
 
 await step('Ctrl+H replaces one, then all, leaving formulas alone; undo works', async () => {
