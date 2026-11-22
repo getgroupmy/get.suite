@@ -84,6 +84,16 @@ const ACCESS = { owner: 'owner (can edit and share)', editor: 'can edit', commen
 const fileUrl = (f) => link((FILE_PATH[f.kind] || ((x) => `/drive?file=${x.id}`))(f));
 
 // ---- the tools ----
+/** One of the person's forms by its id (form:…) or title (exactly, or the latest whose title has it in). */
+async function formNamed(api, name) {
+  const want = String(name || '').trim();
+  const forms = await api('GET', '/forms');
+  const f = forms.find((x) => x.id === want.replace(/^form:/, '')) || forms.find((x) => x.title.toLowerCase() === want.toLowerCase())
+    || forms.filter((x) => x.title.toLowerCase().includes(want.toLowerCase())).sort((x, y) => y.updated_at - x.updated_at)[0];
+  if (!want || !f) throw new ToolError(`No form called “${want}” (list_forms shows them)`);
+  return f;
+}
+
 export const TOOLS = [
   {
     name: 'search', title: 'Search Workspace', readOnly: true,
@@ -1346,13 +1356,19 @@ export const TOOLS = [
     description: 'Make a document in the person’s Drive with the summary of one of their forms, as Forms’ Summary as a document does: per question a table of how the answers went (options with counts and shares, averages, grids, rankings) and the written answers listed, to edit into a report or share. Returns the document to open or add to (append_to_document).',
     inputSchema: { type: 'object', required: ['form'], properties: { form: { type: 'string', description: 'form:… from list_forms, or the form’s title' } } },
     async run(api, a) {
-      const want = String(a.form || '').trim();
-      const forms = await api('GET', '/forms');
-      const f = forms.find((x) => x.id === want.replace(/^form:/, '')) || forms.find((x) => x.title.toLowerCase() === want.toLowerCase())
-        || forms.filter((x) => x.title.toLowerCase().includes(want.toLowerCase())).sort((x, y) => y.updated_at - x.updated_at)[0];
-      if (!want || !f) throw new ToolError(`No form called “${want}” (list_forms shows them)`);
+      const f = await formNamed(api, a.form);
       const d = await api('POST', `/forms/${f.id}/summary-doc`, {});
       return { id: `file:${d.id}`, name: d.name, form: f.title, url: fileUrl({ id: d.id, kind: 'doc' }) };
+    },
+  },
+  {
+    name: 'form_summary_presentation', title: 'Show a form’s results as slides', readOnly: false,
+    description: 'Make a presentation in the person’s Drive of one of their forms’ results, as Forms’ Summary as a presentation does: a title slide with how many answered, then a slide per question with a bar chart of the answers (a ranking as a table, written answers as points), to show in a meeting. Returns the presentation to open or add to (add_slides).',
+    inputSchema: { type: 'object', required: ['form'], properties: { form: { type: 'string', description: 'form:… from list_forms, or the form’s title' } } },
+    async run(api, a) {
+      const f = await formNamed(api, a.form);
+      const d = await api('POST', `/forms/${f.id}/summary-slides`, {});
+      return { id: `file:${d.id}`, name: d.name, form: f.title, url: fileUrl({ id: d.id, kind: 'slides' }) };
     },
   },
   {
@@ -1628,7 +1644,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['mark_notifications_read', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'add_contacts', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'request_access', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['mark_notifications_read', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'add_contacts', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'request_access', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off', 'form_summary_presentation']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({

@@ -173,6 +173,15 @@ await step('an AI assistant writes up the form’s results (form_summary_documen
   await ed.getByText(/^3 responses, as of /).waitFor();
   await ed.locator('td', { hasText: 'Sushi' }).first().waitFor();
 });
+await step('an AI assistant shows the form’s results as slides (form_summary_presentation): they open with a chart', async () => {
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Slides helper', scope: 'write', days: 30 })).body.token;
+  const r = await page.evaluate(async (t) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'form_summary_presentation', arguments: { form: 'Team lunch' } } }) })).json()).result, tok);
+  if (r?.isError || !/\(results\)/.test(r?.structuredContent?.name || '')) throw new Error(JSON.stringify(r));
+  await page.goto(new URL(r.structuredContent.url, B).href);
+  await page.getByText(/^3 responses, as of /).first().waitFor();
+  await page.locator('.slide-chart').first().waitFor();
+});
 await step('list shows the form; delete it', async () => {
   await page.goto(`${B}/forms`);
   const row = page.getByRole('list', { name: 'Your forms' }).getByRole('button', { name: /Team lunch/ });
