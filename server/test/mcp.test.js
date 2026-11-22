@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'add_contacts', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -425,6 +425,21 @@ test('add a contact: found again by search and fetch; the same email isn’t add
   assert.equal((await owner('GET', '/api/contacts')).body.filter((x) => /initech/i.test(x.email || '')).length, 1);
   assert.match((await call(rw, 'create_contact', { name: ' ' })).content[0].text, /Give the contact’s name/);
   assert.equal((await call(ro, 'create_contact', { name: 'X' })).isError, true);
+});
+
+test('add several contacts: new ones added with their names, the person, colleagues and contacts already there left out', async () => {
+  await owner('POST', '/api/contacts', { name: 'Bo Known', email: 'bo@known.example' });
+  const r = await call(rw, 'add_contacts', { people: [{ name: 'Cy Crate', email: 'cy@crate.example' }, { email: 'dee@crate.example' }, { name: 'Bo', email: 'BO@known.example' }, { name: 'Me', email: 'olivia@acme.com' }] });
+  assert.ok(!r.isError, JSON.stringify(r));
+  assert.deepEqual([r.structuredContent.added, r.structuredContent.left_out, r.structuredContent.names], [2, 2, ['Cy Crate', 'dee']]);
+  const mine = (await owner('GET', '/api/contacts')).body;
+  assert.ok(mine.some((c) => c.email === 'cy@crate.example' && c.name === 'Cy Crate'));
+  assert.equal(mine.filter((c) => c.email === 'bo@known.example').length, 1);
+  const again = (await call(rw, 'add_contacts', { people: [{ email: 'cy@crate.example' }] })).structuredContent;
+  assert.deepEqual([again.added, again.left_out], [0, 1]);
+  assert.match((await call(rw, 'add_contacts', {})).content[0].text, /Give people/);
+  assert.match((await call(rw, 'add_contacts', { from_email: 'nope' })).content[0].text, /like mail:INBOX:42/);
+  assert.equal((await call(ro, 'add_contacts', { people: [{ email: 'x@y.example' }] })).isError, true);
 });
 
 test('change an event: moved keeping its length, renamed; guests see it; others’ and repeating events refused', async () => {

@@ -647,6 +647,29 @@ export const TOOLS = [
     },
   },
   {
+    name: 'add_contacts', title: 'Add several people to Contacts', readOnly: false,
+    description: 'Add several people to the person’s Contacts at once: those given (people: name and email each), or everyone on an email (from_email, its mail:… id: the sender and everyone in To and Cc), as Mail’s Add everyone to Contacts does. The person, their colleagues and anyone already in Contacts are left out, so it is safe to repeat. Returns how many were added and their names.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        people: { type: 'array', items: { type: 'object', required: ['email'], properties: { name: { type: 'string' }, email: { type: 'string' } } }, description: 'At most 200' },
+        from_email: { type: 'string', description: 'The id (mail:…) of an email whose sender and recipients to add, instead of people' },
+      },
+    },
+    async run(api, a) {
+      let people = Array.isArray(a.people) ? a.people : [];
+      if (a.from_email) {
+        const m0 = /^mail:(.+):(\d+)$/.exec(String(a.from_email));
+        if (!m0) throw new ToolError('from_email is an email’s id, like mail:INBOX:42 (from list_mail or search)');
+        const m = await api('GET', `/mail/messages/${m0[2]}?folder=${encodeURIComponent(m0[1])}`);
+        people = [...[].concat(m.from || []), ...(m.to || []), ...(m.cc || [])].map((x) => ({ name: x.name || '', email: x.address }));
+      }
+      if (!people.length) throw new ToolError('Give people (a name and email each) or from_email');
+      const r = await api('POST', '/contacts/add-people', { people: people.slice(0, 200).map((x) => ({ name: String(x?.name || ''), email: String(x?.email || '') })) });
+      return { added: r.added, left_out: r.skipped, names: r.names, note: r.added ? undefined : 'Nobody new: they are already in Contacts, colleagues, or the person.', url: link('/contacts') };
+    },
+  },
+  {
     name: 'update_contact', title: 'Update a contact', readOnly: false,
     description: 'Change details of someone in the person’s Contacts (e.g. a new phone number or job from an email signature): only what is given changes; an empty string clears a detail. add_to_notes adds a line to the notes, keeping what is there. Find the contact with search first (contact:…).',
     inputSchema: {
@@ -1605,7 +1628,7 @@ export const TOOLS = [
 // change can replace or remove what's there (cancel an event, move mail to Trash, share a file, overwrite a
 // status). Repeatable: calling it again with the same arguments changes nothing more. Reaches others: other
 // people see or are told of it (guests, colleagues, a channel).
-export const ADDITIVE = new Set(['mark_notifications_read', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'request_access', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
+export const ADDITIVE = new Set(['mark_notifications_read', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'create_event', 'create_task', 'draft_email', 'create_note', 'create_contact', 'add_contacts', 'create_document', 'create_spreadsheet', 'create_presentation', 'append_to_document', 'add_slides', 'create_folder', 'comment_on_file', 'resolve_comment', 'request_access', 'add_sheet_rows', 'send_chat_message', 'create_form', 'request_time_off']);
 export const REPEATABLE = new Set(['update_event', 'cancel_event', 'answer_invitation', 'complete_task', 'update_task', 'update_email', 'set_status', 'set_out_of_office', 'move_file', 'share_file']);
 export const REACHES_OTHERS = new Set(['thank_colleague', 'request_time_off', 'create_event', 'update_event', 'cancel_event', 'answer_invitation', 'set_status', 'set_out_of_office', 'comment_on_file', 'share_file', 'send_chat_message']);
 const annotationsOf = (t) => ({

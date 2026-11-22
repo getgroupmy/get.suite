@@ -99,6 +99,27 @@ await step('⋮ → Add everyone to Contacts: the sender’s colleagues on cc ad
   await page.waitForURL(/\/contacts/);
   await page.getByText('Hal Harbour').first().waitFor();
 });
+await step('an AI assistant adds everyone on an email to Contacts (add_contacts with from_email)', async () => {
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Contacts helper', scope: 'write', days: 30 })).body.token;
+  const call = (name, args) => page.evaluate(async ([t, n, a]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: n, arguments: a } }) })).json()).result, [tok, name, args]);
+  const ctx = await browser.newContext();
+  const g = await ctx.newPage();
+  await g.goto(B);
+  await g.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'gina@globex.com', password: 'password123' }) }));
+  const u = await api(g, 'POST', '/users', { local: 'ivy', domain: 'globex.com', name: 'Ivy Inlet', password: 'password123' });
+  if (u.status !== 201) throw new Error(JSON.stringify(u.body));
+  for (let k = 0; k < 10; k++) { if ((await api(g, 'POST', '/mail/send', { to: 'olivia@acme.com', cc: 'Ivy Inlet <ivy@globex.com>', subject: 'Dock schedule', text: 'See you at the dock.' })).status === 200) break; await g.waitForTimeout(1500); }
+  await ctx.close();
+  await page.goto(`${B}/mail`);
+  await page.locator('.mail-list').getByText('Dock schedule', { exact: true }).waitFor({ timeout: 30000 });
+  const msgs = (await call('list_mail', { query: 'Dock schedule' })).structuredContent.messages;
+  const r = await call('add_contacts', { from_email: msgs[0].id });
+  if (r.isError || r.structuredContent.added !== 1 || r.structuredContent.names[0] !== 'Ivy Inlet' || r.structuredContent.left_out !== 2) throw new Error(JSON.stringify(r));
+  await page.goto(new URL(r.structuredContent.url, B).href);
+  await page.getByText('Ivy Inlet').first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
