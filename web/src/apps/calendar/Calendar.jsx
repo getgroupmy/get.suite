@@ -22,7 +22,7 @@ import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText, taskHoursByDay, deltaText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { EVENT_KEY, DRAFT_KEY } from '../docs/blocks.js';
-import { eventEmail } from './eventemail.js';
+import { eventEmail, eventNote } from './eventemail.js';
 import SendInChat from '../../components/SendInChat.jsx';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
@@ -1232,6 +1232,19 @@ function EventToTasks({ event, className }) {
   return <button type="button" className={className} onClick={go}>Add to Tasks</button>;
 }
 
+// Copy to Notes: a note of your own with the event's time, place, people and description, and a link back to it.
+function EventToNotes({ event, className }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const go = async () => {
+    try {
+      const made = await post('/notes', eventNote(event, { when: whenLabel(event), link: eventLink(event) }));
+      toast(`Saved to Notes: ${made.title}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/notes?note=${made.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  return <button type="button" className={className} onClick={go} title="A note of your own with the event’s time, place, people and description, and a link back">Copy to Notes</button>;
+}
+
 // Make a contact group from an event's people (its guests and organizer, not you), named after the event unless
 // changed: to write to them all again by typing the group's name in To. Offered with two or more people.
 function GuestsToGroup({ event, className }) {
@@ -1306,7 +1319,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         {outside && <p className="muted small" role="note" style={{ margin: 0 }}>{event.organizer.name} works at {event.organizer.org || 'another company'}, outside yours. Be careful with links and files in the invitation that ask you to sign in or pay.</p>}
         <GuestList guests={event.guests} />
         <div><EmailGuests event={event} className="btn small" guestView /></div>
-        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /> · <AddGuestsToContacts event={event} className="link-btn small" /> · <GuestsToGroup event={event} className="link-btn small" /> · <EventToTasks event={event} className="link-btn small" /></p>
+        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /> · <AddGuestsToContacts event={event} className="link-btn small" /> · <GuestsToGroup event={event} className="link-btn small" /> · <EventToTasks event={event} className="link-btn small" /> · <EventToNotes event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
@@ -2079,14 +2092,15 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
         {!special && (
           <div className="field"><span>Attachments</span>
             <Attachments list={attachments} onRemove={(a) => setAttachments(attachments.filter((x) => x.id !== a.id))} />
-            <span className="row"><button type="button" className="btn small" onClick={() => setPickingFile(true)}><Icon name="attach" size={16} /> Attach from Drive</button>
+            <span className="row wrap"><button type="button" className="btn small" onClick={() => setPickingFile(true)}><Icon name="attach" size={16} /> Attach from Drive</button>
               {event.id && <button type="button" className="btn small" onClick={takeNotes} title="A document for this meeting: when it is, who's coming, the agenda, notes and action items. Guests can edit it.">
                 📝 {attachments.some((a) => a.id === notesId) ? 'Open meeting notes' : 'Take meeting notes'}</button>}
               {event.id && (event.guests || []).length > 0 && <button type="button" className="btn small" onClick={guestSheet} title="Who's invited and how they've answered, in a new spreadsheet">
                 <Icon name="sheet" size={16} /> Guest list in Sheets</button>}
               {event.id && <AddGuestsToContacts event={event} className="btn small" />}
               {event.id && <GuestsToGroup event={event} className="btn small" />}
-              {event.id && <EventToTasks event={event} className="btn small" />}</span>
+              {event.id && <EventToTasks event={event} className="btn small" />}
+              {event.id && <EventToNotes event={event} className="btn small" />}</span>
             {attachments.length > 0 && (guests.length > 0 || guestInput.trim()) && <span className="muted small">Guests can view the files you own. They see the others only if they can already open them.</span>}
           </div>
         )}

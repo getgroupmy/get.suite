@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eventEmail } from './eventemail.js';
+import { eventEmail, eventNote } from './eventemail.js';
 
 test('eventEmail: to the organizer and guests but not you, with when, where and a link', () => {
   const ev = { title: 'Budget <review>', location: 'Room 2', organizer: { name: 'Olivia Owner', email: 'olivia@acme.com' },
@@ -12,4 +12,11 @@ test('eventEmail: to the organizer and guests but not you, with when, where and 
   assert.match(m.html, /<strong>Where:<\/strong> Room 2/);
   assert.match(m.html, /<a href="https:\/\/ws\.test\/calendar\?event=e1">Budget &lt;review&gt; in Calendar<\/a>/);
   assert.equal(eventEmail(ev, 'kim@acme.com', { skipDeclined: true }).to, '"Olivia Owner" <olivia@acme.com>', 'a guest writes to the organizer and the others; declined left out');
+});
+
+test('an event as a note: when, where, who, what it says and a link back', () => {
+  const e = { title: 'Launch', location: 'Room 2', description: ' Bring the deck ', organizer: { email: 'o@x.test', name: 'Olivia' }, guests: [{ email: 'k@x.test', name: 'Kim' }, { email: 'm@x.test' }, { email: 'k2@x.test', name: 'Kim' }] };
+  assert.deepEqual(eventNote(e, { when: 'Tue 10 Nov, 14:00', link: 'https://ws.test/calendar?event=1' }),
+    { title: 'Launch', body: 'When: Tue 10 Nov, 14:00\nWhere: Room 2\nWith: Olivia, Kim, m@x.test\n\nBring the deck\n\nOpen the event: https://ws.test/calendar?event=1' });
+  assert.deepEqual(eventNote({}), { title: 'Event', body: '' });
 });

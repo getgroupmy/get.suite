@@ -17,3 +17,14 @@ export function eventEmail(event, me, { when = '', link = '', skipDeclined = fal
   ].filter(Boolean);
   return { to, subject: event.title || 'Our event', html: `<p></p>${lines.join('')}` };
 }
+
+/** “Copy to Notes”: { title, body } for a note of the event: when, where, who is on it, what it says and a link back. */
+export function eventNote(event, { when = '', link = '' } = {}) {
+  const people = [...(event.organizer?.email ? [event.organizer] : []), ...(event.guests || [])].map((g) => (g.name && g.name !== g.email ? g.name : g.email)).filter(Boolean);
+  const body = [
+    [when && `When: ${when}`, event.location && `Where: ${event.location}`, people.length && `With: ${[...new Set(people)].join(', ')}`].filter(Boolean).join('\n'),
+    (event.description || '').trim(),
+    link && `Open the event: ${link}`,
+  ].filter(Boolean).join('\n\n');
+  return { title: (event.title || 'Event').slice(0, 200), body: body.slice(0, 20000) };
+}

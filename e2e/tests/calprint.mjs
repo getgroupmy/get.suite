@@ -184,6 +184,8 @@ await step('Sheets ⋮ → Copy to a new presentation: the selected cells as a t
   await page.getByText('Made “Results (slides)” in your Drive (A1:B3)').waitFor();
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   await page.waitForURL(/\/slides\//);
+  // (the spreadsheet can stay on screen a moment while Slides loads: wait for its cells to go before reading the slide)
+  await page.locator('[data-k="A1"]').waitFor({ state: 'detached' });
   await page.getByText('Blues').first().waitFor();
   await page.getByText('15', { exact: true }).first().waitFor();
   if (await page.getByText('Note', { exact: true }).count()) throw new Error('only the selected columns');

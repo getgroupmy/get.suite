@@ -133,6 +133,19 @@ await step('event → Add to Tasks: a task due on its day that links back to the
   await page.waitForURL(/\/calendar/);
   await page.getByRole('dialog', { name: 'Edit event' }).waitFor();
 });
+await step('event → Copy to Notes: a note with when, who and a link back that opens the event', async () => {
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radio', { name: 'Schedule' }).click();
+  await page.getByText('Launch crew', { exact: true }).first().click();
+  await page.getByRole('dialog', { name: 'Edit event' }).getByRole('button', { name: 'Copy to Notes' }).click();
+  await page.getByText('Saved to Notes: Launch crew').waitFor();
+  const n = (await api(page, 'GET', '/notes')).body.find((x) => x.title === 'Launch crew');
+  if (!n || !/^When: .+\nWith: .*Kim/.test(n.body) || !/\n\nOpen the event: https?:\/\/[^/\s]+\/calendar\?event=[\w-]+/.test(n.body)) throw new Error(JSON.stringify(n && n.body));
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/notes/);
+  await page.getByRole('dialog', { name: 'Launch crew' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
