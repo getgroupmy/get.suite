@@ -19,6 +19,7 @@ import { QaPanel } from './SlideQa.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import { chartChanged } from './linkedchart.js';
 import { useChartNow, ChartPick, ChartBox } from '../ChartLink.jsx';
+import { SheetTableDialog } from '../docs/SheetTable.jsx';
 import Icon from '../../components/Icon.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
@@ -367,6 +368,7 @@ export default function SlidesEditor() {
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding((f) => ({ replace: !readOnly, n: (f?.n || 0) + 1 })) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
           ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
+          ...(!readOnly ? [{ label: 'Insert table from a spreadsheet…', icon: 'sheet', onClick: () => setDialog({ type: 'table-file' }) }] : []),
           { label: 'Print or save as PDF…', icon: 'print', onClick: () => setPrinting(true) },
           { label: 'Make a document', icon: 'doc', onClick: async () => { // a Heading 1 for each slide, its points as lists, its notes
             try { const r = await post(`/files/${id}/make-doc`); toast(`Made “${r.name}”`); navigate(`/docs/${r.id}`); } catch (e) { toast(e.message, 'error'); }
@@ -716,6 +718,13 @@ export default function SlidesEditor() {
         onClose={() => setDialog(null)} onPick={(f) => { setDialog(null); putAudio(f); }} />}
       {dialog?.type === 'video-file' && <DrivePicker title="Video from Drive" accept={(x) => x.kind === 'file' && VIDEO_TYPES.test(x.mime || '')} empty="No videos found in your Drive."
         onClose={() => setDialog(null)} onPick={(f) => { setDialog(null); putVideo(f); }} />}
+      {dialog?.type === 'table-file' && <DrivePicker title="Table from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found."
+        onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'table-cells', file: x })} />}
+      {dialog?.type === 'table-cells' && <SheetTableDialog file={dialog.file} forSlides onClose={() => setDialog(null)}
+        onInsert={({ rows, header }) => { // (the shown values; a smaller font for a bigger table, as much of the slide as it needs)
+          setDialog(null);
+          insert({ type: 'table', x: 8, y: 22, w: 84, h: Math.min(70, 8 + rows.length * 6), size: rows.length > 10 || rows[0].length > 6 ? 12 : rows.length > 6 ? 14 : 18, header, cells: rows.map((r) => r.map((c) => c.text)) });
+        }} />}
       {dialog?.type === 'chart-file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found."
         onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'chart-pick', file: x })} />}
       {dialog?.type === 'chart-pick' && <ChartPick file={dialog.file} onClose={() => setDialog(null)}

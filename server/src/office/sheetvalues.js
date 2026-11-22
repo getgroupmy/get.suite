@@ -122,10 +122,10 @@ export const TABLE_CELLS = 2000;
 /**
  * A sheet's cells as a table to put in a document (Docs → Insert table from a spreadsheet): the values the sheet shows
  * (worked-out formulas, number formats), each with whether it's bold, from `range` ("B2:D9") or the cells in use;
- * hidden rows and columns left out. { range, rows: [[{ text, bold }]] }, or an error message for a range too big or
- * not understood.
+ * hidden rows and columns left out. { range, rows: [[{ text, bold }]] }, or an error message for a range too big (over
+ * TABLE_CELLS, or maxRows / maxCols, as a slide's table allows) or not understood.
  */
-export async function sheetTable(data, index = 0, range = '') {
+export async function sheetTable(data, index = 0, range = '', { maxRows = Infinity, maxCols = Infinity } = {}) {
   const { bookEvaluator: be, display, parseRef, colName } = await import('../sheetcalc/formula.js');
   const { formatNumber } = await import('../sheetcalc/cellformat.js');
   const s = data?.sheets?.[index];
@@ -150,6 +150,7 @@ export async function sheetTable(data, index = 0, range = '') {
   for (let c = area.c1; c <= area.c2; c++) if (!hiddenCols.has(c)) cols.push(c);
   const rowsWanted = [];
   for (let r = area.r1; r <= area.r2; r++) if (!hiddenRows.has(r)) rowsWanted.push(r);
+  if (rowsWanted.length > maxRows || cols.length > maxCols) return { error: `That’s ${rowsWanted.length} rows and ${cols.length} columns: a table here takes up to ${maxRows} rows and ${maxCols} columns, so give a smaller range` };
   if (cols.length * rowsWanted.length > TABLE_CELLS) return { error: `That’s too many cells for a table (up to ${TABLE_CELLS.toLocaleString('en')}): give a smaller range` };
   const rows = rowsWanted.map((r) => cols.map((c) => {
     const k = `${colName(c)}${r + 1}`;

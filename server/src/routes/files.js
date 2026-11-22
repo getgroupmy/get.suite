@@ -2344,7 +2344,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
     const sheets = (data.sheets || []).map((s, i) => ({ index: i, name: s.name || `Sheet${i + 1}`, hidden: !!s.hidden }));
     const index = Math.max(0, Math.min(sheets.length - 1, Number(req.query.sheet) || 0));
-    const t = await sheetTable(data, index, String(req.query.range || ''));
+    // (?for=slides: no bigger than a slide's table, 20 rows and 10 columns)
+    const t = await sheetTable(data, index, String(req.query.range || ''), req.query.for === 'slides' ? { maxRows: 20, maxCols: 10 } : {});
     if (t.error) throw bad(t.error);
     res.json({ name: f.name, sheets, sheet: index, ...t });
   });

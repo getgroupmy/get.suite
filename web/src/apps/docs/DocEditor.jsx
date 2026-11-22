@@ -55,7 +55,7 @@ import { ActionItemsDialog } from './ActionItems.jsx';
 import { TableOfContents } from './toc.js';
 import { SheetChart } from './sheetchart.jsx';
 import { ChartPick } from '../ChartLink.jsx';
-import { SheetTableDialog } from './SheetTable.jsx';
+import { SheetTableDialog, tableNode } from './SheetTable.jsx';
 import { SignedPrintPage } from './Signatures.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
@@ -873,7 +873,7 @@ function SharedDoc({ file, setFile }) {
         onSave={(f) => addPicturesRef.current([new File([f], 'Drawing.png', { type: 'image/png' })], drawing.at)} />}
       {tableFrom?.step === 'file' && <DrivePicker title="Table from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setTableFrom(null)} onPick={(f) => setTableFrom({ step: 'cells', file: f })} />}
       {tableFrom?.step === 'cells' && <SheetTableDialog file={tableFrom.file} onClose={() => setTableFrom(null)}
-        onInsert={(node) => { setTableFrom(null); editor.chain().focus().insertContent(node).run(); }} />}
+        onInsert={({ rows, header }) => { setTableFrom(null); editor.chain().focus().insertContent(tableNode(rows, header)).run(); }} />}
       {chartFrom?.step === 'file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setChartFrom(null)} onPick={(f) => setChartFrom({ step: 'chart', file: f })} />}
       {chartFrom?.step === 'chart' && <ChartPick file={chartFrom.file} onClose={() => setChartFrom(null)}
         onPick={(ch) => { const f = chartFrom.file; setChartFrom(null); editor.chain().focus().insertSheetChart({ fileId: f.id, chartId: ch.id, title: ch.now.title, chartType: ch.now.chartType, data: JSON.stringify(ch.now.data) }).run(); }} />}

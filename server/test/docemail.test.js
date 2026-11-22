@@ -117,6 +117,11 @@ test('a spreadsheet’s cells as a table for a document: values as shown, bold k
   assert.match((await ann('GET', `/api/files/${f.id}/table?sheet=1`)).body.error, /empty/);
   assert.match((await ann('GET', `/api/files/${f.id}/table?range=nonsense`)).body.error, /like A1:D10/);
   assert.match((await ann('GET', `/api/files/${f.id}/table?range=A1:Z200`)).body.error, /too many cells/);
+  // For a slide: no more than 20 rows and 10 columns.
+  const wide = (await ann('POST', '/api/files/new', { name: 'Wide', kind: 'sheet', content: { sheets: [{ name: 'S', cells: { A1: 'a', L1: 'z', A30: 'end' } }] } })).body;
+  assert.match((await ann('GET', `/api/files/${wide.id}/table?for=slides`)).body.error, /30 rows and 12 columns: a table here takes up to 20 rows and 10 columns/);
+  assert.equal((await ann('GET', `/api/files/${wide.id}/table?for=slides&range=A1:J20`)).body.rows.length, 20);
+  assert.equal((await ann('GET', `/api/files/${wide.id}/table`)).body.rows.length, 30, 'a document’s table can be bigger');
   const d = (await ann('POST', '/api/files/new', { name: 'D', kind: 'doc' })).body;
   assert.equal((await ann('GET', `/api/files/${d.id}/table`)).status, 400);
   assert.equal((await ben('GET', `/api/files/${f.id}/table`)).status, 404);

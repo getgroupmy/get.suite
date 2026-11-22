@@ -82,6 +82,25 @@ await step('the PowerPoint download has a chart in it', async () => {
   const ok = await page.evaluate(async (id) => { const r = await fetch(`/api/files/${id}/export?format=pptx`); const b = new Uint8Array(await r.arrayBuffer()); return r.status + ':' + new TextDecoder().decode(b).includes('ppt/charts/chart'); }, deck.id);
   if (ok !== '200:true') throw new Error(ok);
 });
+await step('⋮ → Insert table from a spreadsheet: the cells as a slide table; too big a range is explained', async () => {
+  const prices = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Price list', content: { sheets: [{ name: 'Prices', cells: { A1: 'Item', B1: 'Price', A2: 'Bolts', B2: '1.5', A3: 'Nuts', B3: '=B2*2', A40: 'far down' },
+    formats: { B2: { num: 'currency', cur: 'USD', dp: 2 }, B3: { num: 'currency', cur: 'USD', dp: 2 } } }] } })).body;
+  const d2 = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Prices deck' })).body;
+  await page.goto(`${B}/slides/${d2.id}`);
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Insert table from a spreadsheet…' }).click();
+  await page.getByRole('dialog', { name: 'Table from a spreadsheet' }).getByRole('button', { name: /Price list/ }).click();
+  const dlg = page.getByRole('dialog', { name: 'Table from “Price list”' });
+  await dlg.getByRole('alert').getByText(/40 rows and 2 columns: a table here takes up to 20 rows and 10 columns/).waitFor();
+  await dlg.getByLabel('Cells').fill('A1:B3');
+  await dlg.getByRole('button', { name: 'Insert table' }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const got = await until(async () => {
+    const c = (await api(page, 'GET', `/files/${d2.id}/content`)).body.content;
+    return c.slides.flatMap((s) => s.items).find((it) => it.type === 'table');
+  }, 15000);
+  if (JSON.stringify(got.cells) !== JSON.stringify([['Item', 'Price'], ['Bolts', '$1.50'], ['Nuts', '$3.00']]) || !got.header) throw new Error(JSON.stringify(got));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
