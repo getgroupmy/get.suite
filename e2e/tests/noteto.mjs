@@ -71,6 +71,20 @@ await step('with a second task list: Copy to Tasks asks which list, and the item
   const tasks = (await api(page, 'GET', `/tasks/lists/${list}/tasks`)).body.map((t) => t.title).sort();
   if (tasks.join() !== 'Book hotel,Taxi') throw new Error(tasks.join());
 });
+await step('an AI assistant’s create_task goes to the list chosen with Use for Add to Tasks', async () => {
+  const list = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.name === 'Trip prep').id;
+  await page.goto(`${B}/tasks/${list}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Use for Add to Tasks' }).click();
+  await page.getByText('now uses “Trip prep”').waitFor();
+  await api(page, 'PATCH', '/orgs/current', { allow_api_tokens: true });
+  const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Task helper', scope: 'write', days: 30 })).body.token;
+  const r = await page.evaluate(async (t) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_task', arguments: { title: 'Renew travel insurance' } } }) })).json()).result, tok);
+  if (r?.isError || r.structuredContent.list !== 'Trip prep') throw new Error(JSON.stringify(r));
+  await page.goto(`${B}/tasks/${list}`);
+  await page.locator('.task', { hasText: 'Renew travel insurance' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

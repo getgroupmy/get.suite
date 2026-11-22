@@ -336,12 +336,12 @@ export const TOOLS = [
   },
   {
     name: 'create_task', title: 'Add a task', readOnly: false,
-    description: 'Add a task to one of the person’s lists (by default their first list).',
+    description: 'Add a task to one of the person’s lists (by default the list they chose for Add to Tasks in Tasks, else their first list).',
     inputSchema: { type: 'object', required: ['title'], properties: { title: { type: 'string' }, list: { type: 'string', description: 'A list’s name or id' }, due: { type: 'string', description: 'A day, YYYY-MM-DD' }, notes: { type: 'string' } } },
     async run(api, a) {
       const r = await api('GET', '/tasks/lists');
       const lists = Array.isArray(r) ? r : r.lists || [];
-      const list = a.list ? lists.find((l) => l.id === a.list || l.name.toLowerCase() === String(a.list).toLowerCase()) : lists[0];
+      const list = a.list ? lists.find((l) => l.id === a.list || l.name.toLowerCase() === String(a.list).toLowerCase()) : lists.find((l) => l.inbox) || lists[0]; // (the list they chose for Add to Tasks)
       if (!list) throw new ToolError(`No list called “${a.list}”`);
       if (a.due && !/^\d{4}-\d{2}-\d{2}$/.test(a.due)) throw new ToolError('due is a day, like 2026-11-20');
       const t = await api('POST', `/tasks/lists/${list.id}/tasks`, { title: String(a.title || '').slice(0, 500), ...(a.due && { due: a.due }), ...(a.notes && { notes: String(a.notes) }) });

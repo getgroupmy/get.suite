@@ -427,6 +427,21 @@ test('add a contact: found again by search and fetch; the same email isn’t add
   assert.equal((await call(ro, 'create_contact', { name: 'X' })).isError, true);
 });
 
+test('create_task with no list named: the list chosen for Add to Tasks, else the first list', async () => {
+  const lists = async () => (await owner('GET', '/api/tasks/lists')).body.lists;
+  const first = (await lists()).find((l) => l.inbox);
+  const a = (await call(rw, 'create_task', { title: 'Goes to the first list' })).structuredContent;
+  assert.equal(a.list, first.name);
+  const picked = (await owner('POST', '/api/tasks/lists', { name: 'Assistant inbox' })).body.id;
+  assert.equal((await owner('PUT', '/api/tasks/inbox', { list_id: picked })).status, 200);
+  const b = (await call(rw, 'create_task', { title: 'Goes to the chosen list' })).structuredContent;
+  assert.equal(b.list, 'Assistant inbox');
+  assert.ok((await owner('GET', `/api/tasks/lists/${picked}/tasks`)).body.some((t) => t.title === 'Goes to the chosen list'));
+  // A list named still wins.
+  assert.equal((await call(rw, 'create_task', { title: 'Named', list: first.name })).structuredContent.list, first.name);
+  assert.equal((await owner('PUT', '/api/tasks/inbox', { list_id: null })).status, 200);
+});
+
 test('add several contacts: new ones added with their names, the person, colleagues and contacts already there left out', async () => {
   await owner('POST', '/api/contacts', { name: 'Bo Known', email: 'bo@known.example' });
   const r = await call(rw, 'add_contacts', { people: [{ name: 'Cy Crate', email: 'cy@crate.example' }, { email: 'dee@crate.example' }, { name: 'Bo', email: 'BO@known.example' }, { name: 'Me', email: 'olivia@acme.com' }] });

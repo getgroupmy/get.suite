@@ -355,3 +355,20 @@ test('the list Add to Tasks uses: chosen (yours or shared with you), marked in t
   await ann('PUT', '/api/tasks/inbox', { list_id: again });
   assert.equal((await ann('PUT', '/api/tasks/inbox', { list_id: null })).body.list.id, first);
 });
+
+test('a comment assigned to you becomes a task on the list you chose for Add to Tasks', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const miaId = (await mia('GET', '/api/auth/me')).body.user.id;
+  const chosen = (await mia('POST', '/api/tasks/lists', { name: 'Reviews' })).body.id;
+  assert.equal((await mia('PUT', '/api/tasks/inbox', { list_id: chosen })).status, 200);
+  const doc = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'Plan to review' })).body;
+  assert.equal((await ann('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: miaId, role: 'editor' }] })).status, 200);
+  const c = await ann('POST', `/api/comments/${doc.id}`, { body: 'Please check the dates', assign: miaId });
+  assert.ok(c.status < 300, JSON.stringify(c.body));
+  const there = (await mia('GET', `/api/tasks/lists/${chosen}/tasks`)).body;
+  assert.equal(there.length, 1, JSON.stringify(there));
+  assert.match(there[0].title, /check the dates/i);
+  await mia('PUT', '/api/tasks/inbox', { list_id: null });
+});
