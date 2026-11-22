@@ -3417,3 +3417,4 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .slide-para.listed[data-level="2"] { margin-left: 3.2em; }
 .slide-para.listed[data-level="3"] { margin-left: 4.8em; }
 .poll-add { gap: 6px; margin: 6px 0 2px; }
+.home-task-about { text-decoration: none; margin-left: 4px; }

@@ -63,6 +63,21 @@ await step('Home: Tasks for today shows My Day (☀) first, then what’s due; t
   await card.getByRole('link', { name: 'Tasks for today' }).click();
   await until(async () => page.url().endsWith('/tasks/myday'));
 });
+await step('a task made from something shows where it leads; the picture opens it from Home', async () => {
+  const list = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.name === 'Work').id;
+  const note = (await api(page, 'POST', '/notes', { title: 'Supplier call', body: 'Ask about lead times' })).body;
+  const today = new Date(); const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Follow up the supplier', due: day, link: { url: `/notes?note=${note.id}`, label: 'Note: Supplier call' } });
+  await page.goto(`${B}/home`);
+  const card = page.getByRole('region', { name: 'Tasks for today' });
+  const row = card.locator('li', { hasText: 'Follow up the supplier' });
+  const about = row.getByRole('link', { name: 'Open Note: Supplier call' });
+  if (!(await about.textContent()).includes('📝')) throw new Error(await about.textContent());
+  if (await card.locator('li', { hasText: 'Pay invoice' }).getByRole('link', { name: /^Open / }).count()) throw new Error('a task with no link shows one');
+  await about.click();
+  await page.waitForURL(/\/notes/);
+  await page.getByRole('dialog', { name: 'Supplier call' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

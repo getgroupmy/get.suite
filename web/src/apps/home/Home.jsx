@@ -1,3 +1,4 @@
+import { linkIcon } from '../tasks/listprint.js';
 // Home: the day at a glance. Today's events, tasks due (and overdue), unread mail and chat, files you
 // worked on lately and your pinned notes, each linking to where it lives. It updates as things change.
 import { useCallback, useEffect, useState } from 'react';
@@ -184,6 +185,7 @@ export default function Home() {
                     <li key={t.id}>
                       <input type="checkbox" aria-label={`Done: ${t.title}`} onChange={() => tickOff(t)} />
                       <Link className="grow home-item" to={`/tasks/${t.list_id}?task=${t.id}`}>{t.my_day && <span className="home-sun" title="In My Day" aria-label="In My Day">☀ </span>}{t.title}</Link>
+                      {t.link_url && <Link to={t.link_url} className="home-task-about" aria-label={`Open ${t.link_label || 'what it is about'}`} title={`Open ${t.link_label || 'what it is about'}`}>{linkIcon(t.link_url)}</Link>}
                       {d && <span className={`pill due ${d.tone}`}>{d.text}</span>}
                     </li>
                   );
