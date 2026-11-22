@@ -2434,6 +2434,19 @@ export default function fileRoutes({ maxUploadBytes }) {
     const id = insertFile({ owner: req.user.id, parentId: null, name: cleanName(`${top.name} (contents)`), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
     res.status(201).json({ ...publicFile(loadFile(id, req.user)), items: rows.length - 1, more });
   });
+  // A new spreadsheet from a table the app has worked out (Calendar's agenda in Sheets): { name, rows: [[text]], header },
+  // read as Sheets reads what's typed, into My Drive (or a folder you can add to).
+  r.post('/sheet-from-rows', (req, res) => {
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows) || !rows.length || !rows.every((r) => Array.isArray(r))) throw bad('Give the table’s rows');
+    if (rows.length > TABLE_MAX_ROWS * 5 || rows.some((r) => r.length > TABLE_MAX_COLS)) throw bad(`A table of up to ${TABLE_MAX_ROWS * 5} rows and ${TABLE_MAX_COLS} columns`);
+    if (rows.some((r) => r.some((c) => typeof c !== 'string' || c.length > 50000))) throw bad('Each cell is its text');
+    const name = cleanName(String(req.body?.name || 'Untitled spreadsheet').slice(0, 200));
+    const json = JSON.stringify(sheetFromRows(rows, { header: !!req.body?.header }));
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const id = insertFile({ owner: req.user.id, parentId: resolveParent(req.body?.parent_id, req.user), name, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
   // Which types each kind can be had as (the first is the usual one).
   const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub', 'html', 'txt', 'rtf', 'pdf'], sheet: ['xlsx', 'ods', 'pdf', 'csv', 'tsv'], slides: ['pptx', 'odp', 'md', 'txt', 'pdf'] };
   const exportType = (f, format) => (EXPORT_TYPES[f.kind]?.includes(format) ? format : EXPORT_AS[f.kind]);

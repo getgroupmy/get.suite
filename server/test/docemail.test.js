@@ -213,3 +213,14 @@ test('Drive → List contents in Sheets: a folder’s files and folders inside, 
   assert.equal((await ann('POST', `/api/files/${up.id}/contents-sheet`, {})).status, 400);
   assert.equal((await ben('POST', `/api/files/${top.id}/contents-sheet`, {})).status, 404);
 });
+
+test('a spreadsheet from rows the app worked out (sheet-from-rows): numbers read as typed, a heading row, refused when not a table', async () => {
+  const r = await ann('POST', '/api/files/sheet-from-rows', { name: 'Agenda 1–7 Dec', header: true, rows: [['Date', 'Title', 'Hours'], ['2026-12-03', 'Design review', '1.5'], ['2026-12-04', '=evil()', '2']] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.kind], ['Agenda 1–7 Dec', 'sheet']);
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([sh.cells.A1, sh.formats.A1, sh.cells.C2, sh.cells.B3, sh.frozen], ['Date', { b: true }, '1.5', "'=evil()", { rows: 1, cols: 0 }]);
+  assert.equal((await ann('POST', '/api/files/sheet-from-rows', { rows: [] })).status, 400);
+  assert.equal((await ann('POST', '/api/files/sheet-from-rows', { rows: [[1, 2]] })).status, 400);
+  assert.equal((await ann('POST', '/api/files/sheet-from-rows', { rows: [Array(101).fill('x')] })).status, 400);
+});

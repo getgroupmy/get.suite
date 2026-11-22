@@ -81,6 +81,20 @@ await step('Copy to a document: the agenda as a document, a heading a day and a 
   if (await ed.getByText('Far away').count()) throw new Error('only this week');
   if (!(await ed.locator('h2').count())) throw new Error('a heading a day');
 });
+await step('Open in Sheets: the agenda a row an event, with its hours', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Print or save as PDF' }).click();
+  const d = page.getByRole('dialog', { name: 'Print or save as PDF' });
+  await d.locator('.agenda-preview').getByText('Board meeting').waitFor();
+  await d.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="E1"]', { hasText: 'What' }).waitFor();
+  const id = page.url().split('/').pop().split('?')[0];
+  const cells = (await api(page, 'GET', `/files/${id}/content`)).body.content.sheets[0].cells;
+  const row = Object.keys(cells).find((k) => cells[k] === 'Board meeting')?.replace(/^[A-Z]+/, '');
+  if (!row || cells[`D${row}`] !== '1' || cells[`F${row}`] !== 'Room 4' || !/^\d\d:\d\d$/.test(cells[`B${row}`])) throw new Error(JSON.stringify(cells));
+  if (Object.values(cells).includes('Far away')) throw new Error('only this week');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

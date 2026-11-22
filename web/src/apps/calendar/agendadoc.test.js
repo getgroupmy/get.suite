@@ -20,3 +20,15 @@ test('an agenda as a document: a heading a day, a table of times and what’s on
   assert.deepEqual(doc.content[2].content[2].content[1].content[0].content[0].marks, [{ type: 'bold' }]);
   assert.deepEqual(agendaDoc('Empty', []).content.map((n) => text(n)), ['Empty', 'Nothing scheduled.']);
 });
+
+test('an agenda as spreadsheet rows: a row an event with its day, times, hours, title and where', async () => {
+  const { agendaRows } = await import('./agendadoc.js');
+  const day = new Date(Date.UTC(2026, 11, 3));
+  const at = (h, m = 0) => Date.UTC(2026, 11, 3, h, m);
+  assert.deepEqual(agendaRows([{ day, items: [{ title: 'Conference', all_day: true }, { title: 'Review', start: at(9, 30), end: at(11), location: 'Room 4' }, { title: '', start: at(14), end: at(14, 20) }] }]), [
+    ['Date', 'Start', 'End', 'Hours', 'What', 'Where'],
+    ['2026-12-03', 'All day', '', '', 'Conference', ''],
+    ['2026-12-03', '09:30', '11:00', '1.5', 'Review', 'Room 4'],
+    ['2026-12-03', '14:00', '14:20', '0.33', '(No title)', ''],
+  ]);
+});

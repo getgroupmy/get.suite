@@ -20,3 +20,18 @@ export function agendaDoc(title, days, { dayName = (d) => d.toDateString(), time
   }
   return { type: 'doc', content };
 }
+
+/**
+ * The agenda as rows for a spreadsheet (Open in Sheets): the heading row, then an event a row with its day, start and
+ * end (24-hour), how many hours, title and where; an all-day event without times. `day` and `hhmm` give local text.
+ */
+export function agendaRows(days, { day = (d) => d.toISOString().slice(0, 10), hhmm = (ms) => new Date(ms).toISOString().slice(11, 16) } = {}) {
+  const rows = [['Date', 'Start', 'End', 'Hours', 'What', 'Where']];
+  for (const { day: d, items } of days) {
+    for (const ev of items) {
+      const hours = ev.all_day ? '' : String(Math.round(((ev.end - ev.start) / 36e5) * 100) / 100);
+      rows.push([day(d), ev.all_day ? 'All day' : hhmm(ev.start), ev.all_day ? '' : hhmm(ev.end), hours, ev.title || '(No title)', ev.location || '']);
+    }
+  }
+  return rows;
+}

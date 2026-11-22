@@ -1,4 +1,4 @@
-import { agendaDoc } from './agendadoc.js';
+import { agendaDoc, agendaRows } from './agendadoc.js';
 import { has } from '../../fold.js';
 import WorldClock from './WorldClock.jsx';
 import { unreachable, changeAdd, appendKept, offlineId, eventsCovering, keepChange } from '../offlinedocs.js';
@@ -1430,6 +1430,15 @@ function PrintAgenda({ onClose, weekStart = 1 }) {
   const days = to > from ? daysFromTo(range.from, range.to) : [];
   const list = events ? scheduleOf(events, days) : [];
   const title = `${range.from.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })} – ${range.to.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  // Open in Sheets: the agenda as a spreadsheet (an event a row: day, start, end, hours, what, where), for a timesheet.
+  const toSheet = async () => {
+    try {
+      const pad = (n) => String(n).padStart(2, '0');
+      const rows = agendaRows(list, { day: (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, hhmm: (ms) => { const t = new Date(ms); return `${pad(t.getHours())}:${pad(t.getMinutes())}`; } });
+      const f = await post('/files/sheet-from-rows', { name: `Agenda ${title}`, rows, header: true });
+      navigate(`/sheets/${f.id}`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   // Copy to a document: the agenda as a document of yours, to keep and add to.
   const navigate = useNavigate();
   const toast = useToast();
@@ -1465,7 +1474,7 @@ function PrintAgenda({ onClose, weekStart = 1 }) {
     </div>
   );
   return (<>
-    <Modal wide title="Print or save as PDF" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn" disabled={events === null} onClick={toDoc}><Icon name="doc" size={18} /> Copy to a document</button><button type="button" className="btn primary" disabled={events === null} onClick={print}><Icon name="print" size={18} /> Print</button></>}>
+    <Modal wide title="Print or save as PDF" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn" disabled={events === null} onClick={toDoc}><Icon name="doc" size={18} /> Copy to a document</button><button type="button" className="btn" disabled={events === null || !list.length} onClick={toSheet}><Icon name="sheet" size={18} /> Open in Sheets</button><button type="button" className="btn primary" disabled={events === null} onClick={print}><Icon name="print" size={18} /> Print</button></>}>
       <div className="stack">
         <div className="row wrap">
           <label className="field"><span>What to print</span>
