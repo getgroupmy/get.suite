@@ -2366,6 +2366,30 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
   // Insert table from a spreadsheet (Docs): a sheet's cells as they show, to put in a document as a table.
   // ?sheet=<index>&range=A1:D10 (or the cells in use); with the spreadsheet's sheet names to pick from.
+  // Copy to a new document: a sheet (or a range of it) as a table in a new document of yours, values as the sheet
+  // shows them, its first row as the heading row and bold cells kept; for a report or a letter around the figures.
+  r.post('/:id/sheet-doc', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'sheet') throw bad('Pick a spreadsheet');
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    saveNow(f.id);
+    const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(req.body?.sheet) || 0));
+    const t = await sheetTable(data, index, String(req.body?.range || ''));
+    if (t.error) throw bad(t.error);
+    const sheetName = data.sheets[index]?.name || `Sheet${index + 1}`;
+    const text = (x, bold) => (x ? [{ type: 'text', text: x, ...(bold && { marks: [{ type: 'bold' }] }) }] : undefined);
+    const para = (x, bold) => ({ type: 'paragraph', ...(x && { content: text(x, bold) }) });
+    const title = (data.sheets || []).length > 1 ? `${f.name} – ${sheetName}` : f.name;
+    const doc = { type: 'doc', content: [
+      { type: 'heading', attrs: { level: 1 }, content: text(title) },
+      { type: 'table', content: t.rows.map((row, i) => ({ type: 'tableRow', content: row.map((c) => ({ type: i ? 'tableCell' : 'tableHeader', content: [para(c.text, c.bold && i > 0)] })) })) },
+      para(''),
+    ] };
+    const json = JSON.stringify(doc);
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${title} (table)`.slice(0, 200), kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, rows: t.rows.length, range: t.range });
+  });
   r.get('/:id/table', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind !== 'sheet') throw bad('Pick a spreadsheet');

@@ -169,3 +169,22 @@ test('a task list in Sheets: open tasks then done ones, in the Excel columns; Ad
   assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
   assert.equal((await mia('POST', `/api/tasks/lists/${list}/sheet`, {})).status, 404);
 });
+
+test('a sheet copied to a new document: a table of what the cells show, the heading row, a range; not a document', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const sh = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Q4 costs', content: { sheets: [{ name: 'Costs', cells: { A1: 'Item', B1: 'Cost', A2: 'Rent', B2: '1200', A3: 'Power', B3: '300', A4: 'Total', B4: '=SUM(B2:B3)' } }] } })).body;
+  const r = await ann('POST', `/api/files/${sh.id}/sheet-doc`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.rows, r.body.range], ['Q4 costs (table)', 4, 'A1:B4']);
+  const doc = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content;
+  assert.equal(doc.content[0].type, 'heading');
+  const table = doc.content.find((n) => n.type === 'table');
+  const cells = table.content.map((row) => row.content.map((c) => `${c.type === 'tableHeader' ? '*' : ''}${(c.content[0].content || []).map((x) => x.text).join('')}`));
+  assert.deepEqual(cells, [['*Item', '*Cost'], ['Rent', '1200'], ['Power', '300'], ['Total', '1500']]);
+  const part = await ann('POST', `/api/files/${sh.id}/sheet-doc`, { range: 'A1:A2' });
+  assert.deepEqual([part.status, part.body.rows, part.body.range], [201, 2, 'A1:A2']);
+  assert.equal((await ann('POST', `/api/files/${sh.id}/sheet-doc`, { range: 'nope' })).status, 400);
+  const d = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'D' })).body;
+  assert.equal((await ann('POST', `/api/files/${d.id}/sheet-doc`, {})).status, 400);
+});

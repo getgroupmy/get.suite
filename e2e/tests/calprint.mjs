@@ -158,6 +158,21 @@ await step('Sheets ⋮ → Make a contact group…: the sheet’s names and emai
   const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Choir 2027');
   if (!g || g.members.map((m) => m.email).join() !== 'alto@choir.example,bass@choir.example') throw new Error(JSON.stringify(g));
 });
+await step('Sheets ⋮ → Copy to a new document: the sheet as a table, worked-out values, heading row', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Budget', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Item', B1: 'Cost', A2: 'Venue', B2: '800', A3: 'Food', B3: '450', A4: 'Total', B4: '=SUM(B2:B3)' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A2"]', { hasText: 'Venue' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a new document' }).click();
+  await page.getByText('Made “Budget (table)” in your Drive (A1:B4)').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.paper .tiptap');
+  await ed.locator('h1', { hasText: 'Budget' }).waitFor();
+  await ed.locator('th', { hasText: 'Cost' }).waitFor();
+  await ed.locator('td', { hasText: '1250' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

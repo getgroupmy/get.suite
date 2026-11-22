@@ -684,6 +684,8 @@ Protections move with their cells when the owner (or someone allowed) inserts or
 
 **⋮ → Make a contact group…** makes one of your contact groups from the same kind of sheet (a **Name** and an **Email** column), named after the spreadsheet unless you change it, to write to everyone on it by typing the group's name in To. Rows without an address are left out, and the message says how many.
 
+**⋮ → Copy to a new document** puts the sheet (or the cells you've selected) in a new document of yours, *(spreadsheet) (table)*, as a table of what the cells show (formulas worked out, number formats applied), the first row as its heading row and bold cells kept: to write a report or a letter around the figures. Hidden rows and columns are left out, as in **Insert table from a spreadsheet**.
+
 ## Mail merge (Sheets)
 
 **⋮ → Mail merge…** (when this server has email) sends a personal email to each person in a sheet: headings in the first row (*First name*, *Email*, *Amount*…), one person per row below. Choose the column with the addresses (one called *Email* is picked for you), then write the subject and message using the headings as placeholders: `Dear {{First name}}, you owe {{Amount}}.` The **Insert** buttons put one in where the cursor is. A preview shows the email for each person (‹ ›), with values as the cells show them (formulas and number formats included); a placeholder that isn't a heading is pointed out before anything is sent.
