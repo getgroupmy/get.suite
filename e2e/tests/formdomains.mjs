@@ -84,6 +84,20 @@ await step('Responses → Add to Contacts: the partner.org address saved under t
   await page.getByRole('button', { name: 'Add to Contacts' }).click();
   await page.getByText('Everyone who answered is already in your contacts or a colleague').waitFor();
 });
+await step('Responses → Make a contact group…: everyone who answered, named after the form unless changed', async () => {
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('tab', { name: /Responses/ }).click();
+  await page.getByRole('button', { name: 'Make a contact group…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Make a contact group' });
+  if ((await dlg.getByLabel('Group name').inputValue()) !== form.title) throw new Error('not named after the form');
+  await dlg.getByLabel('Group name').fill('Partner sign-ups');
+  await dlg.getByRole('button', { name: 'Make group' }).click();
+  await page.getByText('Made the group “Partner sign-ups” (1 person)').waitFor();
+  const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Partner sign-ups');
+  if (!g || g.members.length !== 1 || g.members[0].email !== 'lee@partner.org' || g.members[0].name !== 'Pat') throw new Error(JSON.stringify(g));
+  // The responses are still there to see (making the group didn't leave the page).
+  await page.getByRole('button', { name: 'Make a contact group…' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

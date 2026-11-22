@@ -29,7 +29,7 @@ import { mimeFor } from '../util.js';
 import { audit } from '../audit.js';
 import { channelChoice, postAsBot } from './chat.js';
 import { taskListChoice, addTaskFor } from './tasks.js';
-import { addPeople } from './contacts.js';
+import { addPeople, makeGroup } from './contacts.js';
 import { hookOf, setHook, removeHook, newSecret, deliver, deliverNow, hookPayload } from '../formhooks.js';
 import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 import { csvCell as csvCellOf } from '../csvcell.js';
@@ -1103,6 +1103,23 @@ export default function formRoutes() {
     const out = addPeople(req.user, people);
     if (out.added) sendTo([req.user.id], { type: 'contacts-changed' });
     res.json({ ...out, with_email: people.length });
+  });
+  // A contact group of everyone who answered (to write to them all): { name }. Each respondent's own address — the
+  // one the form collected, their account's on a company form, or else one given in an email question — once each.
+  r.post('/:id/contact-group', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    const responses = responsesOf(f.id);
+    if (!responses.length) throw bad('No responses yet');
+    const qs = (f.questions || []).filter((x) => x.type === 'short');
+    const nameQ = qs.find((x) => /\bname\b/i.test(x.title || '') && !/\b(company|business|organi[sz]ation|team|event|project)\b/i.test(x.title || ''));
+    const emailQ = qs.find((x) => /e-?mail/i.test(x.title || ''));
+    const ok = (e) => /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(e);
+    const people = responses.map((r) => ({ email: String(r.email || r.user?.email || (emailQ && r.answers?.[emailQ.id]) || '').trim().toLowerCase(),
+      name: r.user?.name || (nameQ ? String(r.answers?.[nameQ.id] || '').trim() : '') })).filter((p) => ok(p.email));
+    if (!people.length) throw bad('This form’s responses have no email addresses: turn on Collect email addresses, or ask for one');
+    const g = makeGroup(req.user.id, req.body?.name, people.slice(0, 501));
+    sendTo([req.user.id], { type: 'contacts-changed' });
+    res.status(201).json({ ...g, responses: responses.length });
   });
   r.post('/:id/summary-slides', (req, res) => {
     const f = ownForm(req.params.id, req.user);

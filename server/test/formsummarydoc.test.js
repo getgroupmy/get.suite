@@ -111,3 +111,25 @@ test('the summary as a presentation: a title slide, then a chart of each choice 
   assert.equal(deck.slides[2].items.find((x) => x.role === 'body' && x.list).text, 'Kayaks\nA museum');
   assert.equal((await mia('POST', `/api/forms/${f.id}/summary-slides`, {})).status, 404, 'only those who can edit the form');
 });
+
+test('a contact group of everyone who answered: each respondent once, by the address collected or their account’s; a taken name refused', async () => {
+  const olivia = client(), mia = client(), anon = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  await olivia('PATCH', '/api/orgs/current', { allow_links: true });
+  const pub = (await olivia('PUT', `/api/forms/${(await olivia('POST', '/api/forms', { title: 'Workshop sign-up' })).body.id}`, { audience: 'public', collect_email: true, questions: [{ id: 'who', type: 'short', title: 'Your name' }] })).body;
+  assert.equal((await olivia('POST', `/api/forms/${pub.id}/contact-group`, { name: 'Workshop' })).status, 400, 'no responses yet');
+  for (const [email, who] of [['Una@Guest.example', 'Una Under'], ['vic@guest.example', ''], ['una@guest.example', 'Una again']]) {
+    assert.equal((await anon('POST', `/api/public/forms/${pub.token}`, { email, answers: { who } })).status, 201);
+  }
+  const r = await olivia('POST', `/api/forms/${pub.id}/contact-group`, { name: 'Workshop' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.members.map((m) => `${m.name}<${m.email}>`), r.body.responses], ['Workshop', ['Una Under<una@guest.example>', '<vic@guest.example>'], 3]);
+  assert.equal((await olivia('POST', `/api/forms/${pub.id}/contact-group`, { name: 'workshop' })).status, 400, 'that name is taken');
+  // A company form: the colleague who answered, by their account.
+  const co = (await olivia('PUT', `/api/forms/${(await olivia('POST', '/api/forms', { title: 'Lunch order' })).body.id}`, { questions: [{ id: 'x', type: 'short', title: 'What would you like?' }] })).body;
+  assert.equal((await mia('POST', `/api/public/forms/${co.token}`, { answers: { x: 'Soup' } })).status, 201);
+  const g = await olivia('POST', `/api/forms/${co.id}/contact-group`, { name: 'Lunch people' });
+  assert.deepEqual([g.status, g.body.members], [201, [{ name: 'Mia Member', email: 'mia@acme.com' }]]);
+  assert.equal((await mia('POST', `/api/forms/${pub.id}/contact-group`, { name: 'Mine' })).status, 404, 'only those who can edit the form');
+});

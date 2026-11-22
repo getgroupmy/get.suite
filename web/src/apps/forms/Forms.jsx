@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, del, onLive, refreshOn, formatDate, uploadFile } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
+import { ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { Question } from './FormRespond.jsx';
 import { EmbedCode } from '../editorCommon.jsx';
 import SendInChat from '../../components/SendInChat.jsx';
@@ -508,6 +508,7 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
   const [view, setView] = useState('summary');
   const [at, setAt] = useState(0);
   const [clear, setClear] = useState(false);
+  const [grouping, setGrouping] = useState(false); // naming a contact group of the respondents
   const [linked, setLinked] = useState(form.linked_sheet || null);
   useEffect(() => { setLinked(form.linked_sheet || null); }, [form.linked_sheet]);
   // Filter by one question's answer: the summary, each response, printing and downloads all follow it.
@@ -561,6 +562,7 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
         <button type="button" className="btn" title="The summary of the answers so far, in a new document to edit into a report" onClick={toDoc}>Summary as a document</button>
         <button type="button" className="btn" title="The results so far as slides: a chart of each question's answers, to show in a meeting" onClick={toSlides}>Summary as a presentation</button>
         {all.length > 0 && (form.collect_email || form.questions.some((x) => x.type === 'short' && /e-?mail/i.test(x.title || ''))) && <button type="button" className="btn" title="The email addresses people gave, as contacts of yours (named from a name question)" onClick={toContacts}><Icon name="person" size={18} /> Add to Contacts</button>}
+        {all.length > 0 && (form.audience !== 'public' || form.collect_email || form.questions.some((x) => x.type === 'short' && /e-?mail/i.test(x.title || ''))) && <button type="button" className="btn" title="A contact group of everyone who answered, to write to them all" onClick={() => setGrouping(true)}><Icon name="people" size={18} /> Make a contact group…</button>}
         {all.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
       </div>
       {closedNote(form) && <p className="muted small" style={{ margin: 0 }} role="status">{closedNote(form)}</p>}
@@ -636,6 +638,12 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
           </section>
         )}
       </>}
+      {grouping && <PromptModal title="Make a contact group" label="Group name" initial={(form.title || '').slice(0, 100)} confirm="Make group"
+        message="Everyone who answered, once each, by the address the form has for them. Write to them all by typing the group’s name in To."
+        onClose={() => setGrouping(false)} onSubmit={async (name) => {
+          const g = await post(`/forms/${form.id}/contact-group`, { name });
+          toast(`Made the group “${g.name}” (${g.members.length} ${g.members.length === 1 ? 'person' : 'people'})`, 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
+        }} />}
       {clear && <ConfirmModal title="Delete all responses?" message={`All ${responses.length} responses will be deleted. Download the CSV first if you want to keep them.`}
         onClose={() => setClear(false)} onConfirm={async () => { await del(`/forms/${form.id}/responses`); setAt(0); reload(); }} />}
     </div>

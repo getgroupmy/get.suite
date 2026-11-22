@@ -129,6 +129,16 @@ export function importGroups(userId, list) {
   }
   return { added, skipped };
 }
+/** A new group of someone's ([{ name, email }], each address once): its name must be new to them. The group. */
+export function makeGroup(userId, nameIn, members) {
+  const name = str(nameIn, { required: true, name: 'Group name', max: 100 });
+  const mine = groupsOf(userId);
+  if (mine.length >= MAX_GROUPS) throw bad('Too many groups');
+  if (mine.some((g) => g.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a group with that name');
+  const id = uid();
+  q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(id, userId, name, JSON.stringify(readMembers(members)), now());
+  return groupsOf(userId).find((g) => g.id === id);
+}
 function readMembers(list) {
   if (!Array.isArray(list)) throw bad('Members must be a list');
   const seen = new Set(), out = [];
@@ -344,15 +354,7 @@ export default function contactRoutes() {
   // Suggestions while typing an address in Mail: your contacts and your colleagues.
   // ---- groups ----
   r.get('/groups', (req, res) => res.json(groupsOf(req.user.id)));
-  r.post('/groups', (req, res) => {
-    const name = str(req.body.name, { required: true, name: 'Group name', max: 100 });
-    const mine = groupsOf(req.user.id);
-    if (mine.length >= MAX_GROUPS) throw bad('Too many groups');
-    if (mine.some((g) => g.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a group with that name');
-    const id = uid();
-    q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(readMembers(req.body.members || [])), now());
-    res.status(201).json(groupsOf(req.user.id).find((g) => g.id === id));
-  });
+  r.post('/groups', (req, res) => res.status(201).json(makeGroup(req.user.id, req.body.name, req.body.members || [])));
   // A group from a spreadsheet (Sheets ⋮ → Make a contact group…): { file, sheet, name }, the sheet read as Import reads a
   // CSV (a Name and an Email column, as Gmail and Outlook write them); rows without an address are left out.
   r.post('/groups/from-sheet', async (req, res) => {
