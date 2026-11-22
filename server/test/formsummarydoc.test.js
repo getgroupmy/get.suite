@@ -54,3 +54,36 @@ test('the summary as a document: a table per choice question, the average on a s
   // Only for whoever can edit the form.
   assert.equal((await mia('POST', `/api/forms/${f.id}/summary-doc`, {})).status, 404);
 });
+
+test('respondents to Contacts: collected addresses, named from the Name question; colleagues and contacts left out', async () => {
+  const olivia = client(), anon = client();
+  assert.equal((await olivia('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  await olivia('PATCH', '/api/orgs/current', { allow_links: true });
+  const made = (await olivia('POST', '/api/forms', { title: 'Open day sign-up' })).body;
+  const f = (await olivia('PUT', `/api/forms/${made.id}`, { audience: 'public', collect_email: true, questions: [
+    { id: 'company', type: 'short', title: 'Company name' }, { id: 'who', type: 'short', title: 'Your name' }, { id: 'diet', type: 'paragraph', title: 'Dietary needs' },
+  ] })).body;
+  assert.equal(f.audience, 'public', JSON.stringify(f));
+  assert.equal((await olivia('POST', `/api/forms/${f.id}/contacts`, {})).status, 400, 'no responses yet');
+  await olivia('POST', '/api/contacts', { name: 'Ray Known', email: 'ray@guest.example' });
+  for (const [email, who] of [['Sam@Guest.example', 'Sam Stone'], ['ray@guest.example', 'Ray R'], ['mia@acme.com', 'Mia'], ['tess@guest.example', '']]) {
+    const r = await anon('POST', `/api/public/forms/${f.token}`, { email, answers: { company: 'Guest Co', who } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+  }
+  const r = await olivia('POST', `/api/forms/${f.id}/contacts`, {});
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.skipped, r.body.names, r.body.with_email], [2, 2, ['Sam Stone', 'tess'], 4]);
+  const mine = (await olivia('GET', '/api/contacts')).body;
+  assert.ok(mine.some((c) => c.email === 'sam@guest.example' && c.name === 'Sam Stone'));
+  assert.ok(!mine.some((c) => c.email === 'mia@acme.com'), 'a colleague');
+  assert.equal(mine.filter((c) => c.email === 'ray@guest.example').length, 1);
+  assert.deepEqual((await olivia('POST', `/api/forms/${f.id}/contacts`, {})).body.added, 0, 'again: nobody new');
+  // A company form asking for an email in a question.
+  const mia = client();
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const g = (await olivia('PUT', `/api/forms/${(await olivia('POST', '/api/forms', { title: 'Referrals' })).body.id}`, { questions: [{ id: 'n', type: 'short', title: 'Name' }, { id: 'e', type: 'short', title: 'Their email' }] })).body;
+  assert.equal((await mia('POST', `/api/public/forms/${g.token}`, { answers: { n: 'Uma Upton', e: 'uma@ref.example' } })).status, 201);
+  const r2 = await olivia('POST', `/api/forms/${g.id}/contacts`, {});
+  assert.deepEqual([r2.body.added, r2.body.names], [1, ['Uma Upton']], 'a colleague’s response: the address they gave, not their own');
+  assert.equal((await mia('POST', `/api/forms/${f.id}/contacts`, {})).status, 404, 'only those who can edit the form');
+});

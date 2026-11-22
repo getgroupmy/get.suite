@@ -29,6 +29,7 @@ import { mimeFor } from '../util.js';
 import { audit } from '../audit.js';
 import { channelChoice, postAsBot } from './chat.js';
 import { taskListChoice, addTaskFor } from './tasks.js';
+import { addPeople } from './contacts.js';
 import { hookOf, setHook, removeHook, newSecret, deliver, deliverNow, hookPayload } from '../formhooks.js';
 import { REQUEST_KINDS, accepts, acceptText, acceptAttr, looksLike } from '../filerequest.js';
 import { csvCell as csvCellOf } from '../csvcell.js';
@@ -1085,6 +1086,23 @@ export default function formRoutes() {
     const json = JSON.stringify(summaryDoc(f, responses, { tz: String(req.body?.tz || 'UTC') }));
     const id = insertFile({ owner: req.user.id, parentId: null, name: `${f.title} (summary)`.slice(0, 200), kind: 'doc', content: json, size: Buffer.byteLength(json) });
     res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
+  });
+  // Add respondents to Contacts: the addresses a form collected (Collect email addresses, or a question asking for
+  // one), each named from a question asking for a name if there is one. Colleagues and contacts already there are left out.
+  r.post('/:id/contacts', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    const responses = responsesOf(f.id);
+    if (!responses.length) throw bad('No responses yet');
+    const qs = (f.questions || []).filter((x) => x.type === 'short');
+    const nameQ = qs.find((x) => /\bname\b/i.test(x.title || '') && !/\b(company|business|organi[sz]ation|team|event|project)\b/i.test(x.title || ''));
+    const emailQ = qs.find((x) => /e-?mail/i.test(x.title || ''));
+    // A colleague's own response (a company form): the address they gave in a question, not their account's.
+    const people = responses.map((r) => ({ email: (!r.user && r.email) || (emailQ && String(r.answers?.[emailQ.id] || '').trim()) || '', name: nameQ ? String(r.answers?.[nameQ.id] || '') : '' }))
+      .filter((p) => p.email);
+    if (!people.length) throw bad('This form’s responses have no email addresses: turn on Collect email addresses, or ask for one');
+    const out = addPeople(req.user, people);
+    if (out.added) sendTo([req.user.id], { type: 'contacts-changed' });
+    res.json({ ...out, with_email: people.length });
   });
   r.delete('/:id/sheet', (req, res) => {
     const f = ownForm(req.params.id, req.user);

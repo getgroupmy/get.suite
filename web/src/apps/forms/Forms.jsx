@@ -532,6 +532,13 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
   const toDoc = async () => {
     try { const r = await post(`/forms/${form.id}/summary-doc`, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }); toast(`Made “${r.name}” in your Drive`); navigate(`/docs/${r.id}`); } catch (e) { toast(e.message, 'error'); }
   };
+  // Add respondents to Contacts: the addresses collected (or given in an email question), colleagues and contacts left out.
+  const toContacts = async () => {
+    try {
+      const r = await post(`/forms/${form.id}/contacts`, {});
+      toast(r.added ? `Added ${r.added === 1 ? r.names[0] : `${r.added} people`} to your contacts${r.skipped ? ` (${r.skipped} already there or colleagues)` : ''}` : 'Everyone who answered is already in your contacts or a colleague', 'info', r.added ? { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } } : undefined);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const one = responses[Math.min(at, responses.length - 1)];
   return (
     <div className="stack">
@@ -548,6 +555,7 @@ function ResponsesTab({ form, responses: all, reload, setting, flush }) {
           : <button type="button" className="btn" title="A spreadsheet in your Drive that each new response is added to as it arrives" onClick={linkSheet}><Icon name="sheet" size={18} /> Link to Sheets</button>}
         <button type="button" className="btn" title="A copy of the responses so far, in a new spreadsheet" onClick={toSheet}>Open in Sheets</button>
         <button type="button" className="btn" title="The summary of the answers so far, in a new document to edit into a report" onClick={toDoc}>Summary as a document</button>
+        {all.length > 0 && (form.collect_email || form.questions.some((x) => x.type === 'short' && /e-?mail/i.test(x.title || ''))) && <button type="button" className="btn" title="The email addresses people gave, as contacts of yours (named from a name question)" onClick={toContacts}><Icon name="person" size={18} /> Add to Contacts</button>}
         {all.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
       </div>
       {closedNote(form) && <p className="muted small" style={{ margin: 0 }} role="status">{closedNote(form)}</p>}

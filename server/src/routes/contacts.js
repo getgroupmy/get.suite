@@ -232,6 +232,28 @@ export function importContacts(user, body) {
   return { added, skipped };
 }
 
+/**
+ * Add people to someone's contacts ([{ name, email }]: from an email, an event, a form's responses): you, colleagues
+ * and anyone already in your contacts are left out (skipped); bad addresses are ignored. { added, skipped, names }
+ */
+export function addPeople(user, list) {
+  const people = Array.isArray(list) ? list.slice(0, 1000) : [];
+  const have = new Set(q('SELECT LOWER(email) AS e FROM contacts WHERE owner_id = ? AND email IS NOT NULL').all(user.id).map((c) => c.e));
+  const colleagues = new Set(q('SELECT LOWER(username) AS e FROM users WHERE org_id = ? AND disabled = 0').all(user.org_id).map((u) => u.e));
+  const added = [];
+  let skipped = 0;
+  for (const p of people) {
+    const email = String(p?.email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) continue;
+    if (have.has(email) || colleagues.has(email) || email === user.username.toLowerCase()) { skipped++; continue; }
+    const name = (String(p?.name || '').replace(/[\r\n]+/g, ' ').trim() || email.split('@')[0]).slice(0, 200);
+    q('INSERT INTO contacts (id, owner_id, name, email, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), user.id, name, email, now());
+    have.add(email);
+    added.push(name);
+  }
+  return { added: added.length, skipped, names: added.slice(0, 10) };
+}
+
 export default function contactRoutes() {
   const r = Router();
   watchContacts(); // every module has added its columns by now
@@ -414,22 +436,9 @@ export default function contactRoutes() {
   // Add everyone on an email to Contacts: { people: [{ name, email }] } (its sender and recipients). Colleagues, you, and
   // anyone already in your contacts are left out; a name missing is made from the address.
   r.post('/add-people', (req, res) => {
-    const people = Array.isArray(req.body?.people) ? req.body.people.slice(0, 200) : [];
-    const have = new Set(q('SELECT LOWER(email) AS e FROM contacts WHERE owner_id = ? AND email IS NOT NULL').all(req.user.id).map((c) => c.e));
-    const colleagues = new Set(q('SELECT LOWER(username) AS e FROM users WHERE org_id = ? AND disabled = 0').all(req.user.org_id).map((u) => u.e));
-    const added = [];
-    let skipped = 0;
-    for (const p of people) {
-      const email = String(p?.email || '').trim().toLowerCase();
-      if (!EMAIL_RE.test(email)) continue;
-      if (have.has(email) || colleagues.has(email) || email === req.user.username.toLowerCase()) { skipped++; continue; }
-      const name = (String(p?.name || '').replace(/[\r\n]+/g, ' ').trim() || email.split('@')[0]).slice(0, 200);
-      q('INSERT INTO contacts (id, owner_id, name, email, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), req.user.id, name, email, now());
-      have.add(email);
-      added.push(name);
-    }
-    if (!added.length && !skipped) throw bad('No email addresses to add');
-    res.json({ added: added.length, skipped, names: added.slice(0, 10) });
+    const r2 = addPeople(req.user, Array.isArray(req.body?.people) ? req.body.people.slice(0, 200) : []);
+    if (!r2.added && !r2.skipped) throw bad('No email addresses to add');
+    res.json(r2);
   });
 
   // Is this address one of your contacts, or a colleague? (For "Add to contacts" on a message.)

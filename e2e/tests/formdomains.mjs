@@ -74,6 +74,16 @@ await step('the form says so; another address is refused, one at partner.org is 
   await v.getByRole('button', { name: 'Submit' }).click();
   await v.getByText(/Your response has been recorded/).waitFor();
 });
+await step('Responses → Add to Contacts: the partner.org address saved under the name given (Pat), not twice', async () => {
+  await page.goto(`${B}/forms/${form.id}`);
+  await page.getByRole('tab', { name: /Responses/ }).click();
+  await page.getByRole('button', { name: 'Add to Contacts' }).click();
+  await page.getByText('Added Pat to your contacts').waitFor();
+  const list = (await api(page, 'GET', '/contacts')).body;
+  if (!list.some((c) => c.email === 'lee@partner.org' && c.name === 'Pat')) throw new Error(JSON.stringify(list));
+  await page.getByRole('button', { name: 'Add to Contacts' }).click();
+  await page.getByText('Everyone who answered is already in your contacts or a colleague').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
