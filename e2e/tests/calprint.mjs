@@ -173,6 +173,21 @@ await step('Sheets ⋮ → Copy to a new document: the sheet as a table, worked-
   await ed.locator('th', { hasText: 'Cost' }).waitFor();
   await ed.locator('td', { hasText: '1250' }).waitFor();
 });
+await step('Sheets ⋮ → Copy to a new presentation: the selected cells as a table on a slide', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Results', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Team', B1: 'Score', C1: 'Note', A2: 'Reds', B2: '12', C2: 'x', A3: 'Blues', B3: '=B2+3', C3: 'y' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A1"]', { hasText: 'Team' }).click();
+  await page.locator('[data-k="B3"]').click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a new presentation' }).click();
+  await page.getByText('Made “Results (slides)” in your Drive (A1:B3)').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/slides\//);
+  await page.getByText('Blues').first().waitFor();
+  await page.getByText('15', { exact: true }).first().waitFor();
+  if (await page.getByText('Note', { exact: true }).count()) throw new Error('only the selected columns');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

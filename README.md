@@ -684,7 +684,7 @@ Protections move with their cells when the owner (or someone allowed) inserts or
 
 **⋮ → Make a contact group…** makes one of your contact groups from the same kind of sheet (a **Name** and an **Email** column), named after the spreadsheet unless you change it, to write to everyone on it by typing the group's name in To. Rows without an address are left out, and the message says how many.
 
-**⋮ → Copy to a new document** puts the sheet (or the cells you've selected) in a new document of yours, *(spreadsheet) (table)*, as a table of what the cells show (formulas worked out, number formats applied), the first row as its heading row and bold cells kept: to write a report or a letter around the figures. Hidden rows and columns are left out, as in **Insert table from a spreadsheet**.
+**⋮ → Copy to a new document** puts the sheet (or the cells you've selected) in a new document of yours, *(spreadsheet) (table)*, as a table of what the cells show (formulas worked out, number formats applied), the first row as its heading row and bold cells kept: to write a report or a letter around the figures. Hidden rows and columns are left out, as in **Insert table from a spreadsheet**. **⋮ → Copy to a new presentation** does the same on a slide, *(spreadsheet) (slides)*: the spreadsheet's name as the slide's title above the table (a slide's table holds 20 rows and 10 columns, so select the cells you want from a bigger sheet).
 
 ## Mail merge (Sheets)
 

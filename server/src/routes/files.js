@@ -2368,19 +2368,23 @@ export default function fileRoutes({ maxUploadBytes }) {
   // ?sheet=<index>&range=A1:D10 (or the cells in use); with the spreadsheet's sheet names to pick from.
   // Copy to a new document: a sheet (or a range of it) as a table in a new document of yours, values as the sheet
   // shows them, its first row as the heading row and bold cells kept; for a report or a letter around the figures.
-  r.post('/:id/sheet-doc', async (req, res) => {
+  // A sheet (or a range of it) as table rows, for Copy to a new document / presentation; its title (with the sheet's name when several).
+  const sheetForCopy = async (req, limits) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind !== 'sheet') throw bad('Pick a spreadsheet');
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     saveNow(f.id);
     const data = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
     const index = Math.max(0, Math.min((data.sheets || []).length - 1, Number(req.body?.sheet) || 0));
-    const t = await sheetTable(data, index, String(req.body?.range || ''));
+    const t = await sheetTable(data, index, String(req.body?.range || ''), limits);
     if (t.error) throw bad(t.error);
     const sheetName = data.sheets[index]?.name || `Sheet${index + 1}`;
+    return { f, t, title: (data.sheets || []).length > 1 ? `${f.name} – ${sheetName}` : f.name };
+  };
+  r.post('/:id/sheet-doc', async (req, res) => {
+    const { t, title } = await sheetForCopy(req);
     const text = (x, bold) => (x ? [{ type: 'text', text: x, ...(bold && { marks: [{ type: 'bold' }] }) }] : undefined);
     const para = (x, bold) => ({ type: 'paragraph', ...(x && { content: text(x, bold) }) });
-    const title = (data.sheets || []).length > 1 ? `${f.name} – ${sheetName}` : f.name;
     const doc = { type: 'doc', content: [
       { type: 'heading', attrs: { level: 1 }, content: text(title) },
       { type: 'table', content: t.rows.map((row, i) => ({ type: 'tableRow', content: row.map((c) => ({ type: i ? 'tableCell' : 'tableHeader', content: [para(c.text, c.bold && i > 0)] })) })) },
@@ -2389,6 +2393,19 @@ export default function fileRoutes({ maxUploadBytes }) {
     const json = JSON.stringify(doc);
     const id = insertFile({ owner: req.user.id, parentId: null, name: `${title} (table)`.slice(0, 200), kind: 'doc', content: json, size: Buffer.byteLength(json) });
     res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, rows: t.rows.length, range: t.range });
+  });
+  // Copy to a new presentation: the same, as a table on a slide under the spreadsheet's name (at most 20 rows and
+  // 10 columns, a slide's table; a bigger sheet asks for a range), its first row the heading row.
+  r.post('/:id/sheet-slides', async (req, res) => {
+    const { t, title } = await sheetForCopy(req, { maxRows: 20, maxCols: 10 });
+    const rows = t.rows.map((r) => r.map((c) => c.text));
+    const deck = { theme: 'light', slides: [{ id: uid(), items: [
+      { id: uid(), type: 'text', role: 'title', x: 6, y: 5, w: 88, h: 13, text: title.slice(0, 200), size: 32, bold: true },
+      { id: uid(), type: 'table', x: 8, y: 22, w: 84, h: Math.min(70, 8 + rows.length * 6), size: rows.length > 10 || rows[0].length > 6 ? 12 : rows.length > 6 ? 14 : 18, header: true, cells: rows },
+    ] }] };
+    const json = JSON.stringify(deck);
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${title} (slides)`.slice(0, 200), kind: 'slides', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, rows: rows.length, range: t.range });
   });
   r.get('/:id/table', async (req, res) => {
     const f = loadFile(req.params.id, req.user);

@@ -188,3 +188,25 @@ test('a sheet copied to a new document: a table of what the cells show, the head
   const d = (await ann('POST', '/api/files/new', { kind: 'doc', name: 'D' })).body;
   assert.equal((await ann('POST', `/api/files/${d.id}/sheet-doc`, {})).status, 400);
 });
+
+test('a sheet copied to a new presentation: a slide with its title and the table of what the cells show; too big asks for a range', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const sh = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Sales', content: { sheets: [{ name: 'S', cells: { A1: 'Region', B1: 'Q1', A2: 'North', B2: '40', A3: 'South', B3: '=B2*2' } }] } })).body;
+  const r = await ann('POST', `/api/files/${sh.id}/sheet-slides`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.rows], ['Sales (slides)', 3]);
+  const deck = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content;
+  const items = deck.slides[0].items;
+  assert.equal(items.find((x) => x.role === 'title').text, 'Sales');
+  const table = items.find((x) => x.type === 'table');
+  assert.deepEqual([table.header, table.cells], [true, [['Region', 'Q1'], ['North', '40'], ['South', '80']]]);
+  const big = {}; for (let i = 1; i <= 25; i++) big[`A${i}`] = String(i);
+  const bs = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Long', content: { sheets: [{ name: 'S', cells: big }] } })).body;
+  const no = await ann('POST', `/api/files/${bs.id}/sheet-slides`, {});
+  assert.equal(no.status, 400);
+  assert.match(no.body.error, /up to 20 rows/);
+  assert.equal((await ann('POST', `/api/files/${bs.id}/sheet-slides`, { range: 'A1:A5' })).status, 201);
+  // The document copy still works through the shared step.
+  assert.equal((await ann('POST', `/api/files/${sh.id}/sheet-doc`, {})).status, 201);
+});

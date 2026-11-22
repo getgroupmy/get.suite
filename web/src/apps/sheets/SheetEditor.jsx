@@ -1242,6 +1242,15 @@ export default function SheetEditor() {
     input.click();
   }
 
+  // Copy to a new document / presentation: this sheet, or the cells selected, as a table there (the server works out the values).
+  async function copyAsTable(what, app) {
+    try {
+      const many = range.c1 !== range.c2 || range.r1 !== range.r2;
+      const r = await post(`/files/${id}/${what}`, { sheet: active, range: many ? `${colName(range.c1)}${range.r1 + 1}:${colName(range.c2)}${range.r2 + 1}` : '' });
+      toast(`Made “${r.name}” in your Drive (${r.range})`, 'info', { action: { label: 'Open', onClick: () => navigate(`/${app}/${r.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   // Send as email: a new message in Mail with the selected cells (or the whole sheet) as a table in it, as they look.
   function sendAsEmail() {
     const many = range.c1 !== range.c2 || range.r1 !== range.r2;
@@ -1421,13 +1430,8 @@ export default function SheetEditor() {
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           mail?.enabled && !viewOnly(file) && { label: 'Send as email', icon: 'mail', onClick: sendAsEmail },
-          !viewOnly(file) && { label: 'Copy to a new document', icon: 'doc', onClick: async () => { // (this sheet, or the cells selected, as a table)
-            try {
-              const many = range.c1 !== range.c2 || range.r1 !== range.r2;
-              const r = await post(`/files/${id}/sheet-doc`, { sheet: active, range: many ? `${colName(range.c1)}${range.r1 + 1}:${colName(range.c2)}${range.r2 + 1}` : '' });
-              toast(`Made “${r.name}” in your Drive (${r.range})`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.id}`) } });
-            } catch (e) { toast(e.message, 'error'); }
-          } },
+          !viewOnly(file) && { label: 'Copy to a new document', icon: 'doc', onClick: () => copyAsTable('sheet-doc', 'docs') }, // (this sheet, or the cells selected, as a table)
+          !viewOnly(file) && { label: 'Copy to a new presentation', icon: 'slides', onClick: () => copyAsTable('sheet-slides', 'slides') }, // (the same, on a slide)
           !viewOnly(file) && { label: 'Add rows to Tasks…', icon: 'check', onClick: () => setDialog({ type: 'to-tasks' }) },
           !viewOnly(file) && { label: 'Make a contact group…', icon: 'people', onClick: () => setDialog({ type: 'contact-group' }) },
           !viewOnly(file) && { label: 'Add rows to Contacts', icon: 'person', onClick: async () => {
