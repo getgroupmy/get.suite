@@ -417,3 +417,14 @@ test('a shared list says who to write to: its ownerâ€™s address and each memberâ
   const seen = (await mia('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list);
   assert.deepEqual([seen.owner_email, seen.owner_name, seen.members.map((m) => m.username)], ['olivia@acme.com', 'Olivia Owner', ['mia@acme.com']]);
 });
+
+test('a task can link back to a calendar event (as to an email or a chat message); other links are still refused', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Prep' })).body.id;
+  const r = await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Board meeting', due: '2026-12-03', due_time: '14:00', link: { url: '/calendar?event=abc123&at=1796306400000', label: 'Event: Board meeting' } });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.link_url, r.body.link_label, r.body.due, r.body.due_time], ['/calendar?event=abc123&at=1796306400000', 'Event: Board meeting', '2026-12-03', '14:00']);
+  assert.equal((await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url: 'https://evil.example/calendar', label: 'x' } })).status, 400);
+  assert.equal((await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url: '/admin', label: 'x' } })).status, 400);
+});

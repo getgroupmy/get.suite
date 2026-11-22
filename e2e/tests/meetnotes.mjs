@@ -114,6 +114,25 @@ await step('event → Make a contact group…: its guests in a group named after
   const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Launch crew');
   if (!g || g.members.map((m) => m.email).sort().join() !== 'kim@acme.com,max@acme.com') throw new Error(JSON.stringify(g));
 });
+await step('event → Add to Tasks: a task due on its day that links back to the event', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radio', { name: 'Schedule' }).click();
+  await page.getByText('Launch crew', { exact: true }).first().click();
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  await dlg.getByRole('button', { name: 'Add to Tasks' }).click();
+  await page.getByText(/^Added to /).waitFor();
+  const lists = (await api(page, 'GET', '/tasks/lists')).body.lists;
+  const inbox = lists.find((l) => l.inbox);
+  const t = (await api(page, 'GET', `/tasks/lists/${inbox.id}/tasks`)).body.find((x) => x.title === 'Launch crew');
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (!t || t.due !== day || t.due_time !== '15:00' || !/^\/calendar\?event=/.test(t.link_url) || t.link_label !== 'Event: Launch crew') throw new Error(JSON.stringify(t));
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/tasks\/.+\?task=/);
+  await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Event: Launch crew/ }).click();
+  await page.waitForURL(/\/calendar/);
+  await page.getByRole('dialog', { name: 'Edit event' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

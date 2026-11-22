@@ -11,6 +11,7 @@ import { calKey } from './calkeys.js';
 import { get, post, put, patch, del, onLive, refreshOn, postText, setCalendarOwner } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import { eventLink } from '../chat/filelinks.js';
+import { addToTasksWithToast } from '../tasks/addtask.js';
 import { LENGTHS, DEFAULT_CAL_PREFS, newEventMinutes, lengthLabel } from './calprefs.js';
 import Icon from '../../components/Icon.jsx';
 import { Attendance, KeptChat } from '../../components/MeetHistory.jsx';
@@ -1214,6 +1215,23 @@ function AddGuestsToContacts({ event, className }) {
   return <button type="button" className={className} onClick={go}>Add guests to Contacts</button>;
 }
 
+// Add to Tasks: the event as a task on your list (the one chosen for Add to Tasks), due on its day (at its time, unless
+// it's all day), linking back to the event: to prepare for it, or to follow up.
+function EventToTasks({ event, className }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const go = () => {
+    const d = new Date(event.start), pad = (n) => String(n).padStart(2, '0');
+    addToTasksWithToast(toast, navigate, {
+      title: event.title || '(No title)', due: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      ...(!event.all_day && { due_time: `${pad(d.getHours())}:${pad(d.getMinutes())}` }),
+      ...(event.location && { notes: `Where: ${event.location}` }),
+      link: { url: `/calendar?event=${event.id}${event.rrule ? `&at=${event.start}` : ''}`, label: `Event: ${event.title || '(No title)'}` },
+    });
+  };
+  return <button type="button" className={className} onClick={go}>Add to Tasks</button>;
+}
+
 // Make a contact group from an event's people (its guests and organizer, not you), named after the event unless
 // changed: to write to them all again by typing the group's name in To. Offered with two or more people.
 function GuestsToGroup({ event, className }) {
@@ -1288,7 +1306,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         {outside && <p className="muted small" role="note" style={{ margin: 0 }}>{event.organizer.name} works at {event.organizer.org || 'another company'}, outside yours. Be careful with links and files in the invitation that ask you to sign in or pay.</p>}
         <GuestList guests={event.guests} />
         <div><EmailGuests event={event} className="btn small" guestView /></div>
-        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /> · <AddGuestsToContacts event={event} className="link-btn small" /> · <GuestsToGroup event={event} className="link-btn small" /></p>
+        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /> · <AddGuestsToContacts event={event} className="link-btn small" /> · <GuestsToGroup event={event} className="link-btn small" /> · <EventToTasks event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
@@ -2067,7 +2085,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
               {event.id && (event.guests || []).length > 0 && <button type="button" className="btn small" onClick={guestSheet} title="Who's invited and how they've answered, in a new spreadsheet">
                 <Icon name="sheet" size={16} /> Guest list in Sheets</button>}
               {event.id && <AddGuestsToContacts event={event} className="btn small" />}
-              {event.id && <GuestsToGroup event={event} className="btn small" />}</span>
+              {event.id && <GuestsToGroup event={event} className="btn small" />}
+              {event.id && <EventToTasks event={event} className="btn small" />}</span>
             {attachments.length > 0 && (guests.length > 0 || guestInput.trim()) && <span className="muted small">Guests can view the files you own. They see the others only if they can already open them.</span>}
           </div>
         )}
