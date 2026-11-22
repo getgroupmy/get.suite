@@ -120,6 +120,21 @@ await step('an AI assistant adds everyone on an email to Contacts (add_contacts 
   await page.goto(new URL(r.structuredContent.url, B).href);
   await page.getByText('Ivy Inlet').first().waitFor();
 });
+await step('⋮ → Make a contact group…: everyone on the message (not you) in a group named after its subject', async () => {
+  await page.goto(`${B}/mail`);
+  await page.locator('.mail-list').getByText('Crew list', { exact: true }).click();
+  await page.locator('.mail-reader').getByText('The crew for March.').waitFor();
+  await page.getByRole('button', { name: 'More for this message' }).click();
+  await page.getByRole('menuitem', { name: 'Make a contact group…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Make a contact group' });
+  await dlg.getByText('3 people: Gina Globex, Ben Barge, Hal Harbour').waitFor();
+  if ((await dlg.getByLabel('Group name').inputValue()) !== 'Crew list') throw new Error('name not from the subject');
+  await dlg.getByLabel('Group name').fill('March crew');
+  await dlg.getByRole('button', { name: 'Make group' }).click();
+  await page.getByText('Made the group “March crew” (3 people)').waitFor();
+  const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'March crew');
+  if (!g || g.members.map((x) => x.email).sort().join() !== 'ben@globex.com,gina@globex.com,hal@globex.com') throw new Error(JSON.stringify(g));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

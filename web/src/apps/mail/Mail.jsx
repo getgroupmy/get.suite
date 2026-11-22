@@ -967,6 +967,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
   }, [m, uid, folder]);
   useEffect(() => { setReadingMail(null); }, [uid, folder]); // another message: stop
   const [sharing, setSharing] = useState(false); // Share in Chat
+  const [grouping, setGrouping] = useState(false); // Make a contact group from everyone on it
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
   // The original's body for a reply or forward. HTML mail keeps its basic formatting and embedded
@@ -1048,6 +1049,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
             } catch (e) { toast(e.message, 'error'); }
           } }]),
           ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
+          ...(everyone.length > 1 ? [{ label: 'Make a contact group…', icon: 'people', onClick: () => setGrouping(true) }] : []),
           ...(everyone.length > 1 ? [{ label: 'Add everyone to Contacts', icon: 'person', onClick: async () => { // (sender and recipients; colleagues and contacts left out)
             try {
               const r = await post('/contacts/add-people', { people: everyone.map((a) => ({ name: a.name, email: a.address })) });
@@ -1056,6 +1058,12 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           } }] : []),
         ]} />
         {sharing && <ShareInChat uid={uid} folder={folder} subject={m.subject} onClose={() => setSharing(false)} />}
+        {grouping && <PromptModal title="Make a contact group" label="Group name" initial={(m.subject || '').replace(/^\s*((re|fwd?|aw|wg)\s*:\s*)+/i, '').trim().slice(0, 100)} confirm="Make group"
+          message={`${everyone.length} people: ${everyone.map((a) => a.name || a.address).join(', ')}. Write to them all by typing the group’s name in To.`}
+          onClose={() => setGrouping(false)} onSubmit={async (name) => {
+            const g = await post('/contacts/groups', { name, members: everyone.map((a) => ({ name: a.name || '', email: a.address })) });
+            toast(`Made the group “${g.name}” (${g.members.length} people)`, 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
+          }} />}
         <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={async () => {
           // At the first time you and the colleagues on the email are all free (others can't be checked).
           const { ev, moved } = await withFreeTime(eventFromEmail(m, [user.username, ...mine]));
