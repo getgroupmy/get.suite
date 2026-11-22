@@ -29,6 +29,15 @@ export function noteEmail(n, link = '') {
   return { subject, html: `${body}${items}${back}` };
 }
 
+/**
+ * A note as a new calendar event, to set aside time for it: its title (or first words) as the event's, and its text
+ * or checklist (☑ / ☐, sub-items indented) with a link back as the description. { title, description }
+ */
+export function noteEvent(n, link = '') {
+  const text = n.items?.length ? n.items.map((i) => `${i.indent ? '  ' : ''}${i.done ? '☑' : '☐'} ${i.text}`).join('\n') : (n.body || '').trim();
+  return { title: noteEmail(n).subject.slice(0, 200), description: [text, link && `From my notes: ${link}`].filter(Boolean).join('\n\n').slice(0, 5000) };
+}
+
 /** Several notes on one printout, each starting on its own page (its body as notePrintHtml makes it). */
 export function notesPrintHtml(notes) {
   const bodies = notes.map((n) => /<body>([\s\S]*)<\/body>/.exec(notePrintHtml(n))[1]);

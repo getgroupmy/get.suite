@@ -58,6 +58,22 @@ await step('each task links back to the note it came from', async () => {
   await page.waitForURL(/\/notes/);
   await page.getByRole('dialog', { name: 'Trip' }).getByRole('button', { name: 'Close', exact: true }).last().click(); // (the note, open)
 });
+await step('Schedule time for it…: a new event with the note in it, saved to the calendar', async () => {
+  await page.goto(`${B}/notes`);
+  await card('Trip').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Schedule time for it…' }).click();
+  await page.waitForURL(/\/calendar/);
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  if ((await dlg.getByLabel('Title').inputValue()) !== 'Trip') throw new Error(await dlg.getByLabel('Title').inputValue());
+  const text = await dlg.getByLabel('Description').inputValue();
+  if (!/^☐ Book hotel\n☑ Passport\n☐ Taxi\n\nFrom my notes: https?:\/\/[^/\s]+\/notes\?note=[\w-]+$/.test(text)) throw new Error(text);
+  await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const now = Date.now();
+  const evs = (await api(page, 'GET', `/events?from=${now - 864e5}&to=${now + 2 * 864e5}`)).body;
+  const ev = (Array.isArray(evs) ? evs : evs.events || []).find((e) => e.title === 'Trip');
+  if (!ev || !/Book hotel/.test(ev.description) || ev.start <= now || ev.end - ev.start !== 36e5) throw new Error(JSON.stringify(ev));
+});
 await step('copy to a document', async () => {
   await page.goto(`${B}/notes`);
   await card('Trip').getByRole('button', { name: 'More' }).click();

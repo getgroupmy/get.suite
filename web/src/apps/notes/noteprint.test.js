@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { notesPrintHtml, notePrintHtml, noteEmail, notesEmail } from './noteprint.js';
+import { notesPrintHtml, notePrintHtml, noteEmail, notesEmail, noteEvent } from './noteprint.js';
 
 test('printing a note: title, checklist with ticks and sub-items, labels; nothing unescaped', () => {
   const html = notePrintHtml({ title: 'Packing <list>', items: [{ text: 'Passport', done: true }, { text: 'Phone', indent: 1 }], labels: ['Trip'] });
@@ -45,4 +45,11 @@ test('several notes as one email: each under its title, with its link; the subje
   assert.match(e.html, /notes\?open=a[\s\S]*notes\?open=b/);
   assert.equal(notesEmail([{ title: 'Same', body: 'x' }, { title: 'Same', body: 'y' }]).subject, 'Same');
   assert.equal(notesEmail([{ title: 'One', body: 'x' }]).subject, 'One');
+});
+
+test('a note as a calendar event: its title, and its text or checklist with a link back as the description', () => {
+  assert.deepEqual(noteEvent({ title: 'Trip', items: [{ text: 'Book hotel' }, { text: 'Passport', done: true }, { text: 'Photo', indent: 1 }] }, 'https://ws.test/notes?note=1'),
+    { title: 'Trip', description: '☐ Book hotel\n☑ Passport\n  ☐ Photo\n\nFrom my notes: https://ws.test/notes?note=1' });
+  assert.deepEqual(noteEvent({ body: 'Call the bank\nabout the card' }), { title: 'Call the bank', description: 'Call the bank\nabout the card' });
+  assert.deepEqual(noteEvent({}), { title: 'Note', description: '' });
 });

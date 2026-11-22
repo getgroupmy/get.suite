@@ -11,7 +11,7 @@ import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
 import { printHtml } from '../mail/mailprint.js';
-import { notePrintHtml, notesPrintHtml, noteEmail, notesEmail } from './noteprint.js';
+import { notePrintHtml, notesPrintHtml, noteEmail, notesEmail, noteEvent } from './noteprint.js';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import SendInChat from '../../components/SendInChat.jsx';
@@ -640,6 +640,11 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           } },
           { label: 'Version history', icon: 'clock', onClick: onHistory },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },
+          { label: 'Schedule time for it…', icon: 'calendar', onClick: () => {
+            // A new event in Calendar at the next full hour, with the note in its description: yours to move and save.
+            const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
+            navigate('/calendar', { state: { newEvent: { ...noteEvent(n, noteLink(n)), start: t.getTime(), end: t.getTime() + 36e5, all_day: 0, location: '' } } });
+          } },
           { label: n.items?.length ? 'Copy unticked items to Tasks' : 'Copy to Tasks', icon: 'check', onClick: onToTasks },
           { label: n.mine ? 'Delete note' : 'Remove from my notes', icon: 'trash', onClick: onDelete },
         ]} />
