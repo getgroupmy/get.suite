@@ -196,6 +196,19 @@ export default function userRoutes() {
       .all(req.user.org_id).map(({ status_emoji, status_text, status_until, paused_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) || calendarStatus(u.id), paused_until: Math.max(paused_until > now ? paused_until : 0, quietUntil(u.id, now) || 0) || null })));
   });
 
+  // The Directory in a new spreadsheet of yours (anyone in the company): a phone list of what the Directory shows —
+  // name, address, job title, department, work phone and who they report to; nothing only admins see.
+  r.post('/directory/sheet', (req, res) => {
+    const people = q('SELECT id, username, name, job_title, department, work_phone, manager_id FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name COLLATE NOCASE').all(req.user.org_id);
+    const names = new Map(people.map((p) => [p.id, p.name]));
+    const phone = (v) => (v && /^[\d\s()+.-]{6,}$/.test(v) && /\d/.test(v) ? `'${v}` : v || ''); // (a phone stays as written)
+    const rows = [['Name', 'Email', 'Job title', 'Department', 'Work phone', 'Reports to'],
+      ...people.map((p) => [p.name, p.username, p.job_title || '', p.department || '', phone(p.work_phone), names.get(p.manager_id) || ''])];
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Directory' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `Directory ${new Date().toISOString().slice(0, 10)}`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, people: people.length });
+  });
+
   // Photos: who has one (your company), yours to set or remove, and each one's picture.
   r.get('/photos', (req, res) => {
     res.json(q('SELECT id, username AS email, photo_v AS v FROM users WHERE org_id = ? AND photo_v IS NOT NULL AND disabled = 0').all(req.user.org_id));

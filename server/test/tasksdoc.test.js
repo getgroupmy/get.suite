@@ -293,3 +293,19 @@ test('a colleague saved as a contact: name, address, work phone, job title and c
   assert.equal((await ann('POST', '/api/contacts/from-colleague', { user_id: annId })).status, 400);
   assert.equal((await ann('POST', '/api/contacts/from-colleague', { user_id: 'nobody' })).status, 404);
 });
+
+test('the Directory in Sheets (anyone): a row per colleague with job title, phone as written and who they report to', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const miaId = (await mia('GET', '/api/auth/me')).body.user.id, annId = (await ann('GET', '/api/auth/me')).body.user.id;
+  assert.equal((await ann('PATCH', `/api/users/${miaId}`, { job_title: 'Buyer', department: 'Purchasing', work_phone: '+44 20 7946 0199', manager_id: annId })).status, 200);
+  const r = await mia('POST', '/api/users/directory/sheet', {}); // not an admin
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.match(r.body.name, /^Directory \d{4}-\d{2}-\d{2}/);
+  const cells = (await mia('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0].cells;
+  assert.deepEqual(['A1', 'B1', 'C1', 'D1', 'E1', 'F1'].map((k) => cells[k]), ['Name', 'Email', 'Job title', 'Department', 'Work phone', 'Reports to']);
+  const row = Object.keys(cells).find((k) => cells[k] === 'Mia Member').slice(1);
+  assert.deepEqual(['B', 'C', 'D', 'E', 'F'].map((c) => cells[`${c}${row}`]), ['mia@acme.com', 'Buyer', 'Purchasing', "'+44 20 7946 0199", 'Olivia Owner']);
+  assert.equal(r.body.people, (await mia('GET', '/api/users/directory')).body.length);
+});

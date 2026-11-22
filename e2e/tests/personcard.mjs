@@ -83,6 +83,18 @@ await step('Add to my contacts: Kim saved with her phone and job, not twice', as
   const mine = (await api(page, 'GET', '/contacts')).body.filter((c) => c.email === 'kim@acme.com');
   if (mine.length !== 1 || mine[0].phone !== '+60 3-555 0101' || mine[0].title !== 'Designer') throw new Error(JSON.stringify(mine));
 });
+await step('Directory → Open in Sheets: a phone list of everyone, with who they report to', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Directory' }).click();
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.getByText(/^Made “Directory \d{4}-\d{2}-\d{2}” in your Drive$/).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="E1"]', { hasText: 'Work phone' }).waitFor();
+  await page.getByText('kim@acme.com', { exact: true }).first().waitFor();
+  await page.getByText('+60 3-555 0101').first().waitFor();
+  await page.getByText('Designer', { exact: true }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

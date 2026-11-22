@@ -215,6 +215,9 @@ export default function Contacts() {
         <input className="filter" placeholder="Filter" aria-label="Filter contacts" value={filter} onChange={(e) => setFilter(e.target.value)} />
         {tab === 'mine' && <select aria-label="Sort contacts" value={sort} onChange={(e) => chooseSort(e.target.value)}>{CONTACT_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}
         {tab === 'dir' && <button type="button" className={`btn small ${chart ? 'primary' : ''}`} aria-pressed={chart} onClick={() => setChart(!chart)}>Org chart</button>}
+        {tab === 'dir' && <button type="button" className="btn small" title="Everyone in the Directory in a new spreadsheet: a phone list" onClick={async () => {
+          try { const r = await post('/users/directory/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+        }}><Icon name="sheet" size={16} /> Open in Sheets</button>}
       </div>
       {tab === 'dir' && !chart && (
         <div className="row wrap where-days">
