@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { notesPrintHtml, notePrintHtml, noteEmail, notesEmail, noteEvent } from './noteprint.js';
+import { notesPrintHtml, notePrintHtml, noteEmail, notesEmail, noteEvent, noteEventAt } from './noteprint.js';
 
 test('printing a note: title, checklist with ticks and sub-items, labels; nothing unescaped', () => {
   const html = notePrintHtml({ title: 'Packing <list>', items: [{ text: 'Passport', done: true }, { text: 'Phone', indent: 1 }], labels: ['Trip'] });
@@ -52,4 +52,12 @@ test('a note as a calendar event: its title, and its text or checklist with a li
     { title: 'Trip', description: '☐ Book hotel\n☑ Passport\n  ☐ Photo\n\nFrom my notes: https://ws.test/notes?note=1' });
   assert.deepEqual(noteEvent({ body: 'Call the bank\nabout the card' }), { title: 'Call the bank', description: 'Call the bank\nabout the card' });
   assert.deepEqual(noteEvent({}), { title: 'Note', description: '' });
+});
+
+test('scheduling time for a note: the next full hour, or the day and time its title names', () => {
+  const now = new Date(2026, 10, 23, 9, 10).getTime(); // a Monday
+  const at = (e) => [e.title, new Date(e.start).getDate(), new Date(e.start).getHours(), (e.end - e.start) / 6e4, e.all_day];
+  assert.deepEqual(at(noteEventAt({ title: 'Trip', body: 'Pack' }, '', now)), ['Trip', 23, 10, 60, 0]);
+  assert.deepEqual(at(noteEventAt({ title: 'Dentist friday 9am', body: 'Bring the form' }, '', now)), ['Dentist', 27, 9, 60, 0]);
+  assert.equal(noteEventAt({ title: 'Dentist friday 9am', body: 'Bring the form' }, 'https://ws.test/notes?note=1', now).description, 'Bring the form\n\nFrom my notes: https://ws.test/notes?note=1');
 });

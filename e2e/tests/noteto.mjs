@@ -86,6 +86,22 @@ await step('Schedule time for it…: a new event with the note in it, saved to t
   const ev = (Array.isArray(evs) ? evs : evs.events || []).find((e) => e.title === 'Trip');
   if (!ev || !/Book hotel/.test(ev.description) || ev.start <= now || ev.end - ev.start !== 36e5) throw new Error(JSON.stringify(ev));
 });
+await step('a note whose title names a day and time: Schedule time for it… sets the event for then', async () => {
+  await api(page, 'POST', '/notes', { title: 'Dentist tomorrow 9am', body: 'Bring the form' });
+  await page.goto(`${B}/notes`);
+  await card('Dentist tomorrow 9am').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Schedule time for it…' }).click();
+  await page.waitForURL(/\/calendar/);
+  const dlg = page.getByRole('dialog', { name: 'New event' });
+  if ((await dlg.getByLabel('Title').inputValue()) !== 'Dentist') throw new Error(await dlg.getByLabel('Title').inputValue());
+  await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const now = Date.now();
+  const evs = (await api(page, 'GET', `/events?from=${now - 36e5}&to=${now + 3 * 864e5}`)).body;
+  const ev = (Array.isArray(evs) ? evs : evs.events || []).find((e) => e.title === 'Dentist');
+  const want = new Date(); want.setDate(want.getDate() + 1); want.setHours(9, 0, 0, 0);
+  if (!ev || ev.start !== want.getTime() || !/Bring the form/.test(ev.description)) throw new Error(JSON.stringify(ev && [new Date(ev.start).toString(), ev.description]));
+});
 await step('copy to a document', async () => {
   await page.goto(`${B}/notes`);
   await card('Trip').getByRole('button', { name: 'More' }).click();

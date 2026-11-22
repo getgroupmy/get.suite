@@ -1,3 +1,4 @@
+import { parseQuickEvent } from '../calendar/quickevent.js';
 // Printing one note: its title, then its text or checklist (ticked items struck through, sub-items indented), and labels.
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -36,6 +37,19 @@ export function noteEmail(n, link = '') {
 export function noteEvent(n, link = '') {
   const text = n.items?.length ? n.items.map((i) => `${i.indent ? '  ' : ''}${i.done ? '☑' : '☐'} ${i.text}`).join('\n') : (n.body || '').trim();
   return { title: noteEmail(n).subject.slice(0, 200), description: [text, link && `From my notes: ${link}`].filter(Boolean).join('\n\n').slice(0, 5000) };
+}
+
+/**
+ * The whole new event for "Schedule time for it…": noteEvent, an hour from the next full hour, unless the note's title
+ * (or first words) names a day or a time ("Dentist friday 9am"), which then sets when, as Calendar's quick add reads it.
+ */
+export function noteEventAt(n, link = '', now = Date.now()) {
+  const ev = noteEvent(n, link);
+  const d = new Date(now), pad = (x) => String(x).padStart(2, '0');
+  const q = parseQuickEvent(ev.title, { today: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` });
+  if (q) return { ...ev, title: q.title || ev.title, start: q.start, end: q.end, all_day: q.all_day, location: '' };
+  const t = new Date(now); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1);
+  return { ...ev, start: t.getTime(), end: t.getTime() + 36e5, all_day: 0, location: '' };
 }
 
 /** Several notes on one printout, each starting on its own page (its body as notePrintHtml makes it). */
