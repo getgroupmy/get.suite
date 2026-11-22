@@ -53,6 +53,8 @@ function apiFor(req) {
 class ToolError extends Error {}
 const PUBLIC = () => (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 const link = (p) => `${PUBLIC()}${p}`;
+/** What a task links back to (the email, file, event… it was made from): { about: { title, url } }, or nothing. */
+const aboutOf = (t) => (t.link_url ? { about: { title: t.link_label || 'Linked', url: /^https?:\/\//.test(t.link_url) ? t.link_url : link(t.link_url) } } : {});
 /** A time from the assistant: ISO text ("2026-11-20T15:00", "2026-11-20") or milliseconds. */
 function timeOf(v, name) {
   if (v === undefined || v === null || v === '') return null;
@@ -165,8 +167,9 @@ export const TOOLS = [
         }
         if (!t) throw new ToolError('Task not found');
         const text = [`${t.done ? 'Done' : 'To do'}: ${t.title}`, t.due ? `Due: ${t.due}${t.due_time ? ` ${t.due_time}` : ''}` : null, t.assignee_name ? `For: ${t.assignee_name}` : null,
-          t.notes ? `Notes: ${t.notes}` : null, ...(t.steps || []).map((s) => `${s.done ? '[x]' : '[ ]'} ${s.title}`)].filter(Boolean).join('\n');
-        return { id, title: t.title, text, url: link(`/tasks/${t.list_id}?task=${t.id}`), metadata: { list: t.list_name } };
+          t.notes ? `Notes: ${t.notes}` : null, ...(t.steps || []).map((s) => `${s.done ? '[x]' : '[ ]'} ${s.title}`),
+          t.link_url ? `About: ${t.link_label || 'Linked'} (${aboutOf(t).about.url})` : null].filter(Boolean).join('\n');
+        return { id, title: t.title, text, url: link(`/tasks/${t.list_id}?task=${t.id}`), metadata: { list: t.list_name, ...aboutOf(t) } };
       }
       if (kind === 'note') {
         const n = (await api('GET', '/notes')).find((x) => x.id === a) || (await api('GET', '/notes?archived=1')).find((x) => x.id === a);
@@ -234,7 +237,7 @@ export const TOOLS = [
   },
   {
     name: 'list_tasks', title: 'Tasks', readOnly: true,
-    description: 'The person’s task lists and the open tasks on them (or one list’s tasks, with done ones if asked).',
+    description: 'The person’s task lists and the open tasks on them (or one list’s tasks, with done ones if asked). A task made from an email, file, event, note… carries `about`: what it links back to.',
     inputSchema: { type: 'object', properties: { list: { type: 'string', description: 'A list’s name or id (default: every list)' }, include_done: { type: 'boolean' } } },
     async run(api, a) {
       const r = await api('GET', '/tasks/lists');
@@ -244,7 +247,7 @@ export const TOOLS = [
       const out = [];
       for (const l of lists.slice(0, 30)) {
         const tasks = (await api('GET', `/tasks/lists/${l.id}/tasks`)).filter((t) => a.include_done || !t.done).slice(0, 200)
-          .map((t) => ({ id: `task:${t.id}`, title: t.title, done: !!t.done, due: t.due || null, assignee: t.assignee_name || null, important: !!t.important }));
+          .map((t) => ({ id: `task:${t.id}`, title: t.title, done: !!t.done, due: t.due || null, assignee: t.assignee_name || null, important: !!t.important, ...aboutOf(t) }));
         out.push({ id: l.id, name: l.name, owner: l.owner_name, tasks });
       }
       return { lists: out };

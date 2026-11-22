@@ -435,6 +435,14 @@ test('create_task about something: the task links back to it; only addresses in 
   const lists = (await owner('GET', '/api/tasks/lists')).body.lists;
   const saved = (await Promise.all(lists.map(async (l) => (await owner('GET', `/api/tasks/lists/${l.id}/tasks`)).body))).flat().find((x) => x.title === 'Follow up the supplier');
   assert.deepEqual([saved.link_url, saved.link_label], [`/notes?note=${note.id.replace(/^note:/, '')}`, 'Note: Supplier call']);
+  // Reading tasks back says what each is about: in list_tasks, and when one is fetched.
+  await call(rw, 'create_task', { title: 'About nothing' });
+  const listed = (await call(rw, 'list_tasks', {})).structuredContent.lists.flatMap((l) => l.tasks);
+  assert.deepEqual(listed.find((x) => x.id === t.id).about, { title: 'Note: Supplier call', url: about });
+  assert.equal('about' in listed.find((x) => x.title === 'About nothing'), false, 'tasks without a link say nothing');
+  const got = (await call(rw, 'fetch', { id: t.id })).structuredContent;
+  assert.deepEqual(got.metadata.about, { title: 'Note: Supplier call', url: about });
+  assert.ok(got.text.includes(`About: Note: Supplier call (${about})`));
   // A path alone works too; without a title it is just “Linked”.
   const p = (await call(rw, 'create_task', { title: 'By path', about: '/docs/abc' })).structuredContent;
   assert.match(p.about, /\/docs\/abc$/);
