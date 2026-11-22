@@ -109,3 +109,23 @@ test('everyone on an email added to Contacts (add-people): not you, not colleagu
   assert.equal(mine.filter((c) => c.email === 'kit@known.example').length, 1);
   assert.equal((await ann('POST', '/api/contacts/add-people', { people: [] })).status, 400);
 });
+
+test('a contact group in Sheets: each member with the phone and company of the contact they are; only your own groups', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  await ann('POST', '/api/contacts', { name: 'Vera Vine', email: 'vera@vine.example', phone: '+44 20 7946 0123', company: 'Vine & Co', title: 'Buyer' });
+  const g = (await ann('POST', '/api/contacts/groups', { name: 'Suppliers', members: [{ name: 'Vera Vine', email: 'vera@vine.example' }, { name: '', email: 'walt@wood.example' }] })).body;
+  const r = await ann('POST', `/api/contacts/groups/${g.id}/sheet`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.members], ['Suppliers (group)', 2]);
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.equal(sh.name, 'Suppliers');
+  assert.deepEqual(['A1', 'B1', 'C1', 'D1', 'E1'].map((k) => sh.cells[k]), ['Name', 'Email', 'Phone', 'Company', 'Job title']);
+  assert.deepEqual(['A2', 'B2', 'C2', 'D2', 'E2'].map((k) => sh.cells[k]), ['Vera Vine', 'vera@vine.example', "'+44 20 7946 0123", 'Vine & Co', 'Buyer']);
+  assert.deepEqual([sh.cells.A3 || '', sh.cells.B3], ['', 'walt@wood.example']);
+  const empty = (await ann('POST', '/api/contacts/groups', { name: 'Nobody yet', members: [] })).body;
+  assert.equal((await ann('POST', `/api/contacts/groups/${empty.id}/sheet`, {})).status, 400);
+  const mia = client();
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', `/api/contacts/groups/${g.id}/sheet`, {})).status, 404);
+});

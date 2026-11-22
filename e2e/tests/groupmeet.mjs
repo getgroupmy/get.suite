@@ -63,6 +63,18 @@ await step('Contacts → Groups → 📅: an event named after the group, everyo
   await d.getByText('Kim Park').first().waitFor();
   await d.getByText('Max Meet').first().waitFor();
 });
+await step('Contacts → Groups → Open in Sheets: the group’s people in a spreadsheet, with a contact’s phone', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Max Meet', email: 'max@acme.com', phone: '+1 555 0142', company: 'Acme Trading' });
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Groups' }).click();
+  await page.getByRole('button', { name: 'Open Launch team in Sheets' }).click();
+  await page.getByText('Made “Launch team (group)” in your Drive').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Name' }).waitFor();
+  await page.locator('[data-k="B2"]', { hasText: 'kim@acme.com' }).waitFor();
+  await page.locator('[data-k="C3"]', { hasText: '+1 555 0142' }).waitFor();
+});
 console.log(errors.length ? `ERRORS ${errors.join(' | ')}` : 'no page errors');
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

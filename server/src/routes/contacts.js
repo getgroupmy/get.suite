@@ -362,6 +362,21 @@ export default function contactRoutes() {
     q('UPDATE contact_groups SET name = ?, members = ? WHERE id = ?').run(name, JSON.stringify(members), g.id);
     res.json(groupsOf(req.user.id).find((x) => x.id === g.id));
   });
+  // A group in a new spreadsheet: each member's name and address, with the phone, company and job title of
+  // the contact they are (if they're one of yours), the heading row bold and kept in view.
+  r.post('/groups/:id/sheet', (req, res) => {
+    const g = ownGroup(req);
+    if (!g.members.length) throw bad('This group has nobody in it yet');
+    const mine = new Map(q('SELECT LOWER(email) AS e, name, phone, company, title FROM contacts WHERE owner_id = ? AND email IS NOT NULL').all(req.user.id).map((c) => [c.e, c]));
+    const phone = (v) => (v && /^[\d\s()+.-]{6,}$/.test(v) && /\d/.test(v) ? `'${v}` : v || ''); // (a phone stays as written)
+    const rows = [['Name', 'Email', 'Phone', 'Company', 'Job title'], ...g.members.map((m) => {
+      const c = mine.get(m.email.toLowerCase());
+      return [m.name || c?.name || '', m.email, phone(c?.phone), c?.company || '', c?.title || ''];
+    })];
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: g.name.slice(0, 31) }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${g.name} (group)`.slice(0, 200), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, members: g.members.length });
+  });
   r.delete('/groups/:id', (req, res) => { const g = ownGroup(req); res.json({ ok: true, bin_id: binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id }) }); });
   r.post('/groups/bin/:id/restore', (req, res) => {
     const back = restoreFromBin(req.params.id, req.user.id);
