@@ -253,6 +253,25 @@ await step('Chat → Send as email: the conversation in a new email, who and whe
   await ed.locator('strong', { hasText: 'Olivia Owner' }).waitFor();
   if (await page.getByLabel('Subject').inputValue() !== '#supplier-call') throw new Error('subject');
 });
+await step('Mail ⋮ → Save to Notes: a note with what the email says and a link back to it', async () => {
+  await gina.goto(`${B}/mail`);
+  const row = gina.locator('.msg-list li', { hasText: 'Agenda' }).first();
+  await refreshUntil(gina, row);
+  await row.locator('.msg-row').click();
+  await gina.getByRole('button', { name: 'More for this message' }).click();
+  await gina.getByRole('menuitem', { name: 'Save to Notes' }).click();
+  await gina.getByText('Saved to Notes: Agenda').waitFor();
+  await gina.getByRole('button', { name: 'Open', exact: true }).click();
+  await gina.waitForURL(/\/notes/);
+  const notes = (await api(gina, 'GET', '/notes')).body;
+  const n = (notes.notes || notes).find((x) => x.title === 'Agenda');
+  if (!n) throw new Error('no note');
+  if (!/^From: Olivia Owner <olivia@acme\.com> · /.test(n.body) || !/ii\. Budget/.test(n.body) || !/Open the email: http:\/\/localhost:8080\/mail\?open=/.test(n.body)) throw new Error(n.body);
+  // The link opens the email again.
+  const link = n.body.match(/Open the email: (\S+)/)[1];
+  await gina.goto(link);
+  await gina.frameLocator('iframe.mail-html').locator('li', { hasText: 'Budget' }).waitFor();
+}, gina);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

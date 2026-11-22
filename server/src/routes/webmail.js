@@ -69,7 +69,7 @@ import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 import { syncAwayEvent } from '../mail/vacation.js';
-import { pdfFromEmail, emailDoc } from '../mail/emailpdf.js';
+import { pdfFromEmail, emailDoc, emailNote } from '../mail/emailpdf.js';
 
 // Saved searches (Mail sidebar → Searches).
 // Emoji reactions you sent (to show them on the message; the reaction email itself isn't kept in Sent).
@@ -1671,6 +1671,15 @@ export default function webmailRoutes() {
     res.status(201).json({ folder_id: folderId, file });
   });
   // Or as a document to edit (its formatting kept), in the same folder.
+  // Save to Notes: the email as a note's title and text (the app adds the note, as one typed in Notes), with a link back.
+  r.get('/messages/:uid/note', async (req, res) => {
+    const folder = String(req.query.folder || 'INBOX');
+    const uid = Number(req.params.uid);
+    const { parsed } = await loadMessage(req.user, folder, uid, false);
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const link = parsed.messageId ? `${base}/mail?open=${encodeURIComponent(parsed.messageId)}` : `${base}/mail/${encodeURIComponent(folder)}/${uid}`;
+    res.json(emailNote(parsed, { timeZone: zoneOf(req.query.time_zone), link }));
+  });
   r.post('/messages/:uid/save-doc', async (req, res) => {
     const { parsed } = await loadMessage(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), false);
     const { doc, name } = emailDoc(parsed, { timeZone: zoneOf(req.body?.time_zone), rich: true });

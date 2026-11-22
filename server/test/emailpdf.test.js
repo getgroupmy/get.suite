@@ -59,3 +59,21 @@ test('as a document to edit: headers, then its formatting as written (lists and 
   const plain = emailDoc({ ...parsed, html: '' }, { rich: true }).doc;
   assert.ok(plain.content.some((n) => n.content?.[0]?.text === 'Hi, please confirm'));
 });
+
+test('as a note: the subject its title; who and when, what it says without the quoted history, attachments, a link back', async () => {
+  const { emailNote, NOTE_TEXT } = await import('../src/mail/emailpdf.js');
+  const reply = [
+    'From: Kim Park <kim@client.example>', 'To: olivia@acme.com', 'Subject: Re: Delivery date', 'Date: Tue, 17 Nov 2026 14:30:00 +0000',
+    'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="b"', '',
+    '--b', 'Content-Type: text/plain; charset=utf-8', '', 'Thursday works.   ', '', '', '', 'Kim', '', 'On Mon, 16 Nov 2026, Olivia wrote:', '> When can you deliver?', '> Thanks',
+    '--b', 'Content-Type: application/pdf; name="plan.pdf"', 'Content-Disposition: attachment; filename="plan.pdf"', '', 'x',
+    '--b--', '',
+  ].join('\r\n');
+  const n = emailNote(await simpleParser(reply), { timeZone: 'Europe/Paris', link: 'https://ws.example/mail?open=%3Cx%40y%3E' });
+  assert.equal(n.title, 'Re: Delivery date');
+  assert.equal(n.body, 'From: Kim Park <kim@client.example> · 17 Nov 2026, 15:30\n\nThursday works.\n\nKim\n\nAttachments: plan.pdf\n\nOpen the email: https://ws.example/mail?open=%3Cx%40y%3E');
+  // A long one is cut; one with nothing still has a title.
+  const long = emailNote({ subject: 'Long', text: 'word '.repeat(NOTE_TEXT) });
+  assert.ok(long.body.length < 20000 && long.body.endsWith('…'));
+  assert.deepEqual(emailNote({}), { title: '(no subject)', body: '' });
+});

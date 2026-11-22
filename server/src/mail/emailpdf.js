@@ -1,5 +1,6 @@
 // An email as a PDF (Mail → Save to Drive as PDF): its subject, who it's from and to, the date, its text, and the
 // names of its attachments, laid out by the document PDF writer (office/pdfdoc.js).
+import { splitTextQuote } from './quotesplit.js';
 import { pdfFromDoc } from '../office/pdfdoc.js';
 import { docFromHtml } from '../office/word.js';
 import { forwardHtml } from './forwardhtml.js';
@@ -40,4 +41,25 @@ export async function pdfFromEmail(parsed, { timeZone = 'UTC' } = {}) {
   const { doc, name, subject } = emailDoc(parsed, { timeZone });
   const buf = await pdfFromDoc(doc, subject, { setup: { size: 'a4', margin: 'normal' } });
   return { buf, name: `${name}.pdf` };
+}
+
+export const NOTE_TEXT = 15000; // (a note holds 20,000 characters: room for the lines around it)
+/**
+ * An email as a note (Mail → Save to Notes): its subject as the title; who it's from and when, then what it says
+ * (without the quoted history under a reply, at most NOTE_TEXT characters), its attachments' names, and `link` to
+ * open the email again.
+ */
+export function emailNote(parsed, { timeZone = 'UTC', link = '' } = {}) {
+  const date = parsed.date instanceof Date && !Number.isNaN(parsed.date.valueOf()) ? parsed.date : null;
+  const when = date ? date.toLocaleString('en-GB', { timeZone, dateStyle: 'medium', timeStyle: 'short' }).replace(/\s+/g, ' ') : '';
+  let text = splitTextQuote(String(parsed.text || '')).main.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (text.length > NOTE_TEXT) text = `${text.slice(0, NOTE_TEXT).trimEnd()}…`;
+  const files = (parsed.attachments || []).filter((a) => !a.related && a.filename).map((a) => a.filename);
+  const body = [
+    [who(parsed.from) && `From: ${who(parsed.from)}`, when].filter(Boolean).join(' · '),
+    text,
+    files.length ? `Attachments: ${files.join(', ')}` : '',
+    link ? `Open the email: ${link}` : '',
+  ].filter(Boolean).join('\n\n');
+  return { title: String(parsed.subject || '(no subject)').trim().slice(0, 300), body };
 }

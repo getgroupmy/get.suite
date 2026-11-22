@@ -1015,6 +1015,13 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
               toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.file.id}`) } });
             } catch (e) { toast(e.message, 'error'); }
           } },
+          ...(shared ? [] : [{ label: 'Save to Notes', icon: 'note', onClick: async () => { // (a note of your own, with a link back to the email)
+            try {
+              const n = await get(`/mail/messages/${uid}/note?folder=${encodeURIComponent(folder)}&time_zone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
+              const made = await post('/notes', n);
+              toast(`Saved to Notes: ${made.title}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/notes?note=${made.id}`) } });
+            } catch (e) { toast(e.message, 'error'); }
+          } }]),
           ...(shared ? [] : [{ label: 'Share in Chat…', icon: 'send', onClick: () => setSharing(true) }]),
         ]} />
         {sharing && <ShareInChat uid={uid} folder={folder} subject={m.subject} onClose={() => setSharing(false)} />}
