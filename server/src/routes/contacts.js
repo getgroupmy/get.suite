@@ -353,6 +353,22 @@ export default function contactRoutes() {
     q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(readMembers(req.body.members || [])), now());
     res.status(201).json(groupsOf(req.user.id).find((g) => g.id === id));
   });
+  // A group from a spreadsheet (Sheets ⋮ → Make a contact group…): { file, sheet, name }, the sheet read as Import reads a
+  // CSV (a Name and an Email column, as Gmail and Outlook write them); rows without an address are left out.
+  r.post('/groups/from-sheet', async (req, res) => {
+    const name = str(req.body?.name, { required: true, name: 'Group name', max: 100 });
+    const mine = groupsOf(req.user.id);
+    if (mine.length >= MAX_GROUPS) throw bad('Too many groups');
+    if (mine.some((g) => g.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a group with that name');
+    const found = contactsFromFile(await sheetAsCsv(req.body?.file, req.body?.sheet, req.user));
+    if (found.error) throw bad('This sheet isn’t laid out as contacts: give it an Email column (and Name, if you like)');
+    const people = found.contacts.filter((c) => c.email && EMAIL_RE.test(c.email)).map((c) => ({ name: c.name || '', email: c.email }));
+    if (!people.length) throw bad('No email addresses on this sheet');
+    const members = readMembers(people.slice(0, MAX_MEMBERS + 1));
+    const id = uid();
+    q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(members), now());
+    res.status(201).json({ ...groupsOf(req.user.id).find((g) => g.id === id), left_out: found.contacts.length - people.length });
+  });
   const ownGroup = (req) => { const g = groupsOf(req.user.id).find((x) => x.id === req.params.id); if (!g) throw notFound('Group not found'); return g; };
   r.patch('/groups/:id', (req, res) => {
     const g = ownGroup(req);

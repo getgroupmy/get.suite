@@ -1422,6 +1422,7 @@ export default function SheetEditor() {
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           mail?.enabled && !viewOnly(file) && { label: 'Send as email', icon: 'mail', onClick: sendAsEmail },
           !viewOnly(file) && { label: 'Add rows to Tasks…', icon: 'check', onClick: () => setDialog({ type: 'to-tasks' }) },
+          !viewOnly(file) && { label: 'Make a contact group…', icon: 'people', onClick: () => setDialog({ type: 'contact-group' }) },
           !viewOnly(file) && { label: 'Add rows to Contacts', icon: 'person', onClick: async () => {
             try {
               const r = await post('/contacts/from-sheet', { file: id, sheet: active });
@@ -1765,6 +1766,12 @@ export default function SheetEditor() {
         <FunctionsDialog functions={data.functions} canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => { const cur = dataRef.current; const { functions, ...rest } = cur; commitData(next.length ? { ...rest, functions: next } : rest); }} />
       )}
+      {dialog?.type === 'contact-group' && <PromptModal title="Make a contact group" label="Group name" initial={(file?.name || '').slice(0, 100)} confirm="Make group"
+        message="From this sheet’s rows: a Name and an Email column (as Gmail and Outlook write them). Write to everyone in it by typing the group’s name in To."
+        onClose={() => { setDialog(null); gridRef.current?.focus(); }} onSubmit={async (name) => {
+          const g = await post('/contacts/groups/from-sheet', { file: id, sheet: active, name });
+          toast(`Made the group “${g.name}” (${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}${g.left_out ? `; ${g.left_out} row${g.left_out === 1 ? '' : 's'} without an address left out` : ''})`, 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
+        }} />}
       {dialog?.type === 'to-tasks' && <SheetToTasksDialog fileId={id} sheet={active} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
         onDone={(r) => { setDialog(null); toast(`Added ${r.added} task${r.added === 1 ? '' : 's'} to ${r.list.name}${r.skipped ? ` (${r.skipped} row${r.skipped === 1 ? '' : 's'} left out)` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); }} />}
       {dialog?.type === 'mailmerge' && <MailMergeDialog cells={cells} shown={shown} from={mail?.address || user.username} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}

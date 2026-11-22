@@ -129,3 +129,19 @@ test('a contact group in Sheets: each member with the phone and company of the c
   assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
   assert.equal((await mia('POST', `/api/contacts/groups/${g.id}/sheet`, {})).status, 404);
 });
+
+test('a contact group from a sheet: its Name and Email rows, rows without an address left out; a sheet not so laid out explained', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const sh = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'Volunteers', content: { sheets: [{ name: 'S', cells: {
+    A1: 'Name', B1: 'Email', A2: 'Xan Xu', B2: 'xan@vol.example', A3: 'Yara Yu', B3: 'YARA@vol.example', A4: 'Zed (no email)', B4: '' } }] } })).body;
+  const r = await ann('POST', '/api/contacts/groups/from-sheet', { file: sh.id, name: 'Volunteers' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.members.map((m) => `${m.name} <${m.email}>`), r.body.left_out], ['Volunteers', ['Xan Xu <xan@vol.example>', 'Yara Yu <yara@vol.example>'], 1]);
+  assert.equal((await ann('POST', '/api/contacts/groups/from-sheet', { file: sh.id, name: 'volunteers' })).status, 400, 'a name already taken');
+  const nums = (await ann('POST', '/api/files/new', { kind: 'sheet', name: 'N', content: { sheets: [{ name: 'S', cells: { A1: 'x', B1: 'y', A2: '1', B2: '2' } }] } })).body;
+  const no = await ann('POST', '/api/contacts/groups/from-sheet', { file: nums.id, name: 'Numbers' });
+  assert.equal(no.status, 400);
+  assert.match(no.body.error, /laid out as contacts|No email addresses/);
+  assert.equal((await ann('POST', '/api/contacts/groups/from-sheet', { file: sh.id, name: '' })).status, 400);
+});

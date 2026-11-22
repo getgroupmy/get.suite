@@ -143,6 +143,21 @@ await step('Sheets ⋮ → Add rows to Contacts: a sheet of names and emails bec
   await page.waitForURL(/\/contacts/);
   await page.getByText('Rhea Rowe').first().waitFor();
 });
+await step('Sheets ⋮ → Make a contact group…: the sheet’s names and emails in a group named as typed', async () => {
+  const sh = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Choir', content: { sheets: [{ name: 'Sheet1', cells: {
+    A1: 'Name', B1: 'Email', A2: 'Alto Ash', B2: 'alto@choir.example', A3: 'Bass Birch', B3: 'bass@choir.example' } }] } })).body;
+  await page.goto(`${B}/sheets/${sh.id}`);
+  await page.locator('[data-k="A2"]', { hasText: 'Alto Ash' }).waitFor();
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Make a contact group…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Make a contact group' });
+  if ((await dlg.getByLabel('Group name').inputValue()) !== 'Choir') throw new Error('not named after the spreadsheet');
+  await dlg.getByLabel('Group name').fill('Choir 2027');
+  await dlg.getByRole('button', { name: 'Make group' }).click();
+  await page.getByText('Made the group “Choir 2027” (2 people)').waitFor();
+  const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Choir 2027');
+  if (!g || g.members.map((m) => m.email).join() !== 'alto@choir.example,bass@choir.example') throw new Error(JSON.stringify(g));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
