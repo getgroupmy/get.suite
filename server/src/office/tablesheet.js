@@ -23,3 +23,26 @@ export function sheetFromRows(rows, { header = false, name = 'Sheet1' } = {}) {
   }));
   return { sheets: [{ name, cells, formats, colWidths, ...(header && rows.length > 1 && { frozen: { rows: 1, cols: 0 } }) }] };
 }
+
+/** The tables of figures in a document (TipTap JSON), each as rows of cell texts and whether its first row is headings. */
+export function tablesIn(doc) {
+  const out = [];
+  const text = (n) => (n.type === 'text' ? n.text || '' : n.type === 'hardBreak' ? ' ' : (n.content || []).map(text).join(n.type === 'tableCell' || n.type === 'tableHeader' ? ' ' : ''));
+  (function walk(list) {
+    for (const n of list || []) {
+      // (a table holding tables is a page's layout, as in many emails: the tables inside it count instead; and a
+      // table of one row or one column isn't figures)
+      const nested = n.type === 'table' && JSON.stringify(n.content || []).includes('"type":"table"');
+      if (n.type === 'table' && !nested) {
+        const rows = (n.content || []).map((r) => (r.content || []).map((c) => text(c).replace(/\s+/g, ' ').trim()));
+        if (rows.length >= 2 && Math.max(...rows.map((r) => r.length)) >= 2 && rows.some((r) => r.some(Boolean))) out.push({ rows, header: (n.content?.[0]?.content || []).every((c) => c.type === 'tableHeader') });
+      } else walk(n.content);
+    }
+  })(doc?.content);
+  return out;
+}
+
+/** A spreadsheet with a sheet for each table ("Table 1", "Table 2"…), or the single one as "Sheet1". */
+export function sheetFromTables(tables) {
+  return { sheets: tables.map((t, i) => sheetFromRows(t.rows.slice(0, MAX_ROWS).map((r) => r.slice(0, MAX_COLS)), { header: t.header, name: tables.length > 1 ? `Table ${i + 1}` : 'Sheet1' }).sheets[0]) };
+}

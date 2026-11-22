@@ -1024,6 +1024,12 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
               toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.file.id}`) } });
             } catch (e) { toast(e.message, 'error'); }
           } },
+          ...(/<table[\s>]/i.test(m.html || '') ? [{ label: 'Open tables in Sheets', icon: 'sheet', onClick: async () => { // (its tables of figures: a spreadsheet in Saved emails)
+            try {
+              const r = await post(`/mail/messages/${uid}/tables-to-sheet${mailboxParam().replace(/^&/, '?')}`, { folder });
+              toast(`Made “${r.file.name}” in Saved emails${r.tables > 1 ? ` (${r.tables} tables, a sheet each)` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.file.id}`) } });
+            } catch (e) { toast(e.message, 'error'); }
+          } }] : []),
           ...(shared ? [] : [{ label: 'Save to Notes', icon: 'note', onClick: async () => { // (a note of your own, with a link back to the email)
             try {
               const n = await get(`/mail/messages/${uid}/note?folder=${encodeURIComponent(folder)}&time_zone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);

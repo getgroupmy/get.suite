@@ -101,9 +101,12 @@ await step('…and forwarding keeps them in the message she writes', async () =>
   await ol.waitFor();
   if (await looks(ol) !== 'lower-roman') throw new Error(`ol: ${await looks(ol)}`);
   if (await looks(gina.locator('.compose-editor ul', { hasText: 'Minutes sent' })) !== '"✓ "') throw new Error('ul');
+  // (closed, so it waits in Drafts and doesn't come back over the next steps)
+  const fwd = gina.getByRole('dialog', { name: 'Fwd: Agenda' });
+  await fwd.getByRole('button', { name: 'Close', exact: true }).click();
+  await fwd.waitFor({ state: 'detached' });
 }, gina);
 await step('⋮ → Save to Drive as a document: an editable document with its lists as they look', async () => {
-  await gina.keyboard.press('Escape').catch(() => {});
   await gina.goto(`${B}/mail`);
   const row = gina.locator('.msg-list li', { hasText: 'Agenda' }).first();
   await refreshUntil(gina, row);
@@ -245,7 +248,14 @@ await step('Chat → Send as email: the conversation in a new email, who and whe
   await api(page, 'POST', `/chat/channels/${ch.id}/messages`, { body: 'Prices go up 3% in January' });
   await page.goto(`${B}/chat/${ch.id}`);
   await page.getByText('Prices go up 3% in January').waitFor();
-  await page.getByRole('button', { name: 'Download conversation' }).click();
+  // (offered once Workspace knows this server has email: the menu is opened again until it says so)
+  for (let i = 0; ; i++) {
+    await page.getByRole('button', { name: 'Download conversation' }).click();
+    if (await page.getByRole('menuitem', { name: 'Send as email' }).isVisible().catch(() => false)) break;
+    if (i > 20) throw new Error('Send as email never offered');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+  }
   await page.getByRole('menuitem', { name: 'Send as email' }).click();
   await page.waitForURL(/\/mail/);
   const ed = page.locator('.compose-editor');
@@ -300,9 +310,10 @@ await step('compose ⋮ → Table from a spreadsheet: the cells as shown, in the
   await page.goto(`${B}/mail`);
   // (the conversation emailed in an earlier step is still open, unsent: closed, it waits in Drafts)
   const left = page.getByRole('dialog', { name: '#supplier-call' });
-  await left.waitFor();
-  await left.getByRole('button', { name: 'Close', exact: true }).click();
-  await left.waitFor({ state: 'detached' });
+  if (await left.waitFor({ timeout: 5000 }).then(() => true).catch(() => false)) {
+    await left.getByRole('button', { name: 'Close', exact: true }).click();
+    await left.waitFor({ state: 'detached' });
+  }
   await page.getByRole('button', { name: 'Compose' }).click();
   await page.getByLabel('To', { exact: true }).fill('gina@globex.com');
   await page.getByLabel('Subject').fill('Quote table');
@@ -327,6 +338,30 @@ await step('compose ⋮ → Table from a spreadsheet: the cells as shown, in the
   await frame.locator('table').waitFor();
   if (JSON.stringify(await rowsOf(frame.locator('body'))) !== want) throw new Error('received: ' + JSON.stringify(await rowsOf(frame.locator('body'))));
 });
+await step('Mail ⋮ → Open tables in Sheets: the email’s table as a spreadsheet in Saved emails, values as numbers', async () => {
+  await gina.goto(`${B}/mail`);
+  const row = gina.locator('.msg-list li', { hasText: 'Quote table' }).first();
+  await refreshUntil(gina, row);
+  await row.locator('.msg-row').click();
+  await gina.frameLocator('iframe.mail-html').locator('table').waitFor();
+  await gina.getByRole('button', { name: 'More for this message' }).click();
+  await gina.getByRole('menuitem', { name: 'Open tables in Sheets' }).click();
+  await gina.getByText('Made “Quote table (tables)” in Saved emails').waitFor();
+  await gina.getByRole('button', { name: 'Open', exact: true }).click();
+  await gina.waitForURL(/\/sheets\//);
+  await gina.locator('[data-k="B4"]', { hasText: '$3.50' }).waitFor();
+  const id = gina.url().split('/').pop().split('?')[0];
+  const sh = (await api(gina, 'GET', `/files/${id}/content`)).body.content.sheets[0];
+  if (sh.cells.B2 !== '1.5' || sh.cells.A4 !== 'Total' || !sh.formats?.A1?.b) throw new Error(JSON.stringify(sh));
+  // An email without a table doesn't offer it.
+  await gina.goto(`${B}/mail`);
+  const plain = gina.locator('.msg-list li', { hasText: 'Agenda' }).first();
+  await plain.locator('.msg-row').click();
+  await gina.getByRole('button', { name: 'More for this message' }).click();
+  await gina.getByRole('menuitem', { name: 'Save to Notes' }).waitFor();
+  if (await gina.getByRole('menuitem', { name: 'Open tables in Sheets' }).count()) throw new Error('offered without a table');
+  await gina.keyboard.press('Escape');
+}, gina);
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

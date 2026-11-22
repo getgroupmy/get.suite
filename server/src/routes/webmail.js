@@ -70,6 +70,8 @@ import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 import { syncAwayEvent } from '../mail/vacation.js';
 import { pdfFromEmail, emailDoc, emailNote } from '../mail/emailpdf.js';
+import { tablesIn, sheetFromTables } from '../office/tablesheet.js';
+import { docFromHtml } from '../office/word.js';
 
 // Saved searches (Mail sidebar → Searches).
 // Emoji reactions you sent (to show them on the message; the reaction email itself isn't kept in Sent).
@@ -1689,6 +1691,21 @@ export default function webmailRoutes() {
     const id = insertFile({ owner: user.id, parentId: folderId, name: cleanName(name), kind: 'doc', content: json, size: Buffer.byteLength(json) });
     return q('SELECT id, name, kind FROM files WHERE id = ?').get(id);
   };
+  // Open tables in Sheets: the tables of figures in an email (a report, an invoice, a price list) as a spreadsheet in
+  // Saved emails, a sheet for each, numbers read as Sheets reads them.
+  r.post('/messages/:uid/tables-to-sheet', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), false);
+    let tables = [];
+    if (parsed.html) { try { tables = tablesIn(docFromHtml(forwardHtml(parsed.html, () => null).html)).slice(0, 20); } catch { tables = []; } }
+    if (!tables.length) throw bad('This email has no tables of figures');
+    const json = JSON.stringify(sheetFromTables(tables));
+    checkQuota(req.user.org_id, Buffer.byteLength(json), req.user.id);
+    const folderId = savedEmailsFolder(req.user);
+    const name = cleanName(`${String(parsed.subject || '(no subject)').replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 100)} (tables)`);
+    const id = insertFile({ owner: req.user.id, parentId: folderId, name, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
+    res.status(201).json({ folder_id: folderId, tables: tables.length, file: q('SELECT id, name, kind FROM files WHERE id = ?').get(id) });
+  });
   r.post('/messages/:uid/save-doc', async (req, res) => {
     const folderId = savedEmailsFolder(req.user);
     const file = await saveEmailDoc(req.user, String(req.body?.folder || 'INBOX'), Number(req.params.uid), zoneOf(req.body?.time_zone), folderId);
