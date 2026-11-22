@@ -3421,3 +3421,4 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .task-link { text-decoration: none; padding: 4px; border-radius: 6px; }
 .task-link:hover { background: var(--hover, rgba(0,0,0,.06)); }
 .mail-row-tasks { color: var(--accent); font-weight: 600; }
+.page-head > h1 { min-width: min(6em, 100%); } /* a page's name stays readable on a phone: the buttons wrap below it instead */

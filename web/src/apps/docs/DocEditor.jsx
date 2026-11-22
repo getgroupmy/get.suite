@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { keptDoc, unreachable, changeAdd } from '../offlinedocs.js';
 import { useKeptCopy, renameFile, RebuiltNote } from '../KeptCopy.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { addToTasksWithToast } from '../tasks/addtask.js';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { TabbedDocument, DocTab, addTab, openTab, tabIdOfHash } from './doctabsext.js';
@@ -625,6 +626,14 @@ function SharedDoc({ file, setFile }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // Add to Tasks: the selected words as a task of yours, linking back to this document.
+  const taskFromSelection = () => {
+    editor.view.domObserver?.flush?.();
+    const { from, to, empty } = editor.state.selection;
+    const text = empty ? '' : editor.state.doc.textBetween(from, to, ' ').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    addToTasksWithToast(toast, navigate, { title: text.length > 200 ? `${text.slice(0, 199)}…` : text, link: { url: `/docs/${file.id}`, label: `File: ${file.name}` } });
+  };
   const startComment = () => {
     editor.view.domObserver?.flush?.(); // take in a selection just made with the keyboard
     const { from, to, empty } = editor.state.selection;
@@ -883,7 +892,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as e-book (.epub)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=epub`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onTableToSheet={tableToSheet} onTableMessage={(m) => toast(m, 'error')} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
+      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onTask={taskFromSelection} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onTableToSheet={tableToSheet} onTableMessage={(m) => toast(m, 'error')} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
       {drawing && <DrawPad title="Drawing" saveLabel="Insert" onClose={() => { setDrawing(null); refocus(); }}
         onSave={(f) => addPicturesRef.current([new File([f], 'Drawing.png', { type: 'image/png' })], drawing.at)} />}
       {tableFrom?.step === 'file' && <DrivePicker title="Table from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setTableFrom(null)} onPick={(f) => setTableFrom({ step: 'cells', file: f })} />}
@@ -1045,7 +1054,7 @@ function SharedDoc({ file, setFile }) {
   );
 }
 
-function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onLink, onChart, onDraw, onTableToSheet, onTableMessage }) {
+function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onTask, onPictures, onLinkFile, onLink, onChart, onDraw, onTableToSheet, onTableMessage }) {
   const [altEdit, setAltEdit] = useState(null); // { pos, alt } of the picture being described
   const pictureInput = useRef();
   const [, force] = useState(0);
@@ -1275,6 +1284,8 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
       <span className="sep" />
       <button type="button" className="tb labelled" title="Comment on the selected text (Ctrl+Alt+M)" aria-label="Add comment" disabled={editor.state.selection.empty}
         onMouseDown={(e) => e.preventDefault()} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
+      <button type="button" className="tb labelled" title="Make a task of the selected text, in Tasks, linking back to this document" aria-label="Add selection to Tasks" disabled={editor.state.selection.empty}
+        onMouseDown={(e) => e.preventDefault()} onClick={onTask}><Icon name="check" size={18} /> Task</button>
     </div>
   );
 }

@@ -165,6 +165,22 @@ await step('the count follows the tasks: a second one makes 2 at once; ticked of
   await api(page, 'PATCH', `/tasks/tasks/${any[0].id}`, { done: false });
   await page.getByRole('button', { name: '1 task to do about this file' }).waitFor();
 });
+await step('a document: select some words → Task: a task of those words that links back; the header counts it', async () => {
+  const f = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Launch checklist' })).body;
+  await page.goto(`${B}/docs/${f.id}`);
+  await page.locator('.ProseMirror').click();
+  if (!(await page.getByRole('button', { name: 'Add selection to Tasks' }).isDisabled())) throw new Error('offered with nothing selected');
+  await page.keyboard.type('Before launch: order the banners');
+  for (let i = 0; i < 17; i++) await page.keyboard.press('Shift+ArrowLeft'); // "order the banners"
+  await page.getByRole('button', { name: 'Add selection to Tasks' }).click();
+  await page.locator('.toast', { hasText: /^Added to / }).last().waitFor();
+  await page.getByRole('button', { name: '1 task to do about this file' }).waitFor(); // (live: no reload)
+  const lists = (await api(page, 'GET', '/tasks/lists')).body.lists;
+  const all = [];
+  for (const l of lists) all.push(...(await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body);
+  const t = all.find((x) => x.title === 'order the banners');
+  if (!t || t.link_url !== `/docs/${f.id}` || t.link_label !== 'File: Launch checklist') throw new Error(JSON.stringify(all.map((x) => [x.title, x.link_url])));
+});
 await step('its document goes to the trash: the channel says so and doesn’t link to it', async () => {
   const chan = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.about_kind === 'file' && c.about_title === 'Contract notes');
   const doc = (await api(page, 'GET', '/files?view=mine')).body.find((f) => f.name === 'Contract notes');
