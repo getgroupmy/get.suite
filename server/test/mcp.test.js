@@ -56,7 +56,7 @@ test('the handshake: initialize, the initialized notification, ping, tools/list'
   assert.equal((await rpc(rw, 'notifications/initialized', undefined, null)).status, 202);
   assert.deepEqual((await rpc(rw, 'ping')).body.result, {});
   const tools = (await rpc(rw, 'tools/list')).body.result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
+  assert.deepEqual(tools.map((t) => t.name), ['search', 'fetch', 'list_events', 'create_event', 'list_tasks', 'keep_in_touch', 'task_workload', 'update_event', 'cancel_event', 'answer_invitation', 'create_task', 'complete_task', 'update_task', 'list_mail', 'update_email', 'set_status', 'set_out_of_office', 'draft_email', 'create_note', 'update_note', 'create_contact', 'update_contact', 'create_document', 'create_spreadsheet', 'create_presentation', 'presentation_from_document', 'document_from_presentation', 'add_slides', 'append_to_document', 'replace_in_document', 'resolve_suggestions', 'create_folder', 'move_file', 'list_comments', 'comments_for_me', 'list_notifications', 'mark_notifications_read', 'comment_on_file', 'resolve_comment', 'request_access', 'list_access_requests', 'answer_access_request', 'share_file', 'add_sheet_rows', 'update_sheet_cells', 'find_people', 'find_free_time', 'list_files', 'list_chat_conversations', 'read_chat', 'remind_me', 'send_chat_message', 'list_forms', 'form_summary_document', 'read_form_responses', 'create_form', 'list_time_off', 'request_time_off', 'track_time', 'time_on_tasks', 'book_focus_time', 'add_to_todays_note', 'thank_colleague', 'recent_thanks']);
   assert.equal(tools.find((t) => t.name === 'search').annotations.readOnlyHint, true);
   assert.equal(tools.find((t) => t.name === 'create_event').annotations.readOnlyHint, false);
   assert.equal((await rpc(rw, 'nonsense/method')).body.error.code, -32601);
@@ -711,6 +711,14 @@ test('forms: make one, list them, read what people answered (a summary per quest
   const none = await call(ro, 'read_form_responses', { form: 'No such survey' });
   assert.equal(none.isError, true);
   assert.match(none.content[0].text, /No form called “No such survey”/);
+  // Written up as a document (with a read-and-write token only).
+  const doc = await call(rw, 'form_summary_document', { form: 'team offsite' });
+  assert.ok(!doc.isError, JSON.stringify(doc));
+  assert.match(doc.structuredContent.name, /\(summary\)$/);
+  const written = (await call(rw, 'fetch', { id: doc.structuredContent.id })).structuredContent.text;
+  assert.match(written, /3 responses, as of/);
+  assert.match(written, /Near the sea please/);
+  assert.equal((await call(ro, 'form_summary_document', { form: 'team offsite' })).isError, true, 'not with a read-only token');
 });
 
 test('time off: the balance and holidays, asking for days off, half a day, and what is refused', async () => {
