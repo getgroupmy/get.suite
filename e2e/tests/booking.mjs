@@ -130,6 +130,23 @@ await step('Booking pages → Add people who booked to Contacts: Oscar saved (hi
   await page.getByText('Everyone who booked is already in your contacts or a colleague').waitFor();
   await page.keyboard.press('Escape');
 });
+await step('“Add people who book to my contacts”: ticked and saved, the next visitor is in Contacts', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Booking pages' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Booking pages' });
+  await dlg.getByRole('button', { name: 'Change Intro call' }).click();
+  await dlg.getByLabel('Add people who book to my contacts').check();
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Booking page saved').waitFor();
+  await page.keyboard.press('Escape');
+  if ((await api(page, 'GET', '/bookings')).body[0].add_contacts !== true) throw new Error('not saved');
+  const tk = url.split('/b/')[1];
+  const slots = (await api(visitor, 'GET', `/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
+  const r = await api(visitor, 'POST', `/public/book/${tk}`, { start: slots[slots.length - 1], name: 'Quinn Quick', email: 'quinn@example.org', answers: ['+1 555 0111'] });
+  if (r.status >= 300) throw new Error(JSON.stringify(r.body));
+  const list = (await api(page, 'GET', '/contacts')).body;
+  if (!list.some((c) => c.email === 'quinn@example.org' && c.name === 'Quinn Quick')) throw new Error(JSON.stringify(list));
+});
 await step('turned off: the link says so', async () => {
   const p = (await api(page, 'GET', '/bookings')).body[0];
   await api(page, 'PATCH', `/bookings/${p.id}`, { enabled: false });

@@ -51,6 +51,8 @@ if (!cols('bookings').includes('cancelled_at')) q('ALTER TABLE bookings ADD COLU
 if (!cols('booking_pages').includes('remind')) q('ALTER TABLE booking_pages ADD COLUMN remind INTEGER NOT NULL DEFAULT 1').run();
 // Questions the visitor answers when booking (their phone number, company…): [{ label, required }].
 if (!cols('booking_pages').includes('questions')) q("ALTER TABLE booking_pages ADD COLUMN questions TEXT NOT NULL DEFAULT '[]'").run();
+// Add people who book to the contacts of whoever they book with (off unless turned on).
+if (!cols('booking_pages').includes('add_contacts')) q('ALTER TABLE booking_pages ADD COLUMN add_contacts INTEGER NOT NULL DEFAULT 0').run();
 if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
 // Co-hosts (round robin): colleagues who also take bookings from the page ([user id]); each booking goes
 // to a host who is free then, the one with the fewest bookings from the page.
@@ -175,6 +177,7 @@ function readPage(b, current = {}) {
   if (![0, 5, 10, 15, 30, 60].includes(buffer)) throw bad('Choose a gap of 0 to 60 minutes');
   if (!Number.isInteger(maxPerDay) || maxPerDay < 0 || maxPerDay > 20) throw bad('At most 20 bookings a day');
   const remind = pick('remind') === undefined ? 1 : pick('remind') ? 1 : 0;
+  const addContacts = pick('add_contacts') ? 1 : 0;
   const hostIds = pick('hosts') ?? [];
   if (!Array.isArray(hostIds) || hostIds.length > MAX_HOSTS) throw bad(`At most ${MAX_HOSTS} co-hosts`);
   const hosts = [...new Set(hostIds.map(String))];
@@ -186,10 +189,10 @@ function readPage(b, current = {}) {
   const whereText = whereKind === 'place' ? str(pick('where_text'), { required: true, name: 'The place', max: 200 }) : null;
   const seats = Number(pick('seats') ?? 1);
   if (!Number.isInteger(seats) || seats < 1 || seats > MAX_SEATS) throw bad(`From 1 to ${MAX_SEATS} people at a time`);
-  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, questions, hosts, where_kind: whereKind, where_text: whereText, seats };
+  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, add_contacts: addContacts, questions, hosts, where_kind: whereKind, where_text: whereText, seats };
 }
 const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
-  host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
+  host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, add_contacts: !!p.add_contacts, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n,
   booked_by: q('SELECT COUNT(DISTINCT LOWER(email)) AS n FROM bookings WHERE page_id = ? AND email IS NOT NULL').get(p.id).n }); // (cancelled too: for Add to Contacts)
 
@@ -202,23 +205,29 @@ function checkHosts(user, ids) {
   });
 }
 
+/** A page set to add people who book to Contacts: to the contacts of whoever they booked with (unless already there). */
+function autoContact(p, host, name, email) {
+  if (!p.add_contacts || !host) return;
+  if (addPeople(host, [{ name, email }]).added) sendTo([host.id], { type: 'contacts-changed' });
+}
+
 /** Saves a new booking page (read by readPage) with a new link; its id. */
 function addPage(user, p) {
   const id = uid();
   q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
     p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
-  q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(user, p.hosts)), p.where_kind, p.where_text, p.seats, id);
+  q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ?, add_contacts = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(user, p.hosts)), p.where_kind, p.where_text, p.seats, p.add_contacts, id);
   return id;
 }
 
-const PAGE_KEYS = ['title', 'description', 'duration', 'days', 'from_min', 'to_min', 'tz', 'notice_hours', 'days_ahead', 'enabled', 'buffer_min', 'max_per_day', 'remind', 'questions', 'where_kind', 'where_text', 'seats'];
+const PAGE_KEYS = ['title', 'description', 'duration', 'days', 'from_min', 'to_min', 'tz', 'notice_hours', 'days_ahead', 'enabled', 'buffer_min', 'max_per_day', 'remind', 'add_contacts', 'questions', 'where_kind', 'where_text', 'seats'];
 /** Your booking pages for Download your data: their settings, with co-hosts by email (ids mean nothing on another server). Null when you have none. */
 export function bookingPagesJson(userId) {
   const pages = q('SELECT * FROM booking_pages WHERE user_id = ? ORDER BY created_at').all(userId);
   if (!pages.length) return null;
   return `${JSON.stringify(pages.map((p) => {
-    const s = { ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), enabled: !!p.enabled, remind: !!p.remind };
+    const s = { ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), enabled: !!p.enabled, remind: !!p.remind, add_contacts: !!p.add_contacts };
     const o = Object.fromEntries(PAGE_KEYS.map((k) => [k, s[k]]));
     o.cohosts = JSON.parse(p.hosts || '[]').map((id) => q('SELECT email FROM users WHERE id = ?').get(id)?.email).filter(Boolean);
     return o;
@@ -256,8 +265,8 @@ export default function bookingRoutes() {
   };
   r.patch('/:id', (req, res) => {
     const cur = mine(req);
-    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), hosts: JSON.parse(cur.hosts || '[]'), enabled: !!cur.enabled });
-    q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), p.where_kind, p.where_text, p.seats, cur.id);
+    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), hosts: JSON.parse(cur.hosts || '[]'), enabled: !!cur.enabled, add_contacts: !!cur.add_contacts });
+    q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ?, seats = ?, add_contacts = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), p.where_kind, p.where_text, p.seats, p.add_contacts, cur.id);
     q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ?, remind = ? WHERE id = ?`)
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
@@ -451,6 +460,7 @@ export function publicBookingRoutes() {
       q("UPDATE event_outside_guests SET status = 'yes', answered_at = ? WHERE event_id = ? AND lower(email) = ?").run(Date.now(), ev.id, email);
       q('UPDATE events SET description = ? WHERE id = ?').run(`${ev.description || ''}\n${name} <${email}>${answers.length ? ` · ${answers.join(' · ')}` : ''}${note ? ` · ${note}` : ''}`.slice(0, 20000), ev.id);
       q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, ev.id, Date.now(), ct, name, email, baseUrl(req));
+      autoContact(p, owner, name, email);
       const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(ev.id));
       notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });
       touch([owner.id]);
@@ -476,6 +486,7 @@ export function publicBookingRoutes() {
     const { added } = setOutside(id, [email]);
     q("UPDATE event_outside_guests SET status = 'yes', answered_at = ? WHERE event_id = ?").run(Date.now(), id);
     q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, id, Date.now(), ct, name, email, baseUrl(req));
+    autoContact(p, owner, name, email);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });
     touch([owner.id]);

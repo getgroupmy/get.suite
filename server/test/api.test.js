@@ -2025,6 +2025,28 @@ test('booking pages: the people who booked added to Contacts, colleagues and con
   resetBookingLimits();
 });
 
+test('booking pages: “Add people who book to my contacts” (off unless turned on) adds each new booker, once', async () => {
+  const { resetBookingLimits } = await import('../src/routes/booking.js');
+  resetBookingLimits();
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'bauto', domain: 'acme.com', name: 'Bea Auto', password: 'password123' })).status, 201);
+  await login(a, 'bauto@acme.com');
+  const pg = (await a('POST', '/api/bookings', { title: 'Demo', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 2 })).body;
+  assert.equal(pg.add_contacts, false, 'off unless turned on');
+  const tk = pg.url.split('/b/')[1];
+  const slots = (await outsider('GET', `/api/public/book/${tk}`)).body.days.flatMap((d) => d.slots);
+  assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: slots[0], name: 'Nia Nope', email: 'nia@visit.example' })).status < 300);
+  assert.ok(!(await a('GET', '/api/contacts')).body.some((c) => c.email === 'nia@visit.example'), 'not while off');
+  const on = (await a('PATCH', `/api/bookings/${pg.id}`, { add_contacts: true })).body;
+  assert.deepEqual([on.add_contacts, on.title, on.duration], [true, 'Demo', 30], 'the rest kept');
+  assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: slots[4], name: 'Ola Auto', email: 'Ola@Visit.example' })).status < 300);
+  assert.ok((await outsider('POST', `/api/public/book/${tk}`, { start: slots[8], name: 'Ola again', email: 'ola@visit.example' })).status < 300);
+  const mine = (await a('GET', '/api/contacts')).body.filter((c) => c.email === 'ola@visit.example');
+  assert.deepEqual(mine.map((c) => c.name), ['Ola Auto'], 'once, as first given');
+  assert.equal((await a('PATCH', `/api/bookings/${pg.id}`, { title: 'Demo call' })).body.add_contacts, true, 'kept when other things change');
+  resetBookingLimits();
+});
+
 test('booking pages: free times around busy ones; booking puts it on the calendar; taken times refused', async () => {
   const a = client(), outsider = client();
   assert.equal((await owner('POST', '/api/users', { local: 'booker', domain: 'acme.com', name: 'Bea Booker', password: 'password123' })).status, 201);

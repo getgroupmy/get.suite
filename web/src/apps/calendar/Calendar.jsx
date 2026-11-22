@@ -2541,6 +2541,7 @@ function BookingForm({ page, onSave, onCancel }) {
       <CoHosts value={p.hosts || []} onChange={(v) => set('hosts', v)} />
       <label className="check"><input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} /> Taking bookings</label>
       <label className="check"><input type="checkbox" checked={p.remind !== false} onChange={(e) => set('remind', e.target.checked)} /> Email visitors a reminder the day before</label>
+      <label className="check"><input type="checkbox" checked={!!p.add_contacts} onChange={(e) => set('add_contacts', e.target.checked)} /> Add people who book to my contacts</label>
       <fieldset className="stack" style={{ gap: 6 }}><legend className="small muted">Questions for visitors (besides name and email)</legend>
         {(p.questions || []).map((x, i) => (
           <div key={i} className="row" style={{ gap: 8 }}>
