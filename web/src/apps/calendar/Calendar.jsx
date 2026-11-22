@@ -1214,6 +1214,30 @@ function AddGuestsToContacts({ event, className }) {
   return <button type="button" className={className} onClick={go}>Add guests to Contacts</button>;
 }
 
+// Make a contact group from an event's people (its guests and organizer, not you), named after the event unless
+// changed: to write to them all again by typing the group's name in To. Offered with two or more people.
+function GuestsToGroup({ event, className }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [asking, setAsking] = useState(false);
+  const people = [...(event.organizer?.email ? [event.organizer] : []), ...(event.guests || [])]
+    .filter((g, i, all) => g.email && g.email !== user.username && all.findIndex((h) => h.email === g.email) === i);
+  if (people.length < 2) return null;
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setAsking(true)}>Make a contact group…</button>
+      {/* (the button sits inside the event editor's form: the prompt goes outside it, in the body, and its submit stops here, so it doesn't save and close the event too) */}
+      {asking && createPortal(<span onSubmit={(e) => e.stopPropagation()}><PromptModal title="Make a contact group" label="Group name" initial={(event.title || '').slice(0, 100)} confirm="Make group"
+        message={`${people.length} people: ${people.map((g) => g.name || g.email).join(', ')}. Write to them all by typing the group’s name in To.`}
+        onClose={() => setAsking(false)} onSubmit={async (name) => {
+          const g = await post('/contacts/groups', { name, members: people.map((p) => ({ name: p.name || '', email: p.email })) });
+          toast(`Made the group “${g.name}” (${g.members.length} people)`, 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
+        }} /></span>, document.body)}
+    </>
+  );
+}
+
 // Chat with guests: the event's own private channel (made the first time; the same one after, with anyone invited since).
 function ChatWithGuests({ event, className }) {
   const navigate = useNavigate();
@@ -1264,7 +1288,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         {outside && <p className="muted small" role="note" style={{ margin: 0 }}>{event.organizer.name} works at {event.organizer.org || 'another company'}, outside yours. Be careful with links and files in the invitation that ask you to sign in or pay.</p>}
         <GuestList guests={event.guests} />
         <div><EmailGuests event={event} className="btn small" guestView /></div>
-        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /> · <AddGuestsToContacts event={event} className="link-btn small" /></p>
+        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /> · <SendEventInChat event={event} className="link-btn small" /> · <ChatWithGuests event={event} className="link-btn small" /> · <AddGuestsToContacts event={event} className="link-btn small" /> · <GuestsToGroup event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
@@ -2042,7 +2066,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                 📝 {attachments.some((a) => a.id === notesId) ? 'Open meeting notes' : 'Take meeting notes'}</button>}
               {event.id && (event.guests || []).length > 0 && <button type="button" className="btn small" onClick={guestSheet} title="Who's invited and how they've answered, in a new spreadsheet">
                 <Icon name="sheet" size={16} /> Guest list in Sheets</button>}
-              {event.id && <AddGuestsToContacts event={event} className="btn small" />}</span>
+              {event.id && <AddGuestsToContacts event={event} className="btn small" />}
+              {event.id && <GuestsToGroup event={event} className="btn small" />}</span>
             {attachments.length > 0 && (guests.length > 0 || guestInput.trim()) && <span className="muted small">Guests can view the files you own. They see the others only if they can already open them.</span>}
           </div>
         )}

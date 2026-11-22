@@ -95,6 +95,25 @@ await step('Guest list in Sheets: who’s invited and how they answered, in a sp
   await tab.locator('[data-k="C3"]', { hasText: /Going|Not answered|Maybe|Not going/ }).waitFor();
   await tab.close();
 });
+await step('event → Make a contact group…: its guests in a group named after the event', async () => {
+  await api(page, 'POST', '/users', { local: 'max', domain: 'acme.com', name: 'Max Meet', password: 'password123' });
+  const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(15, 0, 0, 0);
+  const r = await api(page, 'POST', '/events', { title: 'Launch crew', start: t.getTime(), end: t.getTime() + 36e5, guests: ['kim@acme.com', 'max@acme.com'] });
+  if (r.status >= 300) throw new Error(JSON.stringify(r.body));
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('radio', { name: 'Schedule' }).click();
+  await page.getByText('Launch crew', { exact: true }).first().click();
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  await dlg.getByRole('button', { name: 'Make a contact group…' }).click();
+  const ask = page.getByRole('dialog', { name: 'Make a contact group' });
+  await ask.getByText('2 people: Kim Park, Max Meet').waitFor();
+  if ((await ask.getByLabel('Group name').inputValue()) !== 'Launch crew') throw new Error('not named after the event');
+  await ask.getByRole('button', { name: 'Make group' }).click();
+  await page.getByText('Made the group “Launch crew” (2 people)').waitFor();
+  await dlg.getByLabel('Title').waitFor(); // the event editor is still open (making the group didn't save and close it)
+  const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Launch crew');
+  if (!g || g.members.map((m) => m.email).sort().join() !== 'kim@acme.com,max@acme.com') throw new Error(JSON.stringify(g));
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
