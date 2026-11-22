@@ -235,3 +235,21 @@ test('workload in Sheets: a list’s and the team’s, a row per person with the
   const other = (await mia('POST', '/api/tasks/lists', { name: 'Mia own' })).body.id;
   assert.equal((await ann('POST', `/api/tasks/lists/${other}/workload/sheet`, {})).status, 404);
 });
+
+test('the storage report in Sheets (admins): a row per person in MB, biggest first, then everyone', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/orgs/current/storage/sheet', {})).status, 403);
+  const r = await ann('POST', '/api/orgs/current/storage/sheet', {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.match(r.body.name, /^Storage \d{4}-\d{2}-\d{2}/);
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual(['A1', 'C1', 'G1'].map((k) => sh.cells[k]), ['Name', 'Total (MB)', 'Files']);
+  const rows = Object.keys(sh.cells).filter((k) => /^A\d+$/.test(k)).map((k) => sh.cells[k]);
+  assert.ok(rows.includes('Olivia Owner') && rows.includes('Mia Member'), rows.join());
+  assert.equal(rows[rows.length - 1], 'Everyone');
+  const olivia = Object.keys(sh.cells).find((k) => sh.cells[k] === 'Olivia Owner').slice(1);
+  assert.ok(Number(sh.cells[`G${olivia}`]) > 0, 'she has files');
+  assert.ok(!Number.isNaN(Number(sh.cells[`C${olivia}`])));
+});

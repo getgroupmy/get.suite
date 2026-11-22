@@ -36,6 +36,8 @@ import { mailEnabled } from '../mail/config.js';
 import '../mail/external.js'; // orgs.ask_outside
 import { TOOLS, ADDITIVE, REACHES_OTHERS } from '../mcp.js';
 import { cleanIssuer, ssoOf } from '../sso.js';
+import { sheetFromRows } from '../office/tablesheet.js';
+import { insertFile } from './files.js';
 // orgs.assistant_off: the assistant tools (mcp.js) the company's admins turned off, as a JSON list of names.
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'assistant_off')) q("ALTER TABLE orgs ADD COLUMN assistant_off TEXT NOT NULL DEFAULT '[]'").run();
 export const assistantOff = (orgId) => { try { return new Set(JSON.parse(q('SELECT assistant_off FROM orgs WHERE id = ?').get(orgId)?.assistant_off || '[]')); } catch { return new Set(); } };
@@ -332,22 +334,43 @@ export default function orgRoutes() {
     audit(req, 'migration.remind', { target: `${to.length} ${to.length === 1 ? 'person' : 'people'}` });
     res.json({ reminded: to.length });
   });
-  r.get('/current/storage', requireAdmin, (req, res) => {
-    const orgId = req.query.org_id && req.user.is_super ? String(req.query.org_id) : req.user.org_id;
-    const org = q('SELECT * FROM orgs WHERE id = ?').get(orgId);
-    if (!org) throw notFound('Company not found');
-    const people = q(`SELECT u.id, u.name, u.username,
+  // Each person's Drive storage (files, trash, old versions, how many files), biggest first.
+  const storagePeople = (orgId) => q(`SELECT u.id, u.name, u.username,
         COALESCE((SELECT SUM(f.size) FROM files f WHERE f.owner_id = u.id AND f.trashed = 0), 0) AS files,
         COALESCE((SELECT SUM(f.size) FROM files f WHERE f.owner_id = u.id AND f.trashed = 1), 0) AS trash,
         COALESCE((SELECT SUM(v.size) FROM file_versions v JOIN files f ON f.id = v.file_id WHERE f.owner_id = u.id), 0) AS versions,
         (SELECT COUNT(*) FROM files f WHERE f.owner_id = u.id AND f.kind != 'folder') AS count
       FROM users u WHERE u.org_id = ? ORDER BY u.name COLLATE NOCASE`).all(orgId)
       .map((p) => ({ ...p, total: p.files + p.trash + p.versions })).sort((a, b) => b.total - a.total);
+  const storageOrg = (req, orgId0) => {
+    const orgId = orgId0 && req.user.is_super ? String(orgId0) : req.user.org_id;
+    const org = q('SELECT * FROM orgs WHERE id = ?').get(orgId);
+    if (!org) throw notFound('Company not found');
+    return org;
+  };
+  r.get('/current/storage', requireAdmin, (req, res) => {
+    const org = storageOrg(req, req.query.org_id), orgId = org.id;
+    const people = storagePeople(orgId);
     const largest = q(`SELECT f.id, f.name, f.kind, f.mime, f.size, f.trashed, f.updated_at, u.name AS owner_name,
         COALESCE((SELECT SUM(v.size) FROM file_versions v WHERE v.file_id = f.id), 0) AS versions_size
       FROM files f JOIN users u ON u.id = f.owner_id WHERE u.org_id = ? AND f.kind != 'folder' ORDER BY f.size + versions_size DESC LIMIT 25`).all(orgId)
       .map((f) => ({ ...f, trashed: !!f.trashed }));
     res.json({ used: orgStorageUsed(orgId), quota_mb: org.quota_mb || null, people, largest });
+  });
+
+  // The storage report in a new spreadsheet of the admin's: a row per person, sizes in MB as numbers (biggest first),
+  // then the company's total and limit.
+  r.post('/current/storage/sheet', requireAdmin, (req, res) => {
+    const org = storageOrg(req, req.body?.org_id);
+    const mb = (b) => String(Math.round((b / 1048576) * 100) / 100);
+    const people = storagePeople(org.id);
+    const rows = [['Name', 'Email', 'Total (MB)', 'Files (MB)', 'Trash (MB)', 'Old versions (MB)', 'Files'],
+      ...people.map((p) => [p.name, p.username, mb(p.total), mb(p.files), mb(p.trash), mb(p.versions), String(p.count)]),
+      ['Everyone', '', mb(people.reduce((n, p) => n + p.total, 0)), '', '', '', ''],
+      ...(org.quota_mb ? [['Company limit', '', String(org.quota_mb), '', '', '', '']] : [])];
+    const json = JSON.stringify(sheetFromRows(rows, { header: true, name: 'Storage' }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `Storage ${new Date().toISOString().slice(0, 10)}`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, people: people.length });
   });
 
   // Shared drives in the company (admins): who owns each, how many are in it, how big it is, and

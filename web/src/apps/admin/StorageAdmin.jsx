@@ -2,7 +2,8 @@
 // kept of them, and the trash), and the largest files, to see where space goes.
 import { useCallback, useEffect, useState } from 'react';
 import { useMailStatus } from '../../mailStatus.js';
-import { get, formatBytes } from '../../api.js';
+import { get, post, formatBytes } from '../../api.js';
+import { useNavigate } from 'react-router';
 import { Avatar, useToast } from '../../components/ui.jsx';
 import { fileIcon } from '../../components/Icon.jsx';
 import Icon from '../../components/Icon.jsx';
@@ -13,7 +14,13 @@ const Bar = ({ value, max, warn }) => (
 
 export default function StorageAdmin({ orgId, orgPicker }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
+  // The report in a new spreadsheet of yours (a row per person, sizes in MB).
+  const toSheet = async () => {
+    try { const r = await post('/orgs/current/storage/sheet', orgId ? { org_id: orgId } : {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   useEffect(() => { setData(null); get(`/orgs/current/storage${orgId ? `?org_id=${encodeURIComponent(orgId)}` : ''}`).then(setData).catch((e) => toast(e.message, 'error')); }, [orgId, toast]);
   if (!data) return orgPicker || null;
   const quota = data.quota_mb ? data.quota_mb * 1024 * 1024 : null;
@@ -29,6 +36,7 @@ export default function StorageAdmin({ orgId, orgPicker }) {
           {quota ? `${Math.round((data.used / quota) * 100)}% of the company's storage. ` : 'No storage limit is set for this company. '}
           Earlier versions take {formatBytes(versions)} and the trash {formatBytes(trash)}; people can empty their trash in Drive, and versions can be deleted from a file's version history.
         </p>
+        <div className="row"><button type="button" className="btn" onClick={toSheet}><Icon name="sheet" size={16} /> Open in Sheets</button></div>
       </div>
       <div className="card" style={{ padding: 0 }}>
         <table className="files storage-table">

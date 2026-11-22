@@ -67,6 +67,17 @@ await step('Kim sees her limit in Drive, and an upload over it is refused with w
   await dlg.screenshot({ path: `${SP}/shots/drive-limit.png` });
 });
 errors.splice(0, errors.length, ...errors.filter((e) => !/status of 413/.test(e))); // the refused upload: expected
+await step('Admin → Storage → Open in Sheets: a row per person in MB, ending with everyone', async () => {
+  await page.goto(`${B}/admin`);
+  await page.getByRole('tab', { name: 'Storage' }).click();
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.getByText(/^Made “Storage \d{4}-\d{2}-\d{2}( \(\d+\))?” in your Drive$/).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="C1"]', { hasText: 'Total (MB)' }).waitFor();
+  await page.getByText('Kim Park', { exact: true }).first().waitFor();
+  await page.getByText('Everyone', { exact: true }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
