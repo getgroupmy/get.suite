@@ -120,6 +120,23 @@ await step('nothing shared: says so', async () => {
   await kim.getByText("You haven't shared anything yet").waitFor();
 });
 
+await step('Shared with me → Open in Sheets: what’s shared with Kim, whose it is and her access', async () => {
+  const kimId = (await api(page, 'GET', '/users/directory')).body.find((u) => u.username === 'kim@acme.com').id;
+  const f = await page.evaluate(async () => (await fetch('/api/files/upload?name=Roadmap.txt', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: 'x' })).json());
+  await api(page, 'PUT', `/files/${f.id}/shares`, { shares: [{ user_id: kimId, role: 'commenter' }] });
+  const kim = await mk('kim2');
+  await signIn(kim, 'kim@acme.com');
+  await kim.goto(`${B}/drive/shared`);
+  await kim.getByText('Roadmap.txt').first().waitFor();
+  await kim.getByRole('button', { name: 'Open in Sheets' }).click();
+  await kim.getByText(/^Made “Shared with me \d{4}-\d{2}-\d{2}” in your Drive$/).waitFor();
+  await kim.getByRole('button', { name: 'Open', exact: true }).click();
+  await kim.waitForURL(/\/sheets\//);
+  await kim.locator('[data-k="A2"]', { hasText: 'Roadmap.txt' }).waitFor();
+  await kim.locator('[data-k="C2"]', { hasText: 'Olivia Owner' }).waitFor();
+  await kim.locator('[data-k="H2"]', { hasText: 'Can comment' }).waitFor();
+});
+
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

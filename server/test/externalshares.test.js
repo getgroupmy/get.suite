@@ -160,6 +160,21 @@ test('Drive → Shared with me: newest shared first, with who shared it and when
   q('UPDATE shares SET shared_at = NULL WHERE file_id = ?').run(z.id);
   const again = (await ana('GET', '/api/files?view=shared')).body.map((f) => f.name);
   assert.ok(again.indexOf('alpha.txt') < again.indexOf('zulu.txt'));
+  // Open in Sheets: a row each, with whose it is, who shared it and your access.
+  const sheet = await ana('POST', '/api/files/shared-with-me/sheet', {});
+  assert.equal(sheet.status, 201, JSON.stringify(sheet.body));
+  assert.match(sheet.body.name, /^Shared with me \d{4}-\d{2}-\d{2}/);
+  const cells = (await ana('GET', `/api/files/${sheet.body.id}/content`)).body.content.sheets[0].cells;
+  assert.deepEqual(['A1', 'C1', 'F1', 'H1'].map((k) => cells[k]), ['File or folder', 'Owner', 'Shared by', 'Your access']);
+  const row = Object.keys(cells).find((k) => cells[k] === 'alpha.txt').slice(1);
+  assert.deepEqual(['B', 'C', 'D', 'F', 'H'].map((c) => cells[`${c}${row}`]), ['File', 'Kim Park', 'kim@acme.com', 'Kim Park', 'Can view']);
+  assert.match(cells[`G${row}`], /^\d{4}-\d{2}-\d{2}$/);
+  // A share that has ended isn't listed.
+  q('UPDATE shares SET expires_at = ? WHERE file_id = ? AND user_id = ?').run(Date.now() - 1000, a.id, id('ana@acme.com'));
+  const later = await ana('POST', '/api/files/shared-with-me/sheet', {});
+  const after = (await ana('GET', `/api/files/${later.body.id}/content`)).body.content.sheets[0].cells;
+  assert.ok(!Object.values(after).includes('alpha.txt') && Object.values(after).includes('zulu.txt'));
+  q('UPDATE shares SET expires_at = NULL WHERE file_id = ? AND user_id = ?').run(a.id, id('ana@acme.com'));
 });
 
 test('Remove from Shared with me: off a direct share; a group or company share stays', async () => {

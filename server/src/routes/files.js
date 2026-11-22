@@ -2489,6 +2489,23 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json({ ...publicFile(loadFile(id, req.user)), items: rows.length - 1, more });
   });
   // A new spreadsheet from a table the app has worked out (Calendar's agenda in Sheets): { name, rows: [[text]], header },
+  // Shared with me → Open in Sheets: what others have shared with you directly (not the trash, not shared drives), a
+  // row each: whose it is, who shared it and when, what you can do with it and when your access ends.
+  r.post('/shared-with-me/sheet', (req, res) => {
+    const me = req.user.id, org = req.user.org_id, at = Date.now();
+    const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit' };
+    const KIND = { folder: 'Folder', doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation' };
+    const day = (t) => (t ? new Date(t).toISOString().slice(0, 10) : '');
+    const rows = q(`SELECT f.name, f.kind, u.name AS owner_name, u.username AS owner_email, u.org_id AS owner_org, s.role, s.shared_at, s.expires_at, sb.name AS shared_by_name
+                    FROM files f JOIN users u ON u.id = f.owner_id JOIN shares s ON s.file_id = f.id LEFT JOIN users sb ON sb.id = s.shared_by
+                    WHERE s.user_id = ? AND s.direct_role IS NOT NULL AND (s.expires_at IS NULL OR s.expires_at > ?) AND f.trashed = 0 AND f.is_drive = 0 AND f.owner_id != ? AND ${REACHABLE}
+                    ORDER BY s.shared_at IS NULL, s.shared_at DESC, f.name COLLATE NOCASE LIMIT 5000`).all(me, at, me, org, org)
+      .map((x) => [x.name, KIND[x.kind] || 'File', x.owner_name || x.owner_email, x.owner_email, x.owner_org !== org ? 'Outside' : '', x.shared_by_name || '', day(x.shared_at), ROLE[x.role] || x.role, day(x.expires_at)]);
+    if (!rows.length) throw bad('Nothing has been shared with you yet');
+    const json = JSON.stringify(sheetFromRows([['File or folder', 'Kind', 'Owner', 'Email', 'Company', 'Shared by', 'Shared on', 'Your access', 'Until'], ...rows], { header: true, name: 'Shared with me' }));
+    const id = insertFile({ owner: me, parentId: null, name: `Shared with me ${day(at)}`, kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, shares: rows.length });
+  });
   // Shared by me → Open in Sheets: what you've shared, a row per file and who it's shared with (a person, a group, or
   // everyone in the company), with their access and when it ends: your own sharing to look over or tidy up.
   r.post('/shared-by-me/sheet', (req, res) => {

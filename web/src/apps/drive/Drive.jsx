@@ -729,6 +729,11 @@ export default function Drive() {
           {route.view === 'trash' && files?.length > 0 && (
             <button className="btn" onClick={() => setDialog({ type: 'empty-trash' })}>Empty trash</button>
           )}
+          {route.view === 'shared' && files?.some((f) => f.direct) && (
+            <button className="btn" title="What's shared with you, a row each: whose it is, who shared it and your access" onClick={async () => {
+              try { const r = await post('/files/shared-with-me/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+            }}><Icon name="sheet" /> Open in Sheets</button>
+          )}
           {route.view === 'sharedbyme' && files?.length > 0 && (
             <button className="btn" title="What you've shared and with whom, a row each, in a new spreadsheet" onClick={async () => {
               try { const r = await post('/files/shared-by-me/sheet', {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
