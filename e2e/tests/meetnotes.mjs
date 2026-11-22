@@ -132,6 +132,11 @@ await step('event → Add to Tasks: a task due on its day that links back to the
   await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Event: Launch crew/ }).click();
   await page.waitForURL(/\/calendar/);
   await page.getByRole('dialog', { name: 'Edit event' }).waitFor();
+  // The event shows its open task beside Add to Tasks, and opens it.
+  await page.getByRole('dialog', { name: 'Edit event' }).getByRole('button', { name: '1 open task about this event' }).click();
+  await page.getByRole('menuitem', { name: /^Launch crew · due / }).click();
+  await page.waitForURL(/\/tasks\/.+\?task=/);
+  await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Event: Launch crew/ }).waitFor();
 });
 await step('event → Copy to Notes: a note with when, who and a link back that opens the event', async () => {
   await page.keyboard.press('Escape');

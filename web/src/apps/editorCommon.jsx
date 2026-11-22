@@ -14,6 +14,7 @@ import SendInChat from '../components/SendInChat.jsx';
 import { useMailStatus } from '../mailStatus.js';
 import { DRAFT_KEY } from './docs/blocks.js';
 import { addToTasksWithToast } from './tasks/addtask.js';
+import TasksAbout from '../components/TasksAbout.jsx';
 
 /**
  * Debounced autosave with optimistic concurrency.
@@ -164,7 +165,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
         <span className={`save-status ${status}`}>{file ? STATUS[status] : ''}</span>
       </div>
       <div className="grow" />
-      {file?.id && <TasksAbout bump={taskBump} />}
+      {file?.id && <TasksAbout url={window.location.pathname} bump={taskBump} />}
       {extra}
       {items && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={items} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
@@ -187,25 +188,6 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     {file?.id && icon === 'doc' && <SignatureBanner fileId={file.id} me={user} onChanged={() => window.location.reload()} />}
     {signing && <SendForSignature file={file} onClose={(sent) => { setSigning(false); if (sent) window.location.reload(); }} />}
   </>);
-}
-
-/**
- * Open tasks about the file on screen (ones made with Add to Tasks, on any list you can see): a count in the
- * header that lists them, each opening in Tasks. Nothing when there are none.
- */
-function TasksAbout({ bump }) {
-  const navigate = useNavigate();
-  const [tasks, setTasks] = useState([]);
-  const path = window.location.pathname;
-  useEffect(() => {
-    let gone = false;
-    get(`/tasks/about?url=${encodeURIComponent(path)}`).then((r) => { if (!gone) setTasks(Array.isArray(r) ? r : []); }).catch(() => {});
-    return () => { gone = true; };
-  }, [path, bump]);
-  if (!tasks.length) return null;
-  const label = `${tasks.length === 1 ? '1 open task' : `${tasks.length} open tasks`} about this file`;
-  return <Menu trigger={(p) => <button type="button" className="btn small" aria-label={label} title={label} {...p}><Icon name="check" size={16} /> {tasks.length}</button>}
-    items={tasks.map((t) => ({ label: `${t.title}${t.due ? ` · due ${t.due}` : ''}`, icon: 'check', onClick: () => navigate(`/tasks/${t.list_id}?task=${t.id}`) }))} />;
 }
 
 /** Publish to the web: a read-only page anyone with its address can see, always the latest version. */

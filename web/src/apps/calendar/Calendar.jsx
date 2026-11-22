@@ -13,6 +13,7 @@ import { localToday } from '../tasks/taskmath.js';
 import { eventLink } from '../chat/filelinks.js';
 import { addToTasksWithToast } from '../tasks/addtask.js';
 import { LENGTHS, DEFAULT_CAL_PREFS, newEventMinutes, lengthLabel } from './calprefs.js';
+import TasksAbout from '../../components/TasksAbout.jsx';
 import Icon from '../../components/Icon.jsx';
 import { Attendance, KeptChat } from '../../components/MeetHistory.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
@@ -1220,16 +1221,19 @@ function AddGuestsToContacts({ event, className }) {
 function EventToTasks({ event, className }) {
   const navigate = useNavigate();
   const toast = useToast();
+  const [bump, setBump] = useState(0); // (a task was just made: count again)
+  const url = `/calendar?event=${event.id}${event.rrule ? `&at=${event.start}` : ''}`;
   const go = () => {
     const d = new Date(event.start), pad = (n) => String(n).padStart(2, '0');
     addToTasksWithToast(toast, navigate, {
       title: event.title || '(No title)', due: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
       ...(!event.all_day && { due_time: `${pad(d.getHours())}:${pad(d.getMinutes())}` }),
       ...(event.location && { notes: `Where: ${event.location}` }),
-      link: { url: `/calendar?event=${event.id}${event.rrule ? `&at=${event.start}` : ''}`, label: `Event: ${event.title || '(No title)'}` },
-    });
+      link: { url, label: `Event: ${event.title || '(No title)'}` },
+    }).then(() => setBump((n) => n + 1));
   };
-  return <button type="button" className={className} onClick={go}>Add to Tasks</button>;
+  // (with the open tasks already about the event beside it, if any)
+  return <><button type="button" className={className} onClick={go}>Add to Tasks</button><TasksAbout url={url} what="event" bump={bump} className={className} /></>;
 }
 
 // Copy to Notes: a note of your own with the event's time, place, people and description, and a link back to it.
