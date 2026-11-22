@@ -117,8 +117,12 @@ await step('an AI assistant’s create_task goes to the list chosen with Use for
 await step('an assistant’s create_task about the note: the task links back to it and opens it', async () => {
   const note = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Trip');
   const tok = (await api(page, 'POST', '/tokens', { password: 'password123', name: 'Linker', scope: 'write', days: 30 })).body.token;
+  // The address the assistant is given for the note is the note's own (it opens it), and can be passed on as it is.
+  const fetched = await page.evaluate(async ([t, id]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'fetch', arguments: { id } } }) })).json()).result, [tok, `note:${note.id}`]);
+  if (!fetched.structuredContent.url.endsWith(`/notes?note=${note.id}`)) throw new Error(JSON.stringify(fetched.structuredContent));
   const r = await page.evaluate(async ([t, about]) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_task', arguments: { title: 'Check the trip note', about, about_title: 'Note: Trip' } } }) })).json()).result, [tok, `/notes?note=${note.id}`]);
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'create_task', arguments: { title: 'Check the trip note', about, about_title: 'Note: Trip' } } }) })).json()).result, [tok, fetched.structuredContent.url]);
   if (r?.isError || !/\/notes\?note=/.test(r.structuredContent.about || '')) throw new Error(JSON.stringify(r));
   // Reading the tasks back says what it is about.
   const back = await page.evaluate(async (t) => (await (await fetch('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${t}` },

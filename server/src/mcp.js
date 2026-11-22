@@ -117,7 +117,7 @@ export const TOOLS = [
           .map((m) => ({ id: `mail:${m.folder}:${m.uid}`, title: `${m.subject || '(no subject)'} — ${m.folder === 'Sent' ? `to ${(m.to || []).map((t) => t.address).join(', ')}` : m.from?.name || m.from?.address || ''}`, url: link(`/mail/${encodeURIComponent(m.folder)}/${m.uid}`) })),
         ...(chat || []).slice(0, 10).map((m) => ({ id: `chat:${m.channel_id}:${m.id}`, title: `${m.user_name || 'Someone'} in ${m.where}: ${words(m.body, 80)}`, url: link(`/chat/${m.channel_id}?msg=${m.parent_id || m.id}`) })),
         ...(tasks || []).slice(0, 10).map((t) => ({ id: `task:${t.id}`, title: `${t.done ? '✓ ' : ''}${t.title} (${t.list_name})`, url: link(`/tasks/${t.list_id}?task=${t.id}`) })),
-        ...(notes || []).slice(0, 10).map((n) => ({ id: `note:${n.id}`, title: n.title || words(n.body || (n.items || []).map((i) => i.text).join(', '), 80) || 'Note', url: link('/notes') })),
+        ...(notes || []).slice(0, 10).map((n) => ({ id: `note:${n.id}`, title: n.title || words(n.body || (n.items || []).map((i) => i.text).join(', '), 80) || 'Note', url: link(`/notes?note=${n.id}`) })),
         ...(events || []).slice(0, 10).map((e) => ({ id: `event:${e.id}`, title: `${e.title} (${iso(e.start)})`, url: link('/calendar') })),
         ...(contacts || []).filter((c) => [c.name, c.email, c.company].some((x) => String(x || '').toLowerCase().includes(low))).slice(0, 10)
           .map((c) => ({ id: `contact:${c.id}`, title: [c.name, c.email, c.company].filter(Boolean).join(' · '), url: link(`/contacts?q=${encodeURIComponent(c.name || c.email || '')}`) })),
@@ -174,7 +174,7 @@ export const TOOLS = [
       if (kind === 'note') {
         const n = (await api('GET', '/notes')).find((x) => x.id === a) || (await api('GET', '/notes?archived=1')).find((x) => x.id === a);
         if (!n) throw new ToolError('Note not found');
-        return { id, title: n.title || 'Note', text: n.items ? n.items.map((i) => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n') : n.body, url: link('/notes'), metadata: { labels: n.labels } };
+        return { id, title: n.title || 'Note', text: n.items ? n.items.map((i) => `${i.done ? '[x]' : '[ ]'} ${i.text}`).join('\n') : n.body, url: link(`/notes?note=${n.id}`), metadata: { labels: n.labels } };
       }
       if (kind === 'event') {
         const all = await api('GET', '/events');
@@ -599,7 +599,7 @@ export const TOOLS = [
       }
       const items = Array.isArray(a.items) && a.items.length ? a.items.map((t) => ({ text: String(t) })) : undefined;
       const n = await api('POST', '/notes', { title: String(a.title || ''), body: items ? '' : String(a.text || ''), ...(items && { items }) });
-      return { id: `note:${n.id}`, title: n.title, url: link('/notes') };
+      return { id: `note:${n.id}`, title: n.title, url: link(`/notes?note=${n.id}`) };
     },
   },
   {
@@ -649,7 +649,7 @@ export const TOOLS = [
         body.body = `${n.body ? `${n.body.replace(/\s+$/, '')}\n` : ''}${String(a.append_text).trim()}`;
       }
       const after = await api('PATCH', `/notes/${encodeURIComponent(n.id)}`, body);
-      return { id: `note:${after.id}`, title: after.title, ...(after.items ? { items: after.items.map((x) => ({ text: x.text, done: x.done })) } : { text: after.body }), url: link('/notes') };
+      return { id: `note:${after.id}`, title: after.title, ...(after.items ? { items: after.items.map((x) => ({ text: x.text, done: x.done })) } : { text: after.body }), url: link(`/notes?note=${after.id}`) };
     },
   },
   {

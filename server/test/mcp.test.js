@@ -429,7 +429,13 @@ test('add a contact: found again by search and fetch; the same email isn’t add
 
 test('create_task about something: the task links back to it; only addresses in this Workspace', async () => {
   const note = (await call(rw, 'create_note', { title: 'Supplier call', text: 'Ask about lead times' })).structuredContent;
+  // A note's address opens that note (from create_note, fetch, search and update_note alike), so it can be passed on as it is.
   const about = `${new URL(note.url).origin}/notes?note=${note.id.replace(/^note:/, '')}`;
+  assert.equal(note.url, about);
+  assert.equal((await call(rw, 'fetch', { id: note.id })).structuredContent.url, about);
+  const hits = (await call(rw, 'search', { query: 'lead times' })).structuredContent.results;
+  assert.equal(hits.find((x) => x.id === note.id)?.url, about, JSON.stringify(hits));
+  assert.equal((await call(rw, 'update_note', { note: note.id, append_text: 'And prices' })).structuredContent.url, about);
   const t = (await call(rw, 'create_task', { title: 'Follow up the supplier', about, about_title: 'Note: Supplier call' })).structuredContent;
   assert.equal(t.about, about);
   const lists = (await owner('GET', '/api/tasks/lists')).body.lists;
