@@ -1367,6 +1367,14 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
     ...(m.email && { notes: `Email from ${m.email.from?.name || m.email.from?.address || 'someone'}${m.email.subject ? `: ${m.email.subject}` : ''}${m.email.text ? `\n\n${m.email.text.slice(0, 500)}` : ''}` }),
     link: { url: `/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`, label: `Chat message from ${m.user_name || 'someone'}` },
   });
+  // Save to Notes: a note of your own with the message, who wrote it where and when, and a link back to it.
+  const toNote = async () => {
+    try {
+      const n = await get(`/chat/messages/${m.id}/note?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}`);
+      const made = await post('/notes', n);
+      toast(`Saved to Notes: ${made.title}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/notes?note=${made.id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const copyLink = async () => {
     const url = messageLink(m);
     try { await navigator.clipboard.writeText(url); toast('Link to the message copied: paste it in a conversation, an email or a document'); } catch { toast(url); }
@@ -1458,6 +1466,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {m.user_id !== user.id && (m.bot || (m.user_org_id && m.user_org_id !== user.org_id)) && <button type="button" className="icon-btn" aria-label="Report as suspicious" title="Report as suspicious (to your admins)" onClick={() => setReporting(true)}><Icon name="report" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Copy link to message" title="Copy link to message" onClick={copyLink}><Icon name="link" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
+        <button type="button" className="icon-btn" aria-label="Save to Notes" title="Save to Notes" onClick={toNote}><Icon name="note" size={16} /></button>
         {m.files?.some((f) => !f.gone) && m.user_id !== user.id && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Save to Drive" title="Save to Drive" {...p}><Icon name="folder" size={16} /></button>}
           items={m.files.filter((f) => !f.gone).flatMap((f, _, live) => saveItems(toast, navigate, m.id, f, setSavingTo, live.length > 1))} />}
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}

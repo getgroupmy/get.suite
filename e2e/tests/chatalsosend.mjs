@@ -117,6 +117,22 @@ await step('⬇ → Save to Drive as a document: a document in My Drive, the con
   await ed.getByText('Which date for the launch?').waitFor();
   await ed.locator('strong', { hasText: 'Kim Park' }).first().waitFor();
 });
+await step('a message’s Save to Notes: a note with it, and its link opens the message again', async () => {
+  await page.goto(`${B}/chat/${ch}`);
+  const msg = page.locator('.msg', { hasText: 'Which date for the launch?' }).first();
+  await msg.hover();
+  await msg.getByRole('button', { name: 'Save to Notes' }).click();
+  await page.getByText('Saved to Notes: Which date for the launch?').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/notes/);
+  await page.getByText(/in #launch · /).first().waitFor();
+  const all = (await api(page, 'GET', '/notes')).body;
+  const n = (all.notes || all).find((x) => x.title === 'Which date for the launch?');
+  const link = n.body.match(/Open the message: (\S+)/)[1];
+  await page.goto(link);
+  await page.locator('.msg', { hasText: 'Which date for the launch?' }).first().waitFor();
+  if (!/\/chat\//.test(page.url())) throw new Error(page.url());
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

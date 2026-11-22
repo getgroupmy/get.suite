@@ -23,7 +23,7 @@ import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile, resolveParent } from './files.js';
-import { conversationText, conversationHtml, conversationDoc, cardLines } from '../chatexport.js';
+import { conversationText, conversationHtml, conversationDoc, cardLines, messageNote } from '../chatexport.js';
 import { emailHtmlFromDoc } from '../office/epub.js';
 const EMAIL_MESSAGES = 500; // (Send as email: the latest ones, a long history being better downloaded)
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
@@ -1441,6 +1441,19 @@ export default function chatRoutes() {
   // Its files go with it (everyone there can open them from the message), and a contact or email card. Forwarding a forward passes on the original.
   // Report a message from outside the company (another company's person, or an app) as suspicious: it joins
   // the email phishing reports for the company's admins (Admin → Phishing), by the sender's address.
+  // Save to Notes: a message as a note's title and text (the app adds the note), with a link back to it.
+  r.get('/messages/:id/note', (req, res) => {
+    const m = shape(q(`${MSG} WHERE m.id = ?`).all(req.params.id))[0];
+    if (!m || m.deleted_at) throw notFound('Message not found');
+    const c = loadChannel(m.channel_id, req.user);
+    const other = dmOther(c, req.user.id);
+    const where = c.dm_key ? (other ? `a direct message with ${q('SELECT name FROM users WHERE id = ?').get(other)?.name || 'someone'}` : 'your notes to self') : `#${c.name}`;
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const link = `${base}/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`;
+    res.json(messageNote({ who: m.user_name || m.bot || 'Someone', at: m.created_at, body: m.body || '', files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll, cards: cardLines(m) },
+      { where, tz: String(req.query.tz || 'UTC'), link }));
+  });
+
   r.post('/messages/:id/report', (req, res) => {
     const m = q('SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, u.username, u.org_id FROM messages m LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(req.params.id);
     if (!m) throw notFound('Message not found');

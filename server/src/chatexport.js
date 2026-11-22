@@ -99,3 +99,23 @@ export function conversationDoc(title, messages, { tz = 'UTC', now = Date.now() 
   }
   return { type: 'doc', content };
 }
+
+/**
+ * One message as a note (Chat → Save to Notes): its first line as the title (or "Message from …"), then who wrote it,
+ * where and when, what it says, its files, poll and cards, and `link` to open it in its conversation.
+ * `m` is a kept message ({ who, at, body, files, poll, cards }).
+ */
+export function messageNote(m, { where = '', tz = 'UTC', link = '' } = {}) {
+  const zone = zoneOf(tz);
+  const first = String(m.body || '').split('\n').map((l) => l.replace(/[*_~`]+/g, '').replace(/^>\s*/, '').trim()).find(Boolean) || '';
+  const title = first ? (first.length > 100 ? `${first.slice(0, 99)}…` : first) : `Message from ${m.who}`;
+  const body = [
+    `${m.who}${where ? ` in ${where}` : ''} · ${stamp(m.at, zone)}`,
+    String(m.body || '').trim(),
+    ...(m.files || []).map((f) => `📎 ${f}`),
+    m.poll ? pollLine(m.poll) : '',
+    (m.cards || []).join('\n').trim(),
+    link ? `Open the message: ${link}` : '',
+  ].filter(Boolean).join('\n\n').slice(0, 19000);
+  return { title, body };
+}

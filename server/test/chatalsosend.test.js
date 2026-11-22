@@ -150,3 +150,21 @@ test('sent as an email: the conversation as the email’s text, a reply also sen
   const empty = (await ben('POST', '/api/chat/channels', { name: 'empty-two' })).body.id;
   assert.equal((await ben('GET', `/api/chat/channels/${empty}/email-body`)).status, 400);
 });
+
+test('a message saved to Notes: its first line the title, who, where and when, what it says, a link back', async () => {
+  const r = await ben('GET', `/api/chat/messages/${top.id}/note?tz=Europe/London`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.title, 'Which date for the launch?');
+  assert.match(r.body.body, /^Ann Owner in #launch · \d+ \w+ \d{4}, \d\d:\d\d\n\nWhich date for the launch\?\n\nOpen the message: http:\/\/127\.0\.0\.1:\d+\/chat\/[\w-]+\?msg=[\w-]+$/);
+  // A reply in a thread: the link opens the thread. Made into a note through Notes as usual.
+  const reply = (await ben('POST', `/api/chat/channels/${ch}/messages`, { body: '**Thursday** then\nsecond line', parent_id: top.id })).body;
+  const n = (await ben('GET', `/api/chat/messages/${reply.id}/note`)).body;
+  assert.equal(n.title, 'Thursday then');
+  assert.match(n.body, new RegExp(`&thread=${top.id}$`));
+  assert.equal((await ben('POST', '/api/notes', n)).status, 201);
+  // Not a conversation you're in.
+  const priv = (await ann('POST', '/api/chat/channels', { name: 'ann-private-2', private: true })).body.id;
+  const secret = (await ann('POST', `/api/chat/channels/${priv}/messages`, { body: 'Secret' })).body;
+  assert.equal((await ben('GET', `/api/chat/messages/${secret.id}/note`)).status, 404);
+  assert.equal((await ben('GET', '/api/chat/messages/nope/note')).status, 404);
+});
