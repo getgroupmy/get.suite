@@ -1014,6 +1014,15 @@ export default function taskRoutes() {
       .all(me, me, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`)).map(shape));
   });
 
+  // Open tasks about something (?url= the path a task links back to: a file, an event, a note…), on any list you can see.
+  r.get('/about', (req, res) => {
+    const { url } = linkOf({ url: String(req.query.url || '') });
+    if (!url) throw bad('Bad link');
+    const me = req.user.id;
+    res.json(q(`${TASK} WHERE t.done_at IS NULL AND t.link_url = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                ORDER BY t.due IS NULL, t.due, t.position LIMIT 50`).all(url, me, me).map(shape));
+  });
+
   // Open tasks with a tag, on any of your lists (soonest due first), and the tags in use there with how many open tasks have each.
   r.get('/tags', (req, res) => {
     const me = req.user.id;

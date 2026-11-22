@@ -438,3 +438,26 @@ test('a task can link back to a calendar event (as to an email or a chat message
   }
   assert.equal((await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url: '/sheetsx/abc', label: 'x' } })).status, 400);
 });
+
+test('tasks about something: the open ones that link to it, on lists you can see', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'About things' })).body.id;
+  const add = (who, l, title, url) => who('POST', `/api/tasks/lists/${l}/tasks`, { title, link: { url, label: 'File: Plan' } });
+  const one = (await add(ann, list, 'Review the plan', '/docs/plan1')).body;
+  const two = (await add(ann, list, 'Sign off the plan', '/docs/plan1')).body;
+  await add(ann, list, 'Another file', '/docs/plan2');
+  const hers = (await mia('POST', '/api/tasks/lists', { name: 'Mia about' })).body.id;
+  await add(mia, hers, 'Mia reads the plan', '/docs/plan1');
+  const about = async (who, url) => (await who('GET', `/api/tasks/about?url=${encodeURIComponent(url)}`));
+  assert.deepEqual((await about(ann, '/docs/plan1')).body.map((t) => t.title).sort(), ['Review the plan', 'Sign off the plan']);
+  assert.equal((await about(ann, '/docs/plan1')).body[0].list_id, list);
+  // Done ones drop out; each person sees only tasks on lists they can see.
+  assert.equal((await ann('PATCH', `/api/tasks/tasks/${two.id}`, { done: true })).status, 200);
+  assert.deepEqual((await about(ann, '/docs/plan1')).body.map((t) => t.id), [one.id]);
+  assert.deepEqual((await about(mia, '/docs/plan1')).body.map((t) => t.title), ['Mia reads the plan']);
+  assert.deepEqual((await about(ann, '/docs/none')).body, []);
+  assert.equal((await about(ann, '/admin')).status, 400);
+  assert.equal((await about(ann, '')).status, 400);
+});

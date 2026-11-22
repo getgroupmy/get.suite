@@ -134,7 +134,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     { label: 'Chat with people who have access', icon: 'chat', onClick: async () => {
       try { const r = await post(`/files/${file.id}/chat`, {}); toast(r.created ? 'A channel for it, with everyone it’s shared with' : r.added ? `Added ${r.added} more to its channel` : 'Its channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
     } },
-    { label: 'Add to Tasks', icon: 'check', onClick: () => addToTasksWithToast(toast, navigate, { title: file.name, link: { url: window.location.pathname, label: `File: ${file.name}` } }) },
+    { label: 'Add to Tasks', icon: 'check', onClick: () => addToTasksWithToast(toast, navigate, { title: file.name, link: { url: window.location.pathname, label: `File: ${file.name}` } }).then(() => setTaskBump((n) => n + 1)) },
     ...(mail?.enabled && canEdit ? [{ label: 'Email people with access', icon: 'mail', onClick: () => emailPeopleWithAccess(file, { navigate, toast }) }] : []),
     ...(canEdit ? [{ label: 'Schedule a meeting with people with access', icon: 'calendar', onClick: () => meetPeopleWithAccess(file, { navigate, toast }) }] : []),
     ...(mail?.enabled ? [{ label: 'Email link', icon: 'mail', onClick: () => emailIt(false) }, ...(takeOff ? [] : [{ label: 'Email as attachment…', icon: 'mail', onClick: () => emailIt(true) }])] : []),
@@ -145,6 +145,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     ...(canEdit && !file.locked_at ? [{ label: 'Lock (stop changes)', icon: 'lock', onClick: () => setLocked(true) }] : []),
     ...(canUnlock ? [{ label: 'Unlock', icon: 'lock', onClick: () => setLocked(false) }] : [])] : menu;
 
+  const [taskBump, setTaskBump] = useState(0); // (Add to Tasks made one: count again)
   async function commit() {
     const n = name.trim();
     if (!n || n === file.name) return setName(file.name);
@@ -163,6 +164,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
         <span className={`save-status ${status}`}>{file ? STATUS[status] : ''}</span>
       </div>
       <div className="grow" />
+      {file?.id && <TasksAbout bump={taskBump} />}
       {extra}
       {items && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={items} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
@@ -185,6 +187,25 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     {file?.id && icon === 'doc' && <SignatureBanner fileId={file.id} me={user} onChanged={() => window.location.reload()} />}
     {signing && <SendForSignature file={file} onClose={(sent) => { setSigning(false); if (sent) window.location.reload(); }} />}
   </>);
+}
+
+/**
+ * Open tasks about the file on screen (ones made with Add to Tasks, on any list you can see): a count in the
+ * header that lists them, each opening in Tasks. Nothing when there are none.
+ */
+function TasksAbout({ bump }) {
+  const navigate = useNavigate();
+  const [tasks, setTasks] = useState([]);
+  const path = window.location.pathname;
+  useEffect(() => {
+    let gone = false;
+    get(`/tasks/about?url=${encodeURIComponent(path)}`).then((r) => { if (!gone) setTasks(Array.isArray(r) ? r : []); }).catch(() => {});
+    return () => { gone = true; };
+  }, [path, bump]);
+  if (!tasks.length) return null;
+  const label = `${tasks.length === 1 ? '1 open task' : `${tasks.length} open tasks`} about this file`;
+  return <Menu trigger={(p) => <button type="button" className="btn small" aria-label={label} title={label} {...p}><Icon name="check" size={16} /> {tasks.length}</button>}
+    items={tasks.map((t) => ({ label: `${t.title}${t.due ? ` · due ${t.due}` : ''}`, icon: 'check', onClick: () => navigate(`/tasks/${t.list_id}?task=${t.id}`) }))} />;
 }
 
 /** Publish to the web: a read-only page anyone with its address can see, always the latest version. */

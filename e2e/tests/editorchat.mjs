@@ -138,7 +138,30 @@ await step('Add to Tasks, from a spreadsheet and a presentation: a task that lin
     await link.click();
     await page.waitForURL(new RegExp(`/${app}/${f.id}$`));
     await page.getByRole('button', { name: 'More' }).waitFor();
+    // Back in the file, its header counts the open tasks about it and opens them.
+    await page.getByRole('button', { name: '1 open task about this file' }).click();
+    await page.getByRole('menuitem', { name: `Review me ${kind}` }).click();
+    await page.waitForURL(/\/tasks\/[\w-]+\?task=/);
+    await page.getByRole('link', { name: `File: Review me ${kind}` }).waitFor();
   }
+});
+await step('the count follows the tasks: a second one makes 2 at once; ticked off, they go', async () => {
+  const f = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Counted doc' })).body;
+  await page.goto(`${B}/docs/${f.id}`);
+  await page.locator('.ProseMirror').waitFor();
+  if (await page.getByRole('button', { name: /open tasks? about this file/ }).count()) throw new Error('a count with no tasks');
+  for (const n of ['1 open task', '2 open tasks']) {
+    await page.locator('.editor-head').getByRole('button', { name: 'More' }).click();
+    await page.getByRole('menuitem', { name: 'Add to Tasks' }).click();
+    await page.getByRole('button', { name: `${n} about this file` }).waitFor();
+  }
+  const lists = (await api(page, 'GET', '/tasks/lists')).body.lists;
+  for (const l of lists) for (const t of (await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body) if (t.link_url === `/docs/${f.id}`) await api(page, 'PATCH', `/tasks/tasks/${t.id}`, { done: true });
+  await Promise.all([page.waitForResponse((r) => r.url().includes('/api/tasks/about')), page.reload()]); // (the count has been asked for again)
+  await page.locator('.ProseMirror').waitFor();
+  await page.locator('.editor-head').getByRole('button', { name: 'More' }).waitFor();
+  await page.waitForTimeout(300);
+  if (await page.getByRole('button', { name: /open tasks? about this file/ }).count()) throw new Error('done tasks still counted');
 });
 await step('its document goes to the trash: the channel says so and doesn’t link to it', async () => {
   const chan = (await api(page, 'GET', '/chat/channels')).body.channels.find((c) => c.about_kind === 'file' && c.about_title === 'Contract notes');
