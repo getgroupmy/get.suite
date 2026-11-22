@@ -3418,3 +3418,5 @@ span.kudos-clap { cursor: default; border-color: transparent; }
 .slide-para.listed[data-level="3"] { margin-left: 4.8em; }
 .poll-add { gap: 6px; margin: 6px 0 2px; }
 .home-task-about { text-decoration: none; margin-left: 4px; }
+.task-link { text-decoration: none; padding: 4px; border-radius: 6px; }
+.task-link:hover { background: var(--hover, rgba(0,0,0,.06)); }

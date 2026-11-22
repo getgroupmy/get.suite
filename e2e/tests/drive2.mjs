@@ -87,6 +87,13 @@ await step('a file’s ⋮ → Add to Tasks: a task that links back to the file'
   await page.getByRole('link', { name: /File: b\.txt/ }).waitFor();
   await page.goto(`${B}/drive`);
   await row('c.txt').waitFor();
+  // In Tasks, the task's row opens the file straight from the list (its picture), without opening the task.
+  await page.goto(`${B}/tasks`);
+  await page.locator('.task', { hasText: 'b.txt' }).getByRole('link', { name: 'Open what “b.txt” is about' }).click();
+  await page.waitForURL(/\/drive\?preview=|\/drive$/);
+  await page.getByRole('dialog', { name: 'b.txt' }).waitFor();
+  await page.goto(`${B}/drive`);
+  await row('c.txt').waitFor();
   // Its row now says there is a task to do about it (and only its row).
   await row('b.txt').getByLabel('1 task to do').waitFor();
   if (await row('c.txt').getByLabel(/tasks? to do/).count()) throw new Error('c.txt has no task');

@@ -307,7 +307,6 @@ export default function Tasks() {
           <span className="task-title">{t.title}</span>
           <span className="task-meta">
             {virtual && <span className="muted small task-list-name">{t.list_color && <span className="list-dot" style={{ background: t.list_color }} aria-hidden="true" />}{t.list_emoji ? `${t.list_emoji} ` : ''}{t.list_name}</span>}
-            {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{linkIcon(t.link_url)}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.priority && !t.done && (() => { const [, name, mark] = PRIORITIES.find(([k]) => k === t.priority); return <span className={`pill priority ${t.priority}`} title={`${name} priority`} aria-label={`${name} priority`}>{mark} {name}</span>; })()}
@@ -324,6 +323,7 @@ export default function Tasks() {
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}${t.repeat_until ? `, until ${t.repeat_until}` : ''}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
         </button>
+        {t.link_url && !selecting && <Link to={t.link_url} className="task-link" title={t.link_label || 'Linked'} aria-label={`Open what “${t.title}” is about`}>{linkIcon(t.link_url)}</Link>}
         {t.assignee_name && <span title={`For ${t.assignee_name}`}><Avatar name={t.assignee_name} size={24} userId={t.assignee_id} /></span>}
         {!t.done && <button type="button" className={`icon-btn task-star ${t.important ? 'on' : ''}`} aria-pressed={!!t.important} aria-label={`${t.important ? 'Not important' : 'Mark important'}: ${t.title}`}
           title={t.important ? 'Important (click to unmark)' : 'Mark important'} onClick={() => update(t, { important: !t.important })}>{t.important ? '★' : '☆'}</button>}
