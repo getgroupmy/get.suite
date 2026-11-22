@@ -92,6 +92,21 @@ await step('after the email is archived, the task still opens it', async () => {
   await page.waitForURL(/\/tasks\/.+\?task=/);
   await page.getByRole('complementary', { name: 'Task details' }).getByRole('link', { name: /Email from Raj Kumar/ }).waitFor();
 });
+await step('an email whose subject names a day: its task is due that day, titled as the subject', async () => {
+  await smtp.sendMail({ from: 'Raj Kumar <raj@acme.com>', to: 'olivia@acme.com', subject: 'Re: Figures needed by friday', text: 'The board pack goes out Monday.' });
+  await page.goto(`${B}/mail`);
+  await refreshUntil(page, inboxRow('Re: Figures needed by friday'));
+  await inboxRow('Re: Figures needed by friday').click();
+  await page.locator('.reader-actions').getByRole('button', { name: 'Add to Tasks' }).click();
+  await page.getByText('Added to My tasks').waitFor();
+  const fri = new Date(); fri.setDate(fri.getDate() + (((12 - fri.getDay()) % 7) || 7));
+  const friday = `${fri.getFullYear()}-${String(fri.getMonth() + 1).padStart(2, '0')}-${String(fri.getDate()).padStart(2, '0')}`;
+  const made = [];
+  for (const l of (await api(page, 'GET', '/tasks/lists')).body.lists) made.push(...(await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body);
+  const t = made.find((x) => x.title === 'Re: Figures needed by friday');
+  const plain = made.find((x) => x.title === 'Quote for Globex');
+  if (!t || t.due !== friday || !plain || plain.due) throw new Error(JSON.stringify(made.map((x) => [x.title, x.due])));
+});
 await step('a chat message becomes a task that links back to it', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'office' })).body.id;
   await api(page, 'POST', `/chat/channels/${ch}/messages`, { body: '**Book** the meeting room for Monday\nthanks!' });

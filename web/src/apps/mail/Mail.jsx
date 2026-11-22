@@ -43,7 +43,7 @@ import DrivePicker from '../../components/DrivePicker.jsx';
 import { SheetTableDialog, tableNode } from '../docs/SheetTable.jsx';
 import { parseAddresses } from '../../components/addresses.js';
 import { fileLinksIn } from '../chat/filelinks.js';
-import { mailLink } from '../tasks/addtask.js';
+import { mailLink, dueFromText } from '../tasks/addtask.js';
 import { AddToTasksButton } from '../../components/TasksAbout.jsx';
 import { withFreeTime } from '../../components/scheduleWith.js';
 import { eventFromEmail } from '../calendar/fromemail.js';
@@ -1071,7 +1071,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           navigate('/calendar', { state: { newEvent: ev } });
           if (moved) toast(`The first hour you’re all free: ${new Date(ev.start).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`);
         }}><Icon name="calendar" /></button>
-        <AddToTasksButton what="email" item={{ title: m.subject || '(no subject)', link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } }} />
+        <AddToTasksButton what="email" item={{ title: m.subject || '(no subject)', ...dueFromText(String(m.subject || '').replace(/^\s*((re|fwd?|aw|wg)\s*:\s*)+/i, '')), link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } }} />
         {!shared && <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
           ...labels.map((l) => {
             const on = (m.labels || []).includes(l.id);
