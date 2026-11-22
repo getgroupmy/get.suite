@@ -113,6 +113,11 @@ export default function Notes() {
   const [editing, setEditing] = useState(null); // note id
   const [sharing, setSharing] = useState(null);
   const [history, setHistory] = useState(null); // a note whose earlier versions are shown
+  const [toTasks, setToTasks] = useState(null); // { note, lists }: choosing the task list its items go to
+  const copyToTasks = async (n, listId) => {
+    const r = await post(`/notes/${n.id}/tasks`, listId ? { list_id: listId } : {});
+    toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } });
+  };
   const [labelling, setLabelling] = useState(null);
   const [labelEdit, setLabelEdit] = useState(null); // { rename: label } or { remove: label }
   const [deleting, setDeleting] = useState(null);
@@ -226,7 +231,12 @@ export default function Notes() {
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
     onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onChat={() => setChatting([n])} onCopy={() => copy(n)} onTemplate={() => setTemplating(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
     onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast(`Copied to a new document in My Drive${d.pictures ? `, with its ${d.pictures === 1 ? 'picture' : `${d.pictures} pictures`}` : ''}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
-    onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
+    onToTasks={async () => { // (with several task lists: which one; otherwise straight to the only list)
+      try {
+        const lists = (await get('/tasks/lists')).lists || [];
+        if (lists.length > 1) setToTasks({ note: n, lists }); else await copyToTasks(n, null);
+      } catch (e) { toast(e.message, 'error'); }
+    }}
     onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
   return (
     <div className="notes-app">
@@ -339,6 +349,7 @@ export default function Notes() {
         </>}
       </section>
       {current && <NoteEditor key={current.id} note={current} onClose={() => { setEditing(null); load(); }} />}
+ {toTasks && <NoteToTasks lists={toTasks.lists} items={!!toTasks.note.items?.length} onClose={() => setToTasks(null)} onPick={async (id) => { await copyToTasks(toTasks.note, id); setToTasks(null); }} />}
  {history && <NoteHistory note={history} onClose={() => setHistory(null)} onRestored={() => { setHistory(null); load(); toast('Earlier version restored (what was there is kept in the history)'); }} />}
       {sharing && <ShareNote note={sharing} onClose={() => { setSharing(null); load(); }} />}
       {templating && <PromptModal title="Save as template" label="Template name" initial={templating.title || ''} confirm="Save" message="New notes can start from it (Templates, on the left): its title, text or list (unticked), colour and labels."
@@ -537,6 +548,22 @@ function NoteTemplates({ onClose, onUse }) {
           ))}
         </ul>
       )}
+    </Modal>
+  );
+}
+
+/** Which task list a note's items go to (asked when you have more than one). */
+function NoteToTasks({ lists, items, onPick, onClose }) {
+  const [list, setList] = useState(lists[0]?.id || '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const go = async () => { setBusy(true); setError(''); try { await onPick(list); } catch (e) { setError(e.message); setBusy(false); } };
+  return (
+    <Modal title="Copy to Tasks" onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy || !list} onClick={go}>Copy</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>{items ? 'The unticked items become tasks at the top of the list (sub-items as steps).' : 'The note becomes a task at the top of the list.'}</p>
+      <label className="field"><span>List</span><select value={list} onChange={(e) => setList(e.target.value)}>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
+      {error && <p className="error" role="alert">{error}</p>}
     </Modal>
   );
 }

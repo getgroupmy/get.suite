@@ -309,3 +309,23 @@ test('the Directory in Sheets (anyone): a row per colleague with job title, phon
   assert.deepEqual(['B', 'C', 'D', 'E', 'F'].map((c) => cells[`${c}${row}`]), ['mia@acme.com', 'Buyer', 'Purchasing', "'+44 20 7946 0199", 'Olivia Owner']);
   assert.equal(r.body.people, (await mia('GET', '/api/users/directory')).body.length);
 });
+
+test('a note’s unticked items to Tasks on the list you choose (yours or shared with you); your first list otherwise; not a stranger’s', async () => {
+  const ann = client(), mia = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  const note = (await ann('POST', '/api/notes', { title: 'Move', items: [{ text: 'Pack', done: false }, { text: 'Label boxes', done: true }, { text: 'Hire van', done: false }] })).body;
+  const chosen = (await ann('POST', '/api/tasks/lists', { name: 'Moving day' })).body.id;
+  const r = await ann('POST', `/api/notes/${note.id}/tasks`, { list_id: chosen });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.list.name], [2, 'Moving day']);
+  assert.deepEqual((await ann('GET', `/api/tasks/lists/${chosen}/tasks`)).body.map((t) => t.title).sort(), ['Hire van', 'Pack']);
+  // Without a list: the first list, as before.
+  const first = await ann('POST', `/api/notes/${note.id}/tasks`, {});
+  assert.equal(first.status, 201);
+  assert.notEqual(first.body.list.id, chosen);
+  // Not into someone else's list.
+  const hers = (await mia('POST', '/api/tasks/lists', { name: 'Mia private' })).body.id;
+  assert.equal((await ann('POST', `/api/notes/${note.id}/tasks`, { list_id: hers })).status, 404);
+  assert.equal((await mia('GET', `/api/tasks/lists/${hers}/tasks`)).body.length, 0);
+});

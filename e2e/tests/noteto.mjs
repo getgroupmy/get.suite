@@ -59,6 +59,18 @@ await step('copy to a document', async () => {
   await page.locator('.ProseMirror h1', { hasText: 'Trip' }).waitFor();
   await page.locator('.ProseMirror li[data-checked="true"]', { hasText: 'Passport' }).waitFor();
 });
+await step('with a second task list: Copy to Tasks asks which list, and the items go there', async () => {
+  const list = (await api(page, 'POST', '/tasks/lists', { name: 'Trip prep' })).body.id;
+  await page.goto(`${B}/notes`);
+  await card('Trip').getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Copy unticked items to Tasks' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Copy to Tasks' });
+  await dlg.getByLabel('List').selectOption({ label: 'Trip prep' });
+  await dlg.getByRole('button', { name: 'Copy', exact: true }).click();
+  await page.getByText('2 tasks added to Trip prep').waitFor();
+  const tasks = (await api(page, 'GET', `/tasks/lists/${list}/tasks`)).body.map((t) => t.title).sort();
+  if (tasks.join() !== 'Book hotel,Taxi') throw new Error(tasks.join());
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

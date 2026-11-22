@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
 import { checkQuota } from '../tenancy.js';
-import { myFirstList, addTasks } from './tasks.js';
+import { myFirstList, addTasks, taskListChoice, taskListPeople } from './tasks.js';
 import { noteFits, noteFilterOf } from '../notefilter.js';
 
 q(`CREATE TABLE IF NOT EXISTS notes (
@@ -989,15 +989,16 @@ export default function noteRoutes() {
     res.status(201).json({ id, pictures: images.length });
   });
 
-  // The checklist's unticked items (or the note itself) as tasks on your first list.
+  // The checklist's unticked items (or the note itself) as tasks on your first list, or the list chosen.
   r.post('/:id/tasks', (req, res) => {
     const n = load(req.params.id, req.user);
     const items = n.items ? tasksFromItems(JSON.parse(n.items)) : [];
     const titles = items.length ? items : [n.title || (n.body || '').split('\n')[0]].filter((x) => x && x.trim());
     if (!titles.length) throw bad('Nothing to add as a task');
-    const list = myFirstList(req.user.id);
+    // { list_id }: a list of yours or one shared with you; otherwise your first list.
+    const list = req.body?.list_id ? taskListChoice(req.body.list_id, req.user) : myFirstList(req.user.id);
     addTasks(list.id, req.user.id, titles);
-    sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
+    sendTo(taskListPeople(list.id), { type: 'tasks-changed', list_id: list.id });
     res.status(201).json({ added: titles.length, list: { id: list.id, name: list.name } });
   });
 

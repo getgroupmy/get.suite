@@ -112,6 +112,8 @@ function loadList(id, user, { own = false } = {}) {
   throw notFound('List not found');
 }
 
+/** Everyone on a list (its owner and the people it's shared with), to tell them it changed. */
+export const taskListPeople = (listId) => { const l = q('SELECT * FROM task_lists WHERE id = ?').get(listId); return l ? [...new Set(peopleOn(l))] : []; };
 /** A list someone may choose for tasks to go to (a form's responses): their own, or one shared with them. */
 export function taskListChoice(listId, user) {
   const list = loadList(String(listId), user);
