@@ -88,6 +88,21 @@ await step('Import from CSV reads an Asana export: subtasks become the parent’
   const k = t.find((x) => x.title === 'Plan launch party');
   if (!k || k.steps?.[0]?.title !== 'Order cake' || !k.steps[0].done || t.some((x) => x.title === 'Order cake')) throw new Error(JSON.stringify(k));
 });
+await step('List actions → Copy to a document, with completed: a checklist of the list, done ones ticked under Done', async () => {
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByText('Pack the books').first().waitFor();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Copy to a document, with completed' }).click();
+  await page.getByText('Made “Office move (tasks)” in your Drive').waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/docs\//);
+  const ed = page.locator('.paper .tiptap');
+  await ed.locator('h1', { hasText: 'Office move' }).waitFor();
+  await ed.locator('li', { hasText: 'Pack the books' }).first().getByText(/due 1 Dec 2026/).first().waitFor();
+  await ed.locator('h2', { hasText: 'Done' }).waitFor();
+  const doneItem = ed.locator('li[data-checked]', { hasText: 'Order boxes' }).first();
+  if (await doneItem.getAttribute('data-checked') !== 'true') throw new Error('the done task ticked');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

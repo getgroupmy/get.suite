@@ -155,6 +155,10 @@ export default function Tasks() {
   const mail = useMailStatus();
   const [chatting, setChatting] = useState(null); // tasks to send in Chat
   /** A new email in Mail with the list in it (handed over in this browser's storage, as Docs and Notes do). */
+  // Copy to a document: the list as a checklist in a new document of yours (sections as headings, due dates, who, steps).
+  const listToDoc = async (withDone) => {
+    try { const r = await post(`/tasks/lists/${list.id}/doc`, { done: withDone, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+  };
   const emailList = (withDone, only = null) => {
     const pick = (l) => (only ? l.filter((t) => only.has(t.id)) : l);
     const name = list?.name || 'Tasks';
@@ -482,6 +486,7 @@ export default function Tasks() {
               { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               ...(mail?.enabled ? [{ label: 'Send by email', icon: 'mail', onClick: () => emailList(false) }, ...(done.length ? [{ label: 'Send by email, with completed', icon: 'mail', onClick: () => emailList(true) }] : [])] : []),
+              ...(list ? [{ label: 'Copy to a document', icon: 'doc', onClick: () => listToDoc(false) }, ...(done.length ? [{ label: 'Copy to a document, with completed', icon: 'doc', onClick: () => listToDoc(true) }] : [])] : []),
               ...(list.members.length ? [{ label: 'Chat with the list’s people', icon: 'chat', onClick: async () => {
                 try { const r = await post(`/tasks/lists/${list.id}/chat`, {}); toast(r.created ? 'A channel for this list, with everyone on it' : r.added ? `Added ${r.added} more to the list’s channel` : 'The list’s channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
               } }] : []),

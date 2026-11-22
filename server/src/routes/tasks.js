@@ -209,6 +209,40 @@ export function tasksTable(tasks) {
   if (tasks.some((t) => t.section_name)) table = table.map((r, i) => [r[0], i ? tasks[i - 1].section_name || '' : 'Section', ...r.slice(1)]);
   return table;
 }
+/**
+ * A list's tasks as a document (Tasks → Copy to a document), for a status report or a meeting: the list's name and when,
+ * the open tasks as a checklist (section by section, under their headings) with the due date, who it's for, importance
+ * and steps (a checklist inside), then, with `done`, the done ones ticked under "Done" (the latest 200).
+ */
+export function tasksDoc(name, tasks, { done = false, now = Date.now(), tz = 'UTC' } = {}) {
+  const T = (text, marks) => ({ type: 'text', text: String(text), ...(marks && { marks }) });
+  const day = (iso) => { try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${iso}T00:00:00Z`)); } catch { return iso; } };
+  const item = (t) => {
+    const more = [t.due && `due ${day(t.due)}${t.due_time ? ` ${t.due_time}` : ''}`, t.assignee_name, t.priority && `${t.priority} priority`, t.important && '★'].filter(Boolean).join(' · ');
+    const para = { type: 'paragraph', content: [T(t.title || 'Untitled'), ...(more ? [T(` — ${more}`, [{ type: 'italic' }])] : [])] };
+    const steps = (t.steps || []).filter((x) => String(x.title || '').trim());
+    return { type: 'taskItem', attrs: { checked: !!t.done }, content: [para, ...(steps.length ? [{ type: 'taskList', content: steps.map((x) => ({ type: 'taskItem', attrs: { checked: !!x.done }, content: [{ type: 'paragraph', content: [T(x.title)] }] })) }] : [])] };
+  };
+  const open = tasks.filter((t) => !t.done), finished = tasks.filter((t) => t.done);
+  const when = new Intl.DateTimeFormat('en-GB', { timeZone: tz, dateStyle: 'long' }).format(new Date(now));
+  const content = [
+    { type: 'heading', attrs: { level: 1 }, content: [T(name || 'Tasks')] },
+    { type: 'paragraph', content: [T(`${when} · ${open.length} open, ${finished.length} done`, [{ type: 'italic' }])] },
+  ];
+  // Open tasks in their sections (those in none first), each section under its heading.
+  const groups = [];
+  for (const t of open) { const g = t.section_name || ''; const last = groups[groups.length - 1]; if (last && last.name === g) last.tasks.push(t); else groups.push({ name: g, tasks: [t] }); }
+  for (const g of groups) {
+    if (g.name) content.push({ type: 'heading', attrs: { level: 2 }, content: [T(g.name)] });
+    content.push({ type: 'taskList', content: g.tasks.map(item) });
+  }
+  if (!open.length) content.push({ type: 'paragraph', content: [T('Nothing open.')] });
+  if (done && finished.length) {
+    content.push({ type: 'heading', attrs: { level: 2 }, content: [T('Done')] });
+    content.push({ type: 'taskList', content: finished.slice(0, 200).map(item) });
+  }
+  return { type: 'doc', content };
+}
 export const tasksCsv = (tasks) => `\ufeff${tasksTable(tasks).map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 /** Tasks with their section's name; open ones in the list's order section by section (none first), then done ones. */
 function withSectionNames(listId, rows) {
@@ -884,6 +918,15 @@ export default function taskRoutes() {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`Tasks (${rows.length}).csv`)}`);
     res.send(tasksCsv(rows));
+  });
+
+  // Copy to a document: the list as a checklist in a new document of yours ({ done: true } adds the done tasks).
+  r.post('/lists/:id/doc', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const rows = withSectionNames(list.id, q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));
+    const json = JSON.stringify(tasksDoc(list.name, rows, { done: !!req.body?.done, tz: String(req.body?.tz || 'UTC') }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${list.name || 'Tasks'} (tasks)`.slice(0, 200), kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name });
   });
 
   r.get('/lists/:id/export.csv', (req, res) => {
