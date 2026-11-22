@@ -89,9 +89,11 @@ const cell = (v) => csvCell(v); // (csvcell.js)
 const day = (t) => (t ? new Date(t).toISOString().slice(0, 10) : '');
 
 /** Rows of { name, username, is_admin, disabled, two_factor, storage_used, created_at, last_active }. */
-export function usersCsv(rows) {
+/** The people as rows of a table (the heading row first): the CSV's and Open in Sheets' columns. */
+export function usersTable(rows) {
   const head = ['Name', 'Email', 'Administrator', 'Status', 'Two-step verification', 'Drive storage (MB)', 'Created', 'Last active', 'Job title', 'Department', 'Work phone', 'Manager'];
   const lines = rows.map((u) => [u.name, u.username, u.is_admin ? 'yes' : 'no', u.disabled ? 'disabled' : 'active', u.two_factor ? 'on' : 'off',
     (u.storage_used / 1048576).toFixed(1), day(u.created_at), day(u.last_active), u.job_title, u.department, u.work_phone, u.manager_email]);
-  return `﻿${[head, ...lines].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
+  return [head, ...lines].map((r) => r.map((v) => (v == null ? '' : String(v))));
 }
+export const usersCsv = (rows) => `\ufeff${usersTable(rows).map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;

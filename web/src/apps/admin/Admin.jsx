@@ -330,6 +330,9 @@ function Users({ orgId, setOrgId }) {
       <div className="grow" />
       <button className="btn" onClick={() => setDialog({ type: 'import' })}><Icon name="upload" size={18} /> Import from CSV</button>
       <a className="btn" href={`/api/users/export${qs}`} download><Icon name="download" size={18} /> Export as CSV</a>
+      <button type="button" className="btn" title="Everyone in a new spreadsheet in your Drive" onClick={async () => {
+        try { const r = await post(`/users/sheet${qs}`, {}); window.location.href = `/sheets/${r.id}`; } catch (e) { toast(e.message, 'error'); }
+      }}><Icon name="sheet" size={18} /> Open in Sheets</button>
       <button className="btn primary" onClick={() => setDialog({ type: 'new' })}><Icon name="plus" size={18} /> Add user</button>
     </div>
     {picked.size > 0 && (

@@ -50,6 +50,14 @@ await step('export the people as a CSV from Admin', async () => {
   if (!lines.some((l) => l.startsWith('Kim Park,kim@acme.com,no,active,off,'))) throw new Error(text);
   if (!lines.some((l) => l.startsWith('Olivia Owner,olivia@acme.com,yes,active,'))) throw new Error(text);
 });
+await step('Open in Sheets from Admin: everyone in a new spreadsheet, the same columns', async () => {
+  await page.goto(`${B}/admin`);
+  await page.getByRole('button', { name: 'Open in Sheets' }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Name' }).waitFor();
+  await page.locator('[data-k="A2"]', { hasText: 'Kim Park' }).waitFor();
+  await page.locator('[data-k="C3"]', { hasText: 'yes' }).waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 await browser.close();
 process.exit(failed ? 1 : 0);
