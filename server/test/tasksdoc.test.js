@@ -145,3 +145,27 @@ test('a contact group from a sheet: its Name and Email rows, rows without an add
   assert.match(no.body.error, /laid out as contacts|No email addresses/);
   assert.equal((await ann('POST', '/api/contacts/groups/from-sheet', { file: sh.id, name: '' })).status, 400);
 });
+
+test('a task list in Sheets: open tasks then done ones, in the Excel columns; Add rows to Tasks reads it back', async () => {
+  const ann = client();
+  assert.equal((await ann('POST', '/api/auth/login', { username: 'olivia@acme.com', password: 'password123' })).status, 200);
+  const list = (await ann('POST', '/api/tasks/lists', { name: 'Garden' })).body.id;
+  assert.equal((await ann('POST', `/api/tasks/lists/${list}/sheet`, {})).status, 400, 'nothing yet');
+  await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Prune roses', due: '2026-12-01' });
+  const done = (await ann('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Rake leaves' })).body;
+  await ann('PATCH', `/api/tasks/tasks/${done.id}`, { done: true });
+  const r = await ann('POST', `/api/tasks/lists/${list}/sheet`, {});
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.tasks], ['Garden (tasks)', 2]);
+  const sh = (await ann('GET', `/api/files/${r.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual([sh.cells.A1, sh.cells.B1, sh.cells.C1], ['Task', 'Status', 'Due']);
+  assert.deepEqual([sh.cells.A2, sh.cells.B2, sh.cells.A3, sh.cells.B3], ['Prune roses', 'To do', 'Rake leaves', 'Done']);
+  const back = (await ann('POST', '/api/tasks/lists', { name: 'Garden again' })).body.id;
+  const imp = await ann('POST', `/api/tasks/lists/${back}/from-sheet`, { file: r.body.id });
+  assert.equal(imp.status, 200, JSON.stringify(imp.body));
+  const again = (await ann('GET', `/api/tasks/lists/${back}/tasks`)).body;
+  assert.ok(again.some((t) => t.title === 'Prune roses' && t.due === '2026-12-01'), JSON.stringify(again));
+  const mia = client();
+  assert.equal((await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await mia('POST', `/api/tasks/lists/${list}/sheet`, {})).status, 404);
+});

@@ -103,6 +103,18 @@ await step('List actions → Copy to a document, with completed: a checklist of 
   const doneItem = ed.locator('li[data-checked]', { hasText: 'Order boxes' }).first();
   if (await doneItem.getAttribute('data-checked') !== 'true') throw new Error('the done task ticked');
 });
+await step('List actions → Open in Sheets: the list as a spreadsheet in your Drive, open tasks then done ones', async () => {
+  await page.goto(`${B}/tasks/${list.id}`);
+  await page.getByText('Pack the books').first().waitFor();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Open in Sheets' }).click();
+  await page.getByText(/^Made “Office move \(tasks\)( \(\d+\))?” in your Drive$/).waitFor();
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForURL(/\/sheets\//);
+  await page.locator('[data-k="A1"]', { hasText: 'Task' }).waitFor();
+  await page.getByText('Pack the books', { exact: true }).first().waitFor();
+  await page.getByText('Done', { exact: true }).first().waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

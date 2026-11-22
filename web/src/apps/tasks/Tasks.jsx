@@ -484,6 +484,9 @@ export default function Tasks() {
               { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },
               { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
               { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
+              ...((tasks || []).length ? [{ label: 'Open in Sheets', icon: 'sheet', onClick: async () => {
+                try { const r = await post(`/tasks/lists/${list.id}/sheet`, {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); } catch (e) { toast(e.message, 'error'); }
+              } }] : []),
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               ...(mail?.enabled ? [{ label: 'Send by email', icon: 'mail', onClick: () => emailList(false) }, ...(done.length ? [{ label: 'Send by email, with completed', icon: 'mail', onClick: () => emailList(true) }] : [])] : []),
               ...(list ? [{ label: 'Copy to a document', icon: 'doc', onClick: () => listToDoc(false) }, ...(done.length ? [{ label: 'Copy to a document, with completed', icon: 'doc', onClick: () => listToDoc(true) }] : [])] : []),

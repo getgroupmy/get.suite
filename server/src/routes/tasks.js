@@ -23,6 +23,7 @@ import { canReach } from '../tenancy.js';
 import { audienceFor, roleFor, atLeast } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { insertFile, sheetAsCsv } from './files.js';
+import { sheetFromRows } from '../office/tablesheet.js';
 import { scheduleTask, blocksOf, clashes } from '../taskblocks.js';
 import { recordChanges, historyOf, forgetGoneHistory, listActivity } from '../taskhistory.js';
 import { csvCell } from '../csvcell.js';
@@ -912,6 +913,17 @@ export default function taskRoutes() {
     const list = loadList(req.params.id, req.user);
     const rows = withSectionNames(list.id, q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));
     sendXlsx(res, `${list.name || 'Tasks'}.xlsx`, await excelFromTable(list.name || 'Tasks', tasksTable(rows)));
+  });
+
+  // Open in Sheets: the list as a new spreadsheet of yours, in the columns of its Excel download (open tasks in order,
+  // then done ones), the heading row bold and kept in view; Sheets ⋮ → Add rows to Tasks reads it back.
+  r.post('/lists/:id/sheet', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const rows = withSectionNames(list.id, q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));
+    if (!rows.length) throw bad('This list has no tasks yet');
+    const json = JSON.stringify(sheetFromRows(tasksTable(rows), { header: true, name: (list.name || 'Tasks').slice(0, 31) }));
+    const id = insertFile({ owner: req.user.id, parentId: null, name: `${list.name || 'Tasks'} (tasks)`.slice(0, 200), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, tasks: rows.length });
   });
 
   // Just the tasks ticked in a list or view (?ids=a,b, possibly from several lists), as a spreadsheet in the same columns.
