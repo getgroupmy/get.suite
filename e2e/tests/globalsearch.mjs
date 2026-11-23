@@ -169,6 +169,17 @@ await step('accents don\'t matter: "cafe" finds a task and a note with café, "z
   await page.getByRole('listbox', { name: 'People to mention' }).getByRole('option', { name: /Zoë Lindqvist/ }).waitFor();
   await page.getByLabel('Message', { exact: true }).fill('');
 });
+await step('people by department or job title, with both under their name; a contact with their job at their company', async () => {
+  const ravi = (await api(page, 'POST', '/users', { local: 'ravi', domain: 'acme.com', name: 'Ravi Shah', password: 'password123' })).body;
+  if ((await api(page, 'PATCH', `/users/${ravi.id}`, { job_title: 'Accountant', department: 'Finance' })).status !== 200) throw new Error('job');
+  await api(page, 'POST', '/contacts', { name: 'Bob Martin', email: 'bob@initrode.com', company: 'Initrode', title: 'Buyer' });
+  await page.goto(`${B}/drive`);
+  await box().fill('finance');
+  await results().getByRole('group', { name: 'People' }).getByRole('option').filter({ hasText: 'Ravi Shah' }).getByText('Accountant · Finance · ravi@acme.com').waitFor();
+  await box().fill('initrode');
+  await results().getByRole('group', { name: 'Contacts' }).getByRole('option').filter({ hasText: 'Bob Martin' }).getByText('Buyer at Initrode · bob@initrode.com').waitFor();
+  await page.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

@@ -14,6 +14,7 @@ import { localToday } from '../apps/tasks/taskmath.js';
 import { taskSub } from './tasksub.js';
 import { noteSub } from './notesub.js';
 import { eventSub } from './eventsub.js';
+import { personSub, personFields, contactSub } from './peoplesub.js';
 import { addToTasksWithToast } from '../apps/tasks/addtask.js';
 import { newEventMinutes, DEFAULT_CAL_PREFS } from '../apps/calendar/calprefs.js';
 import { useToast } from './ui.jsx';
@@ -72,8 +73,8 @@ export async function searchAll(text, me = null) { // me: your user id (whose a 
     ['Notes', notes.map((n) => ({ key: `n${n.id}`, icon: 'note', title: n.title || (n.body || (n.items || []).map((i) => i.text).join(', ')).slice(0, 80), sub: noteSub(n, me), to: '/notes', state: { openNote: n.id } }))],
     ['Events', events.map((e) => ({ key: `e${e.id}:${e.start}`, icon: 'calendar', title: e.title, sub: eventSub(e), to: '/calendar', state: { openEvent: e } }))],
     ['Forms', forms.map((f) => ({ key: `o${f.id}`, icon: 'form', title: f.title, sub: [`${f.responses} response${f.responses === 1 ? '' : 's'}`, f.closed ? 'not taking answers' : null, f.owner_name].filter(Boolean).join(' · '), to: `/forms/${f.id}` }))],
-    ['Contacts', contacts.filter((c) => matchesFilter({ name: c.name, email: c.email, company: c.company, title: c.title, phone: c.phone, more_phones: c.more_phones, more_emails: typeof c.more_emails === 'string' ? c.more_emails : JSON.stringify(c.more_emails || '') }, text)).map((c) => ({ key: `k${c.id}`, icon: 'person', title: c.name || c.email, sub: [c.email, c.company].filter(Boolean).join(' · '), to: `/contacts?q=${encodeURIComponent(c.name || c.email)}` }))],
-    ['People', people.filter((p) => matchesFilter({ name: p.name, username: p.username }, text)).map((p) => ({ key: `p${p.id}`, icon: 'people', title: p.name, sub: p.username, to: `/contacts?q=${encodeURIComponent(p.name)}` }))],
+    ['Contacts', contacts.filter((c) => matchesFilter({ name: c.name, email: c.email, company: c.company, title: c.title, phone: c.phone, more_phones: c.more_phones, more_emails: typeof c.more_emails === 'string' ? c.more_emails : JSON.stringify(c.more_emails || '') }, text)).map((c) => ({ key: `k${c.id}`, icon: 'person', title: c.name || c.email, sub: contactSub(c), to: `/contacts?q=${encodeURIComponent(c.name || c.email)}` }))],
+    ['People', people.filter((p) => matchesFilter(personFields(p), text)).map((p) => ({ key: `p${p.id}`, icon: 'people', title: p.name, sub: personSub(p), to: `/contacts?q=${encodeURIComponent(p.name)}` }))],
   ].map(([name, list]) => [name, list.slice(0, PER_GROUP), list.length]).filter(([, list]) => list.length);
 }
 
