@@ -15615,11 +15615,16 @@ test('forms for anyone: email addresses only at some domains', async () => {
 
 test('booking pages: group sessions — several people at one time, on one event, private from each other', async () => {
   (await import('../src/routes/booking.js')).resetBookingLimits(); // every test books from 127.0.0.1
+  // A host of its own: the company owner's calendar fills up with other tests' events at times relative to now,
+  // which took this page's 9–10 UTC times when the suite ran at certain hours.
+  const hostc = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'potter', domain: 'acme.com', name: 'Pat Potter', password: 'password123' })).status, 201);
+  await login(hostc, 'potter@acme.com');
   const { isGroupBooking } = await import('../src/routes/calendar.js');
-  const made = await owner('POST', '/api/bookings', { title: 'Pottery class', duration: 60, days: [0, 1, 2, 3, 4, 5, 6], from_min: 540, to_min: 600, tz: 'UTC', days_ahead: 3, notice_hours: 0, seats: 3 });
+  const made = await hostc('POST', '/api/bookings', { title: 'Pottery class', duration: 60, days: [0, 1, 2, 3, 4, 5, 6], from_min: 540, to_min: 600, tz: 'UTC', days_ahead: 3, notice_hours: 0, seats: 3 });
   assert.equal(made.status, 201, JSON.stringify(made.body));
   assert.equal(made.body.seats, 3);
-  assert.equal((await owner('PATCH', `/api/bookings/${made.body.id}`, { seats: 500 })).status, 400);
+  assert.equal((await hostc('PATCH', `/api/bookings/${made.body.id}`, { seats: 500 })).status, 400);
   const token = made.body.url.split('/b/')[1];
   const pub = client();
   const page = async () => (await pub('GET', `/api/public/book/${token}`)).body;
@@ -15637,7 +15642,7 @@ test('booking pages: group sessions — several people at one time, on one event
   assert.ok(!(await page()).days.some((d) => d.slots.includes(start)), 'full: no longer offered');
   assert.equal((await book('Dee')).status, 409);
   // One event, named after the page, with the three of them as guests.
-  const evs = (await owner('GET', `/api/events?from=${start - 1}&to=${start + 36e5}`)).body.filter((e) => e.title === 'Pottery class');
+  const evs = (await hostc('GET', `/api/events?from=${start - 1}&to=${start + 36e5}`)).body.filter((e) => e.title === 'Pottery class');
   assert.equal(evs.length, 1);
   const { db } = await import('../src/db.js');
   assert.deepEqual(db.prepare('SELECT email FROM event_outside_guests WHERE event_id = ? ORDER BY email').all(evs[0].id).map((g) => g.email), ['ana@example.org', 'ben@example.org', 'cy@example.org']);
@@ -15649,7 +15654,7 @@ test('booking pages: group sessions — several people at one time, on one event
   assert.match(evs[0].description || '', /Ana <ana@example\.org>[\s\S]*Ben <ben@example\.org>/, 'the host sees who is coming');
   // The emails each gets: only themselves as a guest, and not the notes.
   const { outsideEmails } = await import('../src/routes/calendar.js');
-  const host = (await owner('GET', '/api/auth/me')).body.user;
+  const host = (await hostc('GET', '/api/auth/me')).body.user;
   const guests = db.prepare('SELECT * FROM event_outside_guests WHERE event_id = ?').all(evs[0].id);
   const ev = { ...evs[0], ...db.prepare('SELECT * FROM events WHERE id = ?').get(evs[0].id), rrule: null, exdates: [] };
   const mails = outsideEmails({ name: host.name, username: host.username }, ev, guests, 'update', { base: 'https://ws.example', tz: 'UTC' });
@@ -15673,7 +15678,7 @@ test('booking pages: group sessions — several people at one time, on one event
   for (const who of ['ana', 'cy']) await pub('POST', `/api/public/book/cancel/${linkOf(who)}`);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM events WHERE id = ?').get(evs[0].id).n, 0);
   assert.equal((await page()).left[start], 3);
-  await owner('DELETE', `/api/bookings/${made.body.id}`);
+  await hostc('DELETE', `/api/bookings/${made.body.id}`);
 });
 
 test('importing from Google: the client secret is kept on the server, never sent back or written to the activity log', async () => {
