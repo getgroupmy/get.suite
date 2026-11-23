@@ -1193,6 +1193,7 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 .share-pick > input { flex: 1; min-width: 0; }
 .people-ticks { margin-bottom: 8px; }
 .move-find { width: 100%; margin-bottom: 8px; }
+.move-section { margin: 4px 0 2px; font-weight: 500; }
 .all-folders { margin: 4px 16px 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .all-folders-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .all-folders-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 4px; background: none; border: 0; border-top: 1px solid var(--border); color: inherit; text-align: left; font: inherit; cursor: pointer; }

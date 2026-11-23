@@ -90,6 +90,21 @@ await step('a folder only shared to view is not offered', async () => {
   await dlg.getByText('My Drive').first().waitFor(); // back to walking the folders
 });
 
+await step('Move to… offers the folders you last moved things to', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Invoice 17' });
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Invoice 17' }).click();
+  await page.getByRole('menuitem', { name: 'Move to…' }).click();
+  const dlg = page.getByRole('dialog', { name: /Move “Invoice 17”/ });
+  const recent = dlg.getByRole('list', { name: 'Recent folders' });
+  await recent.getByRole('button').first().waitFor();
+  await page.screenshot({ path: `${SP}/shots/move-recent.png` });
+  await recent.getByRole('button').filter({ hasText: 'Contracts' }).filter({ hasText: 'in Acme' }).click();
+  await dlg.locator('.crumbs').getByRole('button', { name: 'Contracts' }).waitFor();
+  if (await recent.count()) throw new Error('Recent shows at the top level only');
+  await dlg.getByRole('button', { name: 'Move here' }).click();
+  await dlg.waitFor({ state: 'detached' });
+});
 await step('Drive search: each result says the folder it is in; a click opens that folder', async () => {
   await page.goto(`${B}/drive/search?q=${encodeURIComponent('lease')}`);
   const row = page.locator('table.files tbody tr', { hasText: 'Lease 2027' });

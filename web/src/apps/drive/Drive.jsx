@@ -1409,6 +1409,9 @@ function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = 
   const [cur, setCur] = useState(null); // null = My Drive root
   const [path, setPath] = useState([]);
   const [folders, setFolders] = useState([]);
+  // Where you last moved things to: one click away (not where these already are).
+  const [recent, setRecent] = useState([]);
+  useEffect(() => { get('/files/recent-destinations').then((l) => setRecent(l.filter((f) => !files.some((x) => x.id === f.id || x.parent_id === f.id)))).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Find a folder by name (deep in My Drive, or in a shared drive or folder you can add to) instead of walking to it.
   const [find, setFind] = useState('');
   const [hits, setHits] = useState(null);
@@ -1453,6 +1456,18 @@ function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = 
               <span className="grow">{f.name}{(f.parent_name || (!f.parent_id && f.role === 'owner')) && <span className="muted small"> · in {f.parent_name || 'My Drive'}</span>}</span><Icon name="right" size={18} /></button></li>
           ))}
         </ul>
+      )}
+      {!hits && !cur && recent.length > 0 && (
+        <>
+          <div className="small muted move-section">Recent</div>
+          <ul className="pick-list" aria-label="Recent folders">
+            {recent.map((f) => (
+              <li key={f.id}><button onClick={() => setCur(f.id)}><Icon name="folder" className="ft ft-folder" />
+                <span className="grow">{f.name}{(f.parent_name || f.in_my_drive) && <span className="muted small"> · in {f.parent_name || 'My Drive'}</span>}</span><Icon name="right" size={18} /></button></li>
+            ))}
+          </ul>
+          <div className="small muted move-section">All folders</div>
+        </>
       )}
       {!hits && <>
       <nav className="crumbs small">

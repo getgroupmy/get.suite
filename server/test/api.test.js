@@ -1961,6 +1961,32 @@ test('tasks: repeating tasks come back when ticked off, and Undo takes the next 
   assert.equal((await tasks()).filter((t) => t.title === 'Once').length, 1);
 });
 
+test('Move to…: the folders you last moved things to, newest first, still there and still yours to add to', async () => {
+  const c = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'mover', domain: 'acme.com', name: 'Mo Mover', password: 'password123' })).status, 201);
+  const moId = (await login(c, 'mover@acme.com')).id;
+  const folder = async (name, parent_id) => (await c('POST', '/api/files/folder', { name, ...(parent_id && { parent_id }) })).body;
+  const a = await folder('Alpha'), b = await folder('Beta'), inner = await folder('Inner', a.id);
+  const doc = (await c('POST', '/api/files/new', { kind: 'doc', name: 'Memo' })).body;
+  assert.deepEqual((await c('GET', '/api/files/recent-destinations')).body, [], 'nothing moved yet');
+  for (const to of [a.id, b.id, inner.id, a.id]) assert.equal((await c('PATCH', `/api/files/${doc.id}`, { parent_id: to })).status, 200);
+  const recent = (await c('GET', '/api/files/recent-destinations')).body;
+  assert.deepEqual(recent.map((f) => f.name), ['Alpha', 'Inner', 'Beta'], 'newest first, each once');
+  assert.equal(recent.find((f) => f.name === 'Inner').parent_name, 'Alpha');
+  assert.equal(recent.find((f) => f.name === 'Alpha').in_my_drive, true);
+  await c('PATCH', `/api/files/${b.id}`, { trashed: true });
+  assert.deepEqual((await c('GET', '/api/files/recent-destinations')).body.map((f) => f.name), ['Alpha', 'Inner'], 'a folder in the bin is left out');
+  // A folder someone else shared to edit, then only to view: offered, then not.
+  const shared = (await owner('POST', '/api/files/folder', { name: 'Team share' })).body;
+  await owner('PUT', `/api/files/${shared.id}/shares`, { shares: [{ user_id: moId, role: 'editor' }] });
+  assert.equal((await c('PATCH', `/api/files/${doc.id}`, { parent_id: shared.id })).status, 200);
+  assert.equal((await c('GET', '/api/files/recent-destinations')).body[0].name, 'Team share');
+  await owner('PUT', `/api/files/${shared.id}/shares`, { shares: [{ user_id: moId, role: 'viewer' }] });
+  assert.equal((await c('GET', '/api/files/recent-destinations')).body.some((f) => f.name === 'Team share'), false, 'only to view now');
+  // Someone else's moves are theirs.
+  assert.equal((await owner('GET', '/api/files/recent-destinations')).body.some((f) => f.name === 'Alpha'), false);
+});
+
 test('search filters: kind of file, whose it is, and when it changed', async () => {
   const { q } = await import('../src/db.js');
   const tag = `flt${Date.now() % 100000}`;

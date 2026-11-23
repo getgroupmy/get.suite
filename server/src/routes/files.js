@@ -1306,6 +1306,28 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ ok: true });
   });
 
+  // Where you last moved things to (Move to…'s "Recent"): the last few folders, newest first, that are still there
+  // and that you can still add to; each with the folder around it, by name, when you can open that one.
+  r.get('/recent-destinations', (req, res) => {
+    const me = req.user.id;
+    const out = [];
+    const seen = new Set();
+    for (const a of q("SELECT details FROM file_activity WHERE user_id = ? AND action = 'move' AND details LIKE '%\"to_id\"%' ORDER BY id DESC LIMIT 200").all(me)) {
+      let to;
+      try { to = JSON.parse(a.details).to_id; } catch { continue; }
+      if (!to || seen.has(to)) continue;
+      seen.add(to);
+      const f = q("SELECT id, name, parent_id, owner_id FROM files WHERE id = ? AND kind = 'folder' AND trashed = 0").get(to);
+      if (!f) continue;
+      const role = f.owner_id === me ? 'owner' : roleFor(f.id, me);
+      if (role !== 'owner' && role !== 'editor') continue;
+      const p = f.parent_id && q('SELECT id, name, owner_id FROM files WHERE id = ? AND trashed = 0').get(f.parent_id);
+      out.push({ id: f.id, name: f.name, parent_id: f.parent_id, ...(p && (p.owner_id === me || roleFor(p.id, me)) && { parent_name: p.name }), ...(!f.parent_id && f.owner_id === me && { in_my_drive: true }) });
+      if (out.length >= 5) break;
+    }
+    res.json(out);
+  });
+
   r.get('/:id', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (req.query.open !== undefined) sawFile(f.id, req.user.id); // opened in its editor
@@ -1929,7 +1951,7 @@ export default function fileRoutes({ maxUploadBytes }) {
           if (subtreeIds(f.id).includes(parent_id)) throw bad('Cannot move a folder into itself');
         }
         q('UPDATE files SET parent_id = ? WHERE id = ?').run(parent_id, f.id);
-        recordActivity(f.id, req.user.id, 'move', { to: parent_id ? q('SELECT name FROM files WHERE id = ?').get(parent_id)?.name : null });
+        recordActivity(f.id, req.user.id, 'move', { to: parent_id ? q('SELECT name FROM files WHERE id = ?').get(parent_id)?.name : null, ...(parent_id && { to_id: parent_id }) });
       }
       if (trashed !== undefined && !!trashed !== !!f.trashed) {
         q('UPDATE files SET trashed = ?, trashed_at = ?, updated_at = ? WHERE id = ?').run(trashed ? 1 : 0, trashed ? now() : null, now(), f.id);

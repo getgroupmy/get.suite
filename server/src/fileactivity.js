@@ -37,6 +37,12 @@ export function recordActivity(fileId, userId, action, details = null, at = Date
   q(`DELETE FROM file_activity WHERE file_id = ? AND id NOT IN (SELECT id FROM file_activity WHERE file_id = ? ORDER BY id DESC LIMIT ${KEEP})`).run(fileId, fileId);
 }
 
+/** A row's details as shown: the moved-to folder's id (kept for Move to…'s Recent) stays on the server. */
+function shown(json) {
+  if (!json) return null;
+  const { to_id: _, ...d } = JSON.parse(json);
+  return d;
+}
 /** A file's activity, newest first: [{ action, at, user_name, details }]. */
 /**
  * What happened in a folder: its own activity and that of everything inside it (at any depth, the trash
@@ -46,14 +52,14 @@ export function folderActivityOf(folderId, ids, limit = 100, before = null) {
   return q(`SELECT a.id, a.action, a.at, a.details, a.file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name
             FROM file_activity a JOIN files f ON f.id = a.file_id LEFT JOIN users u ON u.id = a.user_id
             WHERE a.file_id IN (SELECT value FROM json_each(?)) AND a.id < ? ORDER BY a.id DESC LIMIT ?`).all(JSON.stringify(ids), before ?? Number.MAX_SAFE_INTEGER, limit)
-    .map(({ file_id: id, file_name: name, file_kind: kind, ...a }) => ({ ...a, details: a.details ? JSON.parse(a.details) : null,
+    .map(({ file_id: id, file_name: name, file_kind: kind, ...a }) => ({ ...a, details: shown(a.details),
       ...(id !== folderId && { file: { id, name, kind } }) }));
 }
 
 export function activityOf(fileId, limit = 100, before = null) {
   return q(`SELECT a.id, a.action, a.at, a.details, u.name AS user_name FROM file_activity a LEFT JOIN users u ON u.id = a.user_id
             WHERE a.file_id = ? AND a.id < ? ORDER BY a.id DESC LIMIT ?`).all(fileId, before ?? Number.MAX_SAFE_INTEGER, limit)
-    .map((a) => ({ ...a, details: a.details ? JSON.parse(a.details) : null }));
+    .map((a) => ({ ...a, details: shown(a.details) }));
 }
 
 /**
@@ -84,7 +90,7 @@ export function recentActivityFor(userId, can, { limit = 100, before = null, day
       if (!seen.has(r.file_id)) seen.set(r.file_id, !!can(r.file_id));
       if (!seen.get(r.file_id)) continue;
       const { file_id: id, file_name: name, file_kind: kind, ...a } = r;
-      out.push({ ...a, details: a.details ? JSON.parse(a.details) : null, file: { id, name, kind } });
+      out.push({ ...a, details: shown(a.details), file: { id, name, kind } });
       if (out.length >= limit) break;
     }
   }
