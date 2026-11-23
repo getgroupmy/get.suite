@@ -400,7 +400,7 @@ export default function orgRoutes() {
   // ---- platform owner: all companies ----
   r.use(requireSuper);
   // System health: disk, snapshots, mail server and certificate, sizes (health.js).
-  r.get('/system/health', async (req, res) => res.json(await collectHealth()));
+  r.get('/system/health', async (req, res) => res.json(await collectHealth({ connection: { secure: req.secure, ip: req.ip, proxied: !!req.get('x-forwarded-for') } })));
   // Database snapshots: the ones kept, one taken now (today's is replaced), and downloading one.
   // The outgoing mail queue: what's waiting, and asking the mail server to retry or delete it.
   r.get('/system/mail-queue', (req, res) => {

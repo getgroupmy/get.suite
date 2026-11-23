@@ -183,6 +183,19 @@ test('system health: for the platform owner only', async () => {
   assert.ok(h.body.checks.some((c) => c.id === 'disk'));
   assert.equal(typeof h.body.facts.database_bytes, 'number');
   assert.equal((await gina('GET', '/api/orgs/system/health')).status, 403, 'not company admins');
+  // How the page was reached: from this machine over plain HTTP is fine…
+  const https = (b) => b.checks.find((c) => c.id === 'https');
+  assert.equal(https(h.body).status, 'ok');
+  assert.match(https(h.body).detail, /plain HTTP from your own network/);
+  // …through a proxy that does HTTPS too; plain HTTP from the internet needs attention.
+  const via = (headers) => owner('GET', '/api/orgs/system/health', undefined, { headers });
+  const tls = (await via({ 'x-forwarded-for': '198.51.100.7', 'x-forwarded-proto': 'https' })).body;
+  assert.deepEqual([https(tls).status, https(tls).detail], ['ok', 'Over HTTPS, through a proxy']);
+  const open = (await via({ 'x-forwarded-for': '198.51.100.7' })).body;
+  assert.equal(https(open).status, 'bad');
+  assert.match(https(open).detail, /plain HTTP from the internet \(198\.51\.100\.7\): passwords .* unencrypted.*X-Forwarded-Proto: https/);
+  assert.equal(open.status, 'bad');
+  assert.equal(https((await via({ 'x-forwarded-for': '192.168.1.20' })).body).status, 'ok', 'from the office network');
 });
 
 test('database snapshots: listed, taken now and downloaded by the platform owner only', async () => {

@@ -42,6 +42,8 @@ await step('the platform owner sees the System tab with each check and the facts
   const checks = page.getByRole('list', { name: 'Checks' });
   await checks.getByRole('listitem', { name: 'Disk space' }).getByText(/GB free of/).waitFor();
   await checks.getByRole('listitem', { name: 'Database snapshots' }).waitFor();
+  // How the page was reached: here, plain HTTP from this machine, which is fine.
+  await checks.getByRole('listitem', { name: 'HTTPS' }).getByText(/plain HTTP from your own network/).waitFor();
   await page.getByRole('status', { name: 'Overall health' }).locator('strong').getByText(/Everything looks fine|looked at soon|needs attention/).waitFor();
   await page.getByText('People', { exact: true }).waitFor();
   // What it runs on: the server's own architecture (arm64 on an Apple Silicon Mac), CPUs and memory.

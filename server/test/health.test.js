@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-health-db-')); // a database of its own
-const { collectHealth, checkAndNotify, probeMail, containerMemory, memoryCheck, thisMachine } = await import('../src/health.js');
+const { collectHealth, checkAndNotify, probeMail, containerMemory, memoryCheck, thisMachine, isLocalAddress, connectionCheck } = await import('../src/health.js');
 const { q } = await import('../src/db.js');
 
 const GB = 1024 ** 3;
@@ -158,4 +158,13 @@ test('health: what it runs on, and memory against the container limit', async ()
   const free = await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(1), memory: () => null });
   assert.equal(byId(free).memory, undefined, 'no check outside a container');
   assert.equal(free.facts.memory_used, undefined);
+});
+
+test('health: which addresses are this machine or a private network', () => {
+  for (const ip of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '10.1.2.3', '192.168.0.9', '172.16.0.1', '172.31.255.1', '169.254.1.1', 'fd12:3456::1', 'fe80::1']) assert.ok(isLocalAddress(ip), ip);
+  for (const ip of ['8.8.8.8', '172.32.0.1', '172.15.0.1', '198.51.100.7', '2001:db8::1', '::ffff:203.0.113.5', '', undefined]) assert.ok(!isLocalAddress(ip), String(ip));
+  assert.equal(connectionCheck(null), null, 'not asked from a browser (the hourly check): no check');
+  assert.equal(connectionCheck({ secure: true, ip: '8.8.8.8' }).detail, 'Over HTTPS');
+  assert.equal(connectionCheck({ secure: false, ip: '8.8.8.8' }).status, 'bad');
+  assert.doesNotMatch(connectionCheck({ secure: false, ip: '8.8.8.8' }).detail, /X-Forwarded-Proto/, 'the proxy hint only when there is a proxy');
 });

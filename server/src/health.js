@@ -37,7 +37,7 @@ const dirSize = (dir) => { try { return fs.readdirSync(dir).reduce((n, f) => { t
  * passed in, so tests can try each case: statfs(dir) → { bsize, blocks, bavail }, the backups
  * folder, probe() → as probeMail, and now.
  */
-export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, mailDns = defaultMailDns, memory = containerMemory, machine = thisMachine, now = Date.now(), started = STARTED } = {}) {
+export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, mailDns = defaultMailDns, memory = containerMemory, machine = thisMachine, connection = null, now = Date.now(), started = STARTED } = {}) {
   const checks = [];
   const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
 
@@ -85,6 +85,10 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
   const blc = blocklistCheck(bl);
   if (blc) add('blocklists', 'Spam blocklists', blc.status, blc.detail);
 
+  // How this page was reached (when asked from a browser): over HTTPS, or plain HTTP from the internet.
+  const cc = connectionCheck(connection);
+  if (cc) add('https', 'HTTPS', cc.status, cc.detail);
+
   // Memory: how close the app is to its container's limit (mem_limit in the compose file), when it has one.
   const mem = memory();
   const mc = memoryCheck(mem);
@@ -107,6 +111,22 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
 }
 
 const MB = 1024 ** 2;
+/** Whether an address is this machine or a private network's (home or office, Docker's own). */
+export function isLocalAddress(ip = '') {
+  const a = String(ip).replace(/^::ffff:/, '');
+  return a === '::1' || /^127\./.test(a) || /^10\./.test(a) || /^192\.168\./.test(a) || /^172\.(1[6-9]|2\d|3[01])\./.test(a)
+    || /^169\.254\./.test(a) || /^f[cd][0-9a-f]{2}:/i.test(a) || /^fe80:/i.test(a);
+}
+/**
+ * The check for how a page was reached ({ secure, ip, proxied } from the request), or null without one. Over HTTPS
+ * is fine; plain HTTP is fine from this machine or your own network, and needs attention from the internet.
+ */
+export function connectionCheck(c) {
+  if (!c) return null;
+  if (c.secure) return { status: 'ok', detail: `Over HTTPS${c.proxied ? ', through a proxy' : ''}` };
+  if (isLocalAddress(c.ip)) return { status: 'ok', detail: 'Over plain HTTP from your own network: fine there; from the internet, use HTTPS (a proxy such as Caddy or the NAS reverse proxy)' };
+  return { status: 'bad', detail: `Over plain HTTP from the internet (${String(c.ip).replace(/^::ffff:/, '')}): passwords and everything else travel unencrypted. Put HTTPS in front (README: Publish it securely, or Run it on a Mac → From the internet)${c.proxied ? '; if a proxy already does HTTPS, it must say so (X-Forwarded-Proto: https)' : ''}.` };
+}
 /** The machine: { arch, os, cpus, machine_memory }. */
 export function thisMachine() {
   return { arch: process.arch, os: `${os.type()} ${os.release()}`, cpus: os.cpus().length, machine_memory: os.totalmem() };
