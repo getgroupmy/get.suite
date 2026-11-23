@@ -6,6 +6,7 @@ import { get, post, formatBytes, mailboxParam, currentSharedMailbox } from '../.
 import { Modal, useToast } from '../../components/ui.jsx';
 import { previewKind } from '../../components/viewkind.js';
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
+import MoveDialog from '../../components/MoveDialog.jsx';
 
 const KINDS = [['', 'All files'], ['pdf', 'PDFs'], ['image', 'Pictures'], ['document', 'Documents'], ['spreadsheet', 'Spreadsheets'], ['presentation', 'Presentations'], ['archive', 'Archives'], ['other', 'Other']];
 export const FILE_ICON = { pdf: '📕', image: '🖼', document: '📄', spreadsheet: '📊', presentation: '📽', archive: '🗜', other: '📎' };
@@ -38,10 +39,15 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
     catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   const fileUrl = (a, view) => `/api/mail/messages/${a.uid}/parts/${a.part}?folder=${enc(folder)}${view ? '&view' : ''}${mailboxParam()}`;
+  // "Saved": Show the folder, or Move… them where they belong (Drive's Move window: find a folder, or a recent one).
+  const [filing, setFiling] = useState(null);
+  const savedNote = (text, files, folderId) => toast(text, 'info', { duration: 12000, actions: [
+    { label: 'Show', onClick: () => navigate(`/drive/folder/${folderId}`) },
+    { label: 'Move…', onClick: () => setFiling(files.map((f) => ({ ...f, parent_id: folderId }))) }] });
   const save = async (a) => {
     try {
       const r = await post(`/mail/messages/${a.uid}/parts/${a.part}/save`, { folder });
-      toast(`Saved ${r.file.name} to Drive`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
+      savedNote(`Saved ${r.file.name} to Drive`, [r.file], r.folder_id);
     } catch (e) { toast(e.message, 'error'); }
   };
   // Downloads go through here: a risky one (by its name, or found out by the server from what it is) asks first.
@@ -80,12 +86,12 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
     setBusy(true);
     try {
       const r = await post('/mail/attachments/save', { folder, items: chosen.map((a) => ({ uid: a.uid, part: a.part })) });
-      toast(`Saved ${r.files.length === 1 ? r.files[0].name : `${r.files.length} files`} to Drive`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
+      savedNote(`Saved ${r.files.length === 1 ? r.files[0].name : `${r.files.length} files`} to Drive`, r.files, r.folder_id);
       setPicked(new Set());
     } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   const day = (ms) => (ms ? new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) : '');
-  return (
+  return (<>
     <Modal wide title="Attachments" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
       <div className="row wrap" style={{ gap: 8, marginBottom: 8 }}>
         <select aria-label="Folder" value={folder} onChange={(e) => setFolder(e.target.value)}>
@@ -136,5 +142,8 @@ export function AttachmentsDialog({ folders, folder: start, onClose, onOpen }) {
         </Modal>
       )}
     </Modal>
+    {filing && <MoveDialog files={filing} onClose={() => setFiling(null)}
+      onMoved={(moved, to) => { if (moved.length) toast(`Moved ${moved.length === 1 ? filing[0].name : `${moved.length} files`}`, 'info', { action: { label: 'Show', onClick: () => navigate(to ? `/drive/folder/${to}` : '/drive') } }); }} />}
+  </>
   );
 }

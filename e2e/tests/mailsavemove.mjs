@@ -83,6 +83,27 @@ await step('Save to Drive, then Move… from the note: filed where it belongs', 
   await page.waitForURL(new RegExp(`/drive/folder/${invoices.id}`));
 });
 
+await step('the same from the Attachments list in the sidebar', async () => {
+  const receipts = (await api(page, 'POST', '/files/folder', { name: 'Receipts 2027' })).body;
+  await page.goto(`${B}/mail`);
+  await smtp.sendMail({ from: 'Raj Kumar <raj@acme.com>', to: 'olivia@acme.com', subject: 'Receipt 88', text: 'Attached.', attachments: [{ filename: 'receipt-88.pdf', content: PDF }] });
+  await refreshUntil(page, inboxRow('Receipt 88'));
+  await page.getByRole('button', { name: 'Attachments', exact: true }).click();
+  const d = page.getByRole('dialog', { name: 'Attachments' });
+  const row = d.getByRole('list', { name: 'Attachments' }).locator('li', { hasText: 'receipt-88.pdf' });
+  await row.getByRole('button', { name: 'Save receipt-88.pdf to Drive' }).click();
+  await page.getByText('Saved receipt-88.pdf to Drive').waitFor();
+  await page.getByRole('button', { name: 'Move…' }).click();
+  const move = page.getByRole('dialog', { name: /Move “receipt-88\.pdf”/ });
+  await move.getByLabel('Find a folder').fill('receipts');
+  await move.getByRole('list', { name: 'Folders found' }).getByRole('button').filter({ hasText: 'Receipts 2027' }).click();
+  await move.getByRole('button', { name: 'Move here' }).click();
+  await move.waitFor({ state: 'detached' });
+  await page.getByText('Moved receipt-88.pdf').waitFor();
+  const inFolder = (await api(page, 'GET', `/files?view=mine&parent=${receipts.id}`)).body.map((f) => f.name);
+  if (!inFolder.includes('receipt-88.pdf')) throw new Error(inFolder.join('|'));
+});
+
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
