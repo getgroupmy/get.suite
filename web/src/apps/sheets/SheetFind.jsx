@@ -7,13 +7,13 @@ import Icon from '../../components/Icon.jsx';
  * cells, shown(key) and hidden describe the sheet; onGo({ key, c, r }) selects a match,
  * onHits({ keys, current }) highlights them, onWrite(updates) changes cells, onDone(text) reports.
  */
-export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, sheets, active, onSheet, onGo, onHits, onWrite, onDone, onClose }) {
+export function SheetFind({ cells, shown, hidden, initial, initialOpts, replacing, canEdit, sheets, active, onSheet, onGo, onHits, onWrite, onDone, onClose }) {
   const [term, setTerm] = useState(initial || '');
-  const [replace, setReplace] = useState('');
-  const [matchCase, setMatchCase] = useState(false);
-  const [wholeCell, setWholeCell] = useState(false);
-  const [matchDiacritics, setMatchDiacritics] = useState(false); // off: cafe finds café
-  const [formulas, setFormulas] = useState(false);
+  const [replace, setReplace] = useState(initialOpts?.replace || '');
+  const [matchCase, setMatchCase] = useState(!!initialOpts?.matchCase);
+  const [wholeCell, setWholeCell] = useState(!!initialOpts?.wholeCell);
+  const [matchDiacritics, setMatchDiacritics] = useState(!!initialOpts?.matchDiacritics); // off: cafe finds café
+  const [formulas, setFormulas] = useState(!!initialOpts?.formulas);
   const [showReplace, setShowReplace] = useState(replacing && canEdit);
   const [current, setCurrent] = useState(0);
   const input = useRef();
@@ -83,7 +83,7 @@ export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, s
       {elsewhere.length > 0 && (
         <div className="row small find-elsewhere" role="group" aria-label="Also found in other sheets">
           <span className="muted">Also in:</span>
-          {elsewhere.map((x) => <button key={x.index} type="button" className="link-btn small" title={`Go on searching in ${x.name}`} onClick={() => onSheet(x.index, term)}>{x.name} ({x.count})</button>)}
+          {elsewhere.map((x) => <button key={x.index} type="button" className="link-btn small" title={`Go on searching in ${x.name}`} onClick={() => onSheet(x.index, term, { ...opts, replace })}>{x.name} ({x.count})</button>)}
         </div>
       )}
       {showReplace && (

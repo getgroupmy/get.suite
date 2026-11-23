@@ -154,5 +154,24 @@ await step('Find says which other sheets have it; a click goes on searching ther
   await page.keyboard.press('Escape');
 });
 
+await step('going on in another sheet keeps the tick boxes and what to replace with', async () => {
+  const waitFor = async (fn) => { for (let end = Date.now() + 8000; !(await fn()); await page.waitForTimeout(150)) if (Date.now() > end) throw new Error('timed out'); };
+  await page.locator('.sheet-tabs, [role=tablist]').getByText('Jan', { exact: true }).first().click();
+  await cell('A2').click();
+  await page.keyboard.press('Control+h');
+  await bar.getByLabel('Find', { exact: true }).fill('rent');
+  await bar.getByLabel('Whole cell').check();
+  await bar.getByLabel('Replace with').fill('Lease');
+  const also = bar.getByRole('group', { name: 'Also found in other sheets' });
+  await also.getByRole('button', { name: 'Feb (1)' }).click(); // "rent rebate" is no whole cell
+  await waitFor(async () => (await count()) === '1 of 1');
+  if (!(await bar.getByLabel('Whole cell').isChecked())) throw new Error('Whole cell was unticked');
+  if (await bar.getByLabel('Replace with').inputValue() !== 'Lease') throw new Error('the replacement was lost');
+  await bar.getByRole('button', { name: 'Replace all' }).click();
+  await cell('B3').getByText('Lease', { exact: true }).waitFor();
+  await cell('B5').getByText('rent rebate').waitFor();
+  await page.keyboard.press('Escape');
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

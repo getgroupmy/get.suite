@@ -1488,8 +1488,8 @@ export default function SheetEditor() {
         onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
         onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onPicture={insertPicture} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!sheetFilter} onFilter={toggleFilter} onSlicer={newSlicer} history={history} />}
       {finding && sheet && (
-        <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly} initial={finding.term}
-          sheets={data.sheets} active={active} onSheet={(to, term) => { setActive(to); setSel({ c: 0, r: 0 }); setAnchor(null); setFinding((f) => ({ ...f, term, n: (f?.n || 0) + 1 })); }}
+        <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly} initial={finding.term} initialOpts={finding.opts}
+          sheets={data.sheets} active={active} onSheet={(to, term, opts) => { setActive(to); setSel({ c: 0, r: 0 }); setAnchor(null); setFinding((f) => ({ ...f, term, opts, replace: f?.replace || !!opts.replace, n: (f?.n || 0) + 1 })); }}
           onGo={(m) => { setAnchor(null); setSel({ c: m.c, r: m.r }); requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${m.key}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); }}
           onHits={setHits} onWrite={(u) => { history.ownStep(); writeCells(u); history.ownStep(); }} onDone={(t) => toast(t)}
           onClose={() => { setFinding(null); gridRef.current?.focus(); }} />
