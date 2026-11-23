@@ -585,6 +585,14 @@ function ContactDialog({ contact, orgName, all = [], onOpen, onClose, onSaved })
   // Write to everyone at this company at once: this contact (once saved) and the others there, those with an address.
   const navigateTo = useNavigate();
   const everyone = [...(contact.id && f.email ? [f] : []), ...colleagues].filter((c) => c.email);
+  // …or keep them as a contact group named after the company, to write to (or invite) by its name later.
+  const groupAll = async () => {
+    const name = String(f.company).trim().replace(/\s+/g, ' ');
+    try {
+      await post('/contacts/groups', { name, members: everyone.map((c) => ({ name: c.name || '', email: c.email })) });
+      toast(`Group “${name}” made with ${everyone.length} people: type its name in To to write to them all`);
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const emailAll = () => {
     if (JSON.stringify(f) !== start.current) return toast('Save or cancel your changes here first', 'error');
     navigateTo(`/mail?compose=${encodeURIComponent(everyone.map((c) => formatAddress({ name: c.name, email: c.email })).join(', '))}`);
@@ -671,7 +679,8 @@ function ContactDialog({ contact, orgName, all = [], onOpen, onClose, onSaved })
               <p className="muted small also-at" style={{ margin: 0 }}>Also at {String(f.company).trim()}:{' '}
                 {colleagues.slice(0, 6).map((c, n) => <span key={c.id}>{n > 0 && ', '}<button type="button" className="link-btn small" onClick={() => openOther(c)}>{c.name || c.email}</button></span>)}
                 {colleagues.length > 6 && ` and ${colleagues.length - 6} more`}
-                {everyone.length > 1 && <> · <button type="button" className="link-btn small" onClick={emailAll}>Email all {everyone.length}</button></>}</p>
+                {everyone.length > 1 && <> · <button type="button" className="link-btn small" onClick={emailAll}>Email all {everyone.length}</button>
+                  {' · '}<button type="button" className="link-btn small" onClick={groupAll}>Make a group</button></>}</p>
             )}
             {(k === 'email' || k === 'phone') && <MoreField kind={`${k}s`} list={f[`more_${k}s`] || []} onChange={(l) => setF({ ...f, [`more_${k}s`]: l })} />}
           </div>

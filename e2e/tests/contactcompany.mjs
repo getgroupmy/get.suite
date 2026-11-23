@@ -85,6 +85,18 @@ await step('Email all: a message to everyone at the company, this contact includ
   const to = new URL(page.url()).searchParams.get('compose');
   if (to !== 'Ada Stone <ada@x.example>, Ben Vale <ben@x.example>') throw new Error(to);
 });
+await step('Make a group: everyone at the company as a contact group; made twice, it says so', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('button', { name: 'Edit Ada Stone' }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.locator('.also-at').getByRole('button', { name: 'Make a group' }).click();
+  await page.getByText('Group “Initrode Works” made with 2 people').waitFor();
+  const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.name === 'Initrode Works');
+  if (!g || g.members.map((m) => m.email).sort().join(' ') !== 'ada@x.example ben@x.example') throw new Error(JSON.stringify(g));
+  await dlg.locator('.also-at').getByRole('button', { name: 'Make a group' }).click();
+  await page.getByText(/already have a group/).waitFor();
+  await dlg.getByRole('button', { name: 'Cancel' }).click();
+});
 await step('with changes unsaved, Email all keeps you here', async () => {
   await page.goto(`${B}/contacts`);
   await page.getByRole('button', { name: 'Edit Ada Stone' }).click();
