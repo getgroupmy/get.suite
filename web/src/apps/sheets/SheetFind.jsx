@@ -82,7 +82,7 @@ export function SheetFind({ cells, shown, hidden, initial, initialOpts, replacin
         <span className={`find-opts ${more || ticked ? 'open' : ''}`}>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeCell} onChange={(e) => setWholeCell(e.target.checked)} /> Whole cell</label>
-        <label className="check small"><input type="checkbox" checked={matchDiacritics} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
+        <label className="check small"><input type="checkbox" checked={matchDiacritics} disabled={regex} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
         <label className="check small"><input type="checkbox" checked={formulas} onChange={(e) => setFormulas(e.target.checked)} /> Search formulas</label>
         <label className="check small" title="The search is a regular expression; $1 to $9 in the replacement are its groups"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression</label>
         </span>

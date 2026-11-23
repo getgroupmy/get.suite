@@ -8,6 +8,7 @@ export function FindBar({ editor, replacing, canEdit, onClose, initialTerm = nul
   // Opened from a search's result (#find=…): its word; else what's selected.
   const [term, setTerm] = useState(() => { if (initialTerm) return initialTerm; const { from, to } = editor.state.selection; const t = editor.state.doc.textBetween(from, to, ' '); return t.length < 80 ? t : ''; });
   const [replace, setReplace] = useState('');
+  const [more, setMore] = useState(false); // on a phone the tick boxes fold away behind "Options"; ticked ones keep them in view
   const [matchCase, setMatchCase] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [matchDiacritics, setMatchDiacritics] = useState(false); // off: cafe finds café
@@ -90,6 +91,7 @@ export function FindBar({ editor, replacing, canEdit, onClose, initialTerm = nul
   };
   const n = state.matches.length;
   const bad = regex && term ? findPattern(term, { regex: true }).error : null;
+  const ticked = [matchCase, wholeWord, matchDiacritics, regex].filter(Boolean).length;
   return (
     <div className="find-bar" role="search" aria-label="Find in document" onKeyDown={key}>
       <div className="row">
@@ -97,10 +99,13 @@ export function FindBar({ editor, replacing, canEdit, onClose, initialTerm = nul
         <span className={`small find-count ${bad ? 'error' : 'muted'}`} aria-live="polite">{bad || (term ? (n ? `${state.current + 1} of ${n}` : 'No results') : '')}</span>
         <button type="button" className="icon-btn" aria-label="Previous match" disabled={!n} onClick={() => show(state.current - 1)}><Icon name="left" size={18} /></button>
         <button type="button" className="icon-btn" aria-label="Next match" disabled={!n} onClick={() => show(state.current + 1)}><Icon name="right" size={18} /></button>
+        <button type="button" className="link-btn small find-opts-toggle" aria-expanded={more || ticked > 0} disabled={ticked > 0} onClick={() => setMore(!more)}>Options{ticked ? ` (${ticked})` : more ? ' ▴' : ' ▾'}</button>
+        <span className={`find-opts ${more || ticked ? 'open' : ''}`}>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Whole words</label>
         <label className="check small"><input type="checkbox" checked={matchDiacritics} disabled={regex} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
         <label className="check small" title="Search with a pattern, e.g. \d{4}-\d{2}-\d{2} or (\w+)@(\w+); replace with $1, $2… for its parts"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression</label>
+        </span>
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
