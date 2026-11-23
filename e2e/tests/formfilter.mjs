@@ -86,6 +86,10 @@ await step('by a rating, by words written, by left blank; nothing matching; clea
   await bar.getByLabel('Filter by question').selectOption({ label: 'Wish' });
   await bar.getByLabel('Words in the answer').fill('WINE');
   await page.getByText('1 of 4 responses').waitFor();
+  await bar.getByLabel('Words in the answer').fill('tásting port'); // the words in any order, accents aside
+  await page.waitForTimeout(700);
+  await page.getByText('1 of 4 responses').waitFor();
+  await page.getByRole('region', { name: 'Summary: Wish' }).getByText('Port wine tasting').waitFor();
   await page.getByRole('region', { name: 'Summary: Wish' }).getByText('Port wine tasting').waitFor();
   await bar.getByLabel('Answer to filter by').selectOption({ label: 'Left blank' });
   await page.getByText('1 of 4 responses').waitFor();

@@ -6,6 +6,8 @@
 export const ANSWERED = '__answered__';
 export const BLANK = '__blank__';
 export const OTHER = '__other__';
+/** Text as it is compared: accents and capitals aside, so "cafe" finds "Café". */
+const plain = (t) => String(t).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 const blank = (a) => a === undefined || a === null || a === '' || (Array.isArray(a) && !a.length) || (typeof a === 'object' && !Array.isArray(a) && !Object.keys(a).length);
 
 /** { q, v } from a request's ?fq=&fv=, or null for no filter. */
@@ -27,7 +29,7 @@ export function matchesFilter(questions, answers, filter) {
     }
     case 'scale': case 'rating': return Number(a) === Number(v);
     case 'rank': return Array.isArray(a) && a[0] === v;
-    case 'short': case 'paragraph': case 'date': case 'time': return !v.trim() || String(a).toLowerCase().includes(v.trim().toLowerCase());
+    case 'short': case 'paragraph': case 'date': case 'time': { const text = plain(a); return plain(v).split(/\s+/).filter(Boolean).every((w) => text.includes(w)); }
     default: return true; // grids, files, signatures: answered or blank only
   }
 }

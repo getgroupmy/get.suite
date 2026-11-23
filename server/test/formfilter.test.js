@@ -23,6 +23,9 @@ export const CASES = [
   [{ order: ['Boat', 'Hike'] }, { q: 'order', v: 'Hike' }, false],
   [{ note: 'More SALAD please' }, { q: 'note', v: ' salad ' }, true],
   [{ note: 'Pizza' }, { q: 'note', v: 'salad' }, false],
+  [{ note: 'More salad at the café, please' }, { q: 'note', v: 'cafe SALAD' }, true], // the words in any order, accents aside
+  [{ note: 'More salad please' }, { q: 'note', v: 'salad café' }, false], // every word has to be there
+  [{ note: 'Pizza' }, { q: 'note', v: '   ' }, true],
   [{ g: { Mon: 'Yes' } }, { q: 'g', v: ANSWERED }, true],
   [{ g: {} }, { q: 'g', v: ANSWERED }, false],
   [{}, { q: 'note', v: BLANK }, true],
