@@ -1853,6 +1853,28 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
     if (found.length) setGuests((g) => [...new Set([...g, ...found])]);
     setGuestInput('');
   };
+  // People to invite, suggested as a name, an address or a company is typed: colleagues, your contacts
+  // (so nobody's address has to be known by heart), your contact groups and "Everyone at <company>".
+  const [guestSugs, setGuestSugs] = useState([]);
+  const [guestSugAt, setGuestSugAt] = useState(0);
+  useEffect(() => {
+    const text = guestInput.trim();
+    if (text.length < 2) { setGuestSugs([]); return undefined; }
+    let live = true; // typed on meanwhile: this answer is for older text, and is dropped
+    const t = setTimeout(() => get(`/contacts/suggest?q=${encodeURIComponent(text)}`).then((r) => {
+      if (!live) return;
+      const mine = me.username.toLowerCase();
+      setGuestSugs(r.filter((p) => (p.members ? p.members.length : p.email !== mine && !guests.includes(p.email))));
+      setGuestSugAt(0);
+    }).catch(() => { if (live) setGuestSugs([]); }), 150);
+    return () => { live = false; clearTimeout(t); };
+  }, [guestInput]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pickGuest = (p) => {
+    const emails = (p.members || [p]).map((m) => String(m.email).toLowerCase()).filter((e) => e.includes('@') && e !== me.username.toLowerCase());
+    setGuests((g) => [...new Set([...g, ...emails])]);
+    setGuestInput(''); setGuestSugs([]);
+    document.getElementById('guest-input')?.focus();
+  };
   const [scopeFor, setScopeFor] = useState(null); // 'save' | 'delete': asking which occurrences
   const [error, setError] = useState('');
   // A new event's id, the same however often Save is pressed (a second press while the first is on its way makes no second event).
@@ -2095,10 +2117,35 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
               <button type="button" className="link-btn small" onClick={() => setF({ ...f, all_day: false, startDate: toDateInput(g.proposed_start), startTime: toTimeInput(g.proposed_start), endDate: toDateInput(g.proposed_end), endTime: toTimeInput(g.proposed_end) })}>Use this time</button>
             </p>
           ))}
-          <input id="guest-input" list="guest-directory" value={guestInput} placeholder="Add people by email address" autoComplete="off"
-            onChange={(e) => { const v = e.target.value; if (/[,;\s]$/.test(v) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (guestInput.trim()) addGuests(guestInput); } }} /* Enter adds a guest, never saves */ />
-          <datalist id="guest-directory">{directory.map((d) => <option key={d.id} value={d.username}>{d.name}</option>)}</datalist>
+          <span className="address-input guest-suggest">
+            <input id="guest-input" value={guestInput} placeholder="Add people by name or email address" autoComplete="off"
+              role="combobox" aria-expanded={guestSugs.length > 0} aria-controls="guest-suggestions" aria-autocomplete="list"
+              onChange={(e) => { const v = e.target.value; if ((/[,;\s]$/.test(v) && v.includes('@')) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
+              onBlur={() => setTimeout(() => setGuestSugs([]), 150)}
+              onKeyDown={(e) => {
+                const open = guestSugs.length > 0;
+                if (open && e.key === 'ArrowDown') { e.preventDefault(); setGuestSugAt((i) => (i + 1) % guestSugs.length); }
+                else if (open && e.key === 'ArrowUp') { e.preventDefault(); setGuestSugAt((i) => (i - 1 + guestSugs.length) % guestSugs.length); }
+                else if (open && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setGuestSugs([]); }
+                else if (e.key === 'Enter') { // Enter adds a guest, never saves: the address typed, or else the suggestion picked
+                  e.preventDefault();
+                  if (guestInput.includes('@')) addGuests(guestInput);
+                  else if (open) pickGuest(guestSugs[guestSugAt]);
+                }
+              }} />
+            {guestSugs.length > 0 && (
+              <ul id="guest-suggestions" className="address-list" role="listbox" aria-label="People to invite">
+                {guestSugs.map((p, i) => (
+                  <li key={p.email} role="option" aria-selected={i === guestSugAt} className={i === guestSugAt ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickGuest(p); }}>
+                    {p.members
+                      ? <span className="grow"><span>{p.name}</span><span className="muted small"> {p.members.length} {p.members.length === 1 ? 'person' : 'people'}</span></span>
+                      : <span className="grow"><span>{p.name || p.email}</span>{p.name && <span className="muted small"> {p.email}</span>}{p.company && <span className="muted small"> · {p.company}</span>}</span>}
+                    <span className="muted small">{p.kind === 'group' ? 'Group' : p.kind === 'company' ? 'Company' : p.kind === 'colleague' ? 'Colleague' : p.kind === 'other' ? 'Emailed before' : 'Contact'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </span>
           {groups.some((g) => g.members.length) && (
             <select value="" aria-label="Invite a group" onChange={(e) => addGroup(e.target.value)}>
               <option value="">Invite a group…</option>

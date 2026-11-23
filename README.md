@@ -1074,7 +1074,7 @@ Send a file or a whole folder to someone who has no account, such as a client. I
   - A monthly event on the 31st skips months without a 31st, and a yearly event on 29 February appears only in leap years.
   - Changing or deleting one occurrence asks **This event / This and following events / All events**.
   - Repeating events show ↻.
-- **Inviting colleagues:** add people under **Guests** (type an address; suggestions come from your company directory). You can invite anyone you can work with: your own company, and other companies when both allow collaboration.
+- **Inviting colleagues:** add people under **Guests**: type a name, an address or a company, and a list suggests colleagues, your contacts (so nobody's address has to be known by heart), your contact groups and **Everyone at …** for a company with two or more of your contacts — ↑ ↓ and Enter or a click invites them; an address typed in full goes in with Enter or a comma, as before. You can invite anyone you can work with: your own company, and other companies when both allow collaboration.
   - Guests see the event in their calendar, outlined until they answer, and answer **Yes / Maybe / No**. For a repeating event, the answer covers the whole series.
   - When email is set up, they also get an invitation email from you (with the time in your time zone), an "Updated:" email when you change the time, place or details, and a cancellation if you delete the event or remove them.
   - **A note with the answer:** guests can add a few words when answering (*I'll join 10 minutes late*), on the event or on the answer page for people outside Workspace. The organizer gets a notification with it and sees it beside the guest's answer.
