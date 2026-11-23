@@ -53,7 +53,7 @@ await step('an admin sets managers in Admin → Users → Job and manager', asyn
     await page.getByRole('menuitem', { name: 'Job and manager' }).click();
     const d = page.getByRole('dialog', { name: `Job and manager: ${who}` });
     if (title) await d.getByLabel('Job title').fill(title);
-    await d.getByLabel('Reports to').selectOption({ label: manager });
+    await d.getByLabel('Reports to').fill(manager); await d.getByRole('option', { name: new RegExp(manager) }).click();
     await d.getByRole('button', { name: 'Save' }).click();
     await d.waitFor({ state: 'detached' });
   };
@@ -63,10 +63,32 @@ await step('an admin sets managers in Admin → Users → Job and manager', asyn
   await page.getByRole('button', { name: 'Actions for Olivia Owner' }).click();
   await page.getByRole('menuitem', { name: 'Job and manager' }).click();
   const d = page.getByRole('dialog', { name: 'Job and manager: Olivia Owner' });
-  await d.getByLabel('Reports to').selectOption({ label: 'Kim Park' });
+  await d.getByLabel('Reports to').fill('park kim'); // words in any order
+  await d.getByRole('option', { name: /Kim Park/ }).click();
   await d.getByRole('button', { name: 'Save' }).click();
   await page.getByText(/That would make a loop/).waitFor();
   await d.getByRole('button', { name: 'Cancel' }).click();
+});
+await step('Reports to: shows who it is now, an unknown name is refused, and an empty box is nobody', async () => {
+  await page.getByRole('button', { name: 'Actions for Kim Park' }).click();
+  await page.getByRole('menuitem', { name: 'Job and manager' }).click();
+  const d = page.getByRole('dialog', { name: 'Job and manager: Kim Park' });
+  const box = d.getByLabel('Reports to');
+  if (!/^max@/.test(await box.inputValue())) throw new Error('current manager not shown: ' + await box.inputValue());
+  await d.getByText('Max Lee · Head of Product').waitFor();
+  if (await d.getByRole('option', { name: /Kim Park/ }).count()) throw new Error('offered as their own manager');
+  await box.fill('Nobody we know');
+  await d.getByText('Pick someone from the list, or leave it empty for nobody.').waitFor();
+  await d.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Pick who they report to from the list, or leave it empty').waitFor();
+  const kim = (await api(page, 'GET', '/users')).body.find((u) => u.name === 'Kim Park');
+  const max = (await api(page, 'GET', '/users')).body.find((u) => u.name === 'Max Lee');
+  if (kim.manager_id !== max.id) throw new Error('changed anyway');
+  await box.fill('');
+  await d.getByRole('button', { name: 'Save' }).click();
+  await d.waitFor({ state: 'detached' });
+  if ((await api(page, 'GET', '/users')).body.find((u) => u.name === 'Kim Park').manager_id) throw new Error('still has a manager');
+  await api(page, 'PATCH', `/users/${kim.id}`, { manager_id: max.id }); // back as it was, for what follows
 });
 await step('the Directory shows titles, and the org chart who reports to whom', async () => {
   await kim.goto(`${B}/contacts`);

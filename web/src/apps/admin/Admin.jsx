@@ -5,6 +5,7 @@ import MigrationAdmin from './MigrationAdmin.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, put, patch, del, formatBytes, postText, postBlob } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { inactive, lastActiveText } from './lastactive.js';
 import AnnouncementsAdmin from './AnnouncementsAdmin.jsx';
@@ -1161,7 +1162,14 @@ function Branding({ org, onChanged }) {
 function JobDialog({ user: u, people, onClose, onSaved }) {
   const toast = useToast();
   const [f, setF] = useState({ job_title: u.job_title || '', department: u.department || '', work_phone: u.work_phone || '', manager_id: u.manager_id || '' });
+  // Reports to: a name typed lists who it fits; the box empty is nobody (the top of the org chart).
+  const choices = people.filter((p) => p.id !== u.id && !p.disabled);
+  const [boss, setBoss] = useState(people.find((p) => p.id === u.manager_id)?.username || '');
+  const bossFound = choices.find((p) => p.username.toLowerCase() === boss.trim().toLowerCase());
+  const bossUnknown = !!boss.trim() && !bossFound;
+  const pickBoss = (v) => { setBoss(v); const p = choices.find((x) => x.username.toLowerCase() === v.trim().toLowerCase()); setF((x) => ({ ...x, manager_id: v.trim() ? p?.id || x.manager_id : '' })); };
   const save = async () => {
+    if (bossUnknown) { toast('Pick who they report to from the list, or leave it empty', 'error'); return; }
     // Only what was changed here, so a change made elsewhere meanwhile (a department set for several people) stays.
     const was = { job_title: u.job_title || '', department: u.department || '', work_phone: u.work_phone || '', manager_id: u.manager_id || '' };
     const changed = Object.fromEntries(Object.entries(f).filter(([k, v]) => v !== was[k]).map(([k, v]) => [k, k === 'manager_id' ? v || null : v]));
@@ -1173,11 +1181,11 @@ function JobDialog({ user: u, people, onClose, onSaved }) {
         <label className="field"><span>Job title</span><input value={f.job_title} maxLength={100} onChange={(e) => setF({ ...f, job_title: e.target.value })} /></label>
         <label className="field"><span>Department</span><input value={f.department} maxLength={100} onChange={(e) => setF({ ...f, department: e.target.value })} /></label>
         <label className="field"><span>Work phone</span><input type="tel" value={f.work_phone} maxLength={40} onChange={(e) => setF({ ...f, work_phone: e.target.value })} /></label>
-        <label className="field"><span>Reports to</span>
-          <select value={f.manager_id} onChange={(e) => setF({ ...f, manager_id: e.target.value })}>
-            <option value="">Nobody (top of the org chart)</option>
-            {people.filter((p) => p.id !== u.id && !p.disabled).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select></label>
+        <div className="field"><span>Reports to</span>
+          <ColleagueInput people={choices} value={boss} onChange={pickBoss} label="Reports to" placeholder="Nobody (top of the org chart)" listId="job-manager" />
+          {bossUnknown && <span className="muted small">Pick someone from the list, or leave it empty for nobody.</span>}
+          {bossFound && <span className="muted small">{bossFound.name}{bossFound.job_title ? ` · ${bossFound.job_title}` : ''}</span>}
+        </div>
       </div>
     </Modal>
   );
