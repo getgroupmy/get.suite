@@ -47,8 +47,12 @@ await step('G then a letter goes to that app; ? lists them under Everywhere', as
   await body();
   await page.keyboard.press('g'); await page.keyboard.press('s');
   await page.waitForURL('**/settings');
+  await page.getByRole('heading', { name: 'Settings', exact: true }).first().waitFor(); // loaded, so nothing takes the focus mid-typing
+  await page.waitForLoadState('networkidle');
   // Typing a G in a box is just a G.
   await page.getByRole('combobox', { name: 'Search everything' }).fill('');
+  await page.getByRole('combobox', { name: 'Search everything' }).focus();
+  if (!(await page.getByRole('combobox', { name: 'Search everything' }).evaluate((el) => el === document.activeElement))) throw new Error('the box has no focus');
   await page.getByRole('combobox', { name: 'Search everything' }).pressSequentially('gd');
   if (!page.url().endsWith('/settings')) throw new Error('moved while typing');
   await page.keyboard.press('Escape');
