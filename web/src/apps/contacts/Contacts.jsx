@@ -1,3 +1,4 @@
+import { companyNames, othersAt } from './companies.js';
 import { has } from '../../fold.js';
 import { matchesFilter } from './contactfilter.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -314,7 +315,7 @@ export default function Contacts() {
       {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><ContactLog contact={history} onChanged={load} /><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
       {qr && <ContactQr contact={qr} onClose={() => setQr(null)} />}
       {sending && <SendContact contacts={[sending].flat()} onClose={() => setSending(null)} />}
-      {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {editing && <ContactDialog key={editing.id || 'new'} contact={editing} orgName={user.org_name} all={contacts || []} onOpen={setEditing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They go to Trash for 30 days (and off your phone on its next sync)." onClose={() => setDeletingMany(false)}
         onConfirm={async () => {
           setDeletingMany(false);
@@ -569,10 +570,18 @@ function KeepInTouch({ filter }) {
   );
 }
 
-function ContactDialog({ contact, orgName, onClose, onSaved }) {
+function ContactDialog({ contact, orgName, all = [], onOpen, onClose, onSaved }) {
   const { user } = useAuth();
   const toast = useToast();
   const [f, setF] = useState({ name: '', email: '', phone: '', company: '', notes: '', ...contact });
+  // Who else of your contacts is at this company (as it stands in the box), and the companies there are to fill in.
+  const start = useRef(JSON.stringify({ name: '', email: '', phone: '', company: '', notes: '', ...contact }));
+  const colleagues = othersAt(all, { id: contact.id, company: f.company });
+  const firms = companyNames(all);
+  const openOther = (c) => {
+    if (JSON.stringify(f) !== start.current) return toast('Save or cancel your changes here first', 'error');
+    onOpen?.(c);
+  };
   const [error, setError] = useState('');
   // A new contact's id, the same however often Save is pressed (a second press while the first is on its way makes no second contact).
   const newId = useRef(null);
@@ -647,8 +656,15 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
         {FIELDS.map(([k, label], i) => (
           <div key={k} className="stack-tight">
             <label className="field"><span>{label}</span>
-              <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} placeholder={k === 'website' ? 'example.com' : undefined} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+              <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} placeholder={k === 'website' ? 'example.com' : undefined} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })}
+                list={k === 'company' ? 'contact-companies' : undefined} />
             </label>
+            {k === 'company' && <datalist id="contact-companies">{firms.map((n) => <option key={n} value={n} />)}</datalist>}
+            {k === 'company' && colleagues.length > 0 && (
+              <p className="muted small also-at" style={{ margin: 0 }}>Also at {String(f.company).trim()}:{' '}
+                {colleagues.slice(0, 6).map((c, n) => <span key={c.id}>{n > 0 && ', '}<button type="button" className="link-btn small" onClick={() => openOther(c)}>{c.name || c.email}</button></span>)}
+                {colleagues.length > 6 && ` and ${colleagues.length - 6} more`}</p>
+            )}
             {(k === 'email' || k === 'phone') && <MoreField kind={`${k}s`} list={f[`more_${k}s`] || []} onChange={(l) => setF({ ...f, [`more_${k}s`]: l })} />}
           </div>
         ))}
