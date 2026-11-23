@@ -46,7 +46,7 @@ await step('Olivia lets Kim make and change events on her calendar', async () =>
   await page.goto(`${B}/calendar`);
   await page.getByRole('button', { name: 'Share my calendar' }).click();
   const dlg = page.getByRole('dialog', { name: 'Share my calendar' });
-  await dlg.getByLabel('Share with a colleague').selectOption({ label: 'Kim Park' });
+  await dlg.getByLabel('Share with a colleague').fill('Kim Park'); await dlg.getByRole('option', { name: /Kim Park/ }).click();
   await dlg.getByLabel('Kim Park can make and change events').check();
   await until(async () => (await api(page, 'GET', '/freebusy/shares')).body.with.some((u) => u.can_edit));
   await dlg.getByRole('button', { name: 'Done' }).click();

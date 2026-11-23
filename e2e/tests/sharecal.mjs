@@ -51,9 +51,9 @@ await step('share it: Kim sees events, Lee can make changes', async () => {
   await page.getByRole('menuitem', { name: 'Share…' }).click();
   const d = page.getByRole('dialog', { name: 'Share “Team holidays”' });
   await d.getByLabel('Message to the next person you add (optional)').fill('So you can plan around them');
-  await d.getByLabel('Share with a colleague').selectOption({ label: 'Kim Park' });
+  await d.getByLabel('Share with a colleague').fill('Kim Park'); await d.getByRole('option', { name: /Kim Park/ }).click();
   await d.getByLabel('What Kim Park can do').waitFor();
-  await d.getByLabel('Share with a colleague').selectOption({ label: 'Lee Chan' });
+  await d.getByLabel('Share with a colleague').fill('Lee Chan'); await d.getByRole('option', { name: /Lee Chan/ }).click();
   await d.getByLabel('What Lee Chan can do').selectOption('edit');
   await until(async () => { const c = (await api(page, 'GET', '/events/calendars')).body[0]; return c.members.length === 2 && c.members.find((m) => m.name === 'Lee Chan')?.can_edit; });
   await page.screenshot({ path: `${SP}/shots/sharecal.png` });

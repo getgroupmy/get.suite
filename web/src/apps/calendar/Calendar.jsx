@@ -1612,9 +1612,15 @@ function ShareCalendarDialog({ people, onClose }) {
     if (shares) setShares({ ...shares, with: shares.with.filter((u) => ids.includes(u.id)).map((u) => ({ ...u, can_edit: editors.includes(u.id) })) });
     try { setShares(await put('/freebusy/shares', { users: ids, editors })); } catch (e) { toast(e.message, 'error'); get('/freebusy/shares').then(setShares).catch(() => {}); }
   };
+  const [adding, setAdding] = useState('');
+  // The company's groups: + Sales (3) shares with everyone in one who doesn't see your details yet.
+  const [groups, setGroups] = useState([]);
+  useEffect(() => { get('/groups').then(setGroups).catch(() => {}); }, []);
   if (!shares) return null;
   const ids = shares.with.map((u) => u.id);
   const editors = shares.with.filter((u) => u.can_edit).map((u) => u.id);
+  const known = new Set(people.map((p) => p.id));
+  const offered = groups.map((g) => ({ ...g, ids: g.members.map((m) => m.id).filter((id) => known.has(id) && !ids.includes(id)) })).filter((g) => g.ids.length);
   return (
     <Modal title="Share my calendar" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
       <div className="stack">
@@ -1628,10 +1634,19 @@ function ShareCalendarDialog({ people, onClose }) {
             ))}
           </ul>
         ) : <p className="small" style={{ margin: 0 }}>Nobody sees your event details yet.</p>}
-        <select className="dm-pick" value="" aria-label="Share with a colleague" onChange={(e) => { if (e.target.value) save([...ids, e.target.value]); }}>
-          <option value="">+ Share with a colleague…</option>
-          {people.filter((p) => !ids.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        {/* a name typed (words in any order, accents aside) lists who it fits; picking one shares with them */}
+        <ColleagueInput people={people.filter((p) => !ids.includes(p.id))} value={adding} label="Share with a colleague" placeholder="+ Share with a colleague…" listId="share-cal-people"
+          onChange={(v) => {
+            const p = people.find((x) => x.username === v && !ids.includes(x.id));
+            if (!p) return setAdding(v);
+            setAdding('');
+            save([...ids, p.id]);
+          }} />
+        {offered.length > 0 && (
+          <div className="row wrap group-picks" role="group" aria-label="Share with a group">
+            {offered.map((g) => <button key={g.id} type="button" className="btn small" onClick={() => save([...ids, ...g.ids])}>+ {g.name} ({g.ids.length})</button>)}
+          </div>
+        )}
         <p className="muted small" style={{ margin: 0 }}>With <strong>Can make and change events</strong> (an assistant), they can also open your calendar (Calendar at the top of the sidebar) and add, change and delete events on it, as you; you're told each time.</p>
         {shares.from.length > 0 && <p className="muted small" style={{ margin: 0 }}>Sharing theirs with you: {shares.from.map((u) => `${u.name}${u.can_edit ? ' (you can manage it)' : ''}`).join(', ')}. Add them under <strong>Other calendars</strong> to see their events.</p>}
       </div>
@@ -2388,6 +2403,12 @@ function ShareOneCalendar({ calendar, people, onClose, onChanged }) {
     } catch (e) { setMembers(before); toast(e.message, 'error'); }
   };
   const left = people.filter((p) => !members.some((m) => m.id === p.id));
+  const [adding, setAdding] = useState('');
+  const asMember = (p) => ({ id: p.id, name: p.name, email: p.email || p.username || '', can_edit: false }); // they see it; Make changes is a choice after
+  // The company's groups: + Sales (3) shares it with everyone in one who doesn't have it yet.
+  const [groups, setGroups] = useState([]);
+  useEffect(() => { get('/groups').then(setGroups).catch(() => {}); }, []);
+  const offered = groups.map((g) => ({ ...g, ids: g.members.map((m) => m.id).filter((id) => left.some((p) => p.id === id)) })).filter((g) => g.ids.length);
   return (
     <Modal title={`Share “${calendar.name}”`} onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
       <div className="stack">
@@ -2410,10 +2431,19 @@ function ShareOneCalendar({ calendar, people, onClose, onChanged }) {
             <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you’re sharing it…" /></label>
         )}
         {left.length > 0 && (
-          <select className="dm-pick" value="" aria-label="Share with a colleague" onChange={(e) => { const p = people.find((x) => x.id === e.target.value); if (p) save([...members, { id: p.id, name: p.name, email: p.email || p.username || '', can_edit: false }], true); }}>
-            <option value="">+ Share with a colleague…</option>
-            {left.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          // a name typed (words in any order, accents aside) lists who it fits; picking one shares it with them
+          <ColleagueInput people={left} value={adding} label="Share with a colleague" placeholder="+ Share with a colleague…" listId="share-one-cal-people"
+            onChange={(v) => {
+              const p = left.find((x) => x.username === v);
+              if (!p) return setAdding(v);
+              setAdding('');
+              save([...members, asMember(p)], true);
+            }} />
+        )}
+        {offered.length > 0 && (
+          <div className="row wrap group-picks" role="group" aria-label="Share with a group">
+            {offered.map((g) => <button key={g.id} type="button" className="btn small" onClick={() => save([...members, ...g.ids.map((id) => asMember(left.find((p) => p.id === id)))], true)}>+ {g.name} ({g.ids.length})</button>)}
+          </div>
         )}
       </div>
     </Modal>

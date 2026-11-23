@@ -55,9 +55,9 @@ await step('Olivia shares Team holidays: Kim to see, Lee to change', async () =>
   await page.getByRole('button', { name: 'Options for Team holidays' }).click();
   await page.getByRole('menuitem', { name: 'Share…' }).click();
   const d = page.getByRole('dialog', { name: 'Share “Team holidays”' });
-  await d.getByLabel('Share with a colleague').selectOption({ label: 'Kim Park' });
+  await d.getByLabel('Share with a colleague').fill('Kim Park'); await d.getByRole('option', { name: /Kim Park/ }).click();
   await d.getByLabel('What Kim Park can do').waitFor();
-  await d.getByLabel('Share with a colleague').selectOption({ label: 'Lee Chan' });
+  await d.getByLabel('Share with a colleague').fill('Lee Chan'); await d.getByRole('option', { name: /Lee Chan/ }).click();
   await d.getByLabel('What Lee Chan can do').selectOption('edit');
   await until(async () => (await api(page, 'GET', '/events/calendars')).body[0].members.find((m) => m.name === 'Lee Chan')?.can_edit);
   await d.getByRole('button', { name: 'Done' }).click();

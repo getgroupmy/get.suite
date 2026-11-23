@@ -57,8 +57,7 @@ await step('Kim shares her calendar with Olivia: Olivia sees what it is, live, a
   await kim.getByRole('button', { name: 'Share my calendar' }).click();
   const d = kim.getByRole('dialog', { name: 'Share my calendar' });
   await d.getByText('Nobody sees your event details yet.').waitFor();
-  await until(async () => (await d.getByLabel('Share with a colleague').locator('option').allInnerTexts()).includes('Olivia Owner'));
-  await d.getByLabel('Share with a colleague').selectOption({ label: 'Olivia Owner' });
+  await d.getByLabel('Share with a colleague').fill('Olivia Owner'); await d.getByRole('option', { name: /Olivia Owner/ }).click();
   await d.getByRole('list', { name: 'Sees your event details' }).getByText('Olivia Owner').waitFor();
   await d.getByRole('button', { name: 'Done' }).click();
   const block = page.locator('.tg-busy', { hasText: 'Kim Park · Salary review' });

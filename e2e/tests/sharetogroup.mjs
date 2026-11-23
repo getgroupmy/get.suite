@@ -85,5 +85,40 @@ await step('Notes → Share note: + Sales does the same, keeping who was already
   });
 });
 
+await step('Calendar → Share my calendar: a name typed finds a colleague, and + Sales shares with everyone in it', async () => {
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Share my calendar' }).click();
+  const d = page.getByRole('dialog', { name: 'Share my calendar' });
+  await d.getByLabel('Share with a colleague').fill('moss max'); // words in any order
+  await d.getByRole('option', { name: /Max Moss/ }).click();
+  const list = d.getByRole('list', { name: 'Sees your event details' });
+  await list.getByText('Max Moss').waitFor();
+  if (await d.getByLabel('Share with a colleague').inputValue()) throw new Error('box not emptied');
+  const groups = d.getByRole('group', { name: 'Share with a group' });
+  if (await groups.getByRole('button', { name: /Empty team/ }).count()) throw new Error('an empty group is offered');
+  await groups.getByRole('button', { name: '+ Sales (2)' }).click();
+  await list.getByText('Kim Park').waitFor();
+  await list.getByText('Lee Chan').waitFor();
+  await groups.waitFor({ state: 'detached' }); // everyone in it sees them now
+  const shares = (await api(page, 'GET', '/freebusy/shares')).body;
+  const names = shares.with.map((u) => u.name).sort().join(',');
+  if (names !== 'Kim Park,Lee Chan,Max Moss') throw new Error(names);
+});
+await step('Calendar → a calendar\'s Share…: + Sales shares that one calendar with everyone in the group', async () => {
+  const cal = (await api(page, 'POST', '/events/calendars', { name: 'Sales visits', color: '#0b8043' })).body;
+  await page.goto(`${B}/calendar`);
+  await page.getByRole('button', { name: 'Options for Sales visits' }).click();
+  await page.getByRole('menuitem', { name: 'Share…' }).click();
+  const d = page.getByRole('dialog', { name: 'Share “Sales visits”' });
+  await d.getByLabel('Message to the next person you add (optional)').fill('Plan the visits here');
+  await d.getByRole('group', { name: 'Share with a group' }).getByRole('button', { name: '+ Sales (2)' }).click();
+  await d.getByLabel('What Kim Park can do').waitFor();
+  await d.getByLabel('What Lee Chan can do').waitFor();
+  if (await d.getByLabel('What Max Moss can do').count()) throw new Error('Max added');
+  await until(async () => {
+    const c = (await api(page, 'GET', '/events/calendars')).body.find((x) => x.id === cal.id);
+    return c && c.members.map((m) => m.name).sort().join(',') === 'Kim Park,Lee Chan' && c.members.every((m) => !m.can_edit);
+  });
+});
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
