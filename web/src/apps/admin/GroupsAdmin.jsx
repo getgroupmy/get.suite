@@ -1,8 +1,9 @@
 // Admin: company groups ("Marketing", "Managers"). Sharing a file or folder with a group shares it with
 // everyone in it; people added later get it too, and people taken off lose it.
+import PeopleTicks from '../../components/PeopleTicks.jsx';
 import { useEffect, useState } from 'react';
 import { get, post, put, patch, del } from '../../api.js';
-import { Avatar, ConfirmModal, useToast } from '../../components/ui.jsx';
+import { ConfirmModal, useToast } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 
 export default function GroupsAdmin() {
@@ -54,13 +55,7 @@ export default function GroupsAdmin() {
                 <div className="stack-tight group-edit">
                   <input aria-label={`Description of ${g.name}`} placeholder="Description (optional)" defaultValue={g.description} maxLength={300}
                     onBlur={async (e) => { if (e.target.value !== g.description) { try { await patch(`/groups/${g.id}`, { description: e.target.value }); load(); } catch (err) { toast(err.message, 'error'); } } }} />
-                  <ul className="group-people" aria-label={`People in ${g.name}`}>
-                    {people.map((p) => (
-                      <li key={p.id}><label className="check"><input type="checkbox" checked={inIt.has(p.id)}
-                        onChange={(e) => setMembers(g, e.target.checked ? [...inIt, p.id] : [...inIt].filter((x) => x !== p.id))} />
-                        <Avatar name={p.name} size={22} userId={p.id} /> {p.name} <span className="muted small">{p.username}</span></label></li>
-                    ))}
-                  </ul>
+                  <PeopleTicks people={people} chosen={inIt} label={`People in ${g.name}`} withAddress onToggle={(id, on) => setMembers(g, on ? [...inIt, id] : [...inIt].filter((x) => x !== id))} />
                 </div>
               )}
             </li>

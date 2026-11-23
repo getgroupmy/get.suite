@@ -1,3 +1,4 @@
+import PeopleTicks from '../../components/PeopleTicks.jsx';
 import { unreachable, keepChange, changeAdd, appendKept, offlineId, keepDelete } from '../offlinedocs.js';
 // Notes: quick notes and checklists on coloured cards. "Take a note…" at the top, pinned ones first,
 // labels and the archive on the left, and sharing with colleagues (they see changes as they happen).
@@ -740,9 +741,7 @@ function ShareNote({ note, onClose }) {
   return (
     <Modal title="Share note" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
       <p className="muted small" style={{ marginTop: 0 }}>People you share it with can change it and see changes as they're made. Only you can delete it.</p>
-      <ul className="group-people" aria-label="Colleagues">
-        {people.map((p) => <li key={p.id}><label className="check"><input type="checkbox" checked={chosen.has(p.id)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(p.id) : n.delete(p.id); setChosen(n); }} /> <Avatar name={p.name} size={22} userId={p.id} /> {p.name}</label></li>)}
-      </ul>
+      <PeopleTicks people={people} chosen={chosen} label="Colleagues" onToggle={(id, on) => { const n = new Set(chosen); on ? n.add(id) : n.delete(id); setChosen(n); }} />
       {adding.length > 0 && (
         <label className="field"><span>Message to {adding.length === 1 ? people.find((p) => p.id === adding[0])?.name || 'them' : 'the people you added'} (optional)</span>
           <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you’re sharing it…" /></label>

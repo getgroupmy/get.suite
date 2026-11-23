@@ -1,6 +1,7 @@
 // Approvals: ask colleagues to approve a file, see what's waiting for you, and approve or reject.
 // RequestApproval is the window from a file's menu; ApprovalsView is Drive → Approvals; ApprovalBanner
 // sits at the top of a document, spreadsheet or presentation.
+import PeopleTicks from '../../components/PeopleTicks.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get, post, onLive, refreshOn, formatDate } from '../../api.js';
@@ -31,9 +32,7 @@ export function RequestApproval({ file, onClose, onDone }) {
         <p className="muted small" style={{ margin: 0 }}>Each reviewer approves or rejects it. It's approved when everyone has approved, and rejected if anyone rejects it. They need to be able to open the file (share it with them first).</p>
         <fieldset className="stack-tight" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="small"><strong>Reviewers</strong></legend>
-          <ul className="group-people" aria-label="Reviewers">
-            {people.map((p) => <li key={p.id}><label className="check"><input type="checkbox" checked={chosen.has(p.id)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(p.id) : n.delete(p.id); setChosen(n); }} /> <Avatar name={p.name} size={22} userId={p.id} /> {p.name}</label></li>)}
-          </ul>
+          <PeopleTicks people={people} chosen={chosen} label="Reviewers" onToggle={(id, on) => { const n = new Set(chosen); on ? n.add(id) : n.delete(id); setChosen(n); }} />
         </fieldset>
         <label className="field"><span>Message (optional)</span><textarea rows={2} maxLength={1000} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="What should they look at?" /></label>
         <label className="field" style={{ maxWidth: 220 }}><span>Needed by (optional)</span><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></label>
