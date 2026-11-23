@@ -9,6 +9,8 @@
 # Change these two values, then build:
 x-mail-hostname: &mail_hostname mail.example.com   # the one hostname all your domains' MX records point to
 x-timezone: &timezone UTC                          # e.g. Europe/London
+# Only with HTTPS from Caddy (docker compose --profile https …): the address people open Workspace at.
+x-web-hostname: &web_hostname workspace.example.com
 
 services:
   workspace:
@@ -55,7 +57,27 @@ services:
       MAIL_HOSTNAME: *mail_hostname
     mem_limit: 512m
 
+  # HTTPS with a Let's Encrypt certificate, instead of the Synology reverse proxy: started only with --profile https.
+  # Ports 80 and 443 on your router go to this Mac. See README → "Run it on a Mac" → From the internet.
+  caddy:
+    image: caddy:2
+    container_name: nas-workspace-caddy
+    profiles: [https]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - workspace-caddy:/data   # its certificates
+    environment:
+      WORKSPACE_HOST: *web_hostname
+    depends_on:
+      - workspace
+    mem_limit: 256m
+
 volumes:
+  workspace-caddy:
   workspace-data:
   workspace-mail-config:
   workspace-mail-status:

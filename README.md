@@ -112,9 +112,16 @@ Workspace runs on a Mac in the same two containers as on the NAS. Both build nat
 
 The script finds the volumes by the names in `docker-compose.mac.yml`, whatever the project folder is called, and doesn't touch other files in the backup folder.
 
-**From the internet:** the HTTPS steps below are written for the Synology reverse proxy. On a Mac, put a reverse proxy such as [Caddy](https://caddyserver.com) in front of port 8080 (it gets a Let's Encrypt certificate by itself; pass WebSockets through, which Caddy does without extra settings), or use a tunnel such as Cloudflare Tunnel, and forward 80 and 443 on your router to the Mac. For mail, forward 25, 465, 587 and 993 to the Mac as you would to the NAS. Many home internet providers block port 25, in which case mail from outside can't arrive whatever the machine. For the mail server's own certificate, put `fullchain.pem` and `privkey.pem` for the mail hostname in a folder (e.g. `~/workspace-tls`) and uncomment the `/etc/nw-tls` line in `docker-compose.mac.yml`; without it, the mail server makes a self-signed one.
+**From the internet:** the HTTPS steps below are written for the Synology reverse proxy. On a Mac, `docker-compose.mac.yml` comes with one: [Caddy](https://caddyserver.com), which gets and renews a Let's Encrypt certificate by itself and passes live updates (WebSockets) through.
 
-macOS's own services don't use these ports, so nothing needs switching off. The `docker-compose.mac.yml` file has been checked with `docker compose config`, and the images' packages exist for arm64, but it hasn't been run on a Mac as part of this project's tests (they run on Linux).
+1. **DNS:** point the address people will use (e.g. `workspace.example.com`) at your fixed IP, as in step 1 below.
+2. **Router:** forward TCP **80** and **443** to the Mac (80 is how Let's Encrypt checks it's yours). Don't forward 8080.
+3. **The address:** set `x-web-hostname` at the top of `docker-compose.mac.yml` to it.
+4. **Start with HTTPS:** `docker compose -f docker-compose.mac.yml --profile https up -d --build`. A minute later `https://workspace.example.com` works; `docker logs nas-workspace-caddy` says if the certificate couldn't be had (usually DNS not pointing here yet, or port 80 not reaching the Mac). Use `--profile https` in later commands too (updates, `restart`).
+
+Without `--profile https` nothing listens on 80 or 443. A tunnel such as Cloudflare Tunnel is the other way, if you'd rather not open ports. For mail, forward 25, 465, 587 and 993 to the Mac as you would to the NAS. Many home internet providers block port 25, in which case mail from outside can't arrive whatever the machine. For the mail server's own certificate, put `fullchain.pem` and `privkey.pem` for the mail hostname in a folder (e.g. `~/workspace-tls`) and uncomment the `/etc/nw-tls` line in `docker-compose.mac.yml`; without it, the mail server makes a self-signed one.
+
+macOS's own services don't use these ports, so nothing needs switching off. The `docker-compose.mac.yml` file has been checked with `docker compose config` (with and without `--profile https`; the Caddy part hasn't been run), and the images' packages exist for arm64, but it hasn't been run on a Mac as part of this project's tests (they run on Linux).
 
 ## Publish it securely on your fixed IP
 

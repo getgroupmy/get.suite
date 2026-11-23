@@ -1,0 +1,7 @@
+# HTTPS for Workspace on a Mac (docker-compose.mac.yml, --profile https): Caddy gets and renews a Let's Encrypt
+# certificate for the hostname by itself (ports 80 and 443 must reach this machine from the internet) and passes
+# everything on to the app, live updates (WebSockets) included. Workspace compresses what it sends itself.
+{$WORKSPACE_HOST} {
+	reverse_proxy workspace:8080
+	header Strict-Transport-Security "max-age=31536000"
+}
