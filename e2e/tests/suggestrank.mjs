@@ -83,6 +83,19 @@ await step('To suggestions: a company finds the contacts there, and says the com
   await page.keyboard.press('Enter');
   await until(async () => /ben\.vale@post\.example/.test(await to.inputValue()));
 });
+await step('To suggestions: a company finds a contact’s other addresses too', async () => {
+  const r = await api(page, 'POST', '/contacts', { name: 'Dee Holt', email: 'dee@quartz.example', company: 'Quartz Mill', more_emails: [{ label: 'Home', value: 'dee@home.example' }] });
+  if (r.status !== 201) throw new Error(`contact ${r.status}`);
+  const to = page.getByLabel('To', { exact: true });
+  const list = page.getByRole('listbox', { name: 'Suggestions for To' });
+  await to.fill('');
+  await to.pressSequentially('mill');
+  await list.getByRole('option').filter({ hasText: 'dee@home.example' }).getByText('· Quartz Mill').waitFor({ timeout: 10000 });
+  await list.getByRole('option').filter({ hasText: 'dee@quartz.example' }).waitFor();
+  await to.fill('');
+  await to.pressSequentially('home quartz');
+  await until(async () => (await list.getByRole('option').count()) === 1 && /dee@home\.example/.test(await list.innerText()), 10000);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

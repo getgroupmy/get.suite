@@ -1523,8 +1523,9 @@ test('contacts: import vCard and CSV files (duplicates skipped), export, and add
   assert.ok(colleague.some((s) => s.email === 'owner@acme.com' && s.kind === 'colleague'), 'colleagues too');
   assert.deepEqual(await sug(''), []);
   // A company finds the people there, saying the company; words may be spread over name and company.
-  assert.deepEqual((await sug('globex')).map((s) => [s.email, s.kind, s.company]), [['meiling@example.com', 'contact', 'Globex']]);
-  assert.deepEqual((await sug('mei glob')).map((s) => [s.email, s.company]), [['meiling@example.com', 'Globex']]);
+  assert.deepEqual((await sug('globex')).map((s) => [s.email, s.kind, s.company]), [['meiling@example.com', 'contact', 'Globex'], ['mei@home.example', 'contact', 'Globex']], 'her other address as well');
+  assert.deepEqual((await sug('mei glob')).map((s) => [s.email, s.company]), [['meiling@example.com', 'Globex'], ['mei@home.example', 'Globex']]);
+  assert.deepEqual((await sug('home globex')).map((s) => s.email), ['mei@home.example'], 'words over an other address and the company');
   assert.equal((await sug('mei'))[0].company, undefined, 'not said when the name was what matched');
   assert.deepEqual(await sug('mei initech'), [], 'every word has to fit');
   assert.deepEqual(await sug('100%'), [], 'a % is only a %');

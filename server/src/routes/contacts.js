@@ -444,9 +444,10 @@ export default function contactRoutes() {
                     AND ${allWords('')}
                     ORDER BY starred DESC, (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, ...wordLikes, starts, starts);
     // Your contacts' other addresses (a work and a home one): each is a suggestion of its own.
-    const extra = q(`SELECT name, more_emails, starred FROM contacts WHERE owner_id = ? AND more_emails IS NOT NULL AND more_emails != '[]'
-                     AND (fold(name) LIKE ? ESCAPE '\\' OR fold(more_emails) LIKE ? ESCAPE '\\') LIMIT 20`).all(req.user.id, like, like)
-      .flatMap((c) => cleanMore(c.more_emails, 'emails').filter((e) => fold(c.name).includes(term) || e.value.includes(term)).map((e) => ({ name: c.name, email: e.value, starred: c.starred })));
+    const extra = q(`SELECT name, more_emails, company, starred FROM contacts WHERE owner_id = ? AND more_emails IS NOT NULL AND more_emails != '[]'
+                     AND ${words.map(() => "fold(coalesce(name, '') || ' ' || more_emails || ' ' || coalesce(company, '')) LIKE ? ESCAPE '\\'").join(' AND ')} LIMIT 20`).all(req.user.id, ...wordLikes)
+      .flatMap((c) => cleanMore(c.more_emails, 'emails').filter((e) => words.every((w) => fold(`${c.name} ${e.value} ${c.company || ''}`).includes(w)))
+        .map((e) => ({ name: c.name, email: e.value, company: c.company, starred: c.starred })));
     mine.push(...extra);
     const others = matchOther(req.user.id, like);
     const people = q(`SELECT id, name, username AS email FROM users WHERE org_id = ? AND disabled = 0 AND id != ?
