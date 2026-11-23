@@ -1192,7 +1192,11 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 #share-people.address-list { position: static; margin: 4px 0 8px; box-shadow: none; max-width: none; }
 .share-pick > input { flex: 1; min-width: 0; }
 .people-ticks { margin-bottom: 8px; }
-.see-cal .colleague-input > input { font-size: 13px; }
+.see-cal .colleague-input > input, .dm-start .colleague-input > input { font-size: 13px; }
+.online-mark { color: var(--ok); white-space: nowrap; }
+.dm-start { display: flex; flex-direction: column; gap: 2px; margin: 4px 8px; }
+.dm-start .link-btn { align-self: flex-start; }
+.dm-start .colleague-input, .see-cal .colleague-input { flex: none; }
 .colleague-input { display: block; flex: 1 1 200px; min-width: 0; }
 .colleague-input > input { width: 100%; }
 .colleague-input .address-list { position: static; margin-top: 4px; box-shadow: none; max-width: none; }

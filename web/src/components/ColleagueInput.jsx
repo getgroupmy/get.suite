@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Avatar } from './ui.jsx';
 import { colleaguesFor } from './colleagues.js';
 
-export default function ColleagueInput({ people, value, onChange, label, placeholder = 'A colleague’s name or email address', listId, required }) {
+export default function ColleagueInput({ people, value, onChange, label, placeholder = 'A colleague’s name or email address', listId, required, extra }) {
   const [at, setAt] = useState(0);
   const [shut, setShut] = useState(false); // Escape closed the list for what's typed
   const listed = shut ? [] : colleaguesFor(people, value);
@@ -27,6 +27,7 @@ export default function ColleagueInput({ people, value, onChange, label, placeho
             <li key={p.id} role="option" aria-selected={i === at} className={i === at ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pick(p); }}>
               <Avatar name={p.name} size={24} userId={p.id} />
               <span className="grow"><span>{p.name}</span> <span className="muted small">{p.username}</span></span>
+              {extra?.(p)}
             </li>
           ))}
         </ul>

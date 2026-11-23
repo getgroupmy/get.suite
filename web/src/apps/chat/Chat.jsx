@@ -1,3 +1,4 @@
+import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { has } from '../../fold.js';
 import { unreachable, keepChange, keepDelete, appendKept, patchKeptItem } from '../offlinedocs.js';
 import { replaceInBox } from '../../components/replacements.js';
@@ -597,6 +598,7 @@ export default function Chat() {
       toast(err.message, 'error');
     });
 
+  const [dmText, setDmText] = useState(''); // what's typed in "Message someone"
   async function openDm(personId) {
     const { id } = await post('/chat/dm', { user_id: personId });
     await loadChannels();
@@ -725,13 +727,18 @@ export default function Chat() {
         {archivedChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide' : 'Show'} archived ({archivedChannels.length})</button>}
         <div className="subnav-title">Direct messages</div>
         {dms.filter((c) => !c.starred && !inSection(c)).map(dmRow)}
-        <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {
-          if (e.target.value === '__email__') setDialog('email'); else if (e.target.value) openDm(e.target.value);
-        }}>
-          <option value="">+ Message someone…</option>
-          {people.filter((p) => p.id !== user.id).map((p) => <option key={p.id} value={p.id}>{p.name}{online.includes(p.id) ? ' ●' : ''}</option>)}
-          {user.allow_external && <option value="__email__">Someone at another company…</option>}
-        </select>
+        <div className="dm-start">
+          {/* a few letters of a name list the colleagues it fits; picking one opens your messages with them */}
+          <ColleagueInput people={people.filter((p) => p.id !== user.id)} value={dmText} label="Start a direct message" placeholder="+ Message someone…" listId="dm-people"
+            extra={(p) => online.includes(p.id) && <span className="small online-mark" title="Online now"><span aria-hidden="true">●</span> online</span>}
+            onChange={(v) => {
+              const p = people.find((x) => x.id !== user.id && x.username === v);
+              if (!p) return setDmText(v);
+              setDmText('');
+              openDm(p.id);
+            }} />
+          {user.allow_external && <button type="button" className="link-btn small" onClick={() => setDialog('email')}>Someone at another company…</button>}
+        </div>
       </aside>
       {sectionEdit?.add && <PromptModal title="New section" label="Section name" confirm="Add" message="A heading of your own in the conversation list (only you see it)."
         onClose={() => setSectionEdit(null)} onSubmit={async (name) => { await post('/chat/sections', { name, ...(sectionEdit.add !== true && { channel_id: sectionEdit.add }) }); await loadChannels(); }} />}

@@ -91,6 +91,13 @@ await step('Notes: Share note with Find people; Forms: an editor by name', async
   await page.getByRole('listbox', { name: 'Matching people' }).getByRole('option').first().waitFor();
   await scan('colleague box');
 });
+await step('Chat: Message someone, with who is online', async () => {
+  await page.goto(`${B}/chat`);
+  await page.getByLabel('Start a direct message').pressSequentially('k');
+  await page.getByRole('listbox', { name: 'Matching people' }).getByRole('option').first().waitFor();
+  await scan('chat message someone');
+  await page.getByLabel('Start a direct message').fill('');
+});
 await step('Contacts: Also at…; Sheets: Find with Also in and Options', async () => {
   await page.goto(`${B}/contacts`);
   await page.getByRole('button', { name: 'Edit Ada Stone' }).click();

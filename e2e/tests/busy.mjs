@@ -42,9 +42,9 @@ await step('setup: Kim has a private meeting today', async () => {
 await step('add Kim: her busy time shows in the day view, without the title', async () => {
   await page.goto(`${B}/calendar`);
   await page.getByRole('radio', { name: 'Day' }).click();
-  const pick = page.locator('select.dm-pick');
-  await until(async () => (await pick.locator('option').allInnerTexts()).includes('Kim Park'));
-  await pick.selectOption({ label: 'Kim Park' });
+  const box = page.getByLabel("Show a colleague's calendar"); // a few letters of her name, then pick her
+  await box.pressSequentially('kim');
+  await page.getByRole('listbox', { name: 'Matching people' }).getByRole('option').filter({ hasText: 'Kim Park' }).click();
   const block = page.locator('.tg-busy', { hasText: 'Kim Park' });
   await block.waitFor();
   if (/Salary/.test(await page.locator('.timegrid, .tg-scroll').first().innerText())) throw new Error('title leaked');
