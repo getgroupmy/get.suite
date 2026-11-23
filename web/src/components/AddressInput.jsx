@@ -47,7 +47,7 @@ export default function AddressInput({ value, onChange, label, ...rest }) {
               <Avatar name={p.name || p.email} size={24} email={p.email} />
               {p.members
                 ? <span className="grow"><span>{p.name}</span><span className="muted small"> {p.members.length} {p.members.length === 1 ? 'person' : 'people'}</span></span>
-                : <span className="grow"><span>{p.name || p.email}</span>{p.name && <span className="muted small"> {p.email}</span>}</span>}
+                : <span className="grow"><span>{p.name || p.email}</span>{p.name && <span className="muted small"> {p.email}</span>}{p.company && <span className="muted small"> · {p.company}</span>}</span>}
               <span className="muted small">{p.kind === 'group' ? 'Group' : p.kind === 'colleague' ? 'Colleague' : p.kind === 'other' ? 'Emailed before' : 'Contact'}</span>
             </li>
           ))}

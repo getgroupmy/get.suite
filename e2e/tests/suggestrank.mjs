@@ -66,6 +66,23 @@ await step('To suggestions: the colleague you email most comes first; clicking p
   await list.getByRole('option').first().click();
   await until(async () => /quinnz@acme\.com/.test(await page.getByLabel('To', { exact: true }).inputValue()));
 });
+await step('To suggestions: a company finds the contacts there, and says the company', async () => {
+  for (const [name, email] of [['Ada Stone', 'ada@initrode.example'], ['Ben Vale', 'ben.vale@post.example']]) await api(page, 'POST', '/contacts', { name, email, company: 'Initrode Works' });
+  await api(page, 'POST', '/contacts', { name: 'Cy Marsh', email: 'cy@other.example', company: 'Elsewhere' });
+  const to = page.getByLabel('To', { exact: true });
+  const list = page.getByRole('listbox', { name: 'Suggestions for To' });
+  await to.fill('');
+  await to.pressSequentially('works');
+  await list.getByRole('option').filter({ hasText: 'Ben Vale' }).getByText('· Initrode Works').waitFor({ timeout: 10000 });
+  await list.getByRole('option').filter({ hasText: 'Ada Stone' }).waitFor();
+  if (await list.getByRole('option').count() !== 2) throw new Error('only the two people at the company');
+  await to.fill('');
+  await to.pressSequentially('ben initrode');
+  await until(async () => (await list.getByRole('option').count()) === 1 && /Ben Vale/.test(await list.innerText()), 10000);
+  await page.screenshot({ path: `${SP}/shots/suggest-company.png` });
+  await page.keyboard.press('Enter');
+  await until(async () => /ben\.vale@post\.example/.test(await to.inputValue()));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

@@ -433,11 +433,16 @@ export default function contactRoutes() {
       .map((g) => ({ kind: 'group', name: g.name, email: `group:${g.id}`, members: g.members }));
     const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const starts = `${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
-    const company = q(`SELECT c.name, c.email FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.shared = 1 AND u.org_id = ? AND c.owner_id != ? AND c.email IS NOT NULL AND c.email != ''
-                    AND (fold(c.name) LIKE ? ESCAPE '\\' OR fold(c.email) LIKE ? ESCAPE '\\') ORDER BY c.name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
-    const mine = q(`SELECT name, email, starred FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
-                    AND (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\')
-                    ORDER BY starred DESC, (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
+    // Contacts are found by their company too ("acme" lists the people there), and several words may be
+    // spread over name, address and company ("bob acme").
+    const words = term.split(/\s+/).filter(Boolean).slice(0, 6);
+    const wordLikes = words.map((w) => `%${w.replace(/[%_\\]/g, (c) => `\\${c}`)}%`);
+    const allWords = (t) => words.map(() => `fold(coalesce(${t}name, '') || ' ' || coalesce(${t}email, '') || ' ' || coalesce(${t}company, '')) LIKE ? ESCAPE '\\'`).join(' AND ');
+    const company = q(`SELECT c.name, c.email, c.company FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.shared = 1 AND u.org_id = ? AND c.owner_id != ? AND c.email IS NOT NULL AND c.email != ''
+                    AND ${allWords('c.')} ORDER BY c.name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, ...wordLikes);
+    const mine = q(`SELECT name, email, company, starred FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
+                    AND ${allWords('')}
+                    ORDER BY starred DESC, (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, ...wordLikes, starts, starts);
     // Your contacts' other addresses (a work and a home one): each is a suggestion of its own.
     const extra = q(`SELECT name, more_emails, starred FROM contacts WHERE owner_id = ? AND more_emails IS NOT NULL AND more_emails != '[]'
                      AND (fold(name) LIKE ? ESCAPE '\\' OR fold(more_emails) LIKE ? ESCAPE '\\') LIMIT 20`).all(req.user.id, like, like)
@@ -454,7 +459,9 @@ export default function contactRoutes() {
         const email = p.email.toLowerCase();
         if (seen.has(email) || (kind === 'colleague' && !canReach(req.user, p.id))) continue;
         seen.add(email);
-        out.push({ name: p.name || '', email, kind });
+        // The company is said when it is what was typed, so the list explains itself.
+        const firm = kind === 'contact' && p.company && words.some((w) => fold(p.company).includes(w) && !fold(`${p.name || ''} ${p.email}`).includes(w)) ? { company: p.company } : {};
+        out.push({ name: p.name || '', email, kind, ...firm });
       }
     }
     // Who you write to most comes first (after your starred contacts), the rest as they were.

@@ -1522,7 +1522,12 @@ test('contacts: import vCard and CSV files (duplicates skipped), export, and add
   const colleague = await sug('owner');
   assert.ok(colleague.some((s) => s.email === 'owner@acme.com' && s.kind === 'colleague'), 'colleagues too');
   assert.deepEqual(await sug(''), []);
-  assert.deepEqual((await sug('globex')).length, 0, 'only names and addresses are matched');
+  // A company finds the people there, saying the company; words may be spread over name and company.
+  assert.deepEqual((await sug('globex')).map((s) => [s.email, s.kind, s.company]), [['meiling@example.com', 'contact', 'Globex']]);
+  assert.deepEqual((await sug('mei glob')).map((s) => [s.email, s.company]), [['meiling@example.com', 'Globex']]);
+  assert.equal((await sug('mei'))[0].company, undefined, 'not said when the name was what matched');
+  assert.deepEqual(await sug('mei initech'), [], 'every word has to fit');
+  assert.deepEqual(await sug('100%'), [], 'a % is only a %');
 });
 
 test('chat: unread counts, editing, reactions and attached files', async () => {
