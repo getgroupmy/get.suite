@@ -145,12 +145,14 @@ await step('accents don\'t matter: "cafe" finds a task and a note with café, "z
   await results().getByRole('group', { name: 'Contacts' }).getByText('Zoë Brontë').waitFor();
   // events, chat messages and file names too
   const t = Date.now() + 864e5;
-  await api(page, 'POST', '/events', { title: 'Réunion à Montréal', start: t, end: t + 36e5 });
+  await api(page, 'POST', '/events', { title: 'Réunion à Montréal', start: t, end: t + 36e5, location: 'Salle 4' });
   const ch = (await api(page, 'GET', '/chat/channels')).body.channels[0];
   await api(page, 'POST', `/chat/channels/${ch.id}/messages`, { body: 'Montréal crêperie at noon?', files: [] });
   await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Montréal notes' });
   await box().fill('montreal');
   await results().getByRole('group', { name: 'Events' }).getByText('Réunion à Montréal').waitFor();
+  // An event says when (in words) and where.
+  await results().getByRole('group', { name: 'Events' }).getByRole('option').filter({ hasText: 'Réunion à Montréal' }).getByText(/Tomorrow \d\d:\d\d · Salle 4$/).waitFor();
   await results().getByRole('group', { name: 'Chat' }).getByText(/crêperie/).waitFor();
   await results().getByRole('group', { name: 'Files' }).getByText('Montréal notes').waitFor();
   await page.keyboard.press('Escape');
