@@ -3,6 +3,7 @@
 #
 #   /etc/nw      (read-only)  tables, accounts and DKIM keys written by the app
 #   /etc/nw-tls  (read-only)  fullchain.pem + privkey.pem (e.g. DSM's Let's Encrypt cert)
+#   /etc/nw-caddy (read-only, optional)  Caddy's data, when Caddy gets the mail hostname's certificate
 #   /var/vmail                mailboxes
 #
 # Every few seconds the app-written files are copied to /run/nw with safe
@@ -13,6 +14,7 @@ SRC=${NW_CONFIG_DIR:-/etc/nw}
 LIVE=${NW_LIVE_DIR:-/run/nw}
 TLS_SRC=${NW_TLS_DIR:-/etc/nw-tls}
 TLS_LIVE=${NW_TLS_LIVE_DIR:-/run/nw-tls}
+CADDY_TLS=${NW_CADDY_DIR:-/etc/nw-caddy}  # Caddy's data (docker-compose.mac.yml --profile https): its certificate for the mail hostname
 HOSTNAME_FQDN=${MAIL_HOSTNAME:-$(hostname -f)}
 INTERVAL=${SYNC_INTERVAL:-5}
 STATUS=${NW_STATUS_DIR:-/var/nw-status}   # written here, read by the app: the outgoing queue
@@ -29,20 +31,34 @@ content_fp() {
   { find "$@" -type f -print0 2>/dev/null | sort -z | xargs -0 -r md5sum 2>/dev/null || true; } | md5sum | cut -d' ' -f1
 }
 # Whether to copy at all: the app's files, cheaply (names, sizes, times).
-fp_all()     { fingerprint "$SRC" "$TLS_SRC"; }
+fp_all()     { fingerprint "$SRC" "$TLS_SRC" "$CADDY_TLS/caddy/certificates"; }
 # Change groups, so each change reloads only what needs it. Reloading Dovecot drops every
 # open IMAP connection (phones, webmail), so it is reserved for its own settings and TLS.
 fp_postfix() { content_fp "$LIVE/postfix" "$TLS_LIVE"; }
 fp_dovecot() { content_fp "$LIVE/dovecot/policy.conf" "$TLS_LIVE"; }
 fp_rspamd()  { content_fp "$LIVE/dkim"; }
 
+# Caddy's certificate for the mail hostname, if it has one: "<crt> <key>" (its .crt holds the whole chain).
+# Caddy keeps them as caddy/certificates/<issuer>/<host>/<host>.crt; the newest wins if two issuers have one.
+caddy_cert() {
+  local crt
+  crt=$({ find "$CADDY_TLS/caddy/certificates" -type f -path "*/$HOSTNAME_FQDN/$HOSTNAME_FQDN.crt" -printf '%T@ %p\n' 2>/dev/null || true; } | sort -rn | head -n 1 | cut -d' ' -f2-)
+  [[ -n $crt && -s $crt && -s ${crt%.crt}.key ]] && echo "$crt ${crt%.crt}.key"
+  return 0
+}
+
 sync_tls() {
   mkdir -p "$TLS_LIVE"
+  local caddy
+  caddy=$(caddy_cert)
   if [[ -s $TLS_SRC/fullchain.pem && -s $TLS_SRC/privkey.pem ]]; then
     cp "$TLS_SRC/fullchain.pem" "$TLS_LIVE/fullchain.pem"
     cp "$TLS_SRC/privkey.pem" "$TLS_LIVE/privkey.pem"
+  elif [[ -n $caddy ]]; then
+    cp "${caddy%% *}" "$TLS_LIVE/fullchain.pem"
+    cp "${caddy##* }" "$TLS_LIVE/privkey.pem"
   elif [[ ! -s $TLS_LIVE/fullchain.pem ]]; then
-    log "No certificate in $TLS_SRC; generating a self-signed one for $HOSTNAME_FQDN"
+    log "No certificate in $TLS_SRC (nor from Caddy); generating a self-signed one for $HOSTNAME_FQDN"
     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$HOSTNAME_FQDN" \
       -addext "subjectAltName=DNS:$HOSTNAME_FQDN" \
       -keyout "$TLS_LIVE/privkey.pem" -out "$TLS_LIVE/fullchain.pem" 2>/dev/null

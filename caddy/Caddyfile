@@ -5,3 +5,9 @@
 	reverse_proxy workspace:8080
 	header Strict-Transport-Security "max-age=31536000"
 }
+
+# The mail hostname too, for its certificate: the mail server takes it from Caddy's data (phones and mail apps then
+# trust it without a warning). Nothing is served there.
+{$MAIL_HOST} {
+	respond "This is a mail server." 404
+}

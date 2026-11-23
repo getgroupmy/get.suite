@@ -50,7 +50,9 @@ services:
       - workspace-mail-config:/etc/nw:ro
       - workspace-mail-status:/var/nw-status
       - workspace-mailboxes:/var/vmail
-      # A certificate for the mail hostname (fullchain.pem and privkey.pem in one folder on the Mac), see README:
+      # With --profile https, Caddy also gets a Let's Encrypt certificate for the mail hostname; the mail server uses it.
+      - workspace-caddy:/etc/nw-caddy:ro
+      # Or a certificate of your own for the mail hostname (fullchain.pem and privkey.pem in one folder; it wins):
       # - ~/workspace-tls:/etc/nw-tls:ro
     environment:
       TZ: *timezone
@@ -72,6 +74,7 @@ services:
       - workspace-caddy:/data   # its certificates
     environment:
       WORKSPACE_HOST: *web_hostname
+      MAIL_HOST: *mail_hostname
     depends_on:
       - workspace
     mem_limit: 256m

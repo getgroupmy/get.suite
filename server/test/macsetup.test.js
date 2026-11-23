@@ -30,11 +30,16 @@ test('Mac compose file with --profile https: Caddy on 80 and 443, in front of th
   assert.equal(caddy.environment.WORKSPACE_HOST, 'workspace.example.com', 'the hostname from the top of the file');
   assert.ok(caddy.volumes.some((v) => v.target === '/etc/caddy/Caddyfile' && v.read_only));
   assert.ok(caddy.volumes.some((v) => v.type === 'volume' && v.target === '/data'), 'its certificates kept in a volume');
+  assert.equal(caddy.environment.MAIL_HOST, 'mail.example.com', 'it gets the mail hostname\'s certificate too');
+  const mail = JSON.parse(r.stdout).services.mail;
+  const shared = caddy.volumes.find((v) => v.target === '/data').source;
+  assert.ok(mail.volumes.some((v) => v.source === shared && v.target === '/etc/nw-caddy' && v.read_only), 'the mail server reads it, read-only');
 });
 
 test('Caddyfile: the hostname from the environment, passed on to the app', () => {
   const f = fs.readFileSync(new URL('../../caddy/Caddyfile', import.meta.url), 'utf8').replace(/^#.*$/gm, '');
   assert.match(f, /^\{\$WORKSPACE_HOST\} \{$/m);
   assert.match(f, /^\treverse_proxy workspace:8080$/m);
+  assert.match(f, /^\{\$MAIL_HOST\} \{$/m, 'a site for the mail hostname, for its certificate');
   assert.equal((f.match(/\{/g) || []).length, (f.match(/\}/g) || []).length, 'braces balance');
 });
