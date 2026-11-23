@@ -687,6 +687,12 @@ test('make a document, a note, a task and an event; search finds them and fetch 
   for (const k of ['file', 'task', 'note', 'event']) assert.ok(ids.includes(k), `${k} in ${JSON.stringify(found)}`);
   const text = JSON.parse((await call(rw, 'search', { query: 'pelican' })).content[0].text);
   assert.deepEqual(Object.keys(text), ['results'], 'the text is the same JSON (what ChatGPT reads)');
+  // A file in a folder says which, so two files of the same name can be told apart.
+  const kit = (await owner('POST', '/api/files/folder', { name: 'Launch kit' })).body;
+  const flyer = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Pelican flyer', parent_id: kit.id })).body;
+  const hit = (await call(rw, 'search', { query: 'pelican flyer' })).structuredContent.results.find((r) => r.id === `file:${flyer.id}`);
+  assert.equal(hit?.title, 'Pelican flyer (in Launch kit)');
+  assert.equal(found.find((r) => r.id === doc.id)?.title, 'Pelican launch plan', 'at the top of My Drive: the name alone');
 
   const got = (await call(rw, 'fetch', { id: doc.id })).structuredContent;
   assert.equal(got.title, 'Pelican launch plan');

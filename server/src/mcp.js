@@ -128,7 +128,7 @@ export const TOOLS = [
       ]);
       const low = String(query).toLowerCase();
       const results = [
-        ...(Array.isArray(files) ? files : files?.files || []).slice(0, 10).map((f) => ({ id: `file:${f.id}`, title: f.name, url: fileUrl(f) })),
+        ...(Array.isArray(files) ? files : files?.files || []).slice(0, 10).map((f) => ({ id: `file:${f.id}`, title: `${f.name}${f.parent_name ? ` (in ${f.parent_name})` : ''}`, url: fileUrl(f) })), // (the folder it's in, when the person can open it)
         ...(mail?.messages || []).slice(0, 10)
           .map((m) => ({ id: `mail:${m.folder}:${m.uid}`, title: `${m.subject || '(no subject)'} — ${m.sent ? `to ${(m.to || []).map((t) => t.address).join(', ')}` : m.from?.name || m.from?.address || ''}${m.folder !== 'INBOX' && !m.sent ? ` (in ${m.folder_name})` : ''}`, url: link(`/mail/${encodeURIComponent(m.folder)}/${m.uid}`) })),
         ...(chat || []).slice(0, 10).map((m) => ({ id: `chat:${m.channel_id}:${m.id}`, title: `${m.user_name || 'Someone'} in ${m.where}: ${words(m.body, 80)}`, url: link(`/chat/${m.channel_id}?msg=${m.parent_id || m.id}`) })),
