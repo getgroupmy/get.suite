@@ -105,6 +105,29 @@ await step('Move to… offers the folders you last moved things to', async () =>
   await dlg.getByRole('button', { name: 'Move here' }).click();
   await dlg.waitFor({ state: 'detached' });
 });
+await step('Move to…: a new folder made where you are, and moved into', async () => {
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Q4 plan' })).body;
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Q4 plan' }).click();
+  await page.getByRole('menuitem', { name: 'Move to…' }).click();
+  const dlg = page.getByRole('dialog', { name: /Move “Q4 plan”/ });
+  await dlg.locator('.pick-list').getByRole('button').filter({ hasText: 'Clients' }).click();
+  await dlg.locator('.crumbs').getByRole('button', { name: 'Clients' }).waitFor();
+  await dlg.getByRole('button', { name: '+ New folder' }).click();
+  const name = page.getByRole('dialog', { name: 'New folder' });
+  await name.getByLabel('Folder name').fill('Q4');
+  await name.getByRole('button', { name: 'Create' }).click();
+  await name.waitFor({ state: 'detached' });
+  await dlg.locator('.crumbs').getByRole('button', { name: 'Q4' }).waitFor(); // inside it now
+  await dlg.getByText('No folders here').waitFor();
+  await dlg.getByRole('button', { name: 'Move here' }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const top = (await api(page, 'GET', '/files?view=mine')).body.find((f) => f.name === 'Clients');
+  const q4 = (await api(page, 'GET', `/files?view=mine&parent=${top.id}`)).body.find((f) => f.name === 'Q4');
+  if (!q4) throw new Error('no Q4 in Clients');
+  const inQ4 = (await api(page, 'GET', `/files?view=mine&parent=${q4.id}`)).body.map((f) => f.id);
+  if (!inQ4.includes(doc.id)) throw new Error('not moved into Q4');
+});
 await step('Drive search: each result says the folder it is in; a click opens that folder', async () => {
   await page.goto(`${B}/drive/search?q=${encodeURIComponent('lease')}`);
   const row = page.locator('table.files tbody tr', { hasText: 'Lease 2027' });

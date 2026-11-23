@@ -2,7 +2,7 @@
 // or pick one you moved things to lately. Used by Drive, and by Mail after saving attachments.
 import { useEffect, useState } from 'react';
 import { get, post, patch } from '../api.js';
-import { Modal, useToast } from './ui.jsx';
+import { Modal, PromptModal, useToast } from './ui.jsx';
 import Icon from './Icon.jsx';
 
 // pick: { title, action, onPick(folderId or null) } chooses a folder without moving anything (Chat's "Save to a folder…").
@@ -37,6 +37,13 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
   const [drives, setDrives] = useState([]);
   useEffect(() => { if (pick) get('/files?view=drives').then((l) => setDrives(l.filter((d) => d.role === 'owner' || d.role === 'editor'))).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A new folder where you are, gone into at once (ready for Move here / Save here).
+  const [naming, setNaming] = useState(false);
+  const makeFolder = async (name) => {
+    const f = await post('/files/folder', { name, ...(cur && { parent_id: cur }) });
+    setCur(f.id);
+  };
+
   async function move() {
     if (pick) { onClose(); pick.onPick(cur); return; }
     if (copy) { onClose(); onCopy(cur); return; }
@@ -50,6 +57,7 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
   }
 
   return (
+    <>
     <Modal title={pick ? pick.title : copy ? (files.length === 1 ? `Copy “${files[0].name}” to…` : `Copy ${files.length} items to…`) : shortcut ? `Add a shortcut to “${files[0].name}”` : files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose}
       footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{pick ? pick.action : copy ? 'Copy here' : shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
       {copy && <p className="muted small" style={{ marginTop: 0 }}>The original stays where it is. A copy keeps its name, unless it goes in the same folder (then it’s “Copy of …”).</p>}
@@ -77,10 +85,13 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
         </>
       )}
       {!hits && <>
-      <nav className="crumbs small">
-        <button className="crumb" onClick={() => setCur(null)}>My Drive</button>
-        {path.map((c) => <span key={c.id} className="crumb-wrap"><Icon name="right" size={16} /><button className="crumb" onClick={() => setCur(c.id)}>{c.name}</button></span>)}
-      </nav>
+      <div className="row move-where">
+        <nav className="crumbs small grow">
+          <button className="crumb" onClick={() => setCur(null)}>My Drive</button>
+          {path.map((c) => <span key={c.id} className="crumb-wrap"><Icon name="right" size={16} /><button className="crumb" onClick={() => setCur(c.id)}>{c.name}</button></span>)}
+        </nav>
+        <button type="button" className="link-btn small" onClick={() => setNaming(true)}>+ New folder</button>
+      </div>
       <ul className="pick-list">
         {folders.length === 0 && <li className="muted">No folders here</li>}
         {folders.map((f) => <li key={f.id}><button onClick={() => setCur(f.id)}><Icon name="folder" className="ft ft-folder" />{f.name}<Icon name="right" size={18} /></button></li>)}
@@ -88,5 +99,7 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
       </ul>
       </>}
     </Modal>
+    {naming && <PromptModal title="New folder" label="Folder name" confirm="Create" onClose={() => setNaming(false)} onSubmit={async (name) => { await makeFolder(name); setNaming(false); }} />}
+    </>
   );
 }
