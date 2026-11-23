@@ -9,10 +9,11 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 
 const script = new URL('../../scripts/check-setup.sh', import.meta.url).pathname;
+// The system's own tools (from /usr/bin or /bin first: a shell's PATH can put wrappers ahead of them).
+const realTool = (t) => ['/usr/bin', '/bin'].map((d) => path.join(d, t)).find((f) => fs.existsSync(f)) || execFileSync('bash', ['-c', `command -v ${t}`]).toString().trim();
 const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-setup-'));
 for (const tool of ['bash', 'awk', 'grep', 'tr', 'dirname', 'env']) {
-  const real = execFileSync('bash', ['-c', `command -v ${tool}`]).toString().trim();
-  fs.symlinkSync(real, path.join(bin, tool));
+  fs.symlinkSync(realTool(tool), path.join(bin, tool));
 }
 const stub = (name, body) => fs.writeFileSync(path.join(bin, name), `#!${path.join(bin, 'bash')}\n${body}\n`, { mode: 0o755 });
 stub('uname', '[[ $1 == -s ]] && echo "${FAKE_OS:-Darwin}" || echo "${FAKE_HW:-arm64}"');

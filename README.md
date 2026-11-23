@@ -104,16 +104,13 @@ Workspace runs on a Mac in the same two containers as on the NAS. Both build nat
 6. **Updates:** copy the new code over and run the same `up -d --build` command. The volumes, and so your data, stay as they were.
 7. **Check it:** run `bash scripts/check-setup.sh` again: once it's running, it checks that the app runs natively (*arm64*, not through emulation), answers on port 8080, that the mail server is up and that the Mac won't go to sleep, and ends with *All set.* **Admin → System** also says *arm64* under **Machine**, and lists the memory in use against the 1 GB `mem_limit`. (It works on Linux and an Intel Mac too; give it another compose file with `bash scripts/check-setup.sh docker-compose.yml`.)
 
-**Backups.** Everything is in four Docker volumes: `workspace-data` (the database and files) and `workspace-mailboxes` matter most. Stop the containers, copy them into a folder on the Mac, and start again:
+**Backups.** Everything is in Docker volumes: the database and files, the mailboxes and the mail settings. `bash scripts/backup.sh` copies them into `~/workspace-backup/<date and time>/` (one `.tgz` each), stopping Workspace for the minute or so it takes so the database is copied whole, then starting it again. It keeps the last 14 copies (`KEEP=30 bash scripts/backup.sh` for more; `BACKUP_DIR=/Volumes/Backup/workspace` to put them on another disk), and Time Machine keeps the folder too. Workspace's own daily database snapshots (see [Backups](#backups)) are in the database volume, so they come along.
 
-```
-docker compose -f docker-compose.mac.yml stop
-mkdir -p ~/workspace-backup
-for v in data mailboxes mail-config; do docker run --rm -v "$(basename "$PWD")_workspace-$v":/v -v ~/workspace-backup:/b alpine tar czf "/b/$v-$(date +%F).tgz" -C /v .; done
-docker compose -f docker-compose.mac.yml start
-```
+- **Every night:** `crontab -e` and add `0 3 * * * cd ~/workspace-app && bash scripts/backup.sh >> ~/workspace-backup/log.txt 2>&1` (the Mac must be awake at 3:00, which it is when set never to sleep).
+- **The copies kept:** `bash scripts/backup.sh list`.
+- **Putting one back:** `bash scripts/backup.sh restore 2026-11-23-0300 --yes` stops Workspace, replaces what's in each volume with that copy and starts it again. Everything since that copy is lost, which is why it asks for `--yes`.
 
-Time Machine then keeps `~/workspace-backup`. Workspace's own daily database snapshots (see [Backups](#backups)) are inside `workspace-data`, so they come along. (Docker names each volume after the folder the project is in, `workspace-app_workspace-data` and so on; `docker volume ls` lists them.) To put one back, stop the containers and unpack it into the same volume with `tar xzf`. Copying the Docker files themselves while it runs can give a half-written database.
+The script finds the volumes by the names in `docker-compose.mac.yml`, whatever the project folder is called, and doesn't touch other files in the backup folder.
 
 **From the internet:** the HTTPS steps below are written for the Synology reverse proxy. On a Mac, put a reverse proxy such as [Caddy](https://caddyserver.com) in front of port 8080 (it gets a Let's Encrypt certificate by itself; pass WebSockets through, which Caddy does without extra settings), or use a tunnel such as Cloudflare Tunnel, and forward 80 and 443 on your router to the Mac. For mail, forward 25, 465, 587 and 993 to the Mac as you would to the NAS. Many home internet providers block port 25, in which case mail from outside can't arrive whatever the machine. For the mail server's own certificate, put `fullchain.pem` and `privkey.pem` for the mail hostname in a folder (e.g. `~/workspace-tls`) and uncomment the `/etc/nw-tls` line in `docker-compose.mac.yml`; without it, the mail server makes a self-signed one.
 
