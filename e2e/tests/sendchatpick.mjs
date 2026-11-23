@@ -64,5 +64,21 @@ await step('Send in Chat…: the latest conversation is first and chosen; Find a
   await until(async () => (await box.inputValue()).includes(`/docs/${doc.id}`));
 });
 
+await step('Forward: the latest other conversation is chosen, and Find by name narrows the list', async () => {
+  await page.goto(`${B}/chat/${ids.zeta}`);
+  const msg = page.locator('.msg', { hasText: 'hello zeta' });
+  await msg.hover();
+  await msg.getByRole('button', { name: 'Forward' }).click();
+  const d = page.getByRole('dialog', { name: 'Forward message' });
+  const sel = d.getByLabel('To');
+  const opts = await sel.locator('option').allInnerTexts();
+  if (opts.slice(0, 3).join(',') !== '# zeta,# gamma,# alpha') throw new Error(opts.join(','));
+  if ((await sel.inputValue()) !== ids.gamma) throw new Error('not the latest other one: ' + await sel.inputValue());
+  await d.getByLabel('Find by name').fill('epsi');
+  await until(async () => (await sel.locator('option').allInnerTexts()).join(',') === '# epsilon');
+  await d.getByRole('button', { name: 'Forward' }).click();
+  await d.waitFor({ state: 'detached' });
+  await until(async () => { const b = (await api(page, 'GET', `/chat/channels/${ids.epsilon}/messages`)).body; return (Array.isArray(b) ? b : b.messages || []).some((m) => m.forwarded?.body === 'hello zeta'); });
+});
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

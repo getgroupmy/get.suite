@@ -1,3 +1,4 @@
+import ConversationPick, { conversationName, latestFirst } from '../../components/ConversationPick.jsx';
 import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { has } from '../../fold.js';
 import { unreachable, keepChange, keepDelete, appendKept, patchKeptItem } from '../offlinedocs.js';
@@ -1580,11 +1581,11 @@ function JumpDialog({ items, onClose, onPick }) {
 
 function ForwardDialog({ message, channels, currentId, onClose, onSent }) {
   const toast = useToast();
-  const open = channels.filter((c) => !c.archived_at);
+  const open = latestFirst(channels); // the latest conversation first (not this one: it's here already)
   const [to, setTo] = useState(open.find((c) => c.id !== currentId)?.id || open[0]?.id || '');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
-  const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
+  const name = conversationName;
   async function submit(e) {
     e.preventDefault();
     try {
@@ -1598,11 +1599,7 @@ function ForwardDialog({ message, channels, currentId, onClose, onSent }) {
       <form className="stack" onSubmit={submit}>
         <blockquote className="msg-forwarded"><div className="muted small">{message.forwarded ? message.forwarded.name : message.user_name}</div>
           <div className="ellipsis">{(message.body || message.forwarded?.body || (message.files?.length ? `📎 ${message.files.map((f) => f.name).join(', ')}` : '')).slice(0, 200)}</div></blockquote>
-        <label className="field"><span>To</span>
-          <select value={to} onChange={(e) => setTo(e.target.value)} required>
-            {open.map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
-          </select>
-        </label>
+        <ConversationPick conversations={open} value={to} onChange={setTo} />
         <label className="field"><span>Add a message (optional)</span><textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={8000} /></label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Forward</button></div>
