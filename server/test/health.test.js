@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-health-db-')); // a database of its own
-const { collectHealth, checkAndNotify, probeMail } = await import('../src/health.js');
+const { collectHealth, checkAndNotify, probeMail, containerMemory, memoryCheck, thisMachine } = await import('../src/health.js');
 const { q } = await import('../src/db.js');
 
 const GB = 1024 ** 3;
@@ -17,7 +17,7 @@ const backups = (...ageHours) => {
   return dir;
 };
 const byId = (h) => Object.fromEntries(h.checks.map((c) => [c.id, c]));
-const base = { now, started: now - 864e5, mail: false };
+const base = { now, started: now - 864e5, mail: false, memory: () => null }; // (memory: not this machine's own)
 
 test('health: disk space, database snapshots', async () => {
   let h = await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(5, 29) });
@@ -128,4 +128,34 @@ test('health: mail DNS records and reverse DNS', async () => {
   assert.equal(h.maildns.label, 'Mail DNS records');
   assert.equal(h.maildns.status, 'warn');
   assert.equal(byId(await collectHealth({ ...mailOn, mailDns: async () => { throw new Error('x'); } })).maildns, undefined);
+});
+
+test('health: what it runs on, and memory against the container limit', async () => {
+  const MB = 1024 ** 2;
+  const m = thisMachine();
+  assert.equal(m.arch, process.arch);
+  assert.ok(m.cpus >= 1 && m.machine_memory > 0 && m.os.length > 0);
+  // cgroup v2: in use leaves out file cache that can be dropped (as docker stats counts it); "max" means no limit.
+  const v2 = (files) => (f) => { if (!(f in files)) throw Object.assign(new Error('none'), { code: 'ENOENT' }); return files[f]; };
+  assert.deepEqual(containerMemory(v2({ '/sys/fs/cgroup/memory.current': `${700 * MB}\n`, '/sys/fs/cgroup/memory.max': `${1024 * MB}\n`, '/sys/fs/cgroup/memory.stat': `anon 5\ninactive_file ${100 * MB}\n` })), { used: 600 * MB, limit: 1024 * MB });
+  assert.deepEqual(containerMemory(v2({ '/sys/fs/cgroup/memory.current': '1000\n', '/sys/fs/cgroup/memory.max': 'max\n' })), { used: 1000, limit: null }, 'no limit');
+  // cgroup v1, whose "no limit" is a huge number.
+  assert.deepEqual(containerMemory(v2({ '/sys/fs/cgroup/memory/memory.usage_in_bytes': `${300 * MB}`, '/sys/fs/cgroup/memory/memory.limit_in_bytes': '9223372036854771712', '/sys/fs/cgroup/memory/memory.stat': `total_inactive_file ${50 * MB}` })), { used: 250 * MB, limit: null });
+  assert.deepEqual(containerMemory(v2({ '/sys/fs/cgroup/memory/memory.usage_in_bytes': `${300 * MB}`, '/sys/fs/cgroup/memory/memory.limit_in_bytes': `${512 * MB}` })), { used: 300 * MB, limit: 512 * MB });
+  assert.equal(containerMemory(v2({})), null, 'not in a container');
+  // The check: only with a limit; a warning from 85%, bad from 95%.
+  assert.equal(memoryCheck(null), null);
+  assert.equal(memoryCheck({ used: 1, limit: null }), null);
+  assert.deepEqual(memoryCheck({ used: 256 * MB, limit: 512 * MB }), { status: 'ok', detail: "256 MB of the container's 512 MB in use (50%)" });
+  assert.equal(memoryCheck({ used: 450 * MB, limit: 512 * MB }).status, 'warn');
+  assert.match(memoryCheck({ used: 500 * MB, limit: 512 * MB }).detail, /Raise mem_limit/);
+  assert.equal(memoryCheck({ used: 500 * MB, limit: 512 * MB }).status, 'bad');
+  // In the health report: a check, and the facts.
+  const h = await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(1), memory: () => ({ used: 490 * MB, limit: 512 * MB }), machine: () => ({ arch: 'arm64', os: 'Linux 6.10', cpus: 10, machine_memory: 16 * 1024 * MB }) });
+  assert.equal(byId(h).memory.status, 'bad');
+  assert.equal(h.status, 'bad');
+  assert.deepEqual([h.facts.arch, h.facts.cpus, h.facts.memory_used, h.facts.memory_limit], ['arm64', 10, 490 * MB, 512 * MB]);
+  const free = await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(1), memory: () => null });
+  assert.equal(byId(free).memory, undefined, 'no check outside a container');
+  assert.equal(free.facts.memory_used, undefined);
 });

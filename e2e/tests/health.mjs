@@ -44,6 +44,14 @@ await step('the platform owner sees the System tab with each check and the facts
   await checks.getByRole('listitem', { name: 'Database snapshots' }).waitFor();
   await page.getByRole('status', { name: 'Overall health' }).locator('strong').getByText(/Everything looks fine|looked at soon|needs attention/).waitFor();
   await page.getByText('People', { exact: true }).waitFor();
+  // What it runs on: the server's own architecture (arm64 on an Apple Silicon Mac), CPUs and memory.
+  const facts = page.locator('.health-facts');
+  const machine = facts.locator('div', { has: page.getByText('Machine', { exact: true }) }).locator('dd');
+  const text = await machine.innerText();
+  if (!new RegExp(`^${process.arch} · \\d+ CPUs? · [\\d.]+ (GB|MB) memory$`).test(text)) throw new Error('machine: ' + text);
+  await facts.locator('div', { has: page.getByText('System', { exact: true }) }).locator('dd').getByText(/^Linux /).waitFor();
+  const f = await page.evaluate(async () => (await (await fetch('/api/orgs/system/health', { headers: { 'x-requested-with': 'nas-workspace' } })).json()).facts);
+  if (f.memory_used != null) await facts.getByText('Memory in use', { exact: true }).waitFor(); // in a container (or a control group) only
   await page.getByRole('button', { name: 'Check again' }).click();
   await page.getByRole('button', { name: 'Check again' }).waitFor();
 });

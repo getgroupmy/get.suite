@@ -3,6 +3,7 @@
 // every hour too: the platform owners get a notification (once a day per problem) when something
 // needs attention.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 import { q, DATA_DIR } from './db.js';
@@ -36,7 +37,7 @@ const dirSize = (dir) => { try { return fs.readdirSync(dir).reduce((n, f) => { t
  * passed in, so tests can try each case: statfs(dir) → { bsize, blocks, bavail }, the backups
  * folder, probe() → as probeMail, and now.
  */
-export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, mailDns = defaultMailDns, now = Date.now(), started = STARTED } = {}) {
+export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, mailDns = defaultMailDns, memory = containerMemory, machine = thisMachine, now = Date.now(), started = STARTED } = {}) {
   const checks = [];
   const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
 
@@ -84,10 +85,17 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
   const blc = blocklistCheck(bl);
   if (blc) add('blocklists', 'Spam blocklists', blc.status, blc.detail);
 
+  // Memory: how close the app is to its container's limit (mem_limit in the compose file), when it has one.
+  const mem = memory();
+  const mc = memoryCheck(mem);
+  if (mc) add('memory', 'Memory', mc.status, mc.detail);
+
   const dbFile = path.join(dataDir, 'workspace.db');
   const size = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
   const facts = {
     version: VERSION, node: process.version, up_since: started,
+    // What it runs on: arm64 on an Apple Silicon Mac (or a Raspberry Pi), x64 on most NAS and PCs.
+    ...machine(), ...(mem && { memory_used: mem.used, ...(mem.limit && { memory_limit: mem.limit }) }),
     database_bytes: size(dbFile) + size(`${dbFile}-wal`),
     files_bytes: q('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE storage IS NOT NULL').get().n,
     backups_bytes: dirSize(backupDir),
@@ -96,6 +104,39 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
   };
   const worst = checks.some((c) => c.status === 'bad') ? 'bad' : checks.some((c) => c.status === 'warn') ? 'warn' : 'ok';
   return { status: worst, checked_at: now, checks, facts };
+}
+
+const MB = 1024 ** 2;
+/** The machine: { arch, os, cpus, machine_memory }. */
+export function thisMachine() {
+  return { arch: process.arch, os: `${os.type()} ${os.release()}`, cpus: os.cpus().length, machine_memory: os.totalmem() };
+}
+/**
+ * The container's memory in use and its limit, from its control group (cgroup v2, or v1 on older systems), or null
+ * when there is none to read (not in a container). "In use" leaves out file cache the system can drop, as docker stats
+ * counts it; limit is null when the container has none.
+ */
+export function containerMemory(read = (f) => fs.readFileSync(f, 'utf8')) {
+  const num = (f) => { try { const t = read(f).trim(); return /^\d+$/.test(t) ? Number(t) : null; } catch { return undefined; } };
+  const cache = (f, key) => { try { const m = read(f).match(new RegExp(`^${key} (\\d+)$`, 'm')); return m ? Number(m[1]) : 0; } catch { return 0; } };
+  let used = num('/sys/fs/cgroup/memory.current');
+  if (used !== undefined && used !== null) {
+    const limit = num('/sys/fs/cgroup/memory.max'); // "max" (no limit) reads as null
+    return { used: Math.max(0, used - cache('/sys/fs/cgroup/memory.stat', 'inactive_file')), limit: limit ?? null };
+  }
+  used = num('/sys/fs/cgroup/memory/memory.usage_in_bytes');
+  if (used === undefined || used === null) return null;
+  const limit = num('/sys/fs/cgroup/memory/memory.limit_in_bytes');
+  return { used: Math.max(0, used - cache('/sys/fs/cgroup/memory/memory.stat', 'total_inactive_file')), limit: limit && limit < 2 ** 60 ? limit : null }; // v1's "no limit" is a huge number
+}
+/** The health check for memory ({ used, limit } as containerMemory gives it), or null without a limit to compare with. */
+export function memoryCheck(m) {
+  if (!m?.limit) return null;
+  const pct = Math.round((m.used / m.limit) * 100);
+  const text = `${Math.round(m.used / MB)} MB of the container's ${Math.round(m.limit / MB)} MB in use (${pct}%)`;
+  if (pct >= 95) return { status: 'bad', detail: `${text}: it may be stopped and restarted for running out. Raise mem_limit in the compose file.` };
+  if (pct >= 85) return { status: 'warn', detail: `${text}: close to its limit. Consider raising mem_limit in the compose file.` };
+  return { status: 'ok', detail: text };
 }
 
 /** The health check for blocklist results (as mailBlocklists gives them), or null when there's nothing to say. */

@@ -21,6 +21,9 @@ export default function SystemAdmin() {
     ['Version', f.version || '—'], ['Node.js', f.node], ['Running since', new Date(f.up_since).toLocaleString()],
     ['Database', formatBytes(f.database_bytes)], ['Files', formatBytes(f.files_bytes)], ['Database snapshots', formatBytes(f.backups_bytes)],
     ['Companies', f.companies], ['People', f.people],
+    // What it runs on (arm64 on an Apple Silicon Mac), and the app's memory against its container's limit.
+    ...(f.arch ? [['Machine', `${f.arch} · ${f.cpus} CPU${f.cpus === 1 ? '' : 's'} · ${formatBytes(f.machine_memory)} memory`], ['System', f.os]] : []),
+    ...(f.memory_used != null ? [['Memory in use', f.memory_limit ? `${formatBytes(f.memory_used)} of ${formatBytes(f.memory_limit)}` : formatBytes(f.memory_used)]] : []),
   ];
   return (
     <div className="stack" style={{ maxWidth: 800 }}>
