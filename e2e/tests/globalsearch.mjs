@@ -113,6 +113,14 @@ await step('a file is found by the words of its name in any order', async () => 
   await page.waitForURL(/\/drive\/search\?q=march/);
   await page.getByRole('main').getByText('Budget for March 2026').first().waitFor();
 });
+await step('a contact is found by words in different fields, and by a phone number however it is written', async () => {
+  await api(page, 'POST', '/contacts', { name: 'Bob Martin', email: 'bob@initrode.example', company: 'Initrode', phone: '+1 (555) 01-42' });
+  await page.goto(`${B}/drive`);
+  await box().fill('martin initrode');
+  await results().getByRole('group', { name: 'Contacts' }).getByText('Bob Martin').waitFor();
+  await box().fill('5550142');
+  await results().getByRole('group', { name: 'Contacts' }).getByText('Bob Martin').waitFor();
+});
 await step('accents don\'t matter: "cafe" finds a task and a note with café, "zoe" a contact Zoë, "montreal" an event, a message and a file', async () => {
   const list = (await api(page, 'GET', '/tasks/lists')).body.find?.((l) => l.name === 'Work')?.id || (await api(page, 'POST', '/tasks/lists', { name: 'Accents' })).body.id;
   await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Reserve the Café Olé terrace' });

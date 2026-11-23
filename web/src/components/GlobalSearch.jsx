@@ -1,6 +1,7 @@
 // The search box in the top bar. As you type it looks everywhere at once (files, chat, tasks, notes,
 // events, forms, chat conversations by name, contacts and colleagues) and lists the best few of each; Enter (with nothing picked) searches
 // Drive in full, as before.
+import { matchesFilter } from '../apps/contacts/contactfilter.js';
 import { moved } from './moved.js';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
@@ -41,8 +42,6 @@ const mailEnabled = () => (mailOnce ??= get('/mail/status').then((st) => !!st.en
 /** Everything that matches `text`, as groups of { key, icon, title, sub, to, state }. Each source failing on its own just leaves it out. */
 export async function searchAll(text) {
   const qs = encodeURIComponent(text);
-  const fold = (t) => String(t || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase(); // (accents don't matter)
-  const low = fold(text);
   const safe = (p) => p.catch(() => []);
   const mailOn = await mailEnabled();
   const mailIn = (folder) => (mailOn ? safe(get(`/mail/messages?folder=${encodeURIComponent(folder)}&q=${qs}`).then((r) => r.messages.map((m) => ({ ...m, folder })))) : Promise.resolve([]));
@@ -52,7 +51,6 @@ export async function searchAll(text) {
     safe(get(`/forms/search?q=${qs}`)), safe(get(`/chat/conversations/search?q=${qs}`)), safe(get(`/comments/search?q=${qs}`)), safe(get(`/meet/chat/search?q=${qs}`)),
   ]);
   const mail = [...inbox, ...sent].sort((a, b) => (b.date || 0) - (a.date || 0));
-  const has = (...xs) => xs.some((x) => fold(x).includes(low));
   return [
     ['Files', (Array.isArray(files) ? files : files.files || []).map((f) => ({ key: `f${f.id}`, icon: FILE_ICON[f.kind] || 'file', title: f.name,
       sub: [f.place_words, f.owner_name, when(f.updated_at)].filter(Boolean).join(' · '),
@@ -71,8 +69,8 @@ export async function searchAll(text) {
     ['Notes', notes.map((n) => ({ key: `n${n.id}`, icon: 'note', title: n.title || (n.body || (n.items || []).map((i) => i.text).join(', ')).slice(0, 80), sub: n.labels.join(', '), to: '/notes', state: { openNote: n.id } }))],
     ['Events', events.map((e) => ({ key: `e${e.id}:${e.start}`, icon: 'calendar', title: e.title, sub: `${when(e.start)}${e.location ? ` · ${e.location}` : ''}`, to: '/calendar', state: { openEvent: e } }))],
     ['Forms', forms.map((f) => ({ key: `o${f.id}`, icon: 'form', title: f.title, sub: [`${f.responses} response${f.responses === 1 ? '' : 's'}`, f.closed ? 'not taking answers' : null, f.owner_name].filter(Boolean).join(' · '), to: `/forms/${f.id}` }))],
-    ['Contacts', contacts.filter((c) => has(c.name, c.email, c.company, c.phone)).map((c) => ({ key: `k${c.id}`, icon: 'person', title: c.name || c.email, sub: [c.email, c.company].filter(Boolean).join(' · '), to: `/contacts?q=${encodeURIComponent(c.name || c.email)}` }))],
-    ['People', people.filter((p) => has(p.name, p.username)).map((p) => ({ key: `p${p.id}`, icon: 'people', title: p.name, sub: p.username, to: `/contacts?q=${encodeURIComponent(p.name)}` }))],
+    ['Contacts', contacts.filter((c) => matchesFilter({ name: c.name, email: c.email, company: c.company, title: c.title, phone: c.phone, more_phones: c.more_phones, more_emails: typeof c.more_emails === 'string' ? c.more_emails : JSON.stringify(c.more_emails || '') }, text)).map((c) => ({ key: `k${c.id}`, icon: 'person', title: c.name || c.email, sub: [c.email, c.company].filter(Boolean).join(' · '), to: `/contacts?q=${encodeURIComponent(c.name || c.email)}` }))],
+    ['People', people.filter((p) => matchesFilter({ name: p.name, username: p.username }, text)).map((p) => ({ key: `p${p.id}`, icon: 'people', title: p.name, sub: p.username, to: `/contacts?q=${encodeURIComponent(p.name)}` }))],
   ].map(([name, list]) => [name, list.slice(0, PER_GROUP), list.length]).filter(([, list]) => list.length);
 }
 
