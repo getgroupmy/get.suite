@@ -1,3 +1,4 @@
+import { has } from '../../fold.js';
 import PeopleTicks from '../../components/PeopleTicks.jsx';
 import { unreachable, keepChange, changeAdd, appendKept, offlineId, keepDelete } from '../offlinedocs.js';
 // Notes: quick notes and checklists on coloured cards. "Take a note…" at the top, pinned ones first,
@@ -754,12 +755,21 @@ function LabelNote({ note, all, onSave, onClose }) {
   const [chosen, setChosen] = useState(new Set(note.labels));
   const [adding, setAdding] = useState(false);
   const names = [...new Set([...all, ...chosen])].sort((a, b) => a.localeCompare(b));
+  // Find or make a label: typing narrows the list; a name that isn't a label yet can be made (and ticked) from here.
+  const [find, setFind] = useState('');
+  const typed = find.trim().slice(0, 40);
+  const shown = names.filter((l) => has(l, typed));
+  const fresh = typed && !names.some((l) => l.toLowerCase() === typed.toLowerCase());
+  const make = () => { setChosen(new Set([...chosen, typed])); setFind(''); };
   if (adding) return <PromptModal title="New label" label="Label" confirm="Add" onClose={() => setAdding(false)} onSubmit={async (name) => { setChosen(new Set([...chosen, name.trim().slice(0, 40)])); setAdding(false); }} />;
   return (
     <Modal title="Labels" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={() => onSave([...chosen])}>Save</button></>}>
       <div className="stack-tight">
-        {names.map((l) => <label key={l} className="check"><input type="checkbox" checked={chosen.has(l)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(l) : n.delete(l); setChosen(n); }} /> {l}</label>)}
-        <div><button type="button" className="link-btn" onClick={() => setAdding(true)}>+ New label</button></div>
+        <input type="search" aria-label="Find or make a label" placeholder="Find or make a label" value={find} onChange={(e) => setFind(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (shown.length === 1) { const n = new Set(chosen); n.add(shown[0]); setChosen(n); setFind(''); } else if (fresh) make(); } }} />
+        {shown.map((l) => <label key={l} className="check"><input type="checkbox" checked={chosen.has(l)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(l) : n.delete(l); setChosen(n); }} /> {l}</label>)}
+        {fresh ? <div><button type="button" className="link-btn" onClick={make}>+ Make label “{typed}”</button></div>
+          : <div><button type="button" className="link-btn" onClick={() => setAdding(true)}>+ New label</button></div>}
       </div>
     </Modal>
   );
