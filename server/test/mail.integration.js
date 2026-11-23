@@ -3213,3 +3213,38 @@ test('MCP search finds mail filed away in a folder, and fetch reads it there', a
   const read = await call('fetch', { id: found[0].id });
   assert.match(read.text, /Count the herons by the lake\./);
 });
+
+test('Move to: the folders you last moved mail to, newest first, renamed along, gone when deleted', async () => {
+  const tag = `Wren${Date.now() % 1e6}`;
+  assert.deepEqual((await gina('GET', '/api/mail/recent-folders')).body.filter((p) => p.includes(tag)), [], 'none yet');
+  for (const n of ['A', 'B', 'C']) assert.equal((await gina('POST', '/api/mail/folders', { name: `${tag}${n}` })).status, 201);
+  assert.equal((await bob('POST', '/api/mail/send', { to: 'gina@globex.com', subject: `${tag} one`, text: 'x' })).status, 200);
+  const m = await eventually(async () => (await inbox(gina, tag))[0], 30000);
+  const move = async (from, uid, to) => {
+    const r = await gina('POST', '/api/mail/messages/move', { folder: from, uids: [uid], to });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return r.body.moved;
+  };
+  let at = await move('INBOX', m.uid, `${tag}A`);
+  at = await move(at.folder, at.uids[0], `${tag}B`);
+  at = await move(at.folder, at.uids[0], `${tag}C`);
+  at = await move(at.folder, at.uids[0], `${tag}A`);
+  const mine = async () => (await gina('GET', '/api/mail/recent-folders')).body.filter((p) => p.includes(tag));
+  assert.deepEqual(await mine(), [`${tag}A`, `${tag}C`, `${tag}B`], 'newest first, each once');
+  // The buttons (archive, back to the Inbox) aren't "folders you chose".
+  at = await move(at.folder, at.uids[0], 'archive');
+  at = await move(at.folder, at.uids[0], 'INBOX');
+  assert.equal((await gina('GET', '/api/mail/recent-folders')).body.includes('INBOX'), false);
+  // Undo putting it back somewhere isn't a choice of folder either.
+  const r = await gina('POST', '/api/mail/messages/move', { folder: at.folder, uids: at.uids, to: `${tag}B`, undo: true });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await mine(), [`${tag}A`, `${tag}C`, `${tag}B`]);
+  // Renamed: it keeps its place under the new name. Deleted: it's gone.
+  assert.equal((await gina('PATCH', '/api/mail/folders', { path: `${tag}C`, newPath: `${tag}Cee` })).status, 200);
+  assert.deepEqual(await mine(), [`${tag}A`, `${tag}Cee`, `${tag}B`]);
+  assert.equal((await gina('DELETE', `/api/mail/folders?path=${encodeURIComponent(`${tag}B`)}`)).status, 200);
+  assert.deepEqual(await mine(), [`${tag}A`, `${tag}Cee`]);
+  // Someone else's are theirs.
+  assert.equal((await olivia('GET', '/api/mail/recent-folders')).body.some((p) => p.includes(tag)), false);
+  for (const n of ['A', 'Cee']) await gina('DELETE', `/api/mail/folders?path=${encodeURIComponent(`${tag}${n}`)}`);
+});

@@ -127,6 +127,24 @@ await step('L puts a label on; Escape closes the picker without doing anything',
   await picker('Move to').waitFor({ state: 'detached' });
   if ((await inFolder('Board')).length !== 2) throw new Error('moved anyway');
 });
+await step('V: the folders you last moved mail to come first, marked Recent, newest first', async () => {
+  await page.goto(`${B}/mail`);
+  await list().getByText('Minutes April', { exact: true }).click({ timeout: 30000 });
+  await page.locator('.reader-actions').waitFor();
+  await page.keyboard.press('v');
+  const d = picker('Move to');
+  const opts = d.getByRole('option');
+  await until(async () => (await opts.first().innerText()).includes('Recent'), 10000);
+  const texts = (await opts.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+  const want = ['Board 2027 Recent', 'Board Recent', 'Clients / Acme Recent'];
+  if (JSON.stringify(texts.slice(0, 3)) !== JSON.stringify(want)) throw new Error(texts.join(' | '));
+  if (texts.slice(3).some((t) => /Recent/.test(t))) throw new Error('more marked Recent: ' + texts.join(' | '));
+  if (!texts.includes('Clients / Globex')) throw new Error('the others are gone: ' + texts.join(' | '));
+  // Enter on the first takes it to the last folder used.
+  await page.keyboard.press('Enter');
+  await page.getByText('Moved to Board 2027').waitFor();
+  await until(async () => (await inFolder('Board 2027')).some((m) => m.subject === 'Minutes April'));
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);

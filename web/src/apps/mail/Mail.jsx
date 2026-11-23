@@ -38,7 +38,7 @@ import FileViewer from '../../components/FileViewer.jsx';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref, FONTS, FONT_SIZES, mailStyleCss } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import { ForwardingDialog } from './Forwarding.jsx';
-import { MovePicker } from './MovePicker.jsx';
+import { MovePicker, moveChoices } from './MovePicker.jsx';
 import { AttachmentsDialog, FILE_ICON } from './Attachments.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import { SheetTableDialog, tableNode } from '../docs/SheetTable.jsx';
@@ -362,6 +362,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   // Keyboard shortcuts (see mailkeys.js); the open message's buttons do the work, so they behave the same.
   const keyState = useRef();
   const [picking, setPicking] = useState(null); // V / L: { kind: 'move' | 'label', uids }
+  // The folders you last moved mail to: first in Move to (V), marked Recent.
+  const [recentFolders, setRecentFolders] = useState([]);
+  useEffect(() => { if (picking?.kind === 'move' && !shared) get('/mail/recent-folders').then(setRecentFolders).catch(() => {}); }, [picking, shared]);
   keyState.current = { keysOn: user?.keys !== false, data, openUid, special, folder, compose, go, checked, labels, shared, setPicking, openDraft: (uid) => openDraft(uid), newMessage: () => setCompose(withSignature({}, 'new')) };
   useEffect(() => {
     const onKey = (e) => {
@@ -438,7 +441,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
       const r = await post(`/mail/messages/${path}`, { folder: from, ...body });
       // Moved somewhere (archived, binned, to Junk or a folder): Undo puts it back where it was.
       const undo = r?.moved?.uids?.length ? { label: 'Undo', onClick: async () => {
-        try { await post('/mail/messages/move', { folder: r.moved.folder, uids: r.moved.uids, to: from }); toast(r.moved.uids.length === 1 ? 'Put back' : `Put back ${r.moved.uids.length} messages`); refresh(); }
+        try { await post('/mail/messages/move', { folder: r.moved.folder, uids: r.moved.uids, to: from, undo: true }); toast(r.moved.uids.length === 1 ? 'Put back' : `Put back ${r.moved.uids.length} messages`); refresh(); }
         catch (e) { toast(e.message, 'error'); }
       } } : null;
       if (msg) toast(msg, 'info', undo ? { action: undo } : {});
@@ -788,7 +791,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
       )}
       {picking && <MovePicker title={picking.kind === 'move' ? (picking.uids.length === 1 ? 'Move to' : `Move ${picking.uids.length} messages to`) : 'Label as'}
         items={picking.kind === 'move'
-          ? folders.filter((f) => f.path !== folder && f.specialUse !== '\\Drafts' && f.path !== SNOOZED).map((f) => ({ key: f.path, name: f.name }))
+          ? moveChoices(folders.filter((f) => f.path !== folder && f.specialUse !== '\\Drafts' && f.path !== SNOOZED).map((f) => ({ key: f.path, name: f.name })), shared ? [] : recentFolders)
           : labels.map((l) => ({ key: l.id, name: l.name, dot: l.color }))}
         onClose={() => setPicking(null)} createLabel={picking.kind === 'move' && !shared ? 'New folder' : null}
         onPick={async (it) => {

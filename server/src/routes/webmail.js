@@ -834,6 +834,9 @@ export default function webmailRoutes() {
       for (const b of renamed) await c.mailboxSubscribe(b.path).catch(() => {});
     });
     setFollowed(req.user.id, followedFolders(req.user.id).map((f) => (inTree(f, from) ? to + f.slice(from.length) : f)));
+    for (const { path } of q('SELECT path FROM mail_move_recent WHERE user_id = ?').all(req.user.id)) { // recent ones keep their place under the new name
+      if (inTree(path, from)) q('UPDATE OR REPLACE mail_move_recent SET path = ? WHERE user_id = ? AND path = ?').run(to + path.slice(from.length), req.user.id, path);
+    }
     const updatedFilters = updateRules(req.user.id, (rule) => {
       const m = rule.actions.moveTo;
       if (!m || !inTree(m, from)) return false;
@@ -2128,7 +2131,20 @@ export default function webmailRoutes() {
     if (target === folder) return res.json({ ok: true });
     const result = await withFolder(req.user, folder, (c) => c.messageMove(uids, target, { uid: true }));
     forgetSnoozes(req.user, folder, uids);
+    // A folder picked by name (not Archive, Junk or Trash by their buttons, nor back to the Inbox): one of the last few, for Move to.
+    if (!special && target !== 'INBOX' && !req.body.undo) { // (Undo putting mail back isn't a choice of folder)
+      q('INSERT INTO mail_move_recent (user_id, path, at) VALUES (?, ?, ?) ON CONFLICT(user_id, path) DO UPDATE SET at = excluded.at').run(req.user.id, target, Date.now());
+      q('DELETE FROM mail_move_recent WHERE user_id = ? AND path NOT IN (SELECT path FROM mail_move_recent WHERE user_id = ? ORDER BY at DESC LIMIT 10)').run(req.user.id, req.user.id);
+    }
     res.json({ ok: true, moved: movedTo(target, result) });
+  });
+
+  // The folders you last moved mail to, newest first (up to 5), that are still there.
+  r.get('/recent-folders', async (req, res) => {
+    const rows = q('SELECT path FROM mail_move_recent WHERE user_id = ? ORDER BY at DESC').all(req.user.id).map((x) => x.path);
+    if (!rows.length) return res.json([]);
+    const there = new Set((await withClient(req.user, (c) => c.list())).map((b) => b.path));
+    res.json(rows.filter((p) => there.has(p)).slice(0, 5));
   });
 
   // A saved email (.eml, from another mail program or a download here) put into a folder as it is: its own date,

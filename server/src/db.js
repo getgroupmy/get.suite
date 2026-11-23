@@ -330,6 +330,13 @@ CREATE TABLE IF NOT EXISTS mail_muted (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mail_muted_user ON mail_muted(user_id);
+-- Folders you moved mail to lately (your own folders, not Inbox/Archive/Junk/Trash picked by name): offered first in Move to.
+CREATE TABLE IF NOT EXISTS mail_move_recent (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, path)
+);
 CREATE TABLE IF NOT EXISTS mail_signatures (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   html TEXT NOT NULL DEFAULT '',

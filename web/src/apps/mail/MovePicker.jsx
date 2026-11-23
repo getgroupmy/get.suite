@@ -3,6 +3,12 @@ import { useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import { pickMatches } from './mailkeys.js';
 
+/** Move to's folders with the ones you used lately first (in that order, marked Recent), then the rest as they were. */
+export function moveChoices(items, recent) {
+  const first = recent.map((p) => items.find((it) => it.key === p)).filter(Boolean).map((it) => ({ ...it, hint: 'Recent' }));
+  return [...first, ...items.filter((it) => !recent.includes(it.key))];
+}
+
 /**
  * Keyboard picker (V: move to a folder, L: put on a label): type to narrow the list, ↑/↓ to choose,
  * Enter to pick. `items` are { key, name, hint? }.
