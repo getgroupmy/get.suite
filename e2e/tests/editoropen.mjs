@@ -69,5 +69,23 @@ await step('Ctrl+O opens the same window; a spreadsheet found by searching opens
   if (!page.url().endsWith(`/sheets/${book.id}`)) throw new Error('moved: ' + page.url());
 });
 
+await step('Open…: ★ Starred shows just the starred files, folder and all; Recent shows them all again', async () => {
+  await api(page, 'PUT', `/files/${b.id}/star`, { starred: true });
+  await page.goto(`${B}/docs/${a.id}`);
+  await page.locator('.ProseMirror').getByText('Alpha words').waitFor();
+  await page.keyboard.press('Control+o');
+  const d = page.getByRole('dialog', { name: 'Open a file' });
+  await d.getByRole('button', { name: /Plan figures/ }).waitFor(); // recent, to begin with
+  await d.getByRole('button', { name: '★ Starred' }).click();
+  await d.getByRole('button', { name: /Plan B · in Plans/ }).waitFor();
+  if (await d.getByRole('button', { name: /Plan figures/ }).count()) throw new Error('an unstarred file in Starred');
+  if ((await d.getByRole('button', { name: '★ Starred' }).getAttribute('aria-pressed')) !== 'true') throw new Error('not shown as chosen');
+  await d.getByRole('button', { name: 'Recent', exact: true }).click();
+  await d.getByRole('button', { name: /Plan figures/ }).waitFor();
+  // Searching searches everything, whichever is chosen.
+  await d.getByLabel('Search your files').fill('figures');
+  if (await d.getByRole('button', { name: '★ Starred' }).count()) throw new Error('the choice stays while searching');
+  await page.keyboard.press('Escape');
+});
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
