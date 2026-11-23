@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
+import { has } from '../../fold.js';
 import { parseRange } from './charts.js';
 import { parseChoices, describeValidation, cleanSource, cleanColours, CHIP_COLOURS, RULE_KINDS, RULE_OPS, WITH_OP, splitMulti, toggleChoice } from './validation.js';
 
@@ -157,7 +158,7 @@ export function ChoicePicker({ anchor, values, current, onPick, onClose, multi =
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
   }, [onClose]);
-  const shown = values.filter((x) => x.toLowerCase().includes(filter.toLowerCase()));
+  const shown = values.filter((x) => has(x, filter)); // accents aside: "zoe" finds "Zoë"
   // Several choices: a click adds or takes away one, and the list stays open; one choice: picks and closes.
   const chosen = multi ? splitMulti(current).map((x) => x.toLowerCase()) : [];
   const isOn = (x) => (multi ? chosen.includes(x.toLowerCase()) : x === current);

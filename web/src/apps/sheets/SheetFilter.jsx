@@ -2,6 +2,7 @@
 // show (with a search for long lists), or a condition the values must meet.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CONDITIONS, cleanCondition } from './filtercond.js';
+import { foundValues, tickFound, untickFound, onlyFound } from './filterpick.js';
 
 export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSort, onClose, label }) {
   const [op, setOp] = useState(cond?.op || '');
@@ -23,7 +24,8 @@ export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSo
     document.addEventListener('keydown', esc, true);
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc, true); };
   }, [onClose]);
-  const shown = values.filter((v) => (v.label || '(Blanks)').toLowerCase().includes(find.toLowerCase()));
+  const shown = foundValues(values, find);
+  const searching = !!find.trim() && shown.length > 0 && shown.length < values.length;
   const toggle = (l) => { const n = new Set(show); n.has(l) ? n.delete(l) : n.add(l); setShow(n); };
   return (
     <div ref={box} className="filter-menu" role="dialog" aria-label={label || `Filter column ${column}`} style={pos || { visibility: 'hidden' }}>
@@ -42,8 +44,9 @@ export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSo
       </fieldset>}
       <input type="search" autoFocus value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search values" aria-label="Search values" />
       <div className="row small" style={{ gap: 10 }}>
-        <button type="button" className="link-btn small" onClick={() => setShow(new Set(values.map((v) => v.label)))}>Select all</button>
-        <button type="button" className="link-btn small" onClick={() => setShow(new Set())}>Clear</button>
+        <button type="button" className="link-btn small" title={searching ? 'Tick the values found' : undefined} onClick={() => setShow(tickFound(show, values, find))}>Select all</button>
+        <button type="button" className="link-btn small" title={searching ? 'Untick the values found' : undefined} onClick={() => setShow(untickFound(show, values, find))}>Clear</button>
+        {searching && <button type="button" className="link-btn small" title="Show only the values found" onClick={() => setShow(onlyFound(values, find))}>Only these</button>}
       </div>
       <ul className="filter-values" aria-label="Values to show">
         {shown.map((v) => (

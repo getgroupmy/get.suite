@@ -103,6 +103,27 @@ await step('remove the filter: every row is back', async () => {
   await until(async () => (await shownRows(page)).startsWith('1,2,3,4,5,6'));
   if (await page.locator('.filter-btn').count()) throw new Error('buttons left');
 });
+await step('searching the values: accents aside, and “Only these” shows just what was found', async () => {
+  const cells = { A1: 'Name', A2: 'Zoë', A3: 'Ann', A4: 'Zoe Ltd', A5: 'Bob', A6: 'Zoë' };
+  const id = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Names', content: { sheets: [{ name: 'Sheet1', cells }] } })).body.id;
+  await page.goto(`${B}/sheets/${id}`);
+  await cell(page, 'A5').getByText('Bob').waitFor();
+  await cell(page, 'A2').click();
+  await page.getByRole('button', { name: 'Create a filter' }).click();
+  await cell(page, 'A1').getByRole('button', { name: 'Filter A' }).click();
+  const menu = page.getByRole('dialog', { name: 'Filter column A' });
+  const listed = () => menu.getByRole('list', { name: 'Values to show' }).locator('.grow').allInnerTexts().then((l) => l.join('|'));
+  await menu.getByLabel('Search values').fill('zoe');
+  await until(async () => (await listed()) === 'Zoe Ltd|Zoë' || (await listed()) === 'Zoë|Zoe Ltd');
+  await menu.getByRole('button', { name: 'Clear' }).click(); // the found ones only: Ann and Bob stay ticked
+  await menu.getByLabel('Search values').fill('');
+  if (!(await menu.getByLabel('Ann').isChecked()) || await menu.getByLabel('Zoë').isChecked()) throw new Error('Clear while searching changes the found values only');
+  await menu.getByLabel('Search values').fill('zoe');
+  await menu.getByRole('button', { name: 'Only these' }).click();
+  await page.screenshot({ path: `${SP}/shots/filter-only-these.png` });
+  await menu.getByRole('button', { name: 'OK' }).click();
+  await until(async () => (await shownRows(page)).startsWith('1,2,4,6,7'));
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
