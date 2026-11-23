@@ -110,6 +110,18 @@ await step('the organizer sees the answer live', async () => {
   }
   if (!seen) throw new Error('her Yes never reached the organizer');
 });
+await step('with the event open, a changed answer shows without reopening it', async () => {
+  await page.locator('.month .chip', { hasText: 'Site visit' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  await dlg.getByText('1 guest: 1 yes').waitFor();
+  await dlg.getByLabel('Location').fill('Gate 4'); // (something being edited: it must survive the update)
+  await dana.getByRole('button', { name: 'No', exact: true }).click();
+  await dlg.getByText('1 guest: 1 no').waitFor({ timeout: 15000 });
+  if ((await dlg.getByLabel('Location').inputValue()) !== 'Gate 4') throw new Error('the edit was lost');
+  await page.keyboard.press('Escape');
+  const sure = page.getByRole('button', { name: /Discard|Leave|Don.t save/ });
+  if (await sure.count()) await sure.first().click();
+});
 
 await step('deleting the event ends the link', async () => {
   await page.locator('.month .chip', { hasText: 'Site visit' }).click();

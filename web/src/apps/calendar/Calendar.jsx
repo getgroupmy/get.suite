@@ -310,6 +310,16 @@ function Calendar({ acting = null, managed = [], onPick }) {
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.
   useEffect(() => onLive((m) => { if (refreshOn(m, 'events-changed')) { load(); loadCals(); } }), [load, loadCals]);
+  // An event open while a guest answers shows the answer at once: its guests' answers (and times they proposed) follow
+  // the fresh copy; nothing being edited in it is touched, and a changed guest list waits for it to be opened again.
+  useEffect(() => {
+    if (!editing?.id) return;
+    const fresh = events.find((e) => e.id === editing.id);
+    if (!fresh) return;
+    const who = (list) => (list || []).map((g) => g.email).sort().join();
+    const said = (list) => (list || []).map((g) => `${g.email}:${g.status || ''}:${g.proposed_start || ''}:${g.proposed_end || ''}:${g.note || ''}`).sort().join('|');
+    if (who(fresh.guests) === who(editing.guests) && said(fresh.guests) !== said(editing.guests)) setEditing((e) => (e && e.id === fresh.id ? { ...e, guests: fresh.guests } : e));
+  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const again = () => { load(); loadCals(); }; window.addEventListener('nw:changes-sent', again); return () => window.removeEventListener('nw:changes-sent', again); }, [load, loadCals]);
   const loadTasks = useCallback(() => {
     if (!showTasks) { setTasks([]); return; }
