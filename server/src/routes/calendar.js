@@ -300,7 +300,23 @@ function setGuests(eventId, guests) {
 
 const outsideOf = (eventId) => q('SELECT email, status, token, answer_note FROM event_outside_guests WHERE event_id = ? ORDER BY email').all(eventId);
 /** The guest list shown in the calendar: colleagues, then people outside (marked external). */
-const allGuests = (eventId) => [...guestsOf(eventId).map(({ id, ...g }) => g), ...outsideOf(eventId).map(({ token, ...g }) => ({ ...g, name: null, external: true }))];
+/** People outside are named as the person looking has them in their contacts (by main or other address); otherwise by address alone. */
+function contactNames(viewerId, emails) {
+  const names = new Map();
+  if (!viewerId || !emails.length) return names;
+  const want = new Set(emails.map((e) => e.toLowerCase()));
+  for (const c of q("SELECT name, email, more_emails FROM contacts WHERE owner_id = ? AND name != ''").all(viewerId)) {
+    let more = [];
+    try { more = (JSON.parse(c.more_emails || '[]') || []).map((m) => m?.value); } catch { /* not a list: none */ }
+    for (const e of [c.email, ...more]) { const k = String(e || '').toLowerCase(); if (want.has(k) && !names.has(k)) names.set(k, c.name); }
+  }
+  return names;
+}
+const allGuests = (eventId, viewerId = null) => {
+  const outside = outsideOf(eventId);
+  const names = contactNames(viewerId, outside.map((g) => g.email));
+  return [...guestsOf(eventId).map(({ id, ...g }) => g), ...outside.map(({ token, ...g }) => ({ ...g, name: names.get(g.email.toLowerCase()) || null, external: true }))];
+};
 
 /** Set the outside guests, keeping answers and links. Returns the added, kept and removed rows. */
 export function setOutside(eventId, emails) {
@@ -566,7 +582,7 @@ function sharedEvents(userId, from, to) {
     AND NOT EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id AND g.user_id = ?) ORDER BY e.start`).all(userId, userId, to, from, from, userId);
   return rows.map(({ share_edit, organizer_name, organizer_email, ...row }) => {
     const ev = outEvent(row);
-    const full = { ...ev, attachments: attachmentsFor(ev, userId), role: 'shared', can_edit: !!share_edit, guests: allGuests(ev.id), rooms: roomsOf(ev.id), reminders: [], organizer: { name: organizer_name, email: organizer_email } };
+    const full = { ...ev, attachments: attachmentsFor(ev, userId), role: 'shared', can_edit: !!share_edit, guests: allGuests(ev.id, userId), rooms: roomsOf(ev.id), reminders: [], organizer: { name: organizer_name, email: organizer_email } };
     return row.private && !share_edit ? maskPrivate(full) : full; // shared to look at: a private one is just "Busy"
   });
 }
@@ -691,7 +707,7 @@ export default function calendarRoutes() {
       const mine = row.owner_id === req.user.id;
       const { my_status, my_note, my_join, organizer_name, organizer_email, organizer_org_id, organizer_org, ...ev } = row;
       const out = outEvent(ev);
-      return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
+      return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id, req.user.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
         ...(row.meet_code && { meet_live: namesIn(row.meet_code) }), // who's in its video meeting now
         ...(mine && row.task_id && { task: taskOfBlock(row.task_id, req.user.id) }),
         ...(mine ? {} : { my_status, my_note: my_note || null, my_join: my_join || null, organizer: { name: organizer_name, email: organizer_email, org_id: organizer_org_id, org: organizer_org } }) };
@@ -850,7 +866,7 @@ export default function calendarRoutes() {
       if (had) {
         if (had.owner_id !== req.user.id) throw bad('That id is taken');
         const made = outEvent(had);
-        return res.json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(want), rooms: roomsOf(want), reminders: remindersOf(want, req.user.id) });
+        return res.json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(want, req.user.id), rooms: roomsOf(want), reminders: remindersOf(want, req.user.id) });
       }
     }
     if (req.body?.calendar_id && !ownsCalendar(req.user.id, req.body.calendar_id)) actAsSharer(req, req.body.calendar_id); // a colleague's, shared to change
@@ -887,7 +903,7 @@ export default function calendarRoutes() {
     touch([req.user.id, ...peopleOf(calendarId)]); // your other tabs (and their reminders) see it too, and whoever shares its calendar
     const made = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     const autoReply = awayReply(req, made, tz);
-    res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders, ...(autoReply && { auto_reply: autoReply }) });
+    res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id, req.user.id), rooms: roomsOf(id), reminders, ...(autoReply && { auto_reply: autoReply }) });
   });
 
   // Copy a week: { from (when the week starts), weeks: [1..8] (how many weeks on: each gets a copy), guests, tz }.
@@ -989,7 +1005,7 @@ export default function calendarRoutes() {
     if (req.body.rooms !== undefined || (changed && roomsOf(e.id).length)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(e.id), req.body.rooms ?? roomsOf(e.id).map((x) => x.id));
     if (attachments && !guests) shareAttachments(req.user, e.id);
     const autoReply = awayReply(req, saved, saved.tz);
-    res.json({ ...saved, attachments: attachmentsFor(saved, req.user.id), role: 'organizer', guests: allGuests(e.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id), ...(autoReply && { auto_reply: autoReply }) });
+    res.json({ ...saved, attachments: attachmentsFor(saved, req.user.id), role: 'organizer', guests: allGuests(e.id, req.user.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id), ...(autoReply && { auto_reply: autoReply }) });
   });
 
   // Meeting notes: the organizer makes a document for the event (or gets the one already made). It's

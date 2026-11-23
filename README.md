@@ -1080,7 +1080,7 @@ Send a file or a whole folder to someone who has no account, such as a client. I
   - **A note with the answer:** guests can add a few words when answering (*I'll join 10 minutes late*), on the event or on the answer page for people outside Workspace. The organizer gets a notification with it and sees it beside the guest's answer.
   - You see each answer in the event, for example "3 guests: 2 yes, 1 not answered". Calendars that are open update straight away.
   - Only the organiser can change or delete the event. A guest who says No still sees it, faded.
-- **Inviting people outside Workspace** (clients, suppliers): type their email address under **Guests**; they show as "by email". This needs email to be set up.
+- **Inviting people outside Workspace** (clients, suppliers): type their email address under **Guests** (or pick them from the suggestions when they're in your contacts); they show as "by email", by the name your contacts have for them (with the address beside it) — each person sees their own contacts' names, never someone else's. This needs email to be set up.
   - They get an invitation email with a calendar file, so Outlook, Gmail, Apple Mail and phones show it as an invitation they can add to their own calendar. Repeating events keep their time across clock changes.
   - The email has a personal link to a simple page (no account needed) where they answer **Yes / Maybe / No**, see the time in their own time zone, and can download the event again. Their answer shows in your calendar straight away.
   - If you change the time, place or details, they get an updated invitation that replaces the old one in their calendar. Removing them or deleting the event sends a cancellation, and their link stops working.

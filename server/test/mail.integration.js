@@ -996,6 +996,12 @@ test('people outside the server get calendar invitations, updates and cancellati
   const ev = await planner('POST', '/api/events', { title: 'Kick-off, phase 2', location: 'Room 4', start: t, end: t + 36e5, guests: [outsider, 'olivia@acme.com'], tz: 'Europe/London' });
   assert.equal(ev.status, 201, JSON.stringify(ev.body));
   assert.deepEqual(ev.body.guests.map((g) => [g.email, g.status, !!g.external]), [['olivia@acme.com', 'needs', false], [outsider, 'needs', true]]);
+  // Someone outside is named as the person looking has them in their contacts; for anyone else, by address alone.
+  const named = async (who) => (await who('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.find((e) => e.id === ev.body.id).guests.find((g) => g.email === outsider).name;
+  assert.equal(ev.body.guests[1].name, null);
+  assert.equal((await planner('POST', '/api/contacts', { name: 'Clara Client', email: 'other@clients-test.example', more_emails: [{ label: 'Work', value: 'Client@Clients-Test.example' }] })).status, 201);
+  assert.equal(await named(planner), 'Clara Client', 'found by her other address, whatever its capitals');
+  assert.equal(await named(olivia), null, 'Olivia has no such contact');
   const { q } = await import('../src/db.js');
   const token = q('SELECT token FROM event_outside_guests WHERE email = ?').get(outsider).token;
 

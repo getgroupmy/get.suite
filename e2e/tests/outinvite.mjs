@@ -123,6 +123,19 @@ await step('with the event open, a changed answer shows without reopening it', a
   if (await sure.count()) await sure.first().click();
 });
 
+await step('someone outside who is in your contacts is shown by name', async () => {
+  const r = await page.evaluate(async (email) => (await fetch('/api/contacts', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Dana Whitlock', email }) })).status, outsider);
+  if (r !== 201) throw new Error(`contact ${r}`);
+  await page.reload();
+  await page.locator('.month .chip', { hasText: 'Site visit' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Edit event' });
+  const chip = dlg.getByRole('list', { name: 'Invited guests' }).getByRole('listitem').filter({ hasText: 'Dana Whitlock' });
+  await chip.getByText(outsider).waitFor(); // her address beside the name
+  await chip.getByText('· by email').waitFor();
+  await page.screenshot({ path: `${SP}/shots/outinvite-named.png` });
+  await page.keyboard.press('Escape');
+});
+
 await step('deleting the event ends the link', async () => {
   await page.locator('.month .chip', { hasText: 'Site visit' }).click();
   await page.getByRole('dialog', { name: 'Edit event' }).getByRole('button', { name: 'Delete' }).click();

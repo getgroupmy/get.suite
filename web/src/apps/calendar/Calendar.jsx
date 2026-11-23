@@ -1857,6 +1857,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   // (so nobody's address has to be known by heart), your contact groups and "Everyone at <company>".
   const [guestSugs, setGuestSugs] = useState([]);
   const [guestSugAt, setGuestSugAt] = useState(0);
+  const [guestNames, setGuestNames] = useState({}); // people picked from the suggestions, by address: shown by name before the event is saved
   useEffect(() => {
     const text = guestInput.trim();
     if (text.length < 2) { setGuestSugs([]); return undefined; }
@@ -1872,6 +1873,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
   const pickGuest = (p) => {
     const emails = (p.members || [p]).map((m) => String(m.email).toLowerCase()).filter((e) => e.includes('@') && e !== me.username.toLowerCase());
     setGuests((g) => [...new Set([...g, ...emails])]);
+    setGuestNames((n) => ({ ...n, ...Object.fromEntries((p.members || [p]).filter((m) => m.name).map((m) => [String(m.email).toLowerCase(), m.name])) }));
     setGuestInput(''); setGuestSugs([]);
     document.getElementById('guest-input')?.focus();
   };
@@ -2096,7 +2098,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
               {guests.map((g) => {
                 const known = (event.guests || []).find((x) => x.email === g && x.status); // saved with an answer (not just named, as from a template or quick add)
                 const outside = known ? known.external : dirReady && !directory.some((d) => d.username === g);
-                return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || (event.guests || []).find((x) => x.email === g)?.name || g}
+                const named = directory.find((d) => d.username === g)?.name || (event.guests || []).find((x) => x.email === g)?.name || guestNames[g]; // a colleague, or someone outside as your contacts name them
+                return <li key={g} className={outside ? 'outside' : ''} title={named ? g : undefined}>{named || g}{named && outside && <span className="muted small"> {g}</span>}
                   {outside && <span className="muted small" title="Invited by email: they answer on a web page"> · by email</span>}
                   {likes[g] && <span className="guest-like small" title={`${g.split('@')[1]} looks like ${likes[g]}, but it isn’t`}> ⚠ lookalike</span>}
                   {known && <span className="muted small"> · {ANSWER_LABELS[known.status]}{known.status !== 'no' && known.join_how ? `, ${JOIN_LABELS[known.join_how]}` : ''}</span>}
