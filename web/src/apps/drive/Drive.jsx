@@ -1,3 +1,4 @@
+import { matchesFilter } from '../contacts/contactfilter.js';
 import { emailPeopleWithAccess, meetPeopleWithAccess } from '../emailpeople.js';
 import { keptList, unreachable, offlineId, changeAdd, keepDoc, forgetDoc } from '../offlinedocs.js';
 import { renameFile, keepOffline, unpinOffline } from '../KeptCopy.jsx';
@@ -1118,6 +1119,17 @@ export function ShareDialog({ file, onClose }) {
   const taken = (id) => id === user.id || id === file.owner_id || shares?.some((s) => s.user_id === id);
   const suggestions = people.filter((p) => !taken(p.id));
 
+  // Colleagues are found as their name or address is typed (words in any order, accents aside), and added with a click or Enter.
+  const [pickAt, setPickAt] = useState(0);
+  const [pickShut, setPickShut] = useState(false); // Escape closed the list for what's typed
+  const typed = address.trim();
+  const found = typed && !suggestions.some((p) => p.username === typed.toLowerCase()) ? suggestions.filter((p) => matchesFilter({ name: p.name, username: p.username }, typed)).slice(0, 6) : [];
+  const listed = pickShut ? [] : found;
+  const addPerson = (p) => {
+    setShares([...shares, { user_id: p.id, name: p.name, username: p.username, org_name: user.org_name, external: false, role, added: true }]);
+    setAddress(''); setError(''); setPickAt(0);
+  };
+
   // Colleagues come from the directory; anyone else is looked up by exact address.
   async function add(e) {
     e.preventDefault();
@@ -1125,6 +1137,12 @@ export function ShareDialog({ file, onClose }) {
     const a = address.trim().toLowerCase();
     if (!a) return;
     try {
+      // A name typed instead of an address: the one colleague it fits (several: pick from the list).
+      if (!a.includes('@')) {
+        if (!found.length) return setError('No colleague by that name. Type their full email address.');
+        if (found.length > 1) return setError('Several people fit that. Pick one from the list.');
+        return addPerson(found[0]);
+      }
       const colleague = people.find((p) => p.username === a);
       const person = colleague ? { ...colleague, org_name: user.org_name, external: false }
         : { ...(await get(`/users/lookup?email=${encodeURIComponent(a)}`)), external: true };
@@ -1151,16 +1169,33 @@ export function ShareDialog({ file, onClose }) {
       {dataCheck}
       {!!file.is_drive && !file.parent_id && <p className="muted small" style={{ marginTop: 0 }}>Everyone added sees everything in this shared drive. Editors can also add files, rename the drive and manage its members; what people add stays here when they leave the company.</p>}
       <form className="row share-add" onSubmit={add}>
-        <input className="grow" list="share-people" type="email" value={address} placeholder="Add people by email address"
-          aria-label="Email address" autoFocus onChange={(e) => { setAddress(e.target.value); setError(''); }} />
-        <datalist id="share-people">
-          {suggestions.map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}
-        </datalist>
+        <span className="grow share-pick">
+          <input type="text" inputMode="email" autoComplete="off" value={address} placeholder="Add people by name or email address"
+            role="combobox" aria-expanded={listed.length > 0} aria-controls="share-people" aria-autocomplete="list"
+            aria-label="Email address" autoFocus onChange={(e) => { setAddress(e.target.value); setError(''); setPickAt(0); setPickShut(false); }}
+            onKeyDown={(e) => {
+              if (!listed.length) return;
+              if (e.key === 'ArrowDown') { e.preventDefault(); setPickAt((i) => (i + 1) % listed.length); }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setPickAt((i) => (i - 1 + listed.length) % listed.length); }
+              else if (e.key === 'Enter') { e.preventDefault(); addPerson(listed[Math.min(pickAt, listed.length - 1)]); }
+              else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setPickShut(true); }
+            }} />
+        </span>
         <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Access">
           <option value="viewer">Viewer</option><option value="commenter">Commenter</option><option value="editor">Editor</option>
         </select>
         <button className="btn" disabled={!address.trim()}>Add</button>
       </form>
+      {listed.length > 0 && (
+        <ul id="share-people" className="address-list" role="listbox" aria-label="People to share with">
+          {listed.map((p, i) => (
+            <li key={p.id} role="option" aria-selected={i === pickAt} className={i === pickAt ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); addPerson(p); }}>
+              <Avatar name={p.name} size={24} userId={p.id} />
+              <span className="grow"><span>{p.name}</span> <span className="muted small">{p.username}</span></span>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <p className="error small" role="alert">{error}</p>}
       {!user.allow_external && <p className="muted small">Your company only allows sharing with colleagues.</p>}
       {user.allow_external && user.external_share_days && external > 0 && <p className="muted small">Your company ends shares with people at other companies after at most {user.external_share_days} days: an end date is set for them when you save.</p>}

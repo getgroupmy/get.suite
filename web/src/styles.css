@@ -1188,6 +1188,9 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 .compose-line > .address-input { width: auto; flex: 1; position: relative; color: inherit; font-size: inherit; display: flex; }
 .address-input > input { flex: 1; }
 .address-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 70; list-style: none; margin: 2px 0 0; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); max-width: 480px; }
+.share-pick { display: flex; flex: 1 1 180px; min-width: 0; }
+#share-people.address-list { position: static; margin: 4px 0 8px; box-shadow: none; max-width: none; }
+.share-pick > input { flex: 1; min-width: 0; }
 .guest-suggest { display: block; }
 .guest-suggest > input { width: 100%; }
 .guest-suggest .address-list { position: static; margin-top: 4px; box-shadow: none; max-width: none; }
