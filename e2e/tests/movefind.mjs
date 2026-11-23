@@ -99,5 +99,12 @@ await step('Drive search: each result says the folder it is in; a click opens th
   await page.locator('.crumbs, nav').getByText('Acme').first().waitFor();
 });
 
+await step('Search everything at the top says the folder too', async () => {
+  await page.goto(`${B}/drive`);
+  await page.getByRole('combobox', { name: 'Search everything' }).fill('lease 2027');
+  const files = page.getByRole('listbox').getByRole('group', { name: 'Files' });
+  await files.getByRole('option').filter({ hasText: 'Lease 2027' }).getByText(/in Contracts/).waitFor();
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
