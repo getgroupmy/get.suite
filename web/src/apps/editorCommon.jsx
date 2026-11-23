@@ -1,6 +1,7 @@
 import { emailPeopleWithAccess, meetPeopleWithAccess } from './emailpeople.js';
 import MakeCopy from '../components/MakeCopy.jsx';
 import MoveDialog from '../components/MoveDialog.jsx';
+import DrivePicker, { openUrl } from '../components/DrivePicker.jsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { viewOnly } from './drive/viewonly.js';
 import { useNavigate } from 'react-router';
@@ -103,6 +104,19 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const [publishing, setPublishing] = useState(false);
   const [chatting, setChatting] = useState(false); // Send in Chat: its link in a conversation
   const [copying, setCopying] = useState(false); // Make a copy…: a name, and shared with the same people or not
+  // Open…: another file, from your recent ones or by searching (Ctrl+O / ⌘O too, instead of the browser's own).
+  const [opening, setOpening] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') { e.preventDefault(); setOpening(true); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const openPicked = (x) => {
+    setOpening(false);
+    const to = openUrl(x);
+    // A whole page load, as Make a copy does: the editor isn't reused for another file (its parts are made for one).
+    window.location.assign(to.startsWith('/api/') ? `/drive?preview=${x.id}` : to); // a plain file: its preview in Drive
+  };
   // Move to…: the same chooser as Drive's (find a folder, Recent, a new one); where it is now, after a move from here.
   const [moving, setMoving] = useState(false);
   const [parentNow, setParentNow] = useState(undefined);
@@ -143,7 +157,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   // "Viewers can't download, print or copy": those choices aren't offered, and printing shows a note instead.
   const takeOff = viewOnly(file);
   const offered = takeOff ? (menu || []).filter((it) => !(it && typeof it === 'object' && /^(Print|Download|Make a copy|Save as)/.test(it.label || ''))) : menu;
-  const items = menu && file ? [...offered, ...(takeOff ? [] : [{ label: 'Make a copy…', icon: 'copy', onClick: () => setCopying(true) }]), ...(canEdit ? [{ label: 'Move to…', icon: 'move', onClick: () => setMoving(true) }] : []), '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
+  const items = menu && file ? [{ label: 'Open…', icon: 'folder', onClick: () => setOpening(true) }, '-', ...offered, ...(takeOff ? [] : [{ label: 'Make a copy…', icon: 'copy', onClick: () => setCopying(true) }]), ...(canEdit ? [{ label: 'Move to…', icon: 'move', onClick: () => setMoving(true) }] : []), '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
     { label: 'Send in Chat…', icon: 'send', onClick: () => setChatting(true) },
     { label: 'Chat with people who have access', icon: 'chat', onClick: async () => {
       try { const r = await post(`/files/${file.id}/chat`, {}); toast(r.created ? 'A channel for it, with everyone it’s shared with' : r.added ? `Added ${r.added} more to its channel` : 'Its channel'); navigate(`/chat/${r.id}`); } catch (e) { toast(e.message, 'error'); }
@@ -185,6 +199,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     </header>
     {publishing && file && <PublishDialog file={file} onClose={() => setPublishing(false)} />}
     {copying && file && createPortal(<MakeCopy file={file} onClose={() => setCopying(false)} />, document.body)}
+    {opening && createPortal(<DrivePicker title="Open a file" accept={(x) => x.kind !== 'folder' && x.id !== file?.id} empty="No files found." onClose={() => setOpening(false)} onPick={openPicked} />, document.body)}
     {moving && file && createPortal(<MoveDialog files={[{ ...file, parent_id: parentNow === undefined ? file.parent_id ?? null : parentNow }]} onClose={() => setMoving(false)} onMoved={afterMove} />, document.body)}
     {chatting && file && createPortal(<SendInChat items={[{ name: file.name, url: `${window.location.origin}${window.location.pathname}` }]} what={icon === 'sheet' ? 'the spreadsheet' : icon === 'slides' ? 'the presentation' : 'the document'} onClose={() => setChatting(false)} />, document.body)}
     {takeOff && <style>{'@media print { body * { visibility: hidden !important; } body::before { content: "Printing is turned off for this file."; visibility: visible; display: block; padding: 40px; font: 16px sans-serif; } } .paper .tiptap, .grid td, .slide-stage { user-select: none; }'}</style>}
