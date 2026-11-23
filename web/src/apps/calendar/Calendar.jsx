@@ -310,12 +310,20 @@ function Calendar({ acting = null, managed = [], onPick }) {
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.
   useEffect(() => onLive((m) => { if (refreshOn(m, 'events-changed')) { load(); loadCals(); } }), [load, loadCals]);
+  const wasListed = useRef(null); // the open event's id, once it has been seen among the events loaded
   // An event open while a guest answers shows the answer at once: its guests' answers (and times they proposed) follow
   // the fresh copy; nothing being edited in it is touched, and a changed guest list waits for it to be opened again.
   useEffect(() => {
-    if (!editing?.id) return;
+    if (!editing?.id) { wasListed.current = null; return; }
     const fresh = events.find((e) => e.id === editing.id);
-    if (!fresh) return;
+    const lookOnly = editing.role === 'guest' || editing.role === 'feed' || (editing.role === 'shared' && !editing.can_edit);
+    if (!fresh) {
+      // It was among the events on screen and now isn't: the organizer cancelled it (or took you off it). An event you
+      // can only look at closes, saying so; one you are editing stays, so nothing you typed is lost.
+      if (wasListed.current === editing.id && lookOnly) { toast(`“${editing.title || 'The event'}” was cancelled or is no longer yours to see`, 'info'); setEditing(null); }
+      return;
+    }
+    wasListed.current = editing.id;
     const who = (list) => (list || []).map((g) => g.email).sort().join();
     const said = (list) => (list || []).map((g) => `${g.email}:${g.status || ''}:${g.proposed_start || ''}:${g.proposed_end || ''}:${g.note || ''}`).sort().join('|');
     // An event you can only look at (an invitation, a colleague's, a subscribed calendar's) follows every change the

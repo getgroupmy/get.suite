@@ -67,6 +67,14 @@ await step('with the invitation open, the organizer moves it to a room: the gues
   if (r.status !== 200) throw new Error(JSON.stringify(r));
   await d.getByText('Room 7 (second floor)').first().waitFor({ timeout: 15000 });
 });
+await step('the organizer cancels it while the guest has it open: it closes, saying so', async () => {
+  const d = kim.getByRole('dialog', { name: 'Quarterly review' });
+  await d.waitFor(); // (still open from the step before)
+  const r = await api(page, 'DELETE', `/events/${ev.id}`);
+  if (r.status >= 300) throw new Error(JSON.stringify(r));
+  await kim.getByText('“Quarterly review” was cancelled or is no longer yours to see').waitFor({ timeout: 15000 });
+  await d.waitFor({ state: 'detached' });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
