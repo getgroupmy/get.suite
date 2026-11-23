@@ -56,6 +56,17 @@ await step('the organizer sees the note with the answer, in the bell and the eve
   const d = page.getByRole('dialog', { name: 'Edit event' });
   await d.getByText("“I'll join 10 minutes late”").waitFor();
 });
+await step('with the invitation open, the organizer moves it to a room: the guest sees the room without reopening it', async () => {
+  await kim.goto(`${B}/calendar`);
+  await kim.getByRole('radio', { name: 'Schedule' }).click();
+  await kim.getByText('Quarterly review', { exact: true }).first().click();
+  const d = kim.getByRole('dialog', { name: 'Quarterly review' });
+  await d.waitFor();
+  if (await d.getByText('Room 7 (second floor)').count()) throw new Error('already there');
+  const r = await api(page, 'PATCH', `/events/${ev.id}`, { location: 'Room 7 (second floor)' });
+  if (r.status !== 200) throw new Error(JSON.stringify(r));
+  await d.getByText('Room 7 (second floor)').first().waitFor({ timeout: 15000 });
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

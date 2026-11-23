@@ -318,6 +318,11 @@ function Calendar({ acting = null, managed = [], onPick }) {
     if (!fresh) return;
     const who = (list) => (list || []).map((g) => g.email).sort().join();
     const said = (list) => (list || []).map((g) => `${g.email}:${g.status || ''}:${g.proposed_start || ''}:${g.proposed_end || ''}:${g.note || ''}`).sort().join('|');
+    // An event you can only look at (an invitation, a colleague's, a subscribed calendar's) follows every change the
+    // organizer makes while it is open: its time, place, title and words (a repeating one keeps showing the time opened).
+    const readOnly = editing.role === 'guest' || editing.role === 'feed' || (editing.role === 'shared' && !editing.can_edit);
+    const shownAs = (e) => JSON.stringify([e.title, e.location, e.description, e.all_day, e.rrule || '', e.rrule ? '' : e.start, e.rrule ? '' : e.end, said(e.guests)]);
+    if (readOnly && shownAs(fresh) !== shownAs(editing)) { setEditing((e) => (e && e.id === fresh.id ? { ...fresh, ...(fresh.rrule && { start: e.start, end: e.end }) } : e)); return; }
     if (who(fresh.guests) === who(editing.guests) && said(fresh.guests) !== said(editing.guests)) setEditing((e) => (e && e.id === fresh.id ? { ...e, guests: fresh.guests } : e));
   }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const again = () => { load(); loadCals(); }; window.addEventListener('nw:changes-sent', again); return () => window.removeEventListener('nw:changes-sent', again); }, [load, loadCals]);
