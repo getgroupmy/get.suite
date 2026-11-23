@@ -115,22 +115,22 @@ async function formNamed(api, name) {
 export const TOOLS = [
   {
     name: 'search', title: 'Search Workspace', readOnly: true,
-    description: 'Search everything the person can see in Workspace: Drive files (names and contents), email (Inbox and Sent), chat messages, tasks, notes, calendar events and contacts. Returns ids to pass to fetch.',
+    description: 'Search everything the person can see in Workspace: Drive files (names and contents), email (every folder but Trash, Junk and Drafts), chat messages, tasks, notes, calendar events and contacts. Returns ids to pass to fetch.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Words to look for' } }, required: ['query'] },
     async run(api, { query }) {
       const qs = encodeURIComponent(String(query || '').slice(0, 200));
       if (!String(query || '').trim()) throw new ToolError('Say what to search for');
       const safe = (p) => p.catch(() => null);
-      const [files, chat, tasks, notes, events, contacts, inbox, sent] = await Promise.all([
+      const [files, chat, tasks, notes, events, contacts, mail] = await Promise.all([
         safe(api('GET', `/files?view=search&q=${qs}`)), safe(api('GET', `/chat/search?q=${qs}`)), safe(api('GET', `/tasks/search?q=${qs}`)),
         safe(api('GET', `/notes?q=${qs}`)), safe(api('GET', `/events/search?q=${qs}`)), safe(api('GET', '/contacts')),
-        safe(api('GET', `/mail/messages?folder=INBOX&q=${qs}`)), safe(api('GET', `/mail/messages?folder=Sent&q=${qs}`)),
+        safe(api('GET', `/mail/search-all?q=${qs}`)), // mail filed away in folders too, newest first
       ]);
       const low = String(query).toLowerCase();
       const results = [
         ...(Array.isArray(files) ? files : files?.files || []).slice(0, 10).map((f) => ({ id: `file:${f.id}`, title: f.name, url: fileUrl(f) })),
-        ...[...(inbox?.messages || []).map((m) => ({ ...m, folder: 'INBOX' })), ...(sent?.messages || []).map((m) => ({ ...m, folder: 'Sent' }))].slice(0, 10)
-          .map((m) => ({ id: `mail:${m.folder}:${m.uid}`, title: `${m.subject || '(no subject)'} — ${m.folder === 'Sent' ? `to ${(m.to || []).map((t) => t.address).join(', ')}` : m.from?.name || m.from?.address || ''}`, url: link(`/mail/${encodeURIComponent(m.folder)}/${m.uid}`) })),
+        ...(mail?.messages || []).slice(0, 10)
+          .map((m) => ({ id: `mail:${m.folder}:${m.uid}`, title: `${m.subject || '(no subject)'} — ${m.sent ? `to ${(m.to || []).map((t) => t.address).join(', ')}` : m.from?.name || m.from?.address || ''}${m.folder !== 'INBOX' && !m.sent ? ` (in ${m.folder_name})` : ''}`, url: link(`/mail/${encodeURIComponent(m.folder)}/${m.uid}`) })),
         ...(chat || []).slice(0, 10).map((m) => ({ id: `chat:${m.channel_id}:${m.id}`, title: `${m.user_name || 'Someone'} in ${m.where}: ${words(m.body, 80)}`, url: link(`/chat/${m.channel_id}?msg=${m.parent_id || m.id}`) })),
         ...(tasks || []).slice(0, 10).map((t) => ({ id: `task:${t.id}`, title: `${t.done ? '✓ ' : ''}${t.title} (${t.list_name})`, url: link(`/tasks/${t.list_id}?task=${t.id}`) })),
         ...(notes || []).slice(0, 10).map((n) => ({ id: `note:${n.id}`, title: n.title || words(n.body || (n.items || []).map((i) => i.text).join(', '), 80) || 'Note', url: link(`/notes?note=${n.id}`) })),

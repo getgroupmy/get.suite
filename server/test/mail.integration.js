@@ -3191,3 +3191,25 @@ test('search all folders: a message is found wherever it was filed, not in the b
   assert.equal((await gina('GET', '/api/mail/search-all?q=')).status, 400, 'nothing to search for');
   assert.equal((await gina('GET', `/api/mail/search-all?q=${encodeURIComponent('before:yesterday-ish')}`)).status, 400, 'a mistake is explained');
 });
+
+test('MCP search finds mail filed away in a folder, and fetch reads it there', async () => {
+  const made = await olivia('POST', '/api/tokens', { password: 'password123', name: 'Claude folders', scope: 'read', days: 30 });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const call = async (name, args) => {
+    const r = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${made.body.token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
+    const j = await r.json();
+    assert.equal(j.result?.isError, false, JSON.stringify(j));
+    return j.result.structuredContent;
+  };
+  const tag = `Heron${Date.now() % 1e6}`;
+  assert.equal((await bob('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: `${tag} survey`, text: 'Count the herons by the lake.' })).status, 200);
+  const m = await eventually(async () => (await inbox(olivia, tag))[0], 30000);
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: `Birds${tag}` })).status, 201);
+  assert.equal((await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [m.uid], to: `Birds${tag}` })).status, 200);
+  const found = (await call('search', { query: tag })).results.filter((r) => r.id.startsWith('mail:'));
+  assert.equal(found.length, 1, JSON.stringify(found));
+  assert.match(found[0].id, new RegExp(`^mail:Birds${tag}:\\d+$`));
+  assert.match(found[0].title, new RegExp(`\\(in Birds${tag}\\)$`), 'says the folder');
+  const read = await call('fetch', { id: found[0].id });
+  assert.match(read.text, /Count the herons by the lake\./);
+});
