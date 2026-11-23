@@ -1,3 +1,4 @@
+import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { guestsFromText } from './guesttext.js';
 import { agendaDoc, agendaRows } from './agendadoc.js';
 import { has } from '../../fold.js';
@@ -450,6 +451,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const [seeText, setSeeText] = useState(''); // what's typed in "See a colleague's calendar"
+  const seeable = people.filter((p) => p.id !== me.id && !others.some((o) => o.id === p.id));
   return (
     <div className="calendar">
       <aside className="subnav">
@@ -498,13 +501,16 @@ function Calendar({ acting = null, managed = [], onPick }) {
             <button type="button" className="icon-btn" style={{ width: 24, height: 24 }} aria-label={`Hide ${o.name}`} onClick={() => setOthers(others.filter((x) => x.id !== o.id))}><Icon name="close" size={14} /></button></div>
         ))}
         {others.length < 10 && (
-          <select className="dm-pick" value="" aria-label="Show a colleague's calendar" onChange={(e) => {
-            const p = people.find((x) => x.id === e.target.value);
-            if (p) setOthers([...others, { id: p.id, name: p.name, color: OTHER_COLOURS[others.length % OTHER_COLOURS.length] }]);
-          }}>
-            <option value="">+ See a colleague’s calendar…</option>
-            {people.filter((p) => p.id !== me.id && !others.some((o) => o.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <div className="see-cal">
+            {/* a name typed (words in any order, accents aside) lists the colleagues it fits; picking one shows their calendar */}
+            <ColleagueInput people={seeable} value={seeText} label="Show a colleague's calendar" placeholder="+ See a colleague’s calendar…" listId="see-cal-people"
+              onChange={(v) => {
+                const p = seeable.find((x) => x.username === v);
+                if (!p) return setSeeText(v);
+                setOthers([...others, { id: p.id, name: p.name, color: OTHER_COLOURS[others.length % OTHER_COLOURS.length] }]);
+                setSeeText('');
+              }} />
+          </div>
         )}
         {others.length < 10 && roomList.some((r) => !others.some((o) => o.id === r.id)) && (
           <select className="dm-pick" value="" aria-label="Show a room's bookings" onChange={(e) => {

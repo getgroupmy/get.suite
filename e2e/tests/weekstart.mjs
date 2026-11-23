@@ -23,6 +23,12 @@ const api = (p, method, url, body) => p.evaluate(async ([m, u, b]) => {
 }, [method, url, body]);
 const signIn = async (p, email) => { await p.goto(B); await p.evaluate(async (e) => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: e, password: 'password123' }) }), email); };
 const until = async (fn, ms = 8000) => { const end = Date.now() + ms; let v; for (;;) { v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 150)); } };
+const seeCal = async (p, name) => { // type a few letters of their name, pick them from the list
+  const box = p.getByLabel("Show a colleague's calendar");
+  await box.fill('');
+  await box.pressSequentially(name.split(' ')[0].toLowerCase());
+  await p.getByRole('listbox', { name: 'Matching people' }).getByRole('option').filter({ hasText: name }).click();
+};
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -89,7 +95,7 @@ await step('another browser (nothing stored in it): the week starts on Saturday 
   await page.getByLabel('Show weekends').uncheck();
   await page.getByLabel('Show tasks with due dates').uncheck();
   const kimId = (await api(page, 'GET', '/users')).body.find((u) => u.name === 'Kim Park').id;
-  await page.getByLabel("Show a colleague's calendar").selectOption(kimId);
+  await seeCal(page, 'Kim Park');
   await page.getByRole('button', { name: 'Hide Kim Park' }).waitFor();
   await until(async () => { const c = (await api(page, 'GET', '/auth/me')).body.user.cal_prefs; return c.weekends === false && c.showTasks === false && c.others?.some((o) => o.id === kimId); });
   const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 } });

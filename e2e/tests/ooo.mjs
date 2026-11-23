@@ -28,6 +28,12 @@ const titles = (p = page, label = 'Tasks') => p.getByRole('list', { name: label,
 const task = (p, t) => p.locator('.task', { has: p.locator('.task-title', { hasText: new RegExp(`^${t}$`) }) });
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const seeCal = async (p, name) => { // type a few letters of their name, pick them from the list
+  const box = p.getByLabel("Show a colleague's calendar");
+  await box.fill('');
+  await box.pressSequentially(name.split(' ')[0].toLowerCase());
+  await p.getByRole('listbox', { name: 'Matching people' }).getByRole('option').filter({ hasText: name }).click();
+};
 await step('setup', async () => {
   await page.goto(B);
   await page.getByLabel('Your company name').fill('Acme Trading');
@@ -72,7 +78,7 @@ await step('Kim invites Olivia during it: declined for her, Kim is told why', as
 });
 await step("in Kim's view of Olivia's calendar, the time shows as out of office", async () => {
   await kim.keyboard.press('Escape');
-  await kim.getByRole('combobox', { name: "Show a colleague's calendar" }).selectOption({ label: 'Olivia Owner' });
+  await seeCal(kim, 'Olivia Owner');
   await kim.getByRole('radio', { name: 'Day' }).click();
   await kim.getByLabel(/^Olivia Owner out of office /).first().waitFor();
   await kim.screenshot({ path: `${SP}/shots/ooo-busy.png` });

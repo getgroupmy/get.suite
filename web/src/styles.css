@@ -1192,6 +1192,7 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 #share-people.address-list { position: static; margin: 4px 0 8px; box-shadow: none; max-width: none; }
 .share-pick > input { flex: 1; min-width: 0; }
 .people-ticks { margin-bottom: 8px; }
+.see-cal .colleague-input > input { font-size: 13px; }
 .colleague-input { display: block; flex: 1 1 200px; min-width: 0; }
 .colleague-input > input { width: 100%; }
 .colleague-input .address-list { position: static; margin-top: 4px; box-shadow: none; max-width: none; }
