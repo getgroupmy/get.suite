@@ -398,6 +398,8 @@ A sheet's tab can also have a colour, to find it at a glance among many (this mo
 
 **Ctrl+F** (or ⋮ → **Find and replace**) finds text in the sheet: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case*, *Whole cell* and *Search formulas* narrow it down. Accents don't matter (*cafe* finds *café*) unless *Match diacritics* is ticked, as in Docs. *Regular expression* reads the search as a pattern (`\d{4}-\d{2}`, `^\s+`), exactly as written, and lets the replacement use its groups: `(\d{4})-(\d{2})` replaced with `$2/$1` turns *INV-2024-07* into *INV-07/2024*. **Ctrl+H** adds **Replace** and **Replace all**, for those who can edit. When other sheets of the workbook have it too, the bar says so — **Also in: Feb (2)** — and a click carries the search on there, with its tick boxes and what to replace with (what's typed in their cells is counted; what a formula shows is found once you're on its sheet).
 
+On a phone the tick boxes fold away behind **Options** so the bar stays two lines high; once one is ticked they stay in view, and the button says how many are on.
+
 ## Rows, columns and sorting (Sheets)
 
 - **Select** a whole row or column by clicking its number or letter; Shift-click to select several.

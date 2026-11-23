@@ -1085,6 +1085,13 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .find-bar .row { gap: 8px; flex-wrap: wrap; align-items: center; }
 .find-bar input:not([type=checkbox]) { width: 240px; max-width: 100%; }
 .find-count { min-width: 70px; }
+.find-opts { display: contents; }
+.find-opts-toggle { display: none; }
+@media (max-width: 640px) {
+  .find-opts-toggle { display: inline-block; }
+  .find-opts { display: none; flex-wrap: wrap; gap: 4px 10px; flex-basis: 100%; }
+  .find-opts.open { display: flex; }
+}
 .grid td.find-hit { background-color: #fde293 !important; color: #1f1f1f; }
 .grid td.find-current { background-color: #f9ab00 !important; color: #1f1f1f; }
 .find-bar .check { display: inline-flex; align-items: center; gap: 4px; }

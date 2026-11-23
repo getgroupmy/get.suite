@@ -20,6 +20,9 @@ export function SheetFind({ cells, shown, hidden, initial, initialOpts, replacin
   const input = useRef();
   const opts = { matchCase, wholeCell, formulas, matchDiacritics, regex };
   const bad = findError(term, opts);
+  // On a phone the tick boxes fold away behind "Options" (they'd take half the screen); ticked ones keep them in view.
+  const [more, setMore] = useState(false);
+  const ticked = [matchCase, wholeCell, matchDiacritics, formulas, regex].filter(Boolean).length;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const matches = useMemo(() => findCells(cells, shown, term, opts, hidden), [cells, shown, term, matchCase, wholeCell, formulas, matchDiacritics, regex, hidden]);
   const at = matches.length ? Math.min(current, matches.length - 1) : 0;
@@ -75,11 +78,14 @@ export function SheetFind({ cells, shown, hidden, initial, initialOpts, replacin
         <span className="muted small find-count" aria-live="polite">{term ? (bad || (n ? `${at + 1} of ${n}` : 'No results')) : ''}</span>
         <button type="button" className="icon-btn" aria-label="Previous match" disabled={!n} onClick={() => show(at - 1)}><Icon name="left" size={18} /></button>
         <button type="button" className="icon-btn" aria-label="Next match" disabled={!n} onClick={() => show(at + 1)}><Icon name="right" size={18} /></button>
+        <button type="button" className="link-btn small find-opts-toggle" aria-expanded={more || ticked > 0} disabled={ticked > 0} onClick={() => setMore(!more)}>Options{ticked ? ` (${ticked})` : more ? ' ▴' : ' ▾'}</button>
+        <span className={`find-opts ${more || ticked ? 'open' : ''}`}>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeCell} onChange={(e) => setWholeCell(e.target.checked)} /> Whole cell</label>
         <label className="check small"><input type="checkbox" checked={matchDiacritics} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
         <label className="check small"><input type="checkbox" checked={formulas} onChange={(e) => setFormulas(e.target.checked)} /> Search formulas</label>
         <label className="check small" title="The search is a regular expression; $1 to $9 in the replacement are its groups"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression</label>
+        </span>
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
