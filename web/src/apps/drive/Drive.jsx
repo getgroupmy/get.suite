@@ -294,9 +294,12 @@ export default function Drive() {
     onDragLeave: () => setDropOn(null),
     onDrop: (e) => { const raw = e.dataTransfer.getData(DRAG_TYPE); if (!raw) return; e.preventDefault(); e.stopPropagation(); setDropOn(null); moveInto(JSON.parse(raw), folderId ?? null); },
   });
+  const taskTimer = useRef(null); // (several task changes close together: one reload)
+  useEffect(() => () => clearTimeout(taskTimer.current), []);
   useEffect(() => onLive((m) => {
     if (m.type === 'files-changed' || m.type === 'content-changed' || m.type === 'live-connected') load();
     else if (m.type === 'comments-changed' && files?.some((f) => f.id === m.id)) load(); // its 💬 new count
+    else if (m.type === 'tasks-changed') { clearTimeout(taskTimer.current); taskTimer.current = setTimeout(load, 800); } // the ✓ counts beside names
   }), [load, files]);
   // People asking for access to your files (a notification links here with ?requests=1).
   const [requests, setRequests] = useState([]);

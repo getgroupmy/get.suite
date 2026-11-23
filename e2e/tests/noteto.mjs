@@ -66,9 +66,10 @@ await step('the note’s card counts its open tasks and opens them; ticked off, 
   const d = page.getByRole('complementary', { name: 'Task details' });
   if ((await d.getByLabel('Task', { exact: true }).inputValue()) !== 'Taxi') throw new Error('another task opened');
   const taxi = /task=([\w-]+)/.exec(page.url())[1];
-  await api(page, 'PATCH', `/tasks/tasks/${taxi}`, { done: true });
   await page.goto(`${B}/notes`);
-  await card('Trip').getByRole('button', { name: '1 task to do about this note' }).waitFor();
+  await card('Trip').getByRole('button', { name: '2 tasks to do about this note' }).waitFor();
+  await api(page, 'PATCH', `/tasks/tasks/${taxi}`, { done: true }); // (ticked off elsewhere: the card follows without a reload)
+  await card('Trip').getByRole('button', { name: '1 task to do about this note' }).waitFor({ timeout: 10000 });
 });
 await step('Schedule time for it…: a new event with the note in it, saved to the calendar', async () => {
   await page.goto(`${B}/notes`);

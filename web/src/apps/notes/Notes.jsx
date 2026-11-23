@@ -143,6 +143,9 @@ export default function Notes() {
   }, [where, search, kind, toast]);
   useEffect(() => { const t = setTimeout(load, search ? 250 : 0); return () => clearTimeout(t); }, [load, search]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed' || m.type === 'live-connected') load(); }), [load]);
+  // A task made from a note ticked off or added: its card's ✓ count follows (one reload for several changes close together).
+  const taskTimer = useRef(null);
+  useEffect(() => { const off = onLive((m) => { if (m.type === 'tasks-changed') { clearTimeout(taskTimer.current); taskTimer.current = setTimeout(load, 800); } }); return () => { off(); clearTimeout(taskTimer.current); }; }, [load]);
   useEffect(() => { window.addEventListener('nw:changes-sent', load); return () => window.removeEventListener('nw:changes-sent', load); }, [load]);
   // A result from the search box in the top bar: open that note.
   const location = useLocation();

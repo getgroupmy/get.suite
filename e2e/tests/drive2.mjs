@@ -97,6 +97,9 @@ await step('a file’s ⋮ → Add to Tasks: a task that links back to the file'
   // Its row now says there is a task to do about it (and only its row).
   await row('b.txt').getByLabel('1 task to do').waitFor();
   if (await row('c.txt').getByLabel(/tasks? to do/).count()) throw new Error('c.txt has no task');
+  // Ticked off elsewhere, the mark goes without reloading Drive.
+  for (const l of (await api(page, 'GET', '/tasks/lists')).body.lists) for (const t of (await api(page, 'GET', `/tasks/lists/${l.id}/tasks`)).body) if (t.title === 'b.txt') await api(page, 'PATCH', `/tasks/tasks/${t.id}`, { done: true });
+  await row('b.txt').getByLabel(/tasks? to do/).waitFor({ state: 'detached', timeout: 10000 });
 });
 await step('Send in Chat…: the links wait in the conversation’s message box', async () => {
   const ch = (await api(page, 'POST', '/chat/channels', { name: 'design' })).body.id;

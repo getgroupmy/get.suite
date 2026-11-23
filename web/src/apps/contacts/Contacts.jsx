@@ -136,7 +136,7 @@ export default function Contacts() {
   useEffect(() => onLive((m) => { if (refreshOn(m, 'directory-changed')) get('/users/directory').then(setDirectory).catch(() => {}); }), []);
   const loadRef = useRef(load); loadRef.current = load;
   useEffect(() => { const again = () => loadRef.current(); window.addEventListener('nw:changes-sent', again); return () => window.removeEventListener('nw:changes-sent', again); }, []); // added offline, now made
-  useEffect(() => onLive((m) => { if (refreshOn(m, 'contacts-changed')) loadRef.current(); }), []); // made or changed in another tab, on another device, or (shared ones) by a colleague
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'contacts-changed', 'tasks-changed')) loadRef.current(); }), []); // made or changed in another tab, on another device, or (shared ones) by a colleague
   const [chart, setChart] = useState(false); // Directory as an org chart
   const [card, setCard] = useState(null); // a colleague's card (their id)
   // Where colleagues are working on a day (today, or one of the next working days), and how many are
