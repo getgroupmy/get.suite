@@ -86,5 +86,28 @@ await step('arrows and Enter pick; someone already added is not offered; a name 
   if (shares !== 'kim@acme.com:viewer kimberly@acme.com:editor raj@acme.com:editor') throw new Error(shares);
 });
 
+await step('several at once: addresses with commas (or a To line pasted) are all added; the one that can’t be stays, with why', async () => {
+  await api(page, 'POST', '/users', { local: 'ana', domain: 'acme.com', name: 'Ana Lima', password: 'password123' });
+  const f2 = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Minutes' })).body;
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Minutes' }).click();
+  await page.getByRole('menuitem', { name: 'Share' }).click();
+  const dlg = page.getByRole('dialog', { name: /Share “Minutes”/ });
+  const box = dlg.getByLabel('Email address');
+  await box.fill('Kim Park <kim@acme.com>, raj@acme.com; nobody@nowhere.example, "Lima, Ana" <ANA@acme.com>, kim@acme.com');
+  await dlg.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${SP}/shots/share-several.png` });
+  for (const name of ['Kim Park', 'Raj Patel', 'Ana Lima']) await dlg.locator('.share-list li').filter({ hasText: name }).first().waitFor({ timeout: 8000 });
+  if (await dlg.locator('.share-list li').filter({ hasText: 'Kim Park' }).count() !== 1) throw new Error('Kim twice');
+  await dlg.getByRole('alert').getByText(/nobody@nowhere\.example:/).waitFor();
+  if (await box.inputValue() !== 'nobody@nowhere.example') throw new Error(await box.inputValue());
+  await box.fill('');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await dlg.waitFor({ state: 'detached' });
+  const shares = (await api(page, 'GET', `/files/${f2.id}/shares`)).body.map((x) => x.username).sort().join(' ');
+  if (shares !== 'ana@acme.com kim@acme.com raj@acme.com') throw new Error(shares);
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

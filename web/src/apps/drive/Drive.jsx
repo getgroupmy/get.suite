@@ -1,3 +1,4 @@
+import { guestsFromText } from '../calendar/guesttext.js';
 import { matchesFilter } from '../contacts/contactfilter.js';
 import { emailPeopleWithAccess, meetPeopleWithAccess } from '../emailpeople.js';
 import { keptList, unreachable, offlineId, changeAdd, keepDoc, forgetDoc } from '../offlinedocs.js';
@@ -1143,12 +1144,27 @@ export function ShareDialog({ file, onClose }) {
         if (found.length > 1) return setError('Several people fit that. Pick one from the list.');
         return addPerson(found[0]);
       }
-      const colleague = people.find((p) => p.username === a);
-      const person = colleague ? { ...colleague, org_name: user.org_name, external: false }
-        : { ...(await get(`/users/lookup?email=${encodeURIComponent(a)}`)), external: true };
-      if (taken(person.id)) return setError('That person already has access');
-      setShares([...shares, { user_id: person.id, name: person.name, username: person.username, org_name: person.org_name, external: person.external, role, added: true }]);
-      setAddress('');
+      // One address, or several at once (typed with commas, or a To line pasted from an email): each is added
+      // with the access chosen; the ones that can't be stay in the box, with why.
+      const emails = guestsFromText(address).map((g) => g.email);
+      if (!emails.length) return setError('That isn’t an email address');
+      let next = shares;
+      const left = [], why = [];
+      for (const email of emails) {
+        try {
+          const colleague = people.find((p) => p.username === email);
+          const person = colleague ? { ...colleague, org_name: user.org_name, external: false }
+            : { ...(await get(`/users/lookup?email=${encodeURIComponent(email)}`)), external: true };
+          if (person.id === user.id || person.id === file.owner_id || next.some((x) => x.user_id === person.id)) {
+            if (emails.length === 1) return setError('That person already has access');
+            continue; // among several: simply not added twice
+          }
+          next = [...next, { user_id: person.id, name: person.name, username: person.username, org_name: person.org_name, external: person.external, role, added: true }];
+        } catch (err) { left.push(email); why.push(emails.length > 1 ? `${email}: ${err.message}` : err.message); }
+      }
+      setShares(next);
+      setAddress(left.join(', '));
+      if (why.length) setError(why.join(' · '));
     } catch (err) { setError(err.message); }
   }
 
