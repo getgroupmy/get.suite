@@ -108,6 +108,11 @@ export default function MailPage() {
 }
 
 function Mail({ shared = null, sharedList = [], onPickMailbox }) {
+  // Messages just saved to Drive (as PDFs or documents): Show the folder, or Move… them where they belong.
+  const [filingMany, setFilingMany] = useState(null);
+  const savedMany = (text, r) => toast(text, 'info', { duration: 12000, actions: [
+    { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) },
+    { label: 'Move…', onClick: () => setFilingMany(r.files.map((f) => ({ ...f, parent_id: r.folder_id }))) }] });
   const toast = useToast();
   const navigate = useNavigate();
   const params = useParams();
@@ -627,7 +632,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               if (sel.length > 50) { toast('Save up to 50 messages at a time', 'error'); return; }
               try {
                 const r = await post(`/mail/messages/save-pdf${mailboxParam().replace(/^&/, '?')}`, { folder, uids: sel, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-                toast(`Saved ${r.files.length === 1 ? '1 PDF' : `${r.files.length} PDFs`} to Drive: Saved emails`);
+                savedMany(`Saved ${r.files.length === 1 ? '1 PDF' : `${r.files.length} PDFs`} to Drive: Saved emails`, r);
                 setChecked(new Set());
               } catch (e) { toast(e.message, 'error'); }
             }}>Save to Drive as PDF</button>
@@ -635,7 +640,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               if (sel.length > 50) { toast('Save up to 50 messages at a time', 'error'); return; }
               try {
                 const r = await post(`/mail/messages/save-doc${mailboxParam().replace(/^&/, '?')}`, { folder, uids: sel, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-                toast(`Saved ${r.files.length === 1 ? '1 document' : `${r.files.length} documents`} to Drive: Saved emails`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
+                savedMany(`Saved ${r.files.length === 1 ? '1 document' : `${r.files.length} documents`} to Drive: Saved emails`, r);
                 setChecked(new Set());
               } catch (e) { toast(e.message, 'error'); }
             }}>Save to Drive as documents</button>
@@ -659,6 +664,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         {!shared && !q && (special === '\\Trash' || special === '\\Junk') && data?.messages?.length > 0 && (
           <p className="muted small mail-note">{special === '\\Trash' ? 'Mail in Trash' : 'Mail in Junk'} still takes room in your mailbox until it's deleted for good. <button type="button" className="link" onClick={() => setEmptying(current)}>Empty {current.name} now</button></p>
         )}
+        {filingMany && <MoveDialog files={filingMany} onClose={() => setFilingMany(null)}
+          onMoved={(moved, to) => { if (moved.length) toast(`Moved ${moved.length === 1 ? filingMany[0].name : `${moved.length} files`}`, 'info', { action: { label: 'Show', onClick: () => navigate(to ? `/drive/folder/${to}` : '/drive') } }); }} />}
         {emptying && (
           <ConfirmModal title={`Empty ${emptying.name}?`} confirm={`Empty ${emptying.name}`} message={`Everything in ${emptying.name} is deleted for good. This can't be undone.`}
             onClose={() => setEmptying(null)} onConfirm={async () => {
@@ -1070,13 +1077,17 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
           { label: 'Save to Drive as PDF', icon: 'folder', onClick: async () => {
             try {
               const r = await post(`/mail/messages/${uid}/save-pdf${mailboxParam().replace(/^&/, '?')}`, { folder, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-              toast(`Saved to Drive: Saved emails / ${r.file.name}`);
+              toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { duration: 12000, actions: [
+                { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) },
+                { label: 'Move…', onClick: () => setFiling([{ ...r.file, parent_id: r.folder_id }]) }] });
             } catch (e) { toast(e.message, 'error'); }
           } },
           { label: 'Save to Drive as a document', icon: 'doc', onClick: async () => { // (to edit: its formatting kept)
             try {
               const r = await post(`/mail/messages/${uid}/save-doc${mailboxParam().replace(/^&/, '?')}`, { folder, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-              toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${r.file.id}`) } });
+              toast(`Saved to Drive: Saved emails / ${r.file.name}`, 'info', { duration: 12000, actions: [
+                { label: 'Open', onClick: () => navigate(`/docs/${r.file.id}`) },
+                { label: 'Move…', onClick: () => setFiling([{ ...r.file, parent_id: r.folder_id }]) }] });
             } catch (e) { toast(e.message, 'error'); }
           } },
           ...(/<table[\s>]/i.test(m.html || '') ? [{ label: 'Open tables in Sheets', icon: 'sheet', onClick: async () => { // (its tables of figures: a spreadsheet in Saved emails)

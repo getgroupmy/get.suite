@@ -104,6 +104,41 @@ await step('the same from the Attachments list in the sidebar', async () => {
   if (!inFolder.includes('receipt-88.pdf')) throw new Error(inFolder.join('|'));
 });
 
+await step('a message saved as a PDF: Move… files it too', async () => {
+  const letters = (await api(page, 'POST', '/files/folder', { name: 'Letters 2027' })).body;
+  await page.goto(`${B}/mail`);
+  await inboxRow('Invoice 4411').click();
+  await page.getByRole('button', { name: 'More for this message' }).click();
+  await page.getByRole('menuitem', { name: 'Save to Drive as PDF' }).click();
+  await page.getByText(/Saved to Drive: Saved emails \/ Invoice 4411/).waitFor();
+  await page.getByRole('button', { name: 'Move…' }).click();
+  const move = page.getByRole('dialog', { name: /Move “Invoice 4411/ });
+  await move.getByLabel('Find a folder').fill('letters');
+  await move.getByRole('list', { name: 'Folders found' }).getByRole('button').filter({ hasText: 'Letters 2027' }).click();
+  await move.getByRole('button', { name: 'Move here' }).click();
+  await move.waitFor({ state: 'detached' });
+  const inFolder = (await api(page, 'GET', `/files?view=mine&parent=${letters.id}`)).body.map((f) => f.name);
+  if (!inFolder.some((n) => /^Invoice 4411.*\.pdf$/.test(n))) throw new Error(inFolder.join('|'));
+});
+await step('several saved as documents at once: Move… files them all', async () => {
+  const archive = (await api(page, 'POST', '/files/folder', { name: 'Mail archive 2027' })).body;
+  await page.goto(`${B}/mail`);
+  await page.getByLabel('Select Invoice 4411').first().check();
+  await page.getByLabel('Select Receipt 88').first().check();
+  await page.locator('.mail-bulk').getByRole('button', { name: 'Save to Drive as documents' }).click();
+  await page.getByText('Saved 2 documents to Drive: Saved emails').waitFor({ timeout: 20000 });
+  await page.getByRole('button', { name: 'Move…' }).click();
+  const move = page.getByRole('dialog', { name: /Move 2 items/ });
+  await move.getByRole('list', { name: 'Recent folders' }).getByRole('button').first().waitFor(); // (the folders used above)
+  await move.getByLabel('Find a folder').fill('mail archive');
+  await move.getByRole('list', { name: 'Folders found' }).getByRole('button').filter({ hasText: 'Mail archive 2027' }).click();
+  await move.getByRole('button', { name: 'Move here' }).click();
+  await move.waitFor({ state: 'detached' });
+  await page.getByText('Moved 2 files').waitFor();
+  const inFolder = (await api(page, 'GET', `/files?view=mine&parent=${archive.id}`)).body;
+  if (inFolder.length !== 2 || !inFolder.every((f) => f.kind === 'doc')) throw new Error(JSON.stringify(inFolder.map((f) => [f.name, f.kind])));
+});
+
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
