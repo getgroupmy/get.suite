@@ -89,5 +89,25 @@ await step('a company typed offers everyone there at once; Escape closes the lis
   await until(async () => (await d.getByRole('list', { name: 'Invited guests' }).getByRole('listitem').count()) === 4);
 });
 
+await step('a To line pasted from an email goes in whole: every address, by the names written', async () => {
+  const d = page.getByRole('dialog', { name: 'New event' });
+  const box = d.locator('#guest-input');
+  const chips = d.getByRole('list', { name: 'Invited guests' });
+  const before = await chips.getByRole('listitem').count();
+  await box.focus();
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'Otto Hahn <otto@labs.example>, "Meitner, Lise" <LISE@labs.example>; fritz@labs.example');
+    document.getElementById('guest-input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await until(async () => (await chips.getByRole('listitem').count()) === before + 3);
+  await chips.getByRole('listitem').filter({ hasText: 'Otto Hahn' }).getByText('otto@labs.example').waitFor();
+  await chips.getByRole('listitem').filter({ hasText: 'Meitner, Lise' }).getByText('lise@labs.example').waitFor();
+  if (await box.inputValue() !== '') throw new Error('the box should be empty again');
+  // typed the same way, ended with a comma
+  await box.pressSequentially('Max Born <max@labs.example>,');
+  await chips.getByRole('listitem').filter({ hasText: 'Max Born' }).waitFor();
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

@@ -1,3 +1,4 @@
+import { guestsFromText } from './guesttext.js';
 import { agendaDoc, agendaRows } from './agendadoc.js';
 import { has } from '../../fold.js';
 import WorldClock from './WorldClock.jsx';
@@ -1849,8 +1850,10 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
     if (g) setGuests((list) => [...new Set([...list, ...g.members.map((m) => m.username.toLowerCase()).filter((u) => u !== me.username.toLowerCase())])]);
   };
   const addGuests = (text) => {
-    const found = String(text).split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'));
+    const people = guestsFromText(text); // also a To line pasted from an email: Ann Lee <ann@x.org>, …
+    const found = people.map((p) => p.email);
     if (found.length) setGuests((g) => [...new Set([...g, ...found])]);
+    if (people.some((p) => p.name)) setGuestNames((n) => ({ ...Object.fromEntries(people.filter((p) => p.name).map((p) => [p.email, p.name])), ...n }));
     setGuestInput('');
   };
   // People to invite, suggested as a name, an address or a company is typed: colleagues, your contacts
@@ -2125,6 +2128,10 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
               role="combobox" aria-expanded={guestSugs.length > 0} aria-controls="guest-suggestions" aria-autocomplete="list"
               onChange={(e) => { const v = e.target.value; if ((/[,;\s]$/.test(v) && v.includes('@')) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
               onBlur={() => setTimeout(() => setGuestSugs([]), 150)}
+              onPaste={(e) => { // several addresses, or one as mail programs write it, go in at once
+                const t = e.clipboardData?.getData('text') || '';
+                if (/[,;\n<]/.test(t) && guestsFromText(t).length) { e.preventDefault(); addGuests(`${guestInput} ${t}`); }
+              }}
               onKeyDown={(e) => {
                 const open = guestSugs.length > 0;
                 if (open && e.key === 'ArrowDown') { e.preventDefault(); setGuestSugAt((i) => (i + 1) % guestSugs.length); }
