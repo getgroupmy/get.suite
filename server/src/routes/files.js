@@ -679,7 +679,10 @@ export default function fileRoutes({ maxUploadBytes }) {
       rows.sort((a, b) => (b.trashed_at || 0) - (a.trashed_at || 0));
     } else if (view === 'search') {
       // By name, or by the words inside (documents, spreadsheets, presentations, text and Office files).
-      const term = `%${fold(String(req.query.q || '')).replace(/[%_\\]/g, (c) => '\\' + c)}%`; // (accents don't matter)
+      // (accents don't matter; the words of a name in any order: "march budget" finds "Budget for March.xlsx")
+      const nameWords = fold(String(req.query.q || '')).split(/\s+/).filter(Boolean).slice(0, 8);
+      const nameLikes = nameWords.map((w) => `%${w.replace(/[%_\\]/g, (c) => '\\' + c)}%`);
+      const named = nameWords.map(() => "fold(f.name || ' ' || COALESCE(f.description, '')) LIKE ? ESCAPE '\\'").join(' AND ') || '1';
       const inside = contentMatches(req.query.q);
       const ids = JSON.stringify([...inside.keys()]);
       // Filters: the kind of file, whose it is, and when it last changed.
@@ -700,14 +703,14 @@ export default function fileRoutes({ maxUploadBytes }) {
                   UNION SELECT f3.id FROM files f3 JOIN acc ON f3.parent_id = acc.id WHERE f3.trashed = 0)
                 SELECT ${COLS} ${FROM}
                 WHERE (f.owner_id = ? OR f.id IN (SELECT id FROM acc)) AND f.trashed = 0
-                  AND (fold(f.name) LIKE ? ESCAPE '\\' OR fold(f.description) LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
+                  AND ((${named}) OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
                   ${extra.map((x) => `AND (${x})`).join(' ')}
-                ${ORDER} LIMIT 200`).all(me, org, me, term, term, ids, org, org, ...args)
+                ${ORDER} LIMIT 200`).all(me, org, me, ...nameLikes, ids, org, org, ...args)
         .map((f) => ({ ...f, role: f.owner_id === me ? 'owner' : roleFor(f.id, me) })).filter((f) => f.role); // a trashed folder above, or sharing switched off between companies
 
       // Name matches first, then the best content matches; each content match says where it matched.
       const rank = new Map([...inside.keys()].map((id, i) => [id, i]));
-      const byName = (f) => fold(f.name).includes(fold(String(req.query.q || '')));
+      const byName = (f) => nameWords.every((w) => fold(f.name).includes(w));
       rows = rows.map((f) => (inside.has(f.id) && !byName(f) ? { ...f, match: inside.get(f.id) } : f))
         .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
       // A presentation or spreadsheet matched inside: where (the slide, or the sheet and cell), to open it there.

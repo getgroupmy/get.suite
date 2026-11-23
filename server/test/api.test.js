@@ -1442,6 +1442,13 @@ test('search finds files by the words inside them, and only files you can open',
   assert.equal((await find(owner, 'kumquat'))[0].name, 'forecast.docx');
   assert.equal((await find(owner, 'minutes'))[0].id, doc.id, 'names still match');
   assert.equal((await find(owner, 'minutes'))[0].match, undefined);
+  // The words of a name in any order, with other words between them.
+  await owner('POST', '/api/files/upload?name=' + encodeURIComponent('Budget for March 2026.txt'), Buffer.from('nothing about it inside'), { raw: true });
+  while (await indexPending()) { /* indexed */ }
+  assert.deepEqual((await find(owner, 'march budget')).map((f) => [f.name, f.match]), [['Budget for March 2026.txt', undefined]], 'found by its name, not by words inside');
+  assert.equal((await find(owner, '2026 BUDGET')).length, 1);
+  assert.equal((await find(owner, 'march invoice')).length, 0, 'every word has to be there');
+  assert.equal((await find(owner, '100%')).length, 0, 'a % is only a %');
   // Someone else finds nothing until it's shared with them; edits are picked up.
   const other = client();
   assert.equal((await owner('POST', '/api/users', { local: 'searcher', domain: 'acme.com', name: 'Sam Searcher', password: 'password123' })).status, 201);

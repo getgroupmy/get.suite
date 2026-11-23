@@ -102,6 +102,17 @@ await step('a word suggested in a document is found; the snippet reads the text 
   const text = await opt().innerText();
   if (/PortoValencia/.test(text)) throw new Error(`snippet runs the words together: ${text}`);
 });
+await step('a file is found by the words of its name in any order', async () => {
+  await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Budget for March 2026' });
+  await page.goto(`${B}/drive`);
+  await box().fill('march budget');
+  await results().getByRole('group', { name: 'Files' }).getByText('Budget for March 2026').waitFor();
+  await box().press('Escape');
+  await box().focus();
+  await box().press('Enter'); // Drive's own list of what was found
+  await page.waitForURL(/\/drive\/search\?q=march/);
+  await page.getByRole('main').getByText('Budget for March 2026').first().waitFor();
+});
 await step('accents don\'t matter: "cafe" finds a task and a note with café, "zoe" a contact Zoë, "montreal" an event, a message and a file', async () => {
   const list = (await api(page, 'GET', '/tasks/lists')).body.find?.((l) => l.name === 'Work')?.id || (await api(page, 'POST', '/tasks/lists', { name: 'Accents' })).body.id;
   await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Reserve the Café Olé terrace' });
