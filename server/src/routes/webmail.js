@@ -1105,6 +1105,44 @@ export default function webmailRoutes() {
     res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, emails: rows.length });
   });
 
+  // Search every folder at once (the search box's "All folders"): the same search as in one folder, run in each
+  // folder but Trash and Junk (and Drafts), newest first, each message saying which folder it is in.
+  r.get('/search-all', async (req, res) => {
+    const term = String(req.query.q || '').trim();
+    if (!term) throw bad('Type something to search for');
+    const parsed = parseMailQuery(term);
+    if (parsed.error) throw bad(parsed.error);
+    if (!parsed.query && !parsed.files) throw bad('Type something to search for');
+    const SKIP = new Set(['\\Junk', '\\Trash', '\\Drafts']);
+    const LIMIT = 50; // newest first, across folders
+    const found = await withClient(req.user, async (c) => {
+      const out = [];
+      let total = 0;
+      for (const f of await c.list()) {
+        if (f.flags?.has?.('\\Noselect') || SKIP.has(f.specialUse)) continue;
+        const lock = await c.getMailboxLock(f.path).catch(() => null);
+        if (!lock) continue;
+        try {
+          let uids = (await c.search(parsed.query || { all: true }, { uid: true })) || [];
+          if (parsed.files) uids = await withFileNames(c, uids, parsed.files);
+          total += uids.length;
+          uids.sort((a, b) => b - a);
+          const some = uids.slice(0, LIMIT);
+          if (!some.length) continue;
+          const name = f.path === 'INBOX' ? 'Inbox' : f.path.split(f.delimiter || '/').join(' / ');
+          for await (const m of c.fetch(some.join(','), { uid: true, envelope: true, flags: true, internalDate: true, bodyStructure: true }, { uid: true })) {
+            const env = m.envelope || {};
+            out.push({ folder: f.path, folder_name: name, ...(f.specialUse === '\\Sent' && { sent: true }), uid: m.uid, subject: env.subject || '', from: addr(env.from?.[0]), to: (env.to || []).map(addr),
+              date: (env.date || m.internalDate)?.valueOf?.() ?? null, seen: m.flags.has('\\Seen'), flagged: m.flags.has('\\Flagged'), attachment: hasAttachment(m.bodyStructure) });
+          }
+        } finally { lock.release(); }
+      }
+      return { total, out };
+    });
+    found.out.sort((a, b) => (b.date || 0) - (a.date || 0));
+    res.json({ total: found.total, messages: found.out.slice(0, LIMIT) });
+  });
+
   r.get('/messages', async (req, res) => {
     const folder = String(req.query.folder || 'INBOX');
     const page = Math.max(1, Number(req.query.page) || 1);

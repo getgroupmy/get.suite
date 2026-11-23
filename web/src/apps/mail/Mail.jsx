@@ -114,6 +114,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const folder = params.folder ? decodeURIComponent(params.folder) : 'INBOX';
   const openUid = params.uid ? Number(params.uid) : null;
   const q = search.get('q') || '';
+  const [allFor, setAllFor] = useState(''); // the search shown across all folders too
   const labelId = search.get('label') || '';
   // ?open=<Message-ID> (from a task made from an email): find where the message is now and open it.
   const openId = search.get('open');
@@ -651,7 +652,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           {!shared && <> · <button className="link" onClick={async () => {
             // The search as a new filter's conditions (an action is still to choose); what a filter can't use is said.
             try { const r = await get(`/mail/rules/from-search?q=${encodeURIComponent(q)}`); setFilters({ startWith: r.rule }); if (r.left.length) toast(`Left out of the filter: ${r.left.join(' ')} (filters look at mail as it arrives)`); } catch (e) { toast(e.message, 'error'); }
-          }}>Create a filter</button></>}</p>}
+          }}>Create a filter</button></>}
+          {!shared && allFor !== q && <> · <button className="link" onClick={() => setAllFor(q)}>Search all folders</button></>}</p>}
+        {!shared && q && allFor === q && <AllFolders q={q} onClose={() => setAllFor('')} onOpen={(m) => navigate(`/mail/${encodeURIComponent(m.folder)}/${m.uid}?q=${encodeURIComponent(q)}`)} />}
         {!shared && !q && (special === '\\Trash' || special === '\\Junk') && data?.messages?.length > 0 && (
           <p className="muted small mail-note">{special === '\\Trash' ? 'Mail in Trash' : 'Mail in Junk'} still takes room in your mailbox until it's deleted for good. <button type="button" className="link" onClick={() => setEmptying(current)}>Empty {current.name} now</button></p>
         )}
@@ -829,6 +832,42 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
 
 /** On a message you sent with "remind me if no reply": when, and a way to cancel it. */
 /** A calendar invitation (or cancellation) in the message: what, when, and Yes / Maybe / No. */
+/** A search across every folder but Trash, Junk and Drafts: newest first, each with its folder; a click opens it there. */
+function AllFolders({ q, onClose, onOpen }) {
+  const [res, setRes] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    setRes(null); setError('');
+    get(`/mail/search-all?q=${encodeURIComponent(q)}`).then((r) => { if (live) setRes(r); }).catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; };
+  }, [q]);
+  const when = (t) => (t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: new Date(t).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) : '');
+  return (
+    <section className="all-folders" aria-label="Found in all folders">
+      <div className="row small" style={{ gap: 8 }}>
+        <strong className="grow">{!res ? (error ? 'Couldn’t search all folders' : 'Searching all folders…') : res.total ? `In all folders: ${res.total}${res.total > res.messages.length ? ` (newest ${res.messages.length} shown)` : ''}` : 'Nothing in the other folders either'}</strong>
+        <button type="button" className="link" onClick={onClose}>Hide</button>
+      </div>
+      {error && <p className="error small" role="alert">{error}</p>}
+      {res?.messages.length > 0 && (
+        <ul className="all-folders-list">
+          {res.messages.map((m) => (
+            <li key={`${m.folder}:${m.uid}`}>
+              <button type="button" className={`all-folders-row ${m.seen ? '' : 'unread'}`} onClick={() => onOpen(m)}>
+                <span className="all-folders-line"><span className="grow ellipsis">{m.sent ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || '')}</span>
+                  <span className="muted small">{when(m.date)}</span></span>
+                <span className="all-folders-line"><span className="grow ellipsis">{m.subject || '(no subject)'}</span>
+                  <span className="folder-chip small">{m.folder_name}</span></span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function InviteCard({ invite, uid, folder, onChange }) {
   const toast = useToast();
   const navigate = useNavigate();

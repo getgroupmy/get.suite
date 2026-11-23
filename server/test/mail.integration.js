@@ -3170,3 +3170,24 @@ test('running late: guests outside the server get an email from whoever is late'
     assert.ok(found.includes(outsider), 'to the guest outside');
   } finally { await imap.logout(); }
 });
+
+test('search all folders: a message is found wherever it was filed, not in the bin, saying where', async () => {
+  const tag = `Walrus${Date.now() % 1e6}`;
+  for (const subject of [`${tag} plan`, `${tag} budget`]) assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject, text: 'Notes' })).status, 200);
+  const plan = await eventually(async () => (await inbox(gina, tag)).find((m) => m.subject === `${tag} plan`));
+  const budget = await eventually(async () => (await inbox(gina, tag)).find((m) => m.subject === `${tag} budget`));
+  assert.equal((await gina('POST', '/api/mail/folders', { name: `Projects/${tag}` })).status, 201);
+  assert.equal((await gina('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [plan.uid], to: `Projects/${tag}` })).status, 200);
+  assert.equal((await gina('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [budget.uid], to: 'trash' })).status, 200);
+  assert.equal((await inbox(gina, tag)).length, 0, 'the Inbox on its own no longer has either');
+  const all = (await gina('GET', `/api/mail/search-all?q=${encodeURIComponent(tag)}`)).body;
+  assert.deepEqual(all.messages.map((m) => [m.subject, m.folder, m.folder_name]), [[`${tag} plan`, `Projects/${tag}`, `Projects / ${tag}`]], 'filed away, found; binned, not');
+  assert.equal(all.total, 1);
+  assert.ok(all.messages[0].uid > 0 && all.messages[0].from.address === 'olivia@acme.com');
+  // Sent mail is searched too, and the search language works as in one folder.
+  const sent = (await olivia('GET', `/api/mail/search-all?q=${encodeURIComponent(`subject:${tag} to:gina@globex.com`)}`)).body.messages;
+  assert.deepEqual(sent.map((m) => m.folder).sort(), ['Sent', 'Sent']);
+  assert.ok(sent.every((m) => m.sent === true) && all.messages[0].sent === undefined, 'Sent says so, whatever its name');
+  assert.equal((await gina('GET', '/api/mail/search-all?q=')).status, 400, 'nothing to search for');
+  assert.equal((await gina('GET', `/api/mail/search-all?q=${encodeURIComponent('before:yesterday-ish')}`)).status, 400, 'a mistake is explained');
+});

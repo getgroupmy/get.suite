@@ -161,3 +161,4 @@ feedtakeout.mjs
 vacationname.mjs
 maillists.mjs
 bookemail.mjs
+mailallfolders.mjs

@@ -1192,6 +1192,13 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 #share-people.address-list { position: static; margin: 4px 0 8px; box-shadow: none; max-width: none; }
 .share-pick > input { flex: 1; min-width: 0; }
 .people-ticks { margin-bottom: 8px; }
+.all-folders { margin: 4px 16px 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.all-folders-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.all-folders-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 4px; background: none; border: 0; border-top: 1px solid var(--border); color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.all-folders-row:hover { background: var(--accent-soft); }
+.all-folders-row.unread { font-weight: 600; }
+.all-folders-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.folder-chip { background: var(--surface-2); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
 .company-link { color: inherit; text-align: left; }
 .see-cal .colleague-input > input, .dm-start .colleague-input > input { font-size: 13px; }
 .online-mark { color: var(--ok); white-space: nowrap; }
