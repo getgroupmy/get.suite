@@ -48,7 +48,13 @@ await step('transfer a folder to a colleague from its menu', async () => {
   await page.getByRole('button', { name: 'Actions for Projects' }).click();
   await page.getByRole('menuitem', { name: 'Transfer ownership…' }).click();
   const d = page.getByRole('dialog', { name: 'Transfer ownership' });
-  await d.getByLabel('New owner').selectOption({ label: 'Kim Park (kim@acme.com)' });
+  // A name typed (words in any order) lists who it fits; until one is picked, there's nobody to transfer to.
+  await d.getByLabel('New owner').fill('park k');
+  if (!(await d.getByRole('button', { name: 'Transfer' }).isDisabled())) throw new Error('Transfer allowed with only part of a name');
+  await d.getByText('Pick someone from the list').waitFor();
+  if (await d.getByRole('option', { name: /Olivia Owner/ }).count()) throw new Error('offered to herself');
+  await d.getByRole('option', { name: /Kim Park/ }).click();
+  if ((await d.getByLabel('New owner').inputValue()) !== 'kim@acme.com') throw new Error('address not filled in');
   await d.getByRole('button', { name: 'Transfer' }).click();
   await page.getByText('Kim Park now owns “Projects” (2 items). You can still edit it.').waitFor();
   const f = (await api(page, 'GET', `/files/${folder.id}`)).body;

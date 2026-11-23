@@ -27,6 +27,7 @@ import ScanDialog from './ScanDialog.jsx';
 import SharedInDialog from './SharedInDialog.jsx';
 import { readShared } from '../../shareinbox.js';
 import { openUrl } from '../../components/DrivePicker.jsx';
+import ColleagueInput from '../../components/ColleagueInput.jsx';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { linkEmail } from './linkemail.js';
@@ -1857,9 +1858,10 @@ function TransferDialog({ file, onClose, onDone }) {
   const toast = useToast();
   const { user } = useAuth();
   const [people, setPeople] = useState(null);
-  const [to, setTo] = useState('');
+  const [text, setText] = useState(''); // a name typed, or the address of the colleague picked
   const [error, setError] = useState('');
   useEffect(() => { get('/users/directory').then((l) => setPeople(l.filter((p) => p.id !== user.id))).catch(() => setPeople([])); }, [user.id]);
+  const to = (people || []).find((p) => p.username.toLowerCase() === text.trim().toLowerCase())?.id || '';
   const submit = async (e) => {
     e.preventDefault();
     try {
@@ -1873,11 +1875,10 @@ function TransferDialog({ file, onClose, onDone }) {
       <form className="stack" onSubmit={submit}>
         <p className="muted small" style={{ margin: 0 }}>The new owner decides who has “{file.name}”{file.kind === 'folder' ? ' and everything in it you own' : ''}, and it counts as theirs. You keep edit access.</p>
         <label className="field"><span>New owner</span>
-          <select value={to} onChange={(e) => setTo(e.target.value)} required>
-            <option value="">Choose a colleague…</option>
-            {(people || []).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.username})</option>)}
-          </select>
+          {/* a name typed (words in any order, accents aside) lists who it fits; picking one fills in their address */}
+          <ColleagueInput people={people || []} value={text} onChange={(v) => { setText(v); setError(''); }} label="New owner" placeholder="A colleague’s name or email address" listId="transfer-people" required />
         </label>
+        {text.trim() && !to && <p className="muted small" style={{ margin: 0 }}>Pick someone from the list (or type their whole address).</p>}
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Transfer</button></div>
       </form>
