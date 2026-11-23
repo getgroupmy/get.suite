@@ -1,5 +1,7 @@
 // Forms: build a questionnaire, share its link, read the answers. /forms lists yours; /forms/:id edits one
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
+import ColleagueInput from '../../components/ColleagueInput.jsx';
+import { colleagueAddress } from '../../components/colleagues.js';
 import { has } from '../../fold.js';
 import { mergeList } from './listmerge.js';
 import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
@@ -695,7 +697,9 @@ function Editors({ form, setForm }) {
   useEffect(() => { if (form.role === 'owner') get('/users/directory').then(setPeople).catch(() => {}); }, [form.role]);
   const add = async (e) => {
     e.preventDefault();
-    try { const editors = await post(`/forms/${form.id}/editors`, { email, ...(message.trim() && { message: message.trim() }) }); setForm((f) => ({ ...f, editors })); setEmail(''); setMessage(''); } catch (err) { toast(err.message, 'error'); }
+    const to = colleagueAddress(people, email); // an address, or the one colleague the name fits
+    if (!to) return toast('Pick the person from the list, or type their full email address', 'error');
+    try { const editors = await post(`/forms/${form.id}/editors`, { email: to, ...(message.trim() && { message: message.trim() }) }); setForm((f) => ({ ...f, editors })); setEmail(''); setMessage(''); } catch (err) { toast(err.message, 'error'); }
   };
   const remove = async (u) => {
     try { const editors = await del(`/forms/${form.id}/editors/${u.id}`); setForm((f) => ({ ...f, editors })); } catch (err) { toast(err.message, 'error'); }
@@ -714,8 +718,7 @@ function Editors({ form, setForm }) {
       </ul>
       {form.role === 'owner' && (
         <form className="row" onSubmit={add}>
-          <input className="grow" type="email" list="form-people" required aria-label="Add an editor" placeholder="Colleague's email address" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <datalist id="form-people">{people.filter((p) => !taken.has(p.id)).map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}</datalist>
+          <ColleagueInput people={people.filter((p) => !taken.has(p.id))} value={email} onChange={setEmail} label="Add an editor" listId="form-people" required />
           <button className="btn">Add</button>
         </form>
       )}

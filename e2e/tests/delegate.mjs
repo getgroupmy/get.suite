@@ -96,6 +96,20 @@ await step('Olivia takes it back: Kim no longer has the mailbox', async () => {
   await kim.getByRole('button', { name: 'Compose' }).waitFor();
   if (await kim.getByLabel('Mailbox').count()) throw new Error('still offered');
 });
+await step('a colleague is found by name; a name that fits one person is enough', async () => {
+  const r = await page.evaluate(async () => (await fetch('/api/users', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ local: 'raj', domain: 'acme.com', name: 'Raj Patel', password: 'password123' }) })).status);
+  if (r !== 201) throw new Error(`user ${r}`);
+  await page.goto(`${B}/settings`);
+  const card = page.getByRole('region', { name: 'Mail delegation' });
+  const box = card.getByLabel("Colleague's email address");
+  await box.pressSequentially('patel');
+  await card.getByRole('listbox', { name: 'Matching people' }).getByRole('option').filter({ hasText: 'Raj Patel' }).waitFor();
+  await box.press('Escape'); // the name alone will do
+  await card.getByRole('button', { name: 'Give access' }).click();
+  await card.getByRole('list', { name: 'People who have your mail' }).getByText('Raj Patel').waitFor();
+  await card.getByRole('button', { name: 'Remove Raj Patel' }).click();
+  await card.getByRole('list', { name: 'People who have your mail' }).getByText('Raj Patel').waitFor({ state: 'detached' });
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

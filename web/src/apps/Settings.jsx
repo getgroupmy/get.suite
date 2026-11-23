@@ -1,3 +1,5 @@
+import ColleagueInput from '../components/ColleagueInput.jsx';
+import { colleagueAddress } from '../components/colleagues.js';
 import { Link } from 'react-router';
 import { FONTS, FONT_SIZES, mailStyleCss } from './mail/richtext.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -1152,7 +1154,9 @@ function MailDelegates() {
   if (!ok || !d) return null;
   const add = async (e) => {
     e.preventDefault();
-    try { const mine = await post('/mail/delegates', { email }); setD({ ...d, mine }); setEmail(''); toast('They can now read and answer your mail'); } catch (err) { toast(err.message, 'error'); }
+    const to = colleagueAddress(people, email); // an address, or the one colleague the name fits
+    if (!to) return toast('Pick the person from the list, or type their full email address', 'error');
+    try { const mine = await post('/mail/delegates', { email: to }); setD({ ...d, mine }); setEmail(''); toast('They can now read and answer your mail'); } catch (err) { toast(err.message, 'error'); }
   };
   const remove = async (p) => { try { const mine = await del(`/mail/delegates/${p.id}`); setD({ ...d, mine }); toast(`${p.name} no longer has your mail`); } catch (err) { toast(err.message, 'error'); } };
   return (
@@ -1166,8 +1170,7 @@ function MailDelegates() {
         </ul>
       )}
       <form className="row" onSubmit={add} style={{ gap: 8 }}>
-        <input className="grow" type="email" aria-label="Colleague's email address" list="deleg-people" placeholder="colleague@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <datalist id="deleg-people">{people.map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}</datalist>
+        <ColleagueInput people={people.filter((p) => !d.mine.some((m) => m.id === p.id))} value={email} onChange={setEmail} label="Colleague's email address" listId="deleg-people" required />
         <button className="btn">Give access</button>
       </form>
       {d.toMe.length > 0 && <p className="muted small" style={{ margin: 0 }}>You can read and answer the mail of {d.toMe.map((p) => p.name).join(', ')} (Mail → Mailbox).</p>}

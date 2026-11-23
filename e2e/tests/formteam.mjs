@@ -110,5 +110,20 @@ await step('owner removes the editor; they are sent back', async () => {
   await ed.getByText('No forms yet').waitFor();
 });
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
+await step('an editor is found by name: the list fills in the address', async () => {
+  const r = await api(page, 'POST', '/users', { local: 'nora', domain: 'acme.com', name: 'Nora Quíll', password: 'password123' });
+  if (r.status !== 201) throw new Error(`user ${r.status}`);
+  await page.goto(`${B}/forms/${formId}?tab=settings`);
+  const box = page.getByLabel('Add an editor');
+  await box.pressSequentially('quill nora'); // the words in any order, accents aside
+  const list = page.getByRole('listbox', { name: 'Matching people' });
+  await list.getByRole('option').filter({ hasText: 'Nora Quíll' }).getByText('nora@acme.com').waitFor();
+  if (await list.getByRole('option').filter({ hasText: 'Eddie Editor' }).count()) throw new Error('Eddie already edits it');
+  await page.screenshot({ path: `${SP}/shots/formteam-pick.png` });
+  await list.getByRole('option').first().click();
+  if (await box.inputValue() !== 'nora@acme.com') throw new Error(await box.inputValue());
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('region', { name: 'People who can edit' }).getByText('Nora Quíll').waitFor();
+});
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();
