@@ -12,6 +12,7 @@ import { useAuth } from '../App.jsx';
 import { matchActions, detailedActions, wantsPeople, wantsChannels } from './searchactions.js';
 import { localToday } from '../apps/tasks/taskmath.js';
 import { taskSub } from './tasksub.js';
+import { noteSub } from './notesub.js';
 import { addToTasksWithToast } from '../apps/tasks/addtask.js';
 import { newEventMinutes, DEFAULT_CAL_PREFS } from '../apps/calendar/calprefs.js';
 import { useToast } from './ui.jsx';
@@ -41,7 +42,7 @@ let mailOnce = null;
 const mailEnabled = () => (mailOnce ??= get('/mail/status').then((st) => !!st.enabled).catch(() => false));
 
 /** Everything that matches `text`, as groups of { key, icon, title, sub, to, state }. Each source failing on its own just leaves it out. */
-export async function searchAll(text) {
+export async function searchAll(text, me = null) { // me: your user id (whose a shared note is)
   const qs = encodeURIComponent(text);
   const safe = (p) => p.catch(() => []);
   const mailOn = await mailEnabled();
@@ -67,7 +68,7 @@ export async function searchAll(text) {
     ['Meeting chats', meetChat.map((m) => ({ key: `g${m.id}`, icon: 'video', title: m.text, sub: `${m.name} · ${m.title || m.code}${m.room ? ` · room ${m.room}` : ''} · ${when(m.at)}`, to: `/meet?chat=${m.code}` }))],
     ['Comments', comments.map((c) => ({ key: `x${c.id}`, icon: 'chat', title: c.body, sub: `${c.author_name || 'Someone'} on “${c.file.name}”${c.resolved ? ' · resolved' : ''} · ${when(c.at)}`, to: c.link }))],
     ['Tasks', tasks.map((t) => ({ key: `t${t.id}`, icon: 'check', title: `${t.done ? '✓ ' : ''}${t.title}`, sub: taskSub(t, localToday()), to: `/tasks/${t.list_id}?task=${t.id}` }))],
-    ['Notes', notes.map((n) => ({ key: `n${n.id}`, icon: 'note', title: n.title || (n.body || (n.items || []).map((i) => i.text).join(', ')).slice(0, 80), sub: n.labels.join(', '), to: '/notes', state: { openNote: n.id } }))],
+    ['Notes', notes.map((n) => ({ key: `n${n.id}`, icon: 'note', title: n.title || (n.body || (n.items || []).map((i) => i.text).join(', ')).slice(0, 80), sub: noteSub(n, me), to: '/notes', state: { openNote: n.id } }))],
     ['Events', events.map((e) => ({ key: `e${e.id}:${e.start}`, icon: 'calendar', title: e.title, sub: `${when(e.start)}${e.location ? ` · ${e.location}` : ''}`, to: '/calendar', state: { openEvent: e } }))],
     ['Forms', forms.map((f) => ({ key: `o${f.id}`, icon: 'form', title: f.title, sub: [`${f.responses} response${f.responses === 1 ? '' : 's'}`, f.closed ? 'not taking answers' : null, f.owner_name].filter(Boolean).join(' · '), to: `/forms/${f.id}` }))],
     ['Contacts', contacts.filter((c) => matchesFilter({ name: c.name, email: c.email, company: c.company, title: c.title, phone: c.phone, more_phones: c.more_phones, more_emails: typeof c.more_emails === 'string' ? c.more_emails : JSON.stringify(c.more_emails || '') }, text)).map((c) => ({ key: `k${c.id}`, icon: 'person', title: c.name || c.email, sub: [c.email, c.company].filter(Boolean).join(' · '), to: `/contacts?q=${encodeURIComponent(c.name || c.email)}` }))],
@@ -118,7 +119,7 @@ export default function GlobalSearch() {
     const t = text.trim();
     if (t.length < 2) { setGroups(null); return undefined; }
     const n = ++seq.current;
-    const timer = setTimeout(() => searchAll(t).then((g) => { if (n === seq.current) { setGroups(g); setPick(-1); } }), 250);
+    const timer = setTimeout(() => searchAll(t, user?.id).then((g) => { if (n === seq.current) { setGroups(g); setPick(-1); } }), 250);
     return () => clearTimeout(timer);
   }, [text]);
   useEffect(() => {

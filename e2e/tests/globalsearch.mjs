@@ -134,6 +134,11 @@ await step('accents don\'t matter: "cafe" finds a task and a note with café, "z
   await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Book the Café Olé caterer', due: tomorrow, priority: 'high', important: true });
   await box().fill('cafe ole caterer');
   await results().getByRole('group', { name: 'Tasks' }).getByRole('option').filter({ hasText: 'Book the Café Olé caterer' }).getByText(/· due tomorrow · high priority · ★$/).waitFor();
+  // A note says its labels and how far its checklist is.
+  const list2 = (await api(page, 'POST', '/notes', { title: 'Café Olé shopping', items: [{ text: 'Milk', done: true }, { text: 'Beans' }] })).body;
+  await api(page, 'PATCH', `/notes/${list2.id}`, { labels: ['errands'] });
+  await box().fill('cafe ole shopping');
+  await results().getByRole('group', { name: 'Notes' }).getByRole('option').filter({ hasText: 'Café Olé shopping' }).getByText('#errands · 1 of 2 ticked').waitFor();
   await box().fill('cafe ole');
   await results().getByRole('group', { name: 'Notes' }).getByText('Café Olé menu').waitFor();
   await box().fill('zoe bronte');
