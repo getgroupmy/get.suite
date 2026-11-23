@@ -1,4 +1,5 @@
 import { has } from '../../fold.js';
+import { matchesFilter } from './contactfilter.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { unreachable, changeAdd, appendKept, offlineId, keepChange, keepDelete } from '../offlinedocs.js';
 import { contactKey } from './contactkeys.js';
@@ -151,7 +152,7 @@ export default function Contacts() {
   const dayName = (iso) => (iso === isoDay(new Date()) ? 'today' : `on ${new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long' })}`);
   const whereOk = (c) => tab !== 'dir' || !whereFilter || (whereFilter === 'none' ? !whereToday[c.id] : whereToday[c.id]?.place === whereFilter);
 
-  const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && has(v, filter));
+  const match = (c) => matchesFilter(c, filter);
   const [sort, setSort] = useState('first'); // your own way of sorting your contacts
   useEffect(() => { get('/contacts/view').then((r) => setSort(r.sort)).catch(() => {}); }, []);
   const chooseSort = async (next) => { setSort(next); try { await put('/contacts/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };

@@ -73,6 +73,21 @@ await step('sort by last in touch: who you were in touch with most recently firs
   await page.reload();
   await until(async () => (await names()).join('|') === 'Zoe Adams|Anna Young|Bob Martin', 10000);
 });
+await step('the Filter box: words may be in different fields, and a number finds a phone however it is written', async () => {
+  const bob = (await api(page, 'GET', '/contacts')).body.find((c) => c.name === 'Bob Martin');
+  await api(page, 'PATCH', `/contacts/${bob.id}`, { phone: '+1 (555) 01-42' });
+  await page.reload();
+  await until(async () => (await names()).length === 3, 10000);
+  const filter = page.getByLabel('Filter contacts');
+  await filter.fill('martin acme');
+  await until(async () => (await names()).join('|') === 'Bob Martin');
+  await filter.fill('5550142');
+  await until(async () => (await names()).join('|') === 'Bob Martin');
+  await filter.fill('martin beta');
+  await until(async () => (await names()).length === 0);
+  await filter.fill('');
+  await until(async () => (await names()).length === 3);
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
