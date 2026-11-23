@@ -71,14 +71,18 @@ await step('narrowed to one person and one kind', async () => {
   await api(len, 'POST', '/files/new', { kind: 'doc', name: 'Len notes', parent_id: room });
   await kim.goto(`${B}/drive/activity`);
   await kim.getByText('Len Lee created “Len notes”').waitFor();
-  await kim.getByLabel('Who').selectOption({ label: 'Len Lee' });
+  await kim.getByLabel('Who').fill('lee len'); // words in any order; nothing is filtered until someone is picked
+  if (!(await kim.locator('.file-activity', { hasText: 'Olivia Owner' }).count())) throw new Error('filtered on a half-typed name');
+  await kim.getByRole('option', { name: /Len Lee/ }).click();
+  if ((await kim.getByLabel('Who').inputValue()) !== 'len@acme.com') throw new Error('address not filled in');
   await until(async () => (await kim.locator('.file-activity', { hasText: 'Olivia Owner' }).count()) === 0);
   await kim.getByText('Len Lee created “Len notes”').waitFor();
-  await kim.getByLabel('Who').selectOption({ label: 'Anyone' });
+  await kim.getByRole('button', { name: '× Anyone' }).click();
+  if (await kim.getByLabel('Who').inputValue()) throw new Error('not cleared');
   await kim.getByLabel('What').selectOption({ label: 'Shared' });
   await kim.locator('.file-activity li', { hasText: /Olivia Owner shared “Joint room” with/ }).first().waitFor();
   if (await kim.getByText('Len Lee created').count()) throw new Error('kind not applied');
-  await kim.getByLabel('Who').selectOption({ label: 'Len Lee' });
+  await kim.getByLabel('Who').fill('lee len'); await kim.getByRole('option', { name: /Len Lee/ }).click();
   await kim.getByText('Nothing like that in the last 30 days.').waitFor();
 });
 await step('Activity in the left bar counts what’s new; looking clears it; new entries are marked', async () => {

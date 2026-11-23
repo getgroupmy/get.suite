@@ -1940,10 +1940,12 @@ function RecentActivity() {
   useEffect(() => { get('/files/activity/seen').then((r) => { setSince(r.seen_at || 0); post('/files/activity/seen').catch(() => {}); }).catch(() => setSince(0)); }, []);
   useEffect(() => { if (since !== undefined && list) post('/files/activity/seen').catch(() => {}); }, [list]); // eslint-disable-line react-hooks/exhaustive-deps -- seeing more while it's open counts too
   const [more, setMore] = useState(false);
-  const [by, setBy] = useState('');
   const [kind, setKind] = useState('');
   const [people, setPeople] = useState([]);
   useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
+  // Who: a name typed lists the colleagues it fits; picking one shows only what they did. Empty is anyone.
+  const [who, setWho] = useState('');
+  const by = people.find((p) => p.username.toLowerCase() === who.trim().toLowerCase())?.id || '';
   const qs = `${by ? `&by=${by}` : ''}${kind ? `&kind=${kind}` : ''}`;
   const load = useCallback(() => get(`/files/activity/recent?${qs.slice(1)}`).then((l) => { setList(l); setMore(l.length >= 100); }).catch(() => setList([])), [qs]);
   useEffect(() => { load(); }, [load]);
@@ -1951,10 +1953,8 @@ function RecentActivity() {
   const older = async () => { const l = await get(`/files/activity/recent?before=${list.at(-1).id}${qs}`).catch(() => []); setList([...list, ...l]); setMore(l.length >= 100); };
   const filters = (
     <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-      <select aria-label="Who" value={by} onChange={(e) => setBy(e.target.value)}>
-        <option value="">Anyone</option>
-        {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
+      <span className="activity-who"><ColleagueInput people={people} value={who} onChange={setWho} label="Who" placeholder="Anyone" listId="activity-who" /></span>
+      {who.trim() && <button type="button" className="link-btn small" onClick={() => setWho('')}>× Anyone</button>}
       <select aria-label="What" value={kind} onChange={(e) => setKind(e.target.value)}>
         {ACTIVITY_KINDS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
       </select>
