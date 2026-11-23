@@ -2044,6 +2044,24 @@ test('search filters: kind of file, whose it is, and when it changed', async () 
   const theirs = (await pn('GET', `/api/files?view=search&type=folder&q=${encodeURIComponent(`contracts ${tag}`)}`)).body.find((f) => f.id === inner.id);
   assert.ok(theirs, 'they find the folder shared with them');
   assert.equal(theirs.parent_name, undefined, 'but not the name of the one around it');
+  // Recent files say it too (Drive's Recent, and the pickers that list recent files): two "Budget"s told apart.
+  const q1 = (await owner('POST', '/api/files/folder', { name: `Q1 ${tag}` })).body;
+  const q2 = (await owner('POST', '/api/files/folder', { name: `Q2 ${tag}`, parent_id: inner.id })).body;
+  const b1 = (await owner('POST', '/api/files/new', { kind: 'sheet', name: `Budget ${tag}`, parent_id: q1.id })).body;
+  const b2 = (await owner('POST', '/api/files/new', { kind: 'sheet', name: `Budget ${tag}`, parent_id: q2.id })).body;
+  const top = (await owner('POST', '/api/files/new', { kind: 'doc', name: `Loose ${tag}` })).body;
+  const rec = (await owner('GET', '/api/files?view=recent')).body;
+  assert.equal(rec.find((f) => f.id === b1.id).parent_name, `Q1 ${tag}`);
+  assert.equal(rec.find((f) => f.id === b2.id).parent_name, `Q2 ${tag}`);
+  assert.equal(rec.find((f) => f.id === top.id).parent_name, undefined, 'at the top of My Drive: none');
+  // Pat can open Q2 (inside the folder shared with them) but not Q1, nor what's around Contracts.
+  await owner('PUT', `/api/files/${b1.id}/shares`, { shares: [{ user_id: pid, role: 'viewer' }] });
+  const patRec = (await pn('GET', '/api/files?view=recent')).body;
+  assert.equal(patRec.find((f) => f.id === b2.id).parent_name, `Q2 ${tag}`);
+  assert.ok(patRec.find((f) => f.id === b1.id), 'the budget shared with them is there');
+  assert.equal(patRec.find((f) => f.id === b1.id).parent_name, undefined, 'but not the name of a folder they can\'t open');
+  // Other views are as they were.
+  assert.equal((await owner('GET', `/api/files?view=mine&parent=${q1.id}`)).body[0].parent_name, undefined);
   void d; void s; void folder;
 });
 

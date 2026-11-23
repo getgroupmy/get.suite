@@ -9,7 +9,7 @@ const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation
 /** Where to open a Drive item: Docs, Sheets and Slides in their app; other files as they are (a new tab). */
 export const openUrl = (f) => (f.kind === 'folder' ? `/drive/folder/${f.id}` : KIND_ICON[f.kind] ? `/${f.kind === 'doc' ? 'docs' : f.kind === 'sheet' ? 'sheets' : 'slides'}/${f.id}` : `/api/files/${f.id}/raw`);
 
-/** Pick a file from Drive: recent ones, or search. `accept` says which items can be picked. */
+/** Pick a file from Drive: recent ones, or search, each saying which folder it's in. `accept` says which items can be picked. */
 export default function DrivePicker({ title = 'Attach from Drive', accept = (x) => x.kind === 'file', empty = 'No files found.', onClose, onPick }) {
   const [items, setItems] = useState(null);
   const [term, setTerm] = useState('');
@@ -25,7 +25,10 @@ export default function DrivePicker({ title = 'Attach from Drive', accept = (x) 
       <ul className="pick-list">
         {items === null && <li className="muted">Loading…</li>}
         {items?.length === 0 && <li className="muted">{empty}</li>}
-        {items?.map((x) => <li key={x.id}><button type="button" onClick={() => onPick(x)}><Icon name={KIND_ICON[x.kind] || 'file'} />{x.name}<span className="muted small">{x.kind === 'file' ? formatBytes(x.size) : KIND_NAME[x.kind]}</span></button></li>)}
+        {items?.map((x) => <li key={x.id}><button type="button" onClick={() => onPick(x)}><Icon name={KIND_ICON[x.kind] || 'file'} />
+          {/* which folder it's in, so two "Budget"s are told apart */}
+          <span className="grow">{x.name}{x.parent_name && <span className="muted small"> · in {x.parent_name}</span>}</span>
+          <span className="muted small">{x.kind === 'file' ? formatBytes(x.size) : KIND_NAME[x.kind]}</span></button></li>)}
       </ul>
     </Modal>
   );

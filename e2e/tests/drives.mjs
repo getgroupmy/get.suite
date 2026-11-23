@@ -95,7 +95,7 @@ await step('Olivia’s new file in the drive is in Kim’s Recent', async () => 
   const drive = (await api(kim, 'GET', '/files?view=drives')).body.find((d) => d.name === 'Marketing');
   await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Q4 forecast', parent_id: drive.id });
   await kim.goto(`${B}/drive/recent`);
-  await kim.locator('tbody').getByText('Q4 forecast', { exact: true }).waitFor();
+  await kim.locator('tbody .name-text', { hasText: /^Q4 forecast · in Marketing/ }).waitFor(); // (and which folder it's in: the drive)
 });
 await step('An admin sees every shared drive and adds herself to one she isn’t in', async () => {
   await api(kim, 'POST', '/files/drives', { name: 'Design' });

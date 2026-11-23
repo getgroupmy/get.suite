@@ -720,7 +720,10 @@ export default function fileRoutes({ maxUploadBytes }) {
         const at = placeOfMatch(f.kind, json, req.query.q);
         if (at) { f.place = at.hash; if (at.words) f.place_words = at.words; }
       }
-      // The folder each is in, by name, when you can open that folder yourself (two "Contracts" folders, told apart).
+    } else throw bad('Unknown view');
+    // Searching, or among recent files: the folder each is in, by name, when you can open that folder yourself
+    // (two "Budget" files, or two "Contracts" folders, told apart).
+    if (view === 'search' || view === 'recent') {
       const parents = new Map();
       for (const f of rows) {
         if (!f.parent_id) continue;
@@ -730,7 +733,7 @@ export default function fileRoutes({ maxUploadBytes }) {
         }
         if (parents.get(f.parent_id)) f.parent_name = parents.get(f.parent_id);
       }
-    } else throw bad('Unknown view');
+    }
     // Shortcuts in this folder (or your My Drive), unless asked to leave them out.
     if (view === 'mine' && !req.query.noshortcuts) rows = [...rows, ...shortcutsIn(req.query.parent || null, req.user)];
     // Your stars on what's listed.
