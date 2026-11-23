@@ -1536,6 +1536,15 @@ test('contacts: import vCard and CSV files (duplicates skipped), export, and add
   assert.equal((await sug('mei'))[0].company, undefined, 'not said when the name was what matched');
   assert.deepEqual(await sug('mei initech'), [], 'every word has to fit');
   assert.deepEqual(await sug('100%'), [], 'a % is only a %');
+  // Two or more of your contacts at the company typed: one suggestion for everyone there, first.
+  for (const [name, email] of [['Ravi Rao', 'ravi@hooli.example'], ['Una Voss', 'una@hooli.example'], ['Una Voss', 'UNA@hooli.example']]) await c('POST', '/api/contacts', { name, email, company: ' Hooli Labs ' });
+  await c('POST', '/api/contacts', { name: 'No Mail', company: 'Hooli Labs' });
+  const hooli = await sug('hooli');
+  assert.deepEqual([hooli[0].kind, hooli[0].name, hooli[0].email], ['company', 'Everyone at Hooli Labs', 'company:hooli labs']);
+  assert.deepEqual(hooli[0].members, [{ name: 'Ravi Rao', email: 'ravi@hooli.example' }, { name: 'Una Voss', email: 'una@hooli.example' }], 'each address once, those without one left out');
+  assert.ok(hooli.slice(1).some((s) => s.email === 'ravi@hooli.example'), 'and each of them as before');
+  assert.equal((await sug('ravi hooli')).some((s) => s.kind === 'company'), false, 'not when the words name a person');
+  assert.equal((await sug('globex')).some((s) => s.kind === 'company'), false, 'not for one contact alone');
 });
 
 test('chat: unread counts, editing, reactions and attached files', async () => {

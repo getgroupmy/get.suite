@@ -75,7 +75,15 @@ await step('To suggestions: a company finds the contacts there, and says the com
   await to.pressSequentially('works');
   await list.getByRole('option').filter({ hasText: 'Ben Vale' }).getByText('· Initrode Works').waitFor({ timeout: 10000 });
   await list.getByRole('option').filter({ hasText: 'Ada Stone' }).waitFor();
-  if (await list.getByRole('option').count() !== 2) throw new Error('only the two people at the company');
+  // and first, one suggestion for everyone there
+  const all = list.getByRole('option').first();
+  await all.getByText('Everyone at Initrode Works').waitFor();
+  await all.getByText('2 people').waitFor();
+  await all.getByText('Company', { exact: true }).waitFor();
+  if (await list.getByRole('option').count() !== 3) throw new Error('the company and the two people there');
+  await page.screenshot({ path: `${SP}/shots/suggest-everyone.png` });
+  await all.click();
+  await until(async () => /Ada Stone <ada@initrode\.example>, Ben Vale <ben\.vale@post\.example>/.test(await to.inputValue()));
   await to.fill('');
   await to.pressSequentially('ben initrode');
   await until(async () => (await list.getByRole('option').count()) === 1 && /Ben Vale/.test(await list.innerText()), 10000);

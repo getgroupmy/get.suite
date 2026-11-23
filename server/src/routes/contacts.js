@@ -443,6 +443,16 @@ export default function contactRoutes() {
     const mine = q(`SELECT name, email, company, starred FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
                     AND ${allWords('')}
                     ORDER BY starred DESC, (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, ...wordLikes, starts, starts);
+    // A company typed (two or more of your contacts there): one suggestion writes to everyone at it.
+    const firms = new Map();
+    for (const c of q(`SELECT name, email, company FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != '' AND company IS NOT NULL
+                       AND ${words.map(() => "fold(company) LIKE ? ESCAPE '\\'").join(' AND ')} ORDER BY name COLLATE NOCASE LIMIT 200`).all(req.user.id, ...wordLikes)) {
+      const key = fold(c.company.trim());
+      if (!firms.has(key)) firms.set(key, { kind: 'company', name: `Everyone at ${c.company.trim()}`, email: `company:${key}`, members: [] });
+      const f = firms.get(key);
+      if (f.members.length < 50 && !f.members.some((m) => m.email.toLowerCase() === c.email.toLowerCase())) f.members.push({ name: c.name || '', email: c.email });
+    }
+    const companies = [...firms.values()].filter((f) => f.members.length > 1).slice(0, 2);
     // Your contacts' other addresses (a work and a home one): each is a suggestion of its own.
     const extra = q(`SELECT name, more_emails, company, starred FROM contacts WHERE owner_id = ? AND more_emails IS NOT NULL AND more_emails != '[]'
                      AND ${words.map(() => "fold(coalesce(name, '') || ' ' || more_emails || ' ' || coalesce(company, '')) LIKE ? ESCAPE '\\'").join(' AND ')} LIMIT 20`).all(req.user.id, ...wordLikes)
@@ -470,7 +480,7 @@ export default function contactRoutes() {
     const starredSet = new Set(starredMine.map((p) => p.email.toLowerCase()));
     const ranked = out.map((p, i) => ({ p, i, star: starredSet.has(p.email) ? 1 : 0, n: times.get(p.email) || 0 }))
       .sort((a, b) => b.star - a.star || b.n - a.n || a.i - b.i).map((x) => x.p);
-    res.json([...groups, ...ranked].slice(0, 8));
+    res.json([...groups, ...companies, ...ranked].slice(0, 8));
   });
 
   // Import a .vcf (one or many cards) or a CSV export (Gmail, Outlook, or Name/Email columns).
