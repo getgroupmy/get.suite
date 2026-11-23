@@ -4,6 +4,7 @@
 #
 #   bash scripts/check-setup.sh                      # docker-compose.mac.yml on a Mac, docker-compose.yml elsewhere
 #   bash scripts/check-setup.sh docker-compose.yml   # a compose file of your choosing
+#   bash scripts/check-setup.sh --https              # with HTTPS from Caddy (--profile https): ports 80 and 443 too
 #
 # ✓ fine · ! worth a look · ✗ needs fixing. Exits 1 when something needs fixing.
 set -u
@@ -14,6 +15,8 @@ ok()   { printf '  \342\234\223 %s\n' "$*"; }
 warn() { printf '  ! %s\n' "$*"; }
 fail() { printf '  \342\234\227 %s\n' "$*"; bad=1; }
 
+https=0
+if [[ ${1:-} == --https ]]; then https=1; shift; fi
 os=$(uname -s); hw=$(uname -m)
 if [[ $# -ge 1 ]]; then file=$1; elif [[ $os == Darwin ]]; then file=docker-compose.mac.yml; else file=docker-compose.yml; fi
 
@@ -54,7 +57,8 @@ running() { [[ $(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null) == tru
 
 if ! running nas-workspace; then
   echo "Before the first start"
-  for p in 8080 25 465 587 993; do
+  ports="8080 25 465 587 993"; (( https )) && ports="$ports 80 443"
+  for p in $ports; do
     if lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then fail "Port $p is taken by another program: $(lsof -nP -iTCP:"$p" -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $1}')"
     else ok "Port $p is free"; fi
   done
@@ -63,7 +67,7 @@ if ! running nas-workspace; then
     if (( free_gb < 10 )); then warn "Only ${free_gb} GB free on the disk: files and mail need room to grow"; else ok "${free_gb} GB free on the disk"; fi
   fi
   echo
-  echo "Start it with:  docker compose -f $file up -d --build"
+  if (( https )); then echo "Start it with:  docker compose -f $file --profile https up -d --build"; else echo "Start it with:  docker compose -f $file up -d --build"; fi
   echo "then run this again to check it's working."
 else
   echo "Running"
@@ -76,6 +80,15 @@ else
   else fail "It doesn't answer at http://localhost:8080: see  docker logs nas-workspace"; fi
   if running nas-workspace-mail; then ok "The mail server's container is running"
   else fail "The mail server's container isn't running: see  docker logs nas-workspace-mail"; fi
+  # HTTPS from Caddy, when it's in use (or asked for).
+  web=$(awk '/^x-web-hostname:/{print $3}' "$file" 2>/dev/null)
+  if running nas-workspace-caddy; then
+    ok "Caddy (HTTPS) is running"
+    if [[ -z $web || $web == workspace.example.com ]]; then warn "The web address is still workspace.example.com: set x-web-hostname at the top of $file"
+    elif curl -fsS --max-time 10 -o /dev/null "https://$web/api/health" 2>/dev/null; then ok "https://$web answers, with a valid certificate"
+    else warn "https://$web doesn't answer yet: its DNS must point here and ports 80 and 443 reach this machine (docker logs nas-workspace-caddy says why)"; fi
+  elif (( https )); then fail "Caddy (HTTPS) isn't running: start with  docker compose -f $file --profile https up -d"
+  fi
   if [[ $os == Darwin ]] && command -v pmset >/dev/null 2>&1; then
     if [[ $(pmset -g 2>/dev/null | awk '$1=="sleep"{print $2}') == 0 ]]; then ok "The Mac doesn't go to sleep"
     else warn "The Mac may go to sleep: System Settings → Energy → Prevent automatic sleeping"; fi

@@ -68,7 +68,7 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
       if (days === null) add('certificate', 'Mail certificate', 'warn', 'Its expiry date couldn’t be read');
       else if (days < 0) add('certificate', 'Mail certificate', 'bad', `Expired ${-days} day${days === -1 ? '' : 's'} ago: phones and mail apps will refuse to connect`);
       else add('certificate', 'Mail certificate', m.self_signed ? 'warn' : days < 7 ? 'bad' : days < 21 ? 'warn' : 'ok',
-        `${m.self_signed ? 'Self-signed (phones and mail apps will warn): use a real certificate, such as DSM’s Let’s Encrypt one. ' : ''}Valid for ${days} more day${days === 1 ? '' : 's'}`);
+        `${m.self_signed ? 'Self-signed (phones and mail apps will warn): use a real certificate, such as DSM’s Let’s Encrypt one, or on a Mac Caddy’s (docker-compose.mac.yml --profile https gets one for the mail hostname). ' : ''}Valid for ${days} more day${days === 1 ? '' : 's'}`);
     }
   }
 

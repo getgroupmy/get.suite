@@ -25,7 +25,7 @@ stub('docker', `case "$1" in
 esac`);
 stub('lsof', 'for p in ${FAKE_TAKEN:-}; do [[ "$*" == *"-iTCP:$p "* ]] && { printf "COMMAND PID\\nmaster 12\\n"; exit 0; }; done; exit 1');
 stub('df', 'printf "Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/disk3 1 1 ${FAKE_FREE_KB:-104857600} 1%% /\\n"');
-stub('curl', '[[ -n ${FAKE_HEALTHY:-} ]]');
+stub('curl', '[[ "$*" == *https://* ]] && { [[ -n ${FAKE_HTTPS:-} ]]; exit; }; [[ -n ${FAKE_HEALTHY:-} ]]');
 stub('pmset', 'printf " sleep                %s\\n" "${FAKE_SLEEP:-0}"');
 
 const run = (env = {}, args = []) => {
@@ -84,4 +84,27 @@ test('setup check: Linux uses docker-compose.yml; another file can be named', ()
   r = run({}, ['nope.yml']);
   assert.equal(r.code, 1);
   assert.match(r.out, /✗ There's no nope\.yml here/);
+});
+
+test('setup check: with --https, ports 80 and 443 too, and Caddy once it runs', () => {
+  let r = run({}, ['--https']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /✓ Port 80 is free[\s\S]*✓ Port 443 is free/);
+  assert.match(r.out, /docker compose -f docker-compose\.mac\.yml --profile https up -d --build/);
+  assert.doesNotMatch(run().out, /Port 443/, 'not without --https');
+  const all = 'nas-workspace nas-workspace-mail';
+  r = run({ FAKE_RUNNING: all, FAKE_HEALTHY: '1' }, ['--https']);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /✗ Caddy \(HTTPS\) isn't running/);
+  r = run({ FAKE_RUNNING: `${all} nas-workspace-caddy`, FAKE_HEALTHY: '1' });
+  assert.match(r.out, /✓ Caddy \(HTTPS\) is running/);
+  assert.match(r.out, /! The web address is still workspace\.example\.com/);
+  // With the address set (a compose file of its own): whether it answers over HTTPS.
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'nw-setup-file-')), 'compose.yml');
+  fs.writeFileSync(file, 'x-web-hostname: &web_hostname office.acme.com\nservices: {}\n');
+  r = run({ FAKE_RUNNING: `${all} nas-workspace-caddy`, FAKE_HEALTHY: '1', FAKE_HTTPS: '1' }, [file]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /✓ https:\/\/office\.acme\.com answers, with a valid certificate/);
+  r = run({ FAKE_RUNNING: `${all} nas-workspace-caddy`, FAKE_HEALTHY: '1' }, [file]);
+  assert.match(r.out, /! https:\/\/office\.acme\.com doesn't answer yet: its DNS must point here/);
 });
