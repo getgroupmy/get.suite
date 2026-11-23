@@ -1,4 +1,3 @@
-import { has } from '../../fold.js';
 import { unreachable, changeAdd, patchKeptTask, appendKept, offlineId, keepDelete } from '../offlinedocs.js';
 // Tasks: your to-do lists and the ones colleagues share with you. Add a task with Enter, tick it
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
@@ -12,6 +11,7 @@ import { useMailStatus } from '../../mailStatus.js';
 import SendInChat from '../../components/SendInChat.jsx';
 import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
+import PeopleTicks from '../../components/PeopleTicks.jsx';
 import Icon from '../../components/Icon.jsx';
 import RecentlyDeleted from '../../components/RecentlyDeleted.jsx';
 import { groupPlanned, groupCompleted } from './planned.js';
@@ -1382,9 +1382,7 @@ function ShareList({ list, me, onClose, onSaved }) {
   const toast = useToast();
   const [people, setPeople] = useState([]);
   const [chosen, setChosen] = useState(new Set(list.members.map((m) => m.id)));
-  const [filter, setFilter] = useState('');
-  useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
-  const shown = people.filter((p) => p.id !== me.id && has(`${p.name} ${p.username}`, filter));
+  useEffect(() => { get('/users/directory').then((l) => setPeople(l.filter((p) => p.id !== me.id))).catch(() => {}); }, [me.id]);
   const [message, setMessage] = useState(''); // for the people added now
   const adding = [...chosen].filter((id) => !list.members.some((m) => m.id === id));
   async function save() {
@@ -1395,15 +1393,8 @@ function ShareList({ list, me, onClose, onSaved }) {
     <Modal title={`Share “${list.name}”`} onClose={onClose}
       footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
       <p className="muted small" style={{ marginTop: 0 }}>People you share with can add, change, tick off and be given tasks on this list.</p>
-      <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find people" aria-label="Find people" />
-      <ul className="share-pick">
-        {shown.map((p) => (
-          <li key={p.id}><label className="row">
-            <input type="checkbox" checked={chosen.has(p.id)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(p.id) : n.delete(p.id); setChosen(n); }} />
-            <Avatar name={p.name} size={24} userId={p.id} /><span className="grow">{p.name} <span className="muted small">{p.username}</span></span>
-          </label></li>
-        ))}
-      </ul>
+      {/* Find people (in a bigger company), how many are ticked, and + a company group to tick everyone in it. */}
+      <PeopleTicks people={people} chosen={chosen} label="Colleagues" withAddress onToggle={(id, on) => { const n = new Set(chosen); on ? n.add(id) : n.delete(id); setChosen(n); }} onAddMany={(ids) => setChosen(new Set([...chosen, ...ids]))} />
       {adding.length > 0 && (
         <label className="field"><span>Message to {adding.length === 1 ? people.find((p) => p.id === adding[0])?.name || 'them' : 'the people you added'} (optional)</span>
           <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="What you’d like them to pick up…" /></label>

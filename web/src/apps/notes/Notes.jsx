@@ -741,7 +741,7 @@ function ShareNote({ note, onClose }) {
   return (
     <Modal title="Share note" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
       <p className="muted small" style={{ marginTop: 0 }}>People you share it with can change it and see changes as they're made. Only you can delete it.</p>
-      <PeopleTicks people={people} chosen={chosen} label="Colleagues" onToggle={(id, on) => { const n = new Set(chosen); on ? n.add(id) : n.delete(id); setChosen(n); }} />
+      <PeopleTicks people={people} chosen={chosen} label="Colleagues" onToggle={(id, on) => { const n = new Set(chosen); on ? n.add(id) : n.delete(id); setChosen(n); }} onAddMany={(ids) => setChosen(new Set([...chosen, ...ids]))} />
       {adding.length > 0 && (
         <label className="field"><span>Message to {adding.length === 1 ? people.find((p) => p.id === adding[0])?.name || 'them' : 'the people you added'} (optional)</span>
           <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you’re sharing it…" /></label>
