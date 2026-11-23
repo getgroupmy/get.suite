@@ -60,7 +60,9 @@ export async function searchAll(text, me = null) { // me: your user id (whose a 
       sub: [f.place_words, f.parent_name && `in ${f.parent_name}`, f.owner_name, when(f.updated_at)].filter(Boolean).join(' · '),
       to: FILE_LINK[f.kind] ? `${FILE_LINK[f.kind](f)}${f.place || ''}` : `/drive/search?q=${encodeURIComponent(f.name)}` }))], // (at the slide or cell the words are on)
     ['Mail', mail.map((m) => ({ key: `m${m.folder}${m.uid}`, icon: 'mail', title: m.subject || '(no subject)',
-      sub: [m.sent ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || ''), m.folder !== 'INBOX' && !m.sent ? m.folder_name : null, m.date ? when(m.date) : null].filter(Boolean).join(' · '),
+      sub: [m.sent ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || ''), m.folder !== 'INBOX' && !m.sent ? m.folder_name : null, m.date ? when(m.date) : null,
+        // and what the list shows: unread, starred, with attachments
+        !m.seen && !m.sent ? 'unread' : null, m.flagged ? '★' : null, m.attachment ? '📎' : null].filter(Boolean).join(' · '),
       to: `/mail/${encodeURIComponent(m.folder)}/${m.uid}` }))],
     ['Conversations', convs.map((c) => ({ key: `v${c.id}`, icon: c.dm ? 'person' : 'chat', title: c.dm ? c.name : `${c.private ? '🔒 ' : '#'}${c.name}`,
       sub: c.dm ? `Direct message${c.last_at ? ` · ${when(c.last_at)}` : ''}` : [c.archived ? 'Archived' : null, c.topic, c.private ? `${c.member_count} member${c.member_count === 1 ? '' : 's'}` : 'Channel'].filter(Boolean).join(' · '),

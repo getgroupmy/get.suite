@@ -61,7 +61,7 @@ const compose = async (subject, text) => {
 };
 const smtp = nodemailer.createTransport({ host: '127.0.0.1', port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
 await step('a message arrives', async () => {
-  await smtp.sendMail({ from: 'Ana Supplier <ana@acme.com>', to: 'olivia@acme.com', subject: 'Quarterly zebra report', text: 'Numbers attached.' });
+  await smtp.sendMail({ from: 'Ana Supplier <ana@acme.com>', to: 'olivia@acme.com', subject: 'Quarterly zebra report', text: 'Numbers attached.', attachments: [{ filename: 'q3.csv', content: 'a,b\n1,2\n' }] });
   await inboxRow('Quarterly zebra report').waitFor({ timeout: 30000 });
   await page.goto(`${B}/drive`);
 });
@@ -69,7 +69,7 @@ await step('top-bar search finds it under Mail and opens it', async () => {
   await page.getByLabel('Search everything').fill('zebra');
   const g = page.getByRole('listbox', { name: 'Search results' }).getByRole('group', { name: 'Mail' });
   await g.getByText('Quarterly zebra report').waitFor({ timeout: 20000 });
-  await g.getByText('Ana Supplier').waitFor();
+  await g.getByText(/Ana Supplier · .+ · unread · 📎$/).waitFor(); // not opened yet, and with an attachment
   await g.getByRole('option', { name: /Quarterly zebra report/ }).click();
   await page.waitForURL(/\/mail\/INBOX\/\d+$/);
   await page.getByRole('heading', { name: 'Quarterly zebra report' }).waitFor();
