@@ -75,5 +75,26 @@ await step('a new contact: the Company box offers the companies you have, and sa
   await dlg.locator('.also-at').waitFor({ state: 'detached' });
 });
 
+await step('Email all: a message to everyone at the company, this contact included', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('button', { name: 'Edit Ada Stone' }).click();
+  const dlg = page.getByRole('dialog');
+  const also = dlg.locator('.also-at');
+  await also.getByRole('button', { name: 'Email all 2' }).click();
+  await page.waitForURL((u) => u.pathname === '/mail' && u.searchParams.has('compose'));
+  const to = new URL(page.url()).searchParams.get('compose');
+  if (to !== 'Ada Stone <ada@x.example>, Ben Vale <ben@x.example>') throw new Error(to);
+});
+await step('with changes unsaved, Email all keeps you here', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('button', { name: 'Edit Ada Stone' }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('Job title').fill('Buyer');
+  await dlg.locator('.also-at').getByRole('button', { name: 'Email all 2' }).click();
+  await page.getByText('Save or cancel your changes here first').waitFor();
+  if (!page.url().endsWith('/contacts')) throw new Error(page.url());
+  await dlg.getByRole('button', { name: 'Cancel' }).click();
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

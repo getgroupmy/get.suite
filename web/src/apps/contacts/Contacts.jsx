@@ -582,6 +582,13 @@ function ContactDialog({ contact, orgName, all = [], onOpen, onClose, onSaved })
     if (JSON.stringify(f) !== start.current) return toast('Save or cancel your changes here first', 'error');
     onOpen?.(c);
   };
+  // Write to everyone at this company at once: this contact (once saved) and the others there, those with an address.
+  const navigateTo = useNavigate();
+  const everyone = [...(contact.id && f.email ? [f] : []), ...colleagues].filter((c) => c.email);
+  const emailAll = () => {
+    if (JSON.stringify(f) !== start.current) return toast('Save or cancel your changes here first', 'error');
+    navigateTo(`/mail?compose=${encodeURIComponent(everyone.map((c) => formatAddress({ name: c.name, email: c.email })).join(', '))}`);
+  };
   const [error, setError] = useState('');
   // A new contact's id, the same however often Save is pressed (a second press while the first is on its way makes no second contact).
   const newId = useRef(null);
@@ -663,7 +670,8 @@ function ContactDialog({ contact, orgName, all = [], onOpen, onClose, onSaved })
             {k === 'company' && colleagues.length > 0 && (
               <p className="muted small also-at" style={{ margin: 0 }}>Also at {String(f.company).trim()}:{' '}
                 {colleagues.slice(0, 6).map((c, n) => <span key={c.id}>{n > 0 && ', '}<button type="button" className="link-btn small" onClick={() => openOther(c)}>{c.name || c.email}</button></span>)}
-                {colleagues.length > 6 && ` and ${colleagues.length - 6} more`}</p>
+                {colleagues.length > 6 && ` and ${colleagues.length - 6} more`}
+                {everyone.length > 1 && <> · <button type="button" className="link-btn small" onClick={emailAll}>Email all {everyone.length}</button></>}</p>
             )}
             {(k === 'email' || k === 'phone') && <MoreField kind={`${k}s`} list={f[`more_${k}s`] || []} onChange={(l) => setF({ ...f, [`more_${k}s`]: l })} />}
           </div>
