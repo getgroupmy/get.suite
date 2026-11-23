@@ -44,19 +44,19 @@ export async function searchAll(text) {
   const qs = encodeURIComponent(text);
   const safe = (p) => p.catch(() => []);
   const mailOn = await mailEnabled();
-  const mailIn = (folder) => (mailOn ? safe(get(`/mail/messages?folder=${encodeURIComponent(folder)}&q=${qs}`).then((r) => r.messages.map((m) => ({ ...m, folder })))) : Promise.resolve([]));
-  const [files, chat, tasks, notes, events, contacts, people, inbox, sent, forms, convs, comments, meetChat] = await Promise.all([
+  // Mail in every folder but Trash, Junk and Drafts (filed away by hand or by a filter too), newest first.
+  const mailAll = mailOn ? safe(get(`/mail/search-all?q=${qs}`).then((r) => r.messages)) : Promise.resolve([]);
+  const [files, chat, tasks, notes, events, contacts, people, mail, forms, convs, comments, meetChat] = await Promise.all([
     safe(get(`/files?view=search&q=${qs}`)), safe(get(`/chat/search?q=${qs}`)), safe(get(`/tasks/search?q=${qs}`)), safe(get(`/notes?q=${qs}`)),
-    safe(get(`/events/search?q=${qs}`)), safe(get('/contacts')), safe(get('/users/directory')), mailIn('INBOX'), mailIn('Sent'),
+    safe(get(`/events/search?q=${qs}`)), safe(get('/contacts')), safe(get('/users/directory')), mailAll,
     safe(get(`/forms/search?q=${qs}`)), safe(get(`/chat/conversations/search?q=${qs}`)), safe(get(`/comments/search?q=${qs}`)), safe(get(`/meet/chat/search?q=${qs}`)),
   ]);
-  const mail = [...inbox, ...sent].sort((a, b) => (b.date || 0) - (a.date || 0));
   return [
     ['Files', (Array.isArray(files) ? files : files.files || []).map((f) => ({ key: `f${f.id}`, icon: FILE_ICON[f.kind] || 'file', title: f.name,
       sub: [f.place_words, f.owner_name, when(f.updated_at)].filter(Boolean).join(' · '),
       to: FILE_LINK[f.kind] ? `${FILE_LINK[f.kind](f)}${f.place || ''}` : `/drive/search?q=${encodeURIComponent(f.name)}` }))], // (at the slide or cell the words are on)
     ['Mail', mail.map((m) => ({ key: `m${m.folder}${m.uid}`, icon: 'mail', title: m.subject || '(no subject)',
-      sub: `${m.folder === 'Sent' ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || '')}${m.date ? ` · ${when(m.date)}` : ''}`,
+      sub: [m.sent ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || ''), m.folder !== 'INBOX' && !m.sent ? m.folder_name : null, m.date ? when(m.date) : null].filter(Boolean).join(' · '),
       to: `/mail/${encodeURIComponent(m.folder)}/${m.uid}` }))],
     ['Conversations', convs.map((c) => ({ key: `v${c.id}`, icon: c.dm ? 'person' : 'chat', title: c.dm ? c.name : `${c.private ? '🔒 ' : '#'}${c.name}`,
       sub: c.dm ? `Direct message${c.last_at ? ` · ${when(c.last_at)}` : ''}` : [c.archived ? 'Archived' : null, c.topic, c.private ? `${c.member_count} member${c.member_count === 1 ? '' : 's'}` : 'Channel'].filter(Boolean).join(' · '),

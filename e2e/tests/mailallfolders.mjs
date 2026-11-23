@@ -83,6 +83,16 @@ await step('searching the Inbox finds nothing; “Search all folders” finds it
   await page.waitForURL(/\/mail\/Projects%2FZoo\/\d+/);
   await page.getByText('For the zoo').first().waitFor({ timeout: 20000 });
 });
+await step('Search everything at the top finds it in its folder too', async () => {
+  await page.goto(`${B}/drive`);
+  const box = page.getByRole('combobox', { name: 'Search everything' });
+  await box.fill('walrus');
+  const mail = page.getByRole('listbox').getByRole('group', { name: 'Mail' });
+  await mail.getByText('Walrus plan').first().waitFor({ timeout: 20000 });
+  await mail.getByText(/Projects \/ Zoo/).waitFor();
+  await mail.getByRole('option').filter({ hasText: 'Projects / Zoo' }).click();
+  await page.waitForURL(/\/mail\/Projects%2FZoo\/\d+/);
+});
 await step('nothing anywhere says so', async () => {
   await page.goto(`${B}/mail?q=${encodeURIComponent('narwhal')}`);
   await page.getByRole('button', { name: 'Search all folders' }).click();
