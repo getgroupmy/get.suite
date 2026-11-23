@@ -129,5 +129,30 @@ await step('accents don\'t matter in Find unless Match diacritics is ticked', as
   await page.keyboard.press('Escape');
 });
 
+await step('Find says which other sheets have it; a click goes on searching there', async () => {
+  const waitFor = async (fn) => { for (let end = Date.now() + 8000; !(await fn()); await page.waitForTimeout(150)) if (Date.now() > end) throw new Error('timed out'); };
+  const s3 = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Year', content: { sheets: [
+    { name: 'Jan', cells: { A1: 'Rent', A2: 'Power' } },
+    { name: 'Feb', cells: { A1: 'Power', B3: 'Rent', B5: 'rent rebate', C1: '=B3&"!"' } },
+    { name: 'Mar', cells: { A1: 'Water' } },
+  ] } })).body;
+  await page.goto(`${B}/sheets/${s3.id}`);
+  await cell('A2').click();
+  await page.keyboard.press('Control+f');
+  await bar.getByLabel('Find', { exact: true }).fill('rent');
+  await waitFor(async () => (await count()) === '1 of 1');
+  const also = bar.getByRole('group', { name: 'Also found in other sheets' });
+  await also.getByRole('button', { name: 'Feb (2)' }).waitFor();
+  if (await also.getByRole('button').count() !== 1) throw new Error('only Feb has it');
+  await page.screenshot({ path: `${SP}/shots/sheetfind-elsewhere.png` });
+  await also.getByRole('button', { name: 'Feb (2)' }).click();
+  // On Feb the search carries on: its three cells showing it (the formula's result too), the first one selected.
+  await waitFor(async () => (await count()) === '1 of 3');
+  if (await bar.getByLabel('Find', { exact: true }).inputValue() !== 'rent') throw new Error('the search was lost');
+  await bar.getByRole('group', { name: 'Also found in other sheets' }).getByRole('button', { name: 'Jan (1)' }).waitFor();
+  await cell('B3').getByText('Rent', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

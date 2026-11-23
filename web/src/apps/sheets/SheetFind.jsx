@@ -1,13 +1,13 @@
 // Find and replace in a sheet (Ctrl+F to find, Ctrl+H to replace).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { findCells, replaceEntry, replaceAll } from './find.js';
+import { findCells, findElsewhere, replaceEntry, replaceAll } from './find.js';
 import Icon from '../../components/Icon.jsx';
 
 /**
  * cells, shown(key) and hidden describe the sheet; onGo({ key, c, r }) selects a match,
  * onHits({ keys, current }) highlights them, onWrite(updates) changes cells, onDone(text) reports.
  */
-export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, onGo, onHits, onWrite, onDone, onClose }) {
+export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, sheets, active, onSheet, onGo, onHits, onWrite, onDone, onClose }) {
   const [term, setTerm] = useState(initial || '');
   const [replace, setReplace] = useState('');
   const [matchCase, setMatchCase] = useState(false);
@@ -21,6 +21,9 @@ export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, o
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const matches = useMemo(() => findCells(cells, shown, term, opts, hidden), [cells, shown, term, matchCase, wholeCell, formulas, matchDiacritics, hidden]);
   const at = matches.length ? Math.min(current, matches.length - 1) : 0;
+  // The other sheets of the workbook that have it too: one click goes on searching there.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const elsewhere = useMemo(() => (onSheet ? findElsewhere(sheets, active, term, opts) : []), [sheets, active, term, matchCase, wholeCell, formulas, matchDiacritics]);
 
   useEffect(() => { setShowReplace((r) => r || (replacing && canEdit)); input.current?.select(); }, [replacing, canEdit]);
   useEffect(() => { setCurrent(0); }, [term, matchCase, wholeCell, formulas, matchDiacritics]);
@@ -77,6 +80,12 @@ export function SheetFind({ cells, shown, hidden, initial, replacing, canEdit, o
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
+      {elsewhere.length > 0 && (
+        <div className="row small find-elsewhere" role="group" aria-label="Also found in other sheets">
+          <span className="muted">Also in:</span>
+          {elsewhere.map((x) => <button key={x.index} type="button" className="link-btn small" title={`Go on searching in ${x.name}`} onClick={() => onSheet(x.index, term)}>{x.name} ({x.count})</button>)}
+        </div>
+      )}
       {showReplace && (
         <div className="row">
           <input name="replace" aria-label="Replace with" placeholder="Replace with" value={replace} onChange={(e) => setReplace(e.target.value)} />

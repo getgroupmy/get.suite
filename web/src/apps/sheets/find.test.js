@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findCells, replaceEntry, replaceAll } from './find.js';
+import { findElsewhere, findCells, replaceEntry, replaceAll } from './find.js';
 
 const cells = { A1: 'Apple pie', B1: '12', A2: 'apple', B2: '=B1*10', C2: 'Pineapple', A3: 'pear', B3: '=A2&" tart"' };
 const shown = (k) => ({ B2: 120, B3: 'apple tart' }[k] ?? cells[k]);
@@ -42,4 +42,21 @@ test('accents don\'t matter in a sheet\'s find unless matchDiacritics; replacing
   assert.deepEqual(findCells(cells, shown, 'cafe', { wholeCell: true }).map((m) => m.key), ['A1'], 'the whole cell, accents aside');
   assert.equal(replaceEntry('cafe crème', 'creme', 'cream'), 'cafe cream');
   assert.equal(replaceEntry('Café', 'café', 'Bar', { matchDiacritics: true }), 'Bar');
+});
+
+test('where else in the workbook: the other sheets with matches, hidden ones and formulas left out', () => {
+  const sheets = [
+    { name: 'Jan', cells: { A1: 'Rent', A2: 'Café' } },
+    { name: 'Feb', cells: { A1: 'rent', B4: 'Rent rebate', C1: '=A1&" rent"', D1: 5 } },
+    { name: 'Notes', cells: { A1: 'nothing' } },
+    { name: 'Old', hidden: true, cells: { A1: 'Rent' } },
+    { name: 'Mar', cells: { A1: 'cafe' } },
+  ];
+  assert.deepEqual(findElsewhere(sheets, 0, 'rent'), [{ index: 1, name: 'Feb', count: 2 }]);
+  assert.deepEqual(findElsewhere(sheets, 0, 'rent', { formulas: true }), [{ index: 1, name: 'Feb', count: 3 }]);
+  assert.deepEqual(findElsewhere(sheets, 0, 'rent', { wholeCell: true }), [{ index: 1, name: 'Feb', count: 1 }]);
+  assert.deepEqual(findElsewhere(sheets, 1, 'café').map((x) => x.name), ['Jan', 'Mar']);
+  assert.deepEqual(findElsewhere(sheets, 1, 'café', { matchDiacritics: true }).map((x) => x.name), ['Jan']);
+  assert.deepEqual(findElsewhere(sheets, 0, '5'), [{ index: 1, name: 'Feb', count: 1 }], 'numbers too');
+  assert.deepEqual(findElsewhere(sheets, 0, ''), []);
 });

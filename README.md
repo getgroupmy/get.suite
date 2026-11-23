@@ -396,7 +396,7 @@ A sheet's tab can also have a colour, to find it at a glance among many (this mo
 
 ## Find and replace (Sheets)
 
-**Ctrl+F** (or ⋮ → **Find and replace**) finds text in the sheet: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case*, *Whole cell* and *Search formulas* narrow it down. Accents don't matter (*cafe* finds *café*) unless *Match diacritics* is ticked, as in Docs. **Ctrl+H** adds **Replace** and **Replace all**, for those who can edit.
+**Ctrl+F** (or ⋮ → **Find and replace**) finds text in the sheet: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case*, *Whole cell* and *Search formulas* narrow it down. Accents don't matter (*cafe* finds *café*) unless *Match diacritics* is ticked, as in Docs. **Ctrl+H** adds **Replace** and **Replace all**, for those who can edit. When other sheets of the workbook have it too, the bar says so — **Also in: Feb (2)** — and a click carries the search on there (what's typed in their cells is counted; what a formula shows is found once you're on its sheet).
 
 ## Rows, columns and sorting (Sheets)
 

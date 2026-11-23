@@ -46,3 +46,21 @@ export function replaceAll(cells, matches, term, replacement, opts = {}) {
   }
   return { updates, count: Object.keys(updates).length, skipped };
 }
+
+/**
+ * Where else in the workbook the search is found: [{ index, name, count }] for the other sheets
+ * (hidden ones left out) with at least one matching cell. Cells are read as typed; a formula cell
+ * only by its formula, and only with "formulas" on — what it shows is worked out once its sheet is open.
+ */
+export function findElsewhere(sheets, active, term, opts = {}) {
+  if (!term) return [];
+  return (sheets || []).map((sh, index) => {
+    if (index === active || !sh || sh.hidden) return null;
+    let count = 0;
+    for (const raw of Object.values(sh.cells || {})) {
+      if (raw === '' || raw == null || (isFormula(raw) && !opts.formulas)) continue;
+      if (matchesIn(String(raw), term, opts).length) count++;
+    }
+    return count ? { index, name: sh.name, count } : null;
+  }).filter(Boolean);
+}
