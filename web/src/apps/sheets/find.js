@@ -2,11 +2,13 @@
 // formula cell is searched (and replaced) by its formula text instead. Replacing never touches a
 // formula cell's formula unless "formulas" is on, so a search for a number can't break one.
 import { parseRef } from './formula.js';
-import { matchesInText } from '../docs/findReplace.js';
+import { matchesInText, findPattern, replacementFor } from '../docs/findReplace.js';
 
 /** Where the search is in a cell's text ([{ from, to }]): accents don't matter unless matchDiacritics, as in Docs. */
-const matchesIn = (text, term, { matchCase = false, wholeCell = false, matchDiacritics = false } = {}) =>
-  matchesInText(String(text), term, { matchCase, wholeText: wholeCell, matchDiacritics });
+const matchesIn = (text, term, { matchCase = false, wholeCell = false, matchDiacritics = false, regex = false } = {}) =>
+  matchesInText(String(text), term, { matchCase, wholeText: wholeCell, matchDiacritics, regex });
+/** Why a search can't be read (a regular expression that isn't one), or null. */
+export const findError = (term, opts = {}) => (term && opts.regex ? findPattern(term, { regex: true }).error || null : null);
 const isFormula = (raw) => typeof raw === 'string' && raw.startsWith('=');
 
 /**
@@ -29,9 +31,10 @@ export function findCells(cells, shown, term, opts = {}, hidden = new Set()) {
 export function replaceEntry(raw, term, replacement, opts = {}) {
   if (!term || raw == null || raw === '') return null;
   if (isFormula(raw) && !opts.formulas) return null;
-  // The replacement is literal text ($ isn't special), put where each match is (last first)
+  // The replacement is literal text ($ isn't special) — or, with a regular expression, $1…$9, $& and $$ —
+  // put where each match is (last first)
   let next = String(raw);
-  for (const m of matchesIn(next, term, opts).reverse()) next = next.slice(0, m.from) + replacement + next.slice(m.to);
+  for (const m of matchesIn(next, term, opts).reverse()) next = next.slice(0, m.from) + replacementFor(replacement, m, !!opts.regex) + next.slice(m.to);
   return next === String(raw) ? null : next;
 }
 

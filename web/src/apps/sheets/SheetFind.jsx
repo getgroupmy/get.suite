@@ -1,6 +1,6 @@
 // Find and replace in a sheet (Ctrl+F to find, Ctrl+H to replace).
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { findCells, findElsewhere, replaceEntry, replaceAll } from './find.js';
+import { findCells, findElsewhere, findError, replaceEntry, replaceAll } from './find.js';
 import Icon from '../../components/Icon.jsx';
 
 /**
@@ -14,23 +14,25 @@ export function SheetFind({ cells, shown, hidden, initial, initialOpts, replacin
   const [wholeCell, setWholeCell] = useState(!!initialOpts?.wholeCell);
   const [matchDiacritics, setMatchDiacritics] = useState(!!initialOpts?.matchDiacritics); // off: cafe finds café
   const [formulas, setFormulas] = useState(!!initialOpts?.formulas);
+  const [regex, setRegex] = useState(!!initialOpts?.regex); // the search is a regular expression; $1… in the replacement
   const [showReplace, setShowReplace] = useState(replacing && canEdit);
   const [current, setCurrent] = useState(0);
   const input = useRef();
-  const opts = { matchCase, wholeCell, formulas, matchDiacritics };
+  const opts = { matchCase, wholeCell, formulas, matchDiacritics, regex };
+  const bad = findError(term, opts);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const matches = useMemo(() => findCells(cells, shown, term, opts, hidden), [cells, shown, term, matchCase, wholeCell, formulas, matchDiacritics, hidden]);
+  const matches = useMemo(() => findCells(cells, shown, term, opts, hidden), [cells, shown, term, matchCase, wholeCell, formulas, matchDiacritics, regex, hidden]);
   const at = matches.length ? Math.min(current, matches.length - 1) : 0;
   // The other sheets of the workbook that have it too: one click goes on searching there.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const elsewhere = useMemo(() => (onSheet ? findElsewhere(sheets, active, term, opts) : []), [sheets, active, term, matchCase, wholeCell, formulas, matchDiacritics]);
+  const elsewhere = useMemo(() => (onSheet ? findElsewhere(sheets, active, term, opts) : []), [sheets, active, term, matchCase, wholeCell, formulas, matchDiacritics, regex]);
 
   useEffect(() => { setShowReplace((r) => r || (replacing && canEdit)); input.current?.select(); }, [replacing, canEdit]);
-  useEffect(() => { setCurrent(0); }, [term, matchCase, wholeCell, formulas, matchDiacritics]);
+  useEffect(() => { setCurrent(0); }, [term, matchCase, wholeCell, formulas, matchDiacritics, regex]);
   useEffect(() => { onHits({ keys: new Set(matches.map((m) => m.key)), current: matches[at]?.key }); }, [matches, at]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => onHits(null), []); // eslint-disable-line react-hooks/exhaustive-deps
   // Go to the first match as the search changes.
-  useEffect(() => { if (matches[0]) onGo(matches[0]); }, [term, matchCase, wholeCell, formulas, matchDiacritics]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (matches[0]) onGo(matches[0]); }, [term, matchCase, wholeCell, formulas, matchDiacritics, regex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -70,13 +72,14 @@ export function SheetFind({ cells, shown, hidden, initial, initialOpts, replacin
     <div className="find-bar" role="search" aria-label="Find in sheet" onKeyDown={key}>
       <div className="row">
         <input ref={input} autoFocus aria-label="Find" placeholder="Find in sheet" value={term} onChange={(e) => setTerm(e.target.value)} />
-        <span className="muted small find-count" aria-live="polite">{term ? (n ? `${at + 1} of ${n}` : 'No results') : ''}</span>
+        <span className="muted small find-count" aria-live="polite">{term ? (bad || (n ? `${at + 1} of ${n}` : 'No results')) : ''}</span>
         <button type="button" className="icon-btn" aria-label="Previous match" disabled={!n} onClick={() => show(at - 1)}><Icon name="left" size={18} /></button>
         <button type="button" className="icon-btn" aria-label="Next match" disabled={!n} onClick={() => show(at + 1)}><Icon name="right" size={18} /></button>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeCell} onChange={(e) => setWholeCell(e.target.checked)} /> Whole cell</label>
         <label className="check small"><input type="checkbox" checked={matchDiacritics} onChange={(e) => setMatchDiacritics(e.target.checked)} /> Match diacritics</label>
         <label className="check small"><input type="checkbox" checked={formulas} onChange={(e) => setFormulas(e.target.checked)} /> Search formulas</label>
+        <label className="check small" title="The search is a regular expression; $1 to $9 in the replacement are its groups"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression</label>
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>

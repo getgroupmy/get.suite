@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findElsewhere, findCells, replaceEntry, replaceAll } from './find.js';
+import { findError, findElsewhere, findCells, replaceEntry, replaceAll } from './find.js';
 
 const cells = { A1: 'Apple pie', B1: '12', A2: 'apple', B2: '=B1*10', C2: 'Pineapple', A3: 'pear', B3: '=A2&" tart"' };
 const shown = (k) => ({ B2: 120, B3: 'apple tart' }[k] ?? cells[k]);
@@ -59,4 +59,21 @@ test('where else in the workbook: the other sheets with matches, hidden ones and
   assert.deepEqual(findElsewhere(sheets, 1, 'café', { matchDiacritics: true }).map((x) => x.name), ['Jan']);
   assert.deepEqual(findElsewhere(sheets, 0, '5'), [{ index: 1, name: 'Feb', count: 1 }], 'numbers too');
   assert.deepEqual(findElsewhere(sheets, 0, ''), []);
+});
+
+test('a regular expression: found as written, groups in the replacement, and a bad one says so', () => {
+  const cells = { A1: 'INV-2024-07', A2: 'inv-2025-11', A3: 'Invoice', B1: '=A1&"!"', C1: '  padded' };
+  const shown = (k) => (k === 'B1' ? 'INV-2024-07!' : cells[k]);
+  assert.deepEqual(findCells(cells, shown, '\\d{4}-\\d{2}', { regex: true }).map((m) => m.key), ['A1', 'B1', 'A2']);
+  assert.deepEqual(findCells(cells, shown, '^inv-\\d+', { regex: true, matchCase: true }).map((m) => m.key), ['A2']);
+  assert.deepEqual(findCells(cells, shown, 'inv.*', { regex: true, wholeCell: true }).map((m) => m.key), ['A1', 'B1', 'A2', 'A3']);
+  assert.equal(replaceEntry('INV-2024-07', '(\\d{4})-(\\d{2})', '$2/$1', { regex: true }), 'INV-07/2024');
+  assert.equal(replaceEntry('  padded', '^\\s+', '', { regex: true }), 'padded');
+  assert.equal(replaceEntry('a.b', '.', '$1', {}), 'a$1b', 'without it a dot is a dot and $1 is text');
+  assert.equal(replaceEntry('=A1&"!"', '\\d', '9', { regex: true }), null, 'formulas are left alone');
+  assert.deepEqual(findCells(cells, shown, '(', { regex: true }), []);
+  assert.match(findError('(', { regex: true }), /valid regular expression/);
+  assert.equal(findError('(', {}), null);
+  assert.equal(findError('\\d+', { regex: true }), null);
+  assert.deepEqual(findElsewhere([{ name: 'A', cells: {} }, { name: 'B', cells: { A1: 'x12', A2: 'y' } }], 0, '\\d+', { regex: true }), [{ index: 1, name: 'B', count: 1 }]);
 });

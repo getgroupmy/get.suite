@@ -173,5 +173,26 @@ await step('going on in another sheet keeps the tick boxes and what to replace w
   await page.keyboard.press('Escape');
 });
 
+await step('Regular expression: finds a pattern, replaces with its groups, and says when it cannot be read', async () => {
+  const waitFor = async (fn) => { for (let end = Date.now() + 8000; !(await fn()); await page.waitForTimeout(150)) if (Date.now() > end) throw new Error('timed out'); };
+  const s4 = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Invoices', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'INV-2024-07', A2: 'INV-2025-11', A3: 'Invoice (draft)' } }] } })).body;
+  await page.goto(`${B}/sheets/${s4.id}`);
+  await cell('A3').click();
+  await page.keyboard.press('Control+h');
+  await bar.getByLabel('Find', { exact: true }).fill('(\\d{4})-(\\d{2})');
+  await waitFor(async () => (await count()) === 'No results'); // as plain text it is nowhere
+  await bar.getByLabel('Regular expression').check();
+  await waitFor(async () => (await count()) === '1 of 2');
+  await bar.getByLabel('Replace with').fill('$2/$1');
+  await bar.getByRole('button', { name: 'Replace all' }).click();
+  await cell('A1').getByText('INV-07/2024', { exact: true }).waitFor();
+  await cell('A2').getByText('INV-11/2025', { exact: true }).waitFor();
+  await bar.getByLabel('Find', { exact: true }).fill('(draft');
+  await waitFor(async () => /valid regular expression/.test(await count()));
+  await bar.getByLabel('Regular expression').uncheck();
+  await waitFor(async () => (await count()) === '1 of 1');
+  await page.keyboard.press('Escape');
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
