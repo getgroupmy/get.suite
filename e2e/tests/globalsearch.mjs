@@ -129,6 +129,12 @@ await step('accents don\'t matter: "cafe" finds a task and a note with café, "z
   await page.goto(`${B}/drive`);
   await box().fill('cafe ole');
   await results().getByRole('group', { name: 'Tasks' }).getByText('Reserve the Café Olé terrace').waitFor();
+  // A task says when it's due, who it's for and how important, under its title.
+  const tomorrow = await page.evaluate(() => { const d = new Date(Date.now() + 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  await api(page, 'POST', `/tasks/lists/${list}/tasks`, { title: 'Book the Café Olé caterer', due: tomorrow, priority: 'high', important: true });
+  await box().fill('cafe ole caterer');
+  await results().getByRole('group', { name: 'Tasks' }).getByRole('option').filter({ hasText: 'Book the Café Olé caterer' }).getByText(/· due tomorrow · high priority · ★$/).waitFor();
+  await box().fill('cafe ole');
   await results().getByRole('group', { name: 'Notes' }).getByText('Café Olé menu').waitFor();
   await box().fill('zoe bronte');
   await results().getByRole('group', { name: 'Contacts' }).getByText('Zoë Brontë').waitFor();
