@@ -14842,6 +14842,9 @@ test('chat: Save to Drive copies an attachment into your Drive (My Drive or a fo
 
   const folder = (await b('POST', '/api/files/folder', { name: 'From chat' })).body.id;
   assert.equal((await save(b, { parent_id: folder })).body.parent_id, folder, 'into a folder');
+  assert.equal((await b('GET', '/api/files/recent-destinations')).body[0]?.id, folder, 'and that folder is a recent destination');
+  const act = (await b('GET', `/api/files/${(await b('GET', `/api/files?view=mine&parent=${folder}`)).body[0].id}/activity`)).body;
+  assert.equal(JSON.stringify(act).includes('to_id'), false, 'the folder id stays on the server');
   const theirs = (await a('POST', '/api/files/folder', { name: 'Not yours' })).body.id;
   assert.equal((await save(b, { parent_id: theirs })).status, 404, 'not into a folder you cannot edit');
   assert.equal((await save(a)).status, 400, 'the sender has it already');

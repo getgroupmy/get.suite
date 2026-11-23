@@ -2203,7 +2203,7 @@ export default function chatRoutes() {
     checkQuota(req.user.org_id, f.size || 0, req.user.id);
     const storage = uid();
     fs.copyFileSync(path.join(FILES_DIR, f.storage), path.join(FILES_DIR, storage));
-    const id = insertFile({ owner: req.user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: f.name } } });
+    const id = insertFile({ owner: req.user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: f.name, ...(parentId && { to_id: parentId }) } } }); // (the folder: for Move to…'s Recent)
     const saved = q('SELECT id, name, parent_id FROM files WHERE id = ?').get(id);
     res.status(201).json({ ...saved });
   });

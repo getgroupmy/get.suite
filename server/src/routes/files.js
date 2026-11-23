@@ -1306,13 +1306,13 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ ok: true });
   });
 
-  // Where you last moved things to (Move to…'s "Recent"): the last few folders, newest first, that are still there
+  // Where you last moved (or saved) things to (Move to…'s "Recent"): the last few folders, newest first, that are still there
   // and that you can still add to; each with the folder around it, by name, when you can open that one.
   r.get('/recent-destinations', (req, res) => {
     const me = req.user.id;
     const out = [];
     const seen = new Set();
-    for (const a of q("SELECT details FROM file_activity WHERE user_id = ? AND action = 'move' AND details LIKE '%\"to_id\"%' ORDER BY id DESC LIMIT 200").all(me)) {
+    for (const a of q("SELECT details FROM file_activity WHERE user_id = ? AND action IN ('move', 'copy') AND details LIKE '%\"to_id\"%' ORDER BY id DESC LIMIT 200").all(me)) {
       let to;
       try { to = JSON.parse(a.details).to_id; } catch { continue; }
       if (!to || seen.has(to)) continue;

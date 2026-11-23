@@ -113,6 +113,16 @@ await step('Save to a folder…: find a folder deep down (Clients › Projects);
   await page.waitForURL(`**/drive/folder/${projects.id}`);
   await page.getByText('quote.txt').first().waitFor();
 });
+await step('the folder just saved to is offered again under Recent', async () => {
+  await page.goto(`${B}/chat/${dm}`);
+  const row = page.locator(`[data-mid="${msg.id}"]`).first();
+  await row.hover();
+  await row.getByRole('button', { name: 'Save to Drive' }).click();
+  await page.getByRole('menuitem', { name: 'Save to a folder…' }).click();
+  const d = page.getByRole('dialog', { name: 'Save “quote.txt” to Drive' });
+  await d.getByRole('list', { name: 'Recent folders' }).getByRole('button').filter({ hasText: 'Projects' }).filter({ hasText: 'in Clients' }).waitFor();
+  await d.getByRole('button', { name: 'Cancel' }).click();
+});
 await step('the viewer has Save to Drive for Kim’s file, not for yours', async () => {
   await page.goto(`${B}/chat/${dm}`);
   await page.locator(`[data-mid="${msg.id}"]`).first().getByRole('link', { name: /quote\.txt/ }).click();
