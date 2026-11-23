@@ -5,7 +5,7 @@ import { get, post, patch } from '../api.js';
 import { Modal, PromptModal, useToast } from './ui.jsx';
 import Icon from './Icon.jsx';
 
-// pick: { title, action, onPick(folderId or null) } chooses a folder without moving anything (Chat's "Save to a folder…").
+// pick: { title, action, onPick(folderId or null, its name) } chooses a folder without moving anything (Chat's "Save to a folder…").
 export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = false, pick = null }) {
   const toast = useToast();
   const [cur, setCur] = useState(null); // null = My Drive root
@@ -45,7 +45,7 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
   };
 
   async function move() {
-    if (pick) { onClose(); pick.onPick(cur); return; }
+    if (pick) { onClose(); pick.onPick(cur, cur ? path[path.length - 1]?.name || 'that folder' : 'My Drive'); return; }
     if (copy) { onClose(); onCopy(cur); return; }
     if (shortcut) {
       try { const r = await post(`/files/${files[0].id}/shortcut`, { parent_id: cur }); toast(r.existing ? 'There’s already a shortcut to it there' : 'Shortcut added'); onMoved(); onClose(); } catch (e) { toast(e.message, 'error'); }

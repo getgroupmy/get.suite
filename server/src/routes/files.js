@@ -1437,10 +1437,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     const tree = gather(row);
     checkQuota(user.org_id, size, user.id);
-    const put = ({ row: r, children }, parent, name) => {
+    const put = ({ row: r, children }, parent, name, top = false) => {
       let storage = null;
       if (r.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, r.storage), path.join(FILES_DIR, storage)); }
-      const id = insertFile({ owner: user.id, parentId: parent, name, kind: r.kind, mime: r.mime, size: r.size, storage, content: r.content, activity: { action: 'copy', details: { from: r.name } } });
+      // A folder the copy was put in on purpose is remembered (for Move to…'s and Make a copy's Recent).
+      const to = top && wantParent !== undefined && parent ? { to_id: parent } : {};
+      const id = insertFile({ owner: user.id, parentId: parent, name, kind: r.kind, mime: r.mime, size: r.size, storage, content: r.content, activity: { action: 'copy', details: { from: r.name, ...to } } });
       const own = contentWithOwnMedia(r, r.content, user, { parent_id: parent }); // its pictures, yours to show
       if (own !== r.content) q('UPDATE files SET content = ? WHERE id = ?').run(own, id);
       // A folder's colour, and any item's description; a document's page setup (size, margins) too.
@@ -1451,7 +1453,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Next to the original it's "Copy of …"; put somewhere else it keeps its name (a number is added if taken).
     const name = opts.name ? cleanName(opts.name) : (parentId ?? null) === (row.parent_id ?? null) ? `Copy of ${row.name}` : row.name;
     const id = tx(() => {
-      const made = put(tree, parentId, name);
+      const made = put(tree, parentId, name, true);
       // Shared with the same people (and groups) as the original, each as they were; its owner can edit it.
       if (opts.shareSame) {
         const now = Date.now();

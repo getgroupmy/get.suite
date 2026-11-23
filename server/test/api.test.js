@@ -1983,6 +1983,22 @@ test('Move to…: the folders you last moved things to, newest first, still ther
   assert.equal((await c('GET', '/api/files/recent-destinations')).body[0].name, 'Team share');
   await owner('PUT', `/api/files/${shared.id}/shares`, { shares: [{ user_id: moId, role: 'viewer' }] });
   assert.equal((await c('GET', '/api/files/recent-destinations')).body.some((f) => f.name === 'Team share'), false, 'only to view now');
+  // A copy put in a folder on purpose (Make a copy, Copy to…) makes it a recent one too; one left beside the original doesn't.
+  const gamma = await folder('Gamma');
+  assert.equal((await c('POST', `/api/files/${doc.id}/copy`, {})).status, 201);
+  assert.notEqual((await c('GET', '/api/files/recent-destinations')).body[0].name, 'Gamma', 'next to the original: nothing new');
+  const copied = (await c('POST', `/api/files/${doc.id}/copy`, { parent_id: gamma.id, name: 'Memo for Gamma' })).body;
+  assert.equal(copied.parent_id, gamma.id);
+  assert.equal((await c('GET', '/api/files/recent-destinations')).body[0].name, 'Gamma', 'copied into it: first in Recent');
+  const act = JSON.stringify((await c('GET', `/api/files/${copied.id}/activity`)).body);
+  assert.ok(!act.includes(gamma.id), 'the folder\'s id stays out of the activity shown');
+  // Copying a folder: its contents' copies don't count, only where the folder itself went.
+  const box = await folder('Box'), dest = await folder('Dest');
+  await c('POST', '/api/files/new', { kind: 'doc', name: 'Inside', parent_id: box.id });
+  assert.equal((await c('POST', `/api/files/${box.id}/copy`, { parent_id: dest.id })).status, 201);
+  const after = (await c('GET', '/api/files/recent-destinations')).body.map((f) => f.name);
+  assert.equal(after[0], 'Dest');
+  assert.ok(!after.includes('Box'), 'the copied folder itself is not a destination');
   // Someone else's moves are theirs.
   assert.equal((await owner('GET', '/api/files/recent-destinations')).body.some((f) => f.name === 'Alpha'), false);
 });

@@ -145,14 +145,66 @@ await step('Make a copy… into a folder of your choosing', async () => {
   const d = page.getByRole('dialog', { name: 'Make a copy' });
   await d.getByRole('group', { name: 'Folder' }).getByText('Next to this one').waitFor();
   await d.getByRole('button', { name: 'Change…' }).click();
-  await d.getByRole('list', { name: 'Folders' }).getByRole('button', { name: /Copies kept/ }).click();
-  await d.getByRole('button', { name: 'Put it in Copies kept' }).click();
+  // The same chooser as Drive's Move to…
+  const w = page.getByRole('dialog', { name: 'Where should the copy go?' });
+  await w.locator('.pick-list').getByRole('button', { name: /Copies kept/ }).click();
+  await w.getByRole('button', { name: 'Copies kept' }).waitFor(); // (in the path now)
+  await w.getByRole('button', { name: 'Put it here' }).click();
+  await w.waitFor({ state: 'detached' });
   await d.getByRole('group', { name: 'Folder' }).getByText('Copies kept').waitFor();
   await d.getByRole('button', { name: 'Make a copy' }).click();
   await page.waitForURL((u) => /\/docs\//.test(u.pathname) && !u.pathname.endsWith(doc.id));
   const id = new URL(page.url()).pathname.split('/').pop();
   const f = (await api(page, 'GET', `/files/${id}`)).body;
   if (f.parent_id !== folder.id || f.name !== 'Copy of Memo to file') throw new Error(JSON.stringify([f.parent_id, f.name]));
+});
+await step('Make a copy…: the folder copied to last is under Recent, a folder deep down is found by name, and Esc closes only the chooser', async () => {
+  const records = (await api(page, 'POST', '/files/folder', { name: 'Records' })).body;
+  const deep = (await api(page, 'POST', '/files/folder', { name: 'Archive 2026', parent_id: records.id })).body;
+  const book = (await api(page, 'POST', '/files/new', { kind: 'sheet', name: 'Budget book', content: { sheets: [{ name: 'One', cells: { A1: '5' } }] } })).body;
+  await page.goto(`${B}/sheets/${book.id}`);
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Make a copy…' }).click();
+  const d = page.getByRole('dialog', { name: 'Make a copy' });
+  await d.getByRole('button', { name: 'Change…' }).click();
+  const w = page.getByRole('dialog', { name: 'Where should the copy go?' });
+  await w.getByRole('list', { name: 'Recent folders' }).getByRole('button', { name: /Copies kept/ }).waitFor();
+  await page.keyboard.press('Escape');
+  await w.waitFor({ state: 'detached' });
+  await d.getByRole('group', { name: 'Folder' }).getByText('Next to this one').waitFor(); // still open, unchanged
+  await d.getByRole('button', { name: 'Change…' }).click();
+  await w.getByLabel('Find a folder').fill('archive 20');
+  await w.getByRole('list', { name: 'Folders found' }).getByRole('button', { name: /Archive 2026.*in Records/ }).click();
+  await w.getByRole('button', { name: 'Put it here' }).click();
+  await d.getByRole('group', { name: 'Folder' }).getByText('Archive 2026').waitFor();
+  await d.getByRole('button', { name: 'Make a copy' }).click();
+  await page.waitForURL((u) => /\/sheets\//.test(u.pathname) && !u.pathname.endsWith(book.id));
+  const f = (await api(page, 'GET', `/files/${new URL(page.url()).pathname.split('/').pop()}`)).body;
+  if (f.parent_id !== deep.id || f.name !== 'Copy of Budget book') throw new Error(JSON.stringify([f.parent_id, f.name]));
+  const recent = (await api(page, 'GET', '/files/recent-destinations')).body.map((x) => x.name);
+  if (recent[0] !== 'Archive 2026' || recent[1] !== 'Copies kept') throw new Error('recent: ' + recent);
+});
+await step('Make a copy…: + New folder in the chooser makes one and puts the copy in it', async () => {
+  const deck = (await api(page, 'POST', '/files/new', { kind: 'slides', name: 'Pitch deck', content: { slides: [{ id: 's1', items: [] }] } })).body;
+  await page.goto(`${B}/slides/${deck.id}`);
+  await page.getByRole('button', { name: 'More' }).click();
+  await page.getByRole('menuitem', { name: 'Make a copy…' }).click();
+  const d = page.getByRole('dialog', { name: 'Make a copy' });
+  await d.getByLabel('Name').fill('Pitch for Globex');
+  await d.getByRole('button', { name: 'Change…' }).click();
+  const w = page.getByRole('dialog', { name: 'Where should the copy go?' });
+  await w.getByRole('button', { name: '+ New folder' }).click();
+  const n = page.getByRole('dialog', { name: 'New folder' });
+  await n.getByLabel('Folder name').fill('Globex pitches');
+  await n.getByRole('button', { name: 'Create' }).click();
+  await w.getByRole('button', { name: 'Globex pitches' }).waitFor();
+  await w.getByRole('button', { name: 'Put it here' }).click();
+  await d.getByRole('group', { name: 'Folder' }).getByText('Globex pitches').waitFor();
+  await d.getByRole('button', { name: 'Make a copy' }).click();
+  await page.waitForURL((u) => /\/slides\//.test(u.pathname) && !u.pathname.endsWith(deck.id));
+  const f = (await api(page, 'GET', `/files/${new URL(page.url()).pathname.split('/').pop()}`)).body;
+  const folder = (await api(page, 'GET', `/files/${f.parent_id}`)).body;
+  if (folder.name !== 'Globex pitches' || f.name !== 'Pitch for Globex') throw new Error(JSON.stringify([folder.name, f.name]));
 });
 await step('Kim, a viewer, can copy a link to a slide, a sheet and a cell (and nothing else in those menus)', async () => {
   await kim.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: B });
