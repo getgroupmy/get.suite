@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get, post } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
+import ConversationPick, { conversationName, latestFirst } from '../../components/ConversationPick.jsx';
 
 /** Share in Chat: a card of this email (who, subject, the start of its text) in a conversation, with a note.
  *  uids: several at once (the ticked ones), each its own card. */
@@ -16,12 +17,12 @@ export default function ShareInChat({ uid, uids, folder, subject, onClose }) {
   const [error, setError] = useState('');
   useEffect(() => {
     get('/chat/channels').then((d) => {
-      const open = (d.channels || []).filter((c) => !c.archived_at);
+      const open = latestFirst(d.channels || []); // the latest conversation first, chosen
       setConvs(open);
       setTo(open[0]?.id || '');
     }).catch((e) => setError(e.message));
   }, []);
-  const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
+  const name = conversationName;
   async function submit(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -39,11 +40,7 @@ export default function ShareInChat({ uid, uids, folder, subject, onClose }) {
       <form className="stack" onSubmit={submit}>
         <p className="muted small" style={{ margin: 0 }}>{many ? <>Each email goes as its own card (your message with the first): who it's from, its subject and the start of what it says, with the names of any attachments. The emails themselves stay in your mailbox.</>
           : <>Everyone there sees who it's from, <strong>{subject || '(no subject)'}</strong>, and the start of what it says, with the names of any attachments. The email itself stays in your mailbox.</>}</p>
-        <label className="field"><span>To</span>
-          <select value={to} onChange={(e) => setTo(e.target.value)} required disabled={!convs} aria-label="Conversation">
-            {(convs || []).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
-          </select>
-        </label>
+        <ConversationPick conversations={convs} value={to} onChange={setTo} ariaLabel="Conversation" disabled={!convs} />
         <label className="field"><span>Message (optional)</span>
           <textarea rows={2} value={note} maxLength={8000} onChange={(e) => setNote(e.target.value)} placeholder="Can someone pick this up?" />
         </label>

@@ -1,4 +1,5 @@
 import { companyNames, othersAt } from './companies.js';
+import ConversationPick, { conversationName, latestFirst } from '../../components/ConversationPick.jsx';
 import { has } from '../../fold.js';
 import { matchesFilter } from './contactfilter.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -902,12 +903,12 @@ function SendContact({ contacts, onClose }) {
   const [error, setError] = useState('');
   useEffect(() => {
     get('/chat/channels').then((d) => {
-      const open = (d.channels || []).filter((c) => !c.archived_at);
+      const open = latestFirst(d.channels || []); // the latest first; a direct message (with someone) chosen
       setConvs(open);
       setTo((open.find((c) => c.dm_key && c.dm_name) || open[0])?.id || '');
     }).catch((e) => setError(e.message));
   }, []);
-  const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
+  const name = conversationName;
   async function submit(e) {
     e.preventDefault();
     try {
@@ -923,11 +924,7 @@ function SendContact({ contacts, onClose }) {
         <p className="muted small" style={{ margin: 0 }}>{contact.colleague
           ? 'Everyone in the conversation sees their name, address, job title, department and work phone, and can add them to their own contacts.'
           : 'Everyone in the conversation sees the name, email addresses, phone numbers, company, job title, address and website, and can add them to their own contacts. Notes and dates stay with you.'}</p>
-        <label className="field"><span>To</span>
-          <select value={to} onChange={(e) => setTo(e.target.value)} required disabled={!convs}>
-            {(convs || []).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
-          </select>
-        </label>
+        <ConversationPick conversations={convs} value={to} onChange={setTo} disabled={!convs} />
         <label className="field"><span>Add a message (optional)</span><textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={8000} /></label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Send</button></div>
