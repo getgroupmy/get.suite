@@ -1,6 +1,8 @@
 // A meeting (/meet/:code): first a check of camera and microphone ("Ready to join?"), then the call:
 // everyone's video in a grid, with controls for the microphone, camera, screen sharing, raising a hand,
 // reactions, the meeting's chat and who's here.
+import ColleagueInput from '../../components/ColleagueInput.jsx';
+import { colleagueAddress } from '../../components/colleagues.js';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { get, post, onLive } from '../../api.js';
@@ -190,7 +192,8 @@ function AskToJoin({ code, here }) {
   const ask = async (e) => {
     e.preventDefault();
     const t = text.trim().toLowerCase();
-    const who = choices.find((p) => p.name.toLowerCase() === t || p.username.toLowerCase() === t || `${p.name} (${p.username})`.toLowerCase() === t);
+    const meant = colleagueAddress(choices, text); // an address, or the one colleague the name fits
+    const who = choices.find((p) => p.username === meant || p.name.toLowerCase() === t || p.username.toLowerCase() === t || `${p.name} (${p.username})`.toLowerCase() === t);
     if (!who) { toast('Pick a colleague from the list', 'error'); return; }
     setBusy(true);
     try { await post(`/meet/${code}/invite`, { user_ids: [who.id] }); toast(`Ringing ${who.name}…`); setText(''); } catch (err) { toast(err.message, 'error'); }
@@ -200,8 +203,7 @@ function AskToJoin({ code, here }) {
     {missing.length > 0 && <button type="button" className="btn small" disabled={busy} title={missing.map((p) => p.name).join(', ')} onClick={ringMissing}>
       📞 Ring everyone invited who isn’t here ({missing.length})</button>}
     <form className="row meet-ask" onSubmit={ask}>
-      <input className="grow" list="meet-ask-people" aria-label="Ask someone to join" placeholder="Ask someone to join…" value={text} onChange={(e) => setText(e.target.value)} />
-      <datalist id="meet-ask-people">{choices.map((p) => <option key={p.id} value={`${p.name} (${p.username})`} />)}</datalist>
+      <ColleagueInput people={choices} value={text} onChange={setText} label="Ask someone to join" placeholder="Ask someone to join…" listId="meet-ask-people" />
       <button type="submit" className="btn small" disabled={busy || !text.trim()}>📞 Ring</button>
     </form>
   </>);

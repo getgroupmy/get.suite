@@ -47,15 +47,19 @@ await step('Olivia in a meeting; Max elsewhere in Workspace', async () => {
   await max.getByRole('link', { name: 'Drive', exact: true }).first().waitFor();
   await max.waitForTimeout(1000);
 });
-const ring = async () => {
+const ring = async (byName) => {
   const box = page.getByLabel('Ask someone to join');
   if (!(await box.count())) await page.getByRole('button', { name: 'People', exact: true }).click();
-  await box.fill('Max Meet (max@acme.com)');
+  if (byName) { // a few letters of the name: the list offers him, and a click fills in his address
+    await box.pressSequentially('meet ma');
+    await page.getByRole('listbox', { name: 'Matching people' }).getByRole('option').filter({ hasText: 'Max Meet' }).click();
+    if (await box.inputValue() !== 'max@acme.com') throw new Error(await box.inputValue());
+  } else await box.fill('Max Meet (max@acme.com)');
   await page.getByRole('button', { name: '📞 Ring' }).click();
   await page.getByText('Ringing Max Meet…').waitFor();
 };
 await step('People → Ask someone to join → Ring: Max is asked; Can’t talk tells Olivia', async () => {
-  await ring();
+  await ring(true);
   await max.getByText('📞 Olivia Owner is asking you to join “Sync”').waitFor();
   await max.getByRole('button', { name: 'Can’t talk' }).click();
   await page.getByText('Max Meet can’t talk right now').waitFor();
@@ -70,8 +74,12 @@ await step('rung again, Max picks Join: the meeting opens for him, and they see 
   await page.locator('.meet-tile', { hasText: 'Max Meet' }).first().waitFor();
 });
 await step('someone already in it is not offered', async () => {
-  const opts = await page.locator('#meet-ask-people option').evaluateAll((os) => os.map((o) => o.value));
-  if (opts.some((v) => v.startsWith('Max Meet'))) throw new Error(opts.join('|'));
+  const box = page.getByLabel('Ask someone to join');
+  if (!(await box.count())) await page.getByRole('button', { name: 'People', exact: true }).click();
+  await box.pressSequentially('max');
+  await page.waitForTimeout(500);
+  if (await page.getByRole('option').filter({ hasText: 'Max Meet' }).count()) throw new Error('Max is here already');
+  await box.fill('');
 });
 const kim = await mk('kim');
 await step('on a calendar event: Ring everyone invited who isn’t here (Kim); the button goes once she’s in', async () => {
