@@ -96,5 +96,17 @@ await step('with changes unsaved, Email all keeps you here', async () => {
   await dlg.getByRole('button', { name: 'Cancel' }).click();
 });
 
+await step('in the list, a click on a company shows the people there', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('button', { name: 'Edit Cy Marsh' }).waitFor();
+  const rows = page.locator('table.files tbody tr');
+  await page.locator('table.files tbody tr', { hasText: 'Ben Vale' }).getByRole('button', { name: 'initrode works' }).click();
+  if (await page.getByLabel('Filter contacts').inputValue() !== 'initrode works') throw new Error(await page.getByLabel('Filter contacts').inputValue());
+  await page.waitForFunction(() => document.querySelectorAll('table.files tbody tr').length === 2);
+  const names = (await rows.locator('td.name').allInnerTexts()).join('|');
+  if (!/Ada Stone/.test(names) || !/Ben Vale/.test(names)) throw new Error(names);
+  await page.getByLabel('Filter contacts').fill('');
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
