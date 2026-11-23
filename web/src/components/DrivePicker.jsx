@@ -13,7 +13,7 @@ export const openUrl = (f) => (f.kind === 'folder' ? `/drive/folder/${f.id}` : K
 export default function DrivePicker({ title = 'Attach from Drive', accept = (x) => x.kind === 'file', empty = 'No files found.', onClose, onPick }) {
   const [items, setItems] = useState(null);
   const [term, setTerm] = useState('');
-  // Before anything is typed: your recent files, or your starred ones (the ones you keep coming back to).
+  // Before anything is typed: your recent files, your starred ones (the ones you keep coming back to), or what colleagues shared with you.
   const [view, setView] = useState('recent');
   useEffect(() => {
     const url = term ? `/files?view=search&q=${encodeURIComponent(term)}` : `/files?view=${view}`;
@@ -26,14 +26,14 @@ export default function DrivePicker({ title = 'Attach from Drive', accept = (x) 
       <input className="filter" style={{ width: '100%' }} placeholder="Search your files" aria-label="Search your files" value={term} onChange={(e) => setTerm(e.target.value)} autoFocus />
       {!term && (
         <div className="row small" role="group" aria-label="Show" style={{ gap: 6, marginTop: 8 }}>
-          {[['recent', 'Recent'], ['starred', '★ Starred']].map(([v, label]) => (
+          {[['recent', 'Recent'], ['starred', '★ Starred'], ['shared', 'Shared with me']].map(([v, label]) => (
             <button key={v} type="button" className={`btn small ${view === v ? 'primary' : ''}`} aria-pressed={view === v} onClick={() => { if (v !== view) { setItems(null); setView(v); } }}>{label}</button>
           ))}
         </div>
       )}
       <ul className="pick-list">
         {items === null && <li className="muted">Loading…</li>}
-        {items?.length === 0 && <li className="muted">{!term && view === 'starred' ? 'Nothing starred here yet: ☆ a file in Drive to keep it handy.' : empty}</li>}
+        {items?.length === 0 && <li className="muted">{!term && view === 'starred' ? 'Nothing starred here yet: ☆ a file in Drive to keep it handy.' : !term && view === 'shared' ? 'Nobody has shared a file with you yet.' : empty}</li>}
         {items?.map((x) => <li key={x.id}><button type="button" onClick={() => onPick(x)}><Icon name={KIND_ICON[x.kind] || 'file'} />
           {/* which folder it's in, so two "Budget"s are told apart */}
           <span className="grow">{x.name}{x.parent_name && <span className="muted small"> · in {x.parent_name}</span>}</span>

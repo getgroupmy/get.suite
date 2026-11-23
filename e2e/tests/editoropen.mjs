@@ -82,6 +82,20 @@ await step('Open…: ★ Starred shows just the starred files, folder and all; R
   if ((await d.getByRole('button', { name: '★ Starred' }).getAttribute('aria-pressed')) !== 'true') throw new Error('not shown as chosen');
   await d.getByRole('button', { name: 'Recent', exact: true }).click();
   await d.getByRole('button', { name: /Plan figures/ }).waitFor();
+  // Shared with me: what a colleague shared, not my own.
+  await d.getByRole('button', { name: 'Shared with me' }).click();
+  await d.getByText('Nobody has shared a file with you yet.').waitFor();
+  const kim = (await api(page, 'POST', '/users', { local: 'kimo', domain: 'acme.com', name: 'Kim Open', password: 'password123' })).body;
+  const kp = await mk('kim');
+  await kp.goto(B);
+  await kp.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kimo@acme.com', password: 'password123' }) }));
+  const theirs = (await api(kp, 'POST', '/files/new', { kind: 'doc', name: 'Kim budget notes' })).body;
+  await api(kp, 'PUT', `/files/${theirs.id}/shares`, { shares: [{ user_id: (await api(page, 'GET', '/auth/me')).body.user.id, role: 'viewer' }] });
+  await d.getByRole('button', { name: 'Recent', exact: true }).click();
+  await d.getByRole('button', { name: 'Shared with me' }).click();
+  await d.getByRole('button', { name: /Kim budget notes/ }).waitFor();
+  if (await d.getByRole('button', { name: /Plan B/ }).count()) throw new Error('my own file under Shared with me');
+  void kim;
   // Searching searches everything, whichever is chosen.
   await d.getByLabel('Search your files').fill('figures');
   if (await d.getByRole('button', { name: '★ Starred' }).count()) throw new Error('the choice stays while searching');
