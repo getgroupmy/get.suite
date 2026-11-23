@@ -721,9 +721,9 @@ export default function fileRoutes({ maxUploadBytes }) {
         if (at) { f.place = at.hash; if (at.words) f.place_words = at.words; }
       }
     } else throw bad('Unknown view');
-    // Searching, or among recent files: the folder each is in, by name, when you can open that folder yourself
-    // (two "Budget" files, or two "Contracts" folders, told apart).
-    if (view === 'search' || view === 'recent') {
+    // Searching, among recent files or starred ones: the folder each is in, by name, when you can open that folder
+    // yourself (two "Budget" files, or two "Contracts" folders, told apart).
+    if (view === 'search' || view === 'recent' || view === 'starred') {
       const parents = new Map();
       for (const f of rows) {
         if (!f.parent_id) continue;

@@ -2060,6 +2060,14 @@ test('search filters: kind of file, whose it is, and when it changed', async () 
   assert.equal(patRec.find((f) => f.id === b2.id).parent_name, `Q2 ${tag}`);
   assert.ok(patRec.find((f) => f.id === b1.id), 'the budget shared with them is there');
   assert.equal(patRec.find((f) => f.id === b1.id).parent_name, undefined, 'but not the name of a folder they can\'t open');
+  // Starred ones too: stars are spread over many folders.
+  await owner('PUT', `/api/files/${b1.id}/star`, { starred: true });
+  await owner('PUT', `/api/files/${top.id}/star`, { starred: true });
+  const stars = (await owner('GET', '/api/files?view=starred')).body;
+  assert.equal(stars.find((f) => f.id === b1.id).parent_name, `Q1 ${tag}`);
+  assert.equal(stars.find((f) => f.id === top.id).parent_name, undefined, 'at the top of My Drive: none');
+  await pn('PUT', `/api/files/${b1.id}/star`, { starred: true });
+  assert.equal((await pn('GET', '/api/files?view=starred')).body.find((f) => f.id === b1.id).parent_name, undefined, 'not a folder they can\'t open');
   // Other views are as they were.
   assert.equal((await owner('GET', `/api/files?view=mine&parent=${q1.id}`)).body[0].parent_name, undefined);
   void d; void s; void folder;

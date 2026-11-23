@@ -72,6 +72,24 @@ await step('Drive → Recent: each file says which folder it is in, and a click 
   await page.waitForURL(`**/drive/folder/${q1.id}`);
   await until(async () => (await page.locator('tbody tr', { hasText: 'Budget' }).count()) === 1 && (await page.locator('tbody tr', { hasText: 'Loose memo' }).count()) === 0);
 });
+await step('Drive → Starred: starred files say which folder they are in, and a click opens it', async () => {
+  await api(page, 'PUT', `/files/${b2.id}/star`, { starred: true });
+  const memo = (await api(page, 'GET', '/files?view=recent')).body.find((f) => f.name === 'Loose memo');
+  await api(page, 'PUT', `/files/${memo.id}/star`, { starred: true });
+  await page.goto(`${B}/drive/starred`);
+  await page.locator('tbody .name-text', { hasText: /^Budget · in Q2 accounts/ }).waitFor();
+  await page.locator('tbody tr', { hasText: 'Loose memo' }).waitFor();
+  if (await page.locator('tbody tr', { hasText: 'Loose memo' }).locator('.in-folder').count()) throw new Error('Loose memo says a folder');
+  await page.locator('tbody tr', { hasText: 'Budget' }).locator('.in-folder').click();
+  await page.waitForURL(`**/drive/folder/${q2.id}`);
+});
+await step('Home → Recent files: each says which folder it is in', async () => {
+  await page.goto(`${B}/home`);
+  const card = page.getByRole('region', { name: 'Recent files' });
+  await card.getByRole('link', { name: 'Budget · in Q1 accounts' }).waitFor();
+  await card.getByRole('link', { name: 'Budget · in Q2 accounts' }).waitFor();
+  await card.getByRole('link', { name: 'Loose memo', exact: true }).waitFor();
+});
 
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

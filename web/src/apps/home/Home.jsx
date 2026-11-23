@@ -303,7 +303,7 @@ export default function Home() {
               <ul className="home-list">
                 {data.recent.map((f) => (
                   <li key={f.id}><Icon name={{ doc: 'doc', sheet: 'sheet', slides: 'slides' }[f.kind] || 'file'} size={16} />
-                    <Link className="grow home-item ellipsis" to={FILE_LINK[f.kind]?.(f) || '/drive/recent'}>{f.name}</Link><span className="muted small nowrap">{formatDate(f.updated_at)}</span></li>
+                    <Link className="grow home-item ellipsis" to={FILE_LINK[f.kind]?.(f) || '/drive/recent'}>{f.name}{f.parent_name && <span className="muted small"> · in {f.parent_name}</span>}</Link><span className="muted small nowrap">{formatDate(f.updated_at)}</span></li>
                 ))}
               </ul>
             )}
