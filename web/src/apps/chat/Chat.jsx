@@ -729,7 +729,7 @@ export default function Chat() {
         {dms.filter((c) => !c.starred && !inSection(c)).map(dmRow)}
         <div className="dm-start">
           {/* a few letters of a name list the colleagues it fits; picking one opens your messages with them */}
-          <ColleagueInput people={people.filter((p) => p.id !== user.id)} value={dmText} label="Start a direct message" placeholder="+ Message someone…" listId="dm-people"
+          <ColleagueInput people={people.filter((p) => p.id !== user.id)} value={dmText} label="Start a direct message" placeholder="+ Start a direct message…" listId="dm-people"
             extra={(p) => online.includes(p.id) && <span className="small online-mark" title="Online now"><span aria-hidden="true">●</span> online</span>}
             onChange={(v) => {
               const p = people.find((x) => x.id !== user.id && x.username === v);
