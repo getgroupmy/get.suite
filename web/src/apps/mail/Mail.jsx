@@ -1,3 +1,4 @@
+import MoveDialog from '../../components/MoveDialog.jsx';
 import RiskDialog, { confirmed } from './RiskDialog.jsx';
 import { Replacements } from '../docs/autocorrect.js';
 import { ListStyle, NUMBERINGS, BULLETS } from '../docs/liststyle.js';
@@ -963,6 +964,7 @@ function FollowUpBanner({ messageId, sent = null }) {
 }
 
 function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
+  const [filing, setFiling] = useState(null); // attachments just saved, being moved to a folder of your choosing
   const mailStatus = useMailStatus();
   const toast = useToast();
   const navigate = useNavigate();
@@ -1044,7 +1046,9 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
     try {
       const r = await post(`/mail/messages/${uid}/attachments/save`, { folder, ...(indexes && { indexes }) });
       toast(r.files.length === 1 ? `Saved ${r.files[0].name} to Drive` : `Saved ${r.files.length} files to Drive`, 'info',
-        { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
+        { actions: [{ label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) },
+          // filed where they belong, straight away: the Move dialog (find a folder, or a recent one)
+          { label: 'Move…', onClick: () => setFiling(r.files.map((f) => ({ ...f, parent_id: r.folder_id }))) }], duration: 12000 });
     } catch (e) { toast(e.message, 'error'); }
   };
 
@@ -1271,6 +1275,8 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
       {viewing !== null && m.attachments[viewing] && <FileViewer items={m.attachments.map((x) => ({ ...x, key: x.index }))} at={viewing}
         urls={{ view: (x) => attUrl(x, true), download: (x) => attUrl(x), office: (x) => `/mail/messages/${uid}/attachments/${x.index}/preview?folder=${enc(folder)}`, zip: (x) => `/mail/messages/${uid}/attachments/${x.index}/zip?folder=${enc(folder)}`, eml: (x) => `/mail/messages/${uid}/attachments/${x.index}/eml?folder=${enc(folder)}` }}
         onStep={(dir) => setViewing(stepPreview(m.attachments, viewing, dir))} onSave={(x) => saveToDrive([x.index])} onClose={() => setViewing(null)} />}
+      {filing && <MoveDialog files={filing} onClose={() => setFiling(null)}
+        onMoved={(moved, to) => { if (moved.length) toast(`Moved ${moved.length === 1 ? filing[0].name : `${moved.length} files`}`, 'info', { action: { label: 'Show', onClick: () => navigate(to ? `/drive/folder/${to}` : '/drive') } }); }} />}
       {original && <OriginalDialog uid={uid} folder={folder} onClose={() => setOriginal(false)} />}
       {risky && <RiskDialog risky={risky} onClose={() => setRisky(null)} />}
       <div className="row wrap reader-reply">
