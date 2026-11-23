@@ -133,7 +133,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [labels, setLabels] = useState([]);
   const [labelColors, setLabelColors] = useState([]);
   const [labelDialog, setLabelDialog] = useState(null); // {} new | label being changed
-  const loadLabels = useCallback(() => get('/mail/labels').then((r) => { setLabels(r.labels); setLabelColors(r.colors); }).catch(() => {}), []);
+  const [recentLabels, setRecentLabels] = useState([]); // the last few put on messages: first in L
+  const loadLabels = useCallback(() => get('/mail/labels').then((r) => { setLabels(r.labels); setLabelColors(r.colors); setRecentLabels(r.recent || []); }).catch(() => {}), []);
   useEffect(() => { loadLabels(); }, [loadLabels]);
 
   const [folders, setFolders] = useState([]);
@@ -792,7 +793,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
       {picking && <MovePicker title={picking.kind === 'move' ? (picking.uids.length === 1 ? 'Move to' : `Move ${picking.uids.length} messages to`) : 'Label as'}
         items={picking.kind === 'move'
           ? moveChoices(folders.filter((f) => f.path !== folder && f.specialUse !== '\\Drafts' && f.path !== SNOOZED).map((f) => ({ key: f.path, name: f.name })), shared ? [] : recentFolders)
-          : labels.map((l) => ({ key: l.id, name: l.name, dot: l.color }))}
+          : moveChoices(labels.map((l) => ({ key: l.id, name: l.name, dot: l.color })), recentLabels)}
         onClose={() => setPicking(null)} createLabel={picking.kind === 'move' && !shared ? 'New folder' : null}
         onPick={async (it) => {
           const { kind, uids } = picking;
@@ -803,7 +804,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           }
           const ok = kind === 'move'
             ? await act('move', { uids, to: it.key }, `${uids.length === 1 ? 'Moved' : `Moved ${uids.length} messages`} to ${it.name}`)
-            : await act('labels', { uids, add: [it.key] }, `Labelled ${it.name}`);
+            : await act('labels', { uids, add: [it.key] }, `Labelled ${it.name}`).then((done) => { loadLabels(); return done; });
           if (ok && kind === 'move' && uids.includes(openUid)) go(folder); // the open message has gone from here
         }} />}
       {sharingMany && <ShareInChat uids={sharingMany} folder={folder} onClose={() => setSharingMany(null)} />}

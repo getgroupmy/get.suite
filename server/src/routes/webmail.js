@@ -127,6 +127,8 @@ q(`CREATE TABLE IF NOT EXISTS mail_labels (
   keyword TEXT NOT NULL,
   created_at INTEGER NOT NULL
 )`).run();
+// When each was last put on a message here (for L: the ones you use come first).
+if (!q("SELECT 1 FROM pragma_table_info('mail_labels') WHERE name = 'used_at'").get()) q('ALTER TABLE mail_labels ADD COLUMN used_at INTEGER').run();
 const MAX_LABELS = 100;
 const LABEL_COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#f6bf26', '#8e24aa', '#039be5', '#616161'];
 const labelsOf = (userId) => q('SELECT id, name, color, keyword FROM mail_labels WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(userId);
@@ -898,7 +900,11 @@ export default function webmailRoutes() {
   }
 
   // ---- labels ----
-  r.get('/labels', (req, res) => res.json({ labels: labelsOf(req.user.id).map(({ keyword, ...l }) => l), colors: LABEL_COLORS }));
+  r.get('/labels', (req, res) => res.json({
+    labels: labelsOf(req.user.id).map(({ keyword, ...l }) => l), colors: LABEL_COLORS,
+    // The last three put on messages, newest first: offered first by L.
+    recent: q('SELECT id FROM mail_labels WHERE user_id = ? AND used_at IS NOT NULL ORDER BY used_at DESC LIMIT 3').all(req.user.id).map((x) => x.id),
+  }));
 
   const labelBody = (b, current = {}) => {
     const name = str(b.name ?? current.name, { required: true, name: 'Label name', max: 40 });
@@ -960,6 +966,8 @@ export default function webmailRoutes() {
       if (add.length) await c.messageFlagsAdd(uids, add, { uid: true });
       if (remove.length) await c.messageFlagsRemove(uids, remove, { uid: true });
     });
+    const now = Date.now();
+    for (const id of new Set(Array.isArray(req.body.add) ? req.body.add : [])) q('UPDATE mail_labels SET used_at = ? WHERE id = ? AND user_id = ?').run(now, id, req.user.id);
     res.json({ ok: true });
   });
 

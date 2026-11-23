@@ -3248,3 +3248,22 @@ test('Move to: the folders you last moved mail to, newest first, renamed along, 
   assert.equal((await olivia('GET', '/api/mail/recent-folders')).body.some((p) => p.includes(tag)), false);
   for (const n of ['A', 'Cee']) await gina('DELETE', `/api/mail/folders?path=${encodeURIComponent(`${tag}${n}`)}`);
 });
+
+test('labels: the last three put on messages are listed as recent, newest first', async () => {
+  const tag = `Lark${Date.now() % 1e6}`;
+  const mk = async (name) => (await gina('POST', '/api/mail/labels', { name: `${tag}${name}` })).body;
+  const [a, b, c, d] = [await mk('A'), await mk('B'), await mk('C'), await mk('D')];
+  const recentOf = async () => (await gina('GET', '/api/mail/labels')).body.recent;
+  assert.ok(!(await recentOf()).some((id) => [a.id, b.id, c.id, d.id].includes(id)), 'new labels aren\'t recent');
+  assert.equal((await bob('POST', '/api/mail/send', { to: 'gina@globex.com', subject: `${tag} note`, text: 'x' })).status, 200);
+  const m = await eventually(async () => (await inbox(gina, tag))[0], 30000);
+  const put = async (add, remove = []) => assert.equal((await gina('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [m.uid], add, remove })).status, 200);
+  await put([a.id]); await put([b.id]); await put([c.id]); await put([d.id]); await put([b.id]);
+  assert.deepEqual(await recentOf(), [b.id, d.id, c.id], 'newest first, three of them');
+  await put([], [b.id]); // taking one off isn't using it
+  assert.deepEqual(await recentOf(), [b.id, d.id, c.id]);
+  assert.equal((await gina('DELETE', `/api/mail/labels/${b.id}`)).status, 200);
+  assert.deepEqual((await recentOf()).slice(0, 2), [d.id, c.id], 'a deleted one is gone');
+  assert.ok(!(await olivia('GET', '/api/mail/labels')).body.recent.some((id) => [a.id, c.id, d.id].includes(id)), 'someone else\'s are theirs');
+  for (const l of [a, c, d]) await gina('DELETE', `/api/mail/labels/${l.id}`);
+});

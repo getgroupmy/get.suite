@@ -145,6 +145,22 @@ await step('V: the folders you last moved mail to come first, marked Recent, new
   await page.getByText('Moved to Board 2027').waitFor();
   await until(async () => (await inFolder('Board 2027')).some((m) => m.subject === 'Minutes April'));
 });
+await step('L: the labels you last put on come first, marked Recent', async () => {
+  for (const name of ['Alpha', 'Zed']) if ((await api(page, 'POST', '/mail/labels', { name })).status >= 300) throw new Error('label');
+  await page.goto(`${B}/mail/Board`);
+  await list().getByText('Acme order 78', { exact: true }).click({ timeout: 20000 });
+  await page.locator('.reader-actions').waitFor();
+  await page.keyboard.press('l');
+  await picker('Label as').getByLabel('Find').fill('zed');
+  await page.keyboard.press('Enter');
+  await page.getByText('Labelled Zed').waitFor();
+  await page.keyboard.press('l');
+  const opts = picker('Label as').getByRole('option');
+  await until(async () => (await opts.first().innerText()).replace(/\s+/g, ' ').trim() === 'Zed Recent', 10000);
+  const texts = (await opts.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+  if (JSON.stringify(texts) !== JSON.stringify(['Zed Recent', 'Urgent Recent', 'Alpha'])) throw new Error(texts.join(' | '));
+  await page.keyboard.press('Escape');
+});
 console.log(errors.length ? `ERRORS\n${errors.join('\n')}` : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
