@@ -89,6 +89,24 @@ await step('a company typed offers everyone there at once; Escape closes the lis
   await until(async () => (await d.getByRole('list', { name: 'Invited guests' }).getByRole('listitem').count()) === 4);
 });
 
+await step('“Everyone at …” also counts the company’s shared contacts', async () => {
+  // Kim shares a contact at Quartz Mill with the company; Olivia has one of her own there.
+  const kim = await mk('kim');
+  await kim.goto(B);
+  await kim.evaluate(async () => fetch('/api/auth/login', { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) }));
+  const r = await api(kim, 'POST', '/contacts', { name: 'Quinn Reed', email: 'quinn@quartz.example', company: 'Quartz Mill', shared: true });
+  if (r.status !== 201) throw new Error(`kim's contact ${r.status}`);
+  await api(page, 'POST', '/contacts', { name: 'Uma Wells', email: 'uma@quartz.example', company: 'quartz mill' });
+  const d = page.getByRole('dialog', { name: 'New event' });
+  const box = d.locator('#guest-input');
+  await box.fill('');
+  await box.pressSequentially('quartz');
+  const all = d.getByRole('listbox', { name: 'People to invite' }).getByRole('option').first();
+  await all.getByText('Everyone at quartz mill').waitFor();
+  await all.getByText('2 people').waitFor();
+  await box.fill('');
+});
+
 await step('a To line pasted from an email goes in whole: every address, by the names written', async () => {
   const d = page.getByRole('dialog', { name: 'New event' });
   const box = d.locator('#guest-input');

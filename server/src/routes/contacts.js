@@ -443,10 +443,12 @@ export default function contactRoutes() {
     const mine = q(`SELECT name, email, company, starred FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
                     AND ${allWords('')}
                     ORDER BY starred DESC, (fold(name) LIKE ? ESCAPE '\\' OR fold(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, ...wordLikes, starts, starts);
-    // A company typed (two or more of your contacts there): one suggestion writes to everyone at it.
+    // A company typed (two or more contacts there): one suggestion writes to everyone at it.
     const firms = new Map();
-    for (const c of q(`SELECT name, email, company FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != '' AND company IS NOT NULL
-                       AND ${words.map(() => "fold(company) LIKE ? ESCAPE '\\'").join(' AND ')} ORDER BY name COLLATE NOCASE LIMIT 200`).all(req.user.id, ...wordLikes)) {
+    // (your own contacts there, and the company's shared ones — the contacts everyone at your company sees)
+    for (const c of q(`SELECT c.name, c.email, c.company FROM contacts c JOIN users u ON u.id = c.owner_id
+                       WHERE (c.owner_id = ? OR (c.shared = 1 AND u.org_id = ?)) AND c.email IS NOT NULL AND c.email != '' AND c.company IS NOT NULL
+                       AND ${words.map(() => "fold(c.company) LIKE ? ESCAPE '\\'").join(' AND ')} ORDER BY c.owner_id != ?, c.name COLLATE NOCASE LIMIT 200`).all(req.user.id, req.user.org_id, ...wordLikes, req.user.id)) {
       const key = fold(c.company.trim());
       if (!firms.has(key)) firms.set(key, { kind: 'company', name: `Everyone at ${c.company.trim()}`, email: `company:${key}`, members: [] });
       const f = firms.get(key);

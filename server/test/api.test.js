@@ -3527,6 +3527,16 @@ test('company contacts: shared by their owner, seen and suggested to colleagues,
   assert.equal(company.some((c) => c.name === 'Zed Private Friend'), false);
   assert.ok((await b('GET', '/api/contacts/suggest?q=zed')).body.some((x) => x.email === 'orders@zedsupplies.example'), 'suggested when writing mail');
   assert.equal((await b('GET', '/api/contacts/suggest?q=zed')).body.some((x) => x.email === 'friend@zed.example'), false);
+  // "Everyone at …" counts the company's shared contacts too: one shared and one of Ben's own make two.
+  await a('POST', '/api/contacts', { name: 'Zed Orders', email: 'orders@zedsupplies.example', company: 'Zed Supplies' });
+  await a('PATCH', `/api/contacts/${supplier.id}`, { company: 'Zed Supplies' });
+  assert.equal((await b('GET', '/api/contacts/suggest?q=zed supplies')).body.some((x) => x.kind === 'company'), false, 'one shared contact alone is no company');
+  await b('POST', '/api/contacts', { name: 'Zed Accounts', email: 'accounts@zedsupplies.example', company: 'zed supplies' });
+  const firm = (await b('GET', '/api/contacts/suggest?q=zed supplies')).body.find((x) => x.kind === 'company');
+  assert.deepEqual(firm?.members.map((m) => m.email), ['accounts@zedsupplies.example', 'orders@zedsupplies.example'], 'his own first, then the shared one');
+  assert.equal((await b('GET', '/api/contacts/suggest?q=zed')).body.filter((x) => x.kind === 'company').length, 1);
+  await a('POST', '/api/contacts', { name: 'Zed Private 2', email: 'p2@zed.example', company: 'Zed Supplies' });
+  assert.equal((await b('GET', '/api/contacts/suggest?q=zed supplies')).body.find((x) => x.kind === 'company').members.some((m) => m.email === 'p2@zed.example'), false, 'Ann\'s private contacts stay hers');
   assert.equal((await b('PATCH', `/api/contacts/${supplier.id}`, { phone: '999' })).status, 404, 'not Ben’s');
   assert.equal((await owner('PATCH', `/api/contacts/${supplier.id}`, { phone: '0456' })).body.phone, '0456', 'an admin may');
   assert.equal((await owner('GET', '/api/contacts?scope=company')).body.find((c) => c.id === supplier.id).can_edit, true);
