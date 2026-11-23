@@ -790,10 +790,14 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         items={picking.kind === 'move'
           ? folders.filter((f) => f.path !== folder && f.specialUse !== '\\Drafts' && f.path !== SNOOZED).map((f) => ({ key: f.path, name: f.name }))
           : labels.map((l) => ({ key: l.id, name: l.name, dot: l.color }))}
-        onClose={() => setPicking(null)}
+        onClose={() => setPicking(null)} createLabel={picking.kind === 'move' && !shared ? 'New folder' : null}
         onPick={async (it) => {
           const { kind, uids } = picking;
           setPicking(null);
+          if (it.create) { // a folder made on the way: then moved into
+            try { it = { key: (await post('/mail/folders', { name: it.create })).path, name: it.create }; loadFolders(); }
+            catch (e) { toast(e.message, 'error'); return; }
+          }
           const ok = kind === 'move'
             ? await act('move', { uids, to: it.key }, `${uids.length === 1 ? 'Moved' : `Moved ${uids.length} messages`} to ${it.name}`)
             : await act('labels', { uids, add: [it.key] }, `Labelled ${it.name}`);

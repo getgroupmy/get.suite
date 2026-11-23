@@ -88,6 +88,30 @@ await step('V with ticked messages; arrow keys choose', async () => {
   await page.getByText('Moved 2 messages to Board').waitFor();
   await until(async () => (await inFolder('Board')).length === 2);
 });
+await step('V: a folder that isn’t there yet is made and the message moved into it', async () => {
+  for (const subj of ['Minutes March', 'Minutes April']) if ((await api(page, 'POST', '/mail/send', { to: 'olivia@acme.com', subject: subj, text: 'x' })).status !== 200) throw new Error('send');
+  await until(async () => (await inFolder('INBOX')).filter((m) => /^Minutes /.test(m.subject)).length === 2, 40000);
+  await page.goto(`${B}/mail`);
+  await list().getByText('Minutes March', { exact: true }).click({ timeout: 30000 });
+  await page.locator('.reader-actions').waitFor();
+  await page.keyboard.press('v');
+  const d = picker('Move to');
+  await d.getByLabel('Find').fill('Board 2027');
+  await d.getByText('Nothing matches “Board 2027”').waitFor();
+  await d.getByRole('option', { name: '+ New folder “Board 2027”' }).click();
+  await page.getByText('Moved to Board 2027').waitFor();
+  await until(async () => (await inFolder('Board 2027')).some((m) => m.subject === 'Minutes March'));
+  await page.locator('.subnav').getByText('Board 2027', { exact: true }).first().waitFor(); // in the folder list
+  // A name that is already a folder is not offered again (any capitals).
+  await page.goto(`${B}/mail`);
+  await list().getByText('Minutes April', { exact: true }).click({ timeout: 30000 });
+  await page.locator('.reader-actions').waitFor();
+  await page.keyboard.press('v');
+  await picker('Move to').getByLabel('Find').fill('board 2027');
+  await picker('Move to').getByRole('option').first().waitFor();
+  if (await picker('Move to').getByRole('option', { name: /New folder/ }).count()) throw new Error('offered to make a folder that exists');
+  await page.keyboard.press('Escape');
+});
 await step('L puts a label on; Escape closes the picker without doing anything', async () => {
   await page.goto(`${B}/mail/Board`);
   await list().getByText('Board pack', { exact: true }).click({ timeout: 20000 });

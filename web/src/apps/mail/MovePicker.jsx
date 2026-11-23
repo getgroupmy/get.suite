@@ -7,10 +7,14 @@ import { pickMatches } from './mailkeys.js';
  * Keyboard picker (V: move to a folder, L: put on a label): type to narrow the list, ↑/↓ to choose,
  * Enter to pick. `items` are { key, name, hint? }.
  */
-export function MovePicker({ title, items, onPick, onClose }) {
+// createLabel (e.g. "New folder"): when what's typed names none of the items, the last option makes it (onPick gets { create: name }).
+export function MovePicker({ title, items, onPick, onClose, createLabel = null }) {
   const [typed, setTyped] = useState('');
   const [at, setAt] = useState(0);
-  const shown = pickMatches(items, typed);
+  const name = typed.trim();
+  const fresh = createLabel && name && !items.some((it) => it.name.toLowerCase() === name.toLowerCase() || String(it.key).toLowerCase() === name.toLowerCase());
+  const found = pickMatches(items, typed);
+  const shown = [...found, ...(fresh ? [{ key: '__new__', name: `+ ${createLabel} “${name}”`, create: name }] : [])];
   const cur = Math.min(at, Math.max(0, shown.length - 1));
   return (
     <Modal title={title} onClose={onClose}>
@@ -29,7 +33,7 @@ export function MovePicker({ title, items, onPick, onClose }) {
           </li>
         ))}
       </ul>
-      {!shown.length && <p className="muted small" role="status">Nothing matches “{typed}”</p>}
+      {!found.length && <p className="muted small" role="status">Nothing matches “{typed}”</p>}
     </Modal>
   );
 }
