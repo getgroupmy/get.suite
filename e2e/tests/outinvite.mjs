@@ -100,9 +100,15 @@ await step('the organizer sees the answer live', async () => {
   await dlg.getByRole('list', { name: 'Invited guests' }).getByText('· Maybe').waitFor();
   await page.keyboard.press('Escape');
   await dana.getByRole('button', { name: 'Yes' }).click();
-  await page.locator('.month .chip', { hasText: 'Site visit' }).click();
-  await dlg.getByText('1 guest: 1 yes').waitFor();
-  await page.keyboard.press('Escape');
+  // (opened the instant she clicks, the event can still show her old answer: look again until the new one is there)
+  let seen = false;
+  for (let k = 0; k < 10 && !seen; k++) {
+    await page.locator('.month .chip', { hasText: 'Site visit' }).click();
+    seen = await dlg.getByText('1 guest: 1 yes').waitFor({ timeout: 3000 }).then(() => true, () => false);
+    await page.keyboard.press('Escape');
+    await dlg.waitFor({ state: 'detached' });
+  }
+  if (!seen) throw new Error('her Yes never reached the organizer');
 });
 
 await step('deleting the event ends the link', async () => {

@@ -116,7 +116,10 @@ await step('compose: typing ":" and a word offers emoji; Enter puts it in and th
   if (await list.count()) throw new Error('list stayed, or offered for a time');
   const t = (await body().innerText()).trim();
   if (!t.startsWith('Thanks 👍 see you at 10:30')) throw new Error(JSON.stringify(t));
-  await page.getByRole('button', { name: /Discard|Close/ }).first().click().catch(() => {});
+  // Close the unsent email for good (left open, Mail opens it again on the next visit and covers the page).
+  const draft = page.getByRole('dialog', { name: /New message|\(no subject\)/ }).first();
+  await draft.getByRole('button', { name: 'Close' }).first().click();
+  await draft.waitFor({ state: 'detached' });
 });
 await step('chat: insert where the cursor is', async () => {
   await page.goto(B + '/chat');
