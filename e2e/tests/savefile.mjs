@@ -93,16 +93,20 @@ await step('📎 Files: Save on Kim’s attachments, not on yours', async () => 
   const r = await page.evaluate(async () => { const l = await (await fetch('/api/files', { headers: { 'x-requested-with': 'nas-workspace' } })).json(); const a = l.find((x) => x.name === 'a.txt'); return (await fetch(`/api/files/${a.id}/raw`)).text(); });
   if (r !== 'A') throw new Error(r);
 });
-await step('Save to a folder…: pick Projects; Show in Drive opens the folder', async () => {
-  const projects = (await api(page, 'POST', '/files/folder', { name: 'Projects' })).body;
+await step('Save to a folder…: find a folder deep down (Clients › Projects); Show in Drive opens it', async () => {
+  const clients = (await api(page, 'POST', '/files/folder', { name: 'Clients' })).body;
+  const projects = (await api(page, 'POST', '/files/folder', { name: 'Projects', parent_id: clients.id })).body;
+  await api(page, 'POST', '/files/drives', { name: 'Team files' });
   await page.goto(`${B}/chat/${dm}`);
   const row = page.locator(`[data-mid="${msg.id}"]`).first();
   await row.hover();
   await row.getByRole('button', { name: 'Save to Drive' }).click();
   await page.getByRole('menuitem', { name: 'Save to a folder…' }).click();
   const d = page.getByRole('dialog', { name: 'Save “quote.txt” to Drive' });
-  await d.getByLabel('Save in').selectOption({ label: 'Projects' });
-  await d.getByRole('button', { name: 'Save' }).click();
+  await d.getByRole('button').filter({ hasText: 'shared drive' }).filter({ hasText: 'Team files' }).waitFor(); // shared drives you can add to are offered
+  await d.getByLabel('Find a folder').fill('proj');
+  await d.getByRole('list', { name: 'Folders found' }).getByRole('button').filter({ hasText: 'in Clients' }).click();
+  await d.getByRole('button', { name: 'Save here' }).click();
   await d.waitFor({ state: 'detached' });
   await page.getByText('Saved “quote.txt” to Drive').waitFor();
   await page.getByRole('button', { name: 'Show in Drive' }).click();

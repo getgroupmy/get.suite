@@ -5,7 +5,8 @@ import { get, post, patch } from '../api.js';
 import { Modal, useToast } from './ui.jsx';
 import Icon from './Icon.jsx';
 
-export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = false }) {
+// pick: { title, action, onPick(folderId or null) } chooses a folder without moving anything (Chat's "Save to a folder…").
+export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = false, pick = null }) {
   const toast = useToast();
   const [cur, setCur] = useState(null); // null = My Drive root
   const [path, setPath] = useState([]);
@@ -32,7 +33,12 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur]);
 
+  // Choosing where to save: shared drives you can add to are offered beside your own folders.
+  const [drives, setDrives] = useState([]);
+  useEffect(() => { if (pick) get('/files?view=drives').then((l) => setDrives(l.filter((d) => d.role === 'owner' || d.role === 'editor'))).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function move() {
+    if (pick) { onClose(); pick.onPick(cur); return; }
     if (copy) { onClose(); onCopy(cur); return; }
     if (shortcut) {
       try { const r = await post(`/files/${files[0].id}/shortcut`, { parent_id: cur }); toast(r.existing ? 'There’s already a shortcut to it there' : 'Shortcut added'); onMoved(); onClose(); } catch (e) { toast(e.message, 'error'); }
@@ -44,8 +50,8 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
   }
 
   return (
-    <Modal title={copy ? (files.length === 1 ? `Copy “${files[0].name}” to…` : `Copy ${files.length} items to…`) : shortcut ? `Add a shortcut to “${files[0].name}”` : files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{copy ? 'Copy here' : shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
+    <Modal title={pick ? pick.title : copy ? (files.length === 1 ? `Copy “${files[0].name}” to…` : `Copy ${files.length} items to…`) : shortcut ? `Add a shortcut to “${files[0].name}”` : files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose}
+      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{pick ? pick.action : copy ? 'Copy here' : shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
       {copy && <p className="muted small" style={{ marginTop: 0 }}>The original stays where it is. A copy keeps its name, unless it goes in the same folder (then it’s “Copy of …”).</p>}
       {shortcut && <p className="muted small" style={{ marginTop: 0 }}>It stays where it is; the shortcut opens it from this folder too. People still need access to it to open it.</p>}
       <input type="search" className="move-find" aria-label="Find a folder" placeholder="Find a folder" value={find} onChange={(e) => setFind(e.target.value)} />
@@ -78,6 +84,7 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
       <ul className="pick-list">
         {folders.length === 0 && <li className="muted">No folders here</li>}
         {folders.map((f) => <li key={f.id}><button onClick={() => setCur(f.id)}><Icon name="folder" className="ft ft-folder" />{f.name}<Icon name="right" size={18} /></button></li>)}
+        {!cur && drives.map((d) => <li key={d.id}><button onClick={() => setCur(d.id)}><Icon name="people" className="ft ft-folder" /><span className="grow">{d.name} <span className="muted small">· shared drive</span></span><Icon name="right" size={18} /></button></li>)}
       </ul>
       </>}
     </Modal>
