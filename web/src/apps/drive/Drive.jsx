@@ -1409,6 +1409,18 @@ function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = 
   const [cur, setCur] = useState(null); // null = My Drive root
   const [path, setPath] = useState([]);
   const [folders, setFolders] = useState([]);
+  // Find a folder by name (deep in My Drive, or in a shared drive or folder you can add to) instead of walking to it.
+  const [find, setFind] = useState('');
+  const [hits, setHits] = useState(null);
+  useEffect(() => {
+    const t = find.trim();
+    if (t.length < 2) { setHits(null); return undefined; }
+    let live = true;
+    const h = setTimeout(() => get(`/files?view=search&type=folder&q=${encodeURIComponent(t)}`)
+      .then((l) => { if (live) setHits(l.filter((f) => f.kind === 'folder' && (f.role === 'owner' || f.role === 'editor') && !files.some((x) => x.id === f.id))); })
+      .catch(() => { if (live) setHits([]); }), 200);
+    return () => { live = false; clearTimeout(h); };
+  }, [find]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     get(`/files?view=mine&noshortcuts=1${cur ? `&parent=${cur}` : ''}`).then((l) => setFolders(l.filter((f) => f.kind === 'folder' && !files.some((x) => x.id === f.id))));
@@ -1432,6 +1444,17 @@ function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = 
       footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{copy ? 'Copy here' : shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
       {copy && <p className="muted small" style={{ marginTop: 0 }}>The original stays where it is. A copy keeps its name, unless it goes in the same folder (then it’s “Copy of …”).</p>}
       {shortcut && <p className="muted small" style={{ marginTop: 0 }}>It stays where it is; the shortcut opens it from this folder too. People still need access to it to open it.</p>}
+      <input type="search" className="move-find" aria-label="Find a folder" placeholder="Find a folder" value={find} onChange={(e) => setFind(e.target.value)} />
+      {hits && (
+        <ul className="pick-list" aria-label="Folders found">
+          {hits.length === 0 && <li className="muted">No folder you can add to is called that</li>}
+          {hits.slice(0, 20).map((f) => (
+            <li key={f.id}><button onClick={() => { setCur(f.id); setFind(''); }}><Icon name="folder" className="ft ft-folder" />
+              <span className="grow">{f.name}{(f.parent_name || (!f.parent_id && f.role === 'owner')) && <span className="muted small"> · in {f.parent_name || 'My Drive'}</span>}</span><Icon name="right" size={18} /></button></li>
+          ))}
+        </ul>
+      )}
+      {!hits && <>
       <nav className="crumbs small">
         <button className="crumb" onClick={() => setCur(null)}>My Drive</button>
         {path.map((c) => <span key={c.id} className="crumb-wrap"><Icon name="right" size={16} /><button className="crumb" onClick={() => setCur(c.id)}>{c.name}</button></span>)}
@@ -1440,6 +1463,7 @@ function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = 
         {folders.length === 0 && <li className="muted">No folders here</li>}
         {folders.map((f) => <li key={f.id}><button onClick={() => setCur(f.id)}><Icon name="folder" className="ft ft-folder" />{f.name}<Icon name="right" size={18} /></button></li>)}
       </ul>
+      </>}
     </Modal>
   );
 }

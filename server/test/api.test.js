@@ -1987,6 +1987,21 @@ test('search filters: kind of file, whose it is, and when it changed', async () 
   assert.equal((await find('modified=30')).includes(`${tag} old plan`), false);
   assert.equal((await owner('GET', '/api/files?view=search&q=&type=pdf')).body.some((f) => f.id === pdf.id), true, 'filters work without words');
   assert.equal((await owner('GET', `/api/files?view=search&q=${tag}&type=nope`)).status, 400);
+  // Each result says the folder it is in, by name, when you can open that folder.
+  const outer = (await owner('POST', '/api/files/folder', { name: `Outer ${tag}` })).body;
+  const inner = (await owner('POST', '/api/files/folder', { name: `Contracts ${tag}`, parent_id: outer.id })).body;
+  await owner('POST', '/api/files/folder', { name: `Contracts ${tag} top` });
+  const hits = (await owner('GET', `/api/files?view=search&type=folder&q=${encodeURIComponent(`contracts ${tag}`)}`)).body;
+  assert.equal(hits.find((f) => f.id === inner.id).parent_name, `Outer ${tag}`);
+  assert.equal(hits.find((f) => f.name === `Contracts ${tag} top`).parent_name, undefined, 'at the top of My Drive: none');
+  // Shared with someone who can't open the folder around it: they aren't told its name.
+  const pn = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'pnview', domain: 'acme.com', name: 'Pat Viewer', password: 'password123' })).status, 201);
+  const pid = (await login(pn, 'pnview@acme.com')).id;
+  await owner('PUT', `/api/files/${inner.id}/shares`, { shares: [{ user_id: pid, role: 'editor' }] });
+  const theirs = (await pn('GET', `/api/files?view=search&type=folder&q=${encodeURIComponent(`contracts ${tag}`)}`)).body.find((f) => f.id === inner.id);
+  assert.ok(theirs, 'they find the folder shared with them');
+  assert.equal(theirs.parent_name, undefined, 'but not the name of the one around it');
   void d; void s; void folder;
 });
 

@@ -720,6 +720,16 @@ export default function fileRoutes({ maxUploadBytes }) {
         const at = placeOfMatch(f.kind, json, req.query.q);
         if (at) { f.place = at.hash; if (at.words) f.place_words = at.words; }
       }
+      // The folder each is in, by name, when you can open that folder yourself (two "Contracts" folders, told apart).
+      const parents = new Map();
+      for (const f of rows) {
+        if (!f.parent_id) continue;
+        if (!parents.has(f.parent_id)) {
+          const p = q('SELECT id, name, owner_id FROM files WHERE id = ? AND trashed = 0').get(f.parent_id);
+          parents.set(f.parent_id, p && (p.owner_id === me || roleFor(p.id, me)) ? p.name : null);
+        }
+        if (parents.get(f.parent_id)) f.parent_name = parents.get(f.parent_id);
+      }
     } else throw bad('Unknown view');
     // Shortcuts in this folder (or your My Drive), unless asked to leave them out.
     if (view === 'mine' && !req.query.noshortcuts) rows = [...rows, ...shortcutsIn(req.query.parent || null, req.user)];
