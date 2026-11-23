@@ -90,5 +90,14 @@ await step('a folder only shared to view is not offered', async () => {
   await dlg.getByText('My Drive').first().waitFor(); // back to walking the folders
 });
 
+await step('Drive search: each result says the folder it is in; a click opens that folder', async () => {
+  await page.goto(`${B}/drive/search?q=${encodeURIComponent('lease')}`);
+  const row = page.locator('table.files tbody tr', { hasText: 'Lease 2027' });
+  await row.getByRole('button', { name: 'in Contracts' }).click();
+  await page.waitForURL(/\/drive\/folder\//);
+  await page.locator('table.files tbody').getByText('Lease 2027').waitFor();
+  await page.locator('.crumbs, nav').getByText('Acme').first().waitFor();
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();
