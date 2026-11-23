@@ -1,0 +1,62 @@
+# Workspace on a Mac (Apple Silicon: M1 or later) with Docker Desktop or OrbStack.
+#   docker compose -f docker-compose.mac.yml up -d --build
+# See README → "Run it on a Mac" for setting it up, keeping it running and backing it up.
+#
+# Unlike docker-compose.yml (made for a Synology NAS), everything is kept in Docker volumes rather than folders
+# on the Mac: the database and the mailboxes then sit on a real Linux file system inside Docker, where file
+# locking and the mail server's ownership checks work as they should. Back them up with the commands in the README.
+#
+# Change these two values, then build:
+x-mail-hostname: &mail_hostname mail.example.com   # the one hostname all your domains' MX records point to
+x-timezone: &timezone UTC                          # e.g. Europe/London
+
+services:
+  workspace:
+    build: .
+    image: nas-workspace:latest
+    container_name: nas-workspace
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - workspace-data:/data                 # database + uploaded files
+      - workspace-mail-config:/mail-config   # mail accounts, aliases and DKIM keys, written for the mail container
+      - workspace-mail-status:/mail-status:ro
+    environment:
+      TZ: *timezone
+      MAX_UPLOAD_MB: "4096"
+      MAIL_CONFIG_DIR: /mail-config
+      MAIL_STATUS_DIR: /mail-status
+      MAIL_HOSTNAME: *mail_hostname
+      MAIL_IMAP_HOST: mail
+    depends_on:
+      - mail
+    mem_limit: 1g
+
+  mail:
+    build: ./mail
+    image: nas-workspace-mail:latest
+    container_name: nas-workspace-mail
+    hostname: *mail_hostname
+    restart: unless-stopped
+    ports:
+      - "25:25"     # receiving mail from the internet
+      - "465:465"   # sending from phones / Outlook (SSL)
+      - "587:587"   # sending from phones / Outlook (STARTTLS)
+      - "993:993"   # reading mail from phones / Outlook (IMAP over SSL)
+    volumes:
+      - workspace-mail-config:/etc/nw:ro
+      - workspace-mail-status:/var/nw-status
+      - workspace-mailboxes:/var/vmail
+      # A certificate for the mail hostname (fullchain.pem and privkey.pem in one folder on the Mac), see README:
+      # - ~/workspace-tls:/etc/nw-tls:ro
+    environment:
+      TZ: *timezone
+      MAIL_HOSTNAME: *mail_hostname
+    mem_limit: 512m
+
+volumes:
+  workspace-data:
+  workspace-mail-config:
+  workspace-mail-status:
+  workspace-mailboxes:

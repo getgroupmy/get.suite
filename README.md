@@ -92,6 +92,32 @@ Requires DSM 7.2+ and **Container Manager** (from Package Center).
 
 On 2 GB of RAM, both containers fit with room to spare. Adding a RAM stick only matters if you run other heavy containers. Don't install Synology's own MailPlus or Mail Server packages alongside this, because they use the same ports (25, 465, 587, 993).
 
+## Run it on a Mac (Mac mini or any Apple Silicon Mac)
+
+Workspace runs on a Mac in the same two containers as on the NAS. Both build natively for Apple's chips (M1 or later): the app's image is `node:22-alpine`, the mail server's is `ubuntu:24.04`, and Postfix, Dovecot and Rspamd are all in Ubuntu's arm64 packages. Use **`docker-compose.mac.yml`** instead of `docker-compose.yml`: it is the same set-up without the Synology folder paths and user ID, and it keeps everything in Docker volumes, where the database and the mailboxes sit on a Linux file system (file locking and the mail server's ownership checks behave as they do on the NAS).
+
+1. **Docker:** install [OrbStack](https://orbstack.dev) or Docker Desktop. OrbStack uses less memory, which suits a Mac that's always on. Set it to start at login.
+2. **Copy the code** to the Mac, e.g. into `~/workspace-app`, and open Terminal there.
+3. **Mail hostname and time zone:** set them at the top of `docker-compose.mac.yml`.
+4. **Build and start:** `docker compose -f docker-compose.mac.yml up -d --build`. The first build takes a few minutes. Then open `http://localhost:8080` (or `http://<the Mac's IP>:8080` from another computer) and create the workspace, as in step 5 above.
+5. **Keep it running:** in System Settings → Energy, turn on **Prevent automatic sleeping when the display is off** and **Start up automatically after a power failure**, and turn off sleep for the disks. The containers restart by themselves (`restart: unless-stopped`) once Docker is up.
+6. **Updates:** copy the new code over and run the same `up -d --build` command. The volumes, and so your data, stay as they were.
+
+**Backups.** Everything is in four Docker volumes: `workspace-data` (the database and files) and `workspace-mailboxes` matter most. Stop the containers, copy them into a folder on the Mac, and start again:
+
+```
+docker compose -f docker-compose.mac.yml stop
+mkdir -p ~/workspace-backup
+for v in data mailboxes mail-config; do docker run --rm -v "$(basename "$PWD")_workspace-$v":/v -v ~/workspace-backup:/b alpine tar czf "/b/$v-$(date +%F).tgz" -C /v .; done
+docker compose -f docker-compose.mac.yml start
+```
+
+Time Machine then keeps `~/workspace-backup`. (Docker names each volume after the folder the project is in, `workspace-app_workspace-data` and so on; `docker volume ls` lists them.) To put one back, stop the containers and unpack it into the same volume with `tar xzf`. Copying the Docker files themselves while it runs can give a half-written database.
+
+**From the internet:** the HTTPS steps below are written for the Synology reverse proxy. On a Mac, put a reverse proxy such as [Caddy](https://caddyserver.com) in front of port 8080 (it gets a Let's Encrypt certificate by itself; pass WebSockets through, which Caddy does without extra settings), or use a tunnel such as Cloudflare Tunnel, and forward 80 and 443 on your router to the Mac. For mail, forward 25, 465, 587 and 993 to the Mac as you would to the NAS. Many home internet providers block port 25, in which case mail from outside can't arrive whatever the machine. For the mail server's own certificate, put `fullchain.pem` and `privkey.pem` for the mail hostname in a folder (e.g. `~/workspace-tls`) and uncomment the `/etc/nw-tls` line in `docker-compose.mac.yml`; without it, the mail server makes a self-signed one.
+
+macOS's own services don't use these ports, so nothing needs switching off. The `docker-compose.mac.yml` file has been checked with `docker compose config`, and the images' packages exist for arm64, but it hasn't been run on a Mac as part of this project's tests (they run on Linux).
+
 ## Publish it securely on your fixed IP
 
 1. **DNS:** at your domain registrar, add an A record, e.g. `workspace.example.com → <your fixed IP>`. One hostname serves every company. If you like, each company can also get its own name (e.g. `office.company.com`), added as an extra reverse-proxy entry and certificate pointing at the same port 8080.
