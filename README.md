@@ -99,10 +99,10 @@ Workspace runs on a Mac in the same two containers as on the NAS. Both build nat
 1. **Docker:** install [OrbStack](https://orbstack.dev) or Docker Desktop. OrbStack uses less memory, which suits a Mac that's always on. Set it to start at login.
 2. **Copy the code** to the Mac, e.g. into `~/workspace-app`, and open Terminal there.
 3. **Mail hostname and time zone:** set them at the top of `docker-compose.mac.yml`.
-4. **Build and start:** `docker compose -f docker-compose.mac.yml up -d --build`. The first build takes a few minutes. Then open `http://localhost:8080` (or `http://<the Mac's IP>:8080` from another computer) and create the workspace, as in step 5 above.
+4. **Check, then build and start:** `bash scripts/check-setup.sh` says whether the Mac is ready (Docker running, the compose file correct and your mail hostname set, ports 8080, 25, 465, 587 and 993 free, room on the disk). Then `docker compose -f docker-compose.mac.yml up -d --build`. The first build takes a few minutes. Then open `http://localhost:8080` (or `http://<the Mac's IP>:8080` from another computer) and create the workspace, as in step 5 above.
 5. **Keep it running:** in System Settings → Energy, turn on **Prevent automatic sleeping when the display is off** and **Start up automatically after a power failure**, and turn off sleep for the disks. The containers restart by themselves (`restart: unless-stopped`) once Docker is up.
 6. **Updates:** copy the new code over and run the same `up -d --build` command. The volumes, and so your data, stay as they were.
-7. **Check it:** **Admin → System** should say *arm64* under **Machine**, and lists the memory in use against the 1 GB `mem_limit`.
+7. **Check it:** run `bash scripts/check-setup.sh` again: once it's running, it checks that the app runs natively (*arm64*, not through emulation), answers on port 8080, that the mail server is up and that the Mac won't go to sleep, and ends with *All set.* **Admin → System** also says *arm64* under **Machine**, and lists the memory in use against the 1 GB `mem_limit`. (It works on Linux and an Intel Mac too; give it another compose file with `bash scripts/check-setup.sh docker-compose.yml`.)
 
 **Backups.** Everything is in four Docker volumes: `workspace-data` (the database and files) and `workspace-mailboxes` matter most. Stop the containers, copy them into a folder on the Mac, and start again:
 
