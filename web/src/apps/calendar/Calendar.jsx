@@ -2123,7 +2123,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
               <button type="button" className="link-btn small" onClick={() => setF({ ...f, all_day: false, startDate: toDateInput(g.proposed_start), startTime: toTimeInput(g.proposed_start), endDate: toDateInput(g.proposed_end), endTime: toTimeInput(g.proposed_end) })}>Use this time</button>
             </p>
           ))}
-          <span className="address-input guest-suggest">
+          <div className="address-input guest-suggest">
             <input id="guest-input" value={guestInput} placeholder="Add people by name or email address" autoComplete="off"
               role="combobox" aria-expanded={guestSugs.length > 0} aria-controls="guest-suggestions" aria-autocomplete="list"
               onChange={(e) => { const v = e.target.value; if ((/[,;\s]$/.test(v) && v.includes('@')) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
@@ -2155,7 +2155,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                 ))}
               </ul>
             )}
-          </span>
+          </div>
           {groups.some((g) => g.members.length) && (
             <select value="" aria-label="Invite a group" onChange={(e) => addGroup(e.target.value)}>
               <option value="">Invite a group…</option>
