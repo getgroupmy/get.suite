@@ -1876,6 +1876,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const applyTemplate = (t) => {
     const ed = editorRef.current;
     if (!ed) return;
+    post(`/mail/templates/${t.id}/used`).then(loadTemplates).catch(() => {});
     const empty = !bodyHtml().replace(/<p><\/p>/g, '').trim();
     if (empty) ed.chain().focus('start').insertContentAt(0, t.html || '<p></p>').run();
     else ed.chain().focus().insertContent(t.html || '').run();
@@ -2219,7 +2220,12 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
             {FOLLOW_UP_CHOICES.map(([d, t]) => <option key={d} value={d}>⏰ No reply {t}</option>)}
           </select>}
           <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Templates" title="Templates" {...p}><Icon name="doc" /></button>} items={[
-            ...templates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })),
+            // With several, the three you used last come first (then the rest, by name).
+            ...(() => {
+              const recent = templates.length > 3 ? [...templates].filter((t) => t.used_at).sort((x, y) => y.used_at - x.used_at).slice(0, 3) : [];
+              const item = (t) => ({ label: t.name, onClick: () => applyTemplate(t) });
+              return recent.length ? [...recent.map(item), '-', ...templates.filter((t) => !recent.includes(t)).map(item)] : templates.map(item);
+            })(),
             ...(templates.length ? ['-'] : []),
             { label: 'Save as template…', icon: 'plus', onClick: () => setTemplateDialog('save') },
             { label: templates.length ? 'Manage templates…' : 'Import templates…', icon: 'settings', onClick: () => setTemplateDialog('manage') },

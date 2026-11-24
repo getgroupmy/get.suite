@@ -116,6 +116,8 @@ q(`CREATE TABLE IF NOT EXISTS mail_templates (
   html TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 )`).run();
+// When each was last put in a message (the menu offers the latest first).
+if (!q("SELECT 1 FROM pragma_table_info('mail_templates') WHERE name = 'used_at'").get()) q('ALTER TABLE mail_templates ADD COLUMN used_at INTEGER').run();
 
 // Labels: your own coloured tags for messages, kept on the mail server as IMAP keywords (so mail
 // apps that show keywords, such as Thunderbird's tags, see them). Names and colours are kept here.
@@ -983,7 +985,12 @@ export default function webmailRoutes() {
   });
 
   // ---- templates: saved messages (subject and body) to start a message or a reply from ----
-  r.get('/templates', (req, res) => res.json(q('SELECT id, name, subject, html, updated_at FROM mail_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id)));
+  r.get('/templates', (req, res) => res.json(q('SELECT id, name, subject, html, updated_at, used_at FROM mail_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id)));
+  // A template was put in a message: the ones you use come first in the menu.
+  r.post('/templates/:id/used', (req, res) => {
+    if (!q('UPDATE mail_templates SET used_at = ? WHERE id = ? AND user_id = ?').run(now(), String(req.params.id), req.user.id).changes) throw notFound('Template not found');
+    res.json({ ok: true });
+  });
   // Import templates (as Templates → Export gives them: [{ name, subject, html }]). One that's already here (same name,
   // subject and text) is skipped; one whose name is taken by a different template gets a number: { added, skipped }.
   r.post('/templates/import', (req, res) => {

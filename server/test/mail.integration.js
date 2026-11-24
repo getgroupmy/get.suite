@@ -483,6 +483,12 @@ test('templates: saved, changed, listed, deleted; only your own', async () => {
   assert.deepEqual(list.map((t) => [t.name, t.subject, t.html]), [['Thanks', 'Thank you for your order', '<p>Thanks for your order!</p>']]);
   assert.equal((await gina('PATCH', `/api/mail/templates/${a.body.id}`, { name: 'x' })).status, 404);
   assert.deepEqual((await gina('GET', '/api/mail/templates')).body, []);
+  // Put in a message: when is kept (the menu shows the latest first); your own only.
+  assert.equal(list[0].used_at, null);
+  assert.equal((await gina('POST', `/api/mail/templates/${a.body.id}/used`)).status, 404);
+  const before = Date.now();
+  assert.equal((await olivia('POST', `/api/mail/templates/${a.body.id}/used`)).status, 200);
+  assert.ok((await olivia('GET', '/api/mail/templates')).body[0].used_at >= before);
   await olivia('DELETE', `/api/mail/templates/${a.body.id}`);
   assert.deepEqual((await olivia('GET', '/api/mail/templates')).body, []);
 });

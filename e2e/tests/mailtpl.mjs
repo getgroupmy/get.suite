@@ -71,6 +71,22 @@ await step('your own replacements from Docs → Preferences work in the message 
   await page.keyboard.type(' Please send it to addr. Thanks');
   await until(async () => (await body.innerText()).includes('Please send it to 12 High Street, Leeds. Thanks'));
 });
+await step('with several templates, the ones you used last come first in the menu', async () => {
+  for (const name of ['Alpha', 'Bravo', 'Zulu']) await api(page, 'POST', '/mail/templates', { name, html: `<p>${name} text</p>` });
+  await page.goto(`${B}/mail`);
+  await page.waitForTimeout(800);
+  if (!(await page.getByRole('textbox', { name: 'Message' }).count())) await page.getByRole('button', { name: 'Compose' }).click();
+  await page.getByRole('button', { name: 'Templates' }).click();
+  await page.getByRole('menuitem', { name: 'Zulu', exact: true }).click();
+  await page.getByText('Zulu text').first().waitFor();
+  await until(async () => (await api(page, 'GET', '/mail/templates')).body.find((t) => t.name === 'Zulu').used_at);
+  await page.waitForTimeout(300);
+  await page.getByRole('button', { name: 'Templates' }).click();
+  const names = (await page.getByRole('menuitem').allInnerTexts()).map((x) => x.trim());
+  // Zulu just now, Late earlier (both used); then the rest by name.
+  if (names.slice(0, 2).join() !== 'Zulu,Late' || names.indexOf('Alpha') < 2 || names.indexOf('Alpha') > names.indexOf('Bravo')) throw new Error(names.join('|'));
+  await page.keyboard.press('Escape');
+});
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();
 process.exit(failed ? 1 : 0);
