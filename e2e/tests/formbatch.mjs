@@ -106,6 +106,24 @@ await step('Make copies of several forms at once', async () => {
   for (const f of (await api(page, 'GET', '/forms')).body.filter((x) => x.title.startsWith('Copy of'))) await api(page, 'DELETE', `/forms/${f.id}`);
   await page.getByRole('list', { name: 'Your forms' }).getByText('Copy of Lunch order').waitFor({ state: 'detached' });
 });
+await step('Download responses: the picked forms\' responses as CSV files in one .zip', async () => {
+  const lunch = (await api(page, 'GET', '/forms')).body.find((f) => f.title === 'Lunch order');
+  await api(page, 'PUT', `/forms/${lunch.id}`, { questions: [{ id: 'q', type: 'short', title: 'Dish' }] });
+  const tok = (await api(page, 'GET', `/forms/${lunch.id}`)).body.token;
+  await api(page, 'POST', `/public/forms/${tok}`, { answers: { q: 'Noodles' } });
+  const bar = page.getByRole('toolbar', { name: 'Change the selected forms' });
+  await page.getByLabel('Select: Lunch order').check();
+  await page.getByLabel('Select: Team offsite').check();
+  const [dl] = await Promise.all([page.waitForEvent('download'), bar.getByRole('button', { name: 'Download responses' }).click()]);
+  if (dl.suggestedFilename() !== 'form responses.zip') throw new Error(dl.suggestedFilename());
+  const JSZip = (await import(`${ROOT}/server/node_modules/jszip/lib/index.js`)).default;
+  const zip = await JSZip.loadAsync((await import('node:fs')).readFileSync(await dl.path()));
+  const names = Object.keys(zip.files).sort().join('|');
+  if (names !== 'Lunch order responses.csv|Team offsite responses.csv') throw new Error(names);
+  if (!/Noodles/.test(await zip.file('Lunch order responses.csv').async('string'))) throw new Error('no answer');
+  await page.getByLabel('Select: Lunch order').uncheck();
+  await page.getByLabel('Select: Team offsite').uncheck();
+});
 await step('Delete is off when a form shared with you is selected', async () => {
   const sam = (await api(page, 'POST', '/users', { local: 'sam', domain: 'acme.com', name: 'Sam Shared', password: 'password123' })).body;
   const ctx = await browser.newContext();

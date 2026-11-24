@@ -101,6 +101,8 @@ function FormList() {
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('close', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} no longer accepting responses`)}>Stop accepting</button>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('open', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} accepting responses again`)}>Accept again</button>
             <button type="button" className="btn small" disabled={!picked.size || chosen.some((f) => f.owner_name)} title={chosen.some((f) => f.owner_name) ? 'Only a form’s owner adds editors' : 'A colleague who can change them all and see their responses'} onClick={() => setAddingEditor(true)}><Icon name="people" size={16} /> Add editor…</button>
+            <button type="button" className="btn small" disabled={!picked.size} title="Each form's responses as a spreadsheet file (CSV), together in a .zip"
+              onClick={() => { window.location.href = `/api/forms/responses.zip?ids=${[...picked].join(',')}`; }}><Icon name="download" size={16} /> Download responses</button>
             <button type="button" className="btn small" disabled={!picked.size} title="A copy of each, yours: questions, look and settings, no responses" onClick={() => many('copy', (r) => (r.copied === 1 ? 'Copy made' : `${r.copied} copies made`))}><Icon name="copy" size={16} /> Make copies</button>
             {show === 'archived'
               ? <button type="button" className="btn small" disabled={!picked.size || chosen.some((f) => f.owner_name)} onClick={() => many('unarchive', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} brought back from the archive`)}>Bring back</button>

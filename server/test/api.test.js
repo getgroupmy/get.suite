@@ -5414,6 +5414,21 @@ test('forms: several at once from the list (stop or start accepting; delete, own
   assert.deepEqual((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'open' })).body, { changed: 1 }, 'an editor may');
   assert.equal((await own('POST', '/api/forms/batch', { ids: [f2.id, theirs.id], action: 'open' })).status, 404);
   assert.equal(await acc(f2.id), false, 'nothing changed');
+  // Several forms' responses in one .zip: a CSV for each, named by title (two with the same title kept apart).
+  await own('PUT', `/api/forms/${f1.id}`, { questions: [{ id: 'q', type: 'short', title: 'Name' }] });
+  const tok = (await own('GET', `/api/forms/${f1.id}`)).body.token;
+  assert.equal((await other('POST', `/api/public/forms/${tok}`, { answers: { q: 'Ann' } })).status < 300, true);
+  const twin = await mk('Batch one');
+  const zr = await own('GET', `/api/forms/responses.zip?ids=${f1.id},${f2.id},${twin.id}`, undefined, { binary: true });
+  assert.equal(zr.status, 200);
+  const JSZip = (await import('jszip')).default;
+  const zf = await JSZip.loadAsync(zr.body);
+  assert.deepEqual(Object.keys(zf.files).sort(), ['Batch one (2) responses.csv', 'Batch one responses.csv', 'Batch two responses.csv']);
+  assert.match(await zf.file('Batch one responses.csv').async('string'), /Ann/);
+  assert.equal((await own('GET', `/api/forms/responses.zip?ids=${f1.id},${theirs.id}`, undefined, { binary: true })).status, 404);
+  assert.equal((await own('GET', '/api/forms/responses.zip?ids=', undefined, { binary: true })).status, 400);
+  await own('DELETE', `/api/forms/${twin.id}`);
+
   // A colleague made an editor of several at once (told once); only the owner; not someone outside the company.
   assert.equal((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'add_editor', email: 'fbc@acme.com' })).status, 403);
   assert.equal((await own('POST', '/api/forms/batch', { ids: [f2.id], action: 'add_editor', email: 'nobody@acme.com' })).status, 400);

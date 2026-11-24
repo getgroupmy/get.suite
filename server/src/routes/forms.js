@@ -748,6 +748,27 @@ export default function formRoutes() {
 
   // Forms to start from: the gallery under New form.
   r.get('/templates', (req, res) => res.json(templateList()));
+  // Several forms' responses at once (?ids=a,b,…): a .zip with each form's responses as a spreadsheet file
+  // (CSV, the same as one form's download), named by the form's title. Forms you own or edit.
+  r.get('/responses.zip', async (req, res) => {
+    const ids = [...new Set(String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean))];
+    if (!ids.length || ids.length > 200) throw bad('Choose up to 200 forms');
+    const forms = ids.map((id) => ownForm(id, req.user));
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+    const used = new Set();
+    for (const f of forms) {
+      const base = f.title.replace(/[^\w .-]+/g, '').trim() || 'form';
+      let name = `${base} responses.csv`;
+      for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} (${n}) responses.csv`;
+      used.add(name.toLowerCase());
+      zip.file(name, `\ufeff${responseTable(f, filtered(f, {})).map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`);
+    }
+    const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="form responses.zip"');
+    res.send(buf);
+  });
 
   r.post('/', (req, res) => {
     if (q('SELECT COUNT(*) AS n FROM forms WHERE owner_id = ?').get(req.user.id).n >= MAX_FORMS) throw bad(`You can have up to ${MAX_FORMS} forms`);
