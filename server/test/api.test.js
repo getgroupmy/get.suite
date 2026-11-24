@@ -2427,6 +2427,29 @@ test('page setup: kept with a document, checked, and only for documents', async 
   assert.equal((await owner('GET', `/api/files/${(await owner('POST', `/api/files/${plain.id}/open-as`)).body.id}`)).body.page_setup, null);
 });
 
+test('contact groups: downloaded as vCard or CSV; your contacts with their details, the rest by name and address', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cgxa', 'Cgx Ann'], ['cgxb', 'Cgx Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cgxa@acme.com'); await login(b, 'cgxb@acme.com');
+  assert.equal((await a('POST', '/api/contacts', { name: 'Dana Diaz', email: 'Dana@Example.org', phone: '+44 20 7946 0000', company: 'Globex' })).status, 201);
+  const g = (await a('POST', '/api/contacts/groups', { name: 'Board, 2027', members: [{ email: 'dana@example.org' }, { name: 'Eli Ek', email: 'eli@example.org' }] })).body;
+  const vcf = await a('GET', `/api/contacts/groups/${g.id}/export`);
+  assert.equal(vcf.status, 200);
+  const text = typeof vcf.body === 'string' ? vcf.body : vcf.text;
+  assert.equal((text.match(/BEGIN:VCARD/g) || []).length, 2);
+  assert.match(text, /FN:Dana Diaz/); assert.match(text, /Globex/); assert.match(text, /\+44 20 7946 0000/);
+  assert.match(text, /FN:Eli Ek/); assert.match(text, /eli@example\.org/);
+  const csv = await a('GET', `/api/contacts/groups/${g.id}/export?format=csv`);
+  const ctext = typeof csv.body === 'string' ? csv.body : csv.text;
+  const lines = ctext.replace(/^\ufeff/, '').trim().split(/\r\n/);
+  assert.equal(lines.length, 3);
+  assert.match(lines[1], /^Dana Diaz,Dana@Example\.org,\+44 20 7946 0000,Globex/);
+  assert.match(lines[2], /^Eli Ek,eli@example\.org,/);
+  assert.equal((await b('GET', `/api/contacts/groups/${g.id}/export`)).status, 404, 'only your own');
+  const empty = (await a('POST', '/api/contacts/groups', { name: 'Nobody yet' })).body;
+  assert.equal((await a('GET', `/api/contacts/groups/${empty.id}/export`)).status, 400);
+});
+
 test('contact groups: in your own order; renaming keeps the place, new ones come after by name', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cgoa', 'Cgo Ann'], ['cgob', 'Cgo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

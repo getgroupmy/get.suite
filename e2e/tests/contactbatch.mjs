@@ -291,6 +291,21 @@ await step('Groups in your own order: Move up / Move down from a group’s move 
   if (await page.getByRole('menuitem', { name: 'Move up' }).count()) throw new Error('up from the first');
   await page.keyboard.press('Escape');
 });
+await step('Download a group: its people as vCards or a CSV', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Groups', exact: true }).click();
+  const fs = await import('node:fs');
+  await page.getByRole('button', { name: 'Download Outlook paste' }).click();
+  const [v] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /vCard/ }).click()]);
+  if (v.suggestedFilename() !== 'Outlook paste.vcf') throw new Error(v.suggestedFilename());
+  const vcf = fs.readFileSync(await v.path(), 'utf8');
+  if ((vcf.match(/BEGIN:VCARD/g) || []).length !== 2 || !/jo@example\.com/.test(vcf) || !/ann@example\.com/.test(vcf)) throw new Error(vcf);
+  await page.getByRole('button', { name: 'Download Outlook paste' }).click();
+  const [c] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /CSV/ }).click()]);
+  const csv = fs.readFileSync(await c.path(), 'utf8').replace(/^\ufeff/, '');
+  const lines = csv.trim().split(/\r?\n/);
+  if (lines.length !== 3 || !lines[1].startsWith('"Doe, Jo",jo@example.com')) throw new Error(csv);
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

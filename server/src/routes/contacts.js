@@ -432,6 +432,20 @@ export default function contactRoutes() {
     const id = insertFile({ owner: req.user.id, parentId: null, name: `${g.name} (group)`.slice(0, 200), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
     res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, members: g.members.length });
   });
+  // A group to take elsewhere (a phone, Outlook, Gmail): ?format=csv, else vCard. Members who are contacts
+  // of yours come with all their details (and photo, in a vCard); the rest with their name and address.
+  r.get('/groups/:id/export', (req, res) => {
+    const g = ownGroup(req);
+    if (!g.members.length) throw bad('This group has nobody in it yet');
+    const mine = new Map();
+    for (const c of q('SELECT * FROM contacts WHERE owner_id = ? AND email IS NOT NULL ORDER BY name COLLATE NOCASE').all(req.user.id)) if (!mine.has(c.email.toLowerCase())) mine.set(c.email.toLowerCase(), c);
+    const list = g.members.map((m) => mine.get(m.email.toLowerCase()) || { name: m.name || '', email: m.email });
+    const csv = req.query.format === 'csv';
+    res.setHeader('Content-Type', csv ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
+    const file = g.name.replace(/[^\w .-]+/g, '').trim() || 'group';
+    res.setHeader('Content-Disposition', `attachment; filename="${file}.${csv ? 'csv' : 'vcf'}"; filename*=UTF-8''${encodeURIComponent(g.name)}.${csv ? 'csv' : 'vcf'}`);
+    res.send(csv ? contactsToCsv(list) : contactsToVcf(list.map((c) => (c.id ? withPhoto(c) : c))));
+  });
   // Several of your groups at once: merged into a new group (everyone in them, each address once; the old ones
   // kept unless { remove: true }), or deleted (each can be put back). Every group checked first.
   r.post('/groups/batch', (req, res) => {
