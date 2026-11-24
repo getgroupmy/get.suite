@@ -277,6 +277,20 @@ await step('Section… + New section…: on a list without sections yet, the sel
   const now = await bar.getByLabel('Put the selected tasks in a section').locator('option').allTextContents();
   if (now.join('|') !== 'Section…|Spring|No section|+ New section…') throw new Error(now.join('|'));
 });
+await step('☀ My Day: the selected tasks added to My Day at once', async () => {
+  const tl = (await api(page, 'POST', '/tasks/lists', { name: 'Today stuff' })).body.id;
+  for (const title of ['Call bank', 'Water plants', 'Read book']) await api(page, 'POST', `/tasks/lists/${tl}/tasks`, { title });
+  await page.goto(`${B}/tasks/${tl}`);
+  await page.getByText('Read book', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await choose('Call bank', 'Read book');
+  await page.getByRole('toolbar', { name: 'Change the selected tasks' }).getByRole('button', { name: '☀ My Day' }).click();
+  await page.locator('.toast', { hasText: '2 tasks added to My Day' }).last().waitFor();
+  const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  const day = (await api(page, 'GET', `/tasks/myday?today=${today}`)).body.map((t) => t.title);
+  if (day.join() !== 'Read book,Call bank') throw new Error(day.join()); // in the list's order (the newest at its top)
+  await page.getByRole('button', { name: /My Day/ }).first().locator('.count', { hasText: '2' }).waitFor();
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

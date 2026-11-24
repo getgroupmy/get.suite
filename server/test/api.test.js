@@ -12060,6 +12060,18 @@ test('tasks My Day: your own picks for today, suggestions due today or overdue, 
   // Taken off.
   await a('POST', `/api/tasks/tasks/${t2.id}/myday`, { today, on: false });
   assert.deepEqual(await titles(a), ['Write report ✓']);
+  // Several at once: those already in it aren't counted twice; someone without the list can't.
+  let r = await a('POST', '/api/tasks/myday/batch', { ids: [t1.id, t2.id, t3.id], today });
+  assert.deepEqual(r.body, { changed: 2 }, 'Write report was in it already');
+  assert.deepEqual(await titles(a), ['Pay invoice', 'Book flights', 'Write report ✓']);
+  r = await a('POST', '/api/tasks/myday/batch', { ids: [t2.id, t3.id], today, on: false });
+  assert.deepEqual(r.body, { changed: 2 });
+  assert.deepEqual(await titles(a), ['Write report ✓']);
+  assert.equal((await a('POST', '/api/tasks/myday/batch', { ids: [], today })).status, 400);
+  const cx = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'mdx', domain: 'acme.com', name: 'Md Ex', password: 'password123' })).status, 201);
+  await login(cx, 'mdx@acme.com');
+  assert.equal((await cx('POST', '/api/tasks/myday/batch', { ids: [t2.id], today })).status, 404);
   // Next day: empty again (and yesterday's picks are gone).
   assert.deepEqual(await titles(a, '2026-11-11'), []);
   assert.deepEqual(await titles(a), []);

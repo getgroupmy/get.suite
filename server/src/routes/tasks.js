@@ -1081,6 +1081,26 @@ export default function taskRoutes() {
     res.json({ on: req.body?.on !== false });
   });
 
+  // Several tasks into My Day at once ({ ids, today }), or taken off it ({ on: false }); every one checked first.
+  r.post('/myday/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some tasks');
+    if (ids.length > MAX_MYDAY) throw bad(`At most ${MAX_MYDAY} tasks in My Day`);
+    const found = ids.map((id) => taskFor({ params: { id }, user: req.user }).task);
+    const me = req.user.id, day = todayOf(req.body?.today), on = req.body?.on !== false;
+    let changed = 0;
+    tx(() => {
+      if (!on) { for (const t of found) changed += q('DELETE FROM task_myday WHERE user_id = ? AND task_id = ?').run(me, t.id).changes; return; }
+      const fresh = found.filter((t) => !q('SELECT 1 FROM task_myday WHERE user_id = ? AND task_id = ? AND day = ?').get(me, t.id, day));
+      if (q('SELECT COUNT(*) AS n FROM task_myday WHERE user_id = ? AND day = ?').get(me, day).n + fresh.length > MAX_MYDAY) throw bad(`At most ${MAX_MYDAY} tasks in My Day`);
+      const at = now(); // one after another, in the order given (My Day lists them in the order added)
+      fresh.forEach((t, i) => q('INSERT INTO task_myday (user_id, task_id, day, added_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, task_id) DO UPDATE SET day = excluded.day, added_at = excluded.added_at').run(me, t.id, day, at + i));
+      changed = fresh.length;
+    });
+    sendTo([me], { type: 'tasks-changed' });
+    res.json({ changed });
+  });
+
   // Open tasks marked important on any of your lists: overdue and soonest first, those without a date last.
   // What you ticked off in the last 30 days, on any of your lists: newest first (for a weekly look back).
   r.get('/completed', (req, res) => {
