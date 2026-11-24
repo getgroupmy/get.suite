@@ -52,7 +52,7 @@ await step('star a channel and a direct message: they move to Starred at the top
   await side(page).getByRole('button', { name: /Kim Park/ }).click();
   await page.getByRole('button', { name: 'Star conversation' }).click();
   await starredList(page).getByText('Kim Park').waitFor();
-  const order = (await starredList(page).getByRole('button').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  const order = (await starredList(page).locator('.subnav-item').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
   if (!/office/.test(order[0]) || !/Kim Park/.test(order[1])) throw new Error(order.join('|'));
   // Not listed twice.
   if (await side(page).getByRole('button', { name: /^#\s*office/ }).count() !== 1) throw new Error('office listed twice');
@@ -66,6 +66,24 @@ await step('Kim’s list isn’t changed; unstarring puts it back', async () => 
   await page.getByRole('button', { name: 'Unstar conversation' }).click();
   await until(async () => !(await starredList(page).getByText('office').count()));
   await side(page).getByRole('button', { name: /office/ }).waitFor();
+});
+await step('Starred in your own order: Move up / Move down from a starred conversation’s ⋯', async () => {
+  await api(page, 'POST', `/chat/channels/${office}/star`, {});
+  await api(page, 'POST', `/chat/channels/${launch}/star`, {});
+  await page.goto(`${B}/chat/${launch}`);
+  const names = () => starredList(page).locator('.subnav-item .grow').allInnerTexts();
+  await until(async () => (await names()).length === 3);
+  if ((await names()).map((t) => t.trim()).join('|') !== 'Kim Park|office|launch') throw new Error('before ' + (await names()).join('|'));
+  await starredList(page).getByRole('button', { name: 'Starred actions: launch' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('down from the last');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await names()).map((t) => t.trim()).join('|') === 'Kim Park|launch|office');
+  await page.reload();
+  await until(async () => (await names()).map((t) => t.trim()).join('|') === 'Kim Park|launch|office');
+  await starredList(page).getByRole('button', { name: 'Starred actions: Kim Park' }).click();
+  await page.getByRole('menuitem', { name: 'Move down' }).click();
+  await until(async () => (await names()).map((t) => t.trim()).join('|') === 'launch|Kim Park|office');
+  await page.screenshot({ path: `${SP}/shots/chatstar-order.png` });
 });
 console.log(errors.length ? 'ERRORS ' + errors.join(' | ') : 'no page errors');
 await browser.close();

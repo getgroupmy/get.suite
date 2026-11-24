@@ -670,6 +670,13 @@ export default function Chat() {
   const starred = channels.filter((c) => c.starred && !c.archived_at && !(c.closed && c.id !== channelId)).sort((x, y) => (x.starred_at || 0) - (y.starred_at || 0));
   // Your sections: their conversations (not starred, archived or left ones), between Starred and Channels.
   const inSection = (c) => !!c.section_id && sections.some((x) => x.id === c.section_id) && !c.archived_at && !c.left && !(c.closed && c.id !== channelId);
+  // Swap a starred conversation with the one above or below it (your own order, on every device).
+  const moveStarred = async (k, d) => {
+    const ids = starred.map((c) => c.id), j = k + d;
+    if (j < 0 || j >= ids.length) return;
+    [ids[k], ids[j]] = [ids[j], ids[k]];
+    try { await put('/chat/stars/order', { ids }); loadChannels(); } catch (e) { toast(e.message, 'error'); }
+  };
   const moveSection = async (k, d) => {
     const o = sections[k + d]; if (!o) return;
     const after = sections[k + d + d];
@@ -701,7 +708,11 @@ export default function Chat() {
           onClick={readAll}>✓ Mark all as read</button>}
         {starred.length > 0 && <>
           <div className="subnav-title">Starred</div>
-          <div role="list" aria-label="Starred conversations">{starred.map((c) => <div role="listitem" key={c.id}>{c.dm_key ? dmRow(c) : channelRow(c)}</div>)}</div>
+          <div role="list" aria-label="Starred conversations">{starred.map((c, k) => <div role="listitem" key={c.id} className="folder-row chat-starred-item">{c.dm_key ? dmRow(c) : channelRow(c)}
+            {starred.length > 1 && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn folder-menu chat-starred-more" aria-label={`Starred actions: ${c.dm_key ? (c.dm_name || 'Notes to self') : c.name}`} title="Move in your starred list" {...p}><Icon name="more" size={16} /></button>} items={[
+              ...(k > 0 ? [{ label: 'Move up', onClick: () => moveStarred(k, -1) }] : []),
+              ...(k < starred.length - 1 ? [{ label: 'Move down', onClick: () => moveStarred(k, 1) }] : []),
+            ]} />}</div>)}</div>
         </>}
         {sections.map((sec, k) => {
           const all = channels.filter((c) => c.section_id === sec.id && inSection(c) && !c.starred);

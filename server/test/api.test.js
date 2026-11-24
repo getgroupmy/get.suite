@@ -11645,6 +11645,17 @@ test('chat: starred conversations are each person’s own; star and unstar; not 
   assert.deepEqual(await starredOf(a), [dm]);
   assert.deepEqual((await a('POST', `/api/chat/channels/${dm}/star`, { starred: false })).body, { starred: false });
   assert.deepEqual(await starredOf(a), []);
+  // In your own order: the ids given first, then the rest as they were; one starred later comes last.
+  const ch1 = (await a('POST', '/api/chat/channels', { name: 'stc-one' })).body.id, ch2 = (await a('POST', '/api/chat/channels', { name: 'stc-two' })).body.id;
+  for (const id of [dm, ch1, ch2]) { await a('POST', `/api/chat/channels/${id}/star`, {}); await new Promise((r) => setTimeout(r, 3)); }
+  const inOrder = async () => (await a('GET', '/api/chat/channels')).body.channels.filter((c) => c.starred).sort((p, q2) => p.starred_at - q2.starred_at).map((c) => c.id);
+  assert.deepEqual(await inOrder(), [dm, ch1, ch2]);
+  assert.deepEqual((await a('PUT', '/api/chat/stars/order', { ids: [ch2, dm] })).body, { ids: [ch2, dm, ch1] });
+  assert.deepEqual(await inOrder(), [ch2, dm, ch1]);
+  assert.equal((await b('PUT', '/api/chat/stars/order', { ids: [dm] })).status, 404, 'not one Ben starred');
+  const ch3 = (await a('POST', '/api/chat/channels', { name: 'stc-three' })).body.id;
+  await a('POST', `/api/chat/channels/${ch3}/star`, {});
+  assert.deepEqual(await inOrder(), [ch2, dm, ch1, ch3], 'starred later: last');
 });
 
 test('drive: labels of your own on files and folders', async () => {

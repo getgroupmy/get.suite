@@ -1714,6 +1714,17 @@ export default function chatRoutes() {
     res.json({ closed: req.body?.closed !== false });
   });
 
+  // Your starred conversations in your own order: the ids given first, in that order, then the rest as
+  // they were. Their order is their starred_at, so one starred later still comes last.
+  r.put('/stars/order', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    const mine = q('SELECT channel_id FROM chat_stars WHERE user_id = ? ORDER BY starred_at, channel_id').all(req.user.id).map((x) => x.channel_id);
+    if (ids.some((id) => !mine.includes(id))) throw notFound('Not one of your starred conversations');
+    const order = [...ids, ...mine.filter((id) => !ids.includes(id))];
+    tx(() => order.forEach((id, i) => q('UPDATE chat_stars SET starred_at = ? WHERE user_id = ? AND channel_id = ?').run(i + 1, req.user.id, id)));
+    sendTo([req.user.id], { type: 'channels-changed' });
+    res.json({ ids: order });
+  });
   r.post('/channels/:id/star', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     if (req.body?.starred === false) q('DELETE FROM chat_stars WHERE channel_id = ? AND user_id = ?').run(c.id, req.user.id);
