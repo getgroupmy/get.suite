@@ -10039,6 +10039,17 @@ test('Notes: several at once (colour, pin, archive, label, trash); all checked f
   assert.equal((await batch(a, { ids: [n1.id], change: { color: 'hotpink' } })).status, 400);
   assert.equal((await batch(a, { ids: [n1.id], change: {} })).status, 400);
 
+  // A copy of each, yours, at the top in the order picked; one shared with you is copied as yours too.
+  r = await batch(a, { ids: [n1.id, n3.id], copy: true });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.notes.map((n) => [n.title, n.mine]), [['One', true], ['Three', true]]);
+  const order = (await a('GET', '/api/notes')).body.map((n) => n.id);
+  const [c1, c3] = r.body.notes.map((n) => order.indexOf(n.id));
+  assert.ok(c1 >= 0 && c3 > c1, 'the copies in the order picked');
+  assert.ok(!r.body.notes[0].pinned, 'a copy isn\'t pinned');
+  assert.equal((await batch(b, { ids: [n1.id], copy: true })).status, 404, 'not shared with them');
+  for (const x of r.body.notes) assert.equal((await a('DELETE', `/api/notes/${x.id}`)).status < 300, true);
+
   // Shared with more people at once: added to whoever has each already; told once each.
   const c = client();
   assert.equal((await owner('POST', '/api/users', { local: 'nbatchc', domain: 'acme.com', name: 'Noa Third', password: 'password123' })).status, 201);

@@ -910,6 +910,11 @@ export default function noteRoutes() {
     if (!ids.length) throw bad('Choose some notes');
     if (ids.length > 500) throw bad('500 notes at a time at most');
     const notes = ids.map((id) => load(id, req.user));
+    if (req.body?.copy === true) {
+      // A copy of each (yours, at the top, in the order picked: the first ends up first).
+      const made = [...notes].reverse().map((n) => copyNote(n, req.user)).reverse();
+      return res.status(201).json({ notes: made.map((c) => shape(c, req.user.id)) });
+    }
     if (req.body?.share_with !== undefined) {
       // Shared with more people (added to whoever has them already; nobody taken off): your own notes only.
       const with_ = Array.isArray(req.body.share_with) ? [...new Set(req.body.share_with.map(String))] : null;
@@ -966,8 +971,9 @@ export default function noteRoutes() {
   });
 
   // Make a copy (yours, not shared).
-  r.post('/:id/copy', (req, res) => {
-    const n = load(req.params.id, req.user);
+  /** A copy of a note, yours (not shared), at the top: its pictures and recordings as copies of their own. The new note's row. */
+  function copyNote(n, user) {
+    const req = { user };
     const id = uid(), t = now();
     const top = topFor(req.user.id);
     q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`)
@@ -984,6 +990,10 @@ export default function noteRoutes() {
     }
     const c = q('SELECT * FROM notes WHERE id = ?').get(id);
     tell(c);
+    return c;
+  }
+  r.post('/:id/copy', (req, res) => {
+    const c = copyNote(load(req.params.id, req.user), req.user);
     res.status(201).json(shape(c, req.user.id));
   });
 

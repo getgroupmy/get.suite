@@ -136,6 +136,22 @@ await step('Share…: the picked notes shared with more colleagues at once', asy
   await page.reload();
   await page.getByRole('button', { name: 'Select note: Ideas' }).waitFor();
 });
+await step('Make copies: a copy of each picked note, at the top', async () => {
+  const before = (await api(page, 'GET', '/notes')).body.length;
+  for (const t of ['Trip', 'Groceries']) await page.getByRole('button', { name: `Select note: ${t}` }).click({ force: true });
+  await page.getByRole('toolbar', { name: 'Change the selected notes' }).getByRole('button', { name: 'Make copies' }).click();
+  await page.locator('.toast', { hasText: '2 copies made' }).last().waitFor();
+  const all = (await api(page, 'GET', '/notes')).body;
+  if (all.length !== before + 2) throw new Error(`${before} → ${all.length}`);
+  const copies = all.filter((n) => ['Trip', 'Groceries'].includes(n.title));
+  if (copies.length !== 4 || copies.some((n) => !n.mine)) throw new Error(JSON.stringify(copies.map((n) => n.title)));
+  await until(async () => (await page.getByRole('button', { name: 'Select note: Trip' }).count()) === 2);
+  // Take the copies away again for the steps after (the newest two).
+  const newest = all.filter((n) => ['Trip', 'Groceries'].includes(n.title) && !n.pinned).sort((x, y) => y.created_at - x.created_at).slice(0, 2);
+  for (const n of newest) await api(page, 'DELETE', `/notes/${n.id}`);
+  await page.reload();
+  await page.getByRole('button', { name: 'Select note: Ideas' }).waitFor();
+});
 await step('a printed note shows its pictures', async () => {
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const ideas = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Ideas');

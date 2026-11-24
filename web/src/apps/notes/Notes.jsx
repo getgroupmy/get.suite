@@ -351,6 +351,7 @@ export default function Notes() {
                 try { localStorage.setItem(DRAFT_KEY, JSON.stringify(notesEmail([...pinned, ...others].filter((x) => picked.has(x.id)), noteLink))); } catch { toast('Your browser’s storage is off', 'error'); return; }
                 navigate('/mail?compose_doc=1');
               }}><Icon name="mail" size={16} /> Email</button>}
+              <button type="button" className="btn small" title="A copy of each, yours, at the top" onClick={() => many({ copy: true }, (r) => (r.notes.length === 1 ? 'Copy made' : `${r.notes.length} copies made`))}><Icon name="copy" size={16} /> Make copies</button>
               {[...pinned, ...others].filter((x) => picked.has(x.id)).every((x) => x.mine) && <button type="button" className="btn small" title="Share the picked notes with more colleagues (whoever has them already keeps them)" onClick={() => setSharingMany(true)}><Icon name="share" size={16} /> Share…</button>}
               <button type="button" className="btn small" title="Links to the picked notes in a Chat conversation's message box (they show as note cards)" onClick={() => setChatting([...pinned, ...others].filter((x) => picked.has(x.id)))}><Icon name="chat" size={16} /> Send in Chat…</button>
               <button type="button" className="btn small" title="The picked notes on one printout, each on its own page" onClick={() => printHtml(notesPrintHtml([...pinned, ...others].filter((x) => picked.has(x.id))))}><Icon name="print" size={16} /> Print</button>
