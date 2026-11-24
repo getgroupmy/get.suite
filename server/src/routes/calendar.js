@@ -843,6 +843,21 @@ export default function calendarRoutes() {
   });
   // Your own events as one calendar file.
   r.get('/export', (req, res) => {
+    if (req.query.ids !== undefined) {
+      // ?ids=a,b,…: just those events (any you may open), in one file, each time zone once.
+      const ids = [...new Set(String(req.query.ids).split(',').map((x) => x.trim()).filter(Boolean))];
+      if (!ids.length || ids.length > 200) throw bad('Choose up to 200 events');
+      const rows = ids.map((id) => { const row = q('SELECT * FROM events WHERE id = ?').get(id); if (!mayOpenEvent(row, req.user.id)) throw notFound(); return row; });
+      const zones = new Map(), bodies = [];
+      for (const row of rows) {
+        const one = icsOfRow(row).replace(/\r\n[ \t]/g, '\u0000'); // folded lines kept whole while splitting
+        for (const z of one.match(/BEGIN:VTIMEZONE[\s\S]*?END:VTIMEZONE/g) || []) { const tzid = /TZID:([^\r\n]*)/.exec(z)?.[1]; if (tzid && !zones.has(tzid)) zones.set(tzid, z); }
+        bodies.push(...(one.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || []));
+      }
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="events.ics"`);
+      return res.send(['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Workspace//Calendar//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...zones.values(), ...bodies, 'END:VCALENDAR', ''].join('\r\n').replace(/\u0000/g, '\r\n '));
+    }
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     // ?calendar=<id> (or main) downloads just that one.
     const which = req.query.calendar === 'main' ? { id: null, name: req.user.name } : req.query.calendar ? ownCalendar(req.user.id, req.query.calendar) : undefined;
@@ -1059,15 +1074,18 @@ export default function calendarRoutes() {
     });
   });
 
-  r.get('/:id/ics', (req, res) => {
-    const row = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
-    const me = req.user.id;
-    if (!mayOpenEvent(row, me)) throw notFound();
+  /** One event (a row) as a calendar file: its changed occurrences, organiser and guests too. */
+  const icsOfRow = (row) => {
     const e = outEvent(row);
     const overrides = e.rrule ? q('SELECT * FROM events WHERE recur_parent = ? ORDER BY recur_id').all(e.id).map((o) => ({ ...o, recurrenceId: o.recur_id })) : [];
     const organizer = q('SELECT name, username AS email FROM users WHERE id = ?').get(row.owner_id);
     const attendees = [...guestsOf(e.id).map((g) => ({ name: g.name, email: g.email || g.username, status: g.status })), ...outsideOf(e.id).map((o) => ({ email: o.email, status: o.status }))];
-    const ics = buildIcs(e, { method: 'PUBLISH', uid: row.ical_uid || icsUid(e), sequence: row.sequence || 0, tz: row.tz, overrides, organizer, attendees: attendees.filter((a) => a.email) });
+    return buildIcs(e, { method: 'PUBLISH', uid: row.ical_uid || icsUid(e), sequence: row.sequence || 0, tz: row.tz, overrides, organizer, attendees: attendees.filter((a) => a.email) });
+  };
+  r.get('/:id/ics', (req, res) => {
+    const row = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    if (!mayOpenEvent(row, req.user.id)) throw notFound();
+    const ics = icsOfRow(row);
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     const name = `${String(row.title || 'Event').replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').trim().slice(0, 80) || 'Event'}.ics`;
     res.setHeader('Content-Disposition', `attachment; filename="event.ics"; filename*=UTF-8''${encodeURIComponent(name)}`);

@@ -3830,6 +3830,15 @@ test('calendar search: words in title, place or notes; your events and invitatio
   assert.deepEqual((await a('GET', '/api/events/search?q=')).body, []);
   assert.deepEqual((await a('GET', '/api/events/search?q=100%25')).body, []);
 
+  // Several found downloaded as one calendar file; an invitation too (a guest may open it); not someone else's.
+  const sel = await a('GET', `/api/events/export?ids=${found[1].id},${found[2].id}`);
+  assert.match(sel.headers.get('content-type'), /text\/calendar/);
+  assert.deepEqual((sel.body.match(/^SUMMARY:.*$/gm) || []).map((x) => x.trim()).sort(), ['SUMMARY:Budget review', 'SUMMARY:Old budget talk']);
+  assert.match((await b('GET', `/api/events/export?ids=${found[1].id}`)).body, /SUMMARY:Budget review/);
+  const catOne = (await c('GET', '/api/events/search?q=secret')).body[0];
+  assert.equal((await a('GET', `/api/events/export?ids=${found[1].id},${catOne.id}`)).status, 404);
+  assert.equal((await a('GET', '/api/events/export?ids=')).status, 400);
+
   // Several found moved to another of your calendars at once, and back to My calendar; not someone else's calendar.
   const work = (await a('POST', '/api/events/calendars', { name: 'Work' })).body;
   const theirs = (await c('POST', '/api/events/calendars', { name: 'Cat cal' })).body;

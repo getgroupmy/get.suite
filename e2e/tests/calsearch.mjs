@@ -79,6 +79,21 @@ await step('Clear brings back Upcoming; no match says so', async () => {
   await page.getByRole('button', { name: 'Clear' }).click();
   await page.getByText('Upcoming').waitFor();
 });
+await step('Select results and download them as one calendar file', async () => {
+  await page.getByLabel('Search events').fill('budget');
+  await page.getByLabel('Search events').press('Enter');
+  await page.getByRole('list', { name: 'Search results' }).getByText('Old budget talk').waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByLabel('Select: Old budget talk').check();
+  await page.getByLabel('Select: Budget review').check();
+  await page.getByRole('toolbar', { name: 'Change the selected events' }).screenshot({ path: `${SP}/shots/cal-select.png` });
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('toolbar', { name: 'Change the selected events' }).getByRole('button', { name: 'Download (.ics)' }).click()]);
+  if (dl.suggestedFilename() !== 'events.ics') throw new Error(dl.suggestedFilename());
+  const text = (await import('node:fs')).readFileSync(await dl.path(), 'utf8');
+  const got = (text.match(/^SUMMARY:.*$/gm) || []).map((x) => x.trim()).sort().join('|');
+  if (got !== 'SUMMARY:Budget review|SUMMARY:Old budget talk') throw new Error(got);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+});
 await step('Select results and move them to another of your calendars', async () => {
   const work = (await api(page, 'POST', '/events/calendars', { name: 'Work stuff' })).body;
   await page.reload();
