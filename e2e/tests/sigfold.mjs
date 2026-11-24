@@ -177,5 +177,27 @@ await step('delete-folder-moves-mail-to-trash', async () => {
   await page.locator('.msg-list li').first().waitFor();
 });
 
+await step('folders-in-your-own-order', async () => {
+  for (const name of ['Ord B', 'Ord A']) if ((await api(page, 'POST', '/mail/folders', { name })).status !== 201) throw new Error('make ' + name);
+  await page.reload();
+  const shown = async () => (await page.locator('.folder-row .subnav-item .grow').allTextContents()).filter((t) => t.startsWith('Ord '));
+  await page.getByRole('button', { name: /^Ord B/ }).waitFor();
+  if ((await shown()).join() !== 'Ord A,Ord B') throw new Error('by name first: ' + await shown());
+  await page.locator('.folder-row', { hasText: 'Ord B' }).hover();
+  await page.getByRole('button', { name: 'Options for Ord B' }).click();
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('.folder-row .subnav-item .grow')].map((e) => e.textContent).filter((t) => t.startsWith('Ord ')).join() === 'Ord B,Ord A');
+  await page.reload();
+  await page.getByRole('button', { name: /^Ord B/ }).waitFor();
+  if ((await shown()).join() !== 'Ord B,Ord A') throw new Error('after reload: ' + await shown());
+  // Built-in folders have no Move up / Move down.
+  await page.locator('.folder-row', { hasText: 'Sent' }).first().hover();
+  await page.getByRole('button', { name: 'Options for Sent' }).click();
+  if ((await page.getByRole('menuitem').allTextContents()).some((x) => /Move (up|down)/.test(x))) throw new Error('Sent can be moved');
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: `${SP}/shots/folder-order.png` });
+  for (const name of ['Ord A', 'Ord B']) await api(page, 'DELETE', `/mail/folders?path=${encodeURIComponent(name)}`);
+});
+
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

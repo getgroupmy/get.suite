@@ -281,6 +281,15 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     try { await put('/mail/labels/order', { ids }); } catch (e) { toast(e.message, 'error'); }
     loadLabels();
   };
+  // One of your own folders one place up (by -1) or down (by 1) among them.
+  const orderFolders = async (path, by) => {
+    const mine = folders.filter((x) => !x.specialUse && x.path.toUpperCase() !== 'INBOX').map((x) => x.path);
+    const i = mine.indexOf(path), j = i + by;
+    if (i < 0 || j < 0 || j >= mine.length) return;
+    [mine[i], mine[j]] = [mine[j], mine[i]];
+    try { await put('/mail/folders/order', { paths: mine }); } catch (e) { toast(e.message, 'error'); }
+    loadFolders();
+  };
   // A saved search one place up (by -1) or down (by 1) in the sidebar.
   const orderSearches = async (i, by) => {
     const ids = searches.map((x) => x.id);
@@ -536,6 +545,13 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml or .zip)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'Download folder (.zip)', icon: 'download', onClick: () => downloadZip(`/mail/messages-eml.zip?folder=${encodeURIComponent(f.path)}&all=1`) }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'List messages in Sheets', icon: 'sheet', onClick: () => listInSheets(f.path, '') }] : []),
+                  ...(own && !shared ? (() => {
+                    const mine = folders.filter((x) => !x.specialUse && x.path.toUpperCase() !== 'INBOX'), k = mine.findIndex((x) => x.path === f.path);
+                    return [
+                      ...(k > 0 ? [{ label: 'Move up', icon: 'move', onClick: () => orderFolders(f.path, -1) }] : []),
+                      ...(k < mine.length - 1 ? [{ label: 'Move down', icon: 'move', onClick: () => orderFolders(f.path, 1) }] : []),
+                    ];
+                  })() : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                     { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },

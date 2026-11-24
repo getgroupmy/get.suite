@@ -579,6 +579,28 @@ test('folders: rename with subfolders updates filters; delete moves mail to Tras
   await olivia('PUT', '/api/mail/rules', { rules: [] });
 });
 
+test('folders in your own order: below the built-in ones; renaming keeps the place; deleting forgets it', async () => {
+  for (const name of ['Zeta', 'Alpha', 'Mid', 'Mid/Sub']) assert.equal((await olivia('POST', '/api/mail/folders', { name })).status, 201);
+  const own = async () => (await olivia('GET', '/api/mail/folders')).body.filter((f) => ['Zeta', 'Alpha', 'Mid', 'Mid/Sub', 'Omega', 'Zed'].includes(f.path)).map((f) => f.path);
+  const all = async () => (await olivia('GET', '/api/mail/folders')).body.map((f) => f.path);
+  assert.deepEqual(await own(), ['Alpha', 'Mid', 'Mid/Sub', 'Zeta'], 'by name at first');
+  const put = await olivia('PUT', '/api/mail/folders/order', { paths: ['Zeta', 'Mid/Sub'] });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.deepEqual(await own(), ['Zeta', 'Mid/Sub', 'Alpha', 'Mid'], 'the rest after, as they were');
+  assert.equal((await all())[0], 'INBOX', 'Inbox and the built-in ones stay on top');
+  assert.equal((await olivia('PUT', '/api/mail/folders/order', { paths: ['Sent'] })).status, 404, 'not a built-in one');
+  assert.equal((await olivia('PUT', '/api/mail/folders/order', { paths: ['Nope'] })).status, 404);
+  assert.equal((await gina('PUT', '/api/mail/folders/order', { paths: ['Zeta'] })).status, 404, 'only your own folders');
+  assert.equal((await olivia('PATCH', '/api/mail/folders', { path: 'Zeta', newPath: 'Zed' })).status, 200);
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Omega' })).status, 201);
+  assert.deepEqual(await own(), ['Zed', 'Mid/Sub', 'Alpha', 'Mid', 'Omega'], 'renamed keeps its place; a new one after');
+  assert.equal((await olivia('DELETE', '/api/mail/folders?path=Mid')).status, 200);
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Mid/Sub' })).status, 201);
+  // Made again after deleting, it has no place of its own: with the unplaced ones, by name (it was second).
+  assert.deepEqual(await own(), ['Zed', 'Alpha', 'Mid/Sub', 'Omega']);
+  for (const p of ['Zed', 'Alpha', 'Mid', 'Omega']) await olivia('DELETE', `/api/mail/folders?path=${encodeURIComponent(p)}`);
+});
+
 test('signatures: one per sending address, only for your own identities', async () => {
   // Olivia belongs to the sales@ alias, so she has two sending addresses.
   const mine = (await olivia('GET', '/api/mail/signatures')).body;

@@ -345,6 +345,13 @@ const LINK_DAYS = 30; // large files sent as links: how long the links last
 /** A folder's STATUS as one string that changes whenever anything in it does. */
 export const folderTag = (st) => [st.messages ?? 0, st.uidNext ?? 0, st.unseen ?? 0, String(st.highestModseq ?? 0)].join(':');
 const ORDER = ['\\Inbox', '\\Drafts', '\\Sent', '\\Archive', '\\Junk', '\\Trash'];
+// Your own order for your own folders (below Inbox and the built-in ones); those never placed come after, by name.
+q(`CREATE TABLE IF NOT EXISTS mail_folder_order (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  PRIMARY KEY (user_id, path)
+)`).run();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const addr = (a) => (a ? { name: a.name || '', address: (a.address || '').toLowerCase() } : null);
@@ -840,6 +847,9 @@ export default function webmailRoutes() {
       for (const b of renamed) await c.mailboxSubscribe(b.path).catch(() => {});
     });
     setFollowed(req.user.id, followedFolders(req.user.id).map((f) => (inTree(f, from) ? to + f.slice(from.length) : f)));
+    for (const { path } of q('SELECT path FROM mail_folder_order WHERE user_id = ?').all(req.user.id)) { // and their place in your order
+      if (inTree(path, from)) q('UPDATE OR REPLACE mail_folder_order SET path = ? WHERE user_id = ? AND path = ?').run(to + path.slice(from.length), req.user.id, path);
+    }
     for (const { path } of q('SELECT path FROM mail_move_recent WHERE user_id = ?').all(req.user.id)) { // recent ones keep their place under the new name
       if (inTree(path, from)) q('UPDATE OR REPLACE mail_move_recent SET path = ? WHERE user_id = ? AND path = ?').run(to + path.slice(from.length), req.user.id, path);
     }
@@ -882,6 +892,9 @@ export default function webmailRoutes() {
       deleted++;
     }
     setFollowed(req.user.id, followedFolders(req.user.id).filter((f) => !inTree(f, target)));
+    for (const { path } of q('SELECT path FROM mail_folder_order WHERE user_id = ?').all(req.user.id)) {
+      if (inTree(path, target)) q('DELETE FROM mail_folder_order WHERE user_id = ? AND path = ?').run(req.user.id, path);
+    }
     const disabledFilters = updateRules(req.user.id, (rule) => {
       if (!rule.enabled || !rule.actions.moveTo || !inTree(rule.actions.moveTo, target)) return false;
       rule.enabled = false;
@@ -1091,11 +1104,28 @@ export default function webmailRoutes() {
   r.get('/folders', async (req, res) => {
     const boxes = await withClient(req.user, (c) => c.list({ statusQuery: { messages: true, unseen: true } }));
     const rank = (b) => (b.specialUse ? ORDER.indexOf(b.specialUse) : b.path === 'INBOX' ? 0 : 99);
+    const placed = new Map(q('SELECT path, position FROM mail_folder_order WHERE user_id = ?').all(req.user.id).map((x) => [x.path, x.position]));
+    const place = (b) => (rank(b) === 99 ? placed.get(b.path) ?? Infinity : 0);
     res.json(boxes.filter((b) => !b.flags?.has('\\Noselect'))
       // Nested folders show their full path ("Partners / Globex") so it's clear where they live.
       .map((b) => ({ path: b.path, name: b.path === 'INBOX' ? 'Inbox' : b.path.split(b.delimiter || '/').join(' / '), specialUse: b.path === 'INBOX' ? '\\Inbox' : b.specialUse || null,
         messages: b.status?.messages ?? 0, unseen: b.status?.unseen ?? 0 }))
-      .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)));
+      .sort((a, b) => rank(a) - rank(b) || (place(a) === place(b) ? 0 : place(a) < place(b) ? -1 : 1) || a.name.localeCompare(b.name)));
+  });
+  // Put your own folders in your order: the paths given first, in that order, then the rest as they were.
+  r.put('/folders/order', async (req, res) => {
+    const paths = [...new Set((Array.isArray(req.body?.paths) ? req.body.paths : []).map(String))];
+    const boxes = (await withClient(req.user, (c) => c.list())).filter((b) => !b.flags?.has('\\Noselect') && !isProtected(b));
+    if (paths.some((p) => !boxes.some((b) => b.path === p))) throw notFound('Folder not found');
+    const placed = new Map(q('SELECT path, position FROM mail_folder_order WHERE user_id = ?').all(req.user.id).map((x) => [x.path, x.position]));
+    const name = (b) => b.path.split(b.delimiter || '/').join(' / ');
+    const rest = boxes.filter((b) => !paths.includes(b.path))
+      .sort((a, b) => (placed.get(a.path) ?? Infinity) - (placed.get(b.path) ?? Infinity) || name(a).localeCompare(name(b))).map((b) => b.path);
+    tx(() => {
+      q('DELETE FROM mail_folder_order WHERE user_id = ?').run(req.user.id);
+      [...paths, ...rest].forEach((p, i) => q('INSERT INTO mail_folder_order (user_id, path, position) VALUES (?, ?, ?)').run(req.user.id, p, i + 1));
+    });
+    res.json({ paths: [...paths, ...rest] });
   });
 
   // A folder's state, to notice changes made elsewhere (a phone, Outlook, a filter): a tag that changes when
