@@ -339,6 +339,15 @@ await step('List actions → Move up / down on the left: your own order for the 
 });
 await step('List actions → Hide from the left: out of the lists, under Hidden lists, and back', async () => {
   const side = () => page.locator('.subnav > .subnav-item .grow').allInnerTexts();
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  await api(page, 'POST', `/tasks/lists/${later}/tasks`, { title: 'Due on a list to hide', due: ymd(new Date()) });
+  const inPlanned = async () => {
+    await page.goto(`${B}/tasks/planned`);
+    await page.getByRole('heading', { name: 'Planned' }).waitFor();
+    await page.getByText('Pay rent', { exact: true }).first().waitFor(); // another dated task: Planned has loaded
+    return page.getByText('Due on a list to hide', { exact: true }).count();
+  };
+  if (!(await inPlanned())) throw new Error('not in Planned at first');
   await page.goto(`${B}/tasks/${later}`);
   await page.getByRole('heading', { name: 'Later' }).waitFor();
   await page.getByRole('button', { name: 'List actions' }).click();
@@ -354,6 +363,7 @@ await step('List actions → Hide from the left: out of the lists, under Hidden 
   await page.getByRole('heading', { name: 'Later' }).waitFor();
   if ((await side()).includes('Later')) throw new Error('back after reload');
   await page.screenshot({ path: `${SP}/shots/taskbatch-hidden.png` });
+  if (await inPlanned()) throw new Error('a hidden list’s task is still in Planned');
   // The list Add to Tasks puts things in can't be hidden.
   const inbox = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.inbox);
   await page.goto(`${B}/tasks/${inbox.id}`);
@@ -367,6 +377,7 @@ await step('List actions → Hide from the left: out of the lists, under Hidden 
   await page.getByRole('menuitem', { name: 'Show on the left' }).click();
   await until(async () => (await side()).includes('Later'));
   if (await page.getByRole('button', { name: /^Hidden lists/ }).count()) throw new Error('toggle stays with none hidden');
+  if (!(await inPlanned())) throw new Error('not back in Planned');
 });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();

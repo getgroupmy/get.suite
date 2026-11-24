@@ -1844,7 +1844,21 @@ test('tasks: your own order for the lists on the left; a colleague’s list plac
   const hiddenOf = async (who) => (await who('GET', '/api/tasks/lists')).body.lists.filter((l) => l.hidden).map((l) => l.name);
   await a('POST', `/api/tasks/lists/${bens}/tasks`, { title: 'Still here' });
   assert.deepEqual((await a('PUT', `/api/tasks/lists/${bens}/hidden`, { hidden: true })).body, { hidden: true });
+  // A hidden list's tasks leave Planned and Important (and their counts) too.
+  const today = new Date().toISOString().slice(0, 10);
+  const due = (await a('POST', `/api/tasks/lists/${work}/tasks`, { title: 'Due at work', due: today })).body;
+  await a('PATCH', `/api/tasks/tasks/${due.id}`, { important: true });
+  const views = async () => {
+    const l = (await a('GET', `/api/tasks/lists?today=${today}`)).body;
+    return { planned: (await a('GET', '/api/tasks/planned')).body.some((t) => t.id === due.id), important: (await a('GET', '/api/tasks/important')).body.some((t) => t.id === due.id),
+      suggested: (await a('GET', `/api/tasks/myday/suggestions?today=${today}`)).body.some((t) => t.id === due.id), counts: [l.planned, l.important] };
+  };
+  const shown = await views();
+  assert.deepEqual([shown.planned, shown.important, shown.suggested], [true, true, true]);
   await a('PUT', `/api/tasks/lists/${work}/hidden`, { hidden: true });
+  const gone = await views();
+  assert.deepEqual([gone.planned, gone.important, gone.suggested], [false, false, false]);
+  assert.deepEqual(gone.counts, [shown.counts[0] - 1, shown.counts[1] - 1]);
   assert.deepEqual(await hiddenOf(a), ['Shared by Ben', 'Work']);
   assert.deepEqual(await hiddenOf(b), [], 'Ben still sees his list');
   assert.ok((await a('GET', `/api/tasks/lists/${bens}/tasks`)).body.some((t) => t.title === 'Still here'), 'its tasks are kept');
@@ -1853,6 +1867,7 @@ test('tasks: your own order for the lists on the left; a colleague’s list plac
   assert.equal((await b('PUT', `/api/tasks/lists/${work}/hidden`, { hidden: true })).status, 404, 'not one he’s on');
   await a('PUT', `/api/tasks/lists/${work}/hidden`, { hidden: false });
   assert.deepEqual(await hiddenOf(a), ['Shared by Ben']);
+  assert.deepEqual(await views(), shown, 'shown again: back in Planned and Important');
 });
 
 test('tasks: lists, ordering, due dates, done, sharing and assigning', async () => {

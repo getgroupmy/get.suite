@@ -81,9 +81,11 @@ q(`CREATE TABLE IF NOT EXISTS task_list_views (
   PRIMARY KEY (user_id, list_id)
 )`).run();
 export const SORTS = ['mine', 'due', 'title', 'added', 'important', 'priority'];
-/** What Planned shows (with the person's id three times): open, dated, on their lists, and theirs or nobody's. */
+/** What Planned shows (with the person's id four times): open, dated, on their lists (not ones they've hidden), and theirs or nobody's. */
 const PLANNED = `t.done_at IS NULL AND t.due IS NOT NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
-                 AND (t.assignee_id IS NULL OR t.assignee_id = ?)`;
+                 AND (t.assignee_id IS NULL OR t.assignee_id = ?) AND l.id NOT IN (SELECT list_id FROM task_list_hidden WHERE user_id = ?)`;
+/** Not on a list the person has hidden from the left (with their id once). */
+const NOT_HIDDEN = 'l.id NOT IN (SELECT list_id FROM task_list_hidden WHERE user_id = ?)';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // A list's colour and emoji: shown beside its name, and with its tasks in Planned, My Day and the Calendar.
 for (const col of ['color', 'emoji']) if (!q('PRAGMA table_info(task_lists)').all().some((c) => c.name === col)) q(`ALTER TABLE task_lists ADD COLUMN ${col} TEXT`).run();
@@ -541,11 +543,11 @@ export default function taskRoutes() {
                        WHERE m.list_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(lists.map((l) => l.id)));
     const assigned = q('SELECT COUNT(*) AS n FROM tasks WHERE assignee_id = ? AND done_at IS NULL').get(me).n;
     const important = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE t.important = 1 AND t.done_at IS NULL
-                         AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))`).get(me, me).n;
+                         AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) AND ${NOT_HIDDEN}`).get(me, me, me).n;
     const sorts = new Map(q('SELECT list_id, sort FROM task_list_views WHERE user_id = ?').all(me).map((v) => [v.list_id, v.sort]));
     // Due today or overdue in Planned (today as the browser sees it, ?today=YYYY-MM-DD).
     const today = dueOf(String(req.query.today || '')) || new Date().toISOString().slice(0, 10);
-    const planned = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE ${PLANNED} AND t.due <= ?`).get(me, me, me, today).n;
+    const planned = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE ${PLANNED} AND t.due <= ?`).get(me, me, me, me, today).n;
     const inbox = myFirstList(me).id; // where Add to Tasks puts things
     const hidden = new Set(q('SELECT list_id FROM task_list_hidden WHERE user_id = ?').all(me).map((x) => x.list_id));
     res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, inbox: l.id === inbox, hidden: hidden.has(l.id), members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important, planned });
@@ -1087,7 +1089,7 @@ export default function taskRoutes() {
   // soonest first (the browser groups them: overdue, today, tomorrow, the next 7 days, later).
   r.get('/planned', (req, res) => {
     const me = req.user.id;
-    res.json(q(`${TASK} WHERE ${PLANNED} ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 1000`).all(me, me, me).map(shape));
+    res.json(q(`${TASK} WHERE ${PLANNED} ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 1000`).all(me, me, me, me).map(shape));
   });
 
   // My Day for the given day (?today=YYYY-MM-DD, the person's own date): what was picked, in the order it
@@ -1102,7 +1104,7 @@ export default function taskRoutes() {
   r.get('/myday/suggestions', (req, res) => {
     const me = req.user.id, day = todayOf(req.query.today);
     res.json(q(`${TASK} WHERE ${PLANNED} AND t.due <= ? AND t.id NOT IN (SELECT task_id FROM task_myday WHERE user_id = ? AND day = ?)
-                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 20`).all(me, me, me, day, me, day).map(shape));
+                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 20`).all(me, me, me, me, day, me, day).map(shape));
   });
   // Add a task to My Day ({ on: false } takes it off), for today.
   r.post('/tasks/:id/myday', (req, res) => {
@@ -1149,8 +1151,8 @@ export default function taskRoutes() {
   });
   r.get('/important', (req, res) => {
     const me = req.user.id;
-    res.json(q(`${TASK} WHERE t.important = 1 AND t.done_at IS NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
-                ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(me, me).map(shape));
+    res.json(q(`${TASK} WHERE t.important = 1 AND t.done_at IS NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) AND ${NOT_HIDDEN}
+                ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(me, me, me).map(shape));
   });
 
   // For the calendar: open tasks due between two dates (YYYY-MM-DD, both included) that are yours:
