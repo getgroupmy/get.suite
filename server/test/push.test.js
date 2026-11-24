@@ -166,6 +166,10 @@ test('push: tasks — the morning note from 9:00 in the phone’s time zone, and
   task('t3', 'Book flights', '2026-11-10');
   task('t4', 'Done already', '2026-11-12', null, 1);
   task('t5', 'Next week', '2026-11-19');
+  // A list Pia has hidden in Tasks (a finished project): its tasks are left out of both.
+  q("INSERT INTO task_lists (id, owner_id, name, created_at) VALUES ('tlh', 'pu', 'Old project', 0)").run();
+  q("INSERT INTO tasks (id, list_id, title, due, due_time, position, created_at, updated_at) VALUES ('th1', 'tlh', 'Hidden due', '2026-11-12', NULL, 0, 0, 0), ('th2', 'tlh', 'Hidden timed', '2026-11-12', '10:30', 1, 0, 0)").run();
+  q("INSERT INTO task_list_hidden (user_id, list_id) VALUES ('pu', 'tlh')").run();
   const at = (local) => Date.parse(`${local}+08:00`);
   got = [];
   assert.equal(await sendTaskPushes(at('2026-11-12T08:59:00'), { skipOnline: false }), 0, 'before 9 there');

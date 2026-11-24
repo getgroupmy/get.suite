@@ -56,7 +56,8 @@ export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL 
     .sort((a, b) => (b.all_day - a.all_day) || (a.start - b.start));
   const tasks = q(`SELECT t.title, t.due, t.due_time, l.name AS list FROM tasks t JOIN task_lists l ON l.id = t.list_id
                    WHERE t.done_at IS NULL AND t.due IS NOT NULL AND t.due <= ? AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?))
-                   ORDER BY t.due, t.due_time IS NULL, t.due_time LIMIT 50`).all(date, userId, userId);
+                     AND l.id NOT IN (SELECT list_id FROM task_list_hidden WHERE user_id = ?) -- (not lists they've hidden in Tasks)
+                   ORDER BY t.due, t.due_time IS NULL, t.due_time LIMIT 50`).all(date, userId, userId, userId);
   const unread = q(`SELECT COUNT(*) AS n FROM messages m JOIN channels c ON c.id = m.channel_id
                     WHERE (m.user_id IS NULL OR m.user_id != ?) AND m.parent_id IS NULL
                       AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ? AND c.archived_at IS NULL) OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))

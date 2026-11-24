@@ -7975,6 +7975,9 @@ test('morning summary: today\'s events, tasks due and unread chat; off without e
   await dee('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Send invoice', due: today });
   await dee('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Old thing', due: '2020-01-01' });
   await dee('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Later', due: '2099-01-01' });
+  const old = (await dee('POST', '/api/tasks/lists', { name: 'Old project' })).body;
+  await dee('POST', `/api/tasks/lists/${old.id}/tasks`, { title: 'On a hidden list', due: today });
+  await dee('PUT', `/api/tasks/lists/${old.id}/hidden`, { hidden: true });
   await dee('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
   const d = digestFor(made.body.id, now);
   assert.equal(d.events, 2);
@@ -7985,6 +7988,7 @@ test('morning summary: today\'s events, tasks due and unread chat; off without e
   assert.match(d.text, /Overdue \(2020-01-01\) {2}Old thing/);
   assert.match(d.text, /Today {2}Send invoice/);
   assert.doesNotMatch(d.text, /Later/);
+  assert.doesNotMatch(d.text, /On a hidden list/, 'not lists hidden in Tasks');
   const preview = (await dee('POST', '/api/users/me/digest/send', {})).body;
   assert.equal(preview.sent, false);
   assert.equal(preview.subject, d.subject);
