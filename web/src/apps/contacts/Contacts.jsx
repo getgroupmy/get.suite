@@ -546,8 +546,17 @@ function Frequent({ filter, onAdded }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [list, setList] = useState(null);
+  const [pickedF, setPickedF] = useState(() => new Set()); // addresses ticked to email, add or forget together
   const load = () => get('/contacts/frequent').then(setList).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const chosenF = (list || []).filter((c) => pickedF.has(c.email));
+  const addable = chosenF.filter((c) => !c.contact_id && !c.colleague_id);
+  const addMany = async () => {
+    try { const r = await post('/contacts/add-people', { people: addable.map((c) => ({ name: c.name || c.email.split('@')[0], email: c.email })) }); toast(`${nPeople(r.added)} added to your contacts`); setPickedF(new Set()); load(); onAdded(); } catch (e) { toast(e.message, 'error'); }
+  };
+  const forgetMany = async () => {
+    try { const r = await post('/contacts/frequent/forget', { emails: [...pickedF] }); toast(`${r.forgotten === 1 ? '1 person' : `${r.forgotten} people`} forgotten`); setPickedF(new Set()); load(); } catch (e) { toast(e.message, 'error'); }
+  };
   if (!list) return null;
   if (!list.length) return <Empty icon="person" title="Nobody yet">The people you email most from Workspace show up here, most often first.</Empty>;
   const f = filter.toLowerCase();
@@ -568,10 +577,20 @@ function Frequent({ filter, onAdded }) {
       <button className="btn small" onClick={forgetAll}>Clear all</button>
     </div>
     <table className="files" aria-label="Frequently contacted">
-      <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Emailed</th><th aria-label="Actions" /></tr></thead>
+      {pickedF.size > 0 && (
+        <caption className="contact-batch-cap"><div className="contact-batch" role="toolbar" aria-label="Change the selected people">
+          <strong className="small" aria-live="polite">{pickedF.size} selected</strong>
+          <button type="button" className="btn small" onClick={() => navigate(`/mail?compose=${encodeURIComponent(chosenF.map((c) => formatAddress({ name: c.name, email: c.email })).join(', '))}`)}><Icon name="mail" size={16} /> Email</button>
+          <button type="button" className="btn small" disabled={!addable.length} title={addable.length ? '' : 'They’re all contacts or colleagues already'} onClick={addMany}>Add to contacts</button>
+          <button type="button" className="btn small" title="Leave them out of Frequent and Mail's suggestions" onClick={forgetMany}>Forget</button>
+          <button type="button" className="link-btn small" onClick={() => setPickedF(new Set())}>Clear</button>
+        </div></caption>
+      )}
+      <thead><tr><th className="pick-col"><input type="checkbox" aria-label="Select everyone shown" checked={shown.length > 0 && shown.every((c) => pickedF.has(c.email))} onChange={(e) => setPickedF(e.target.checked ? new Set(shown.map((c) => c.email)) : new Set())} /></th><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Emailed</th><th aria-label="Actions" /></tr></thead>
       <tbody>
         {shown.map((c) => (
           <tr key={c.email}>
+            <td className="pick-col"><input type="checkbox" aria-label={`Select ${c.email}`} checked={pickedF.has(c.email)} onChange={(e) => { const n = new Set(pickedF); e.target.checked ? n.add(c.email) : n.delete(c.email); setPickedF(n); }} /></td>
             <td className="name"><Avatar name={c.name || c.email} size={28} email={c.email} /><span>{c.name || c.email}</span>
               {c.colleague_id && <span className="muted small"> · colleague</span>}</td>
             <td className="hide-sm">{c.email}</td>

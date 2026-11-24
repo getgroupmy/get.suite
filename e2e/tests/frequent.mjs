@@ -82,6 +82,38 @@ await step('Home: People you email most, most first; Email starts a message; the
   await page.getByRole('region', { name: 'People you email most' }).getByRole('link', { name: /People you email most/ }).click();
   await page.getByRole('table', { name: 'Frequently contacted' }).waitFor();
 });
+await step('Tick several: add them to contacts, email them together, or forget them', async () => {
+  for (const to of ['Quinn One <quinn@one.example>', 'Remy Two <remy@two.example>']) {
+    for (let k = 0; k < 10; k++) { if ((await api(page, 'POST', '/mail/send', { to, subject: 'Hello', text: 'x' })).status === 200) break; await page.waitForTimeout(1500); }
+  }
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Frequent' }).click();
+  const table = page.getByRole('table', { name: 'Frequently contacted' });
+  await table.getByText('Remy Two').waitFor({ timeout: 10000 });
+  await page.getByLabel('Select quinn@one.example').check();
+  await page.getByLabel('Select remy@two.example').check();
+  await page.getByLabel('Select kim@acme.com').check();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected people' });
+  await bar.getByText('3 selected').waitFor();
+  await bar.getByRole('button', { name: 'Add to contacts' }).click();
+  await page.locator('.toast', { hasText: '2 contacts added to your contacts' }).last().waitFor(); // Kim is a colleague: left out
+  const mine = (await api(page, 'GET', '/contacts')).body.map((c) => c.email);
+  if (!mine.includes('quinn@one.example') || !mine.includes('remy@two.example') || mine.includes('kim@acme.com')) throw new Error(mine.join());
+  await page.getByLabel('Select quinn@one.example').check();
+  await page.getByLabel('Select kim@acme.com').check();
+  await bar.getByRole('button', { name: 'Email' }).click();
+  await page.getByRole('dialog', { name: 'New message' }).waitFor();
+  await until(async () => { const to = await page.getByLabel('To', { exact: true }).inputValue(); return /quinn@one\.example/.test(to) && /kim@acme\.com/.test(to); });
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/contacts`);
+  await page.getByRole('tab', { name: 'Frequent' }).click();
+  await page.getByLabel('Select quinn@one.example').check();
+  await page.getByLabel('Select remy@two.example').check();
+  await bar.getByRole('button', { name: 'Forget' }).click();
+  await page.locator('.toast', { hasText: '2 people forgotten' }).last().waitFor();
+  await table.getByText('Remy Two').waitFor({ state: 'detached' });
+  await table.getByText('Kim Park').waitFor();
+});
 await step('Forget one (× on the row), then Clear all empties the list', async () => {
   await page.goto(`${B}/contacts`);
   await page.getByRole('tab', { name: 'Frequent' }).click();

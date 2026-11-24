@@ -13133,6 +13133,14 @@ test('forget who you write to: the route answers for yourself only', async () =>
   assert.deepEqual((await u('GET', '/api/contacts/frequent')).body, []);
   assert.deepEqual((await u('DELETE', '/api/contacts/frequent?email=x@y.example')).body, { forgotten: 0 });
   assert.deepEqual((await u('DELETE', '/api/contacts/frequent')).body, { forgotten: 0 });
+  // Several at once.
+  const { recordTogether } = await import('../src/mail/includes.js');
+  const me = (await u('GET', '/api/auth/me')).body.user;
+  recordTogether(me, ['a@one.example', 'b@two.example', 'c@three.example'].map((address) => ({ address })));
+  assert.deepEqual((await u('GET', '/api/contacts/frequent')).body.map((x) => x.email).sort(), ['a@one.example', 'b@two.example', 'c@three.example']);
+  assert.deepEqual((await u('POST', '/api/contacts/frequent/forget', { emails: ['A@one.example', 'c@three.example', 'zz@none.example'] })).body, { forgotten: 2 });
+  assert.deepEqual((await u('GET', '/api/contacts/frequent')).body.map((x) => x.email), ['b@two.example']);
+  assert.equal((await u('POST', '/api/contacts/frequent/forget', { emails: [] })).status, 400);
 });
 
 test('Home: a People card (who you email most) can be moved and hidden like the others', async () => {
