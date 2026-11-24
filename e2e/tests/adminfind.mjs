@@ -72,5 +72,21 @@ await step('Admin → Shared drives: find a drive by its name or its owner', asy
   await page.getByText('No shared drive fits “zzz”.').waitFor();
 });
 
+await step('Admin → Storage: Find a person, from nine people up', async () => {
+  for (const [local, name] of [['ann', 'Ann Able'], ['ben', 'Ben Best'], ['cat', 'Cat Cole'], ['dan', 'Dan Dorn'], ['eve', 'Eve East'], ['fay', 'Fay Fox'], ['gus', 'Gus Gray']]) {
+    await api(page, 'POST', '/users', { local, domain: 'acme.com', name, password: 'password123' });
+  }
+  await page.goto(`${B}/admin?tab=storage`);
+  const rows = page.getByRole('table', { name: 'Storage by person' }).locator('tbody tr');
+  await until(async () => (await rows.count()) >= 9);
+  const box = page.getByLabel('Find a person');
+  await box.fill('park kim');
+  await until(async () => (await rows.count()) === 1);
+  await rows.first().getByText('Kim Park').waitFor();
+  await box.fill('acme.com'); // addresses too
+  await until(async () => (await rows.count()) >= 9);
+  await box.fill('zzz');
+  await rows.first().getByText('Nobody fits “zzz”.').waitFor();
+});
 console.log(failed ? `${failed} FAILED` : 'ALL PASSED', 'ERRORS:', JSON.stringify(errors));
 await browser.close();

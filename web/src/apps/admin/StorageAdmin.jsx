@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router';
 import { Avatar, useToast } from '../../components/ui.jsx';
 import { fileIcon } from '../../components/Icon.jsx';
 import Icon from '../../components/Icon.jsx';
+import { matchesFilter } from '../contacts/contactfilter.js';
 
 const Bar = ({ value, max, warn }) => (
   <div className={`usage-bar ${warn ? 'warn' : ''}`} aria-hidden="true"><div style={{ width: `${max ? Math.min(100, (value / max) * 100) : 0}%` }} /></div>
@@ -16,6 +17,7 @@ export default function StorageAdmin({ orgId, orgPicker }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
+  const [find, setFind] = useState(''); // one person (or a few), in both lists
   // The report in a new spreadsheet of yours (a row per person, sizes in MB).
   const toSheet = async () => {
     try { const r = await post('/orgs/current/storage/sheet', orgId ? { org_id: orgId } : {}); toast(`Made “${r.name}” in your Drive`, 'info', { action: { label: 'Open', onClick: () => navigate(`/sheets/${r.id}`) } }); }
@@ -26,6 +28,8 @@ export default function StorageAdmin({ orgId, orgPicker }) {
   const quota = data.quota_mb ? data.quota_mb * 1024 * 1024 : null;
   const most = Math.max(1, ...data.people.map((p) => p.total));
   const trash = data.people.reduce((n, p) => n + p.trash, 0), versions = data.people.reduce((n, p) => n + p.versions, 0);
+  const fits = (p) => matchesFilter({ name: p.name, username: p.username }, find);
+  const people = data.people.filter(fits);
   return (
     <div className="stack" style={{ maxWidth: 1000 }}>
       {orgPicker}
@@ -38,12 +42,14 @@ export default function StorageAdmin({ orgId, orgPicker }) {
         </p>
         <div className="row"><button type="button" className="btn" onClick={toSheet}><Icon name="sheet" size={16} /> Open in Sheets</button></div>
       </div>
+      {data.people.length > 8 && <input type="search" aria-label="Find a person" placeholder="Find a person" value={find} onChange={(e) => setFind(e.target.value)} />}
       <div className="card" style={{ padding: 0 }}>
         <table className="files storage-table">
           <caption className="sr-only">Storage by person</caption>
           <thead><tr><th>Person</th><th className="num">Files</th><th className="num hide-sm">Versions</th><th className="num hide-sm">Trash</th><th className="num">Total</th><th className="hide-sm" aria-label="Share" /></tr></thead>
           <tbody>
-            {data.people.map((p) => (
+            {!people.length && <tr><td colSpan={6} className="muted">Nobody fits “{find.trim()}”.</td></tr>}
+            {people.map((p) => (
               <tr key={p.id}>
                 <td className="name"><Avatar name={p.name} size={26} userId={p.id} /><span>{p.name}<span className="muted small"> {p.username}</span></span></td>
                 <td className="num">{formatBytes(p.files)} <span className="muted small">· {p.count} {p.count === 1 ? 'file' : 'files'}</span></td>
@@ -72,13 +78,13 @@ export default function StorageAdmin({ orgId, orgPicker }) {
           </tbody>
         </table>
       </div>
-      <Mailboxes orgId={orgId} />
+      <Mailboxes orgId={orgId} fits={fits} />
     </div>
   );
 }
 
 /** Each person's mailbox: its size and their mailbox size limit (from the mail server, so it loads on its own). */
-function Mailboxes({ orgId }) {
+function Mailboxes({ orgId, fits = () => true }) {
   const toast = useToast();
   const mail = useMailStatus();
   const [m, setM] = useState(null);
@@ -102,7 +108,7 @@ function Mailboxes({ orgId }) {
           <caption className="sr-only">Mailboxes by person</caption>
           <thead><tr><th>Person</th><th className="num">Mail</th><th className="num">Limit</th><th className="hide-sm" aria-label="How full" /></tr></thead>
           <tbody>
-            {m.people.map((p) => (
+            {m.people.filter(fits).map((p) => (
               <tr key={p.id}>
                 <td className="name"><Avatar name={p.name} size={26} userId={p.id} /><span>{p.name}<span className="muted small"> {p.username}</span></span></td>
                 <td className="num">{p.used === null ? <span className="muted">{p.error}</span> : formatBytes(p.used)}</td>
