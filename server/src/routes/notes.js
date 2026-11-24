@@ -1142,6 +1142,24 @@ export default function noteRoutes() {
     res.json(shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id));
   });
 
+  // Several notes in your trash at once: put back ({ action: 'restore' }) or deleted for good ('delete').
+  // Only your own notes that are in the trash; every one checked first.
+  r.post('/trash/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some notes');
+    if (ids.length > 2000) throw bad('2,000 notes at a time at most');
+    const action = String(req.body?.action || '');
+    if (!['restore', 'delete'].includes(action)) throw bad('Unknown action');
+    const notes = ids.map((id) => { const n = q('SELECT * FROM notes WHERE id = ? AND owner_id = ? AND trashed_at IS NOT NULL').get(id, req.user.id); if (!n) throw notFound('Not in your trash'); return n; });
+    tx(() => { for (const n of notes) {
+      if (action === 'restore') q('UPDATE notes SET trashed_at = NULL, updated_at = ? WHERE id = ?').run(now(), n.id);
+      else { dropNoteFiles(n.id); q('DELETE FROM notes WHERE id = ?').run(n.id); }
+    } });
+    if (action === 'restore') for (const n of notes) tell(n);
+    sendTo([req.user.id], { type: 'notes-changed' });
+    res.json({ [action === 'restore' ? 'restored' : 'deleted']: notes.length });
+  });
+
   // Empty the trash: your deleted notes go for good.
   r.delete('/trash', (req, res) => {
     const list = q('SELECT id FROM notes WHERE owner_id = ? AND trashed_at IS NOT NULL').all(req.user.id);

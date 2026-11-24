@@ -141,6 +141,31 @@ await step('the Trash restores a note, or deletes it for good', async () => {
   const all = (await api(page, 'GET', '/notes?trash=1')).body;
   if (all.length) throw new Error('still in trash');
 });
+await step('the Trash: tick several to restore together, or delete them for good', async () => {
+  for (const title of ['Old one', 'Old two', 'Old three']) {
+    const n = (await api(page, 'POST', '/notes', { title, body: 'x' })).body;
+    await api(page, 'DELETE', `/notes/${n.id}`);
+  }
+  await page.locator('.subnav').getByRole('button', { name: 'Notes', exact: true }).click();
+  await page.locator('.subnav').getByRole('button', { name: 'Trash' }).click();
+  await page.getByLabel('Select deleted note: Old one').check();
+  await page.getByLabel('Select deleted note: Old three').check();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected deleted notes' });
+  await bar.getByText('2 selected').waitFor();
+  await page.screenshot({ path: `${SP}/shots/notestrash-pick.png` });
+  await bar.getByRole('button', { name: 'Restore' }).click();
+  await page.locator('.toast', { hasText: '2 notes restored' }).last().waitFor();
+  let left = (await api(page, 'GET', '/notes?trash=1')).body.map((x) => x.title);
+  if (left.join() !== 'Old two') throw new Error(left.join());
+  await page.getByLabel('Select deleted note: Old two').check();
+  await bar.getByRole('button', { name: 'Delete forever' }).click();
+  await page.getByRole('dialog', { name: 'Delete 1 note for good?' }).getByRole('button', { name: 'Delete forever' }).click();
+  await page.getByText('The trash is empty').waitFor();
+  left = (await api(page, 'GET', '/notes?trash=1')).body;
+  if (left.length) throw new Error('still in trash');
+  const live = (await api(page, 'GET', '/notes')).body.map((x) => x.title);
+  if (!live.includes('Old one') || !live.includes('Old three') || live.includes('Old two')) throw new Error(live.join());
+});
 if (errors.length) { failed++; console.log('FAIL page errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `${failed} failed` : 'all passed');
 await browser.close();

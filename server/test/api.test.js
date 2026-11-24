@@ -9668,6 +9668,18 @@ test('notes: deleting puts a note in the trash, to restore or delete for good; o
   await kay('DELETE', `/api/notes/${c.id}`);
   assert.equal((await kay('DELETE', '/api/notes/trash')).body.deleted, 1);
   assert.equal((await kay('GET', '/api/notes?trash=1')).body.length, 0);
+  // Several in the trash at once: put back, or deleted for good; only your own in the trash; all checked first.
+  const [d1, d2, d3] = [(await kay('POST', '/api/notes', { title: 'D1' })).body, (await kay('POST', '/api/notes', { title: 'D2' })).body, (await kay('POST', '/api/notes', { title: 'D3' })).body];
+  for (const x of [d1, d2, d3]) await kay('DELETE', `/api/notes/${x.id}`);
+  const live = (await kay('POST', '/api/notes', { title: 'Live' })).body;
+  assert.equal((await kay('POST', '/api/notes/trash/batch', { ids: [d1.id, live.id], action: 'restore' })).status, 404, 'not in the trash');
+  assert.equal((await pat('POST', '/api/notes/trash/batch', { ids: [d1.id], action: 'delete' })).status, 404, 'not theirs');
+  assert.equal((await kay('POST', '/api/notes/trash/batch', { ids: [d1.id], action: 'burn' })).status, 400);
+  assert.deepEqual((await kay('POST', '/api/notes/trash/batch', { ids: [d1.id, d2.id], action: 'restore' })).body, { restored: 2 });
+  assert.deepEqual((await kay('GET', '/api/notes?trash=1')).body.map((x) => x.title), ['D3']);
+  assert.deepEqual((await kay('POST', '/api/notes/trash/batch', { ids: [d3.id], action: 'delete' })).body, { deleted: 1 });
+  assert.equal((await kay('GET', '/api/notes?trash=1')).body.length, 0);
+  assert.ok((await kay('GET', '/api/notes')).body.some((x) => x.title === 'D1'));
 });
 
 test('Sign in with Workspace (OpenID Connect): an app gets a signed ID token and user info', async () => {

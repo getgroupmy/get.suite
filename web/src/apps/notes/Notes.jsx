@@ -200,7 +200,9 @@ export default function Notes() {
   keyState.current = { keysOn: user?.keys !== false, notes, change, archive, trash, setDeleting };
 
   const restore = async (n) => { try { await post(`/notes/${n.id}/restore`); toast('Note restored'); load(); } catch (e) { toast(e.message, 'error'); } };
-  const [forever, setForever] = useState(null); // a note (or 'all') to delete for good
+  const [forever, setForever] = useState(null); // a note, 'all' or 'picked' to delete for good
+  const [trashPicked, setTrashPicked] = useState(() => new Set()); // notes ticked in the trash
+  useEffect(() => { setTrashPicked(new Set()); }, [where.trash]);
   const copy = async (n) => { try { await post(`/notes/${n.id}/copy`); toast('Copy made'); load(); } catch (e) { toast(e.message, 'error'); } };
   const [templating, setTemplating] = useState(null); // a note being saved as a template
   const [templates, setTemplates] = useState(false); // the Templates window
@@ -308,9 +310,21 @@ export default function Notes() {
         {where.trash ? <>
           <div className="row notes-trash-head"><p className="muted small grow" style={{ margin: 0 }}>Notes in the trash are deleted for good after 7 days.</p>
             {notes?.length > 0 && <button type="button" className="btn small" onClick={() => setForever('all')}>Empty trash</button>}</div>
+          {trashPicked.size > 0 && (
+            <div className="notes-batch" role="toolbar" aria-label="Change the selected deleted notes">
+              <strong className="small" aria-live="polite">{trashPicked.size} selected</strong>
+              <button type="button" className="btn small" onClick={async () => {
+                try { const r = await post('/notes/trash/batch', { ids: [...trashPicked], action: 'restore' }); toast(`${nNotes(r.restored)} restored`); setTrashPicked(new Set()); load(); } catch (e) { toast(e.message, 'error'); }
+              }}>Restore</button>
+              <button type="button" className="btn small danger" onClick={() => setForever('picked')}>Delete forever</button>
+              <button type="button" className="link-btn small" onClick={() => setTrashPicked(new Set((notes || []).map((n) => n.id)))}>Select all</button>
+              <button type="button" className="link-btn small" onClick={() => setTrashPicked(new Set())}>Clear</button>
+            </div>
+          )}
           {notes && !notes.length ? <Empty icon="trash" title="The trash is empty" /> : (
             <div className={`notes-grid ${view === 'list' ? 'list' : ''}`} aria-label="Deleted notes">{(notes || []).map((n) => (
               <article key={n.id} className="note-card trashed" style={{ background: n.color || undefined }} aria-label={n.title || 'Note'}>
+                <label className="check small note-trash-pick"><input type="checkbox" aria-label={`Select deleted note: ${n.title || 'Note'}`} checked={trashPicked.has(n.id)} onChange={(e) => { const s0 = new Set(trashPicked); e.target.checked ? s0.add(n.id) : s0.delete(n.id); setTrashPicked(s0); }} /></label>
                 {n.title && <h3>{n.title}</h3>}
                 {n.items ? <ul className="note-items">{n.items.slice(0, 6).map((i) => <li key={i.id} className={i.done ? 'done' : ''}>{i.done ? '☑' : '☐'} {i.text}</li>)}</ul> : <p className="note-body">{n.body.slice(0, 300)}</p>}
                 <div className="row note-tools">
@@ -408,8 +422,14 @@ export default function Notes() {
           if (where.label === label) setWhere({ archived: false, label: null, reminders: false }); // (which loads the notes again)
           else load();
         }} />}
-      {forever && <ConfirmModal title={forever === 'all' ? 'Empty the trash?' : 'Delete this note for good?'} confirm="Delete forever" message="This can’t be undone."
-        onClose={() => setForever(null)} onConfirm={async () => { try { await del(forever === 'all' ? '/notes/trash' : `/notes/${forever.id}?forever=1`); } catch (e) { toast(e.message, 'error'); } setForever(null); load(); }} />}
+      {forever && <ConfirmModal title={forever === 'all' ? 'Empty the trash?' : forever === 'picked' ? `Delete ${nNotes(trashPicked.size)} for good?` : 'Delete this note for good?'} confirm="Delete forever" message="This can’t be undone."
+        onClose={() => setForever(null)} onConfirm={async () => {
+          try {
+            if (forever === 'picked') { await post('/notes/trash/batch', { ids: [...trashPicked], action: 'delete' }); setTrashPicked(new Set()); }
+            else await del(forever === 'all' ? '/notes/trash' : `/notes/${forever.id}?forever=1`);
+          } catch (e) { toast(e.message, 'error'); }
+          setForever(null); load();
+        }} />}
       {deleting && <ConfirmModal title={deleting.mine ? 'Delete this note?' : 'Remove this note?'} confirm={deleting.mine ? 'Delete' : 'Remove'}
         message={deleting.mine ? (deleting.shared.length ? 'It goes for everyone it’s shared with too.' : 'This can’t be undone.') : 'It stays for its owner and the others it’s shared with.'}
         onClose={() => setDeleting(null)} onConfirm={async () => { await del(`/notes/${deleting.id}`); setDeleting(null); load(); }} />}
