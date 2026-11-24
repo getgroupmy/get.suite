@@ -148,6 +148,34 @@ await step('Keep in touch…: one reminder span for several, or none', async () 
   c = Object.fromEntries((await mine()).map((x) => [x.name, x.touch_days ?? null]));
   if (c['Ann Able'] !== 14 || c['Ben Best'] !== null) throw new Error(JSON.stringify(c));
 });
+await step('Groups: tick several to merge into a new group, or delete them (Undo puts them back)', async () => {
+  await page.getByRole('tab', { name: 'Groups', exact: true }).click();
+  await page.getByLabel('Select group Clients').check();
+  await page.getByLabel('Select group Partners').check();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected groups' });
+  await bar.getByText('2 groups selected').waitFor();
+  await bar.getByRole('button', { name: 'Merge…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Merge 2 groups' });
+  await dlg.getByLabel("New group's name").fill('Everyone');
+  await dlg.getByLabel('Remove the old groups').check();
+  await dlg.getByRole('button', { name: 'Merge' }).click();
+  await page.locator('.toast', { hasText: 'Made “Everyone” with 3 people; 2 groups removed' }).last().waitFor();
+  let gs = (await api(page, 'GET', '/contacts/groups')).body;
+  if (gs.map((g) => g.name).join() !== 'Everyone' || gs[0].members.map((m) => m.email).sort().join() !== 'ann@example.com,ben@example.com,dee@example.com') throw new Error(JSON.stringify(gs));
+  await page.locator('.toast', { hasText: 'Made “Everyone”' }).last().getByRole('button', { name: 'Undo removing' }).click();
+  await until(async () => (await api(page, 'GET', '/contacts/groups')).body.length === 3);
+  await page.getByLabel('Select group Everyone').waitFor();
+  await page.getByLabel('Select all groups shown').check();
+  await bar.getByText('3 groups selected').waitFor();
+  await bar.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('dialog', { name: 'Delete 3 groups?' }).getByRole('button', { name: 'Delete' }).click();
+  await page.locator('.toast', { hasText: '3 groups deleted' }).last().getByRole('button', { name: 'Undo' }).click();
+  await until(async () => (await api(page, 'GET', '/contacts/groups')).body.length === 3);
+  gs = (await api(page, 'GET', '/contacts/groups')).body.map((g) => g.name).sort().join();
+  if (gs !== 'Clients,Everyone,Partners') throw new Error(gs);
+  await page.goto(`${B}/contacts`);
+  await page.getByText('Dee Done').waitFor();
+});
 await step('Email everyone selected', async () => {
   await page.getByLabel('Select all shown').check();
   await page.getByRole('toolbar', { name: 'Change the selected contacts' }).getByText('4 selected').waitFor();

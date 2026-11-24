@@ -2380,6 +2380,35 @@ test('page setup: kept with a document, checked, and only for documents', async 
   assert.equal((await owner('GET', `/api/files/${(await owner('POST', `/api/files/${plain.id}/open-as`)).body.id}`)).body.page_setup, null);
 });
 
+test('contact groups: several at once (merged into a new one, or deleted with undo)', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cga', 'Cg Ann'], ['cgb', 'Cg Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cga@acme.com'); await login(b, 'cgb@acme.com');
+  const mk = async (who, name, emails) => (await who('POST', '/api/contacts/groups', { name, members: emails.map((email) => ({ email })) })).body;
+  const g1 = await mk(a, 'Team A', ['x@ex.org', 'y@ex.org']), g2 = await mk(a, 'Team B', ['y@ex.org', 'z@ex.org']), g3 = await mk(a, 'Team C', ['w@ex.org']);
+  const theirs = await mk(b, 'Theirs', ['q@ex.org']);
+  const batch = (who, body) => who('POST', '/api/contacts/groups/batch', body);
+  assert.equal((await batch(a, { ids: [g1.id], action: 'merge', name: 'All' })).status, 400, 'two or more');
+  assert.equal((await batch(a, { ids: [g1.id, theirs.id], action: 'merge', name: 'All' })).status, 404);
+  assert.equal((await batch(a, { ids: [g1.id, g2.id], action: 'merge', name: 'team a' })).status, 400, 'a name you have');
+  let r = await batch(a, { ids: [g1.id, g2.id], action: 'merge', name: 'Teams A+B' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.group.members.map((m) => m.email), ['x@ex.org', 'y@ex.org', 'z@ex.org'], 'each address once');
+  assert.equal(r.body.removed, 0);
+  const names = async () => (await a('GET', '/api/contacts/groups')).body.map((g) => g.name).sort();
+  assert.deepEqual(await names(), ['Team A', 'Team B', 'Team C', 'Teams A+B'], 'the old ones kept');
+  r = await batch(a, { ids: [g3.id, r.body.group.id], action: 'merge', name: 'Everyone', remove: true });
+  assert.equal(r.body.removed, 2);
+  assert.deepEqual(await names(), ['Everyone', 'Team A', 'Team B']);
+  r = await batch(a, { ids: [g1.id, g2.id], action: 'delete' });
+  assert.equal(r.body.deleted, 2);
+  assert.deepEqual(await names(), ['Everyone']);
+  for (const id of r.body.bin_ids) assert.equal((await a('POST', `/api/contacts/groups/bin/${id}/restore`)).status, 200);
+  assert.deepEqual(await names(), ['Everyone', 'Team A', 'Team B']);
+  assert.equal((await batch(b, { ids: [g1.id], action: 'delete' })).status, 404);
+  assert.equal((await batch(a, { ids: [g1.id], action: 'explode' })).status, 400);
+});
+
 test('contact groups: made, changed, suggested in Mail with everyone in them, only your own', async () => {
   const g = await owner('POST', '/api/contacts/groups', { name: 'Board', members: [{ name: 'Ann Board', email: 'Ann@Example.org' }, { email: 'ben@example.org' }, { email: 'ann@example.org' }] });
   assert.equal(g.status, 201);

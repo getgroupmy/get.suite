@@ -407,6 +407,24 @@ export default function contactRoutes() {
     const id = insertFile({ owner: req.user.id, parentId: null, name: `${g.name} (group)`.slice(0, 200), kind: 'sheet', content: json, size: Buffer.byteLength(json) });
     res.status(201).json({ id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, members: g.members.length });
   });
+  // Several of your groups at once: merged into a new group (everyone in them, each address once; the old ones
+  // kept unless { remove: true }), or deleted (each can be put back). Every group checked first.
+  r.post('/groups/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some groups');
+    if (ids.length > 200) throw bad('200 groups at a time at most');
+    const action = String(req.body?.action || '');
+    if (!['merge', 'delete'].includes(action)) throw bad('Unknown action');
+    const groups = ids.map((id) => ownGroup({ params: { id }, user: req.user }));
+    if (action === 'delete') {
+      const bins = groups.map((g) => binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id }));
+      return res.json({ deleted: groups.length, bin_ids: bins });
+    }
+    if (groups.length < 2) throw bad('Choose two groups or more to merge');
+    const merged = makeGroup(req.user.id, req.body?.name, groups.flatMap((g) => g.members));
+    const bins = req.body?.remove ? groups.map((g) => binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id })) : [];
+    res.status(201).json({ group: merged, removed: bins.length, bin_ids: bins });
+  });
   r.delete('/groups/:id', (req, res) => { const g = ownGroup(req); res.json({ ok: true, bin_id: binAndDelete('contact_group', g.id, { ownerId: req.user.id, name: g.name, by: req.user.id }) }); });
   r.post('/groups/bin/:id/restore', (req, res) => {
     const back = restoreFromBin(req.params.id, req.user.id);

@@ -809,25 +809,58 @@ function CustomFields({ list, onChange }) {
 }
 
 /** Your groups: lists of people to email at once (type the group's name in To, or Email group here). */
+/** Several groups merged into a new one: its name, and whether the old ones go. */
+function MergeGroups({ count, onMerge, onClose }) {
+  const [name, setName] = useState('');
+  const [remove, setRemove] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (e) => { e.preventDefault(); if (!name.trim()) return; try { await onMerge(name.trim(), remove); onClose(); } catch (err) { setError(err.message); } };
+  return (
+    <Modal title={`Merge ${count} groups`} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <p className="muted small" style={{ margin: 0 }}>A new group with everyone in them, each address once.</p>
+        <label className="field"><span>New group's name</span><input autoFocus value={name} onChange={(e) => { setName(e.target.value); setError(''); }} /></label>
+        <label className="check"><input type="checkbox" checked={remove} onChange={(e) => setRemove(e.target.checked)} /> Remove the old groups</label>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!name.trim()}>Merge</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 function Groups({ filter }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [groups, setGroups] = useState(null);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [pickedG, setPickedG] = useState(() => new Set()); // groups ticked to merge or delete together
+  const [merging, setMerging] = useState(false);
+  const [deletingMany, setDeletingMany] = useState(false);
   const load = () => get('/contacts/groups').then(setGroups).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = (groups || []).filter((g) => !filter || has(g.name, filter) || g.members.some((m) => has(`${m.name} ${m.email}`, filter)));
+  const nGroups = (n) => `${n} group${n === 1 ? '' : 's'}`;
+  const putBack = (ids) => async () => { try { for (const id of ids) await post(`/contacts/groups/bin/${id}/restore`); load(); } catch (e) { toast(e.message, 'error'); } };
   return (
     <div className="stack">
       <div className="row"><button type="button" className="btn primary" onClick={() => setEditing({ name: '', members: [] })}><Icon name="plus" size={18} /> New group</button>
         <span className="muted small">Type a group's name in To, Cc or Bcc to put in everyone in it.</span></div>
       {groups && !groups.length ? <Empty icon="people" title="No groups yet">Make one for people you often email together: a team, a board, a club.</Empty> : (
         <table className="files">
-          <thead><tr><th>Group</th><th className="hide-sm">People</th><th aria-label="Actions" /></tr></thead>
+          {pickedG.size > 0 && (
+            <caption className="contact-batch-cap"><div className="contact-batch" role="toolbar" aria-label="Change the selected groups">
+              <strong className="small" aria-live="polite">{nGroups(pickedG.size)} selected</strong>
+              <button type="button" className="btn small" disabled={pickedG.size < 2} title={pickedG.size < 2 ? 'Tick two groups or more' : 'One new group with everyone in them'} onClick={() => setMerging(true)}>Merge…</button>
+              <button type="button" className="btn small danger" onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
+              <button type="button" className="link-btn small" onClick={() => setPickedG(new Set())}>Clear</button>
+            </div></caption>
+          )}
+          <thead><tr><th className="pick-col"><input type="checkbox" aria-label="Select all groups shown" checked={shown.length > 0 && shown.every((g) => pickedG.has(g.id))} onChange={(e) => setPickedG(e.target.checked ? new Set(shown.map((g) => g.id)) : new Set())} /></th><th>Group</th><th className="hide-sm">People</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {shown.map((g) => (
               <tr key={g.id}>
+                <td className="pick-col"><input type="checkbox" aria-label={`Select group ${g.name}`} checked={pickedG.has(g.id)} onChange={(e) => { const n = new Set(pickedG); e.target.checked ? n.add(g.id) : n.delete(g.id); setPickedG(n); }} /></td>
                 <td className="name"><Avatar name={g.name} size={28} /><span>{g.name}</span></td>
                 <td className="hide-sm muted ellipsis" style={{ maxWidth: 420 }} title={g.members.map(formatAddress).join(', ')}>{g.members.length} · {g.members.slice(0, 3).map((m) => m.name || m.email).join(', ')}{g.members.length > 3 ? '…' : ''}</td>
                 <td className="actions">
@@ -855,6 +888,18 @@ function Groups({ filter }) {
           </tbody>
         </table>
       )}
+      {merging && <MergeGroups count={pickedG.size} onClose={() => setMerging(false)}
+        onMerge={async (name, remove) => {
+          const r = await post('/contacts/groups/batch', { ids: [...pickedG], action: 'merge', name, remove });
+          setPickedG(new Set()); load();
+          toast(`Made “${r.group.name}” with ${r.group.members.length} ${r.group.members.length === 1 ? 'person' : 'people'}${r.removed ? `; ${nGroups(r.removed)} removed` : ''}`, 'info', r.bin_ids.length ? { action: { label: 'Undo removing', onClick: putBack(r.bin_ids) } } : undefined);
+        }} />}
+      {deletingMany && <ConfirmModal title={`Delete ${nGroups(pickedG.size)}?`} message="The people in them stay in your contacts." onClose={() => setDeletingMany(false)}
+        onConfirm={async () => {
+          const r = await post('/contacts/groups/batch', { ids: [...pickedG], action: 'delete' });
+          setPickedG(new Set()); load();
+          toast(`${nGroups(r.deleted)} deleted`, 'info', { action: { label: 'Undo', onClick: putBack(r.bin_ids) } });
+        }} />}
       {editing && <GroupDialog group={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deleting && <ConfirmModal title="Delete group?" message={`Delete the group “${deleting.name}”? The people in it stay in your contacts.`} onClose={() => setDeleting(null)}
         onConfirm={async () => {
