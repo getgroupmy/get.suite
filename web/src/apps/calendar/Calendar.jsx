@@ -2380,13 +2380,20 @@ function MyCalendars({ calendars: all, me, people = [], onChanged, onImport, onT
   const importFor = useRef(null);
   const fileInput = useRef(null);
   const run = async (fn, ok) => { try { await fn(); if (ok) toast(ok); onChanged(); } catch (e) { toast(e.message, 'error'); } };
+  // Swap one of your calendars with the one above or below it (your own order).
+  const orderCal = (k, by) => {
+    const ids = calendars.map((x) => x.id), j = k + by;
+    if (j < 0 || j >= ids.length) return;
+    [ids[k], ids[j]] = [ids[j], ids[k]];
+    run(() => put('/events/calendars/order', { ids }));
+  };
   return (
     <div className="cal-feeds my-cals">
       <div className="row"><span className="muted small grow" style={{ padding: '0 12px' }}>My calendars</span>
         <button type="button" className="icon-btn" aria-label="Add a calendar" title="A calendar of your own: Personal, Family, a project…" onClick={() => setEditing({})}><Icon name="plus" size={16} /></button></div>
       <ul className="cal-feed-list" aria-label="My calendars">
         <li className="row"><span className="cal-feed-dot" style={{ background: COLORS[0] }} aria-hidden="true" /><span className="grow ellipsis small">{me?.name || 'My calendar'}</span></li>
-        {calendars.map((c) => (
+        {calendars.map((c, k) => (
           <li key={c.id} className="row">
             <label className="check grow small" style={{ minWidth: 0 }}>
               <input type="checkbox" checked={!c.hidden} aria-label={`Show ${c.name}`} style={{ accentColor: c.color }}
@@ -2395,6 +2402,8 @@ function MyCalendars({ calendars: all, me, people = [], onChanged, onImport, onT
             </label>
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${c.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
               { label: 'Name and colour…', icon: 'edit', onClick: () => setEditing(c) },
+              ...(k > 0 ? [{ label: 'Move up', icon: 'move', onClick: () => orderCal(k, -1) }] : []),
+              ...(k < calendars.length - 1 ? [{ label: 'Move down', icon: 'move', onClick: () => orderCal(k, 1) }] : []),
               { label: 'Share…', icon: 'share', onClick: () => setSharing(c) },
               { label: 'Import into it (.ics)…', icon: 'upload', onClick: () => { importFor.current = c.id; fileInput.current.click(); } },
               { label: 'Download (.ics)', icon: 'download', onClick: () => { const a = document.createElement('a'); a.href = `/api/events/export?calendar=${c.id}`; a.download = `${c.name}.ics`; a.click(); } },

@@ -89,6 +89,28 @@ await step('move an event to another calendar in its window', async () => {
   await d.getByRole('button', { name: 'Save' }).click();
   await until(async () => (await api(page, 'GET', `/events?from=${Date.now() - 864e5}&to=${Date.now() + 2 * 864e5}`)).body.find((e) => e.title === 'Budget review')?.calendar_id);
 });
+await step('Move up / Move down put your calendars in your own order', async () => {
+  const extra = [];
+  for (const name of ['Gym', 'Book club']) extra.push((await api(page, 'POST', '/events/calendars', { name, color: '#616161' })).body);
+  await page.reload();
+  const list = page.getByRole('list', { name: 'My calendars' });
+  const names = () => list.locator('li label .ellipsis').allTextContents();
+  await until(async () => (await names()).join('|') === 'Home|Gym|Book club');
+  await page.getByRole('button', { name: 'Options for Book club' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('down from the last');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await names()).join('|') === 'Home|Book club|Gym');
+  await page.getByRole('button', { name: 'Options for Home' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move up' }).count()) throw new Error('up from the first');
+  await page.getByRole('menuitem', { name: 'Move down' }).click();
+  await until(async () => (await names()).join('|') === 'Book club|Home|Gym');
+  await page.reload();
+  await until(async () => (await names()).join('|') === 'Book club|Home|Gym');
+  await page.screenshot({ path: `${SP}/shots/mycals-order.png` });
+  for (const c of extra) await api(page, 'DELETE', `/events/calendars/${c.id}`);
+  await page.reload();
+  await page.getByRole('checkbox', { name: 'Show Home' }).waitFor();
+});
 await step('download it, then delete it keeping its events', async () => {
   await page.getByRole('button', { name: 'Options for Home' }).click();
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download (.ics)' }).click()]);

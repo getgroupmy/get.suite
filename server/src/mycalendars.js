@@ -2,10 +2,12 @@
 // colour (new events in it take that colour, and recolouring it recolours the events still in its
 // old colour), can be hidden from view, and can be imported into, downloaded or deleted with its
 // events. Everyone else sees the events as part of your calendar (free/busy, sharing, invitations).
-import { q } from './db.js';
+import { q, tx } from './db.js';
 import { uid, bad, notFound } from './util.js';
 
 export const MAX_CALENDARS = 20;
+// Your own order for them under My calendars (Move up / Move down); new ones after the placed ones.
+if (!q('PRAGMA table_info(user_calendars)').all().some((c) => c.name === 'position')) q('ALTER TABLE user_calendars ADD COLUMN position INTEGER').run();
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const out = (c) => ({ id: c.id, name: c.name, color: c.color, hidden: !!c.hidden, events: q('SELECT COUNT(*) AS n FROM events WHERE calendar_id = ? AND owner_id = ? AND recur_parent IS NULL').get(c.id, c.owner_id).n, members: membersOf(c.id) });
 
@@ -21,7 +23,16 @@ export const shareOf = (userId, calId) => q('SELECT s.calendar_id, s.can_edit, c
 /** Everyone a calendar's events reach: its owner and its members. */
 export const peopleOf = (calId) => (calId ? q('SELECT owner_id AS id FROM user_calendars WHERE id = ? UNION SELECT user_id FROM user_calendar_shares WHERE calendar_id = ?').all(calId, calId).map((r) => r.id) : []);
 
-export const calendarsOf = (userId) => [...q('SELECT * FROM user_calendars WHERE owner_id = ? ORDER BY created_at, name').all(userId).map(out), ...sharedWith(userId)];
+export const calendarsOf = (userId) => [...q('SELECT * FROM user_calendars WHERE owner_id = ? ORDER BY position IS NULL, position, created_at, name').all(userId).map(out), ...sharedWith(userId)];
+/** Put your own calendars in your order: the ids given first, then the rest as they were. */
+export function orderCalendars(userId, given) {
+  const ids = [...new Set((Array.isArray(given) ? given : []).map(String))];
+  const mine = q('SELECT id FROM user_calendars WHERE owner_id = ? ORDER BY position IS NULL, position, created_at, name').all(userId).map((c) => c.id);
+  if (ids.some((id) => !mine.includes(id))) throw notFound('Calendar not found');
+  const order = [...ids, ...mine.filter((id) => !ids.includes(id))];
+  tx(() => order.forEach((id, i) => q('UPDATE user_calendars SET position = ? WHERE id = ?').run(i + 1, id)));
+  return calendarsOf(userId);
+}
 export function ownCalendar(userId, id) {
   const c = q('SELECT * FROM user_calendars WHERE id = ? AND owner_id = ?').get(String(id || ''), userId);
   if (!c) throw notFound('Calendar not found');

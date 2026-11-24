@@ -23,7 +23,7 @@ import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
 import { addFeed, feedsOf, feedOf, feedEvents, refreshFeed, orderFeeds } from '../calfeeds.js';
-import { calendarsOf, ownCalendar, calendarFor, addCalendar, changeCalendar, eventsIn, shareOf, setMembers, peopleOf, membersOf } from '../mycalendars.js';
+import { calendarsOf, ownCalendar, calendarFor, addCalendar, changeCalendar, eventsIn, shareOf, setMembers, peopleOf, membersOf, orderCalendars } from '../mycalendars.js';
 import { insertFile } from './files.js';
 import { notesContent, notesName } from '../meetingnotes.js';
 import { setVacation, vacationForAway } from '../mail/vacation.js';
@@ -750,6 +750,7 @@ export default function calendarRoutes() {
   // Your own calendars besides the main one: list, add { name, color }, change { name?, color?, hidden? },
   // delete (with its events, or ?keep=1 to move them to your main calendar).
   r.get('/calendars', (req, res) => res.json(calendarsOf(req.user.id)));
+  r.put('/calendars/order', (req, res) => { const list = orderCalendars(req.user.id, req.body?.ids); touch([req.user.id]); res.json(list); });
   r.post('/calendars', (req, res) => { const c = addCalendar(req.user.id, req.body || {}); touch([req.user.id]); res.status(201).json(c); });
   r.patch('/calendars/:id', (req, res) => {
     // Someone else's, shared with you: only whether you see it is yours to change.

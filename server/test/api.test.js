@@ -10835,6 +10835,11 @@ test('calendars of your own: add, rename, recolour (events follow), hide, move e
   assert.deepEqual({ ...fam, id: undefined }, { id: undefined, name: 'Family', color: '#8e24aa', hidden: false, events: 0, members: [] });
   assert.equal((await a('POST', '/api/events/calendars', { name: 'family' })).status, 400, 'names are unique (any case)');
   const proj = (await a('POST', '/api/events/calendars', { name: 'Project X', color: '#0b8043' })).body;
+  // In your own order: the ids given first, then the rest; only your own.
+  const calNames = async () => (await a('GET', '/api/events/calendars')).body.map((c) => c.name);
+  assert.deepEqual(await calNames(), ['Family', 'Project X']);
+  assert.deepEqual((await a('PUT', '/api/events/calendars/order', { ids: [proj.id] })).body.map((c) => c.name), ['Project X', 'Family']);
+  assert.deepEqual(await calNames(), ['Project X', 'Family']);
 
   const t = Date.UTC(2026, 11, 3, 10);
   const mk = (body) => a('POST', '/api/events', { start: t, end: t + 3600e3, ...body });
@@ -10847,6 +10852,8 @@ test('calendars of your own: add, rename, recolour (events follow), hide, move e
   const bens = (await b('POST', '/api/events/calendars', { name: 'Ben' })).body;
   assert.equal((await mk({ title: 'Sneaky', calendar_id: bens.id })).status, 404);
   assert.equal((await a('PATCH', `/api/events/calendars/${bens.id}`, { name: 'Mine' })).status, 404);
+  assert.equal((await a('PUT', '/api/events/calendars/order', { ids: [bens.id] })).status, 404, 'not someone else’s to order');
+  await a('PUT', '/api/events/calendars/order', { ids: [fam.id, proj.id] });
 
   // Recolouring: events still in the old colour follow; Dentist keeps its own.
   const re = (await a('PATCH', `/api/events/calendars/${fam.id}`, { name: 'Home', color: '#F4511E', hidden: true })).body;
