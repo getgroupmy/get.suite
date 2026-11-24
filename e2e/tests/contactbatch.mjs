@@ -97,6 +97,23 @@ await step('Remove from group…: the people selected taken out of one of your g
   await bar.getByLabel('Take the selected contacts out of a group').selectOption({ label: 'Partners' });
   await page.locator('.toast', { hasText: 'None of them were in Partners' }).last().waitFor();
 });
+await step('Share with the company, and stop sharing, for several at once', async () => {
+  const bar = page.getByRole('toolbar', { name: 'Change the selected contacts' });
+  await page.getByLabel('Select Ann Able').check();
+  await page.getByLabel('Select Ben Best').check();
+  if (await bar.getByRole('button', { name: 'Stop sharing' }).count()) throw new Error('stop offered with none shared');
+  await bar.getByRole('button', { name: 'Share with Acme Trading' }).click();
+  await page.locator('.toast', { hasText: '2 contacts shared with everyone at Acme Trading' }).last().waitFor();
+  const shared = async () => (await api(page, 'GET', '/contacts?scope=company')).body.map((c) => c.name).sort().join();
+  if (await shared() !== 'Ann Able,Ben Best') throw new Error(await shared());
+  await page.getByText('Ann Able').locator('..').getByText('Shared with company').waitFor();
+  await page.getByLabel('Select Ann Able').check();
+  await page.getByLabel('Select Dee Done').check();
+  await bar.getByRole('button', { name: 'Share with Acme Trading' }).waitFor(); // Dee isn't shared yet
+  await bar.getByRole('button', { name: 'Stop sharing' }).click();
+  await page.locator('.toast', { hasText: '1 contact no longer shared' }).last().waitFor();
+  if (await shared() !== 'Ben Best') throw new Error(await shared());
+});
 await step('Email everyone selected', async () => {
   await page.getByLabel('Select all shown').check();
   await page.getByRole('toolbar', { name: 'Change the selected contacts' }).getByText('4 selected').waitFor();

@@ -277,6 +277,9 @@ export default function Contacts() {
               </select>}
               <button type="button" className="btn small" onClick={() => many({ action: 'star' }, (r) => `${nPeople(r.changed)} starred`)}>★ Star</button>
               <button type="button" className="btn small" onClick={() => many({ action: 'unstar' }, (r) => `${nPeople(r.changed)} unstarred`)}>☆ Unstar</button>
+              {chosen.some((c) => !c.shared) && <button type="button" className="btn small" title={`Everyone at ${user.org_name} sees them, and finds them when writing mail`}
+                onClick={() => many({ action: 'share' }, (r) => `${nPeople(r.changed)} shared with everyone at ${user.org_name}`)}><Icon name="people" size={16} /> Share with {user.org_name}</button>}
+              {chosen.some((c) => c.shared) && <button type="button" className="btn small" onClick={() => many({ action: 'unshare' }, (r) => `${nPeople(r.changed)} no longer shared`)}>Stop sharing</button>}
               <Menu trigger={(p) => <button type="button" className="btn small" {...p}><Icon name="download" size={16} /> Export selected</button>} items={[
                 { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?ids=${[...picked].join(',')}`; } },
                 { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = `/api/contacts/export?format=csv&ids=${[...picked].join(',')}`; } },

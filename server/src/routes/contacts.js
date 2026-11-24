@@ -711,6 +711,15 @@ export default function contactRoutes() {
       tx(() => { for (const c of list) q('UPDATE contacts SET starred = ? WHERE id = ?').run(action === 'star' ? 1 : 0, c.id); });
       return res.json({ changed: list.length });
     }
+    if (action === 'share' || action === 'unshare') {
+      // Shared with everyone at your company (as a contact's own tick does), or not any more: your own contacts only.
+      if (list.some((c) => c.owner_id !== req.user.id)) throw bad('Only its owner shares a contact');
+      const to = action === 'share' ? 1 : 0;
+      const changing = list.filter((c) => (c.shared ? 1 : 0) !== to);
+      tx(() => { for (const c of changing) q('UPDATE contacts SET shared = ? WHERE id = ?').run(to, c.id); });
+      if (changing.length) res.locals.sharedContact = true; // everyone at the company sees the change
+      return res.json({ changed: changing.length });
+    }
     if (action === 'group') {
       const g = q('SELECT * FROM contact_groups WHERE id = ? AND owner_id = ?').get(String(req.body?.group_id || ''), req.user.id);
       if (!g) throw notFound('Group not found');

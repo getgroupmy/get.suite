@@ -9938,6 +9938,17 @@ test('Contacts: several at once (star, add to a group, delete); all checked firs
   assert.equal((await batch(b, { ids: [ben.id], action: 'ungroup', group_id: theirGroup.id })).status, 404, 'not your contact');
   assert.equal((await a('GET', '/api/contacts/groups')).body.find((x) => x.id === g.id).members.length, 2, 'other groups untouched');
 
+  // Shared with the company (colleagues see them), then not; only your own.
+  r = await batch(a, { ids: [ann.id, ben.id], action: 'share' });
+  assert.deepEqual(r.body, { changed: 2 });
+  const company = async () => (await b('GET', '/api/contacts?scope=company')).body.map((c) => c.name).filter((n) => ['Ann Able', 'Ben Best'].includes(n)).sort();
+  assert.deepEqual(await company(), ['Ann Able', 'Ben Best'], 'a colleague sees them');
+  assert.deepEqual((await batch(a, { ids: [ann.id, cy.id], action: 'share' })).body, { changed: 1 }, 'Ann was already shared');
+  assert.equal((await batch(b, { ids: [ann.id], action: 'unshare' })).status, 404, 'a colleague can\'t');
+  r = await batch(a, { ids: [ann.id, ben.id, cy.id], action: 'unshare' });
+  assert.deepEqual(r.body, { changed: 3 });
+  assert.deepEqual(await company(), [], 'no longer shared');
+
   assert.equal((await batch(a, { ids: [ann.id], action: 'explode' })).status, 400);
   assert.equal((await batch(a, { ids: [], action: 'delete' })).status, 400);
   assert.equal((await batch(b, { ids: [ann.id], action: 'delete' })).status, 404);
