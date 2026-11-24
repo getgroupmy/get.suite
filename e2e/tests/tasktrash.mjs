@@ -66,6 +66,26 @@ await step('delete a task, Undo brings it back; delete again and restore it from
   const c = (await api(page, 'GET', `/tasks/tasks/${t.id}/comments`)).body;
   if (c[0]?.body !== 'Washer size 15mm') throw new Error(JSON.stringify(c));
 });
+await step('Deleted tasks: tick several and restore them together', async () => {
+  const lid = (await api(page, 'POST', '/tasks/lists', { name: 'Garage' })).body.id;
+  const ids = [];
+  for (const title of ['Sweep floor', 'Sort tools', 'Fix bike']) ids.push((await api(page, 'POST', `/tasks/lists/${lid}/tasks`, { title })).body.id);
+  await api(page, 'POST', '/tasks/tasks/batch', { ids, delete: true });
+  await page.goto(`${B}/tasks/${lid}`);
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Deleted tasks…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Deleted tasks · Garage' });
+  await dlg.getByLabel('Select deleted task: Sweep floor').check();
+  await dlg.getByLabel('Select deleted task: Fix bike').check();
+  await dlg.getByRole('button', { name: 'Restore 2' }).click();
+  await page.locator('.toast', { hasText: '2 tasks back' }).last().waitFor();
+  await dlg.getByRole('button', { name: 'Restore Sort tools' }).waitFor(); // the one left (alone: no boxes)
+  if (await dlg.getByRole('button', { name: 'Restore Sweep floor' }).count()) throw new Error('still listed');
+  await dlg.getByRole('button', { name: 'Close' }).last().click();
+  await task(page, 'Sweep floor').waitFor();
+  await task(page, 'Fix bike').waitFor();
+  if (await task(page, 'Sort tools').count()) throw new Error('Sort tools came back');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

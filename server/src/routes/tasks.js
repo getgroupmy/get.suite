@@ -1474,6 +1474,23 @@ export default function taskRoutes() {
     res.json(shapeFor(req.user.id)(q(`${TASK} WHERE t.id = ?`).get(id)));
   });
 
+  // Several deleted tasks put back at once ({ ids }): each in the trash of a list you're on, with room for them
+  // all on their lists (checked before any comes back).
+  r.post('/trash/restore-many', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some tasks');
+    if (ids.length > 500) throw bad('500 tasks at a time at most');
+    const found = ids.map((id) => { const t = q('SELECT list_id FROM task_trash WHERE id = ?').get(id); if (!t) throw notFound('Not in the trash (or kept too long)'); return { id, list: loadList(t.list_id, req.user) }; });
+    const lists = new Map(found.map((f) => [f.list.id, f.list]));
+    for (const list of lists.values()) {
+      const coming = found.filter((f) => f.list.id === list.id).length;
+      if (q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n + coming > MAX_TASKS) throw bad(`“${list.name}” hasn't room for them all`);
+    }
+    const back = found.map((f) => restoreTask(f.id));
+    for (const list of lists.values()) changed(list);
+    res.json({ restored: back.length });
+  });
+
   // Clear the completed tasks of a list.
   r.delete('/lists/:id/done', (req, res) => {
     const list = loadList(req.params.id, req.user);

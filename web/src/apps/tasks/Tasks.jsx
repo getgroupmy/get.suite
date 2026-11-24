@@ -1747,19 +1747,30 @@ function TaskTrash({ list, onClose, onRestored }) {
   const load = useCallback(() => get(`/tasks/lists/${list.id}/trash`).then(setItems).catch((e) => toast(e.message, 'error')), [list.id, toast]);
   useEffect(() => { load(); }, [load]);
   const restore = async (t) => { try { await post(`/tasks/trash/${t.id}/restore`); toast(`“${t.title}” is back`); onRestored(); load(); } catch (e) { toast(e.message, 'error'); } };
+  const [picked, setPicked] = useState(() => new Set()); // ticked to put back together
+  const restoreMany = async () => {
+    try { const r = await post('/tasks/trash/restore-many', { ids: [...picked] }); toast(`${r.restored === 1 ? '1 task' : `${r.restored} tasks`} back`); setPicked(new Set()); onRestored(); load(); } catch (e) { toast(e.message, 'error'); }
+  };
   return (
     <Modal title={`Deleted tasks · ${list.name}`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
-      {!items ? null : !items.length ? <p className="muted">Nothing deleted in the last 30 days.</p> : (
+      {!items ? null : !items.length ? <p className="muted">Nothing deleted in the last 30 days.</p> : (<>
+        {items.length > 1 && (
+          <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+            <label className="check small grow"><input type="checkbox" aria-label="Select all deleted tasks" checked={items.every((t) => picked.has(t.id))} onChange={(e) => setPicked(e.target.checked ? new Set(items.map((t) => t.id)) : new Set())} /> Select all</label>
+            <button type="button" className="btn small primary" disabled={!picked.size} onClick={restoreMany}>{`Restore ${picked.size || ''}`.trim()}</button>
+          </div>
+        )}
         <ul className="task-trash" aria-label="Deleted tasks">
           {items.map((t) => (
             <li key={t.id} className="row">
+              {items.length > 1 && <input type="checkbox" aria-label={`Select deleted task: ${t.title}`} checked={picked.has(t.id)} onChange={(e) => { const n = new Set(picked); e.target.checked ? n.add(t.id) : n.delete(t.id); setPicked(n); }} />}
               <span className="grow"><span className="ellipsis">{t.title}</span>
                 <span className="muted small"> · deleted {new Date(t.deleted_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}{t.deleted_by_name ? ` by ${t.deleted_by_name}` : ''}</span></span>
               <button type="button" className="btn small" aria-label={`Restore ${t.title}`} onClick={() => restore(t)}>Restore</button>
             </li>
           ))}
         </ul>
-      )}
+      </>)}
       <p className="muted small">Deleted tasks stay here for 30 days, for everyone on the list.</p>
     </Modal>
   );

@@ -12722,6 +12722,16 @@ test('tasks: deleted tasks wait in the list’s trash and come back whole', asyn
   const { q } = await import('../src/db.js');
   q('UPDATE task_trash SET deleted_at = ? WHERE id = ?').run(Date.now() - 31 * 864e5, o.id);
   assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body.map((x) => x.title), ['Book venue']);
+  // Several put back at once; all checked first.
+  const extra = [(await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'X1' })).body, (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'X2' })).body];
+  await a('POST', '/api/tasks/tasks/batch', { ids: extra.map((x) => x.id), delete: true });
+  assert.equal((await c('POST', '/api/tasks/trash/restore-many', { ids: [extra[0].id] })).status, 404, 'not Cat’s');
+  assert.equal((await a('POST', '/api/tasks/trash/restore-many', { ids: [extra[0].id, 'nope'] })).status, 404);
+  assert.equal((await a('POST', '/api/tasks/trash/restore-many', { ids: [] })).status, 400);
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/trash`)).body.length, 3, 'nothing back yet');
+  assert.deepEqual((await a('POST', '/api/tasks/trash/restore-many', { ids: [t.id, ...extra.map((x) => x.id)] })).body, { restored: 3 });
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.map((x) => x.title).sort(), ['Book venue', 'X1', 'X2']);
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body, []);
 });
 
 test('tasks: what you ticked off in the last 30 days, from every list', async () => {
