@@ -898,6 +898,13 @@ function Groups({ filter }) {
   const shown = (groups || []).filter((g) => !filter || has(g.name, filter) || g.members.some((m) => has(`${m.name} ${m.email}`, filter)));
   const nGroups = (n) => `${n} group${n === 1 ? '' : 's'}`;
   const putBack = (ids) => async () => { try { for (const id of ids) await post(`/contacts/groups/bin/${id}/restore`); load(); } catch (e) { toast(e.message, 'error'); } };
+  // Your own order: swap a group with the one above or below it.
+  const orderGroup = async (g, by) => {
+    const ids = groups.map((x) => x.id), i = ids.indexOf(g.id), j = i + by;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    try { setGroups(await put('/contacts/groups/order', { ids })); } catch (e) { toast(e.message, 'error'); }
+  };
   return (
     <div className="stack">
       <div className="row"><button type="button" className="btn primary" onClick={() => setEditing({ name: '', members: [] })}><Icon name="plus" size={18} /> New group</button>
@@ -937,6 +944,10 @@ function Groups({ filter }) {
                     catch (e) { toast(e.message, 'error'); }
                   }}><Icon name="sheet" size={18} /></button>
                   <button className="icon-btn" aria-label={`Edit ${g.name}`} onClick={() => setEditing(g)}><Icon name="edit" size={18} /></button>
+                  {!filter && groups.length > 1 && <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Move ${g.name}`} title="Put your groups in your own order" {...p}><Icon name="move" size={18} /></button>} items={[
+                    ...(groups[0].id !== g.id ? [{ label: 'Move up', icon: 'move', onClick: () => orderGroup(g, -1) }] : []),
+                    ...(groups[groups.length - 1].id !== g.id ? [{ label: 'Move down', icon: 'move', onClick: () => orderGroup(g, 1) }] : []),
+                  ]} />}
                   <button className="icon-btn" aria-label={`Delete ${g.name}`} onClick={() => setDeleting(g)}><Icon name="trash" size={18} /></button>
                 </td>
               </tr>

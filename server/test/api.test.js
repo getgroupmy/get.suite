@@ -2399,6 +2399,29 @@ test('page setup: kept with a document, checked, and only for documents', async 
   assert.equal((await owner('GET', `/api/files/${(await owner('POST', `/api/files/${plain.id}/open-as`)).body.id}`)).body.page_setup, null);
 });
 
+test('contact groups: in your own order; renaming keeps the place, new ones come after by name', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cgoa', 'Cgo Ann'], ['cgob', 'Cgo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cgoa@acme.com'); await login(b, 'cgob@acme.com');
+  const mk = async (who, name) => (await who('POST', '/api/contacts/groups', { name, members: [{ email: 'x@ex.org' }] })).body;
+  const alpha = await mk(a, 'Alpha'); await mk(a, 'Beta'); const gamma = await mk(a, 'Gamma');
+  const theirs = await mk(b, 'Theirs');
+  const names = async (who) => (await who('GET', '/api/contacts/groups')).body.map((g) => g.name);
+  assert.deepEqual(await names(a), ['Alpha', 'Beta', 'Gamma'], 'by name at first');
+  const put = await a('PUT', '/api/contacts/groups/order', { ids: [gamma.id, alpha.id] });
+  assert.equal(put.status, 200);
+  assert.deepEqual(put.body.map((g) => g.name), ['Gamma', 'Alpha', 'Beta'], 'the rest after, as they were');
+  assert.equal((await a('PUT', '/api/contacts/groups/order', { ids: [theirs.id] })).status, 404, 'only your own');
+  assert.deepEqual(await names(b), ['Theirs']);
+  assert.equal((await a('PATCH', `/api/contacts/groups/${gamma.id}`, { name: 'Zeta' })).status, 200);
+  await mk(a, 'Aardvark');
+  assert.deepEqual(await names(a), ['Zeta', 'Alpha', 'Beta', 'Aardvark'], 'renamed keeps its place; new after');
+  const del = await a('DELETE', `/api/contacts/groups/${alpha.id}`);
+  assert.deepEqual(await names(a), ['Zeta', 'Beta', 'Aardvark']);
+  assert.equal((await a('POST', `/api/contacts/groups/bin/${del.body.bin_id}/restore`)).status, 200);
+  assert.deepEqual(await names(a), ['Zeta', 'Alpha', 'Beta', 'Aardvark'], 'back in its place after undo');
+});
+
 test('contact groups: several at once (merged into a new one, or deleted with undo)', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cga', 'Cg Ann'], ['cgb', 'Cg Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

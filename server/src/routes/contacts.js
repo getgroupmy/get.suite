@@ -108,13 +108,15 @@ q(`CREATE TABLE IF NOT EXISTS contact_groups (
   created_at INTEGER NOT NULL
 )`).run();
 const MAX_GROUPS = 200, MAX_MEMBERS = 500;
+// Your own order for your groups (PUT /groups/order); groups never placed come after, by name.
+if (!q('PRAGMA table_info(contact_groups)').all().some((c) => c.name === 'position')) q('ALTER TABLE contact_groups ADD COLUMN position INTEGER').run();
 // Company contacts: a contact its owner shares with everyone in their company (suppliers, clients, a
 // shared phone list). Others see it, and find it when writing mail; its owner (or an admin) changes it.
 if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'shared')) q('ALTER TABLE contacts ADD COLUMN shared INTEGER NOT NULL DEFAULT 0').run();
 // Starred: the people you deal with most, first in your contacts and in suggestions while writing mail.
 if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'starred')) q('ALTER TABLE contacts ADD COLUMN starred INTEGER NOT NULL DEFAULT 0').run();
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
-export const groupsOf = (userId) => q('SELECT id, name, members FROM contact_groups WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map((g) => ({ ...g, members: JSON.parse(g.members) }));
+export const groupsOf = (userId) => q('SELECT id, name, members FROM contact_groups WHERE owner_id = ? ORDER BY position IS NULL, position, name COLLATE NOCASE').all(userId).map((g) => ({ ...g, members: JSON.parse(g.members) }));
 /** Groups from a Download your data .zip ([{ name, members }]): each name not taken here is added. { added, skipped } */
 export function importGroups(userId, list) {
   let added = 0, skipped = 0;
@@ -373,6 +375,15 @@ export default function contactRoutes() {
   // Suggestions while typing an address in Mail: your contacts and your colleagues.
   // ---- groups ----
   r.get('/groups', (req, res) => res.json(groupsOf(req.user.id)));
+  // Put your groups in your own order: the ids given first, in that order, then the rest as they were.
+  r.put('/groups/order', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    const mine = groupsOf(req.user.id).map((g) => g.id);
+    if (ids.some((id) => !mine.includes(id))) throw notFound('Group not found');
+    const order = [...ids, ...mine.filter((id) => !ids.includes(id))];
+    tx(() => order.forEach((id, i) => q('UPDATE contact_groups SET position = ? WHERE id = ?').run(i + 1, id)));
+    res.json(groupsOf(req.user.id));
+  });
   r.post('/groups', (req, res) => res.status(201).json(makeGroup(req.user.id, req.body.name, req.body.members || [])));
   // A group from a spreadsheet (Sheets ⋮ → Make a contact group…): { file, sheet, name }, the sheet read as Import reads a
   // CSV (a Name and an Email column, as Gmail and Outlook write them); rows without an address are left out.
