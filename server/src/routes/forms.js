@@ -929,8 +929,9 @@ export default function formRoutes() {
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out), imported: copied.length, pictures_left_off: picturesLeft });
   });
 
-  r.post('/:id/copy', (req, res) => {
-    const f = ownForm(req.params.id, req.user);
+  /** A copy of a form you can open, yours: its questions, look and settings, no responses. The new form's id. */
+  function copyForm(f, user) {
+    const req = { user };
     const id = uid();
     const t = now();
     // Yours: pictures someone else on the original's team owns are copied for you, so they show in it.
@@ -947,6 +948,10 @@ export default function formRoutes() {
     const raw = q('SELECT collect_email, send_copy, allow_edit, max_responses, show_results, email_domains, progress_bar, task_list, task_title FROM forms WHERE id = ?').get(f.id);
     q('UPDATE forms SET collect_email = ?, send_copy = ?, allow_edit = ?, max_responses = ?, show_results = ?, email_domains = ?, progress_bar = ?, task_list = ?, task_title = ? WHERE id = ?')
       .run(raw.collect_email, raw.send_copy, raw.allow_edit, raw.max_responses, raw.show_results, raw.email_domains, raw.progress_bar, raw.task_list, raw.task_title, id);
+    return id;
+  }
+  r.post('/:id/copy', (req, res) => {
+    const id = copyForm(ownForm(req.params.id, req.user), req.user);
     res.status(201).json(ownForm(id, req.user));
   });
 
@@ -972,8 +977,13 @@ export default function formRoutes() {
     if (!ids.length) throw bad('Choose some forms');
     if (ids.length > 200) throw bad('200 forms at a time at most');
     const action = String(req.body?.action || '');
-    if (!['close', 'open', 'delete', 'archive', 'unarchive'].includes(action)) throw bad('Unknown action');
+    if (!['close', 'open', 'delete', 'archive', 'unarchive', 'copy'].includes(action)) throw bad('Unknown action');
     const forms = ids.map((id) => ownForm(id, req.user, { ownerOnly: ['delete', 'archive', 'unarchive'].includes(action) }));
+    if (action === 'copy') { // a copy of each, yours (no responses), as one form's Make a copy gives
+      const made = forms.map((f) => copyForm(f, req.user));
+      sendTo([req.user.id], { type: 'forms-changed' });
+      return res.status(201).json({ copied: made.length, ids: made });
+    }
     if (action === 'archive' || action === 'unarchive') { // out of the way and closed, or back as they were (owner only)
       const t = now();
       const changing = forms.filter((f) => !!f.archived_at !== (action === 'archive'));

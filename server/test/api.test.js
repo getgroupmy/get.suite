@@ -5414,6 +5414,16 @@ test('forms: several at once from the list (stop or start accepting; delete, own
   assert.deepEqual((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'open' })).body, { changed: 1 }, 'an editor may');
   assert.equal((await own('POST', '/api/forms/batch', { ids: [f2.id, theirs.id], action: 'open' })).status, 404);
   assert.equal(await acc(f2.id), false, 'nothing changed');
+  // A copy of each (an editor may copy too: the copy is theirs), no responses.
+  r = await own('POST', '/api/forms/batch', { ids: [f1.id, f2.id], action: 'copy' });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.copied, 2);
+  const copies = (await own('GET', '/api/forms')).body.filter((x) => r.body.ids.includes(x.id));
+  assert.deepEqual(copies.map((x) => [x.title, x.responses]).sort(), [['Copy of Batch one', 0], ['Copy of Batch two', 0]]);
+  const edCopy = await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'copy' });
+  assert.equal((await ed('GET', `/api/forms/${edCopy.body.ids[0]}`)).body.role, 'owner');
+  for (const id of [...r.body.ids, ...edCopy.body.ids]) await (id === edCopy.body.ids[0] ? ed : own)('DELETE', `/api/forms/${id}`);
+
   // Archived (out of the way and closed), then back; the owner only.
   assert.equal((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'archive' })).status, 403);
   assert.deepEqual((await own('POST', '/api/forms/batch', { ids: [f1.id, f3.id], action: 'archive' })).body, { changed: 2 });

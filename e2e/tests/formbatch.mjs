@@ -95,6 +95,17 @@ await step('Archive several, then bring them back from Archived', async () => {
   await page.getByLabel('Show').selectOption('all');
   await page.getByRole('list', { name: 'Your forms' }).getByText('Lunch order').waitFor();
 });
+await step('Make copies of several forms at once', async () => {
+  const bar = page.getByRole('toolbar', { name: 'Change the selected forms' });
+  await page.getByLabel('Select: Lunch order').check();
+  await page.getByLabel('Select: Team offsite').check();
+  await bar.getByRole('button', { name: 'Make copies' }).click();
+  await page.locator('.toast', { hasText: '2 copies made' }).last().waitFor();
+  await page.getByRole('list', { name: 'Your forms' }).getByText('Copy of Lunch order').waitFor();
+  await page.getByRole('list', { name: 'Your forms' }).getByText('Copy of Team offsite').waitFor();
+  for (const f of (await api(page, 'GET', '/forms')).body.filter((x) => x.title.startsWith('Copy of'))) await api(page, 'DELETE', `/forms/${f.id}`);
+  await page.getByRole('list', { name: 'Your forms' }).getByText('Copy of Lunch order').waitFor({ state: 'detached' });
+});
 await step('Delete is off when a form shared with you is selected', async () => {
   const sam = (await api(page, 'POST', '/users', { local: 'sam', domain: 'acme.com', name: 'Sam Shared', password: 'password123' })).body;
   const ctx = await browser.newContext();
