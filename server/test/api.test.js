@@ -7902,6 +7902,11 @@ test('calendar feeds: subscribe by address; private addresses refused; events re
     assert.equal(evs.find((e) => e.title === 'Team standup').rrule.freq, 'weekly');
     assert.equal((await bob('GET', `/api/events?from=${from}&to=${to}`)).body.filter?.((e) => e.role === 'feed').length ?? 0, 0, 'only for who subscribed');
     assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { name: 'Holidays' })).body.name, 'Holidays');
+    assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { color: '#0b8043' })).body.color, '#0b8043');
+    assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { color: 'green' })).status, 400, 'a colour as #rrggbb');
+    assert.ok((await owner('GET', `/api/events?from=${from}&to=${to}`)).body.filter((e) => e.role === 'feed').every((e) => e.color === '#0b8043'), 'its events take it');
+    assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { name: '   ' })).body.name, 'Calendar', 'never nameless');
+    await owner('PATCH', `/api/events/feeds/${f.body.id}`, { name: 'Holidays' });
     // Switched off: its events aren't shown, though it stays (and is still updated); on again, they're back.
     const feedTitles = async () => (await owner('GET', `/api/events?from=${from}&to=${to}`)).body.filter((e) => e.role === 'feed').map((e) => e.title).sort();
     assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { hidden: true })).body.hidden, true);

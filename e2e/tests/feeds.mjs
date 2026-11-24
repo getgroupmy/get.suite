@@ -97,6 +97,27 @@ await step('subscribed calendars in your own order: Move up / Move down in a cal
   await page.reload();
   await until(async () => (await names()).join('|') === 'Office holidays');
 });
+await step('Name and colour… renames a subscribed calendar and gives its events a colour', async () => {
+  await page.getByRole('button', { name: 'Options for Office holidays' }).click();
+  await page.getByRole('menuitem', { name: 'Name and colour…' }).click();
+  const d = page.getByRole('dialog', { name: 'Calendar' });
+  if (await d.getByText(/events you gave a colour of their own/).count()) throw new Error('note for own calendars shown');
+  await d.getByLabel('Name').fill('Closed days');
+  await d.getByRole('radio', { name: '#0b8043' }).click();
+  await d.getByRole('button', { name: 'Save' }).click();
+  await d.waitFor({ state: 'detached' });
+  await page.getByRole('list', { name: 'Subscribed calendars' }).getByText('Closed days').waitFor();
+  const f = (await api(page, 'GET', '/events/feeds')).body.find((x) => x.name === 'Closed days');
+  if (f?.color !== '#0b8043') throw new Error(JSON.stringify(f));
+  await page.getByRole('radio', { name: 'Schedule' }).click();
+  await page.getByText('Founders Day', { exact: true }).first().click();
+  await page.getByRole('dialog', { name: 'Founders Day' }).getByText(/From Closed days, a calendar you subscribe to/).waitFor();
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: `${SP}/shots/feeds-rename.png` });
+  await api(page, 'PATCH', `/events/feeds/${f.id}`, { name: 'Office holidays' });
+  await page.reload();
+  await page.getByRole('list', { name: 'Subscribed calendars' }).getByText('Office holidays').waitFor();
+});
 await step('unsubscribe removes them', async () => {
   await page.getByRole('button', { name: 'Options for Office holidays' }).click();
   await page.getByRole('menuitem', { name: 'Unsubscribe' }).click();

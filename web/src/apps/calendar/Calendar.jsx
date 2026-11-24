@@ -2500,7 +2500,7 @@ function ShareOneCalendar({ calendar, people, onClose, onChanged }) {
 }
 
 /** A calendar's name and colour, for a new one or a change. */
-function CalendarForm({ calendar, onSave, onClose }) {
+function CalendarForm({ calendar, feed = false, onSave, onClose }) {
   const [name, setName] = useState(calendar.name || '');
   const [color, setColor] = useState(calendar.color || COLORS[1]);
   return (
@@ -2510,7 +2510,7 @@ function CalendarForm({ calendar, onSave, onClose }) {
         <div className="colors" role="radiogroup" aria-label="Calendar colour">
           {COLORS.map((c) => <button type="button" key={c} role="radio" aria-checked={color === c} aria-label={c} className={`swatch ${color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setColor(c)} />)}
         </div>
-        {calendar.id && <p className="muted small" style={{ margin: 0 }}>Its events in its old colour take the new one; events you gave a colour of their own keep it.</p>}
+        {calendar.id && !feed && <p className="muted small" style={{ margin: 0 }}>Its events in its old colour take the new one; events you gave a colour of their own keep it.</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">{calendar.id ? 'Save' : 'Add calendar'}</button></div>
       </form>
     </Modal>
@@ -2522,6 +2522,7 @@ function Feeds({ onChanged }) {
   const toast = useToast();
   const [feeds, setFeeds] = useState([]);
   const [adding, setAdding] = useState(false);
+  const [renaming, setRenaming] = useState(null); // the subscribed calendar whose name and colour are being changed
   const [busy, setBusy] = useState(false);
   const loadFeeds = useCallback(() => get('/events/feeds').then(setFeeds).catch(() => {}), []);
   // Swap a subscribed calendar with the one above or below it (your own order).
@@ -2560,6 +2561,7 @@ function Feeds({ onChanged }) {
               </label>
               <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
                 { label: 'Update now', icon: 'restore', onClick: async () => { try { const r = await post(`/events/feeds/${f.id}/refresh`); toast(r.error ? `Couldn't update: ${r.error}` : `${r.name} is up to date`, r.error ? 'error' : 'info'); changed(); } catch (e) { toast(e.message, 'error'); } } },
+                { label: 'Name and colour…', icon: 'edit', onClick: () => setRenaming(f) },
                 ...(k > 0 ? [{ label: 'Move up', icon: 'move', onClick: () => orderFeed(k, -1) }] : []),
                 ...(k < feeds.length - 1 ? [{ label: 'Move down', icon: 'move', onClick: () => orderFeed(k, 1) }] : []),
                 { label: 'Unsubscribe', icon: 'trash', danger: true, onClick: async () => { try { await del(`/events/feeds/${f.id}`); toast(`Removed ${f.name}`); changed(); } catch (e) { toast(e.message, 'error'); } } },
@@ -2578,6 +2580,8 @@ function Feeds({ onChanged }) {
           </form>
         </Modal>
       )}
+      {renaming && <CalendarForm calendar={renaming} feed onClose={() => setRenaming(null)}
+        onSave={async (body) => { try { await patch(`/events/feeds/${renaming.id}`, body); setRenaming(null); changed(); } catch (e) { toast(e.message, 'error'); } }} />}
     </div>
   );
 }
