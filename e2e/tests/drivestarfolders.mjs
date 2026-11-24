@@ -57,6 +57,28 @@ await step('starring a folder puts it in the sidebar; clicking it opens the fold
   await page.waitForURL(new RegExp(`/drive/folder/${f.id}`));
   await page.screenshot({ path: `${SP}/shots/starred-folders.png` });
 });
+await step('starred folders in your own order: Move up / Move down from a starred folder’s ⋯', async () => {
+  const extra = [];
+  for (const name of ['Annual', 'Clients']) {
+    const f = (await api(page, 'POST', '/files/folder', { name })).body;
+    await api(page, 'PUT', `/files/${f.id}/star`, { starred: true });
+    extra.push(f);
+  }
+  await page.goto(`${B}/drive`);
+  const side = page.getByRole('group', { name: 'Starred folders' });
+  const names = () => side.getByRole('link').allTextContents();
+  await until(async () => (await names()).join('|') === 'Annual|Board papers|Clients');
+  await side.getByRole('button', { name: 'Move starred folder Clients' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('down from the last');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await names()).join('|') === 'Annual|Clients|Board papers');
+  await page.reload();
+  await until(async () => (await names()).join('|') === 'Annual|Clients|Board papers');
+  await page.screenshot({ path: `${SP}/shots/starred-folders-order.png` });
+  for (const f of extra) await api(page, 'PUT', `/files/${f.id}/star`, { starred: false });
+  await page.reload();
+  await until(async () => (await names()).join('|') === 'Board papers');
+});
 await step('removing the star takes it out of the sidebar', async () => {
   await page.goto(`${B}/drive/starred`);
   await page.getByRole('button', { name: 'Actions for Board papers' }).click();

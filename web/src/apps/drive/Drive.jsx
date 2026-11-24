@@ -192,6 +192,13 @@ export default function Drive() {
   // Starred folders in the sidebar, a click away (brought up to date whenever the list shown changes: starring one, say).
   const [starredFolders, setStarredFolders] = useState([]);
   useEffect(() => { get('/files/starred-folders').then(setStarredFolders).catch(() => {}); }, [files]);
+  // One starred folder a place up (by -1) or down (by 1) in the sidebar: your own order.
+  const orderStarred = async (i, by) => {
+    const ids = starredFolders.map((f) => f.id), j = i + by;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    try { setStarredFolders(await put('/files/starred-folders/order', { ids })); } catch (e) { toast(e.message, 'error'); }
+  };
   const labelColor = (name) => myLabels.find((l) => l.name === name)?.color;
   const setLabelColor = async (label, color) => { try { await put('/files/labels/color', { label, color }); loadLabels(); } catch (e) { toast(e.message, 'error'); } };
 
@@ -705,7 +712,13 @@ export default function Drive() {
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {starredFolders.length > 0 && <div className="subnav-title" id="starred-folders-h">Starred folders</div>}
         {starredFolders.length > 0 && <div role="group" aria-labelledby="starred-folders-h">
-          {starredFolders.map((f) => <NavLink key={f.id} to={`/drive/folder/${f.id}`} className={() => `subnav-item ${route.folderId === f.id ? 'active' : ''}`}><Icon name="folder" style={f.color ? { color: f.color } : undefined} /><span className="grow ellipsis">{f.name}</span></NavLink>)}
+          {starredFolders.map((f, i) => (
+            <div key={f.id} className="drive-label-row">
+              <NavLink to={`/drive/folder/${f.id}`} className={() => `subnav-item ${route.folderId === f.id ? 'active' : ''}`}><Icon name="folder" style={f.color ? { color: f.color } : undefined} /><span className="grow ellipsis">{f.name}</span></NavLink>
+              {starredFolders.length > 1 && <Menu align="right" trigger={(p) => <button type="button" className="icon-btn drive-label-menu" aria-label={`Move starred folder ${f.name}`} title="Put your starred folders in your own order" {...p}><Icon name="more" size={16} /></button>}
+                items={[...(i > 0 ? [{ label: 'Move up', onClick: () => orderStarred(i, -1) }] : []), ...(i < starredFolders.length - 1 ? [{ label: 'Move down', onClick: () => orderStarred(i, 1) }] : [])]} />}
+            </div>
+          ))}
         </div>}
         {myLabels.length > 0 && <div className="subnav-title">Labels</div>}
         {myLabels.map((l, i) => (

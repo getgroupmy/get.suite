@@ -514,6 +514,8 @@ q(`CREATE TABLE IF NOT EXISTS file_stars (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, file_id)
 )`).run();
+// Your own order for your starred folders in the sidebar (PUT /starred-folders/order); unplaced ones after, by name.
+if (!q('PRAGMA table_info(file_stars)').all().some((c) => c.name === 'position')) q('ALTER TABLE file_stars ADD COLUMN position INTEGER').run();
 // Shortcuts: a file or folder shown in another folder (or your My Drive) without moving or copying
 // it. Each person still needs access to what it points to; a shortcut to something they can't open
 // isn't listed for them (only its maker sees it, so they can remove it).
@@ -816,11 +818,18 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Starred folders, for the Drive sidebar: the ones you can still open, by name (at most 20).
-  r.get('/starred-folders', (req, res) => {
-    const rows = q(`SELECT f.id, f.name, f.color FROM files f JOIN file_stars st ON st.file_id = f.id AND st.user_id = ?
-                    WHERE f.kind = 'folder' AND f.trashed = 0 ORDER BY f.name COLLATE NOCASE`).all(req.user.id)
-      .filter((f) => roleFor(f.id, req.user.id)).slice(0, 20);
-    res.json(rows.map((f) => ({ id: f.id, name: f.name, ...(f.color && { color: f.color }) })));
+  const starredFolders = (userId) => q(`SELECT f.id, f.name, f.color FROM files f JOIN file_stars st ON st.file_id = f.id AND st.user_id = ?
+                    WHERE f.kind = 'folder' AND f.trashed = 0 ORDER BY st.position IS NULL, st.position, f.name COLLATE NOCASE`).all(userId)
+    .filter((f) => roleFor(f.id, userId)).slice(0, 20).map((f) => ({ id: f.id, name: f.name, ...(f.color && { color: f.color }) }));
+  r.get('/starred-folders', (req, res) => res.json(starredFolders(req.user.id)));
+  // Put them in your order: the ids given first, in that order, then the rest as they were.
+  r.put('/starred-folders/order', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    const mine = starredFolders(req.user.id).map((f) => f.id);
+    if (ids.some((id) => !mine.includes(id))) throw notFound('Not one of your starred folders');
+    const order = [...ids, ...mine.filter((id) => !ids.includes(id))];
+    tx(() => order.forEach((id, i) => q('UPDATE file_stars SET position = ? WHERE user_id = ? AND file_id = ?').run(i + 1, req.user.id, id)));
+    res.json(starredFolders(req.user.id));
   });
 
   r.get('/labels', (req, res) => {

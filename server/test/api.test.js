@@ -16468,6 +16468,15 @@ test('drive: starred folders for the sidebar — folders only, by name, not tras
   for (const f of [zeta, alpha, doc]) await a('PUT', `/api/files/${f.id}/star`, { starred: true });
   await a('PATCH', `/api/files/${alpha.id}`, { color: '#d93025' });
   assert.deepEqual((await a('GET', '/api/files/starred-folders')).body.map((f) => f.name), ['Alpha', 'zeta projects']);
+  // In your own order; a folder starred later comes after; not someone else's stars, nor a file.
+  const order = await a('PUT', '/api/files/starred-folders/order', { ids: [zeta.id] });
+  assert.deepEqual(order.body.map((f) => f.name), ['zeta projects', 'Alpha']);
+  assert.equal((await a('PUT', '/api/files/starred-folders/order', { ids: [doc.id] })).status, 404, 'a file isn’t a starred folder');
+  assert.equal((await owner('PUT', '/api/files/starred-folders/order', { ids: [zeta.id] })).status, 404, 'only your own');
+  const beta = (await a('POST', '/api/files/folder', { name: 'Beta' })).body;
+  await a('PUT', `/api/files/${beta.id}/star`, { starred: true });
+  assert.deepEqual((await a('GET', '/api/files/starred-folders')).body.map((f) => f.name), ['zeta projects', 'Alpha', 'Beta']);
+  await a('PUT', `/api/files/${beta.id}/star`, { starred: false });
   assert.equal((await a('DELETE', `/api/files/${zeta.id}`)).status < 300, true);
   assert.deepEqual((await a('GET', '/api/files/starred-folders')).body.map((f) => f.name), ['Alpha'], 'a trashed folder leaves');
   await a('PUT', `/api/files/${alpha.id}/star`, { starred: false });
