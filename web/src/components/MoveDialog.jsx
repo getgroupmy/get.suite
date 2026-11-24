@@ -17,6 +17,8 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
   // Find a folder by name (deep in My Drive, or in a shared drive or folder you can add to) instead of walking to it.
   const [find, setFind] = useState('');
   const [hits, setHits] = useState(null);
+  const [at, setAt] = useState(0); // the folder found that Enter goes into (↑ ↓ move it)
+  useEffect(() => { setAt(0); }, [hits]);
   useEffect(() => {
     const t = find.trim();
     if (t.length < 2) { setHits(null); return undefined; }
@@ -62,12 +64,19 @@ export default function MoveDialog({ files, onClose, onMoved, onCopy, shortcut =
       footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{pick ? pick.action : copy ? 'Copy here' : shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
       {copy && <p className="muted small" style={{ marginTop: 0 }}>The original stays where it is. A copy keeps its name, unless it goes in the same folder (then it’s “Copy of …”).</p>}
       {shortcut && <p className="muted small" style={{ marginTop: 0 }}>It stays where it is; the shortcut opens it from this folder too. People still need access to it to open it.</p>}
-      <input type="search" className="move-find" aria-label="Find a folder" placeholder="Find a folder" value={find} onChange={(e) => setFind(e.target.value)} />
+      <input type="search" className="move-find" aria-label="Find a folder" placeholder="Find a folder" value={find} onChange={(e) => setFind(e.target.value)}
+        onKeyDown={(e) => {
+          const shown = (hits || []).slice(0, 20);
+          if (!shown.length) return;
+          if (e.key === 'ArrowDown') { e.preventDefault(); setAt((i) => Math.min(i + 1, shown.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setAt((i) => Math.max(i - 1, 0)); }
+          else if (e.key === 'Enter') { e.preventDefault(); setCur(shown[Math.min(at, shown.length - 1)].id); setFind(''); }
+        }} />
       {hits && (
         <ul className="pick-list" aria-label="Folders found">
           {hits.length === 0 && <li className="muted">No folder you can add to is called that</li>}
-          {hits.slice(0, 20).map((f) => (
-            <li key={f.id}><button onClick={() => { setCur(f.id); setFind(''); }}><Icon name="folder" className="ft ft-folder" />
+          {hits.slice(0, 20).map((f, i) => (
+            <li key={f.id}><button className={i === at ? 'on' : ''} aria-current={i === at ? 'true' : undefined} onClick={() => { setCur(f.id); setFind(''); }}><Icon name="folder" className="ft ft-folder" />
               <span className="grow">{f.name}{(f.parent_name || (!f.parent_id && f.role === 'owner')) && <span className="muted small"> · in {f.parent_name || 'My Drive'}</span>}</span><Icon name="right" size={18} /></button></li>
           ))}
         </ul>

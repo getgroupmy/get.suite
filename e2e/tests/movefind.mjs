@@ -137,6 +137,28 @@ await step('Drive search: each result says the folder it is in; a click opens th
   await page.locator('.crumbs, nav').getByText('Acme').first().waitFor();
 });
 
+await step('Find a folder from the keyboard: ↓ ↑ choose, Enter goes into it, ready for Move here', async () => {
+  const a1 = (await api(page, 'POST', '/files/folder', { name: 'Keyboard Alpha' })).body;
+  const a2 = (await api(page, 'POST', '/files/folder', { name: 'Keyboard Beta' })).body;
+  const doc = (await api(page, 'POST', '/files/new', { kind: 'doc', name: 'Typed memo' })).body;
+  await page.goto(`${B}/drive`);
+  await page.getByRole('button', { name: 'Actions for Typed memo' }).click();
+  await page.getByRole('menuitem', { name: 'Move to…' }).click();
+  const d = page.getByRole('dialog', { name: 'Move “Typed memo”' });
+  await d.getByLabel('Find a folder').fill('keyboard');
+  const found = d.getByRole('list', { name: 'Folders found' }).getByRole('button');
+  await until(async () => (await found.count()) === 2);
+  if ((await found.first().getAttribute('aria-current')) !== 'true') throw new Error('the first isn\'t chosen');
+  await d.getByLabel('Find a folder').press('ArrowDown');
+  if ((await found.nth(1).getAttribute('aria-current')) !== 'true') throw new Error('↓ didn\'t move');
+  const pickedName = (await found.nth(1).innerText()).split(' · ')[0].trim();
+  await d.getByLabel('Find a folder').press('Enter');
+  await d.locator('.crumbs').getByText(pickedName).waitFor(); // gone into it
+  await d.getByRole('button', { name: 'Move here' }).click();
+  const want = pickedName === 'Keyboard Alpha' ? a1.id : a2.id;
+  await until(async () => (await api(page, 'GET', `/files/${doc.id}`)).body.parent_id === want);
+});
+
 await step('Search everything at the top says the folder too', async () => {
   await page.goto(`${B}/drive`);
   await page.getByRole('combobox', { name: 'Search everything' }).fill('lease 2027');
