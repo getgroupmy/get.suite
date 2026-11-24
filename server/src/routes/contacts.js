@@ -720,6 +720,19 @@ export default function contactRoutes() {
       q('UPDATE contact_groups SET members = ? WHERE id = ?').run(JSON.stringify(members), g.id);
       return res.json({ added: members.length - before.length, without_email: list.length - withEmail.length });
     }
+    if (action === 'ungroup') {
+      // Out of one of your groups: whoever in it has one of their addresses (the main one or another).
+      const g = q('SELECT * FROM contact_groups WHERE id = ? AND owner_id = ?').get(String(req.body?.group_id || ''), req.user.id);
+      if (!g) throw notFound('Group not found');
+      const gone = new Set();
+      for (const c of list) {
+        for (const e of [c.email, ...cleanMore(c.more_emails, 'emails').map((m) => m.value)]) if (e) gone.add(String(e).trim().toLowerCase());
+      }
+      const before = JSON.parse(g.members);
+      const members = before.filter((m) => !gone.has(String(m.email).toLowerCase()));
+      q('UPDATE contact_groups SET members = ? WHERE id = ?').run(JSON.stringify(members), g.id);
+      return res.json({ removed: before.length - members.length, left: members.length });
+    }
     throw bad('Unknown action');
   });
   r.patch('/:id', (req, res) => {

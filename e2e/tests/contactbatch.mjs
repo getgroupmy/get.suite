@@ -84,6 +84,19 @@ await step('Add to group: + New group… makes one with the people selected in i
   await page.goto(`${B}/contacts`);
   await page.getByText('Dee Done').waitFor();
 });
+await step('Remove from group…: the people selected taken out of one of your groups', async () => {
+  const bar = page.getByRole('toolbar', { name: 'Change the selected contacts' });
+  await page.getByLabel('Select Ann Able').check();
+  await page.getByLabel('Select Cy NoMail').check();
+  await bar.getByLabel('Take the selected contacts out of a group').selectOption({ label: 'Partners' });
+  await page.locator('.toast', { hasText: '1 contact taken out of Partners' }).last().waitFor();
+  const gs = (await api(page, 'GET', '/contacts/groups')).body;
+  if (gs.find((x) => x.name === 'Partners').members.map((m) => m.email).sort().join() !== 'ben@example.com,dee@example.com') throw new Error(JSON.stringify(gs));
+  if (gs.find((x) => x.name === 'Clients').members.length !== 2) throw new Error('Clients changed');
+  await page.getByLabel('Select Cy NoMail').check();
+  await bar.getByLabel('Take the selected contacts out of a group').selectOption({ label: 'Partners' });
+  await page.locator('.toast', { hasText: 'None of them were in Partners' }).last().waitFor();
+});
 await step('Email everyone selected', async () => {
   await page.getByLabel('Select all shown').check();
   await page.getByRole('toolbar', { name: 'Change the selected contacts' }).getByText('4 selected').waitFor();

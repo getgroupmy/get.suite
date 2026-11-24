@@ -9896,6 +9896,19 @@ test('Contacts: several at once (star, add to a group, delete); all checked firs
   const theirGroup = (await b('POST', '/api/contacts/groups', { name: 'Mine', members: [] })).body;
   assert.equal((await batch(a, { ids: [ann.id], action: 'group', group_id: theirGroup.id })).status, 404);
 
+  // Out of a group again: by any of their addresses; someone not in it, or without an address, changes nothing.
+  const annMore = (await a('PATCH', `/api/contacts/${ann.id}`, { more_emails: [{ label: 'home', value: 'ann.home@example.com' }] })).body;
+  assert.equal(annMore.more_emails?.[0]?.value, 'ann.home@example.com');
+  const g2 = (await a('POST', '/api/contacts/groups', { name: 'Team', members: [{ name: 'Ann (home)', email: 'ANN.HOME@example.com' }, { name: 'Ben', email: 'ben@example.com' }, { name: 'Zed', email: 'zed@example.com' }] })).body;
+  r = await batch(a, { ids: [ann.id, cy.id], action: 'ungroup', group_id: g2.id });
+  assert.deepEqual(r.body, { removed: 1, left: 2 });
+  assert.deepEqual((await a('GET', '/api/contacts/groups')).body.find((x) => x.id === g2.id).members.map((m) => m.email), ['ben@example.com', 'zed@example.com']);
+  r = await batch(a, { ids: [ann.id], action: 'ungroup', group_id: g2.id });
+  assert.deepEqual(r.body, { removed: 0, left: 2 }, 'already out');
+  assert.equal((await batch(a, { ids: [ben.id], action: 'ungroup', group_id: theirGroup.id })).status, 404, 'not your group');
+  assert.equal((await batch(b, { ids: [ben.id], action: 'ungroup', group_id: theirGroup.id })).status, 404, 'not your contact');
+  assert.equal((await a('GET', '/api/contacts/groups')).body.find((x) => x.id === g.id).members.length, 2, 'other groups untouched');
+
   assert.equal((await batch(a, { ids: [ann.id], action: 'explode' })).status, 400);
   assert.equal((await batch(a, { ids: [], action: 'delete' })).status, 400);
   assert.equal((await batch(b, { ids: [ann.id], action: 'delete' })).status, 404);

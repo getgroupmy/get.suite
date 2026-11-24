@@ -270,6 +270,11 @@ export default function Contacts() {
                 {myGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                 <option value={NEW_GROUP}>+ New group…</option>
               </select>
+              {myGroups.length > 0 && <select aria-label="Take the selected contacts out of a group" value=""
+                onChange={(e) => { const g = myGroups.find((x) => x.id === e.target.value); if (g) many({ action: 'ungroup', group_id: g.id }, (r) => (r.removed ? `${nPeople(r.removed)} taken out of ${g.name}` : `None of them were in ${g.name}`)); }}>
+                <option value="">Remove from group…</option>
+                {myGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>}
               <button type="button" className="btn small" onClick={() => many({ action: 'star' }, (r) => `${nPeople(r.changed)} starred`)}>★ Star</button>
               <button type="button" className="btn small" onClick={() => many({ action: 'unstar' }, (r) => `${nPeople(r.changed)} unstarred`)}>☆ Unstar</button>
               <Menu trigger={(p) => <button type="button" className="btn small" {...p}><Icon name="download" size={16} /> Export selected</button>} items={[
