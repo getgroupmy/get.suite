@@ -563,6 +563,11 @@ export default function Tasks() {
               <option value="none">None</option>
             </select>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { important: true } }, (n) => `${nTasks(n)} marked important`)}>★ Important</button>
+            {!virtual && people.length > 1 && <select aria-label="Assign the selected tasks to" value="" disabled={!picked.size} onChange={(e) => { const v = e.target.value; if (!v) return; const to = v === '__none__' ? null : v; batch({ change: { assignee_id: to } }, (n) => (to ? `${nTasks(n)} assigned to ${people.find((p) => p.id === to)?.name}` : `${nTasks(n)}: not assigned`)); }}>
+              <option value="">Assign to…</option>
+              {people.map((p) => <option key={p.id} value={p.id}>{p.id === user?.id ? `${p.name} (me)` : p.name}</option>)}
+              <option value="__none__">No one</option>
+            </select>}
             {(() => { // a tag for them all (one used here, or a new one); one some of them have, taken off
               const used = [...new Set((tasks || []).flatMap((t) => t.tags || []))].sort();
               const onPicked = [...new Set((tasks || []).filter((t) => picked.has(t.id)).flatMap((t) => t.tags || []))].sort();

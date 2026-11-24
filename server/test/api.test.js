@@ -9875,6 +9875,16 @@ test('Tasks: several at once (tick off, due date, star, move, delete); all check
   assert.deepEqual((await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body.find((t) => t.id === t2.id).tags, ['design'], 'checked first');
   assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { tags: [] })).status, 200);
 
+  // Given to someone on the list (they're told), or to no one; not to someone who isn't on it.
+  const bob = (await b('GET', '/api/auth/me')).body.user;
+  assert.equal((await batch(a, { ids: [t1.id, t2.id], change: { assignee_id: bob.id } })).status, 400, 'not on the list yet');
+  assert.equal((await a('PUT', `/api/tasks/lists/${list.id}/members`, { user_ids: [bob.id] })).status, 200);
+  r = await batch(a, { ids: [t1.id, t2.id], change: { assignee_id: bob.id } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.tasks.map((t) => t.assignee_id), [bob.id, bob.id]);
+  r = await batch(a, { ids: [t1.id, t2.id], change: { assignee_id: null } });
+  assert.deepEqual(r.body.tasks.map((t) => t.assignee_id ?? null), [null, null]);
+
   // Ticking off a repeating task brings the next one, as one at a time does.
   r = await batch(a, { ids: [t2.id, t3.id], change: { done: true } });
   assert.equal(r.status, 200);
