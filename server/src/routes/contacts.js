@@ -711,6 +711,15 @@ export default function contactRoutes() {
       tx(() => { for (const c of list) q('UPDATE contacts SET starred = ? WHERE id = ?').run(action === 'star' ? 1 : 0, c.id); });
       return res.json({ changed: list.length });
     }
+    if (action === 'touch') {
+      // Keep in touch every so often (a reminder when it's been that long), or no reminder: your own contacts only.
+      if (list.some((c) => c.owner_id !== req.user.id)) throw bad('Only its owner keeps in touch');
+      const v = req.body?.touch_days;
+      const d = v === null || v === '' || v === undefined ? null : Number(v);
+      if (d !== null && !TOUCH_DAYS.includes(d)) throw bad('Every week, 2 weeks, month, 2 months, 3 months, 6 months or year');
+      tx(() => { for (const c of list) q('UPDATE contacts SET touch_days = ? WHERE id = ?').run(d, c.id); });
+      return res.json({ changed: list.length });
+    }
     if (action === 'company') {
       // One company (and a job title, if given) for them all; an empty one clears it.
       const company = String(req.body?.company ?? '').trim().slice(0, FIELDS.company) || null;

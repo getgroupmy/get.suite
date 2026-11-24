@@ -134,6 +134,20 @@ await step('Set company…: one company (and job title) for several; empty clear
   c = Object.fromEntries((await mine()).map((x) => [x.name, `${x.company || ''}/${x.title || ''}`]));
   if (c['Dee Done'] !== '/Buyer' || c['Ann Able'] !== 'Globex/Buyer') throw new Error(JSON.stringify(c));
 });
+await step('Keep in touch…: one reminder span for several, or none', async () => {
+  const bar = page.getByRole('toolbar', { name: 'Change the selected contacts' });
+  await page.getByLabel('Select Ann Able').check();
+  await page.getByLabel('Select Ben Best').check();
+  await bar.getByLabel('Keep in touch with the selected contacts').selectOption({ label: 'Every 2 weeks' });
+  await page.locator('.toast', { hasText: '2 contacts: every 2 weeks' }).last().waitFor();
+  let c = Object.fromEntries((await mine()).map((x) => [x.name, x.touch_days ?? null]));
+  if (c['Ann Able'] !== 14 || c['Ben Best'] !== 14 || c['Dee Done'] !== null) throw new Error(JSON.stringify(c));
+  await page.getByLabel('Select Ben Best').check();
+  await bar.getByLabel('Keep in touch with the selected contacts').selectOption({ label: 'No reminder' });
+  await page.locator('.toast', { hasText: '1 contact: no reminder' }).last().waitFor();
+  c = Object.fromEntries((await mine()).map((x) => [x.name, x.touch_days ?? null]));
+  if (c['Ann Able'] !== 14 || c['Ben Best'] !== null) throw new Error(JSON.stringify(c));
+});
 await step('Email everyone selected', async () => {
   await page.getByLabel('Select all shown').check();
   await page.getByRole('toolbar', { name: 'Change the selected contacts' }).getByText('4 selected').waitFor();

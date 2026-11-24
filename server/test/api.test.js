@@ -9949,6 +9949,15 @@ test('Contacts: several at once (star, add to a group, delete); all checked firs
   assert.deepEqual(r.body, { changed: 3 });
   assert.deepEqual(await company(), [], 'no longer shared');
 
+  // Keep in touch with several (every month), then no reminder; only the allowed spans, only your own.
+  r = await batch(a, { ids: [ann.id, ben.id], action: 'touch', touch_days: 30 });
+  assert.deepEqual(r.body, { changed: 2 });
+  assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body.map((c) => [c.name, c.touch_days]).sort(), [['Ann Able', 30], ['Ben Best', 30]]);
+  assert.equal((await batch(a, { ids: [ann.id], action: 'touch', touch_days: 3 })).status, 400);
+  assert.equal((await batch(b, { ids: [ann.id], action: 'touch', touch_days: 7 })).status, 404);
+  r = await batch(a, { ids: [ann.id, ben.id], action: 'touch', touch_days: null });
+  assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body, []);
+
   // One company (and job title) for several; empty clears it.
   r = await batch(a, { ids: [ann.id, ben.id], action: 'company', company: '  Globex Ltd ', title: 'Buyer' });
   assert.deepEqual(r.body, { changed: 2 });

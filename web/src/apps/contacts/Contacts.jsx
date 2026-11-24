@@ -278,6 +278,11 @@ export default function Contacts() {
               </select>}
               <button type="button" className="btn small" onClick={() => many({ action: 'star' }, (r) => `${nPeople(r.changed)} starred`)}>★ Star</button>
               <button type="button" className="btn small" onClick={() => many({ action: 'unstar' }, (r) => `${nPeople(r.changed)} unstarred`)}>☆ Unstar</button>
+              <select aria-label="Keep in touch with the selected contacts" value="x" title="A reminder when it's been that long since you were in touch"
+                onChange={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); many({ action: 'touch', touch_days: v }, (r) => (v ? `${nPeople(r.changed)}: ${TOUCH.find(([d]) => d === v)[1].toLowerCase()}` : `${nPeople(r.changed)}: no reminder`)); }}>
+                <option value="x" disabled>Keep in touch…</option>
+                {TOUCH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
               <button type="button" className="btn small" title="One company (and job title) for everyone selected" onClick={() => setSettingCompany(true)}>Set company…</button>
               {chosen.some((c) => !c.shared) && <button type="button" className="btn small" title={`Everyone at ${user.org_name} sees them, and finds them when writing mail`}
                 onClick={() => many({ action: 'share' }, (r) => `${nPeople(r.changed)} shared with everyone at ${user.org_name}`)}><Icon name="people" size={16} /> Share with {user.org_name}</button>}
