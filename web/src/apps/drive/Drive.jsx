@@ -937,6 +937,7 @@ export default function Drive() {
       {dialog?.type === 'templates' && <TemplatesDialog onClose={() => setDialog(null)} onPick={async (t) => {
         try {
           const f = t.builtIn ? await post('/files/new', { kind: t.kind, name: t.name, parent_id: parentId, content: t.content() }) : await post(`/files/templates/${t.id}/use`, { parent_id: parentId });
+          if (t.builtIn) post(`/files/templates/builtin/${t.key}/used`, {}).catch(() => {}); // first under Used lately next time
           navigate(openPath(f));
         } catch (e) { toast(e.message, 'error'); }
       }} />}
@@ -1726,7 +1727,17 @@ function AccessRequests({ list, onClose, onChanged }) {
 /** New from a template: your own, your company's, and the built-in ones. */
 function TemplatesDialog({ onClose, onPick }) {
   const [company, setCompany] = useState(null);
-  useEffect(() => { get('/files/templates').then(setCompany).catch(() => setCompany([])); }, []);
+  const [recent, setRecent] = useState([]);
+  useEffect(() => {
+    // Both first, so no card moves from its section to Used lately once shown.
+    Promise.all([get('/files/templates').catch(() => []), get('/files/templates/recent').catch(() => [])])
+      .then(([c, r]) => { setRecent(r); setCompany(c); });
+  }, []);
+  // The three you started from lately (still there) first, taken out of their own sections below.
+  const builtIn = BUILT_IN.map((t) => ({ ...t, builtIn: true, rkey: `builtin:${t.key}` }));
+  const all = [...(company || []).map((t) => ({ ...t, rkey: t.id, ...(t.mine ? { owner_name: null, blurb: t.description || 'Yours' } : {}) })), ...builtIn];
+  const lately = company ? recent.map((r) => all.find((t) => t.rkey === r.key)).filter(Boolean).slice(0, 3) : [];
+  const rest = (t) => !lately.includes(t);
   const card = (t, key) => (
     <button key={key} type="button" className="template-card" onClick={() => onPick(t)} aria-label={`${t.name} (${{ doc: 'document', sheet: 'spreadsheet', slides: 'presentation' }[t.kind]})`}>
       <Icon name={t.kind} size={28} className={`ft ft-${t.kind}`} />
@@ -1737,16 +1748,22 @@ function TemplatesDialog({ onClose, onPick }) {
   return (
     <Modal wide title="New from a template" onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
       <div className="stack">
-        {company?.some((t) => t.mine) && <>
+        {lately.length > 0 && <>
+          <h3 className="template-head">Used lately</h3>
+          <div className="template-grid" aria-label="Used lately">{lately.map((t) => card(t, t.rkey))}</div>
+        </>}
+        {all.some((t) => t.mine && rest(t)) && <>
           <h3 className="template-head">My templates</h3>
-          <div className="template-grid" aria-label="My templates">{company.filter((t) => t.mine).map((t) => card({ ...t, owner_name: null, blurb: t.description || 'Yours' }, t.id))}</div>
+          <div className="template-grid" aria-label="My templates">{all.filter((t) => t.mine && rest(t)).map((t) => card(t, t.rkey))}</div>
         </>}
-        {company?.some((t) => !t.mine) && <>
+        {all.some((t) => !t.builtIn && !t.mine && rest(t)) && <>
           <h3 className="template-head">Your company</h3>
-          <div className="template-grid">{company.filter((t) => !t.mine).map((t) => card(t, t.id))}</div>
+          <div className="template-grid">{all.filter((t) => !t.builtIn && !t.mine && rest(t)).map((t) => card(t, t.rkey))}</div>
         </>}
-        <h3 className="template-head">Ready-made</h3>
-        <div className="template-grid">{BUILT_IN.map((t) => card({ ...t, builtIn: true }, t.key))}</div>
+        {company && builtIn.some(rest) && <>
+          <h3 className="template-head">Ready-made</h3>
+          <div className="template-grid" aria-label="Ready-made">{builtIn.filter(rest).map((t) => card(t, t.rkey))}</div>
+        </>}
       </div>
     </Modal>
   );

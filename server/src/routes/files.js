@@ -1234,6 +1234,25 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ deleted: ids.length });
   });
 
+  // The templates each person started from lately (a file's id, or builtin:<key> for a ready-made one),
+  // shown first under New → From a template. Only the latest 20 are kept.
+  q(`CREATE TABLE IF NOT EXISTS file_template_uses (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    used_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
+  )`).run();
+  const usedTemplate = (userId, key) => tx(() => {
+    q('INSERT INTO file_template_uses (user_id, key, used_at) VALUES (?, ?, ?) ON CONFLICT (user_id, key) DO UPDATE SET used_at = excluded.used_at').run(userId, key, Date.now());
+    q('DELETE FROM file_template_uses WHERE user_id = ? AND key NOT IN (SELECT key FROM file_template_uses WHERE user_id = ? ORDER BY used_at DESC LIMIT 20)').run(userId, userId);
+  });
+  r.get('/templates/recent', (req, res) => res.json(q('SELECT key, used_at FROM file_template_uses WHERE user_id = ? ORDER BY used_at DESC').all(req.user.id)));
+  r.post('/templates/builtin/:key/used', (req, res) => {
+    const key = String(req.params.key);
+    if (!/^[a-z0-9-]{1,40}$/.test(key)) throw bad('Unknown template');
+    usedTemplate(req.user.id, `builtin:${key}`);
+    res.json({ ok: true });
+  });
   // Company templates, for New → From a template.
   // Company templates (template = 1), and your own (template = 2, files you own), for New → From a template.
   r.get('/templates', (req, res) => {
@@ -1430,6 +1449,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const id = insertFile({ owner: req.user.id, parentId, name, kind: row.kind, size: row.size, content: row.content, activity: { action: 'copy', details: { from: `the template ${row.name}` } } });
     const own = contentWithOwnMedia(row, row.content, req.user, { parent_id: parentId }); // the template's pictures, yours to show
     if (own !== row.content) q('UPDATE files SET content = ? WHERE id = ?').run(own, id);
+    usedTemplate(req.user.id, row.id);
     notifyPlace(parentId, req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });

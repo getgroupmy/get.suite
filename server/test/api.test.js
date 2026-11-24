@@ -12000,6 +12000,20 @@ test('my templates: your own documents to start from; only yours, only your file
   const made = (await a('POST', `/api/files/templates/${doc.id}/use`, {})).body;
   assert.notEqual(made.id, doc.id);
   assert.equal((await a('GET', `/api/files/${made.id}/content`)).body.content.content[0].content[0].text, 'Weekly report');
+  // Started from lately: yours alone, latest first; the ready-made ones too (only names like theirs).
+  assert.deepEqual((await a('GET', '/api/files/templates/recent')).body.map((x) => x.key), [doc.id]);
+  assert.deepEqual((await b('GET', '/api/files/templates/recent')).body, [], 'a failed use isn’t one');
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal((await a('POST', '/api/files/templates/builtin/budget/used')).status, 200);
+  assert.equal((await a('POST', '/api/files/templates/builtin/..%2Fx/used')).status, 400);
+  assert.deepEqual((await a('GET', '/api/files/templates/recent')).body.map((x) => x.key), ['builtin:budget', doc.id]);
+  await new Promise((r) => setTimeout(r, 5));
+  await a('POST', `/api/files/templates/${doc.id}/use`, {});
+  assert.deepEqual((await a('GET', '/api/files/templates/recent')).body.map((x) => x.key), [doc.id, 'builtin:budget'], 'used again: first again, once');
+  for (let i = 0; i < 22; i++) await a('POST', `/api/files/templates/builtin/k${i}/used`);
+  const kept = (await a('GET', '/api/files/templates/recent')).body;
+  assert.equal(kept.length, 20, 'the latest 20 kept');
+  assert.ok(!kept.some((x) => x.key === doc.id));
   // Someone else's file can't become your template; nor can a folder.
   await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: (await b('GET', '/api/auth/me')).body.user.id, role: 'editor' }] });
   assert.equal((await b('PUT', `/api/files/${doc.id}/my-template`, { template: true })).status, 403);

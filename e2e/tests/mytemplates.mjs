@@ -67,6 +67,29 @@ await step('Olivia doesn’t see Kim’s template', async () => {
   await d.getByText('Ready-made').waitFor();
   if (await d.getByText('Weekly report').count()) throw new Error('someone else’s template shows');
 });
+await step('Used lately: the templates Kim started from last come first, out of their own sections', async () => {
+  const open = async () => {
+    await kim.goto(`${B}/drive`);
+    await kim.getByRole('button', { name: 'New' }).click();
+    await kim.getByRole('menuitem', { name: 'From a template…' }).click();
+    const d = kim.getByRole('dialog', { name: 'New from a template' });
+    await d.getByText('Ready-made').waitFor();
+    return d;
+  };
+  const names = (d, label) => d.getByLabel(label, { exact: true }).locator('strong').allTextContents();
+  let d = await open();
+  if ((await names(d, 'Used lately')).join() !== 'Weekly report') throw new Error('lately ' + await names(d, 'Used lately'));
+  if (await d.getByLabel('My templates').count()) throw new Error('still under My templates');
+  await d.getByRole('button', { name: 'Monthly budget (spreadsheet)' }).click();
+  await kim.waitForURL(/\/sheets\//);
+  await kim.waitForFunction(async () => (await (await fetch('/api/files/templates/recent')).json()).length === 2);
+  d = await open();
+  if ((await names(d, 'Used lately')).join() !== 'Monthly budget,Weekly report') throw new Error('lately ' + await names(d, 'Used lately'));
+  if ((await names(d, 'Ready-made')).includes('Monthly budget')) throw new Error('twice');
+  if (!(await names(d, 'Ready-made')).includes('Meeting notes')) throw new Error('the rest stay');
+  await kim.screenshot({ path: `${SP}/shots/mytemplates-lately.png` });
+  await kim.keyboard.press('Escape');
+});
 if (errors.length) { failed++; console.log('FAIL console errors', errors.slice(0, 5).join(' | ')); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();
