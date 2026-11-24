@@ -120,6 +120,12 @@ export default function Tasks() {
     try { await post(`/tasks/tasks/${t.id}/myday`, { today: localToday(), on }); loadMyDay(); if (listId === MYDAY) loadTasks(); toast(on ? `“${t.title}” added to My Day` : 'Taken off My Day'); }
     catch (e) { toast(e.message, 'error'); }
   };
+  // Hidden lists (finished projects) stay out of the left until "Hidden lists" is opened.
+  const [showHidden, setShowHidden] = useState(false);
+  const hideList = async (l, hidden) => {
+    try { await put(`/tasks/lists/${l.id}/hidden`, { hidden }); toast(hidden ? `“${l.name}” is hidden from the left (under Hidden lists)` : `“${l.name}” is back on the left`); loadLists(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   // This list one place up (by -1) or down (by 1) among your lists on the left: your own order from then on.
   const orderList = async (by) => {
     const ids = lists.map((l) => l.id);
@@ -389,17 +395,26 @@ export default function Tasks() {
           <Icon name="people" /><span className="grow">Team workload</span>
         </button>}
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
-        {lists.filter((l) => l.mine).map((l) => (
+        {lists.filter((l) => l.mine && !l.hidden).map((l) => (
           <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
             {l.emoji ? <span className="list-emoji" aria-hidden="true">{l.emoji}</span> : <Icon name={l.mine && !l.members.length ? 'check' : 'people'} style={l.color ? { color: l.color } : undefined} />}<span className="grow ellipsis">{l.name}</span>{l.inbox && lists.length > 1 && <span className="inbox-mark" role="img" aria-label="Add to Tasks puts things here" title="Add to Tasks (in Mail, Chat and Notes) puts things here">📥</span>}{l.color && <span className="list-dot" style={{ background: l.color }} aria-hidden="true" />}{l.open > 0 && <span className="count">{l.open}</span>}
           </button>
         ))}
-        {lists.some((l) => !l.mine) && <div className="subnav-title">Shared with me</div>}
-        {lists.filter((l) => !l.mine).map((l) => (
+        {lists.some((l) => !l.mine && !l.hidden) && <div className="subnav-title">Shared with me</div>}
+        {lists.filter((l) => !l.mine && !l.hidden).map((l) => (
           <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
             {l.emoji ? <span className="list-emoji" aria-hidden="true">{l.emoji}</span> : <Icon name={l.mine && !l.members.length ? 'check' : 'people'} style={l.color ? { color: l.color } : undefined} />}<span className="grow ellipsis">{l.name} <span className="muted small">from {String(l.owner_name || '').split(' ')[0]}</span></span>{l.inbox && lists.length > 1 && <span className="inbox-mark" role="img" aria-label="Add to Tasks puts things here" title="Add to Tasks (in Mail, Chat and Notes) puts things here">📥</span>}{l.color && <span className="list-dot" style={{ background: l.color }} aria-hidden="true" />}{l.open > 0 && <span className="count">{l.open}</span>}
           </button>
         ))}
+        {lists.some((l) => l.hidden) && <>
+          <button type="button" className="subnav-item muted" aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>
+            <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>{showHidden ? '▾' : '▸'}</span><span className="grow">Hidden lists</span><span className="count">{lists.filter((l) => l.hidden).length}</span></button>
+          {showHidden && <div role="group" aria-label="Hidden lists">{lists.filter((l) => l.hidden).map((l) => (
+            <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
+              {l.emoji ? <span className="list-emoji" aria-hidden="true">{l.emoji}</span> : <Icon name={l.members.length ? 'people' : 'check'} style={l.color ? { color: l.color } : undefined} />}<span className="grow ellipsis">{l.name}{!l.mine && <span className="muted small"> from {String(l.owner_name || '').split(' ')[0]}</span>}</span>{l.open > 0 && <span className="count">{l.open}</span>}
+            </button>
+          ))}</div>}
+        </>}
         {(tagList.length > 0 || tagView) && <div className="subnav-title">Tags</div>}
         {tagList.map((t) => (
           <button key={t.name} type="button" className={`subnav-item ${tagView === t.name ? 'active' : ''}`} aria-label={`Tag ${t.name}, ${t.count} open`} onClick={() => navigate(`/tasks/tag:${encodeURIComponent(t.name)}`)}>
@@ -508,6 +523,8 @@ export default function Tasks() {
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }, { label: 'Colour and emoji…', icon: 'star', onClick: () => setDialog('look') }] : []),
               ...(lists.findIndex((l) => l.id === list.id) > 0 ? [{ label: 'Move up on the left', icon: 'move', onClick: () => orderList(-1) }] : []),
               ...(lists.findIndex((l) => l.id === list.id) < lists.length - 1 ? [{ label: 'Move down on the left', icon: 'move', onClick: () => orderList(1) }] : []),
+              ...(list.hidden ? [{ label: 'Show on the left', icon: 'restore', onClick: () => hideList(list, false) }]
+                : !list.inbox ? [{ label: 'Hide from the left', icon: 'archive', onClick: () => hideList(list, true) }] : []),
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
               ...(list.members.length ? [{ label: 'Workload…', icon: 'people', onClick: () => setDialog('workload') }] : []),
               { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },

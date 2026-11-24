@@ -1840,6 +1840,19 @@ test('tasks: your own order for the lists on the left; a colleague’s list plac
   assert.deepEqual(await names(b), ['Shared by Ben'], 'Ben’s own lists, untouched by Ann’s order');
   assert.equal((await b('PUT', '/api/tasks/lists/order', { ids: [work] })).status, 404, 'not one he’s on');
   assert.ok(bid);
+  // Hidden from the left: yours alone, kept with its tasks; not the list Add to Tasks puts things in.
+  const hiddenOf = async (who) => (await who('GET', '/api/tasks/lists')).body.lists.filter((l) => l.hidden).map((l) => l.name);
+  await a('POST', `/api/tasks/lists/${bens}/tasks`, { title: 'Still here' });
+  assert.deepEqual((await a('PUT', `/api/tasks/lists/${bens}/hidden`, { hidden: true })).body, { hidden: true });
+  await a('PUT', `/api/tasks/lists/${work}/hidden`, { hidden: true });
+  assert.deepEqual(await hiddenOf(a), ['Shared by Ben', 'Work']);
+  assert.deepEqual(await hiddenOf(b), [], 'Ben still sees his list');
+  assert.ok((await a('GET', `/api/tasks/lists/${bens}/tasks`)).body.some((t) => t.title === 'Still here'), 'its tasks are kept');
+  const inbox = (await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.inbox).id;
+  assert.equal((await a('PUT', `/api/tasks/lists/${inbox}/hidden`, { hidden: true })).status, 400, 'Add to Tasks puts things there');
+  assert.equal((await b('PUT', `/api/tasks/lists/${work}/hidden`, { hidden: true })).status, 404, 'not one he’s on');
+  await a('PUT', `/api/tasks/lists/${work}/hidden`, { hidden: false });
+  assert.deepEqual(await hiddenOf(a), ['Shared by Ben']);
 });
 
 test('tasks: lists, ordering, due dates, done, sharing and assigning', async () => {

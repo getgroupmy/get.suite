@@ -53,6 +53,12 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
   updated_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
+// Lists a person has hidden from the left (a finished project): kept, with their tasks, under Hidden lists.
+q(`CREATE TABLE IF NOT EXISTS task_list_hidden (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, list_id)
+)`).run();
 // Each person's own order for their lists on the left.
 q(`CREATE TABLE IF NOT EXISTS task_list_order (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -511,6 +517,16 @@ export default function taskRoutes() {
     sendTo([req.user.id], { type: 'tasks-changed' });
     res.json({ ok: true });
   });
+  // Hide a list from the left ({ hidden: true }), or show it again: yours alone; not the one Add to Tasks puts things in.
+  r.put('/lists/:id/hidden', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    if (req.body?.hidden) {
+      if (myFirstList(req.user.id).id === list.id) throw bad('Add to Tasks puts things in this list: choose another for that first');
+      q('INSERT OR IGNORE INTO task_list_hidden (user_id, list_id) VALUES (?, ?)').run(req.user.id, list.id);
+    } else q('DELETE FROM task_list_hidden WHERE user_id = ? AND list_id = ?').run(req.user.id, list.id);
+    sendTo([req.user.id], { type: 'tasks-changed' });
+    res.json({ hidden: !!req.body?.hidden });
+  });
   r.get('/lists', (req, res) => {
     const me = req.user.id;
     // Everyone starts with a list of their own.
@@ -531,7 +547,8 @@ export default function taskRoutes() {
     const today = dueOf(String(req.query.today || '')) || new Date().toISOString().slice(0, 10);
     const planned = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE ${PLANNED} AND t.due <= ?`).get(me, me, me, today).n;
     const inbox = myFirstList(me).id; // where Add to Tasks puts things
-    res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, inbox: l.id === inbox, members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important, planned });
+    const hidden = new Set(q('SELECT list_id FROM task_list_hidden WHERE user_id = ?').all(me).map((x) => x.list_id));
+    res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, inbox: l.id === inbox, hidden: hidden.has(l.id), members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important, planned });
   });
 
   // The list Add to Tasks uses: { list_id } (one of yours or one shared with you), or null for your first list again.

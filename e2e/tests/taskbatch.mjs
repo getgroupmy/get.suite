@@ -337,6 +337,37 @@ await step('List actions → Move up / down on the left: your own order for the 
   const after = await page.locator('.subnav .subnav-item .grow').allInnerTexts();
   if (after.indexOf('Later') > after.indexOf(before[i - 1])) throw new Error(`after reload: ${after.join('|')}`);
 });
+await step('List actions → Hide from the left: out of the lists, under Hidden lists, and back', async () => {
+  const side = () => page.locator('.subnav > .subnav-item .grow').allInnerTexts();
+  await page.goto(`${B}/tasks/${later}`);
+  await page.getByRole('heading', { name: 'Later' }).waitFor();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Hide from the left' }).click();
+  await page.locator('.toast', { hasText: '“Later” is hidden from the left' }).waitFor();
+  await until(async () => !(await side()).includes('Later'));
+  const toggle = page.getByRole('button', { name: /^Hidden lists/ });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'false') throw new Error('open at first');
+  await toggle.click();
+  const group = page.getByRole('group', { name: 'Hidden lists' });
+  await group.getByRole('button', { name: /Later/ }).waitFor();
+  await page.reload();
+  await page.getByRole('heading', { name: 'Later' }).waitFor();
+  if ((await side()).includes('Later')) throw new Error('back after reload');
+  await page.screenshot({ path: `${SP}/shots/taskbatch-hidden.png` });
+  // The list Add to Tasks puts things in can't be hidden.
+  const inbox = (await api(page, 'GET', '/tasks/lists')).body.lists.find((l) => l.inbox);
+  await page.goto(`${B}/tasks/${inbox.id}`);
+  await page.getByRole('heading', { name: inbox.name }).waitFor();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  if (await page.getByRole('menuitem', { name: 'Hide from the left' }).count()) throw new Error('the Add to Tasks list can be hidden');
+  await page.keyboard.press('Escape');
+  await page.goto(`${B}/tasks/${later}`);
+  await page.getByRole('heading', { name: 'Later' }).waitFor();
+  await page.getByRole('button', { name: 'List actions' }).click();
+  await page.getByRole('menuitem', { name: 'Show on the left' }).click();
+  await until(async () => (await side()).includes('Later'));
+  if (await page.getByRole('button', { name: /^Hidden lists/ }).count()) throw new Error('toggle stays with none hidden');
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
