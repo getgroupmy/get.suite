@@ -291,6 +291,23 @@ await step('☀ My Day: the selected tasks added to My Day at once', async () =>
   if (day.join() !== 'Read book,Call bank') throw new Error(day.join()); // in the list's order (the newest at its top)
   await page.getByRole('button', { name: /My Day/ }).first().locator('.count', { hasText: '2' }).waitFor();
 });
+await step('In My Day, the bar takes the selected tasks off it (they stay on their list)', async () => {
+  await page.goto(`${B}/tasks/myday`);
+  await page.getByText('Call bank', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await choose('Call bank');
+  const bar = page.getByRole('toolbar', { name: 'Change the selected tasks' });
+  if (await bar.getByRole('button', { name: '☀ My Day' }).count()) throw new Error('add offered in My Day');
+  await bar.getByRole('button', { name: 'Take off My Day' }).click();
+  await page.locator('.toast', { hasText: '1 task taken off My Day' }).last().waitFor();
+  await page.getByText('Call bank', { exact: true }).waitFor({ state: 'detached' });
+  await page.getByText('Read book', { exact: true }).waitFor();
+  const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  if ((await api(page, 'GET', `/tasks/myday?today=${today}`)).body.map((t) => t.title).join() !== 'Read book') throw new Error('My Day');
+  const lists = (await api(page, 'GET', '/tasks/lists')).body;
+  const tl = (lists.lists || lists).find((l) => l.name === 'Today stuff').id;
+  if (!(await tasksOf(tl)).some((t) => t.title === 'Call bank')) throw new Error('gone from its list');
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
