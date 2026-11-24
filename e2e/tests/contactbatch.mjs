@@ -57,6 +57,33 @@ await step('Select several: star them, add them to a group', async () => {
   const g = (await api(page, 'GET', '/contacts/groups')).body.find((x) => x.id === group.id);
   if (g.members.map((m) => m.email).sort().join() !== 'ann@example.com,ben@example.com') throw new Error(JSON.stringify(g.members));
 });
+await step('Add to group: + New group… makes one with the people selected in it', async () => {
+  await page.goto(`${B}/contacts`);
+  await page.getByLabel('Select Ann Able').check();
+  await page.getByLabel('Select Dee Done').check();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected contacts' });
+  await bar.getByLabel('Add the selected contacts to a group').selectOption({ label: '+ New group…' });
+  const dlg = page.getByRole('dialog', { name: 'New group of 2 contacts' });
+  await dlg.getByLabel('Group name').fill('clients'); // a name already used: said, and nothing made
+  await dlg.getByRole('button', { name: 'Make the group' }).click();
+  await dlg.getByText('You already have a group with that name').waitFor();
+  await dlg.getByLabel('Group name').fill('Partners');
+  await dlg.getByRole('button', { name: 'Make the group' }).click();
+  await page.locator('.toast', { hasText: '2 added to Partners' }).last().waitFor();
+  await dlg.waitFor({ state: 'detached' });
+  const gs = (await api(page, 'GET', '/contacts/groups')).body;
+  const g = gs.find((x) => x.name === 'Partners');
+  if (!g || g.members.map((m) => m.email).sort().join() !== 'ann@example.com,dee@example.com') throw new Error(JSON.stringify(gs));
+  if (gs.length !== 2) throw new Error(`groups: ${gs.length}`);
+  // It's offered at once for the next people chosen.
+  await page.getByLabel('Select Ben Best').check();
+  await bar.getByLabel('Add the selected contacts to a group').selectOption({ label: 'Partners' });
+  await page.locator('.toast', { hasText: '1 added to Partners' }).last().waitFor();
+  await page.getByRole('tab', { name: 'Groups', exact: true }).click();
+  await page.getByText('Partners').first().waitFor();
+  await page.goto(`${B}/contacts`);
+  await page.getByText('Dee Done').waitFor();
+});
 await step('Email everyone selected', async () => {
   await page.getByLabel('Select all shown').check();
   await page.getByRole('toolbar', { name: 'Change the selected contacts' }).getByText('4 selected').waitFor();

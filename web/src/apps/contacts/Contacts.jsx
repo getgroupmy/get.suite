@@ -14,7 +14,7 @@ import TasksAbout from '../../components/TasksAbout.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Menu, Modal, NotSent, PromptModal, useToast } from '../../components/ui.jsx';
 import { printHtml } from '../mail/mailprint.js';
 import { contactsPrintHtml } from './contactprint.js';
 import { useAuth } from '../../App.jsx';
@@ -56,6 +56,8 @@ function MoreField({ kind, list, onChange }) {
     </div>
   );
 }
+
+const NEW_GROUP = '__new__';
 
 export default function Contacts() {
   const [sending, setSending] = useState(null); // a contact being sent in Chat
@@ -170,6 +172,7 @@ export default function Contacts() {
   const [picked, setPicked] = useState(() => new Set());
   const [myGroups, setMyGroups] = useState([]);
   const [deletingMany, setDeletingMany] = useState(false);
+  const [newGroup, setNewGroup] = useState(false); // naming a group for the people selected
   useEffect(() => { setPicked(new Set()); if (tab === 'mine') get('/contacts/groups').then(setMyGroups).catch(() => {}); }, [tab]);
   const selecting = tab === 'mine';
   const chosen = (contacts || []).filter((c) => picked.has(c.id));
@@ -179,6 +182,14 @@ export default function Contacts() {
   async function putBack(ids) {
     try { for (const id of ids) await post(`/contacts/trash/${id}/restore`); toast(ids.length === 1 ? 'Contact put back' : `${nPeople(ids.length)} put back`); load(); }
     catch (e) { toast(e.message, 'error'); load(); }
+  }
+
+  const addToGroup = (g) => many({ action: 'group', group_id: g.id }, (r) => `${r.added} added to ${g.name}${r.without_email ? ` (${r.without_email} without an email address left out)` : ''}`);
+  /** "+ New group…": a group made with a name, the people selected put in it. */
+  async function groupFromPicked(name) {
+    const g = await post('/contacts/groups', { name, members: [] });
+    setMyGroups((gs) => [...gs, g]);
+    await addToGroup(g);
   }
 
   async function many(body, say) {
@@ -253,10 +264,11 @@ export default function Contacts() {
               <strong className="small" aria-live="polite">{picked.size} selected</strong>
               <button type="button" className="btn small" disabled={!chosen.some((c) => c.email)} title="Write to everyone selected who has an email address"
                 onClick={() => navigate(`/mail?compose=${encodeURIComponent(chosen.filter((c) => c.email).map((c) => formatAddress({ name: c.name, email: c.email })).join(', '))}`)}><Icon name="mail" size={16} /> Email</button>
-              <select aria-label="Add the selected contacts to a group" value="" disabled={!myGroups.length} title={myGroups.length ? '' : 'Make a group first (Groups tab)'}
-                onChange={(e) => { const g = myGroups.find((x) => x.id === e.target.value); if (g) many({ action: 'group', group_id: g.id }, (r) => `${r.added} added to ${g.name}${r.without_email ? ` (${r.without_email} without an email address left out)` : ''}`); }}>
+              <select aria-label="Add the selected contacts to a group" value=""
+                onChange={(e) => { if (e.target.value === NEW_GROUP) { setNewGroup(true); return; } const g = myGroups.find((x) => x.id === e.target.value); if (g) addToGroup(g); }}>
                 <option value="">Add to group…</option>
                 {myGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                <option value={NEW_GROUP}>+ New group…</option>
               </select>
               <button type="button" className="btn small" onClick={() => many({ action: 'star' }, (r) => `${nPeople(r.changed)} starred`)}>★ Star</button>
               <button type="button" className="btn small" onClick={() => many({ action: 'unstar' }, (r) => `${nPeople(r.changed)} unstarred`)}>☆ Unstar</button>
@@ -317,6 +329,7 @@ export default function Contacts() {
       {qr && <ContactQr contact={qr} onClose={() => setQr(null)} />}
       {sending && <SendContact contacts={[sending].flat()} onClose={() => setSending(null)} />}
       {editing && <ContactDialog key={editing.id || 'new'} contact={editing} orgName={user.org_name} all={contacts || []} onOpen={setEditing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {newGroup && <PromptModal title={`New group of ${nPeople(picked.size)}`} label="Group name" confirm="Make the group" onSubmit={groupFromPicked} onClose={() => setNewGroup(false)} />}
       {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They go to Trash for 30 days (and off your phone on its next sync)." onClose={() => setDeletingMany(false)}
         onConfirm={async () => {
           setDeletingMany(false);
