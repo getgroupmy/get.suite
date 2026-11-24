@@ -9875,6 +9875,18 @@ test('Tasks: several at once (tick off, due date, star, move, delete); all check
   assert.deepEqual((await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body.find((t) => t.id === t2.id).tags, ['design'], 'checked first');
   assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { tags: [] })).status, 200);
 
+  // Due dates moved by a week (or back a day); one without a date stays without; month ends roll over.
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t2.id}`, { due: '2026-12-28' })).status, 200);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { due: null })).status, 200);
+  r = await batch(a, { ids: [t1.id, t2.id], change: { due_shift: 7 } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.tasks.map((t) => t.due ?? null), [null, '2027-01-04']);
+  r = await batch(a, { ids: [t2.id], change: { due_shift: -1 } });
+  assert.equal(r.body.tasks[0].due, '2027-01-03');
+  for (const bad of [0, 1.5, 'soon', 400]) assert.equal((await batch(a, { ids: [t2.id], change: { due_shift: bad } })).status, 400, String(bad));
+  assert.equal((await batch(a, { ids: [t2.id, theirs.id], change: { due_shift: 1 } })).status, 404);
+  assert.equal((await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body.find((t) => t.id === t2.id).due, '2027-01-03', 'nothing changed');
+
   // Given to someone on the list (they're told), or to no one; not to someone who isn't on it.
   const bob = (await b('GET', '/api/auth/me')).body.user;
   assert.equal((await batch(a, { ids: [t1.id, t2.id], change: { assignee_id: bob.id } })).status, 400, 'not on the list yet');

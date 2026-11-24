@@ -1332,12 +1332,17 @@ export default function taskRoutes() {
     const tagIn = (v) => { const t = JSON.parse(tagsOf([v]) || '[]')[0]; if (!t) throw bad('Name the tag'); return t; };
     const addTag = req.body?.change?.add_tag !== undefined ? tagIn(req.body.change.add_tag) : null;
     const removeTag = req.body?.change?.remove_tag !== undefined ? tagIn(req.body.change.remove_tag) : null;
-    if (!Object.keys(b).length && !addTag && !removeTag) throw bad('Nothing to change');
+    // Due dates moved by some days (back, with a minus): those without a date are left as they are.
+    const shift = req.body?.change?.due_shift !== undefined ? Number(req.body.change.due_shift) : null;
+    if (shift !== null && (!Number.isInteger(shift) || !shift || Math.abs(shift) > 366)) throw bad('Move the dates by a whole number of days, up to a year');
+    if (!Object.keys(b).length && !addTag && !removeTag && shift === null) throw bad('Nothing to change');
+    const shifted = (day) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + shift); return d.toISOString().slice(0, 10); };
     const each = ids.map((id) => {
-      if (!addTag && !removeTag) return b;
-      const t = q('SELECT title, tags, list_id FROM tasks WHERE id = ?').get(id);
+      if (!addTag && !removeTag && shift === null) return b;
+      const t = q('SELECT title, tags, list_id, due FROM tasks WHERE id = ?').get(id);
       if (!t) throw notFound('Task not found');
       loadList(t.list_id, req.user); // yours to change, before anything about it is said
+      if (shift !== null) return t.due ? { ...b, due: shifted(t.due) } : b;
       let tags = t.tags ? JSON.parse(t.tags) : [];
       if (removeTag) tags = tags.filter((x) => x !== removeTag);
       if (addTag && !tags.includes(addTag)) { if (tags.length >= 10) throw bad(`“${t.title}” has 10 tags already`); tags = [...tags, addTag]; }

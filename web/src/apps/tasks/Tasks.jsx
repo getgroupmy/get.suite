@@ -31,6 +31,8 @@ const waitingOn = (t, all) => (t.blocked_by?.length && !t.done ? (all || []).fil
 const ASSIGNED = 'assigned';
 const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
 const PLANNED = 'planned'; // open tasks with a due date, from every list, grouped by when
+// "Move dates…" on the selection bar: by how many days, and how it's said.
+const SHIFTS = [[1, 'a day later'], [2, '2 days later'], [7, 'a week later'], [14, '2 weeks later'], [-1, 'a day earlier'], [-7, 'a week earlier']];
 const MYDAY = 'myday'; // tasks you picked for today, from any list (yours alone; empty again each day)
 const COMPLETED = 'completed'; // what you ticked off in the last 30 days, from every list, by day
 const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important', [PLANNED]: '/tasks/planned', [MYDAY]: '/tasks/myday', [COMPLETED]: '/tasks/completed' };
@@ -557,6 +559,11 @@ export default function Tasks() {
               <input type="date" aria-label="Due date for the selected tasks" disabled={!picked.size} onChange={(e) => e.target.value && batch({ change: { due: e.target.value } }, (n) => `${nTasks(n)} due ${dueLabel(e.target.value, new Date()).text}`)} />
             </label>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { due: null } }, (n) => `${nTasks(n)}: no due date`)}>No date</button>
+            <select className="small" aria-label="Move the selected tasks' due dates" disabled={!picked.size} value="" title="Each one's own date moved; those without a date stay without"
+              onChange={(e) => { const d = Number(e.target.value); if (d) batch({ change: { due_shift: d } }, (n) => `${nTasks(n)}: dates moved ${SHIFTS.find(([v]) => v === d)[1]}`); }}>
+              <option value="">Move dates…</option>
+              {SHIFTS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
             <select className="small" aria-label="Priority for the selected tasks" disabled={!picked.size} value="" onChange={(e) => { const v = e.target.value; if (v) batch({ change: { priority: v === 'none' ? null : v } }, (n) => `${nTasks(n)}: ${v === 'none' ? 'no priority' : `${v} priority`}`); }}>
               <option value="">Priority…</option>
               {PRIORITIES.map(([k, name, mark]) => <option key={k} value={k}>{mark} {name}</option>)}

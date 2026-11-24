@@ -308,6 +308,18 @@ await step('In My Day, the bar takes the selected tasks off it (they stay on the
   const tl = (lists.lists || lists).find((l) => l.name === 'Today stuff').id;
   if (!(await tasksOf(tl)).some((t) => t.title === 'Call bank')) throw new Error('gone from its list');
 });
+await step('Move dates…: each selected task\'s own due date moved; one without a date stays without', async () => {
+  const tl = (await api(page, 'POST', '/tasks/lists', { name: 'Dates' })).body.id;
+  for (const [title, due] of [['Pay rent', '2027-03-30'], ['Renew passport', '2027-04-02'], ['Someday thing', null]]) await api(page, 'POST', `/tasks/lists/${tl}/tasks`, { title, ...(due && { due }) });
+  await page.goto(`${B}/tasks/${tl}`);
+  await page.getByText('Someday thing', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await choose('Pay rent', 'Renew passport', 'Someday thing');
+  await page.getByRole('toolbar', { name: 'Change the selected tasks' }).getByLabel("Move the selected tasks' due dates").selectOption({ label: 'a week later' });
+  await page.locator('.toast', { hasText: '3 tasks: dates moved a week later' }).last().waitFor();
+  const due = Object.fromEntries((await tasksOf(tl)).map((t) => [t.title, t.due || '']));
+  if (due['Pay rent'] !== '2027-04-06' || due['Renew passport'] !== '2027-04-09' || due['Someday thing']) throw new Error(JSON.stringify(due));
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);
