@@ -977,8 +977,25 @@ export default function formRoutes() {
     if (!ids.length) throw bad('Choose some forms');
     if (ids.length > 200) throw bad('200 forms at a time at most');
     const action = String(req.body?.action || '');
-    if (!['close', 'open', 'delete', 'archive', 'unarchive', 'copy'].includes(action)) throw bad('Unknown action');
-    const forms = ids.map((id) => ownForm(id, req.user, { ownerOnly: ['delete', 'archive', 'unarchive'].includes(action) }));
+    if (!['close', 'open', 'delete', 'archive', 'unarchive', 'copy', 'add_editor'].includes(action)) throw bad('Unknown action');
+    const forms = ids.map((id) => ownForm(id, req.user, { ownerOnly: ['delete', 'archive', 'unarchive', 'add_editor'].includes(action) }));
+    if (action === 'add_editor') { // a colleague made an editor of them all; told once, naming the forms new to them
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const u = q('SELECT id, name, disabled FROM users WHERE lower(username) = ? AND org_id = ?').get(email, req.user.org_id);
+      if (!u || u.disabled) throw bad('No one at your company has that address');
+      if (u.id === req.user.id) throw bad('You own these forms');
+      const full = forms.find((f) => f.editors.length >= MAX_EDITORS && !f.editors.some((e) => e.id === u.id));
+      if (full) throw bad(`“${full.title}” has ${MAX_EDITORS} editors already`);
+      const added = [];
+      tx(() => { for (const f of forms) if (q('INSERT OR IGNORE INTO form_editors (form_id, user_id, added_at) VALUES (?, ?, ?)').run(f.id, u.id, now()).changes) added.push(f); });
+      if (added.length) {
+        const note = req.body?.message ? String(req.body.message).trim().slice(0, 500) : '';
+        bell([u.id], { kind: 'share', title: added.length === 1 ? `${req.user.name} added you to the form “${added[0].title}”` : `${req.user.name} added you to ${added.length} forms`,
+          body: [note && `“${note}”`, added.length > 1 && added.map((f) => f.title).join(', ')].filter(Boolean).join(' · ') || undefined, link: added.length === 1 ? `/forms/${added[0].id}` : '/forms', actor: req.user.name });
+        for (const f of added) changed(f, req.user.id);
+      }
+      return res.json({ added: added.length, name: u.name });
+    }
     if (action === 'copy') { // a copy of each, yours (no responses), as one form's Make a copy gives
       const made = forms.map((f) => copyForm(f, req.user));
       sendTo([req.user.id], { type: 'forms-changed' });

@@ -49,6 +49,7 @@ function FormList() {
   // Several at once: Select puts a box by each form; the bar stops or starts responses, or deletes yours.
   const [picked, setPicked] = useState(null); // a Set of ids while selecting, or null
   const [deletingMany, setDeletingMany] = useState(false);
+  const [addingEditor, setAddingEditor] = useState(false);
   const chosen = (forms || []).filter((f) => picked?.has(f.id));
   const reload = () => get('/forms').then(setForms).catch(() => {});
   const many = async (action, say) => {
@@ -99,6 +100,7 @@ function FormList() {
             <button type="button" className="link-btn small" onClick={() => setPicked(new Set(shown.map((f) => f.id)))}>Select all shown</button>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('close', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} no longer accepting responses`)}>Stop accepting</button>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => many('open', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} accepting responses again`)}>Accept again</button>
+            <button type="button" className="btn small" disabled={!picked.size || chosen.some((f) => f.owner_name)} title={chosen.some((f) => f.owner_name) ? 'Only a form’s owner adds editors' : 'A colleague who can change them all and see their responses'} onClick={() => setAddingEditor(true)}><Icon name="people" size={16} /> Add editor…</button>
             <button type="button" className="btn small" disabled={!picked.size} title="A copy of each, yours: questions, look and settings, no responses" onClick={() => many('copy', (r) => (r.copied === 1 ? 'Copy made' : `${r.copied} copies made`))}><Icon name="copy" size={16} /> Make copies</button>
             {show === 'archived'
               ? <button type="button" className="btn small" disabled={!picked.size || chosen.some((f) => f.owner_name)} onClick={() => many('unarchive', (r) => `${r.changed === 1 ? '1 form' : `${r.changed} forms`} brought back from the archive`)}>Bring back</button>
@@ -106,6 +108,8 @@ function FormList() {
             <button type="button" className="btn small danger" disabled={!picked.size || chosen.some((f) => f.owner_name)} title={chosen.some((f) => f.owner_name) ? 'Only a form’s owner deletes it' : ''} onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
           </div>
         )}
+        {addingEditor && <AddEditorMany count={picked.size} onClose={() => setAddingEditor(false)}
+          onAdd={async (body) => { const r = await post('/forms/batch', { ids: [...picked], action: 'add_editor', ...body }); toast(r.added ? `${r.name} can now edit ${r.added === 1 ? '1 form' : `${r.added} forms`}` : `${r.name} could edit them already`); setPicked(new Set()); reload(); }} />}
         {deletingMany && <ConfirmModal title={`Delete ${picked.size === 1 ? '1 form' : `${picked.size} forms`}?`} confirm="Delete" message="Their links stop working. You can put them back, with their responses, from Recently deleted for 30 days."
           onClose={() => setDeletingMany(false)} onConfirm={async () => {
             const r = await post('/forms/batch', { ids: [...picked], action: 'delete' }); // an error shows in the dialog
@@ -132,6 +136,33 @@ function FormList() {
         </>
       )}
     </div>
+  );
+}
+
+/** A colleague made an editor of several of your forms at once (with a message, if written). */
+function AddEditorMany({ count, onAdd, onClose }) {
+  const [people, setPeople] = useState([]);
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const { user } = useAuth();
+  useEffect(() => { get('/users/directory').then((l) => setPeople(l.filter((p) => p.id !== user?.id))).catch(() => {}); }, [user?.id]);
+  const submit = async (e) => {
+    e.preventDefault();
+    const to = colleagueAddress(people, email);
+    if (!to) return setError('Pick the person from the list, or type their full email address');
+    try { await onAdd({ email: to, ...(message.trim() && { message: message.trim() }) }); onClose(); } catch (err) { setError(err.message); }
+  };
+  return (
+    <Modal title={`Add an editor to ${count === 1 ? '1 form' : `${count} forms`}`} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <p className="muted small" style={{ margin: 0 }}>They can change the questions and settings and see the responses. They're told once.</p>
+        <ColleagueInput people={people} value={email} onChange={(v) => { setEmail(v); setError(''); }} label="Colleague" listId="form-many-people" required />
+        <label className="field"><span>Message (optional)</span><textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} /></label>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Add</button></div>
+      </form>
+    </Modal>
   );
 }
 

@@ -124,6 +124,30 @@ await step('Delete is off when a form shared with you is selected', async () => 
   await bar.getByRole('button', { name: 'Stop accepting' }).click();
   await page.locator('.toast', { hasText: '1 form no longer accepting responses' }).last().waitFor();
 });
+await step('Add editor…: a colleague can edit several of your forms at once', async () => {
+  await page.reload();
+  await page.getByRole('list', { name: 'Your forms' }).getByText('Lunch order').waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByLabel('Select: Lunch order').check();
+  await page.getByLabel('Select: Team offsite').check();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected forms' });
+  await bar.getByRole('button', { name: 'Add editor…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Add an editor to 2 forms' });
+  await dlg.getByLabel('Colleague').fill('sam@acme.com');
+  await dlg.getByLabel('Message (optional)').fill('Can you check these?');
+  await dlg.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.locator('.toast', { hasText: 'Sam Shared can now edit 2 forms' }).last().waitFor();
+  const all = (await api(page, 'GET', '/forms')).body;
+  for (const t of ['Lunch order', 'Team offsite']) {
+    const f = (await api(page, 'GET', `/forms/${all.find((x) => x.title === t).id}`)).body;
+    if (f.editors.map((e) => e.name).join() !== 'Sam Shared') throw new Error(`${t}: ${JSON.stringify(f.editors)}`);
+  }
+  const old = (await api(page, 'GET', `/forms/${all.find((x) => x.title === 'Old survey').id}`)).body;
+  if (old.editors.length) throw new Error('Old survey changed');
+  // With someone else's form among those picked, it's off.
+  await page.getByLabel('Select: Sam poll').check();
+  if (!(await bar.getByRole('button', { name: 'Add editor…' }).isDisabled())) throw new Error('on for a form shared with you');
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

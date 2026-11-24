@@ -5414,6 +5414,20 @@ test('forms: several at once from the list (stop or start accepting; delete, own
   assert.deepEqual((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'open' })).body, { changed: 1 }, 'an editor may');
   assert.equal((await own('POST', '/api/forms/batch', { ids: [f2.id, theirs.id], action: 'open' })).status, 404);
   assert.equal(await acc(f2.id), false, 'nothing changed');
+  // A colleague made an editor of several at once (told once); only the owner; not someone outside the company.
+  assert.equal((await ed('POST', '/api/forms/batch', { ids: [f1.id], action: 'add_editor', email: 'fbc@acme.com' })).status, 403);
+  assert.equal((await own('POST', '/api/forms/batch', { ids: [f2.id], action: 'add_editor', email: 'nobody@acme.com' })).status, 400);
+  r = await own('POST', '/api/forms/batch', { ids: [f1.id, f2.id, f3.id], action: 'add_editor', email: 'FBC@acme.com', message: 'Help with these' });
+  assert.deepEqual(r.body, { added: 3, name: 'Fb Other' });
+  const otherSees = (await other('GET', '/api/forms')).body.map((x) => x.title).filter((t) => t.startsWith('Batch')).sort();
+  assert.deepEqual(otherSees, ['Batch one', 'Batch three', 'Batch two']);
+  const told = (await other('GET', '/api/notifications')).body.items.filter((n) => /added you to/.test(n.title));
+  assert.equal(told.length, 1);
+  assert.match(told[0].title, /added you to 3 forms/);
+  assert.match(told[0].body, /Help with these/);
+  assert.deepEqual((await own('POST', '/api/forms/batch', { ids: [f1.id], action: 'add_editor', email: 'fbc@acme.com' })).body, { added: 0, name: 'Fb Other' }, 'already one');
+  for (const f of [f1, f2, f3]) await own('DELETE', `/api/forms/${f.id}/editors/${(await other('GET', '/api/auth/me')).body.user.id}`);
+
   // A copy of each (an editor may copy too: the copy is theirs), no responses.
   r = await own('POST', '/api/forms/batch', { ids: [f1.id, f2.id], action: 'copy' });
   assert.equal(r.status, 201);
