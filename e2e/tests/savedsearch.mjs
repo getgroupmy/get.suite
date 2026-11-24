@@ -86,6 +86,20 @@ await step('clicking it runs it again from anywhere; reading one lowers the coun
   await page.getByRole('button', { name: 'Remove saved search from:billing@acme.com' }).click();
   await until(async () => (await page.locator('.subnav-item', { hasText: 'from:billing@acme.com' }).count()) === 0);
 });
+await step('rename a saved search from its pencil in the sidebar', async () => {
+  await api(page, 'POST', '/mail/searches', { folder: 'INBOX', query: 'subject:Invoice' });
+  await page.reload();
+  await page.locator('.subnav-item', { hasText: 'subject:Invoice' }).waitFor();
+  await page.getByRole('button', { name: 'Rename saved search subject:Invoice' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Rename saved search' });
+  await dlg.getByLabel('Name').fill('Bills');
+  await dlg.getByRole('button', { name: 'Rename' }).click();
+  await page.locator('.subnav-item', { hasText: 'Bills' }).waitFor();
+  const saved = (await api(page, 'GET', '/mail/searches')).body;
+  if (saved.map((x) => `${x.name}=${x.query}`).join() !== 'Bills=subject:Invoice') throw new Error(JSON.stringify(saved));
+  await page.locator('.subnav-item', { hasText: 'Bills' }).click();
+  await page.getByText('Results for “subject:Invoice” in Inbox').waitFor();
+});
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');
 await browser.close();

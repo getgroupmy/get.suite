@@ -14,7 +14,7 @@ import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { unreachable, outboxAdd, outboxList, outboxRemove, changeAdd, patchKeptMail, prefetchMail } from '../offlinedocs.js';
-import { api, get, post, put, del, postBlob, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
+import { api, get, post, put, patch, del, postBlob, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -157,6 +157,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [forwardingOpen, setForwardingOpen] = useState(false);
   const [filters, setFilters] = useState(null); // null | { startWith?: rule }
   const [newFolder, setNewFolder] = useState(false);
+  const [renamingSearch, setRenamingSearch] = useState(null); // a saved search being renamed
   const [folderDialog, setFolderDialog] = useState(null);
   const [signatures, setSignatures] = useState([]);
   const [signatureOpen, setSignatureOpen] = useState(false);
@@ -542,6 +543,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               <button className={`subnav-item ${folder === sv.folder && q === sv.query ? 'active' : ''}`} title={`${sv.query} (in ${folders.find((f) => f.path === sv.folder)?.name || sv.folder})`}
                 onClick={() => navigate(`/mail/${enc(sv.folder)}?q=${enc(sv.query)}`)}>
                 <Icon name="search" /><span className="grow ellipsis">{sv.name}</span>{sv.unseen > 0 && <span className="count">{sv.unseen}</span>}</button>
+              <button type="button" className="icon-btn folder-menu" aria-label={`Rename saved search ${sv.name}`} title="Rename" onClick={() => setRenamingSearch(sv)}><Icon name="edit" size={16} /></button>
               <button type="button" className="icon-btn folder-menu" aria-label={`Remove saved search ${sv.name}`} title="Remove" onClick={async () => { await del(`/mail/searches/${sv.id}`); loadSearches(); }}><Icon name="close" size={16} /></button>
             </div>
           ))}
@@ -812,6 +814,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         onClose={() => setSnoozing(null)} onPick={async (at) => { const uids = snoozing; setSnoozing(null); if (await act('snooze', { uids, until: at }, `Snoozed until ${whenText(at)}`) && uids.includes(openUid)) go(folder); }} />}
       {scheduledOpen && <ScheduledDialog list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={() => { loadScheduled(); refresh(); }} />}
       {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
+      {renamingSearch && <PromptModal title="Rename saved search" label="Name" initial={renamingSearch.name} confirm="Rename" onClose={() => setRenamingSearch(null)}
+        onSubmit={async (name) => { await patch(`/mail/searches/${renamingSearch.id}`, { name }); loadSearches(); }} />}
       {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
         onSubmit={async (name) => { const r = await post('/mail/folders', { name }); toast(`Folder ${r.path} created`); loadFolders(); }} />}
       {importOpen !== false && <ImportMail from={typeof importOpen === 'string' ? importOpen : ''} onClose={() => setImportOpen(false)} onDone={refresh} />}
