@@ -434,8 +434,17 @@ function ContactsTrash({ filter, onRestored }) {
   const toast = useToast();
   const [data, setData] = useState(null);
   const [emptying, setEmptying] = useState(false);
+  const [pickedT, setPickedT] = useState(() => new Set()); // ticked to restore or delete together
+  const [forgettingMany, setForgettingMany] = useState(false);
   const load = () => get('/contacts/trash').then(setData).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const many = async (action) => {
+    try {
+      const r = await post('/contacts/trash/batch', { ids: [...pickedT], action });
+      toast(action === 'restore' ? `${nPeople(r.restored)} put back` : `${nPeople(r.deleted)} deleted for good`);
+      setPickedT(new Set()); load(); if (action === 'restore') onRestored();
+    } catch (e) { toast(e.message, 'error'); }
+  };
   if (!data) return null;
   if (!data.contacts.length) return <Empty icon="trash" title="Trash is empty">Contacts you delete (here or on your phone) stay here for {data.days} days, so you can put them back.</Empty>;
   const f = filter.toLowerCase();
@@ -450,10 +459,19 @@ function ContactsTrash({ filter, onRestored }) {
         <button type="button" className="btn small" onClick={() => setEmptying(true)}>Empty trash</button>
       </div>
       <table className="files">
-        <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Deleted</th><th aria-label="Actions" /></tr></thead>
+        {pickedT.size > 0 && (
+          <caption className="contact-batch-cap"><div className="contact-batch" role="toolbar" aria-label="Change the selected deleted contacts">
+            <strong className="small" aria-live="polite">{pickedT.size} selected</strong>
+            <button type="button" className="btn small" onClick={() => many('restore')}>Restore</button>
+            <button type="button" className="btn small danger" onClick={() => setForgettingMany(true)}><Icon name="trash" size={16} /> Delete for good</button>
+            <button type="button" className="link-btn small" onClick={() => setPickedT(new Set())}>Clear</button>
+          </div></caption>
+        )}
+        <thead><tr><th className="pick-col"><input type="checkbox" aria-label="Select all deleted contacts shown" checked={shown.length > 0 && shown.every((c) => pickedT.has(c.id))} onChange={(e) => setPickedT(e.target.checked ? new Set(shown.map((c) => c.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Deleted</th><th aria-label="Actions" /></tr></thead>
         <tbody>
           {shown.map((c) => (
             <tr key={c.id}>
+              <td className="pick-col"><input type="checkbox" aria-label={`Select deleted contact ${c.name}`} checked={pickedT.has(c.id)} onChange={(e) => { const n = new Set(pickedT); e.target.checked ? n.add(c.id) : n.delete(c.id); setPickedT(n); }} /></td>
               <td className="name"><Avatar name={c.name} size={28} email={c.email} /><span>{c.name}{!c.mine && <span className="muted"> · company contact</span>}</span></td>
               <td className="hide-sm">{c.email || c.phone || ''}</td>
               <td className="hide-sm muted">{new Date(c.deleted_at).toLocaleDateString()} · gone in {daysLeft(c)} {daysLeft(c) === 1 ? 'day' : 'days'}</td>
@@ -465,6 +483,8 @@ function ContactsTrash({ filter, onRestored }) {
           ))}
         </tbody>
       </table>
+      {forgettingMany && <ConfirmModal title={`Delete ${nPeople(pickedT.size)} for good?`} confirm="Delete for good" message="This can't be undone." onClose={() => setForgettingMany(false)}
+        onConfirm={async () => { setForgettingMany(false); await many('delete'); }} />}
       {emptying && <ConfirmModal title="Empty trash?" confirm="Delete for good" message={`${nPeople(data.contacts.length)} will be deleted for good. This can't be undone.`} onClose={() => setEmptying(false)}
         onConfirm={async () => { setEmptying(false); try { const r = await del('/contacts/trash'); toast(`${nPeople(r.deleted)} deleted for good`); load(); } catch (e) { toast(e.message, 'error'); } }} />}
     </>

@@ -306,6 +306,20 @@ export default function contactRoutes() {
   });
   r.delete('/trash/:id', (req, res) => { if (!purgeTrash(req.user.id, String(req.params.id))) throw notFound('Not in your trash'); res.json({ ok: true }); });
   r.delete('/trash', (req, res) => res.json({ deleted: purgeTrash(req.user.id) }));
+  // Several in the trash at once: put back ({ action: 'restore' }) or deleted for good ('delete'). Each must be
+  // in your trash (yours, or one you deleted); all checked first.
+  r.post('/trash/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some contacts');
+    if (ids.length > 1000) throw bad('1000 contacts at a time at most');
+    const action = String(req.body?.action || '');
+    if (!['restore', 'delete'].includes(action)) throw bad('Unknown action');
+    const mine = new Set(trashOf(req.user.id).map((t) => t.id));
+    if (ids.some((id) => !mine.has(id))) throw notFound('Not in your trash');
+    let done = 0;
+    for (const id of ids) done += action === 'restore' ? (restoreContact(id, req.user.id) ? 1 : 0) : purgeTrash(req.user.id, id);
+    res.json({ [action === 'restore' ? 'restored' : 'deleted']: done });
+  });
 
   r.get('/', (req, res) => {
     if (req.query.scope === 'company') {

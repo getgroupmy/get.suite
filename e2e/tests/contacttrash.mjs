@@ -65,6 +65,27 @@ await step('delete several; the Trash tab lists them, Restore puts one back', as
   await tab('My contacts').click();
   await page.getByRole('row', { name: /Dee Decorator/ }).waitFor();
 });
+await step('in the Trash, tick several to restore together or delete for good', async () => {
+  const made = [];
+  for (const name of ['Gus Gardener', 'Hal Handyman', 'Ivy Ironer']) made.push((await api(page, 'POST', '/contacts', { name })).body.id);
+  await api(page, 'POST', '/contacts/batch', { ids: made, action: 'delete' });
+  await tab('My contacts').click();
+  await tab('Trash').click();
+  await page.getByLabel('Select deleted contact Gus Gardener').check();
+  await page.getByLabel('Select deleted contact Ivy Ironer').check();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected deleted contacts' });
+  await bar.getByText('2 selected').waitFor();
+  await bar.getByRole('button', { name: 'Restore' }).click();
+  await page.locator('.toast', { hasText: '2 contacts put back' }).last().waitFor();
+  await until(async () => (await mine()).filter((c) => ['Gus Gardener', 'Ivy Ironer'].includes(c.name)).length === 2);
+  await page.getByLabel('Select deleted contact Hal Handyman').check();
+  await bar.getByRole('button', { name: 'Delete for good' }).click();
+  await page.getByRole('dialog', { name: 'Delete 1 contact for good?' }).getByRole('button', { name: 'Delete for good' }).click();
+  await page.locator('.toast', { hasText: '1 contact deleted for good' }).last().waitFor();
+  if ((await trash()).some((c) => c.name === 'Hal Handyman')) throw new Error('still in trash');
+  if ((await mine()).some((c) => c.name === 'Hal Handyman')) throw new Error('came back');
+  await tab('My contacts').click();
+});
 await step('delete one for good, then Empty trash', async () => {
   await api(page, 'DELETE', `/contacts/${(await mine()).find((c) => c.name === 'Pat Plumber').id}`);
   await tab('Trash').click();

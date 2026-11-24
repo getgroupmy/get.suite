@@ -11429,6 +11429,18 @@ test('contacts trash: deleted contacts are kept (with their photo) and can be pu
   assert.deepEqual((await a('GET', '/api/contacts/trash')).body.contacts, []);
   assert.equal((await a('POST', `/api/contacts/trash/${c.id}/restore`)).status, 404);
   assert.equal((await a('DELETE', '/api/contacts/trash')).body.deleted, 0);
+  // Several in the trash at once: put back together, or deleted for good; all checked first.
+  const e1 = (await a('POST', '/api/contacts', { name: 'Eve One' })).body, e2 = (await a('POST', '/api/contacts', { name: 'Eve Two' })).body, e3 = (await a('POST', '/api/contacts', { name: 'Eve Three' })).body;
+  await a('POST', '/api/contacts/batch', { ids: [e1.id, e2.id, e3.id], action: 'delete' });
+  const theirs = (await b('POST', '/api/contacts', { name: 'Not Ann' })).body;
+  await b('DELETE', `/api/contacts/${theirs.id}`);
+  assert.equal((await a('POST', '/api/contacts/trash/batch', { ids: [e1.id, theirs.id], action: 'restore' })).status, 404);
+  assert.equal((await a('POST', '/api/contacts/trash/batch', { ids: [e1.id], action: 'burn' })).status, 400);
+  assert.equal((await a('GET', '/api/contacts/trash')).body.contacts.length, 3, 'nothing changed');
+  assert.deepEqual((await a('POST', '/api/contacts/trash/batch', { ids: [e1.id, e2.id], action: 'restore' })).body, { restored: 2 });
+  assert.deepEqual((await a('POST', '/api/contacts/trash/batch', { ids: [e3.id], action: 'delete' })).body, { deleted: 1 });
+  assert.deepEqual((await a('GET', '/api/contacts/trash')).body.contacts, []);
+  assert.deepEqual((await a('GET', '/api/contacts')).body.map((x) => x.name).filter((n) => n.startsWith('Eve')).sort(), ['Eve One', 'Eve Two']);
 });
 
 test('calendar: events shown as free don’t block time; private events are only "Busy" to people who just look', async () => {
