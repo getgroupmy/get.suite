@@ -154,6 +154,7 @@ export default function Notes() {
   const navigate = useNavigate();
   const mail = useMailStatus();
   const [chatting, setChatting] = useState(null); // notes to send in Chat
+  const [sharingMany, setSharingMany] = useState(false); // the picked notes, shared with more people
   useEffect(() => {
     const id = location.state?.openNote;
     if (!id) return;
@@ -350,6 +351,7 @@ export default function Notes() {
                 try { localStorage.setItem(DRAFT_KEY, JSON.stringify(notesEmail([...pinned, ...others].filter((x) => picked.has(x.id)), noteLink))); } catch { toast('Your browser’s storage is off', 'error'); return; }
                 navigate('/mail?compose_doc=1');
               }}><Icon name="mail" size={16} /> Email</button>}
+              {[...pinned, ...others].filter((x) => picked.has(x.id)).every((x) => x.mine) && <button type="button" className="btn small" title="Share the picked notes with more colleagues (whoever has them already keeps them)" onClick={() => setSharingMany(true)}><Icon name="share" size={16} /> Share…</button>}
               <button type="button" className="btn small" title="Links to the picked notes in a Chat conversation's message box (they show as note cards)" onClick={() => setChatting([...pinned, ...others].filter((x) => picked.has(x.id)))}><Icon name="chat" size={16} /> Send in Chat…</button>
               <button type="button" className="btn small" title="The picked notes on one printout, each on its own page" onClick={() => printHtml(notesPrintHtml([...pinned, ...others].filter((x) => picked.has(x.id))))}><Icon name="print" size={16} /> Print</button>
               <button type="button" className="btn small" title="Each note as a Markdown (.md) file, in one .zip" onClick={async () => {
@@ -405,6 +407,8 @@ export default function Notes() {
       {deleting && <ConfirmModal title={deleting.mine ? 'Delete this note?' : 'Remove this note?'} confirm={deleting.mine ? 'Delete' : 'Remove'}
         message={deleting.mine ? (deleting.shared.length ? 'It goes for everyone it’s shared with too.' : 'This can’t be undone.') : 'It stays for its owner and the others it’s shared with.'}
         onClose={() => setDeleting(null)} onConfirm={async () => { await del(`/notes/${deleting.id}`); setDeleting(null); load(); }} />}
+      {sharingMany && <ShareMany count={picked.size} me={user?.id} onClose={() => setSharingMany(false)}
+        onShare={(ids) => many({ share_with: ids }, (r) => (r.shared ? `Shared: ${r.shared === 1 ? '1 new share' : `${r.shared} new shares`}` : 'They already had them'))} />}
       {chatting && <SendInChat items={chatting.map((x) => ({ name: x.title || 'Note', url: noteLink(x) }))} what={chatting.length === 1 ? 'the note' : `${chatting.length} notes`} onClose={() => setChatting(null)} />}
     </div>
   );
@@ -756,6 +760,20 @@ function ShareNote({ note, onClose }) {
         <label className="field"><span>Message to {adding.length === 1 ? people.find((p) => p.id === adding[0])?.name || 'them' : 'the people you added'} (optional)</span>
           <textarea rows={2} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you’re sharing it…" /></label>
       )}
+    </Modal>
+  );
+}
+
+/** Several notes of yours shared with more colleagues at once: added to whoever has each already. */
+function ShareMany({ count, me, onShare, onClose }) {
+  const [people, setPeople] = useState([]);
+  const [chosen, setChosen] = useState(new Set());
+  useEffect(() => { get('/users/directory').then((l) => setPeople(l.filter((p) => p.id !== me))).catch(() => {}); }, [me]);
+  const share = async () => { await onShare([...chosen]); onClose(); };
+  return (
+    <Modal title={`Share ${count === 1 ? '1 note' : `${count} notes`}`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!chosen.size} onClick={share}>Share</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>The people you tick can change them and see changes as they're made; anyone who has one already keeps it. They're told once.</p>
+      <PeopleTicks people={people} chosen={chosen} label="Colleagues" onToggle={(id, on) => { const n = new Set(chosen); on ? n.add(id) : n.delete(id); setChosen(n); }} onAddMany={(ids) => setChosen(new Set([...chosen, ...ids]))} />
     </Modal>
   );
 }

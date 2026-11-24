@@ -10030,6 +10030,27 @@ test('Notes: several at once (colour, pin, archive, label, trash); all checked f
   assert.equal((await batch(a, { ids: [n1.id], change: { color: 'hotpink' } })).status, 400);
   assert.equal((await batch(a, { ids: [n1.id], change: {} })).status, 400);
 
+  // Shared with more people at once: added to whoever has each already; told once each.
+  const c = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'nbatchc', domain: 'acme.com', name: 'Noa Third', password: 'password123' })).status, 201);
+  const cid = (await login(c, 'nbatchc@acme.com')).id;
+  assert.equal((await a('PUT', `/api/notes/${n1.id}/shares`, { user_ids: [bid] })).status, 200);
+  r = await batch(a, { ids: [n1.id, n2.id], share_with: [bid, cid, aid] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.shared, 3, 'Nat already had One; yourself is skipped');
+  m = await mine();
+  assert.deepEqual(m.One.shared.map((u) => u.id).sort(), [bid, cid].sort());
+  assert.deepEqual(m.Two.shared.map((u) => u.id).sort(), [bid, cid].sort());
+  const cBell = (await c('GET', '/api/notifications')).body;
+  const cItems = (cBell.items || cBell).filter((x) => /shared .*note/.test(x.title));
+  assert.equal(cItems.length, 1, 'one notification for both');
+  assert.match(cItems[0].title, /shared 2 notes with you/);
+  assert.equal((await batch(b, { ids: [n1.id], share_with: [cid] })).status, 403, 'only the owner');
+  assert.equal((await batch(a, { ids: [n1.id], share_with: [] })).status, 400);
+  assert.equal((await batch(a, { ids: [n1.id], share_with: ['nobody'] })).status, 400);
+  assert.equal((await a('PUT', `/api/notes/${n1.id}/shares`, { user_ids: [] })).status, 200);
+  assert.equal((await a('PUT', `/api/notes/${n2.id}/shares`, { user_ids: [] })).status, 200);
+
   r = await batch(a, { ids: [n1.id, n3.id], change: { archived: true } });
   m = await mine();
   assert.equal(m.One?.pinned ?? false, false, 'archiving unpins');

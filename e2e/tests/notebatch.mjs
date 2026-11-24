@@ -118,6 +118,24 @@ await step('Remove label…: offers the labels the picked notes have, and takes 
   await page.reload();
   await page.getByRole('button', { name: 'Select note: Ideas' }).waitFor();
 });
+await step('Share…: the picked notes shared with more colleagues at once', async () => {
+  const sam = (await api(page, 'POST', '/users', { local: 'sam', domain: 'acme.com', name: 'Sam Shared', password: 'password123' })).body;
+  if (!sam?.id) throw new Error(JSON.stringify(sam));
+  await page.reload();
+  await page.getByRole('button', { name: 'Select note: Ideas' }).waitFor();
+  for (const t of ['Ideas', 'Groceries']) await page.getByRole('button', { name: `Select note: ${t}` }).click({ force: true });
+  await page.getByRole('toolbar', { name: 'Change the selected notes' }).getByRole('button', { name: 'Share…' }).click();
+  const dlg = page.getByRole('dialog', { name: 'Share 2 notes' });
+  if (!(await dlg.getByRole('button', { name: 'Share', exact: true }).isDisabled())) throw new Error('nobody ticked yet');
+  await dlg.getByLabel('Sam Shared').check();
+  await dlg.getByRole('button', { name: 'Share', exact: true }).click();
+  await page.locator('.toast', { hasText: 'Shared: 2 new shares' }).last().waitFor();
+  const n = await notes();
+  if (n.Ideas.shared.map((u) => u.name).join() !== 'Sam Shared' || n.Groceries.shared.map((u) => u.name).join() !== 'Sam Shared' || n.Trip.shared.length) throw new Error(JSON.stringify(n));
+  for (const id of [n.Ideas.id, n.Groceries.id]) await api(page, 'PUT', `/notes/${id}/shares`, { user_ids: [] }); // as before, for the steps after
+  await page.reload();
+  await page.getByRole('button', { name: 'Select note: Ideas' }).waitFor();
+});
 await step('a printed note shows its pictures', async () => {
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   const ideas = (await api(page, 'GET', '/notes')).body.find((n) => n.title === 'Ideas');

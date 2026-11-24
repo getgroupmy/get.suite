@@ -910,6 +910,24 @@ export default function noteRoutes() {
     if (!ids.length) throw bad('Choose some notes');
     if (ids.length > 500) throw bad('500 notes at a time at most');
     const notes = ids.map((id) => load(id, req.user));
+    if (req.body?.share_with !== undefined) {
+      // Shared with more people (added to whoever has them already; nobody taken off): your own notes only.
+      const with_ = Array.isArray(req.body.share_with) ? [...new Set(req.body.share_with.map(String))] : null;
+      if (!with_?.length) throw bad('Choose people to share with');
+      if (notes.some((n) => n.owner_id !== req.user.id)) throw forbidden('Only the owner can change who a note is shared with');
+      for (const id of with_) if (!q('SELECT 1 FROM users WHERE id = ? AND org_id = ? AND disabled = 0').get(id, req.user.org_id)) throw bad('You can share notes with people in your company');
+      const told = new Map(); // person → how many notes are new to them
+      tx(() => { for (const n of notes) for (const id of with_) {
+        if (id === n.owner_id) continue;
+        if (q('INSERT OR IGNORE INTO note_shares (note_id, user_id) VALUES (?, ?)').run(n.id, id).changes) told.set(id, [...(told.get(id) || []), n]);
+      } });
+      for (const [id, got] of told) {
+        const one = got.length === 1 ? got[0] : null;
+        bell([id], { kind: 'share', title: one ? `${req.user.name} shared a note with you` : `${req.user.name} shared ${got.length} notes with you`, body: one ? (one.title || (one.body || '').slice(0, 80) || null) : null, link: '/notes', actor: req.user.name });
+      }
+      sendTo([...new Set([req.user.id, ...with_])], { type: 'notes-changed' });
+      return res.json({ shared: [...told.values()].reduce((x, y) => x + y.length, 0), notes: notes.map((n) => shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id)) });
+    }
     if (req.body?.trash === true) {
       const told = new Set(notes.flatMap((n) => team(n)));
       tx(() => { for (const n of notes) {
