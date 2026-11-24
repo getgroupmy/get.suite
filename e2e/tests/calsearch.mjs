@@ -94,6 +94,21 @@ await step('Select results and download them as one calendar file', async () => 
   if (got !== 'SUMMARY:Budget review|SUMMARY:Old budget talk') throw new Error(got);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
 });
+await step('Select all, then one colour for them', async () => {
+  await page.getByLabel('Search events').fill('budget');
+  await page.getByLabel('Search events').press('Enter');
+  await page.getByRole('list', { name: 'Search results' }).getByText('Old budget talk').waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  const bar = page.getByRole('toolbar', { name: 'Change the selected events' });
+  await bar.getByRole('button', { name: 'Select all' }).click();
+  await bar.getByText('3 selected').waitFor();
+  await page.getByLabel('Select: Standup').uncheck();
+  await bar.getByLabel('Colour for the selected events').selectOption({ label: 'Purple' });
+  await page.locator('.toast', { hasText: '2 events now purple' }).last().waitFor();
+  const res = (await api(page, 'GET', '/events/search?q=budget')).body;
+  const col = Object.fromEntries(res.map((e) => [e.title, e.color]));
+  if (col['Budget review'] !== '#8e24aa' || col['Old budget talk'] !== '#8e24aa' || col.Standup === '#8e24aa') throw new Error(JSON.stringify(col));
+});
 await step('Select results and move them to another of your calendars', async () => {
   const work = (await api(page, 'POST', '/events/calendars', { name: 'Work stuff' })).body;
   await page.reload();

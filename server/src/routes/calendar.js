@@ -1169,6 +1169,22 @@ export default function calendarRoutes() {
     }
     res.json({ deleted: evs.length, undo });
   });
+  // One colour for several of your own events at once (their changed occurrences too). Every one checked first.
+  r.post('/color-many', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some events');
+    if (ids.length > 100) throw bad('100 events at a time at most');
+    const color = String(req.body?.color || '');
+    if (!COLOR_RE.test(color)) throw bad('Invalid color');
+    const evs = ids.map((id) => { const ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(id, req.user.id); if (!ev) throw notFound('Only your own events can be changed here'); return ev; });
+    const people = new Set([req.user.id]);
+    tx(() => { for (const ev of evs) {
+      for (const p of peopleOf(ev.calendar_id)) people.add(p);
+      q('UPDATE events SET color = ? WHERE (id = ? OR recur_parent = ?) AND owner_id = ?').run(color, ev.id, ev.id, req.user.id);
+    } });
+    touch([...people]);
+    res.json({ changed: evs.length });
+  });
   // Several of your own events moved to another of your calendars at once (null: My calendar); their changed
   // occurrences go along, as moving one does. Every one checked first.
   r.post('/move-many', (req, res) => {

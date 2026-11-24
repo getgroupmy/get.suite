@@ -3852,6 +3852,12 @@ test('calendar search: words in title, place or notes; your events and invitatio
   mv = await a('POST', '/api/events/move-many', { ids: [found[1].id], calendar_id: null });
   assert.equal(await calOf(found[1].id), null);
 
+  // One colour for several; a bad colour or someone else's event changes nothing.
+  assert.equal((await a('POST', '/api/events/color-many', { ids: [found[1].id], color: 'pink' })).status, 400);
+  assert.equal((await a('POST', '/api/events/color-many', { ids: [found[1].id, catOne.id], color: '#d50000' })).status, 404);
+  assert.deepEqual((await a('POST', '/api/events/color-many', { ids: [found[1].id, found[2].id], color: '#d50000' })).body, { changed: 2 });
+  assert.deepEqual([found[1].id, found[2].id, found[0].id].map((id) => q('SELECT color FROM events WHERE id = ?').get(id).color === '#d50000'), [true, true, false]);
+
   // Several found deleted at once: only your own (not an invitation, not someone else's); all checked first; each can come back.
   const review = found[1], old = found[2];
   assert.equal((await b('POST', '/api/events/delete-many', { ids: [review.id] })).status, 404, 'a guest can\'t');

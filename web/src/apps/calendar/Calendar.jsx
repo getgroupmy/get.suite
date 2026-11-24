@@ -35,6 +35,7 @@ const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#
 import { setColorRules, eventColor } from './colorrules.js';
 import { parseQuickEvent } from './quickevent.js';
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
+const COLOR_NAMES = { '#1a73e8': 'Blue', '#0b8043': 'Green', '#d50000': 'Red', '#f4511e': 'Orange', '#8e24aa': 'Purple', '#616161': 'Grey' };
 const HOUR_PX = 48; // height of one hour in the week/day grid
 const pad = (n) => String(n).padStart(2, '0');
 const toDateInput = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
@@ -561,7 +562,15 @@ function Calendar({ acting = null, managed = [], onPick }) {
             {found.list.some((r) => r.role === 'organizer') && <button type="button" className="link-btn small" aria-pressed={!!picking} onClick={() => setPicking(picking ? null : new Set())}>{picking ? 'Done' : 'Select'}</button>}
             <button type="button" className="link-btn small" onClick={() => { setFound(null); setPicking(null); }}>Clear</button></h3>
           {picking && <div className="row wrap" role="toolbar" aria-label="Change the selected events" style={{ gap: 6, marginBottom: 6 }}>
-            <span className="muted small" style={{ flexBasis: '100%' }} aria-live="polite">{picking.size} selected</span>
+            <span className="muted small row" style={{ flexBasis: '100%' }}><span className="grow" aria-live="polite">{picking.size} selected</span>
+              <button type="button" className="link-btn small" onClick={() => setPicking(new Set(found.list.filter((r) => r.role === 'organizer').map((r) => r.id)))}>Select all</button></span>
+            <select className="small" aria-label="Colour for the selected events" value="x" disabled={!picking.size} onChange={async (e) => {
+              const color = e.target.value;
+              try { const r = await post('/events/color-many', { ids: [...picking], color }); toast(`${r.changed === 1 ? 'Event' : `${r.changed} events`} now ${COLOR_NAMES[color].toLowerCase()}`); setPicking(null); load(); runSearch(found?.q); } catch (err) { toast(err.message, 'error'); }
+            }}>
+              <option value="x" disabled>Colour…</option>
+              {COLORS.map((c) => <option key={c} value={c}>{COLOR_NAMES[c]}</option>)}
+            </select>
             <select className="small" aria-label="Move the selected events to" value="x" disabled={!picking.size} onChange={async (e) => {
               const to = e.target.value || null;
               const name = to ? myCals.find((c) => c.id === to)?.name : 'My calendar';
