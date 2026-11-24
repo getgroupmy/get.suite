@@ -1050,6 +1050,15 @@ export default function webmailRoutes() {
     q('INSERT INTO mail_searches (id, user_id, name, folder, query, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.user.id, name, folder, query, Date.now(), Date.now());
     res.status(201).json({ id, name, folder, query });
   });
+  // Your saved searches in the order given ({ ids }); any left out keep their place after those.
+  r.put('/searches/order', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    const mine = q('SELECT id FROM mail_searches WHERE user_id = ? ORDER BY position, created_at').all(req.user.id).map((x) => x.id);
+    if (ids.some((id) => !mine.includes(id))) throw notFound('Saved search not found');
+    const order = [...ids, ...mine.filter((id) => !ids.includes(id))];
+    tx(() => order.forEach((id, i) => q('UPDATE mail_searches SET position = ? WHERE id = ?').run(i + 1, id)));
+    res.json({ ok: true });
+  });
   r.patch('/searches/:id', (req, res) => {
     const name = String(req.body?.name || '').trim().slice(0, 60);
     if (!name) throw bad('Give it a name');

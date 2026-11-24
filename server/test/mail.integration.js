@@ -2107,6 +2107,14 @@ test('saved searches: kept with their folder, unread matches counted by the mail
   assert.equal((await bob('PATCH', `/api/mail/searches/${saved.body.id}`, { name: 'Mine now' })).status, 404, 'your own only');
   await olivia('PATCH', `/api/mail/searches/${saved.body.id}`, { name: 'Supplier invoices' });
   assert.deepEqual([(await count()).name, (await count()).query], ['Supplier invoices', `subject:${tag}`]);
+  // Put in your own order: the one given first comes first; someone else's can't be ordered.
+  const second = (await olivia('POST', '/api/mail/searches', { name: 'Second', folder: 'INBOX', query: `from:friend@globex.com ${tag}` })).body;
+  const names = async () => (await olivia('GET', '/api/mail/searches')).body.map((x) => x.name);
+  assert.deepEqual((await names()).slice(-2), ['Supplier invoices', 'Second']);
+  assert.equal((await olivia('PUT', '/api/mail/searches/order', { ids: [second.id] })).status, 200);
+  assert.deepEqual((await names()).slice(0, 2), ['Second', 'Supplier invoices']);
+  assert.equal((await bob('PUT', '/api/mail/searches/order', { ids: [second.id] })).status, 404);
+  await olivia('DELETE', `/api/mail/searches/${second.id}`);
   assert.equal((await olivia('DELETE', `/api/mail/searches/${saved.body.id}`)).status, 200);
   assert.equal(await count(), undefined);
 });

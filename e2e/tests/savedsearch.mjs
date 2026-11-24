@@ -83,14 +83,16 @@ await step('clicking it runs it again from anywhere; reading one lowers the coun
   await inboxRow('Invoice 1').click();
   await page.getByRole('heading', { name: 'Invoice 1' }).waitFor();
   await until(async () => (await page.locator('.subnav-item', { hasText: 'from:billing@acme.com' }).locator('.count').innerText().catch(() => '')) === '1', 15000);
-  await page.getByRole('button', { name: 'Remove saved search from:billing@acme.com' }).click();
+  await page.getByRole('button', { name: 'More for saved search from:billing@acme.com' }).click();
+  await page.getByRole('menuitem', { name: 'Remove' }).click();
   await until(async () => (await page.locator('.subnav-item', { hasText: 'from:billing@acme.com' }).count()) === 0);
 });
-await step('rename a saved search from its pencil in the sidebar', async () => {
+await step('rename a saved search from its ⋮ in the sidebar', async () => {
   await api(page, 'POST', '/mail/searches', { folder: 'INBOX', query: 'subject:Invoice' });
   await page.reload();
   await page.locator('.subnav-item', { hasText: 'subject:Invoice' }).waitFor();
-  await page.getByRole('button', { name: 'Rename saved search subject:Invoice' }).click();
+  await page.getByRole('button', { name: 'More for saved search subject:Invoice' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
   const dlg = page.getByRole('dialog', { name: 'Rename saved search' });
   await dlg.getByLabel('Name').fill('Bills');
   await dlg.getByRole('button', { name: 'Rename' }).click();
@@ -99,6 +101,20 @@ await step('rename a saved search from its pencil in the sidebar', async () => {
   if (saved.map((x) => `${x.name}=${x.query}`).join() !== 'Bills=subject:Invoice') throw new Error(JSON.stringify(saved));
   await page.locator('.subnav-item', { hasText: 'Bills' }).click();
   await page.getByText('Results for “subject:Invoice” in Inbox').waitFor();
+});
+await step('Move up and Move down put saved searches in your own order', async () => {
+  await api(page, 'POST', '/mail/searches', { name: 'Newsletters', folder: 'INBOX', query: 'from:news@acme.com' });
+  await page.reload();
+  const order = async () => page.getByRole('group', { name: 'Searches' }).locator('.subnav-item .grow').allInnerTexts();
+  await page.locator('.subnav-item', { hasText: 'Newsletters' }).waitFor();
+  if ((await order()).join() !== 'Bills,Newsletters') throw new Error((await order()).join());
+  await page.getByRole('button', { name: 'More for saved search Newsletters' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('the last one offered Move down');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await order()).join() === 'Newsletters,Bills');
+  await page.reload();
+  await page.locator('.subnav-item', { hasText: 'Newsletters' }).waitFor();
+  if ((await order()).join() !== 'Newsletters,Bills') throw new Error(`after reload: ${(await order()).join()}`);
 });
 if (errors.length) { failed++; console.log('FAIL errors', errors.join(' | ').slice(0, 400)); }
 console.log(failed ? `FAILED ${failed}` : 'ALL PASSED');

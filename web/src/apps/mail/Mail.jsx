@@ -273,6 +273,14 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   // Saved searches in the sidebar, with how many unread match (refreshed with the folders).
   const [searches, setSearches] = useState([]);
   const loadSearches = useCallback(() => { if (!shared) get('/mail/searches').then(setSearches).catch(() => {}); }, [shared]);
+  // A saved search one place up (by -1) or down (by 1) in the sidebar.
+  const orderSearches = async (i, by) => {
+    const ids = searches.map((x) => x.id);
+    [ids[i], ids[i + by]] = [ids[i + by], ids[i]];
+    setSearches((l) => ids.map((id) => l.find((x) => x.id === id)));
+    try { await put('/mail/searches/order', { ids }); } catch (e) { toast(e.message, 'error'); }
+    loadSearches();
+  };
   useEffect(() => { loadSearches(); }, [loadSearches]);
   // Inbox tabs: Primary (people) and Updates (newsletters, notifications), unless turned off in Filters.
   const [tabsOn, setTabsOn] = useState(false);
@@ -537,16 +545,22 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
         <Outbox />
         {!shared && searches.length > 0 && <>
-          <div className="subnav-title">Searches</div>
-          {searches.map((sv) => (
+          <div className="subnav-title" id="saved-searches-title">Searches</div>
+          <div role="group" aria-labelledby="saved-searches-title">
+          {searches.map((sv, i) => (
             <div key={sv.id} className="folder-row">
               <button className={`subnav-item ${folder === sv.folder && q === sv.query ? 'active' : ''}`} title={`${sv.query} (in ${folders.find((f) => f.path === sv.folder)?.name || sv.folder})`}
                 onClick={() => navigate(`/mail/${enc(sv.folder)}?q=${enc(sv.query)}`)}>
                 <Icon name="search" /><span className="grow ellipsis">{sv.name}</span>{sv.unseen > 0 && <span className="count">{sv.unseen}</span>}</button>
-              <button type="button" className="icon-btn folder-menu" aria-label={`Rename saved search ${sv.name}`} title="Rename" onClick={() => setRenamingSearch(sv)}><Icon name="edit" size={16} /></button>
-              <button type="button" className="icon-btn folder-menu" aria-label={`Remove saved search ${sv.name}`} title="Remove" onClick={async () => { await del(`/mail/searches/${sv.id}`); loadSearches(); }}><Icon name="close" size={16} /></button>
+              <Menu trigger={(p) => <button type="button" className="icon-btn folder-menu" aria-label={`More for saved search ${sv.name}`} title="More" {...p}><Icon name="more" size={16} /></button>} items={[
+                { label: 'Rename', icon: 'edit', onClick: () => setRenamingSearch(sv) },
+                ...(i > 0 ? [{ label: 'Move up', icon: 'move', onClick: () => orderSearches(i, -1) }] : []),
+                ...(i < searches.length - 1 ? [{ label: 'Move down', icon: 'move', onClick: () => orderSearches(i, 1) }] : []),
+                { label: 'Remove', icon: 'close', onClick: async () => { await del(`/mail/searches/${sv.id}`); loadSearches(); } },
+              ]} />
             </div>
           ))}
+          </div>
         </>}
         {!shared && <>
         <div className="subnav-title row">Labels<div className="grow" /><button type="button" className="icon-btn" aria-label="New label" onClick={() => setLabelDialog({})}><Icon name="plus" size={18} /></button></div>
