@@ -137,6 +137,25 @@ await step('Copy to… another list: several from the bar (in this list\'s order
   if ((await tasksOf(copies)).map((t) => t.title).join() !== 'Print flyers,Beta,Alpha') throw new Error('one copied, at the top');
   if (!(await tasksOf(later)).some((t) => t.title === 'Print flyers')) throw new Error('the original stays');
 });
+await step('Move to… + New list…: a list made there and then, the selected tasks moved into it; this list stays open', async () => {
+  await page.goto(`${B}/tasks/${later}`);
+  await page.getByText('Beta', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await choose('Alpha', 'Beta');
+  await page.getByRole('toolbar', { name: 'Change the selected tasks' }).getByLabel('Move the selected tasks to').selectOption({ label: '+ New list…' });
+  const dlg = page.getByRole('dialog', { name: 'Move 2 tasks to a new list' });
+  await dlg.getByLabel('List name').fill('Someday');
+  await dlg.getByRole('button', { name: 'Make it and move' }).click();
+  await page.locator('.toast', { hasText: '2 tasks moved to Someday' }).last().waitFor();
+  await dlg.waitFor({ state: 'detached' });
+  const lists = (await api(page, 'GET', '/tasks/lists')).body;
+  const someday = (lists.lists || lists).find((l) => l.name === 'Someday');
+  if (!someday) throw new Error('no list');
+  if ((await tasksOf(someday.id)).map((t) => t.title).sort().join() !== 'Alpha,Beta') throw new Error(JSON.stringify(await tasksOf(someday.id)));
+  if ((await tasksOf(later)).some((t) => ['Alpha', 'Beta'].includes(t.title))) throw new Error('still here');
+  if (!page.url().includes(later)) throw new Error(`went to ${page.url()}`);
+  await page.locator('.subnav').getByText('Someday').first().waitFor(); // in the side list at once
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

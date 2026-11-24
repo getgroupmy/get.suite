@@ -88,7 +88,7 @@ export default function Tasks() {
   const [view, setViewState] = useState('list');
   useEffect(() => { try { setViewState(localStorage.getItem(viewKey) || 'list'); } catch { setViewState('list'); } }, [viewKey]);
   const setView = (v) => { setViewState(v); try { localStorage.setItem(viewKey, v); } catch { /* not kept */ } };
-  const [dialog, setDialog] = useState(null); // 'new' | 'rename' | 'share' | 'delete'
+  const [dialog, setDialog] = useState(null); // 'new' | 'movenew' | 'rename' | 'share' | 'delete'
   const [dragging, setDragging] = useState(null);
   const [dropAt, setDropAt] = useState(null); // index the dragged task would go before
   const addBox = useRef();
@@ -552,9 +552,10 @@ export default function Tasks() {
               {sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
               <option value="__none__">No section</option>
             </select>}
-            <select aria-label="Move the selected tasks to" value="" disabled={!picked.size} onChange={(e) => { const to = e.target.value; if (to) batch({ change: { list_id: to } }, (n) => `${nTasks(n)} moved to ${lists.find((l) => l.id === to)?.name}`); }}>
+            <select aria-label="Move the selected tasks to" value="" disabled={!picked.size} onChange={(e) => { const to = e.target.value; if (to === '__new__') setDialog('movenew'); else if (to) batch({ change: { list_id: to } }, (n) => `${nTasks(n)} moved to ${lists.find((l) => l.id === to)?.name}`); }}>
               <option value="">Move to…</option>
               {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              <option value="__new__">+ New list…</option>
             </select>
             <select aria-label="Copy the selected tasks to" value="" disabled={!picked.size} onChange={async (e) => {
               const to = e.target.value;
@@ -692,6 +693,9 @@ export default function Tasks() {
         onClose={() => setDialog(null)} onRestored={async (b) => { setDialog(null); await loadLists(); navigate(`/tasks/${b.list_id}`); }} />}
       {dialog === 'new' && <PromptModal title="New list" label="List name" confirm="Create" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
+      {/* "Move to… → + New list…": a list made with a name, the tasks selected moved into it (this list stays open) */}
+      {dialog === 'movenew' && <PromptModal title={`Move ${nTasks(picked.size)} to a new list`} label="List name" confirm="Make it and move" onClose={() => setDialog(null)}
+        onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await batch({ change: { list_id: r.id } }, (n) => `${nTasks(n)} moved to ${r.name || name}`); loadLists(); }} />}
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
         onSubmit={async (name) => { await patch(`/tasks/lists/${list.id}`, { name }); loadLists(); }} />}
       {sectionEdit?.add && list && <PromptModal title="New section" label="Section name" confirm="Add" message="A heading that splits the list into parts, such as This week or Later."
