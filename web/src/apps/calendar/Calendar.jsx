@@ -562,6 +562,15 @@ function Calendar({ acting = null, managed = [], onPick }) {
             <button type="button" className="link-btn small" onClick={() => { setFound(null); setPicking(null); }}>Clear</button></h3>
           {picking && <div className="row" role="toolbar" aria-label="Change the selected events">
             <span className="muted small grow" aria-live="polite">{picking.size} selected</span>
+            <select className="small" aria-label="Move the selected events to" value="x" disabled={!picking.size} onChange={async (e) => {
+              const to = e.target.value || null;
+              const name = to ? myCals.find((c) => c.id === to)?.name : 'My calendar';
+              try { const r = await post('/events/move-many', { ids: [...picking], calendar_id: to }); toast(`${r.moved === 1 ? 'Event' : `${r.moved} events`} moved to ${name}`); setPicking(null); load(); loadCals(); runSearch(found?.q); } catch (err) { toast(err.message, 'error'); }
+            }}>
+              <option value="x" disabled>Move to…</option>
+              <option value="">My calendar</option>
+              {myCals.filter((c) => !c.shared).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
             <button type="button" className="btn small danger" disabled={!picking.size} onClick={() => setDeletingFound(true)}><Icon name="trash" size={16} /> Delete</button>
           </div>}
           {found.list.length === 0 && <p className="muted small">No events match “{found.q}”</p>}

@@ -79,6 +79,24 @@ await step('Clear brings back Upcoming; no match says so', async () => {
   await page.getByRole('button', { name: 'Clear' }).click();
   await page.getByText('Upcoming').waitFor();
 });
+await step('Select results and move them to another of your calendars', async () => {
+  const work = (await api(page, 'POST', '/events/calendars', { name: 'Work stuff' })).body;
+  await page.reload();
+  await page.getByLabel('Search events').fill('budget');
+  await page.getByLabel('Search events').press('Enter');
+  const list = page.getByRole('list', { name: 'Search results' });
+  await list.getByText('Old budget talk').waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByLabel('Select: Old budget talk').check();
+  await page.getByLabel('Select: Budget review').check();
+  await page.getByRole('toolbar', { name: 'Change the selected events' }).getByLabel('Move the selected events to').selectOption({ label: 'Work stuff' });
+  await page.locator('.toast', { hasText: '2 events moved to Work stuff' }).last().waitFor();
+  const now = Date.now();
+  const evs = (await api(page, 'GET', `/events?from=${now - 90 * day}&to=${now + 90 * day}`)).body;
+  const cal = (t) => (evs.events || evs).find((e) => e.title === t)?.calendar_id ?? null;
+  if (cal('Old budget talk') !== work.id || cal('Budget review') !== work.id || cal('Lunch') !== null) throw new Error(JSON.stringify([cal('Old budget talk'), cal('Budget review'), cal('Lunch')]));
+  await page.getByRole('toolbar', { name: 'Change the selected events' }).waitFor({ state: 'detached' });
+});
 await step('Select results and delete them together; Undo puts them back', async () => {
   await page.getByLabel('Search events').fill('budget');
   await page.getByLabel('Search events').press('Enter');

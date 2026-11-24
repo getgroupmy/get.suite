@@ -3830,6 +3830,19 @@ test('calendar search: words in title, place or notes; your events and invitatio
   assert.deepEqual((await a('GET', '/api/events/search?q=')).body, []);
   assert.deepEqual((await a('GET', '/api/events/search?q=100%25')).body, []);
 
+  // Several found moved to another of your calendars at once, and back to My calendar; not someone else's calendar.
+  const work = (await a('POST', '/api/events/calendars', { name: 'Work' })).body;
+  const theirs = (await c('POST', '/api/events/calendars', { name: 'Cat cal' })).body;
+  assert.equal((await a('POST', '/api/events/move-many', { ids: [found[1].id, found[2].id], calendar_id: theirs.id })).status, 404);
+  assert.equal((await b('POST', '/api/events/move-many', { ids: [found[1].id], calendar_id: null })).status, 404, 'a guest can\'t');
+  let mv = await a('POST', '/api/events/move-many', { ids: [found[1].id, found[2].id], calendar_id: work.id });
+  assert.deepEqual(mv.body, { moved: 2 });
+  const { q } = await import('../src/db.js');
+  const calOf = async (id) => q('SELECT calendar_id FROM events WHERE id = ?').get(id).calendar_id ?? null;
+  assert.deepEqual([await calOf(found[1].id), await calOf(found[2].id), await calOf(found[0].id)], [work.id, work.id, null]);
+  mv = await a('POST', '/api/events/move-many', { ids: [found[1].id], calendar_id: null });
+  assert.equal(await calOf(found[1].id), null);
+
   // Several found deleted at once: only your own (not an invitation, not someone else's); all checked first; each can come back.
   const review = found[1], old = found[2];
   assert.equal((await b('POST', '/api/events/delete-many', { ids: [review.id] })).status, 404, 'a guest can\'t');

@@ -1151,6 +1151,22 @@ export default function calendarRoutes() {
     }
     res.json({ deleted: evs.length, undo });
   });
+  // Several of your own events moved to another of your calendars at once (null: My calendar); their changed
+  // occurrences go along, as moving one does. Every one checked first.
+  r.post('/move-many', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some events');
+    if (ids.length > 100) throw bad('100 events at a time at most');
+    const to = calendarFor(req.user.id, req.body?.calendar_id ?? null);
+    const evs = ids.map((id) => { const ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(id, req.user.id); if (!ev) throw notFound('Only your own events can be moved here'); return ev; });
+    const people = new Set([req.user.id, ...peopleOf(to)]);
+    tx(() => { for (const ev of evs) {
+      for (const p of peopleOf(ev.calendar_id)) people.add(p);
+      q('UPDATE events SET calendar_id = ? WHERE (id = ? OR recur_parent = ?) AND owner_id = ?').run(to, ev.id, ev.id, req.user.id);
+    } });
+    touch([...people]);
+    res.json({ moved: evs.length });
+  });
   // Undo a delete (within a day): the event comes back as it was.
   r.post('/trash/:id/restore', (req, res) => {
     const t = q('SELECT * FROM event_trash WHERE id = ? AND owner_id = ? AND deleted_at >= ?').get(String(req.params.id), req.user.id, Date.now() - EVENT_UNDO_MS);
