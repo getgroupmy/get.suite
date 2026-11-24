@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { get, post, put, patch, del } from '../../api.js';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
+import { matchesFilter } from '../contacts/contactfilter.js';
 
 export default function GroupsAdmin() {
   const toast = useToast();
@@ -15,6 +16,8 @@ export default function GroupsAdmin() {
   const [mailOn, setMailOn] = useState(false);
   useEffect(() => { get('/orgs/current').then((o) => setDomains(o.domains || [])).catch(() => {}); get('/mail/status').then((m) => setMailOn(!!m.enabled)).catch(() => {}); }, []);
   const [open, setOpen] = useState(null); // group id being edited
+  const [find, setFind] = useState('');
+  const shown = (groups || []).filter((g) => matchesFilter({ name: g.name, email: g.email || '', members: g.members.map((m) => `${m.name} ${m.username}`).join(' ') }, find));
   const [gone, setGone] = useState(null);
   const load = () => get('/groups').then(setGroups).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); get('/users/directory').then(setPeople).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -37,8 +40,11 @@ export default function GroupsAdmin() {
           <button className="btn primary">Create group</button></div>
       </form>
       {groups?.length === 0 && <p className="muted">No groups yet.</p>}
+      {/* Find a group by its name, its address, or someone in it (words in any order, accents aside). */}
+      {groups?.length > 4 && <input type="search" aria-label="Find a group" placeholder="Find a group or someone in one" value={find} onChange={(e) => setFind(e.target.value)} />}
+      {groups?.length > 0 && find.trim() && !shown.length && <p className="muted">No group fits “{find.trim()}”.</p>}
       <ul className="group-list">
-        {groups?.map((g) => {
+        {shown.map((g) => {
           const inIt = new Set(g.members.map((m) => m.id));
           return (
             <li key={g.id} className="card stack-tight" aria-label={`Group ${g.name}`}>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get, post, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import { matchesFilter } from '../contacts/contactfilter.js';
 import { ConfirmModal, useToast } from '../../components/ui.jsx';
 
 export default function DrivesAdmin({ orgId, orgPicker }) {
@@ -12,6 +13,8 @@ export default function DrivesAdmin({ orgId, orgPicker }) {
   const navigate = useNavigate();
   const [drives, setDrives] = useState(null);
   const [joining, setJoining] = useState(null);
+  const [find, setFind] = useState(''); // a drive by its name or its owner's
+  const shown = (drives || []).filter((d) => matchesFilter({ name: d.name, owner: d.owner_name || '' }, find));
   const qs = orgId ? `?org_id=${encodeURIComponent(orgId)}` : '';
   const load = useCallback(() => get(`/orgs/current/drives${qs}`).then(setDrives).catch((e) => toast(e.message, 'error')), [qs, toast]);
   useEffect(() => { setDrives(null); load(); }, [load]);
@@ -20,12 +23,15 @@ export default function DrivesAdmin({ orgId, orgPicker }) {
       {orgPicker}
       <p className="muted small" style={{ margin: 0 }}>Shared drives belong to teams rather than to one person; people make them in Drive → Shared drives. You only see what's inside the ones you're in.</p>
       {drives === null ? <p className="muted">Loading…</p> : !drives.length ? <p className="muted">No shared drives yet.</p> : (
+        <>
+        {drives.length > 4 && <input type="search" aria-label="Find a shared drive" placeholder="Find a shared drive or its owner" value={find} onChange={(e) => setFind(e.target.value)} />}
         <div className="card" style={{ padding: 0 }}>
           <table className="files">
             <caption className="sr-only">Shared drives</caption>
             <thead><tr><th>Name</th><th className="hide-sm">Owner</th><th className="num">People</th><th className="num hide-sm">Files</th><th className="num">Size</th><th aria-label="Actions" /></tr></thead>
             <tbody>
-              {drives.map((d) => (
+              {!shown.length && <tr><td colSpan={6} className="muted">No shared drive fits “{find.trim()}”.</td></tr>}
+              {shown.map((d) => (
                 <tr key={d.id}>
                   <td className="name"><Icon name="people" /><span>{d.name}</span></td>
                   <td className="hide-sm muted">{d.owner_name}</td>
@@ -42,6 +48,7 @@ export default function DrivesAdmin({ orgId, orgPicker }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
       {joining && (
         <ConfirmModal title={`Add yourself to “${joining.name}”?`} confirm="Add me as an editor" danger={false}
