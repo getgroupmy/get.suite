@@ -114,6 +114,26 @@ await step('Share with the company, and stop sharing, for several at once', asyn
   await page.locator('.toast', { hasText: '1 contact no longer shared' }).last().waitFor();
   if (await shared() !== 'Ben Best') throw new Error(await shared());
 });
+await step('Set company…: one company (and job title) for several; empty clears it', async () => {
+  const bar = page.getByRole('toolbar', { name: 'Change the selected contacts' });
+  await page.getByLabel('Select Ann Able').check();
+  await page.getByLabel('Select Dee Done').check();
+  await bar.getByRole('button', { name: 'Set company…' }).click();
+  let dlg = page.getByRole('dialog', { name: 'Company for 2 contacts' });
+  await dlg.getByLabel('Company').fill('Globex');
+  await dlg.getByLabel('Job title (optional)').fill('Buyer');
+  await dlg.getByRole('button', { name: 'Set company' }).click();
+  await page.locator('.toast', { hasText: '2 contacts now at Globex' }).last().waitFor();
+  let c = Object.fromEntries((await mine()).map((x) => [x.name, `${x.company || ''}/${x.title || ''}`]));
+  if (c['Ann Able'] !== 'Globex/Buyer' || c['Dee Done'] !== 'Globex/Buyer' || c['Ben Best'] !== '/') throw new Error(JSON.stringify(c));
+  await page.getByLabel('Select Dee Done').check();
+  await bar.getByRole('button', { name: 'Set company…' }).click();
+  dlg = page.getByRole('dialog', { name: 'Company for 1 contact' });
+  await dlg.getByRole('button', { name: 'Clear company' }).click();
+  await page.locator('.toast', { hasText: 'Company cleared for 1 contact' }).last().waitFor();
+  c = Object.fromEntries((await mine()).map((x) => [x.name, `${x.company || ''}/${x.title || ''}`]));
+  if (c['Dee Done'] !== '/Buyer' || c['Ann Able'] !== 'Globex/Buyer') throw new Error(JSON.stringify(c));
+});
 await step('Email everyone selected', async () => {
   await page.getByLabel('Select all shown').check();
   await page.getByRole('toolbar', { name: 'Change the selected contacts' }).getByText('4 selected').waitFor();

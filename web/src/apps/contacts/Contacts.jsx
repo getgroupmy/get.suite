@@ -173,6 +173,7 @@ export default function Contacts() {
   const [myGroups, setMyGroups] = useState([]);
   const [deletingMany, setDeletingMany] = useState(false);
   const [newGroup, setNewGroup] = useState(false); // naming a group for the people selected
+  const [settingCompany, setSettingCompany] = useState(false); // one company for the people selected
   useEffect(() => { setPicked(new Set()); if (tab === 'mine') get('/contacts/groups').then(setMyGroups).catch(() => {}); }, [tab]);
   const selecting = tab === 'mine';
   const chosen = (contacts || []).filter((c) => picked.has(c.id));
@@ -277,6 +278,7 @@ export default function Contacts() {
               </select>}
               <button type="button" className="btn small" onClick={() => many({ action: 'star' }, (r) => `${nPeople(r.changed)} starred`)}>★ Star</button>
               <button type="button" className="btn small" onClick={() => many({ action: 'unstar' }, (r) => `${nPeople(r.changed)} unstarred`)}>☆ Unstar</button>
+              <button type="button" className="btn small" title="One company (and job title) for everyone selected" onClick={() => setSettingCompany(true)}>Set company…</button>
               {chosen.some((c) => !c.shared) && <button type="button" className="btn small" title={`Everyone at ${user.org_name} sees them, and finds them when writing mail`}
                 onClick={() => many({ action: 'share' }, (r) => `${nPeople(r.changed)} shared with everyone at ${user.org_name}`)}><Icon name="people" size={16} /> Share with {user.org_name}</button>}
               {chosen.some((c) => c.shared) && <button type="button" className="btn small" onClick={() => many({ action: 'unshare' }, (r) => `${nPeople(r.changed)} no longer shared`)}>Stop sharing</button>}
@@ -337,6 +339,8 @@ export default function Contacts() {
       {qr && <ContactQr contact={qr} onClose={() => setQr(null)} />}
       {sending && <SendContact contacts={[sending].flat()} onClose={() => setSending(null)} />}
       {editing && <ContactDialog key={editing.id || 'new'} contact={editing} orgName={user.org_name} all={contacts || []} onOpen={setEditing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {settingCompany && <SetCompany count={picked.size} companies={[...new Set((contacts || []).map((c) => c.company).filter(Boolean))].sort()} onClose={() => setSettingCompany(false)}
+        onSave={(body) => many({ action: 'company', ...body }, (r) => (body.company ? `${nPeople(r.changed)} now at ${body.company}` : `Company cleared for ${nPeople(r.changed)}`))} />}
       {newGroup && <PromptModal title={`New group of ${nPeople(picked.size)}`} label="Group name" confirm="Make the group" onSubmit={groupFromPicked} onClose={() => setNewGroup(false)} />}
       {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They go to Trash for 30 days (and off your phone on its next sync)." onClose={() => setDeletingMany(false)}
         onConfirm={async () => {
@@ -403,6 +407,23 @@ function DuplicatesDialog({ onClose, onMerged }) {
 }
 
 /** People you've emailed who aren't in your contacts: add them, or forget them. */
+/** One company (and, if typed, a job title) for several contacts at once: an empty company clears it. */
+function SetCompany({ count, companies, onSave, onClose }) {
+  const [company, setCompany] = useState('');
+  const [title, setTitle] = useState('');
+  const submit = async (e) => { e.preventDefault(); await onSave({ company: company.trim(), ...(title.trim() && { title: title.trim() }) }); onClose(); };
+  return (
+    <Modal title={`Company for ${nPeople(count)}`} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <label className="field"><span>Company</span><input autoFocus list="set-company-list" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Empty to clear it" /></label>
+        <datalist id="set-company-list">{companies.map((c) => <option key={c} value={c} />)}</datalist>
+        <label className="field"><span>Job title (optional)</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Left as it is if empty" /></label>
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">{company.trim() ? 'Set company' : 'Clear company'}</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 /** Deleted contacts, kept 30 days: put one back, or delete it (or everything) for good. */
 function ContactsTrash({ filter, onRestored }) {
   const toast = useToast();

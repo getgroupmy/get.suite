@@ -711,6 +711,17 @@ export default function contactRoutes() {
       tx(() => { for (const c of list) q('UPDATE contacts SET starred = ? WHERE id = ?').run(action === 'star' ? 1 : 0, c.id); });
       return res.json({ changed: list.length });
     }
+    if (action === 'company') {
+      // One company (and a job title, if given) for them all; an empty one clears it.
+      const company = String(req.body?.company ?? '').trim().slice(0, FIELDS.company) || null;
+      const title = req.body?.title === undefined ? undefined : (String(req.body.title ?? '').trim().slice(0, FIELDS.title) || null);
+      tx(() => { for (const c of list) {
+        q('UPDATE contacts SET company = ? WHERE id = ?').run(company, c.id);
+        if (title !== undefined) q('UPDATE contacts SET title = ? WHERE id = ?').run(title, c.id);
+      } });
+      if (list.some((c) => c.shared)) res.locals.sharedContact = true;
+      return res.json({ changed: list.length });
+    }
     if (action === 'share' || action === 'unshare') {
       // Shared with everyone at your company (as a contact's own tick does), or not any more: your own contacts only.
       if (list.some((c) => c.owner_id !== req.user.id)) throw bad('Only its owner shares a contact');

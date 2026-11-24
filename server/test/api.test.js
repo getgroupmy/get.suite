@@ -9949,6 +9949,16 @@ test('Contacts: several at once (star, add to a group, delete); all checked firs
   assert.deepEqual(r.body, { changed: 3 });
   assert.deepEqual(await company(), [], 'no longer shared');
 
+  // One company (and job title) for several; empty clears it.
+  r = await batch(a, { ids: [ann.id, ben.id], action: 'company', company: '  Globex Ltd ', title: 'Buyer' });
+  assert.deepEqual(r.body, { changed: 2 });
+  let rows = Object.fromEntries((await a('GET', '/api/contacts')).body.map((c) => [c.name, [c.company, c.title]]));
+  assert.deepEqual([rows['Ann Able'], rows['Ben Best'], rows['Cy NoMail']], [['Globex Ltd', 'Buyer'], ['Globex Ltd', 'Buyer'], [null, null]]);
+  r = await batch(a, { ids: [ben.id], action: 'company', company: '' });
+  rows = Object.fromEntries((await a('GET', '/api/contacts')).body.map((c) => [c.name, [c.company, c.title]]));
+  assert.deepEqual(rows['Ben Best'], [null, 'Buyer'], 'company cleared, title left as it was');
+  assert.equal((await batch(b, { ids: [ann.id], action: 'company', company: 'Hacked' })).status, 404);
+
   assert.equal((await batch(a, { ids: [ann.id], action: 'explode' })).status, 400);
   assert.equal((await batch(a, { ids: [], action: 'delete' })).status, 400);
   assert.equal((await batch(b, { ids: [ann.id], action: 'delete' })).status, 404);
