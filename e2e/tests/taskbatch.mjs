@@ -156,6 +156,41 @@ await step('Move to… + New list…: a list made there and then, the selected t
   if (!page.url().includes(later)) throw new Error(`went to ${page.url()}`);
   await page.locator('.subnav').getByText('Someday').first().waitFor(); // in the side list at once
 });
+await step('Copy to… + New list… from the bar; a task’s details move it or copy it to a new list too', async () => {
+  const idOf = async (name) => { const l = (await api(page, 'GET', '/tasks/lists')).body; return ((l.lists || l).find((x) => x.name === name) || {}).id; };
+  await page.goto(`${B}/tasks/${later}`);
+  await page.getByText('Print flyers', { exact: true }).waitFor();
+  await api(page, 'POST', `/tasks/lists/${later}/tasks`, { title: 'Gamma' });
+  await page.reload();
+  await page.getByText('Gamma', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await choose('Gamma', 'Print flyers');
+  await page.getByRole('toolbar', { name: 'Change the selected tasks' }).getByLabel('Copy the selected tasks to').selectOption({ label: '+ New list…' });
+  let dlg = page.getByRole('dialog', { name: 'Copy 2 tasks to a new list' });
+  await dlg.getByLabel('List name').fill('Archive copies');
+  await dlg.getByRole('button', { name: 'Make it and copy' }).click();
+  await page.locator('.toast', { hasText: '2 tasks copied to Archive copies' }).last().waitFor();
+  const arch = await until(() => idOf('Archive copies'));
+  if ((await tasksOf(arch)).map((t) => t.title).join() !== 'Gamma,Print flyers') throw new Error(JSON.stringify((await tasksOf(arch)).map((t) => t.title)));
+  if (!(await tasksOf(later)).some((t) => t.title === 'Gamma')) throw new Error('the originals stay');
+  await page.getByRole('button', { name: 'Done selecting' }).click();
+  // One task, from its details: copy it to a new list, then move it to another.
+  await page.getByText('Gamma', { exact: true }).click();
+  await page.getByLabel('Copy this task to').selectOption({ label: '+ New list…' });
+  dlg = page.getByRole('dialog', { name: 'Copy this task to a new list' });
+  await dlg.getByLabel('List name').fill('Gamma copies');
+  await dlg.getByRole('button', { name: 'Make it and copy' }).click();
+  await page.locator('.toast', { hasText: 'Copied to Gamma copies' }).last().waitFor();
+  if ((await tasksOf(await until(() => idOf('Gamma copies')))).map((t) => t.title).join() !== 'Gamma') throw new Error('details copy');
+  await page.getByRole('complementary', { name: 'Task details' }).getByLabel('List').selectOption({ label: '+ New list…' });
+  dlg = page.getByRole('dialog', { name: 'Move this task to a new list' });
+  await dlg.getByLabel('List name').fill('Gamma home');
+  await dlg.getByRole('button', { name: 'Make it and move' }).click();
+  await page.locator('.toast', { hasText: 'Moved to Gamma home' }).last().waitFor();
+  const home = await until(() => idOf('Gamma home'));
+  if ((await tasksOf(home)).map((t) => t.title).join() !== 'Gamma') throw new Error('details move');
+  if ((await tasksOf(later)).some((t) => t.title === 'Gamma')) throw new Error('still in Later');
+});
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 await browser.close();
 process.exit(failed || errors.length ? 1 : 0);

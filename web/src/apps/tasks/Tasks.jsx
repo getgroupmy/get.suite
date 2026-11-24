@@ -83,6 +83,22 @@ export default function Tasks() {
     } catch (e) { toast(e.message, 'error'); }
   }
   const nTasks = (n) => `${n} task${n === 1 ? '' : 's'}`;
+  /** Copies of the selected tasks in another list: each goes to the top there, so last first keeps this list's order. */
+  async function copyPicked(to, toName) {
+    const ids = (tasks || []).filter((t) => picked.has(t.id)).map((t) => t.id).reverse();
+    let n = 0;
+    try {
+      for (const id of ids) { await post(`/tasks/tasks/${id}/duplicate`, { list_id: to }); n++; }
+      toast(`${nTasks(n)} copied to ${toName}`);
+      setPicked(new Set());
+    } catch (err) { toast(n ? `${nTasks(n)} copied; then: ${err.message}` : err.message, 'error'); }
+  }
+  /** "+ New list…" in a Move to… or Copy to…: the list made (this one stays open). { id, name } */
+  async function newList(name) {
+    const r = await post('/tasks/lists', { name });
+    loadLists();
+    return { id: r.id, name: r.name || name };
+  }
   // List or board, remembered for each list in this browser.
   const viewKey = `tasks-view:${listId}`;
   const [view, setViewState] = useState('list');
@@ -557,20 +573,14 @@ export default function Tasks() {
               {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               <option value="__new__">+ New list…</option>
             </select>
-            <select aria-label="Copy the selected tasks to" value="" disabled={!picked.size} onChange={async (e) => {
+            <select aria-label="Copy the selected tasks to" value="" disabled={!picked.size} onChange={(e) => {
               const to = e.target.value;
-              if (!to) return;
-              // Each copy goes to the top there: last first, so they keep this list's order.
-              const ids = (tasks || []).filter((t) => picked.has(t.id)).map((t) => t.id).reverse();
-              let n = 0;
-              try {
-                for (const id of ids) { await post(`/tasks/tasks/${id}/duplicate`, { list_id: to }); n++; }
-                toast(`${nTasks(n)} copied to ${lists.find((l) => l.id === to)?.name}`);
-                setPicked(new Set());
-              } catch (err) { toast(n ? `${nTasks(n)} copied; then: ${err.message}` : err.message, 'error'); }
+              if (to === '__new__') setDialog('copynew');
+              else if (to) copyPicked(to, lists.find((l) => l.id === to)?.name);
             }}>
               <option value="">Copy to…</option>
               {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              <option value="__new__">+ New list…</option>
             </select>
             <button type="button" className="btn small" disabled={!picked.size} title="Links to these tasks in a Chat conversation's message box (they show as task cards)" onClick={() => setChatting((tasks || []).filter((t) => picked.has(t.id)))}><Icon name="chat" size={16} /> Send in Chat…</button>
             {mail?.enabled && <button type="button" className="btn small" disabled={!picked.size} title="A new email with just these tasks in it, as a list's email has them" onClick={() => emailList(true, picked)}><Icon name="mail" size={16} /> Email</button>}
@@ -688,14 +698,17 @@ export default function Tasks() {
       {current && list && <TaskDetails key={current.id} task={current} sections={sections} inMyDay={myDay.some((x) => x.id === current.id)} onMyDay={(on) => toMyDay(current, on)} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
         onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
         onDelete={() => { show(null); deleteTask(current); }}
-        onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
+        onNewList={newList}
+        onMove={async (to, toName) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${toName || lists.find((l) => l.id === to)?.name}`); }} />}
       {dialog === 'bin' && <RecentlyDeleted title="Recently deleted lists" what="Lists" list="/tasks/bin" restore={(id) => `/tasks/bin/${id}/restore`}
         onClose={() => setDialog(null)} onRestored={async (b) => { setDialog(null); await loadLists(); navigate(`/tasks/${b.list_id}`); }} />}
       {dialog === 'new' && <PromptModal title="New list" label="List name" confirm="Create" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
       {/* "Move to… → + New list…": a list made with a name, the tasks selected moved into it (this list stays open) */}
       {dialog === 'movenew' && <PromptModal title={`Move ${nTasks(picked.size)} to a new list`} label="List name" confirm="Make it and move" onClose={() => setDialog(null)}
-        onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await batch({ change: { list_id: r.id } }, (n) => `${nTasks(n)} moved to ${r.name || name}`); loadLists(); }} />}
+        onSubmit={async (name) => { const r = await newList(name); await batch({ change: { list_id: r.id } }, (n) => `${nTasks(n)} moved to ${r.name}`); loadLists(); }} />}
+      {dialog === 'copynew' && <PromptModal title={`Copy ${nTasks(picked.size)} to a new list`} label="List name" confirm="Make it and copy" onClose={() => setDialog(null)}
+        onSubmit={async (name) => { const r = await newList(name); await copyPicked(r.id, r.name); }} />}
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
         onSubmit={async (name) => { await patch(`/tasks/lists/${list.id}`, { name }); loadLists(); }} />}
       {sectionEdit?.add && list && <PromptModal title="New section" label="Section name" confirm="Add" message="A heading that splits the list into parts, such as This week or Later."
@@ -1235,7 +1248,8 @@ function ListLook({ list, onClose, onSaved }) {
   );
 }
 
-function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onClose, onDelete, onMove, onReplaced, inMyDay, onMyDay }) {
+function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onClose, onDelete, onMove, onNewList, onReplaced, inMyDay, onMyDay }) {
+  const [toNew, setToNew] = useState(null); // 'move' | 'copy': this task to a list made with a name
   // How much each person on the list already has (Workload), beside their name when giving the task to someone.
   const [load, setLoad] = useState(null);
   const shared = people.length > 1;
@@ -1346,13 +1360,18 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
           </select>
         </label>
       )}
-      {lists.length > 1 && (
-        <label className="field"><span>List</span>
-          <select value={task.list_id} onChange={(e) => onMove(e.target.value)}>
-            {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        </label>
-      )}
+      <label className="field"><span>List</span>
+        <select value={task.list_id} onChange={(e) => (e.target.value === '__new__' ? setToNew('move') : onMove(e.target.value))}>
+          {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          <option value="__new__">+ New list…</option>
+        </select>
+      </label>
+      {toNew && <PromptModal title={toNew === 'move' ? 'Move this task to a new list' : 'Copy this task to a new list'} label="List name" confirm={toNew === 'move' ? 'Make it and move' : 'Make it and copy'} onClose={() => setToNew(null)}
+        onSubmit={async (name) => {
+          const r = await onNewList(name);
+          if (toNew === 'move') onMove(r.id, r.name);
+          else { await post(`/tasks/tasks/${task.id}/duplicate`, { list_id: r.id }); toast(`Copied to ${r.name}`); }
+        }} />}
       <p className="muted small">Added by {task.created_by_name || 'someone'} · {new Date(task.created_at).toLocaleDateString([], { dateStyle: 'medium' })}{task.done && ` · done ${new Date(task.done_at).toLocaleDateString([], { dateStyle: 'medium' })}`}</p>
       <TaskComments task={task} />
       <TaskHistory task={task} />
@@ -1365,16 +1384,16 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
         <button type="button" className="btn" onClick={async () => {
           try { await post(`/tasks/tasks/${task.id}/duplicate`); toast('Duplicated: the copy is just below'); } catch (e) { toast(e.message, 'error'); }
         }}><Icon name="copy" size={16} /> Duplicate</button>
-        {(lists || []).some((l) => l.id !== task.list_id) && (
-          <select aria-label="Copy this task to" value="" onChange={async (e) => {
-            const to = e.target.value;
-            if (!to) return;
-            try { await post(`/tasks/tasks/${task.id}/duplicate`, { list_id: to }); toast(`Copied to ${lists.find((l) => l.id === to)?.name}`); } catch (err) { toast(err.message, 'error'); }
-          }}>
-            <option value="">Copy to…</option>
-            {lists.filter((l) => l.id !== task.list_id).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        )}
+        <select aria-label="Copy this task to" value="" onChange={async (e) => {
+          const to = e.target.value;
+          if (to === '__new__') { setToNew('copy'); return; }
+          if (!to) return;
+          try { await post(`/tasks/tasks/${task.id}/duplicate`, { list_id: to }); toast(`Copied to ${lists.find((l) => l.id === to)?.name}`); } catch (err) { toast(err.message, 'error'); }
+        }}>
+          <option value="">Copy to…</option>
+          {lists.filter((l) => l.id !== task.list_id).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          <option value="__new__">+ New list…</option>
+        </select>
         <button type="button" className="btn danger" onClick={onDelete}><Icon name="trash" size={16} /> Delete task</button>
       </div>
     </aside>
