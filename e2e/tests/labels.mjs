@@ -107,6 +107,24 @@ await step('rename and recolour, then delete it from everything', async () => {
   await until(async () => (await page.locator('.msg-list li').count()) === 3);
   if (await page.locator('.msg-list .label-chip').count()) throw new Error('chips left');
 });
+await step('Move up and Move down put labels in your own order (new ones after, by name)', async () => {
+  for (const name of ['Alpha', 'Beta', 'Gamma']) await api(page, 'POST', '/mail/labels', { name });
+  await page.reload();
+  const order = async () => (await page.locator('.subnav .folder-row .label-dot + .grow').allInnerTexts());
+  await page.locator('.subnav .folder-row', { hasText: 'Gamma' }).waitFor();
+  if ((await order()).join() !== 'Alpha,Beta,Gamma') throw new Error((await order()).join());
+  await page.getByRole('button', { name: 'Options for label Gamma' }).click();
+  if (await page.getByRole('menuitem', { name: 'Move down' }).count()) throw new Error('the last one offered Move down');
+  await page.getByRole('menuitem', { name: 'Move up' }).click();
+  await until(async () => (await order()).join() === 'Alpha,Gamma,Beta');
+  await page.getByRole('button', { name: 'Options for label Alpha' }).click();
+  await page.getByRole('menuitem', { name: 'Move down' }).click();
+  await until(async () => (await order()).join() === 'Gamma,Alpha,Beta');
+  await api(page, 'POST', '/mail/labels', { name: 'Aardvark' });
+  await page.reload();
+  await page.locator('.subnav .folder-row', { hasText: 'Aardvark' }).waitFor();
+  if ((await order()).join() !== 'Gamma,Alpha,Beta,Aardvark') throw new Error(`after reload: ${(await order()).join()}`);
+});
 await step('no errors in the browser', async () => { if (errors.length) throw new Error(errors.join(' | ')); });
 await browser.close();
 process.exit(failed ? 1 : 0);

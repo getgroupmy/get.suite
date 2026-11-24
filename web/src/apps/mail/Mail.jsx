@@ -273,6 +273,14 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   // Saved searches in the sidebar, with how many unread match (refreshed with the folders).
   const [searches, setSearches] = useState([]);
   const loadSearches = useCallback(() => { if (!shared) get('/mail/searches').then(setSearches).catch(() => {}); }, [shared]);
+  // A label one place up (by -1) or down (by 1) in the sidebar: your own order from then on.
+  const orderLabels = async (i, by) => {
+    const ids = labels.map((x) => x.id);
+    [ids[i], ids[i + by]] = [ids[i + by], ids[i]];
+    setLabels((l) => ids.map((id) => l.find((x) => x.id === id)));
+    try { await put('/mail/labels/order', { ids }); } catch (e) { toast(e.message, 'error'); }
+    loadLabels();
+  };
   // A saved search one place up (by -1) or down (by 1) in the sidebar.
   const orderSearches = async (i, by) => {
     const ids = searches.map((x) => x.id);
@@ -564,7 +572,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         </>}
         {!shared && <>
         <div className="subnav-title row">Labels<div className="grow" /><button type="button" className="icon-btn" aria-label="New label" onClick={() => setLabelDialog({})}><Icon name="plus" size={18} /></button></div>
-        {labels.map((l) => (
+        {labels.map((l, i) => (
           <div key={l.id} className="folder-row">
             <button className={`subnav-item ${labelId === l.id ? 'active' : ''} ${dropAt === `label:${l.id}` ? 'drop-here' : ''}`} onClick={() => setSearch({ label: l.id })}
               {...dropProps(`label:${l.id}`, (d) => act('labels', { uids: d.uids, add: [l.id] }, `Labelled ${l.name}`))}>
@@ -572,6 +580,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             </button>
             <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for label ${l.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
               { label: 'Edit label', icon: 'edit', onClick: () => setLabelDialog(l) },
+              ...(i > 0 ? [{ label: 'Move up', icon: 'move', onClick: () => orderLabels(i, -1) }] : []),
+              ...(i < labels.length - 1 ? [{ label: 'Move down', icon: 'move', onClick: () => orderLabels(i, 1) }] : []),
               { label: 'Delete label', icon: 'trash', danger: true, onClick: () => setLabelDialog({ ...l, deleting: true }) },
             ]} />
           </div>

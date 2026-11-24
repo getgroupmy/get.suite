@@ -131,7 +131,9 @@ q(`CREATE TABLE IF NOT EXISTS mail_labels (
 if (!q("SELECT 1 FROM pragma_table_info('mail_labels') WHERE name = 'used_at'").get()) q('ALTER TABLE mail_labels ADD COLUMN used_at INTEGER').run();
 const MAX_LABELS = 100;
 const LABEL_COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#f6bf26', '#8e24aa', '#039be5', '#616161'];
-const labelsOf = (userId) => q('SELECT id, name, color, keyword FROM mail_labels WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(userId);
+// Your own order (Move up / Move down), if you've set one; labels never placed come after, by name.
+if (!q("SELECT 1 FROM pragma_table_info('mail_labels') WHERE name = 'position'").get()) q('ALTER TABLE mail_labels ADD COLUMN position INTEGER').run();
+const labelsOf = (userId) => q('SELECT id, name, color, keyword FROM mail_labels WHERE user_id = ? ORDER BY position IS NULL, position, name COLLATE NOCASE').all(userId);
 
 // Snoozed mail waits in a "Snoozed" IMAP folder (so phones see where it went) and comes back to
 // the Inbox, unread, when it's due. The message is found again by its Message-ID, or its UID.
@@ -919,6 +921,15 @@ export default function webmailRoutes() {
     const id = newId();
     q('INSERT INTO mail_labels (id, user_id, name, color, keyword, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, req.user.id, name, color, `nwl_${id.replace(/[^a-z0-9]/gi, '').slice(0, 12)}`, now());
     res.status(201).json({ id, name, color });
+  });
+  // Your labels in the order given ({ ids }); any left out keep coming after those.
+  r.put('/labels/order', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    const mine = labelsOf(req.user.id).map((l) => l.id);
+    if (ids.some((id) => !mine.includes(id))) throw notFound('Label not found');
+    const order = [...ids, ...mine.filter((id) => !ids.includes(id))];
+    tx(() => order.forEach((id, i) => q('UPDATE mail_labels SET position = ? WHERE id = ?').run(i + 1, id)));
+    res.json({ labels: labelsOf(req.user.id).map(({ keyword, ...l }) => l) });
   });
   r.patch('/labels/:id', (req, res) => {
     const l = q('SELECT * FROM mail_labels WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);

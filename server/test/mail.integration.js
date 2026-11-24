@@ -441,6 +441,11 @@ test('labels: made, put on and taken off messages, listed, filtered, kept as IMA
   assert.equal((await olivia('POST', '/api/mail/labels', { name: 'clients' })).status, 400, 'names are unique');
   assert.equal((await olivia('POST', '/api/mail/labels', { name: 'Bad', color: 'red' })).status, 400);
   assert.deepEqual((await olivia('GET', '/api/mail/labels')).body.labels.map((l) => l.name), ['Clients', 'Urgent']);
+  // In your own order: Urgent first; someone else can't order them.
+  assert.deepEqual((await olivia('PUT', '/api/mail/labels/order', { ids: [urgent.id] })).body.labels.map((l) => l.name), ['Urgent', 'Clients']);
+  assert.deepEqual((await olivia('GET', '/api/mail/labels')).body.labels.map((l) => l.name), ['Urgent', 'Clients']);
+  assert.equal((await gina('PUT', '/api/mail/labels/order', { ids: [urgent.id] })).status, 404);
+  await olivia('PUT', '/api/mail/labels/order', { ids: [mk.body.id, urgent.id] });
   for (const subject of ['Label me', 'Label me too']) assert.ok([200, 201].includes((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject, text: 'x' })).status));
   const find = async (subject, extra = '') => (await olivia('GET', `/api/mail/messages?folder=INBOX${extra}`)).body.messages.find((m) => m.subject === subject);
   const a = await eventually(() => find('Label me')), b = await eventually(() => find('Label me too'));
