@@ -805,6 +805,7 @@ export default function calendarRoutes() {
     if (!f) throw notFound();
     if (req.body?.name !== undefined) q('UPDATE calendar_feeds SET name = ? WHERE id = ?').run(String(req.body.name).trim().slice(0, 100) || 'Calendar', f.id);
     if (req.body?.color !== undefined) { if (!/^#[0-9a-f]{6}$/i.test(req.body.color)) throw bad('Pick a colour'); q('UPDATE calendar_feeds SET color = ? WHERE id = ?').run(req.body.color, f.id); }
+    if (req.body?.hidden !== undefined) q('UPDATE calendar_feeds SET hidden = ? WHERE id = ?').run(req.body.hidden ? 1 : 0, f.id);
     touch([req.user.id]);
     res.json(feedOf(f.id));
   });

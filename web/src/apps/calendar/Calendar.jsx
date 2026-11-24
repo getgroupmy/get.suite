@@ -2548,8 +2548,16 @@ function Feeds({ onChanged }) {
         <ul className="cal-feed-list" aria-label="Subscribed calendars">
           {feeds.map((f, k) => (
             <li key={f.id} className="row" title={f.error ? `Couldn't update: ${f.error}` : `Updated ${f.fetched_at ? new Date(f.fetched_at).toLocaleString() : 'never'}`}>
-              <span className="cal-feed-dot" style={{ background: f.color }} aria-hidden="true" />
-              <span className="grow ellipsis small">{f.name}{f.error ? ' ⚠' : ''}</span>
+              <label className="check grow small" style={{ minWidth: 0 }}>
+                <input type="checkbox" checked={!f.hidden} aria-label={`Show ${f.name}`} style={{ accentColor: f.color }}
+                  onChange={async (e) => {
+                    const hidden = !e.target.checked;
+                    setFeeds((list) => list.map((x) => (x.id === f.id ? { ...x, hidden } : x))); // ticked at once
+                    try { await patch(`/events/feeds/${f.id}`, { hidden }); } catch (err) { toast(err.message, 'error'); }
+                    changed();
+                  }} />
+                <span className="ellipsis">{f.name}{f.error ? ' ⚠' : ''}</span>
+              </label>
               <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
                 { label: 'Update now', icon: 'restore', onClick: async () => { try { const r = await post(`/events/feeds/${f.id}/refresh`); toast(r.error ? `Couldn't update: ${r.error}` : `${r.name} is up to date`, r.error ? 'error' : 'info'); changed(); } catch (e) { toast(e.message, 'error'); } } },
                 ...(k > 0 ? [{ label: 'Move up', icon: 'move', onClick: () => orderFeed(k, -1) }] : []),

@@ -25,6 +25,8 @@ q(`CREATE TABLE IF NOT EXISTS calendar_feeds (
 )`).run();
 // Your own order for your subscribed calendars (PUT /api/events/feeds/order); new ones come after.
 if (!q('PRAGMA table_info(calendar_feeds)').all().some((c) => c.name === 'position')) q('ALTER TABLE calendar_feeds ADD COLUMN position INTEGER').run();
+// Switched off (the tick box beside it): kept and still updated, but its events aren't shown.
+if (!q('PRAGMA table_info(calendar_feeds)').all().some((c) => c.name === 'hidden')) q('ALTER TABLE calendar_feeds ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0').run();
 
 export const MAX_FEEDS = 20, MAX_FEED_BYTES = 5 * 1024 * 1024, MAX_FEED_EVENTS = 5000, REFRESH_MS = 6 * 3600e3;
 const allowPrivate = () => process.env.CALENDAR_FEEDS_ALLOW_PRIVATE === '1';
@@ -106,17 +108,17 @@ export async function addFeed(userId, { url, name, color }) {
 }
 
 export const feedOf = (id) => {
-  const f = q('SELECT id, user_id, url, name, color, fetched_at, error, events FROM calendar_feeds WHERE id = ?').get(id);
+  const f = q('SELECT id, user_id, url, name, color, fetched_at, error, events, hidden FROM calendar_feeds WHERE id = ?').get(id);
   if (!f) return null;
-  const { events, user_id, ...rest } = f;
-  return { ...rest, events: JSON.parse(events).length };
+  const { events, user_id, hidden, ...rest } = f;
+  return { ...rest, hidden: !!hidden, events: JSON.parse(events).length };
 };
 export const feedsOf = (userId) => q('SELECT id FROM calendar_feeds WHERE user_id = ? ORDER BY position IS NULL, position, created_at').all(userId).map((f) => feedOf(f.id));
 
 /** The feeds' events that might fall between from and to (repeating ones whole; the browser expands them). */
 export function feedEvents(userId, from, to) {
   const out = [];
-  for (const f of q('SELECT id, name, color, events FROM calendar_feeds WHERE user_id = ?').all(userId)) {
+  for (const f of q('SELECT id, name, color, events FROM calendar_feeds WHERE user_id = ? AND hidden = 0').all(userId)) {
     for (const e of JSON.parse(f.events)) {
       if (e.start >= to) continue;
       if (!e.rrule && e.end < from) continue;

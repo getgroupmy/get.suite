@@ -7902,6 +7902,13 @@ test('calendar feeds: subscribe by address; private addresses refused; events re
     assert.equal(evs.find((e) => e.title === 'Team standup').rrule.freq, 'weekly');
     assert.equal((await bob('GET', `/api/events?from=${from}&to=${to}`)).body.filter?.((e) => e.role === 'feed').length ?? 0, 0, 'only for who subscribed');
     assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { name: 'Holidays' })).body.name, 'Holidays');
+    // Switched off: its events aren't shown, though it stays (and is still updated); on again, they're back.
+    const feedTitles = async () => (await owner('GET', `/api/events?from=${from}&to=${to}`)).body.filter((e) => e.role === 'feed').map((e) => e.title).sort();
+    assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { hidden: true })).body.hidden, true);
+    assert.deepEqual(await feedTitles(), []);
+    assert.equal((await owner('GET', '/api/events/feeds')).body.find((x) => x.id === f.body.id).hidden, true, 'still subscribed');
+    assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { hidden: false })).body.hidden, false);
+    assert.deepEqual(await feedTitles(), ['Christmas Day', 'Team standup']);
     assert.equal((await owner('POST', `/api/events/feeds/${f.body.id}/refresh`)).body.error, null);
     // In your own order: the ids given first, then the rest; a new one after; renaming keeps the place.
     const g = (await owner('POST', '/api/events/feeds', { url: `${url}/holidays.ics`, name: 'Second' })).body;

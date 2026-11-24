@@ -61,6 +61,22 @@ await step('its events show, read-only', async () => {
   if (await d.getByRole('button', { name: 'Save' }).count()) throw new Error('editable');
   await page.keyboard.press('Escape');
 });
+await step('the tick box beside a subscribed calendar hides its events, and shows them again', async () => {
+  await page.getByRole('radio', { name: 'Schedule' }).click();
+  await page.getByText('Founders Day', { exact: true }).first().waitFor();
+  const box = page.getByRole('checkbox', { name: 'Show Office holidays' });
+  if (!(await box.isChecked())) throw new Error('off at first');
+  await box.uncheck();
+  await until(async () => !(await page.getByText('Founders Day', { exact: true }).count()));
+  await page.reload();
+  await page.getByRole('checkbox', { name: 'Show Office holidays' }).waitFor();
+  if (await page.getByRole('checkbox', { name: 'Show Office holidays' }).isChecked()) throw new Error('on again after reload');
+  if (await page.getByText('Founders Day', { exact: true }).count()) throw new Error('shown after reload');
+  if (!(await page.getByRole('list', { name: 'Subscribed calendars' }).getByText('Office holidays').count())) throw new Error('unsubscribed');
+  await page.screenshot({ path: `${SP}/shots/feeds-hidden.png` });
+  await page.getByRole('checkbox', { name: 'Show Office holidays' }).check();
+  await page.getByText('Founders Day', { exact: true }).first().waitFor();
+});
 await step('subscribed calendars in your own order: Move up / Move down in a calendar’s options', async () => {
   for (const name of ['Team rota', 'School terms']) if ((await api(page, 'POST', '/events/feeds', { url: feed, name })).status !== 201) throw new Error('add ' + name);
   await page.reload();
